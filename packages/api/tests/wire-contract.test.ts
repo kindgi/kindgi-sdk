@@ -15,7 +15,7 @@ import { describe, expect, test } from 'vitest';
 import type { KernelRunRecord, RunBinding } from '@kindgi/runtime';
 import type { ProjectId, RunId, TenantId, Timestamp, UserId } from '@kindgi/types';
 
-import { createStubAppBindings } from '@kindgi/testing';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { validateAgainst } from './support/openapi-schema.js';
 

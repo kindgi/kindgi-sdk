@@ -67,7 +67,9 @@ export function packServiceLogs(input: {
   const { KINDGI_DEV: _dev, ...env } = input.env;
   const write = input.write ?? ((line: string) => void process.stderr.write(`${line}\n`));
   const isTTY = input.isTTY ?? false;
-  const built = loggerFromEnv({ env, write, isTTY, subsystems: ['pack'] });
+  // No unknown-subsystem check: pack code logs under its own names too
+  // (`kindgi.log.get_logger("billing")`, its own `@kindgi/log` loggers).
+  const built = loggerFromEnv({ env, write, isTTY });
   if (built.kind === 'err') return built;
   const format = resolveLogFormat(env.KINDGI_LOG_FORMAT, { isTTY }) ?? 'json';
   const always = createLogger({

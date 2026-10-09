@@ -1,0 +1,1977 @@
+{
+  "cases": [
+    {
+      "name": "echo (a closed record)",
+      "value": 0,
+      "valid": true,
+      "issues": []
+    },
+    {
+      "name": "echo (a closed record)",
+      "value": 1,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "",
+          "schemaPath": "#/required",
+          "keyword": "required",
+          "params": {
+            "missingProperty": "message"
+          },
+          "message": "must have required property 'message'"
+        }
+      ]
+    },
+    {
+      "name": "echo (a closed record)",
+      "value": 2,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "/message",
+          "schemaPath": "#/properties/message/minLength",
+          "keyword": "minLength",
+          "params": {
+            "limit": 1
+          },
+          "message": "must NOT have fewer than 1 characters"
+        }
+      ]
+    },
+    {
+      "name": "echo (a closed record)",
+      "value": 3,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "",
+          "schemaPath": "#/additionalProperties",
+          "keyword": "additionalProperties",
+          "params": {
+            "additionalProperty": "extra"
+          },
+          "message": "must NOT have additional properties"
+        }
+      ]
+    },
+    {
+      "name": "echo (a closed record)",
+      "value": 4,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "/message",
+          "schemaPath": "#/properties/message/type",
+          "keyword": "type",
+          "params": {
+            "type": "string"
+          },
+          "message": "must be string"
+        }
+      ]
+    },
+    {
+      "name": "echo (a closed record)",
+      "value": 5,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "",
+          "schemaPath": "#/type",
+          "keyword": "type",
+          "params": {
+            "type": "object"
+          },
+          "message": "must be object"
+        }
+      ]
+    },
+    {
+      "name": "echo (a closed record)",
+      "value": 6,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "",
+          "schemaPath": "#/type",
+          "keyword": "type",
+          "params": {
+            "type": "object"
+          },
+          "message": "must be object"
+        }
+      ]
+    },
+    {
+      "name": "echo (a closed record)",
+      "value": 7,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "",
+          "schemaPath": "#/type",
+          "keyword": "type",
+          "params": {
+            "type": "object"
+          },
+          "message": "must be object"
+        }
+      ]
+    },
+    {
+      "name": "echo (a closed record)",
+      "value": 8,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "",
+          "schemaPath": "#/additionalProperties",
+          "keyword": "additionalProperties",
+          "params": {
+            "additionalProperty": "a"
+          },
+          "message": "must NOT have additional properties"
+        },
+        {
+          "instancePath": "",
+          "schemaPath": "#/additionalProperties",
+          "keyword": "additionalProperties",
+          "params": {
+            "additionalProperty": "b"
+          },
+          "message": "must NOT have additional properties"
+        },
+        {
+          "instancePath": "/message",
+          "schemaPath": "#/properties/message/type",
+          "keyword": "type",
+          "params": {
+            "type": "string"
+          },
+          "message": "must be string"
+        }
+      ]
+    },
+    {
+      "name": "numbers",
+      "value": 0,
+      "valid": true,
+      "issues": []
+    },
+    {
+      "name": "numbers",
+      "value": 1,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "/n",
+          "schemaPath": "#/properties/n/minimum",
+          "keyword": "minimum",
+          "params": {
+            "comparison": ">=",
+            "limit": 0
+          },
+          "message": "must be >= 0"
+        }
+      ]
+    },
+    {
+      "name": "numbers",
+      "value": 2,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "/n",
+          "schemaPath": "#/properties/n/maximum",
+          "keyword": "maximum",
+          "params": {
+            "comparison": "<=",
+            "limit": 10
+          },
+          "message": "must be <= 10"
+        }
+      ]
+    },
+    {
+      "name": "numbers",
+      "value": 3,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "/n",
+          "schemaPath": "#/properties/n/type",
+          "keyword": "type",
+          "params": {
+            "type": "integer"
+          },
+          "message": "must be integer"
+        }
+      ]
+    },
+    {
+      "name": "numbers",
+      "value": 4,
+      "valid": true,
+      "issues": []
+    },
+    {
+      "name": "numbers",
+      "value": 5,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "/x",
+          "schemaPath": "#/properties/x/exclusiveMinimum",
+          "keyword": "exclusiveMinimum",
+          "params": {
+            "comparison": ">",
+            "limit": 0
+          },
+          "message": "must be > 0"
+        }
+      ]
+    },
+    {
+      "name": "numbers",
+      "value": 6,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "/x",
+          "schemaPath": "#/properties/x/multipleOf",
+          "keyword": "multipleOf",
+          "params": {
+            "multipleOf": 0.25
+          },
+          "message": "must be multiple of 0.25"
+        }
+      ]
+    },
+    {
+      "name": "numbers",
+      "value": 7,
+      "valid": true,
+      "issues": []
+    },
+    {
+      "name": "numbers",
+      "value": 8,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "/x",
+          "schemaPath": "#/properties/x/exclusiveMaximum",
+          "keyword": "exclusiveMaximum",
+          "params": {
+            "comparison": "<",
+            "limit": 1
+          },
+          "message": "must be < 1"
+        }
+      ]
+    },
+    {
+      "name": "numbers",
+      "value": 9,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "/n",
+          "schemaPath": "#/properties/n/type",
+          "keyword": "type",
+          "params": {
+            "type": "integer"
+          },
+          "message": "must be integer"
+        }
+      ]
+    },
+    {
+      "name": "string limits and patterns",
+      "value": 0,
+      "valid": true,
+      "issues": []
+    },
+    {
+      "name": "string limits and patterns",
+      "value": 1,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "/code",
+          "schemaPath": "#/properties/code/pattern",
+          "keyword": "pattern",
+          "params": {
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+          },
+          "message": "must match pattern \"^[a-z][a-z0-9_-]{0,63}$\""
+        }
+      ]
+    },
+    {
+      "name": "string limits and patterns",
+      "value": 2,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "/code",
+          "schemaPath": "#/properties/code/maxLength",
+          "keyword": "maxLength",
+          "params": {
+            "limit": 8
+          },
+          "message": "must NOT have more than 8 characters"
+        }
+      ]
+    },
+    {
+      "name": "string limits and patterns",
+      "value": 3,
+      "valid": true,
+      "issues": []
+    },
+    {
+      "name": "string limits and patterns",
+      "value": 4,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "/emoji",
+          "schemaPath": "#/properties/emoji/maxLength",
+          "keyword": "maxLength",
+          "params": {
+            "limit": 2
+          },
+          "message": "must NOT have more than 2 characters"
+        }
+      ]
+    },
+    {
+      "name": "formats",
+      "value": 0,
+      "valid": true,
+      "issues": []
+    },
+    {
+      "name": "formats",
+      "value": 1,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "/when",
+          "schemaPath": "#/properties/when/format",
+          "keyword": "format",
+          "params": {
+            "format": "date-time"
+          },
+          "message": "must match format \"date-time\""
+        },
+        {
+          "instancePath": "/day",
+          "schemaPath": "#/properties/day/format",
+          "keyword": "format",
+          "params": {
+            "format": "date"
+          },
+          "message": "must match format \"date\""
+        },
+        {
+          "instancePath": "/at",
+          "schemaPath": "#/properties/at/format",
+          "keyword": "format",
+          "params": {
+            "format": "time"
+          },
+          "message": "must match format \"time\""
+        },
+        {
+          "instancePath": "/id",
+          "schemaPath": "#/properties/id/format",
+          "keyword": "format",
+          "params": {
+            "format": "uuid"
+          },
+          "message": "must match format \"uuid\""
+        },
+        {
+          "instancePath": "/mail",
+          "schemaPath": "#/properties/mail/format",
+          "keyword": "format",
+          "params": {
+            "format": "email"
+          },
+          "message": "must match format \"email\""
+        },
+        {
+          "instancePath": "/link",
+          "schemaPath": "#/properties/link/format",
+          "keyword": "format",
+          "params": {
+            "format": "uri"
+          },
+          "message": "must match format \"uri\""
+        },
+        {
+          "instancePath": "/host",
+          "schemaPath": "#/properties/host/format",
+          "keyword": "format",
+          "params": {
+            "format": "hostname"
+          },
+          "message": "must match format \"hostname\""
+        },
+        {
+          "instancePath": "/v4",
+          "schemaPath": "#/properties/v4/format",
+          "keyword": "format",
+          "params": {
+            "format": "ipv4"
+          },
+          "message": "must match format \"ipv4\""
+        },
+        {
+          "instancePath": "/v6",
+          "schemaPath": "#/properties/v6/format",
+          "keyword": "format",
+          "params": {
+            "format": "ipv6"
+          },
+          "message": "must match format \"ipv6\""
+        }
+      ]
+    },
+    {
+      "name": "arrays",
+      "value": 0,
+      "valid": true,
+      "issues": []
+    },
+    {
+      "name": "arrays",
+      "value": 1,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "/tags",
+          "schemaPath": "#/properties/tags/minItems",
+          "keyword": "minItems",
+          "params": {
+            "limit": 1
+          },
+          "message": "must NOT have fewer than 1 items"
+        }
+      ]
+    },
+    {
+      "name": "arrays",
+      "value": 2,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "/tags",
+          "schemaPath": "#/properties/tags/maxItems",
+          "keyword": "maxItems",
+          "params": {
+            "limit": 3
+          },
+          "message": "must NOT have more than 3 items"
+        }
+      ]
+    },
+    {
+      "name": "arrays",
+      "value": 3,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "/tags",
+          "schemaPath": "#/properties/tags/uniqueItems",
+          "keyword": "uniqueItems",
+          "params": {
+            "i": 0,
+            "j": 1
+          },
+          "message": "must NOT have duplicate items (items ## 1 and 0 are identical)"
+        }
+      ]
+    },
+    {
+      "name": "arrays",
+      "value": 4,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "/tags/1",
+          "schemaPath": "#/properties/tags/items/minLength",
+          "keyword": "minLength",
+          "params": {
+            "limit": 1
+          },
+          "message": "must NOT have fewer than 1 characters"
+        }
+      ]
+    },
+    {
+      "name": "arrays",
+      "value": 5,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "/tags",
+          "schemaPath": "#/properties/tags/maxItems",
+          "keyword": "maxItems",
+          "params": {
+            "limit": 3
+          },
+          "message": "must NOT have more than 3 items"
+        },
+        {
+          "instancePath": "/tags",
+          "schemaPath": "#/properties/tags/uniqueItems",
+          "keyword": "uniqueItems",
+          "params": {
+            "i": 1,
+            "j": 3
+          },
+          "message": "must NOT have duplicate items (items ## 3 and 1 are identical)"
+        }
+      ]
+    },
+    {
+      "name": "enum and const",
+      "value": 0,
+      "valid": true,
+      "issues": []
+    },
+    {
+      "name": "enum and const",
+      "value": 1,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "/mode",
+          "schemaPath": "#/properties/mode/enum",
+          "keyword": "enum",
+          "params": {
+            "allowedValues": [
+              "fast",
+              "slow"
+            ]
+          },
+          "message": "must be equal to one of the allowed values"
+        }
+      ]
+    },
+    {
+      "name": "enum and const",
+      "value": 2,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "/kind",
+          "schemaPath": "#/properties/kind/const",
+          "keyword": "const",
+          "params": {
+            "allowedValue": "widget"
+          },
+          "message": "must be equal to constant"
+        }
+      ]
+    },
+    {
+      "name": "enum and const",
+      "value": 3,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "/mode",
+          "schemaPath": "#/properties/mode/type",
+          "keyword": "type",
+          "params": {
+            "type": "string"
+          },
+          "message": "must be string"
+        },
+        {
+          "instancePath": "/mode",
+          "schemaPath": "#/properties/mode/enum",
+          "keyword": "enum",
+          "params": {
+            "allowedValues": [
+              "fast",
+              "slow"
+            ]
+          },
+          "message": "must be equal to one of the allowed values"
+        }
+      ]
+    },
+    {
+      "name": "nullable by type list",
+      "value": 0,
+      "valid": true,
+      "issues": []
+    },
+    {
+      "name": "nullable by type list",
+      "value": 1,
+      "valid": true,
+      "issues": []
+    },
+    {
+      "name": "nullable by type list",
+      "value": 2,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "/label",
+          "schemaPath": "#/properties/label/maxLength",
+          "keyword": "maxLength",
+          "params": {
+            "limit": 3
+          },
+          "message": "must NOT have more than 3 characters"
+        }
+      ]
+    },
+    {
+      "name": "nullable by type list",
+      "value": 3,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "/label",
+          "schemaPath": "#/properties/label/type",
+          "keyword": "type",
+          "params": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "message": "must be string,null"
+        }
+      ]
+    },
+    {
+      "name": "tagged union (oneOf by const)",
+      "value": 0,
+      "valid": true,
+      "issues": []
+    },
+    {
+      "name": "tagged union (oneOf by const)",
+      "value": 1,
+      "valid": true,
+      "issues": []
+    },
+    {
+      "name": "tagged union (oneOf by const)",
+      "value": 2,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "/r",
+          "schemaPath": "#/oneOf/0/properties/r/minimum",
+          "keyword": "minimum",
+          "params": {
+            "comparison": ">=",
+            "limit": 0
+          },
+          "message": "must be >= 0"
+        },
+        {
+          "instancePath": "",
+          "schemaPath": "#/oneOf/1/required",
+          "keyword": "required",
+          "params": {
+            "missingProperty": "side"
+          },
+          "message": "must have required property 'side'"
+        },
+        {
+          "instancePath": "",
+          "schemaPath": "#/oneOf/1/additionalProperties",
+          "keyword": "additionalProperties",
+          "params": {
+            "additionalProperty": "r"
+          },
+          "message": "must NOT have additional properties"
+        },
+        {
+          "instancePath": "/kind",
+          "schemaPath": "#/oneOf/1/properties/kind/const",
+          "keyword": "const",
+          "params": {
+            "allowedValue": "square"
+          },
+          "message": "must be equal to constant"
+        },
+        {
+          "instancePath": "",
+          "schemaPath": "#/oneOf",
+          "keyword": "oneOf",
+          "params": {
+            "passingSchemas": null
+          },
+          "message": "must match exactly one schema in oneOf"
+        }
+      ]
+    },
+    {
+      "name": "tagged union (oneOf by const)",
+      "value": 3,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "",
+          "schemaPath": "#/oneOf/0/required",
+          "keyword": "required",
+          "params": {
+            "missingProperty": "r"
+          },
+          "message": "must have required property 'r'"
+        },
+        {
+          "instancePath": "/kind",
+          "schemaPath": "#/oneOf/0/properties/kind/const",
+          "keyword": "const",
+          "params": {
+            "allowedValue": "circle"
+          },
+          "message": "must be equal to constant"
+        },
+        {
+          "instancePath": "",
+          "schemaPath": "#/oneOf/1/required",
+          "keyword": "required",
+          "params": {
+            "missingProperty": "side"
+          },
+          "message": "must have required property 'side'"
+        },
+        {
+          "instancePath": "/kind",
+          "schemaPath": "#/oneOf/1/properties/kind/const",
+          "keyword": "const",
+          "params": {
+            "allowedValue": "square"
+          },
+          "message": "must be equal to constant"
+        },
+        {
+          "instancePath": "",
+          "schemaPath": "#/oneOf",
+          "keyword": "oneOf",
+          "params": {
+            "passingSchemas": null
+          },
+          "message": "must match exactly one schema in oneOf"
+        }
+      ]
+    },
+    {
+      "name": "tagged union (oneOf by const)",
+      "value": 4,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "",
+          "schemaPath": "#/oneOf/0/required",
+          "keyword": "required",
+          "params": {
+            "missingProperty": "kind"
+          },
+          "message": "must have required property 'kind'"
+        },
+        {
+          "instancePath": "",
+          "schemaPath": "#/oneOf/0/required",
+          "keyword": "required",
+          "params": {
+            "missingProperty": "r"
+          },
+          "message": "must have required property 'r'"
+        },
+        {
+          "instancePath": "",
+          "schemaPath": "#/oneOf/1/required",
+          "keyword": "required",
+          "params": {
+            "missingProperty": "kind"
+          },
+          "message": "must have required property 'kind'"
+        },
+        {
+          "instancePath": "",
+          "schemaPath": "#/oneOf/1/required",
+          "keyword": "required",
+          "params": {
+            "missingProperty": "side"
+          },
+          "message": "must have required property 'side'"
+        },
+        {
+          "instancePath": "",
+          "schemaPath": "#/oneOf",
+          "keyword": "oneOf",
+          "params": {
+            "passingSchemas": null
+          },
+          "message": "must match exactly one schema in oneOf"
+        }
+      ]
+    },
+    {
+      "name": "oneOf that two branches pass",
+      "value": 0,
+      "valid": true,
+      "issues": []
+    },
+    {
+      "name": "oneOf that two branches pass",
+      "value": 1,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "",
+          "schemaPath": "#/oneOf",
+          "keyword": "oneOf",
+          "params": {
+            "passingSchemas": [
+              0,
+              1
+            ]
+          },
+          "message": "must match exactly one schema in oneOf"
+        }
+      ]
+    },
+    {
+      "name": "oneOf that two branches pass",
+      "value": 2,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "",
+          "schemaPath": "#/oneOf/0/type",
+          "keyword": "type",
+          "params": {
+            "type": "number"
+          },
+          "message": "must be number"
+        },
+        {
+          "instancePath": "",
+          "schemaPath": "#/oneOf/1/type",
+          "keyword": "type",
+          "params": {
+            "type": "integer"
+          },
+          "message": "must be integer"
+        },
+        {
+          "instancePath": "",
+          "schemaPath": "#/oneOf",
+          "keyword": "oneOf",
+          "params": {
+            "passingSchemas": null
+          },
+          "message": "must match exactly one schema in oneOf"
+        }
+      ]
+    },
+    {
+      "name": "anyOf and allOf and not",
+      "value": 0,
+      "valid": true,
+      "issues": []
+    },
+    {
+      "name": "anyOf and allOf and not",
+      "value": 1,
+      "valid": true,
+      "issues": []
+    },
+    {
+      "name": "anyOf and allOf and not",
+      "value": 2,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "/a",
+          "schemaPath": "#/allOf/0/properties/a/type",
+          "keyword": "type",
+          "params": {
+            "type": "string"
+          },
+          "message": "must be string"
+        },
+        {
+          "instancePath": "",
+          "schemaPath": "#/allOf/1/anyOf/0/required",
+          "keyword": "required",
+          "params": {
+            "missingProperty": "b"
+          },
+          "message": "must have required property 'b'"
+        },
+        {
+          "instancePath": "",
+          "schemaPath": "#/allOf/1/anyOf/1/required",
+          "keyword": "required",
+          "params": {
+            "missingProperty": "c"
+          },
+          "message": "must have required property 'c'"
+        },
+        {
+          "instancePath": "",
+          "schemaPath": "#/allOf/1/anyOf",
+          "keyword": "anyOf",
+          "params": {},
+          "message": "must match a schema in anyOf"
+        }
+      ]
+    },
+    {
+      "name": "anyOf and allOf and not",
+      "value": 3,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "",
+          "schemaPath": "#/allOf/1/anyOf/0/required",
+          "keyword": "required",
+          "params": {
+            "missingProperty": "b"
+          },
+          "message": "must have required property 'b'"
+        },
+        {
+          "instancePath": "",
+          "schemaPath": "#/allOf/1/anyOf/1/required",
+          "keyword": "required",
+          "params": {
+            "missingProperty": "c"
+          },
+          "message": "must have required property 'c'"
+        },
+        {
+          "instancePath": "",
+          "schemaPath": "#/allOf/1/anyOf",
+          "keyword": "anyOf",
+          "params": {},
+          "message": "must match a schema in anyOf"
+        }
+      ]
+    },
+    {
+      "name": "anyOf and allOf and not",
+      "value": 4,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "",
+          "schemaPath": "#/allOf/2/not",
+          "keyword": "not",
+          "params": {},
+          "message": "must NOT be valid"
+        }
+      ]
+    },
+    {
+      "name": "$ref and $defs",
+      "value": 0,
+      "valid": true,
+      "issues": []
+    },
+    {
+      "name": "$ref and $defs",
+      "value": 1,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "/from",
+          "schemaPath": "#/$defs/point/required",
+          "keyword": "required",
+          "params": {
+            "missingProperty": "y"
+          },
+          "message": "must have required property 'y'"
+        }
+      ]
+    },
+    {
+      "name": "$ref and $defs",
+      "value": 2,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "/from",
+          "schemaPath": "#/$defs/point/additionalProperties",
+          "keyword": "additionalProperties",
+          "params": {
+            "additionalProperty": "z"
+          },
+          "message": "must NOT have additional properties"
+        },
+        {
+          "instancePath": "/to/x",
+          "schemaPath": "#/$defs/point/properties/x/type",
+          "keyword": "type",
+          "params": {
+            "type": "integer"
+          },
+          "message": "must be integer"
+        }
+      ]
+    },
+    {
+      "name": "maps: propertyNames, additionalProperties schema, sizes",
+      "value": 0,
+      "valid": true,
+      "issues": []
+    },
+    {
+      "name": "maps: propertyNames, additionalProperties schema, sizes",
+      "value": 1,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "",
+          "schemaPath": "#/minProperties",
+          "keyword": "minProperties",
+          "params": {
+            "limit": 1
+          },
+          "message": "must NOT have fewer than 1 properties"
+        }
+      ]
+    },
+    {
+      "name": "maps: propertyNames, additionalProperties schema, sizes",
+      "value": 2,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "",
+          "schemaPath": "#/maxProperties",
+          "keyword": "maxProperties",
+          "params": {
+            "limit": 2
+          },
+          "message": "must NOT have more than 2 properties"
+        }
+      ]
+    },
+    {
+      "name": "maps: propertyNames, additionalProperties schema, sizes",
+      "value": 3,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "",
+          "schemaPath": "#/propertyNames/pattern",
+          "keyword": "pattern",
+          "params": {
+            "pattern": "^[a-z]+$"
+          },
+          "message": "must match pattern \"^[a-z]+$\"",
+          "propertyName": "Ab"
+        },
+        {
+          "instancePath": "",
+          "schemaPath": "#/propertyNames",
+          "keyword": "propertyNames",
+          "params": {
+            "propertyName": "Ab"
+          },
+          "message": "property name must be valid"
+        }
+      ]
+    },
+    {
+      "name": "maps: propertyNames, additionalProperties schema, sizes",
+      "value": 4,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "/ab",
+          "schemaPath": "#/additionalProperties/maxLength",
+          "keyword": "maxLength",
+          "params": {
+            "limit": 3
+          },
+          "message": "must NOT have more than 3 characters"
+        }
+      ]
+    },
+    {
+      "name": "nullable by oneOf null",
+      "value": 0,
+      "valid": true,
+      "issues": []
+    },
+    {
+      "name": "nullable by oneOf null",
+      "value": 1,
+      "valid": true,
+      "issues": []
+    },
+    {
+      "name": "nullable by oneOf null",
+      "value": 2,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "/owner",
+          "schemaPath": "#/properties/owner/oneOf/0/required",
+          "keyword": "required",
+          "params": {
+            "missingProperty": "id"
+          },
+          "message": "must have required property 'id'"
+        },
+        {
+          "instancePath": "/owner",
+          "schemaPath": "#/properties/owner/oneOf/1/type",
+          "keyword": "type",
+          "params": {
+            "type": "null"
+          },
+          "message": "must be null"
+        },
+        {
+          "instancePath": "/owner",
+          "schemaPath": "#/properties/owner/oneOf",
+          "keyword": "oneOf",
+          "params": {
+            "passingSchemas": null
+          },
+          "message": "must match exactly one schema in oneOf"
+        }
+      ]
+    },
+    {
+      "name": "nullable by oneOf null",
+      "value": 3,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "/owner",
+          "schemaPath": "#/properties/owner/oneOf/0/type",
+          "keyword": "type",
+          "params": {
+            "type": "object"
+          },
+          "message": "must be object"
+        },
+        {
+          "instancePath": "/owner",
+          "schemaPath": "#/properties/owner/oneOf/1/type",
+          "keyword": "type",
+          "params": {
+            "type": "null"
+          },
+          "message": "must be null"
+        },
+        {
+          "instancePath": "/owner",
+          "schemaPath": "#/properties/owner/oneOf",
+          "keyword": "oneOf",
+          "params": {
+            "passingSchemas": null
+          },
+          "message": "must match exactly one schema in oneOf"
+        }
+      ]
+    },
+    {
+      "name": "defaults (validation ignores them)",
+      "value": 0,
+      "valid": true,
+      "issues": []
+    },
+    {
+      "name": "defaults (validation ignores them)",
+      "value": 1,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "",
+          "schemaPath": "#/required",
+          "keyword": "required",
+          "params": {
+            "missingProperty": "name"
+          },
+          "message": "must have required property 'name'"
+        }
+      ]
+    },
+    {
+      "name": "integers as JSON writes them",
+      "value": 0,
+      "valid": true,
+      "issues": []
+    },
+    {
+      "name": "integers as JSON writes them",
+      "value": 1,
+      "valid": true,
+      "issues": []
+    },
+    {
+      "name": "integers as JSON writes them",
+      "value": 2,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "",
+          "schemaPath": "#/minimum",
+          "keyword": "minimum",
+          "params": {
+            "comparison": ">=",
+            "limit": -2
+          },
+          "message": "must be >= -2"
+        }
+      ]
+    },
+    {
+      "name": "integers as JSON writes them",
+      "value": 3,
+      "valid": true,
+      "issues": []
+    },
+    {
+      "name": "integers as JSON writes them",
+      "value": 4,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "",
+          "schemaPath": "#/type",
+          "keyword": "type",
+          "params": {
+            "type": "integer"
+          },
+          "message": "must be integer"
+        }
+      ]
+    },
+    {
+      "name": "integers as JSON writes them",
+      "value": 5,
+      "valid": true,
+      "issues": []
+    },
+    {
+      "name": "unique objects (pairwise)",
+      "value": 0,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "",
+          "schemaPath": "#/uniqueItems",
+          "keyword": "uniqueItems",
+          "params": {
+            "i": 1,
+            "j": 0
+          },
+          "message": "must NOT have duplicate items (items ## 0 and 1 are identical)"
+        }
+      ]
+    },
+    {
+      "name": "unique objects (pairwise)",
+      "value": 1,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "",
+          "schemaPath": "#/uniqueItems",
+          "keyword": "uniqueItems",
+          "params": {
+            "i": 3,
+            "j": 0
+          },
+          "message": "must NOT have duplicate items (items ## 0 and 3 are identical)"
+        }
+      ]
+    },
+    {
+      "name": "unique objects (pairwise)",
+      "value": 2,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "",
+          "schemaPath": "#/uniqueItems",
+          "keyword": "uniqueItems",
+          "params": {
+            "i": 2,
+            "j": 0
+          },
+          "message": "must NOT have duplicate items (items ## 0 and 2 are identical)"
+        }
+      ]
+    },
+    {
+      "name": "unique objects (pairwise)",
+      "value": 3,
+      "valid": true,
+      "issues": []
+    },
+    {
+      "name": "derived: Greet",
+      "value": 0,
+      "valid": true,
+      "issues": []
+    },
+    {
+      "name": "derived: Greet",
+      "value": 1,
+      "valid": true,
+      "issues": []
+    },
+    {
+      "name": "derived: Greet",
+      "value": 2,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "/name",
+          "schemaPath": "#/properties/name/minLength",
+          "keyword": "minLength",
+          "params": {
+            "limit": 1
+          },
+          "message": "must NOT have fewer than 1 characters"
+        }
+      ]
+    },
+    {
+      "name": "derived: Greet",
+      "value": 3,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "/name",
+          "schemaPath": "#/properties/name/maxLength",
+          "keyword": "maxLength",
+          "params": {
+            "limit": 100
+          },
+          "message": "must NOT have more than 100 characters"
+        }
+      ]
+    },
+    {
+      "name": "derived: Greet",
+      "value": 4,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "",
+          "schemaPath": "#/required",
+          "keyword": "required",
+          "params": {
+            "missingProperty": "name"
+          },
+          "message": "must have required property 'name'"
+        }
+      ]
+    },
+    {
+      "name": "derived: Greet",
+      "value": 5,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "",
+          "schemaPath": "#/additionalProperties",
+          "keyword": "additionalProperties",
+          "params": {
+            "additionalProperty": "extra"
+          },
+          "message": "must NOT have additional properties"
+        }
+      ]
+    },
+    {
+      "name": "derived: Invoice",
+      "value": 0,
+      "valid": true,
+      "issues": []
+    },
+    {
+      "name": "derived: Invoice",
+      "value": 1,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "/contact",
+          "schemaPath": "#/properties/contact/format",
+          "keyword": "format",
+          "params": {
+            "format": "email"
+          },
+          "message": "must match format \"email\""
+        },
+        {
+          "instancePath": "/currency",
+          "schemaPath": "#/properties/currency/enum",
+          "keyword": "enum",
+          "params": {
+            "allowedValues": [
+              "EUR",
+              "USD",
+              "gbp"
+            ]
+          },
+          "message": "must be equal to one of the allowed values"
+        },
+        {
+          "instancePath": "/discount",
+          "schemaPath": "#/properties/discount/minimum",
+          "keyword": "minimum",
+          "params": {
+            "comparison": ">=",
+            "limit": 0
+          },
+          "message": "must be >= 0"
+        },
+        {
+          "instancePath": "/due",
+          "schemaPath": "#/properties/due/format",
+          "keyword": "format",
+          "params": {
+            "format": "date"
+          },
+          "message": "must match format \"date\""
+        },
+        {
+          "instancePath": "/id",
+          "schemaPath": "#/properties/id/format",
+          "keyword": "format",
+          "params": {
+            "format": "uuid"
+          },
+          "message": "must match format \"uuid\""
+        },
+        {
+          "instancePath": "/issuedAt",
+          "schemaPath": "#/properties/issuedAt/format",
+          "keyword": "format",
+          "params": {
+            "format": "date-time"
+          },
+          "message": "must match format \"date-time\""
+        },
+        {
+          "instancePath": "/lines",
+          "schemaPath": "#/properties/lines/minItems",
+          "keyword": "minItems",
+          "params": {
+            "limit": 1
+          },
+          "message": "must NOT have fewer than 1 items"
+        },
+        {
+          "instancePath": "/link",
+          "schemaPath": "#/properties/link/format",
+          "keyword": "format",
+          "params": {
+            "format": "uri"
+          },
+          "message": "must match format \"uri\""
+        },
+        {
+          "instancePath": "/month",
+          "schemaPath": "#/properties/month/maximum",
+          "keyword": "maximum",
+          "params": {
+            "comparison": "<=",
+            "limit": 12
+          },
+          "message": "must be <= 12"
+        },
+        {
+          "instancePath": "/priority",
+          "schemaPath": "#/properties/priority/oneOf/0/enum",
+          "keyword": "enum",
+          "params": {
+            "allowedValues": [
+              "low",
+              "high"
+            ]
+          },
+          "message": "must be equal to one of the allowed values"
+        },
+        {
+          "instancePath": "/priority",
+          "schemaPath": "#/properties/priority/oneOf/1/type",
+          "keyword": "type",
+          "params": {
+            "type": "null"
+          },
+          "message": "must be null"
+        },
+        {
+          "instancePath": "/priority",
+          "schemaPath": "#/properties/priority/oneOf",
+          "keyword": "oneOf",
+          "params": {
+            "passingSchemas": null
+          },
+          "message": "must match exactly one schema in oneOf"
+        },
+        {
+          "instancePath": "/reference",
+          "schemaPath": "#/properties/reference/pattern",
+          "keyword": "pattern",
+          "params": {
+            "pattern": "^[A-Z]{2}[0-9]+$"
+          },
+          "message": "must match pattern \"^[A-Z]{2}[0-9]+$\""
+        },
+        {
+          "instancePath": "/tags",
+          "schemaPath": "#/properties/tags/uniqueItems",
+          "keyword": "uniqueItems",
+          "params": {
+            "i": 0,
+            "j": 1
+          },
+          "message": "must NOT have duplicate items (items ## 1 and 0 are identical)"
+        },
+        {
+          "instancePath": "/totals/a",
+          "schemaPath": "#/properties/totals/additionalProperties/type",
+          "keyword": "type",
+          "params": {
+            "type": "integer"
+          },
+          "message": "must be integer"
+        }
+      ]
+    },
+    {
+      "name": "derived: Invoice",
+      "value": 2,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "/lines/0/item",
+          "schemaPath": "#/properties/lines/items/properties/item/pattern",
+          "keyword": "pattern",
+          "params": {
+            "pattern": "\\S"
+          },
+          "message": "must match pattern \"\\S\""
+        },
+        {
+          "instancePath": "/lines/0/price",
+          "schemaPath": "#/properties/lines/items/properties/price/exclusiveMaximum",
+          "keyword": "exclusiveMaximum",
+          "params": {
+            "comparison": "<",
+            "limit": 100000
+          },
+          "message": "must be < 100000"
+        },
+        {
+          "instancePath": "/lines/0/quantity",
+          "schemaPath": "#/properties/lines/items/properties/quantity/exclusiveMinimum",
+          "keyword": "exclusiveMinimum",
+          "params": {
+            "comparison": ">",
+            "limit": 0
+          },
+          "message": "must be > 0"
+        }
+      ]
+    },
+    {
+      "name": "derived: Drawing",
+      "value": 0,
+      "valid": true,
+      "issues": []
+    },
+    {
+      "name": "derived: Drawing",
+      "value": 1,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "/focus/radius",
+          "schemaPath": "#/properties/focus/oneOf/0/oneOf/0/properties/radius/exclusiveMinimum",
+          "keyword": "exclusiveMinimum",
+          "params": {
+            "comparison": ">",
+            "limit": 0
+          },
+          "message": "must be > 0"
+        },
+        {
+          "instancePath": "/focus",
+          "schemaPath": "#/properties/focus/oneOf/0/oneOf/1/required",
+          "keyword": "required",
+          "params": {
+            "missingProperty": "width"
+          },
+          "message": "must have required property 'width'"
+        },
+        {
+          "instancePath": "/focus",
+          "schemaPath": "#/properties/focus/oneOf/0/oneOf/1/required",
+          "keyword": "required",
+          "params": {
+            "missingProperty": "height"
+          },
+          "message": "must have required property 'height'"
+        },
+        {
+          "instancePath": "/focus",
+          "schemaPath": "#/properties/focus/oneOf/0/oneOf/1/additionalProperties",
+          "keyword": "additionalProperties",
+          "params": {
+            "additionalProperty": "radius"
+          },
+          "message": "must NOT have additional properties"
+        },
+        {
+          "instancePath": "/focus/kind",
+          "schemaPath": "#/properties/focus/oneOf/0/oneOf/1/properties/kind/const",
+          "keyword": "const",
+          "params": {
+            "allowedValue": "rect"
+          },
+          "message": "must be equal to constant"
+        },
+        {
+          "instancePath": "/focus",
+          "schemaPath": "#/properties/focus/oneOf/0/oneOf",
+          "keyword": "oneOf",
+          "params": {
+            "passingSchemas": null
+          },
+          "message": "must match exactly one schema in oneOf"
+        },
+        {
+          "instancePath": "/focus",
+          "schemaPath": "#/properties/focus/oneOf/1/type",
+          "keyword": "type",
+          "params": {
+            "type": "null"
+          },
+          "message": "must be null"
+        },
+        {
+          "instancePath": "/focus",
+          "schemaPath": "#/properties/focus/oneOf",
+          "keyword": "oneOf",
+          "params": {
+            "passingSchemas": null
+          },
+          "message": "must match exactly one schema in oneOf"
+        },
+        {
+          "instancePath": "/shapes/0",
+          "schemaPath": "#/properties/shapes/items/oneOf/0/required",
+          "keyword": "required",
+          "params": {
+            "missingProperty": "radius"
+          },
+          "message": "must have required property 'radius'"
+        },
+        {
+          "instancePath": "/shapes/0",
+          "schemaPath": "#/properties/shapes/items/oneOf/0/additionalProperties",
+          "keyword": "additionalProperties",
+          "params": {
+            "additionalProperty": "side"
+          },
+          "message": "must NOT have additional properties"
+        },
+        {
+          "instancePath": "/shapes/0/kind",
+          "schemaPath": "#/properties/shapes/items/oneOf/0/properties/kind/const",
+          "keyword": "const",
+          "params": {
+            "allowedValue": "circle"
+          },
+          "message": "must be equal to constant"
+        },
+        {
+          "instancePath": "/shapes/0",
+          "schemaPath": "#/properties/shapes/items/oneOf/1/required",
+          "keyword": "required",
+          "params": {
+            "missingProperty": "width"
+          },
+          "message": "must have required property 'width'"
+        },
+        {
+          "instancePath": "/shapes/0",
+          "schemaPath": "#/properties/shapes/items/oneOf/1/required",
+          "keyword": "required",
+          "params": {
+            "missingProperty": "height"
+          },
+          "message": "must have required property 'height'"
+        },
+        {
+          "instancePath": "/shapes/0",
+          "schemaPath": "#/properties/shapes/items/oneOf/1/additionalProperties",
+          "keyword": "additionalProperties",
+          "params": {
+            "additionalProperty": "side"
+          },
+          "message": "must NOT have additional properties"
+        },
+        {
+          "instancePath": "/shapes/0/kind",
+          "schemaPath": "#/properties/shapes/items/oneOf/1/properties/kind/const",
+          "keyword": "const",
+          "params": {
+            "allowedValue": "rect"
+          },
+          "message": "must be equal to constant"
+        },
+        {
+          "instancePath": "/shapes/0",
+          "schemaPath": "#/properties/shapes/items/oneOf",
+          "keyword": "oneOf",
+          "params": {
+            "passingSchemas": null
+          },
+          "message": "must match exactly one schema in oneOf"
+        }
+      ]
+    },
+    {
+      "name": "derived: Drawing",
+      "value": 2,
+      "valid": true,
+      "issues": []
+    },
+    {
+      "name": "derived: Drawing",
+      "value": 3,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "/shapes/0",
+          "schemaPath": "#/properties/shapes/items/oneOf/0/required",
+          "keyword": "required",
+          "params": {
+            "missingProperty": "kind"
+          },
+          "message": "must have required property 'kind'"
+        },
+        {
+          "instancePath": "/shapes/0",
+          "schemaPath": "#/properties/shapes/items/oneOf/1/required",
+          "keyword": "required",
+          "params": {
+            "missingProperty": "kind"
+          },
+          "message": "must have required property 'kind'"
+        },
+        {
+          "instancePath": "/shapes/0",
+          "schemaPath": "#/properties/shapes/items/oneOf/1/required",
+          "keyword": "required",
+          "params": {
+            "missingProperty": "width"
+          },
+          "message": "must have required property 'width'"
+        },
+        {
+          "instancePath": "/shapes/0",
+          "schemaPath": "#/properties/shapes/items/oneOf/1/required",
+          "keyword": "required",
+          "params": {
+            "missingProperty": "height"
+          },
+          "message": "must have required property 'height'"
+        },
+        {
+          "instancePath": "/shapes/0",
+          "schemaPath": "#/properties/shapes/items/oneOf/1/additionalProperties",
+          "keyword": "additionalProperties",
+          "params": {
+            "additionalProperty": "radius"
+          },
+          "message": "must NOT have additional properties"
+        },
+        {
+          "instancePath": "/shapes/0",
+          "schemaPath": "#/properties/shapes/items/oneOf",
+          "keyword": "oneOf",
+          "params": {
+            "passingSchemas": null
+          },
+          "message": "must match exactly one schema in oneOf"
+        }
+      ]
+    },
+    {
+      "name": "derived: WithDefaults",
+      "value": 0,
+      "valid": true,
+      "issues": []
+    },
+    {
+      "name": "derived: WithDefaults",
+      "value": 1,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "",
+          "schemaPath": "#/required",
+          "keyword": "required",
+          "params": {
+            "missingProperty": "max_items"
+          },
+          "message": "must have required property 'max_items'"
+        }
+      ]
+    },
+    {
+      "name": "derived: WithDefaults",
+      "value": 2,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "/minLength",
+          "schemaPath": "#/properties/minLength/type",
+          "keyword": "type",
+          "params": {
+            "type": "integer"
+          },
+          "message": "must be integer"
+        },
+        {
+          "instancePath": "/strict",
+          "schemaPath": "#/properties/strict/type",
+          "keyword": "type",
+          "params": {
+            "type": "boolean"
+          },
+          "message": "must be boolean"
+        }
+      ]
+    },
+    {
+      "name": "derived: Open and Bean",
+      "value": 0,
+      "valid": true,
+      "issues": []
+    },
+    {
+      "name": "derived: Open and Bean",
+      "value": 1,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "",
+          "schemaPath": "#/required",
+          "keyword": "required",
+          "params": {
+            "missingProperty": "id"
+          },
+          "message": "must have required property 'id'"
+        }
+      ]
+    }
+  ],
+  "canonical": [
+    {
+      "text": "0",
+      "json": "0"
+    },
+    {
+      "text": "-0",
+      "json": "0"
+    },
+    {
+      "text": "1",
+      "json": "1"
+    },
+    {
+      "text": "100",
+      "json": "100"
+    },
+    {
+      "text": "1.5",
+      "json": "1.5"
+    },
+    {
+      "text": "0.1",
+      "json": "0.1"
+    },
+    {
+      "text": "0.3",
+      "json": "0.3"
+    },
+    {
+      "text": "1e21",
+      "json": "1e+21"
+    },
+    {
+      "text": "1e20",
+      "json": "100000000000000000000"
+    },
+    {
+      "text": "1e-7",
+      "json": "1e-7"
+    },
+    {
+      "text": "0.000001",
+      "json": "0.000001"
+    },
+    {
+      "text": "1234.5678",
+      "json": "1234.5678"
+    },
+    {
+      "text": "-2.5e-8",
+      "json": "-2.5e-8"
+    },
+    {
+      "text": "5e-324",
+      "json": "5e-324"
+    },
+    {
+      "text": "1.7976931348623157e308",
+      "json": "1.7976931348623157e+308"
+    },
+    {
+      "text": "123456789012345678901",
+      "json": "123456789012345680000"
+    },
+    {
+      "text": "9007199254740993",
+      "json": "9007199254740992"
+    },
+    {
+      "text": "2.0",
+      "json": "2"
+    },
+    {
+      "text": "1E+3",
+      "json": "1000"
+    },
+    {
+      "text": "\"a\\u0007b\\\"c\\\\\\u2028 é 😀\"",
+      "json": "\"a\\u0007b\\\"c\\\\  é 😀\""
+    },
+    {
+      "text": "{\"b\":1,\"a\":[2,{\"d\":null,\"c\":true}],\"é\":{},\"Z\":[]}",
+      "json": "{\n  \"Z\": [],\n  \"a\": [\n    2,\n    {\n      \"c\": true,\n      \"d\": null\n    }\n  ],\n  \"b\": 1,\n  \"é\": {}\n}"
+    }
+  ]
+}

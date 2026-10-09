@@ -19,9 +19,9 @@ import {
   ref,
   userPrincipal,
 } from '@kindgi/authz';
-import { createStubAppBindings } from '@kindgi/testing';
 import type { ApiTokenId, TenantId, Timestamp, UserId } from '@kindgi/types';
 import { Hono } from 'hono';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type {
@@ -359,8 +359,39 @@ function harness(options: { createUser?: boolean; personGrants?: boolean } = {})
     expect(r.status, JSON.stringify(r.body)).toBe(201);
     return { token: r.body.token as string, tokenId: r.body.tokenId as string, body: r.body };
   };
-  return { call, code, mint, checked, changedBy };
+  return { app, call, code, mint, checked, changedBy };
 }
+
+describe('a new key and an Idempotency-Key (T392)', () => {
+  test("a retry gets 409 replay-withheld, not the secret, and mints nothing; another person's same key mints their own", async () => {
+    const h = harness();
+    const send = (as: string) =>
+      h.app.request('/v1/tokens', {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${as}`,
+          'content-type': 'application/json',
+          'idempotency-key': 'mint-1',
+        },
+        body: JSON.stringify({ label: 'laptop' }),
+      });
+    const first = await send(ALICE);
+    expect(first.status).toBe(201);
+    const { token } = (await first.json()) as { token: string };
+    const again = await send(ALICE);
+    expect(again.status).toBe(409);
+    const text = await again.text();
+    expect(text).not.toContain(token);
+    expect(JSON.parse(text).error).toMatchObject({
+      code: 'idempotency-key-replay-withheld',
+      details: { status: 201 },
+    });
+    // Bob, same key and body: his own request, his own key.
+    const bob = await send(BOB);
+    expect(bob.status).toBe(201);
+    expect(((await bob.json()) as { token: string }).token).not.toBe(token);
+  });
+});
 
 describe('API keys act for a principal', () => {
   test('a person mints their own key: it acts for them, and whoami says so', async () => {

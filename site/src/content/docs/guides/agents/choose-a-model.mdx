@@ -52,6 +52,10 @@ all of them:
 `needs: []` takes any model. Only the first entry of `capabilities` picks the
 turn's model.
 
+`kindgi capabilities list --table` lists the features an agent can require,
+what each one means, and which of your providers' models have it.
+`kindgi capabilities get feature:tool-use` gives one.
+
 ## How Kindgi picks
 
 1. It keeps every registered model that meets all the needs.
@@ -67,11 +71,12 @@ registered, an agent with no preference gets its default. A provider registered 
 to its first model by name, which can be its dearest. Prefer or require the
 model you mean.
 
-Anthropic retires `claude-haiku-4-5` on or after **2026-10-15**; from then, a
-turn routed to it fails. Its replacement is `claude-haiku-5-5`. An agent that
-prefers or requires Haiku 4.5 needs a new version naming another model, and
-an Anthropic provider registered before 0.1.4 has no default: register it
-again (see [Connect Anthropic](../../models/anthropic/#if-you-registered-it-before-014)).
+A turn routed to a model its provider has retired fails, so an agent that
+prefers or requires one needs a new version naming another model. Anthropic
+lists each Claude model's status, and any retirement date, on its
+[model deprecations](https://platform.claude.com/docs/en/about-claude/model-deprecations) page. An Anthropic provider registered before
+0.1.4 has no default: register it again (see
+[Connect Anthropic](../../models/anthropic/#if-you-registered-it-before-014)).
 
 ## Prefer a provider or a model
 

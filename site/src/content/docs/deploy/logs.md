@@ -5,9 +5,12 @@ sidebar:
   order: 3.5
 ---
 
-The runtime writes its log to standard output, one record per line. Where it
-goes from there is your platform's: `kindgi dev` shows it in its terminal,
-`docker logs` shows a container's, and Cloud Run sends it to Cloud Logging.
+The runtime writes its log to standard output, one record per line, and your
+pack's service writes the same records to its standard error
+([Your pack's service](#your-packs-service)). Where they go from there is
+your platform's: `kindgi dev` shows both in its terminal
+([Under `kindgi dev`](#under-kindgi-dev)), `docker logs` shows a container's,
+and Cloud Run sends them to Cloud Logging.
 
 ## Choose the level and the format
 
@@ -64,6 +67,11 @@ the fields:
 {"time":"2026-10-07T17:36:47.001Z","level":"info","severity":"INFO","subsystem":"http","message":"POST /v1/runs 404 57ms","traceId":"4bf92f3577b34da6a3ce929d0e0e4736","spanId":"e61f14baa539a680","requestId":"req-474e92d9-7a0a-4bc0-9307-664ed1cf3184","tenantId":"5c0a7e11-0000-4000-8000-00000000c0de","method":"POST","route":"/v1/runs",…}
 ```
 
+A record whose message states some of its fields lists them in `inMessage`:
+fields the message already states; renderers may omit them. The request line
+above ends with `"inMessage":["method","route","status","durationMs"]`, which
+is how the pretty format and `kindgi dev` know to leave them out.
+
 At boot, the pretty format prints the startup block (see
 [The startup log](../operate/#the-startup-log)). The JSON format prints one
 `boot` record instead, with the same lines in `lines`:
@@ -118,11 +126,88 @@ trace it started in as `traceId`, so its later records can be found from it:
 kindgi runs get <run-id>   # "traceId": "4bf92f3577b34da6a3ce929d0e0e4736"
 ```
 
-The runtime's calls to your pack's service don't carry the run's trace yet;
-that comes in 0.1.5.
+Each call the runtime makes to your pack's service carries a `traceparent`:
+a new span in the trace of the turn being worked on. A resumed run's calls
+are in the resume's trace; a call made from a background wake carries none. So the pack service's record of the call has the run's
+`traceId`.
 
 Model providers and MCP servers are outside your deployment, so they get the
 run's trace only when their registration opts in: `send_traceparent: true` on
 a [provider](../../guides/models/#a-provider-spec), `sendTraceparent: true` on
 an [MCP endpoint](../../guides/tools/mcp-servers/#send-the-runs-trace). Then
 each call to them carries a `traceparent` header: ids only, never content.
+
+## Records from a run
+
+A record written while a run works carries the run's ids: `runId`,
+`tenantId` and `projectId`, `parentRunId` for a run started by another, an
+agent turn's `agentId`, `agentVersion` and `conversationId`, or a flow run's
+`flowId` and `flowVersion`. Its `traceId` is the trace of the turn being
+worked on. A turn worked on under another trace, or under none (a resume, a
+background wake), also carries `runTraceId`, the trace the run started in.
+To see everything about one run, search your logs for its `runId`.
+
+A run also writes records of its own:
+
+| Record | Subsystem | Level |
+| --- | --- | --- |
+| Each journal entry (`run.started`, `step.started`, `step.completed`, `wait.suspended`, `run.failed`, …), with its node and sequence | `kernel` | `trace` |
+| The agent version a turn resolved, and why | `runs` | `debug` |
+| The run's end: completed or cancelled | `runs` | `debug` |
+| The run's end: failed, with its failure `code` | `runs` | `warn` |
+
+So at the default level, a failed run shows and a completed one doesn't. Its
+end record carries the failure's code, not its message: the message is on the
+run (`kindgi runs get <run-id>`).
+
+## What logs hold
+
+At `debug` and `trace`, records say what a run did: step kinds and node ids,
+never its inputs or outputs. Secret-looking values are redacted. Still, logs
+go to your log system, outside Kindgi's control and outside what Kindgi
+erases. Keep production at `info` or `warn`, and set your log system's
+retention to match your data rules.
+
+## Your pack's service
+
+Your pack's service, in TypeScript, Python, Java or Scala, writes records in
+the same schema to its standard error, under the subsystem `pack`:
+
+- **One per call:** `tool <tool-id> ok <ms>ms` at `info`, or with the error's
+  code at `warn` when it fails, carrying the run's ids, the call's
+  `requestId` and `toolId`, and the runtime's `traceId`.
+- **Its lifecycle:** `listening`, `boot-failed`, `config-invalid`,
+  `draining` and `stopped`, written whatever the levels say.
+- **What your tools log with `ctx.log`:** under `pack.tool`, with the same
+  ids ([Log from a tool](../../guides/tools/write-a-tool/#log-from-a-tool)).
+
+Here a Java pack service's two records for one call made straight to it,
+with a `traceparent`: what the tool logged, then the call:
+
+```json
+{"time":"2026-10-09T12:42:06.392Z","level":"info","severity":"INFO","subsystem":"pack.tool","message":"looked up order","traceId":"4bf92f3577b34da6a3ce929d0e0e4736","spanId":"369de18ba1ec524e","requestId":"call-1","tenantId":"acme-tenant","runId":"run-1","toolId":"acme.lookup-order","packId":"acme","artifactVersion":"20261009.1","target":"tool","orderId":"o-1001"}
+{"time":"2026-10-09T12:42:06.400Z","level":"info","severity":"INFO","subsystem":"pack","message":"tool acme.lookup-order ok 40ms","traceId":"4bf92f3577b34da6a3ce929d0e0e4736","spanId":"369de18ba1ec524e","requestId":"call-1","tenantId":"acme-tenant","runId":"run-1","toolId":"acme.lookup-order","packId":"acme","artifactVersion":"20261009.1","target":"tool","event":"call","kind":"call","id":"acme.lookup-order","outcome":"ok","durationMs":40,"inMessage":["target","id","outcome","durationMs"]}
+```
+
+`KINDGI_LOG_LEVEL`, `KINDGI_LOG_LEVELS` and `KINDGI_LOG_FORMAT` apply to it
+too; there, `auto` means JSON unless its standard error is a terminal. What
+your code prints itself (`console.log`, `print`) passes through as it is.
+
+## Under `kindgi dev`
+
+`kindgi dev` reads the runtime's and the pack service's records and shows
+them as pretty lines, each tagged `[runtime]` or `[pack]`, in colour on a
+terminal unless `NO_COLOR` is set. A line that isn't a record shows as it is.
+
+| Flag | What it does |
+| --- | --- |
+| `--log-level=<level>` | The lowest level shown. Default: `KINDGI_LOG_LEVEL` from the shell, then from the pack's env files, else `info`. |
+| `--log=<subsystem>=<level>` | A level for one subsystem; repeat it for more. |
+| `--log-format=json` | Each record as written, one per line on standard output, for `\| jq`; everything else stays on standard error. |
+| `--quiet` | Errors only, in the live output too. |
+
+The levels reach the sources: the runtime, the pack service and the indexer
+get them as `KINDGI_LOG_LEVEL` and `KINDGI_LOG_LEVELS`, so they write only
+that. What your pack's code prints while it's indexed shows at `debug`, under
+`pack.index`. A runtime you run yourself with `--runtime-url` gets the levels
+in its `runtime.env`, and its own terminal picks the format.

@@ -1,0 +1,44 @@
+name: kindgiw on Windows
+
+# The Java template's CLI wrapper for Windows (kindgiw.cmd): its three ways
+# to run the pinned Kindgi CLI (npx with Node, uvx without, else a message),
+# with fake programs, and one real npx run of the published CLI. The POSIX
+# kindgiw is tested in the CLI's own suite. Runs when the wrappers or their
+# check change. Not a required check.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/cli/src/templates/java/kindgiw*"
+      - "packages/cli/scripts/check-kindgiw.mjs"
+      - ".github/workflows/kindgiw.yml"
+  pull_request:
+    # `ready_for_review` fires when a draft is marked ready; the job's `if:` skips drafts.
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "packages/cli/src/templates/java/kindgiw*"
+      - "packages/cli/scripts/check-kindgiw.mjs"
+      - ".github/workflows/kindgiw.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  kindgiw:
+    name: kindgiw.cmd (Windows)
+    runs-on: windows-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          # Plain Node: no install, so no package-manager cache.
+          package-manager-cache: false
+      - name: Node, uv, neither (fakes); one real npx run
+        run: node packages/cli/scripts/check-kindgiw.mjs

@@ -504,11 +504,20 @@ function csrfRefusal(
   return c.json(body, statusFor('csrf-origin-mismatch') as never);
 }
 
-/** Whether `origin` names the host this request was sent to. */
+/**
+ * Whether `origin` names the host this request was sent to, over https (or
+ * plain http on loopback, for local development). The session cookie is
+ * `__Host-` and Secure, so a browser holding it is on https: a plain-http
+ * page on the same host (an on-path attacker's) is not the same origin.
+ */
 function isSameHost(c: Context, origin: string): boolean {
   let host: string;
   try {
-    host = new URL(origin).host;
+    const url = new URL(origin);
+    if (url.protocol !== 'https:' && !(url.protocol === 'http:' && isLoopback(url.hostname))) {
+      return false;
+    }
+    host = url.host;
   } catch {
     return false;
   }
@@ -582,4 +591,14 @@ async function authenticatePublicRunToken(
   c.set('publicRunIds', verified.claims.runIds);
   await next();
   return undefined;
+}
+
+/** `localhost`, `127.0.0.0/8` or `::1`. */
+function isLoopback(hostname: string): boolean {
+  return (
+    hostname === 'localhost' ||
+    hostname === '[::1]' ||
+    hostname === '::1' ||
+    /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(hostname)
+  );
 }

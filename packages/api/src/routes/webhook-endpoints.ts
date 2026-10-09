@@ -15,6 +15,7 @@ import type {
 
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { withholdFromReplay } from '../middleware/idempotency.js';
 import type { AppEnv } from '../types.js';
 import {
   WEBHOOK_DELIVERY_STATUSES,
@@ -78,8 +79,12 @@ export function webhookEndpointsRouter(
   });
 
   // ---------- POST /generate-secret ----------
-  // A strong signing secret to store before registering; nothing is kept.
-  r.post('/generate-secret', (c) => c.json({ secret: generateWebhookSecret() }));
+  // A strong signing secret to store before registering; nothing is kept,
+  // and an Idempotency-Key repeat doesn't get it.
+  r.post('/generate-secret', (c) => {
+    withholdFromReplay(c);
+    return c.json({ secret: generateWebhookSecret() });
+  });
 
   // ---------- GET / (list) ----------
   r.get('/', async (c) => {

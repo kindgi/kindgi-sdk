@@ -13,7 +13,7 @@ import type { Command } from './types.js';
  * whole group. Wiring a command means removing it here (a test counts the
  * `throwUnwired` call sites against this list).
  */
-export const UNWIRED_COMMANDS: ReadonlySet<string> = new Set(['observations', 'proposals']);
+export const UNWIRED_COMMANDS: ReadonlySet<string> = new Set(['observations']);
 
 /**
  * Why a command (or a whole group: a command's nearest listed path counts)
@@ -24,7 +24,6 @@ export const UNWIRED_REASONS: ReadonlyMap<string, string> = new Map([
     'observations',
     "the Kindgi runtime doesn't record supervisor observations yet, so there's nothing to list; how a run went is in `kindgi runs get <run-id>` and `kindgi runs journal <run-id>`.",
   ],
-  ['proposals', "the Kindgi runtime doesn't draft or apply supervisor fix proposals yet."],
 ]);
 
 /** The reason a command at `path` (its words) is unwired, from its nearest listed path. */
