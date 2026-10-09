@@ -26,8 +26,8 @@ import {
   type ObjectType,
   type ResourceRef,
 } from '@kindgi/authz';
-import { createStubAppBindings } from '@kindgi/testing';
 import type { TenantId, UserId } from '@kindgi/types';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type {

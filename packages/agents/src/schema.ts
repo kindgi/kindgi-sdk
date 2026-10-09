@@ -59,6 +59,12 @@ export const agentConversations = pgTable(
     /** Set when the conversation is closed. Closed conversations are read-only. */
     closedAt: timestamp('closed_at', { withTimezone: true }),
     /**
+     * Set when the conversation is unregistered (a tombstone): no read,
+     * list or recall returns it from then on, and the retention sweep
+     * removes it after the tenant's grace.
+     */
+    unregisteredAt: timestamp('unregistered_at', { withTimezone: true }),
+    /**
      * Denormalized turn counter — incremented by `appendMessage` for
      * each turn's final (non-intermediate) agent message. Read by the
      * session HITL gate and the UI conversation list.

@@ -1,0 +1,1 @@
+ALTER TABLE "agent_conversations" ADD COLUMN "unregistered_at" timestamp with time zone;
