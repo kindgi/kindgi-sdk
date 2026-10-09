@@ -68,6 +68,9 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: "22"
+          # Plain Node for check-jars: no install, so no package-manager cache (it would look for
+          # pnpm, which this job never sets up).
+          package-manager-cache: false
       - name: What would go to Maven Central (check-jars)
         working-directory: .
         run: node scripts/check-jars.mjs sdks/java/target/central-staging
