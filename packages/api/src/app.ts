@@ -976,6 +976,18 @@ export interface ScalarDocsConfig {
 const DEFAULT_TOKEN_SIGN_IN_TTL_MS = 12 * 60 * 60 * 1000;
 
 export function createApp(input: CreateAppInput): Hono<AppEnv> {
+  // A cookie session's value is the token the store minted. A store that
+  // can't resolve its own tokens would put the session id there instead,
+  // and the id is no secret (whoami and the audit trail show it).
+  if (
+    input.session?.cookie !== undefined &&
+    input.sessionStore !== undefined &&
+    input.sessionStore.resolveToken === undefined
+  ) {
+    throw new Error(
+      'Cookie sessions need a session store that resolves its own tokens (`resolveToken`): without it, the session id would be the credential.',
+    );
+  }
   const app = new Hono<AppEnv>();
 
   const runBinding = input.kernelBinding.run;
@@ -1534,6 +1546,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(input.refreshToken !== undefined && { refreshToken: input.refreshToken }),
       stateStore: input.oauthStateStore ?? createInMemoryOauthStateStore(),
       ...(authorizer !== undefined && { authorizer }),
+      ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
     });
     v1.route('/auth', routers.authed);
     // Callback mounts on the parent `app` under /v1/auth/callback so it
@@ -1561,7 +1574,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // Browser sessions need a way out even without identity providers
   // (which bring their own `/auth` routes, logout included).
   if (cookieSessions && input.identityProvider === undefined && input.sessionStore !== undefined) {
-    v1.post('/auth/logout', logoutHandler(input.sessionStore));
+    v1.post('/auth/logout', logoutHandler(input.sessionStore, input.auditEvents));
   }
   // A person signs in to the console with an API token: inside the bearer
   // chain (the token arrives in `Authorization`). Always mounted: without

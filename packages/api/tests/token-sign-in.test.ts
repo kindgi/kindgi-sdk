@@ -326,3 +326,45 @@ describe('GET /v1/auth/sign-in-options: the ways in', () => {
     });
   });
 });
+
+describe('what token sign-in and sign-out leave in the audit trail', () => {
+  test('a refusal: who tried, and why (never the key)', async () => {
+    const { app, audit } = makeApp();
+    const res = await signIn(app, 'kgi_service');
+    expect(res.status).toBe(403);
+    expect(audit).toHaveLength(1);
+    expect(audit[0]).toMatchObject({
+      kind: 'sign-in-refused',
+      actor: 'service_account:sa-ci',
+      outcome: 'denied',
+      payload: { doc: { method: 'api-token', reason: 'token-sign-in-not-allowed' } },
+    });
+    expect(JSON.stringify(audit)).not.toContain('kgi_service');
+  });
+
+  test('signing out: signed-out, with the session', async () => {
+    const { app, audit } = makeApp();
+    const res = await signIn(app, 'kgi_person_full');
+    const cookie = (res.headers.get('set-cookie') ?? '').split(';')[0] as string;
+    await app.request('/v1/auth/logout', { method: 'POST', headers: { cookie, origin: CONSOLE } });
+    const out = audit.find((e) => e.kind === 'signed-out');
+    expect(out).toMatchObject({ actor: `user:${alice}`, outcome: 'succeeded' });
+    expect((out?.payload as { doc: { sessionId?: string } }).doc.sessionId).toBeDefined();
+  });
+});
+
+describe('cookie sessions need a store that resolves its own tokens', () => {
+  test('without resolveToken, createApp refuses: the session id would be the credential', () => {
+    const { store } = makeStore();
+    const { resolveToken: _gone, ...older } = store;
+    expect(() =>
+      createApp({
+        ...createStubAppBindings(),
+        resolveToken: async () => null,
+        runHandler: {} as RunHandlerBinding,
+        sessionStore: older as SessionStoreBinding,
+        session: { cookie: { allowedOrigins: [CONSOLE] }, tokenSignIn: true },
+      }),
+    ).toThrow(/resolveToken/);
+  });
+});

@@ -77,6 +77,21 @@ describe('a thrown exception on the wire', () => {
     });
   });
 
+  test("a failed query's SQL and values stay in the log, not the answer", async () => {
+    const failed = new Error(
+      'Failed query: select "id" from "people" where "email" = $1\nparams: alice@acme.example',
+    );
+    failed.name = 'DrizzleQueryError';
+    const { res, text } = await get(appWhoseRunReadsThrow(failed), '/v1/runs');
+    expect(res.status).toBe(500);
+    expect(JSON.parse(text).error).toMatchObject({
+      code: 'internal-server-error',
+      message: 'A database query failed.',
+    });
+    expect(text).not.toContain('alice@acme.example');
+    expect(text).not.toContain('select');
+  });
+
   test('an exception that carries its own response answers with it', async () => {
     const thrown = new HTTPException(413, { message: 'Too big' });
     const { res, text } = await get(appWhoseRunReadsThrow(thrown), '/v1/runs');
