@@ -490,6 +490,38 @@ function isTransport(error: unknown): boolean {
   return false;
 }
 
+/**
+ * A connection refused by policy, the same every time it's tried: a redirect the request won't
+ * follow (its credential goes to the endpoint only), or a host refused before any connection, by
+ * a system-style code that isn't a dropped connection's (the runtime's egress rules:
+ * `EKINDGIEGRESS`). Its kind and words, when it's one.
+ */
+function refusedConnection(
+  error: unknown,
+): { readonly kind: 'unavailable' | 'network'; readonly words: string } | undefined {
+  const seen = new Set<unknown>();
+  for (let e = error; e instanceof Error && !seen.has(e); e = e.cause) {
+    seen.add(e);
+    if (/^unexpected redirect$/i.test(e.message)) {
+      return {
+        kind: 'unavailable',
+        words:
+          "the endpoint answered with a redirect, which isn't followed: a request's credential goes to its endpoint only. Check the endpoint.",
+      };
+    }
+    const code = (e as { code?: unknown }).code;
+    if (
+      typeof code === 'string' &&
+      /^E[A-Z0-9_]+$/.test(code) &&
+      !code.startsWith('ERR_') &&
+      !TRANSPORT_CODES.has(code)
+    ) {
+      return { kind: 'network', words: e.message };
+    }
+  }
+  return undefined;
+}
+
 /** An answer the library couldn't read: a malformed 200, an empty body, a shape it doesn't know. */
 function isUnreadableAnswer(error: unknown): boolean {
   return (
@@ -516,6 +548,9 @@ function describeFailure(error: unknown): DescribedFailure {
       retryable: false,
     };
   }
+  // Refused, not dropped: before the library's own verdict, which retries any failed connection.
+  const refused = refusedConnection(error);
+  if (refused !== undefined) return { ...refused, retryable: false };
   if (APICallError.isInstance(error)) {
     return {
       ...(error.statusCode !== undefined && { status: error.statusCode }),
