@@ -625,41 +625,70 @@ export type {
   MemoryWriteFactOutcome,
 } from './memory-binding.js';
 export type {
-  SupervisorApplyOutcome,
-  SupervisorApplyProposalInput,
-  SupervisorBinding,
-  SupervisorDraftOutcome,
-  SupervisorDraftProposalInput,
-  SupervisorDryRunOutcome,
-  SupervisorDryRunProposalInput,
-  SupervisorGetProposalInput,
-  SupervisorListProposalsInput,
-  SupervisorProposalPage,
-  SupervisorRollbackOutcome,
-  SupervisorRollbackProposalInput,
-  SupervisorSubmitReviewInput,
-  SupervisorSubmitReviewOutcome,
-  SupervisorWithdrawOutcome,
-  SupervisorWithdrawProposalInput,
-} from './supervisor-binding.js';
-export type {
-  FixProposal,
-  FixProposalStatus,
+  CreateProposalInput,
+  CreateProposalOutcome,
+  GetProposalInput,
+  ListProposalsInput,
   Observation,
   ObservationStatus,
   ObservedViolation,
-  PassCriterion,
-  PatternKind,
-  PatternRef,
-  PromptChange,
+  ProposalCandidate,
+  ProposalDrafter,
+  ProposalEvaluationRef,
+  ProposalEvidence,
+  ProposalObjective,
+  ProposalStep,
+  ProposalTier,
   ProposedChange,
-  RetrievalChange,
-  RetrievalIntentShape,
+  RecordProposalInput,
+  RecordProposalOutcome,
+  StoredProposal,
+  StoredProposalPage,
+  SupervisorBinding,
   SupervisorObservationPage,
   SupervisorQueryObservationsInput,
   SupervisorQueryObservationsOutcome,
-  ToolConfigChange,
 } from './supervisor-binding.js';
+export type {
+  ImprovementBudget,
+  ImprovementPass,
+  ImprovementPassBinding,
+  ImprovementPassComparison,
+  ImprovementPassOutcome,
+  ImprovementPassStatus,
+  ImprovementTier,
+  ListImprovementPassesInput,
+  StartImprovementPassInput,
+} from './improvement-pass-binding.js';
+export { DEFAULT_BUDGET as DEFAULT_IMPROVEMENT_BUDGET } from './routes/improvement-passes.js';
+export { sampleCases } from './eval-sample.js';
+export type { EvalOverrides, EvalSample } from './eval-run-binding.js';
+export {
+  DRAFTED_PROPOSAL_APPROVAL,
+  createProposalService,
+  proposalNotFound,
+} from './proposal-service.js';
+export type {
+  DraftProposalInput,
+  EvaluateProposalInput,
+  ProposalFacts,
+  ProposalOutcome,
+  ProposalService,
+  ProposalServiceDeps,
+  ProposalServiceError,
+} from './proposal-service.js';
+export {
+  FIX_PROPOSAL_STATUSES,
+  PROPOSAL_ACTIONS,
+  evaluationOutcome,
+  proposalActionAllowed,
+  proposalStatus,
+} from './proposal-status.js';
+export type {
+  FixProposalStatus,
+  ProposalAction,
+  ProposalEvaluationOutcome,
+} from './proposal-status.js';
 export type {
   Deployment,
   DeploymentBinding,

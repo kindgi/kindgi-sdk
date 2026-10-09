@@ -30,7 +30,7 @@ staged_all=$(git diff --cached --name-only --diff-filter=AM || true)
 # 1. SPDX headers on staged .ts sources                                #
 # ------------------------------------------------------------------- #
 staged_ts=$(printf '%s\n' "$staged_all" \
-  | grep -E '\.(ts|tsx|mts|cts|js|mjs|cjs|py)$' \
+  | grep -E '\.(ts|tsx|mts|cts|js|mjs|cjs|py|java)$' \
   | grep -vE '\.d\.(ts|mts|cts)$' \
   | grep -vE '(^|/)(node_modules|dist)/' \
   || true)

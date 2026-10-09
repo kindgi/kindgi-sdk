@@ -155,16 +155,16 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'signing-key-revoked': 409,
   'signing-key-algorithm-unsupported': 400,
   'signing-key-store-error': 500,
-  // Supervisor proposals lifecycle.
+  // Improvement proposals.
   'proposal-not-found': 404,
   'proposal-invalid-state-transition': 409,
-  'proposal-terminal': 409,
-  'baseline-mismatch': 422,
-  'apply-change-failed': 422,
-  'ground-layer-violation': 422,
-  'agent-not-in-registry': 422,
+  // Evaluating would make a version that serves every unpinned scope.
+  'proposal-needs-pin': 409,
+  // Improvement passes.
+  'improve-unsupported': 501,
+  'improvement-pass-not-found': 404,
+  'improvement-pass-finished': 409,
   'version-already-exists': 409,
-  'invalid-new-version': 400,
   'supervisor-header-missing': 400,
   // Artifacts.
   'blob-not-found': 404,

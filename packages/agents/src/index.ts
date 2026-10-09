@@ -20,7 +20,9 @@ export { defineAgent } from './define.js';
 export {
   BLOCK_KINDS,
   MODEL_SETTINGS_SCHEMA,
+  TUNABLE_MARKER,
   settingsSchemaIssues,
+  tunableKeys,
   validateBlock,
 } from './blocks.js';
 export type {
@@ -32,6 +34,7 @@ export type {
   ModelSettings,
   PromptBlockContent,
   SettingsBlockContent,
+  TunableKey,
 } from './blocks.js';
 export type { DefineAgentSpec } from './define.js';
 export { resolveEffectiveHitlPolicy } from './hitl-policy.js';
@@ -45,7 +48,7 @@ export type { GateDecision, GateDecisionValue } from './handlers/gate-decision.j
 export type { EffectiveHitlPolicy } from './hitl-policy.js';
 export { agentStepOutput, invokeAgent, resumeAgentTurn } from './invoke.js';
 export { parseFailureMessage, turnFailureMessage } from './handlers/errors.js';
-export { isReadOnlyTool } from './handlers/replay.js';
+export { isComputeOnlyTool, isReadOnlyTool } from './handlers/replay.js';
 export { SESSION_GATE_RECORD } from './handlers/setup.js';
 export type {
   ReplayApproval,
@@ -117,6 +120,14 @@ export {
   runRetrievals,
 } from './retrieval.js';
 export type { DegradedIntent, RetrievalPass, RetrievalRun } from './retrieval.js';
+export {
+  DEFAULT_REMEMBER_DAYS,
+  MAX_REMEMBER_DAYS,
+  REMEMBER_TOOL_ID,
+  REMEMBER_TOOL_VERSION,
+  looksLikeInstruction,
+} from './remember.js';
+export type { RememberToolOutput } from './handlers/remember-tool.js';
 export type { RetrievalBindings } from './retrieval.js';
 export type {
   MissingParameterError,
@@ -160,6 +171,8 @@ export type {
   MessageRole,
   PromptParameter,
   PromptRef,
+  RememberPolicy,
+  RememberScope,
   RetrievalIntent,
   RetrievedFact,
   ToolRef,

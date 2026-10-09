@@ -242,6 +242,13 @@ export interface ValidationErrorLike {
  * Design note: this is intentionally decoupled from `SpecRegistry` — inline
  * schemas don't have a `$id` and don't need cross-schema `$ref` resolution.
  */
+/**
+ * Keywords an inline schema may carry for Kindgi to read, with no effect
+ * on validation: `x-kindgi-tunable` marks a settings key an improvement
+ * pass may search.
+ */
+export const INLINE_ANNOTATIONS: readonly string[] = ['x-kindgi-tunable'];
+
 export function compileInlineSchema(schema: unknown): Result<CompiledInlineSchema, SchemaError> {
   const ajv = new Ajv2020({
     strict: true,
@@ -249,6 +256,8 @@ export function compileInlineSchema(schema: unknown): Result<CompiledInlineSchem
     allowUnionTypes: false,
   });
   addFormats(ajv);
+  // Annotations Kindgi reads off a schema, which validate nothing.
+  for (const keyword of INLINE_ANNOTATIONS) ajv.addKeyword(keyword);
 
   let validator: ValidateFunction;
   try {
