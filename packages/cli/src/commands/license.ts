@@ -210,12 +210,21 @@ const renew: LeafCommand = {
         return { kind: 'error', stderr: `${outcome.message}\n`, exitCode: 1 };
       const now = (ctx.licenseDeps?.renew?.now ?? Date.now)();
       const daysLeft = Math.floor((outcome.claims.expiresAt.getTime() - now) / DAY_MS);
+      // A production key is renewed when Kindgi extends the contract term;
+      // a self-serve one, in its last 30 days.
+      const nextKey =
+        outcome.claims.use === 'production'
+          ? 'write to contact@kindgi.com to extend the term'
+          : `sign in at ${origin} for a new key`;
       const lines = [
         `${outcome.kind}: ${describeKey(outcome.claims)} (renewer ${outcome.renewerId})`,
-        ...(daysLeft <= LICENSE_WARN_DAYS
+        ...(outcome.kind === 'renewed'
           ? [
-              `⚠ It expires in ${daysLeft} days. If renew keeps answering unchanged, sign in at ${origin} for a new key.`,
+              'The runtime uses the new key from its next start; until then it runs on the one it started with.',
             ]
+          : []),
+        ...(daysLeft <= LICENSE_WARN_DAYS
+          ? [`⚠ It expires in ${daysLeft} days. If renew keeps answering unchanged, ${nextKey}.`]
           : []),
       ];
       return { kind: 'ok', rendered: { stdout: `${lines.join('\n')}\n`, stderr: '' } };

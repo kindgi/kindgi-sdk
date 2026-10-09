@@ -205,9 +205,11 @@ describe('kindgi license renew', () => {
       { ...deps, fetchImpl: service(renewer, () => Response.json({ licenseKey: next })) },
     );
     expect(out.exitCode).toBe(0);
-    expect(out.stdout).toBe(
-      `renewed: acme.example's non-production key, until ${new Date((NOW / 1000 + 45 * DAY) * 1000).toISOString().slice(0, 10)} (renewer ${renewer.renewerId})\n`,
-    );
+    expect(out.stdout.split('\n')).toEqual([
+      `renewed: acme.example's non-production key, until ${new Date((NOW / 1000 + 45 * DAY) * 1000).toISOString().slice(0, 10)} (renewer ${renewer.renewerId})`,
+      'The runtime uses the new key from its next start; until then it runs on the one it started with.',
+      '',
+    ]);
     expect(readFileSync(join(dir, 'kindgi.env'), 'utf8')).toBe(
       `KINDGI_API_PORT=8080\nKINDGI_LICENSE_KEY=${next}\n`,
     );
@@ -238,6 +240,27 @@ describe('kindgi license renew', () => {
     expect(out.stdout).toContain(
       '⚠ It expires in 10 days. If renew keeps answering unchanged, sign in at https://access.kindgi.com',
     );
+  });
+
+  test("a production key's warning says to extend the term with Kindgi, not to sign in", async () => {
+    const soon = licenseKey({
+      sub: 'acme-prod',
+      name: 'Acme Corp',
+      use: 'production',
+      exp: NOW / 1000 + 10 * DAY,
+    });
+    const { dir, renewer } = await enrolled(soon);
+    const out = await cli(
+      dir,
+      ['license', 'renew', '--env-file', 'kindgi.env', '--renewer', 'file:renewer.key'],
+      { ...deps, fetchImpl: service(renewer, () => Response.json({ licenseKey: soon })) },
+    );
+    expect(out.exitCode).toBe(0);
+    expect(out.stdout).toMatch(/^unchanged: Acme Corp's production key, until /);
+    expect(out.stdout).toContain(
+      '⚠ It expires in 10 days. If renew keeps answering unchanged, write to contact@kindgi.com to extend the term.',
+    );
+    expect(out.stdout).not.toContain('sign in');
   });
 
   test('refused, or nothing usable: exit 1, the reason on stderr, the key as it was', async () => {
