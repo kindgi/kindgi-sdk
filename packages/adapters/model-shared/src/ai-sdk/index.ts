@@ -5,4 +5,8 @@
  * Today's engine, the AI SDK's provider packages: where an adapter hands its provider in.
  * The only entry point of this package whose types are a library's.
  */
-export { type AiSdkModelProviderOptions, createAiSdkModelProvider } from './provider.js';
+export {
+  type AiSdkModelProviderOptions,
+  attemptPrepared,
+  createAiSdkModelProvider,
+} from './provider.js';

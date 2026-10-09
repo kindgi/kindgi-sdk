@@ -3,9 +3,17 @@
 
 /** The library-free parts: what a failure is, and how long to wait before the next attempt. */
 
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test, vi } from 'vitest';
 
-import { ModelProviderError, backoffMs, kindOf, modelProviderError } from '../src/index.js';
+import {
+  ModelProviderError,
+  type RetryableFailure,
+  backoffMs,
+  kindOf,
+  modelProviderError,
+  vendorWaitMs,
+  withRetries,
+} from '../src/index.js';
 
 describe('kindOf', () => {
   test.each([
@@ -29,6 +37,26 @@ describe('kindOf', () => {
     [{ status: 413, words: '{"message":"Prompt is too long"}' }, 'context-too-long'],
     // The words decide only for 400, 413 and 422.
     [{ status: 404, words: '{"message":"no model exceeds this name"}' }, 'invalid-request'],
+    // A conflict the vendor says to retry; Bedrock's ModelErrorException.
+    [{ status: 409, words: '{}' }, 'unavailable'],
+    [{ status: 424, words: '{"message":"The model failed"}' }, 'unavailable'],
+    // The vendors' words for a prompt too long, and not every mention of context.
+    [
+      { status: 400, words: "This model's maximum context length is 128000 tokens." },
+      'context-too-long',
+    ],
+    [{ status: 400, words: '{"code":"context_length_exceeded"}' }, 'context-too-long'],
+    [
+      {
+        status: 400,
+        words: 'The input token count (1200000) exceeds the maximum number of tokens allowed.',
+      },
+      'context-too-long',
+    ],
+    [{ status: 400, words: "Invalid value for 'context': expected an object." }, 'invalid-request'],
+    [{ status: 400, words: 'max_tokens exceeds the limit for this model' }, 'invalid-request'],
+    // The engine's own kind, where no status says it.
+    [{ kind: 'unavailable', words: 'Invalid JSON response' }, 'unavailable'],
   ] as const)('%j → %s', (failure, kind) => {
     expect(kindOf(failure)).toBe(kind);
   });
@@ -63,5 +91,81 @@ describe('backoffMs', () => {
       expect(second).toBeGreaterThanOrEqual(2000);
       expect(second).toBeLessThan(4000);
     }
+  });
+});
+
+test('vendorWaitMs: retry-after-ms first, then retry-after in seconds; none, or not a number', () => {
+  expect(vendorWaitMs({ 'retry-after-ms': '250', 'retry-after': '9' })).toBe(250);
+  expect(vendorWaitMs({ 'retry-after': '120' })).toBe(120_000);
+  expect(vendorWaitMs({ 'retry-after': 'Wed, 21 Oct 2026 07:28:00 GMT' })).toBeUndefined();
+  expect(vendorWaitMs({})).toBeUndefined();
+});
+
+describe('withRetries', () => {
+  const failing = (failure: RetryableFailure) => {
+    const send = vi.fn(async () => {
+      throw new Error('failed');
+    });
+    const policy = {
+      attempts: 3,
+      describe: () => failure,
+      toError: (f: RetryableFailure) => new Error(f.words),
+    };
+    return { send, policy };
+  };
+
+  test('a vendor asking for more than 60 s: no retry, the wait it asked in the message', async () => {
+    const { send, policy } = failing({
+      status: 429,
+      words: 'slow down',
+      retryable: true,
+      headers: { 'retry-after': '120' },
+    });
+    await expect(withRetries(send, policy)).rejects.toThrow(
+      'slow down (the vendor asks to wait 120 s)',
+    );
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  test("a failure's own cap: fewer attempts than the policy's", async () => {
+    const { send, policy } = failing({
+      kind: 'unavailable',
+      words: 'unreadable',
+      retryable: true,
+      maxAttempts: 2,
+      headers: { 'retry-after-ms': '0' },
+    });
+    await expect(withRetries(send, policy)).rejects.toThrow('unreadable');
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+
+  test('each wait takes its abort listener away when it ends', async () => {
+    const controller = new AbortController();
+    const added = vi.spyOn(controller.signal, 'addEventListener');
+    const removed = vi.spyOn(controller.signal, 'removeEventListener');
+    let calls = 0;
+    const result = await withRetries(
+      async () => {
+        calls += 1;
+        if (calls < 3) throw new Error('503');
+        return 'ok';
+      },
+      {
+        attempts: 3,
+        signal: controller.signal,
+        describe: () => ({
+          status: 503,
+          words: '503',
+          retryable: true,
+          headers: { 'retry-after-ms': '0' },
+        }),
+        toError: (f) => new Error(f.words),
+      },
+    );
+    expect(result).toBe('ok');
+    expect(added).toHaveBeenCalledTimes(2);
+    expect(removed.mock.calls).toEqual(
+      added.mock.calls.map(([type, listener]) => [type, listener]),
+    );
   });
 });
