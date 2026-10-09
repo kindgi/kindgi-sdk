@@ -135,3 +135,75 @@ resource "azurerm_container_app_job" "license_renewal" {
 
   depends_on = [time_sleep.license_renewer_grants]
 }
+
+# ---- alerts, with the job on ------------------------------------------------------
+# Two alerts, sent to `alert_action_groups` (none: they fire in Azure
+# Monitor only): a renewal that failed, and a key that expires within a
+# week, which `kindgi license renew` says on every run ("⚠ It expires in N
+# days"; a CLI test pins that line).
+
+resource "azurerm_monitor_metric_alert" "license_renewal_failed" {
+  count               = local.license_renewal ? 1 : 0
+  name                = "${var.name_prefix}-license-renewal-failed"
+  resource_group_name = data.azurerm_resource_group.kindgi.name
+  scopes              = [azurerm_container_app_job.license_renewal[0].id]
+  description         = "The license key's renewal job failed. Its runs: az containerapp job execution list -n ${var.name_prefix}-license-renew -g ${data.azurerm_resource_group.kindgi.name}"
+  severity            = 2
+  frequency           = "PT5M"
+  window_size         = "PT15M"
+  tags                = local.tags
+
+  criteria {
+    metric_namespace = "Microsoft.App/jobs"
+    metric_name      = "Executions"
+    aggregation      = "Total"
+    operator         = "GreaterThan"
+    threshold        = 0
+
+    dimension {
+      name     = "state"
+      operator = "Include"
+      values   = ["Failed"]
+    }
+  }
+
+  dynamic "action" {
+    for_each = var.alert_action_groups
+    content {
+      action_group_id = action.value
+    }
+  }
+}
+
+resource "azurerm_monitor_scheduled_query_rules_alert_v2" "license_key_expiring" {
+  count                = local.license_renewal ? 1 : 0
+  name                 = "${var.name_prefix}-license-key-expiring"
+  resource_group_name  = data.azurerm_resource_group.kindgi.name
+  location             = local.location
+  scopes               = [azurerm_log_analytics_workspace.kindgi.id]
+  description          = "The license key expires within 7 days, and renewing hasn't brought a new one: see the renewal job's last run."
+  severity             = 2
+  evaluation_frequency = "P1D"
+  window_duration      = "P1D"
+  # The console log table appears once something has logged.
+  skip_query_validation = true
+  tags                  = local.tags
+
+  criteria {
+    query                   = <<-KQL
+      ContainerAppConsoleLogs_CL
+      | where column_ifexists("ContainerJobName_s", "") == "${var.name_prefix}-license-renew"
+      | where Log_s matches regex @"It expires in (-[0-9]+|[0-6]) days"
+    KQL
+    time_aggregation_method = "Count"
+    operator                = "GreaterThan"
+    threshold               = 0
+  }
+
+  dynamic "action" {
+    for_each = length(var.alert_action_groups) == 0 ? [] : [var.alert_action_groups]
+    content {
+      action_groups = action.value
+    }
+  }
+}

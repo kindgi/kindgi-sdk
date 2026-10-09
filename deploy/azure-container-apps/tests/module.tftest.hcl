@@ -453,8 +453,8 @@ run "sign_in_with_providers_needs_public_url" {
 run "license_renewal_is_off_by_default" {
   command = plan
   assert {
-    condition     = length(azurerm_container_app_job.license_renewal) == 0 && length(azurerm_user_assigned_identity.license_renewer) == 0 && length(azurerm_role_definition.license_key_writer) == 0 && length(azurerm_role_assignment.license_renewer_reads) == 0
-    error_message = "No schedule: no job, no renewer identity, no grants."
+    condition     = length(azurerm_container_app_job.license_renewal) == 0 && length(azurerm_user_assigned_identity.license_renewer) == 0 && length(azurerm_role_definition.license_key_writer) == 0 && length(azurerm_role_assignment.license_renewer_reads) == 0 && length(azurerm_monitor_metric_alert.license_renewal_failed) == 0 && length(azurerm_monitor_scheduled_query_rules_alert_v2.license_key_expiring) == 0
+    error_message = "No schedule: no job, no renewer identity, no grants, no alerts."
   }
   assert {
     condition     = local.server_env.KINDGI_LICENSE_KEY_REF == "azure:https://kindgi-ab12.vault.azure.net/secrets/license-key" && local.server_env.KINDGI_LICENSE_RENEWER_REF == "azure:https://kindgi-ab12.vault.azure.net/secrets/license-renewer"
@@ -543,4 +543,34 @@ run "refuses_the_license_refs_in_server_env" {
     server_env = { KINDGI_LICENSE_RENEWER_REF = "azure:https://elsewhere.vault.azure.net/secrets/x" }
   }
   expect_failures = [azurerm_container_app.server]
+}
+
+# The job's two alerts: a failed execution, and the run line saying the key
+# expires within a week. With action groups, both go there.
+run "license_renewal_alerts" {
+  command = plan
+  variables {
+    license_renewal_schedule = "17 6 * * *"
+    alert_action_groups      = ["/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/acme-ops/providers/microsoft.insights/actionGroups/oncall"]
+  }
+  assert {
+    condition     = azurerm_monitor_metric_alert.license_renewal_failed[0].criteria[0].metric_namespace == "Microsoft.App/jobs" && azurerm_monitor_metric_alert.license_renewal_failed[0].criteria[0].metric_name == "Executions" && azurerm_monitor_metric_alert.license_renewal_failed[0].criteria[0].dimension[0].name == "state" && azurerm_monitor_metric_alert.license_renewal_failed[0].criteria[0].dimension[0].values == tolist(["Failed"])
+    error_message = "A failed execution of the job alerts."
+  }
+  assert {
+    condition     = strcontains(azurerm_monitor_scheduled_query_rules_alert_v2.license_key_expiring[0].criteria[0].query, "== \"kindgi-license-renew\"") && strcontains(azurerm_monitor_scheduled_query_rules_alert_v2.license_key_expiring[0].criteria[0].query, "It expires in (-[0-9]+|[0-6]) days") && azurerm_monitor_scheduled_query_rules_alert_v2.license_key_expiring[0].scopes == tolist([azurerm_log_analytics_workspace.kindgi.id])
+    error_message = "The job's run line saying the key expires within a week alerts, from the environment's workspace."
+  }
+  assert {
+    condition     = toset([for a in azurerm_monitor_metric_alert.license_renewal_failed[0].action : a.action_group_id]) == toset(var.alert_action_groups) && toset(azurerm_monitor_scheduled_query_rules_alert_v2.license_key_expiring[0].action[0].action_groups) == toset(var.alert_action_groups)
+    error_message = "Both go to the action groups."
+  }
+}
+
+run "refuses_an_action_group_that_isnt_an_id" {
+  command = plan
+  variables {
+    alert_action_groups = ["oncall"]
+  }
+  expect_failures = [var.alert_action_groups]
 }

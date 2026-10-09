@@ -252,6 +252,7 @@ $(terraform output -raw license_enroll_command)   # fill in --for first
   - It has an identity of its own, `<name_prefix>-license-renewer`. That identity reads `license-key` and `license-renewer`, and holds a custom role, `<name_prefix>-license-key-writer-…`, that can only set `license-key`, never delete it or read other secrets.
   - The server gets no access to the renewer key.
   - Its runs: `az containerapp job execution list -n <name_prefix>-license-renew -g <rg> -o table`.
+  - **Two alerts come with it:** a failed run, and a key within 7 days of expiring (the run's own line, `⚠ It expires in N days`). They go to the action groups in `alert_action_groups`; with none, they fire in Azure Monitor only.
 - **When a new key is used:** the server reads `license-key` without a version, so it gets the new key as for any rotated secret (see "Rotating a secret" above, and [Microsoft: Key Vault secret URI and secret rotation](https://learn.microsoft.com/en-us/azure/container-apps/manage-secrets#key-vault-secret-uri-and-secret-rotation)). Until then it runs on the key it started with. A running server never stops over its key.
 - **Stopping:** unset `license_renewal_schedule`, or stop the renewer on access.kindgi.com.
 

@@ -410,3 +410,14 @@ variable "license_renewer_secret" {
     error_message = "license_renewer_secret: a Key Vault secret name (letters, digits and -, up to 127)."
   }
 }
+
+variable "alert_action_groups" {
+  description = "Azure Monitor action groups (resource ids) the license renewal's alerts go to: a failed renewal, and a key within 7 days of expiring. Empty: they fire in Azure Monitor only. Only with license_renewal_schedule set."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition     = alltrue([for id in var.alert_action_groups : can(regex("(?i)^/subscriptions/[^/]+/resourceGroups/[^/]+/providers/microsoft\\.insights/actionGroups/[^/]+$", id))])
+    error_message = "alert_action_groups: action group resource ids (/subscriptions/…/resourceGroups/…/providers/microsoft.insights/actionGroups/…)."
+  }
+}
