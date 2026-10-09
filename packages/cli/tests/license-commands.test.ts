@@ -263,6 +263,26 @@ describe('kindgi license renew', () => {
     expect(out.stdout).not.toContain('sign in');
   });
 
+  // The Cloud Run and Azure modules alert on this line from a scheduled job's
+  // log (`It expires in (-[0-9]+|[0-6]) days`): changing its wording breaks
+  // their alerts, so change them with it.
+  test("the 30-day line the deploy modules' alerts match: within a week, and past the key's date", async () => {
+    for (const [days, expected] of [
+      [6, 'It expires in 6 days.'],
+      [-3, 'It expires in -3 days.'],
+    ] as const) {
+      const key = licenseKey({ exp: NOW / 1000 + days * DAY });
+      const { dir, renewer } = await enrolled(key);
+      const out = await cli(
+        dir,
+        ['license', 'renew', '--env-file', 'kindgi.env', '--renewer', 'file:renewer.key'],
+        { ...deps, fetchImpl: service(renewer, () => Response.json({ licenseKey: key })) },
+      );
+      expect(out.stdout).toContain(`⚠ ${expected}`);
+      expect(out.stdout).toMatch(/It expires in (-[0-9]+|[0-6]) days/);
+    }
+  });
+
   test('refused, or nothing usable: exit 1, the reason on stderr, the key as it was', async () => {
     const { dir, renewer } = await enrolled();
     const before = readFileSync(join(dir, 'kindgi.env'), 'utf8');

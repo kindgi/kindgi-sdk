@@ -224,7 +224,9 @@ const renew: LeafCommand = {
             ]
           : []),
         ...(daysLeft <= LICENSE_WARN_DAYS
-          ? [`⚠ It expires in ${daysLeft} days. If renew keeps answering unchanged, ${nextKey}.`]
+          ? // The deploy modules' alerts match "It expires in <days> days" on this
+            // line (deploy/gcp-cloud-run, deploy/azure-container-apps): keep it.
+            [`⚠ It expires in ${daysLeft} days. If renew keeps answering unchanged, ${nextKey}.`]
           : []),
       ];
       return { kind: 'ok', rendered: { stdout: `${lines.join('\n')}\n`, stderr: '' } };
