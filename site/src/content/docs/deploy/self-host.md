@@ -190,11 +190,14 @@ Every setting is in the [environment variable reference](../../reference/env-var
 Start the runtime:
 
 ```sh
-docker run -d --name kindgi-server --network kindgi \
+docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
   --add-host registry.localhost:host-gateway \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
   quay.io/kindgi/runtime:0.1.4
 ```
+
+`--restart unless-stopped` brings the runtime back by itself after a crash,
+or after its database was unreachable for a while.
 
 ## 6. Check it
 
