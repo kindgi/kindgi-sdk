@@ -403,6 +403,23 @@ and what's different after:
   refuses it with `reserved-check-id` (Python: `DefinitionError`), saying to
   rename the check. Rebuild your packs with the 0.1.5 CLI: a pack built with
   an earlier one that ships such a check runs the built-in instead.
+- **Before you upgrade, check every guardrail that names a built-in check.**
+  In 0.1.4 such a guardrail never ran. In 0.1.5 the built-ins run and check
+  their config, but a guardrail registered before the upgrade isn't checked
+  again: if its config doesn't fit the built-in's settings, its check can't
+  run at any turn, and with `halt` it blocks every turn of the agents that
+  list it. List your guardrails (`kindgi guardrails list`), and check each one
+  whose `check` is a built-in against
+  [its settings](../../guides/guardrails/use-a-built-in-check/#the-built-in-checks).
+  To fix one, unregister it (`kindgi guardrails unregister <id>`), then deploy
+  your pack, or register it again, with a config that fits: a deploy keeps a
+  guardrail that's already registered as it is. If you run several runtime
+  instances, restart them afterwards (below).
+- **The built-in guardrail checks check their config.** A guardrail naming one
+  with a config the check doesn't take is refused when it's registered
+  (`422 guardrail-config-invalid`, each problem in `details.issues`) or
+  deployed (`deployment-validation-failed`); one that still reaches a turn is a
+  check that can't run, so a `halt` guardrail stops the turn.
 - **The runtime signs exports** (audit bundles, provenance, compliance
   evidence) with the deployment's export key: set
   `KINDGI_EXPORT_SIGNING_KEY_PATH`, `KINDGI_EXPORT_SIGNING_KEY` or
@@ -501,13 +518,12 @@ and what's different after:
   `http://localhost`, where Chrome and Firefox do. Open the local console in
   Chrome or Firefox. A fix is planned. A deployment's console needs `https`
   in every browser (above).
-
-- **The built-in guardrail checks don't check their config yet.** A setting
-  of the wrong type is ignored: `never-call-tool` with
-  `tools: 'my-pack.issue-refund'` (a string, not a list) forbids nothing and
-  passes every turn. Copy the shapes in
-  [Use a built-in check](../../guides/guardrails/use-a-built-in-check/#the-built-in-checks)
-  exactly. A fix is planned.
+- **Run one runtime instance.** Several aren't supported yet (the Cloud Run
+  module runs one). For one thing, a guardrail change reaches other instances
+  only when they restart: registering, unregistering or deploying a guardrail
+  takes effect at once on the instance that took the request, and other
+  instances keep the guardrails they had. If you run several anyway, restart
+  the others after changing a guardrail. A fix is planned.
 
 ### Runtime 0.1.4.2
 

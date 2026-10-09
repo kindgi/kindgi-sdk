@@ -40,25 +40,26 @@ built-in checks.
 
 ## The built-in checks
 
-A tool list holds tool ids, as `<pack>.<tool>`.
+A tool list holds tool ids, as `<pack>.<tool>`. A setting in **bold** is
+required.
 
 | Check | Fails when | `config` |
 | --- | --- | --- |
-| `must-cite` | the answer is empty, or has fewer than `minCitations` matches of `sourcePattern` | `minCitations`: a number (1 by default); `sourcePattern`: a regular expression (by default, citations in square brackets, such as `[ord_1003]`) |
-| `never-call-tool` | the turn called any tool in `tools` | `tools`: a list of tool ids |
-| `max-tool-calls` | the turn made more than `max` tool calls | `max`: a number (10 by default) |
-| `output-matches` | the answer doesn't match `pattern`, or, with `negate: true`, it does | `pattern`: a regular expression; `flags`, such as `"i"`; `negate`: `true` or `false` |
-| `tool-order` | the tools in `sequence` weren't called in that order (other calls may come between) | `sequence`: a list of tool ids |
-| `required-substring` | the answer is empty, or lacks any of `patterns` | `patterns`: a list of plain-text strings; `caseSensitive` (`false` by default) |
-| `forbidden-substring` | the answer contains any of `patterns` | `patterns`: a list of plain-text strings; `caseSensitive` (`false` by default) |
+| `must-cite` | the answer is empty, or has fewer than `minCitations` matches of `sourcePattern` | `minCitations`: a whole number, 1 or more (1 by default); `sourcePattern`: a regular expression (by default, citations in square brackets, such as `[ord_1003]`) |
+| `never-call-tool` | the turn called any tool in `tools` | **`tools`**: a list of one or more tool ids |
+| `max-tool-calls` | the turn made more than `max` tool calls | `max`: a whole number, 0 or more (10 by default) |
+| `output-matches` | the answer doesn't match `pattern`, or, with `negate: true`, it does | **`pattern`**: a regular expression; `flags`: regular-expression flags (`d`, `g`, `i`, `m`, `s`, `u`, `v`, `y`), such as `"i"`; `negate`: `true` or `false` |
+| `tool-order` | the tools in `sequence` weren't called in that order (other calls may come between) | **`sequence`**: a list of one or more tool ids |
+| `required-substring` | the answer is empty, or lacks any of `patterns` | **`patterns`**: a list of one or more plain-text strings; `caseSensitive` (`false` by default) |
+| `forbidden-substring` | the answer contains any of `patterns` | **`patterns`**: a list of one or more plain-text strings; `caseSensitive` (`false` by default) |
 
-:::caution[The built-ins don't check their config yet]
-Nothing refuses a `config` of the wrong shape. A setting of the wrong type is
-ignored, and the check falls back to its default, or to nothing.
-`never-call-tool` with `tools: 'my-pack.issue-refund'` (a string, not a list)
-forbids nothing and passes every turn. `output-matches` without a `pattern`
-fails every turn. Copy the shapes above exactly.
-:::
+A config the check doesn't take is refused: a required setting left out, a
+setting of the wrong type, one the check doesn't know, or a regular expression
+that doesn't compile. Registering such a guardrail answers
+`422 guardrail-config-invalid`, with each problem in `details.issues`, and
+deploying a pack with one fails with `deployment-validation-failed`. If one
+reaches a turn anyway, its check can't run, so with `halt` the turn stops
+([When the check can't run](../halt-or-record/#when-the-check-cant-run)).
 
 ## Your own check under a built-in's name
 
