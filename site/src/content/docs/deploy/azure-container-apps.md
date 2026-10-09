@@ -204,6 +204,9 @@ openssl rand 32 | base64 | tr -d '\n' | put erasure-ledger-key
 # The key that signs public run tokens.
 openssl genpkey -algorithm ed25519 | base64 | tr -d '\n' | put public-token-key
 
+# Only with export_signing = "secret": the key that signs exports, base64.
+openssl genpkey -algorithm ed25519 | base64 | tr -d '\n' | put export-signing-key
+
 # The license key, pasted, never echoed.
 read -rs LICENSE_KEY && printf '%s' "$LICENSE_KEY" | put license-key && unset LICENSE_KEY
 ```
@@ -228,6 +231,15 @@ Error: Resource precondition failed
 secrets_aad_key_version is needed for the services: the version `az keyvault
 secret set` printed for secrets-aad-key (README, step 3).
 ```
+
+**Signed exports** are off by default (`export_signing = "none"`). With
+`"secret"`, the server signs with the key you put in the vault above as
+`export-signing-key` (Ed25519, or an EC P-256 key from
+`openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256`). With
+`"kms"`, the module makes an EC P-256 key in the vault and the server signs
+there, so the private key never leaves Key Vault; exports are then
+`ecdsa-p256-sha256`, since Key Vault has no Ed25519. See
+[Export signed evidence](../../guides/observability/export-signed-evidence/).
 
 **The database login** is the server's admin, a member of `azure_pg_admin`
 with `CREATEROLE`, which is what the runtime needs.
@@ -375,6 +387,7 @@ to finish, with the output `{"greeting":"Hello, Azure!"}`.
 | The runtime's identity | Key Vault Crypto Service Encryption User | the key that wraps stored secrets (the startup check wraps and unwraps with it) |
 | | Key Vault Secrets User | each of its secrets |
 | | AcrPull | the registry |
+| | Key Vault Crypto User, only with `export_signing = "kms"` | the export signing key |
 | The pack's identity | Key Vault Secrets User | the pack token and your pack's secrets |
 | | AcrPull | the registry |
 | Whoever runs Terraform, and `key_vault_admins` | Key Vault Secrets Officer, Key Vault Crypto Officer | the vault |
