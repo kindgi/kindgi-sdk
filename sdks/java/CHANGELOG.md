@@ -7,6 +7,9 @@ heading into its version.
 
 ## Unreleased
 
+- `kindgi-pack`: **on SIGTERM, the service stops taking calls before it writes
+  `draining`.** It wrote the record first, so for a moment a supervisor that
+  read it and asked `/readyz` at once could still get 200. (#PR)
 - `kindgi-pack`, `kindgi-pack-scala`: **Jackson 2.18.11 or later.** kindgi-pack's
   Jackson (core, databind, annotations, jdk8, jsr310) and the Scala layer's
   jackson-module-scala move from 2.15.4 to 2.18.11, which fixes advisories that
