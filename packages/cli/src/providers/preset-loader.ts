@@ -11,6 +11,11 @@
  * (e.g. an OpenAI-compatible endpoint's `baseURL`) or needs from the
  * caller (e.g. Gemini's `--project`), and `metadata`. Prices change
  * with the vendors' — `pricesCheckedAt` says when they were last read.
+ *
+ * The settings a preset can ask its caller for are one table,
+ * `PRESET_SETTINGS`: `providers register` takes each as a flag, and a
+ * pack's `providers` declarations as a key (`kindgi dev`). A preset that
+ * names a setting the table doesn't have fails to load.
  */
 
 import { readFile as nodeReadFile, readdir as nodeReaddir } from 'node:fs/promises';
@@ -27,7 +32,10 @@ export interface ProviderPreset {
   readonly adapterId: string;
   /** The secret holding the credential; absent when the adapter finds its own. */
   readonly secret?: string;
-  /** Adapter settings the caller supplies, each as `--<key>=<value>`. */
+  /**
+   * Settings the caller supplies (each a `PRESET_SETTINGS` key): into
+   * `adapter_config`, or, marked `"in": "metadata"`, into `metadata`.
+   */
   readonly adapterConfig?: readonly PresetSetting[];
   /** Adapter settings the preset fixes, e.g. `{ "baseURL": "https://api.openai.com/v1" }`. */
   readonly adapterConfigValues?: Readonly<Record<string, string | number | boolean>>;
@@ -37,9 +45,52 @@ export interface ProviderPreset {
 }
 
 export interface PresetSetting {
+  /** A `PRESET_SETTINGS` key. */
   readonly key: string;
   readonly description: string;
+  /** Where the value goes: `adapter_config` (absent), or `metadata` (Bedrock's `region`). */
+  readonly in?: 'metadata';
 }
+
+/**
+ * Every setting a preset can ask its caller for, by its key in a pack's
+ * `providers` declarations (`kindgi.config.ts`, `pyproject.toml`): the
+ * `providers register` flag that takes it, and that flag's help. The
+ * register flags, `kindgi dev`'s declaration keys and the presets list all
+ * read this table, and `KindgiProviderDeclaration` has a field for each key
+ * (a type test holds them equal).
+ */
+export const PRESET_SETTINGS = {
+  project: {
+    flag: 'project',
+    description:
+      'For a preset that needs one (`gemini`), the Google Cloud project Vertex AI runs and bills in.',
+  },
+  resourceName: {
+    flag: 'resource-name',
+    description: 'For `azure-openai`: the Azure OpenAI resource, as in `<name>.openai.azure.com`.',
+  },
+  deployments: {
+    flag: 'deployments',
+    description:
+      'For `azure-openai`: the deployment serving each model, `model=deployment,…` (e.g. `gpt-6.1-sol=gpt-6-1-sol`).',
+  },
+  region: {
+    flag: 'region',
+    description: 'For `bedrock`: the AWS region Bedrock runs in (e.g. `us-east-2`).',
+  },
+} as const satisfies Readonly<
+  Record<string, { readonly flag: string; readonly description: string }>
+>;
+
+export type PresetSettingKey = keyof typeof PRESET_SETTINGS;
+
+const isPresetSettingKey = (key: string): key is PresetSettingKey =>
+  Object.hasOwn(PRESET_SETTINGS, key);
+
+/** A setting's `providers register` flag, as a message names it: `--resource-name`. */
+export const presetSettingFlag = (key: string): string =>
+  `--${isPresetSettingKey(key) ? PRESET_SETTINGS[key].flag : key}`;
 
 type PresetMetadata = RegisterProviderInput['metadata'];
 
@@ -132,6 +183,14 @@ function adapterConfigProblem(p: Readonly<Record<string, unknown>>): string | un
   ) {
     return '"adapterConfig" must be a list of { key, description }';
   }
+  for (const setting of (p.adapterConfig ?? []) as readonly PresetSetting[]) {
+    if (!isPresetSettingKey(setting.key)) {
+      return `"adapterConfig" names "${setting.key}", which isn't a setting the CLI takes: add it to PRESET_SETTINGS (a flag, and a key in KindgiProviderDeclaration)`;
+    }
+    if (setting.in !== undefined && !(setting.in === 'metadata' && setting.key === 'region')) {
+      return `"adapterConfig" setting "${setting.key}": "in" may only be "metadata", for "region"`;
+    }
+  }
   const values = p.adapterConfigValues;
   if (
     values !== undefined &&
@@ -193,23 +252,29 @@ export function presetRegistration(
   if (missing.length > 0) {
     return {
       kind: 'err',
-      message: `preset "${preset.name}" needs ${missing.map((s) => `--${s.key}=<…> (${s.description})`).join(', ')}`,
+      message: `preset "${preset.name}" needs ${missing.map((s) => `${presetSettingFlag(s.key)}=<…> (${s.description})`).join(', ')}`,
     };
   }
   const secret = choices.secret ?? preset.secret;
-  const adapterConfig = {
-    ...preset.adapterConfigValues,
-    ...Object.fromEntries(
-      (preset.adapterConfig ?? []).map((s) => [s.key, choices.settings[s.key] as string]),
-    ),
-  };
+  const settingsFor = (where: 'metadata' | 'adapterConfig') =>
+    Object.fromEntries(
+      (preset.adapterConfig ?? [])
+        .filter((s) => (s.in === 'metadata') === (where === 'metadata'))
+        .map((s) => [s.key, choices.settings[s.key] as string]),
+    );
+  const adapterConfig = { ...preset.adapterConfigValues, ...settingsFor('adapterConfig') };
   // The preset's default, when it's among the models registered.
   const { defaultModel, ...rest } = preset.metadata;
   const keepDefault = defaultModel !== undefined && models.some((m) => m.name === defaultModel);
   return {
     kind: 'ok',
     input: {
-      metadata: { ...rest, models, ...(keepDefault && { defaultModel }) },
+      metadata: {
+        ...rest,
+        ...settingsFor('metadata'),
+        models,
+        ...(keepDefault && { defaultModel }),
+      },
       adapter_id: preset.adapterId,
       ...(secret !== undefined && { secret_ref: { envName: choices.envName, name: secret } }),
       ...(Object.keys(adapterConfig).length > 0 && { adapter_config: adapterConfig }),

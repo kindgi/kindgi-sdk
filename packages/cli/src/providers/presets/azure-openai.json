@@ -1,0 +1,65 @@
+{
+  "name": "azure-openai",
+  "description": "GPT on your Azure OpenAI deployments (key: AZURE_OPENAI_API_KEY; --resource-name, --deployments). Global Standard prices. To sign in with the runtime's Entra identity, register with --spec.",
+  "adapterId": "@kindgi/adapter-model-azure-openai",
+  "secret": "AZURE_OPENAI_API_KEY",
+  "adapterConfig": [
+    {
+      "key": "resourceName",
+      "description": "The Azure OpenAI resource, as in <name>.openai.azure.com."
+    },
+    {
+      "key": "deployments",
+      "description": "The deployment serving each model you register, model=deployment,… (e.g. gpt-6.1-sol=gpt-6-1-sol,gpt-6-luna=gpt-6-luna)."
+    }
+  ],
+  "pricesCheckedAt": "2026-10-09",
+  "metadata": {
+    "id": "azure-openai",
+    "region": "unspecified",
+    "defaultModel": "gpt-6.1-sol",
+    "description": "GPT on Azure OpenAI",
+    "models": [
+      {
+        "name": "gpt-6.1-sol",
+        "contextWindow": 1050000,
+        "maxOutputTokens": 128000,
+        "thinking": { "mode": "adaptive", "lowest": "low" },
+        "sampling": false,
+        "features": ["tool-use", "parallel-tool-use", "structured-output", "long-context"],
+        "cost": {
+          "promptUsdPer1kTokens": 0.002,
+          "completionUsdPer1kTokens": 0.01,
+          "cachedPromptMultiplier": 0.05,
+          "promptCacheCreationMultiplier": 1.25,
+          "longContext": {
+            "thresholdTokens": 272000,
+            "promptUsdPer1kTokens": 0.004,
+            "completionUsdPer1kTokens": 0.015
+          }
+        },
+        "description": "Balanced performance and cost."
+      },
+      {
+        "name": "gpt-6-luna",
+        "contextWindow": 1050000,
+        "maxOutputTokens": 128000,
+        "thinking": { "mode": "adaptive", "lowest": "none" },
+        "sampling": false,
+        "features": ["tool-use", "parallel-tool-use", "structured-output", "long-context"],
+        "cost": {
+          "promptUsdPer1kTokens": 0.0001,
+          "completionUsdPer1kTokens": 0.0005,
+          "cachedPromptMultiplier": 0.1,
+          "promptCacheCreationMultiplier": 1.25,
+          "longContext": {
+            "thresholdTokens": 272000,
+            "promptUsdPer1kTokens": 0.0002,
+            "completionUsdPer1kTokens": 0.00075
+          }
+        },
+        "description": "Fastest and cheapest — routing, classification, simple calls."
+      }
+    ]
+  }
+}

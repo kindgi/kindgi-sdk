@@ -51,7 +51,11 @@ import {
   pythonBinRunner,
   usablePackageManager,
 } from '../package-manager.js';
-import { type ProviderPreset, loadProviderPresets } from '../providers/preset-loader.js';
+import {
+  type ProviderPreset,
+  loadProviderPresets,
+  presetSettingFlag,
+} from '../providers/preset-loader.js';
 import { CLI_VERSION } from '../version-info.js';
 import { probeConsole } from './console.js';
 import type { CommandResult, LeafCommand } from './types.js';
@@ -541,14 +545,28 @@ function orList(items: readonly string[]): string {
     : `${items.slice(0, -1).join(', ')} or ${items[items.length - 1]}`;
 }
 
-/** The presets that take an LLM provider key, with the key's name, in preset order. */
-async function keyedPresets(
-  seam: DoctorSeam,
-): Promise<readonly { readonly name: string; readonly secret: string }[]> {
+/**
+ * The presets that take an LLM provider key, with the key's name and the
+ * settings the preset asks for besides (as flags), in preset order.
+ */
+async function keyedPresets(seam: DoctorSeam): Promise<
+  readonly {
+    readonly name: string;
+    readonly secret: string;
+    readonly settings: readonly string[];
+  }[]
+> {
   const presets = await (seam.presets ?? (() => loadProviderPresets()))();
   return Object.values(presets).flatMap((p) =>
-    p.secret !== undefined ? [{ name: p.name, secret: p.secret }] : [],
+    p.secret !== undefined
+      ? [{ name: p.name, secret: p.secret, settings: presetSettingFlags(p) }]
+      : [],
   );
+}
+
+/** A preset's settings as `register` takes them, to fill in: `--resource-name=<resourceName>`. */
+function presetSettingFlags(preset: ProviderPreset): readonly string[] {
+  return (preset.adapterConfig ?? []).map((s) => `${presetSettingFlag(s.key)}=<${s.key}>`);
 }
 
 /** A model key the presets name, set in the project's env files. Its value is never read out. */
@@ -731,11 +749,16 @@ async function providerCheck(
     const listed = page.data as readonly ListedProvider[];
     const ids = listed.map((p) => p.id ?? '?');
     const models = ids.filter((id) => id !== DEV_ECHO_PROVIDER_ID);
-    const presets = (await keyedPresets(seam)).map((p) => p.name);
+    const keyed = await keyedPresets(seam);
+    // A preset that asks for settings says which: `azure-openai (with --resource-name=<…> …)`.
+    const presets = keyed.map((p) =>
+      p.settings.length > 0 ? `${p.name} (with ${p.settings.join(' ')})` : p.name,
+    );
+    const only = keyed[0];
     const register =
       presets.length > 1
         ? `Register the provider whose key you set: ${kindgi('providers', 'register', '--preset=<preset>')}, where <preset> is ${orList(presets)} (see Model key).`
-        : `Register one: ${kindgi('providers', 'register', `--preset=${presets[0] ?? 'anthropic'}`)} (its key must be set first; see Model key).`;
+        : `Register one: ${kindgi('providers', 'register', `--preset=${only?.name ?? 'anthropic'}`, ...(only?.settings ?? []))} (its key must be set first; see Model key).`;
     if (models.length > 0) {
       const registered = `${models.length === 1 ? 'A provider is' : `${models.length} providers are`} registered: ${models.join(', ')}.`;
       const allPresets = await (seam.presets ?? (() => loadProviderPresets()))();
@@ -853,7 +876,7 @@ function staleDefaults(
       'providers',
       'register',
       `--preset=${preset.name}`,
-      ...(preset.adapterConfig ?? []).map((s) => `--${s.key}=<${s.key}>`),
+      ...presetSettingFlags(preset),
     );
     if (!preset.metadata.models.some((m) => m.name === lands)) {
       return [
@@ -923,12 +946,7 @@ function presetFor(
 function reRegister(id: string, preset: ProviderPreset | undefined, kindgi: Kindgi): string {
   const register =
     preset !== undefined
-      ? kindgi(
-          'providers',
-          'register',
-          `--preset=${preset.name}`,
-          ...(preset.adapterConfig ?? []).map((s) => `--${s.key}=<${s.key}>`),
-        )
+      ? kindgi('providers', 'register', `--preset=${preset.name}`, ...presetSettingFlags(preset))
       : kindgi('providers', 'register', '--spec=@<file>');
   return `${reRegisterSteps(id, register, kindgi)}${preset === undefined ? ' (its spec with the setting fixed)' : ''}`;
 }

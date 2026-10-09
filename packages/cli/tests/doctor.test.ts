@@ -357,6 +357,18 @@ describe('a TypeScript project', () => {
     expect(check('provider')).toMatchObject({ status: 'fail' });
     expect(check('provider')?.fix).toContain('kindgi providers register --preset=anthropic');
   });
+
+  test('a keyed preset that asks for settings: the hint names them, as register takes them', async () => {
+    await tsProject({ installed: true, rc: RC, envLocal: `ANTHROPIC_API_KEY=${SECRET}\n` });
+    const { check } = await doctor({
+      fetchImpl: healthy,
+      providers: [],
+      seam: { ...seam(), presets: () => loadProviderPresets() },
+    });
+    expect(check('provider')?.fix).toContain(
+      'azure-openai (with --resource-name=<resourceName> --deployments=<deployments>)',
+    );
+  });
 });
 
 describe("a registration the runtime can't build: its problems, from GET /v1/providers/{id}/check", () => {

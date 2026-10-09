@@ -54,6 +54,8 @@ were checked. They are:
 | Preset | What | Key |
 | --- | --- | --- |
 | `anthropic` | Claude on the Anthropic API | `ANTHROPIC_API_KEY` |
+| `azure-openai` | GPT on your Azure OpenAI deployments (`--resource-name=<resource> --deployments=<model=deployment,…>`); to sign in as the runtime's Entra identity instead, register with a spec | `AZURE_OPENAI_API_KEY` |
+| `bedrock` | Claude, Nova and GPT on Amazon Bedrock, as the runtime's AWS identity (`--region=<a US region>`; the runtime needs `KINDGI_AWS_IDENTITY`) | none |
 | `gemini-api` | Gemini on the Gemini Developer API, with an API key from Google AI Studio | `GEMINI_API_KEY` |
 | `gemini` | Gemini on Vertex AI, with Google Application Default Credentials (`--project=<gcp-project>`; in `kindgi dev`, set `KINDGI_DEV_GOOGLE_CREDENTIALS=adc`) | none |
 | `groq` | Open-weight models on Groq's fast inference | `GROQ_API_KEY` |
@@ -245,8 +247,10 @@ models = ["gemini-3.8-flash"]
 </TabItem>
 </Tabs>
 
-A preset entry takes `models`, `project`, `maxOutputTokens`, and `secret`: the
-key's name, in place of the preset's own. The keys are spelled the same in
+A preset entry takes `models`, the settings its preset asks for (`project` for
+`gemini`; `resourceName` and `deployments` for `azure-openai`; `region` for
+`bedrock`), `maxOutputTokens`, and `secret`: the key's name, in place of the
+preset's own. The keys are spelled the same in
 `pyproject.toml`. A `spec` entry is what `--spec`
 takes. A key is always a secret's name, read from the env files; a `spec` with
 a credential in `adapter_config` is refused.

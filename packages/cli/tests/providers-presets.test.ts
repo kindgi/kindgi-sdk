@@ -58,6 +58,8 @@ describe('the bundled presets', () => {
     const presets = await loadProviderPresets();
     expect(Object.keys(presets).sort()).toEqual([
       'anthropic',
+      'azure-openai',
+      'bedrock',
       'gemini',
       'gemini-api',
       'groq',
@@ -330,7 +332,7 @@ describe('kindgi providers register --preset', () => {
     expect(both.stderr).toContain('one of --spec=<json-or-@file> or --preset=<name> is required');
     const unknown = await runCli(inputs(['providers', 'register', '--preset=nope']));
     expect(unknown.stderr).toContain(
-      'no provider preset "nope" — available: anthropic, gemini-api, gemini, groq, openai, openrouter',
+      'no provider preset "nope" — available: anthropic, azure-openai, bedrock, gemini-api, gemini, groq, openai, openrouter',
     );
   });
 });
@@ -341,6 +343,22 @@ describe('kindgi providers presets', () => {
     expect(out.exitCode).toBe(0);
     expect(JSON.parse(out.stdout)).toMatchObject([
       { name: 'anthropic', secret: 'ANTHROPIC_API_KEY' },
+      {
+        name: 'azure-openai',
+        secret: 'AZURE_OPENAI_API_KEY',
+        needs: ['--resource-name', '--deployments'],
+        models: ['gpt-6.1-sol', 'gpt-6-luna'],
+      },
+      {
+        name: 'bedrock',
+        needs: ['--region'],
+        models: [
+          'us.anthropic.claude-sonnet-5-5',
+          'us.amazon.nova-pro-v1:0',
+          'us.openai.gpt-6.1-sol',
+          'us.openai.gpt-6-luna',
+        ],
+      },
       { name: 'gemini-api', secret: 'GEMINI_API_KEY' },
       {
         name: 'gemini',
@@ -366,6 +384,8 @@ describe('a preset names its default model', () => {
     );
     expect(defaults).toEqual({
       anthropic: 'claude-sonnet-5-5',
+      'azure-openai': 'gpt-6.1-sol',
+      bedrock: 'us.anthropic.claude-sonnet-5-5',
       'gemini-api': 'gemini-3.8-flash',
       gemini: 'gemini-3.8-flash',
       groq: 'openai/gpt-oss-120b',

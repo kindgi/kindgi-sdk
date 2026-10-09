@@ -164,8 +164,10 @@ providers: [
 preset = "anthropic"
 models = ["claude-sonnet-5-5"]
 ```
-- A preset entry takes `models`, `project`, `secret` (the key's name, in place
-  of the preset's) and `maxOutputTokens`, spelled the same in `pyproject.toml`;
+- A preset entry takes `models`, the settings its preset asks for (`project`
+  for `gemini`; `resourceName` and `deployments` for `azure-openai`; `region`
+  for `bedrock`), `secret` (the key's name, in place of the preset's) and
+  `maxOutputTokens`, spelled the same in `pyproject.toml`;
   a `spec` entry is a `--spec` body. A
   key is always a secret's name (`secret_ref`); a credential in
   `adapter_config` is refused.

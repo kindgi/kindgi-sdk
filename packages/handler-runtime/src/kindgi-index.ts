@@ -142,6 +142,12 @@ export type KindgiProviderDeclaration =
       readonly models?: readonly string[];
       /** The Google Cloud project, for a preset that needs one (`gemini`). */
       readonly project?: string;
+      /** The Azure OpenAI resource (`<name>.openai.azure.com`), for `azure-openai`. */
+      readonly resourceName?: string;
+      /** The deployment serving each model, `"model=deployment,…"`, for `azure-openai`. */
+      readonly deployments?: string;
+      /** The AWS region Bedrock runs in (`us-east-2`), for `bedrock`. */
+      readonly region?: string;
       /** The secret holding the API key, in place of the preset's own. */
       readonly secret?: string;
       /** Each model's output cap, in place of the preset's (the model's own limit). */

@@ -1733,12 +1733,14 @@ function describeBrowserOrigins(origins: readonly string[]): string {
 
 /**
  * How to get a real model, for the banner: the presets that take an LLM
- * provider key (anthropic, openai, gemini-api, groq, openrouter…), as
- * the dev-echo warning and doctor name them.
+ * provider key and nothing else (anthropic, openai, gemini-api, groq,
+ * openrouter…), as the dev-echo warning names them. A preset that also asks
+ * for settings (azure-openai) doesn't fit a one-line hint; doctor names its
+ * settings.
  */
 async function registerProviderHint(kindgi: (...args: string[]) => string): Promise<string> {
   const keyed = Object.values(await loadProviderPresets()).flatMap((p) =>
-    p.secret !== undefined ? [p.name] : [],
+    p.secret !== undefined && (p.adapterConfig ?? []).length === 0 ? [p.name] : [],
   );
   return keyed.length > 1
     ? `set an LLM provider key, then ${kindgi('providers', 'register', `--preset=<${keyed.join('|')}>`)}`

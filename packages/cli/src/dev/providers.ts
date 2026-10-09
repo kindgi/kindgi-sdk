@@ -34,7 +34,12 @@ import type { Provider, RegisterProviderInput } from '@kindgi/client';
 import { LOCAL_ENV_NAME } from '@kindgi/secrets-dotenv';
 
 import { stableStringify } from '../build/envelope.js';
-import { type ProviderPreset, presetRegistration } from '../providers/preset-loader.js';
+import {
+  PRESET_SETTINGS,
+  type ProviderPreset,
+  presetRegistration,
+  presetSettingFlag,
+} from '../providers/preset-loader.js';
 
 /** A provider the config declares, as it will be registered. */
 export interface DeclaredProvider {
@@ -46,10 +51,12 @@ export type DeclaredProvidersOutcome =
   | { readonly kind: 'ok'; readonly providers: readonly DeclaredProvider[] }
   | { readonly kind: 'invalid'; readonly message: string };
 
+/** A preset declaration's keys: the preset's choices, and each setting a preset can ask for (PRESET_SETTINGS). */
+const SETTING_KEYS = Object.keys(PRESET_SETTINGS);
 const PRESET_KEYS: ReadonlySet<string> = new Set([
   'preset',
   'models',
-  'project',
+  ...SETTING_KEYS,
   'secret',
   'maxOutputTokens',
 ]);
@@ -120,7 +127,7 @@ function fromPreset(
   const invalid = (message: string): Built => ({ kind: 'invalid', message });
   const problem = presetEntryProblem(entry);
   if (problem !== undefined) return invalid(problem);
-  const { preset: name, models, project, secret, maxOutputTokens } = entry;
+  const { preset: name, models, secret, maxOutputTokens } = entry;
   const preset = presets[name as string];
   if (preset === undefined) {
     return invalid(`no provider preset "${name}"; there are ${Object.keys(presets).join(', ')}.`);
@@ -129,12 +136,19 @@ function fromPreset(
     ...(models !== undefined && { models: models as readonly string[] }),
     ...(secret !== undefined && { secret: secret as string }),
     envName: LOCAL_ENV_NAME,
-    settings: { project: project as string | undefined },
+    settings: Object.fromEntries(
+      SETTING_KEYS.map((key) => [key, entry[key] as string | undefined]),
+    ),
     ...(maxOutputTokens !== undefined && { maxOutputTokens: maxOutputTokens as number }),
   });
   if (built.kind === 'err') {
-    // The preset's messages name the CLI flags (`--project=<…>`); the config names keys.
-    return invalid(built.message.replace(/--([a-z]+)=<…>/g, '`$1`'));
+    // The preset's messages name the CLI flags (`--resource-name=<…>`); the config names keys.
+    return invalid(
+      SETTING_KEYS.reduce(
+        (message, key) => message.replaceAll(`${presetSettingFlag(key)}=<…>`, `\`${key}\``),
+        built.message,
+      ),
+    );
   }
   return { kind: 'ok', provider: { id: built.input.metadata.id, input: built.input } };
 }
@@ -145,7 +159,7 @@ function presetEntryProblem(entry: Readonly<Record<string, unknown>>): string | 
   if (unknown.length > 0) {
     return `a preset takes ${[...PRESET_KEYS].map((k) => `\`${k}\``).join(', ')}; not ${unknown.map((k) => `\`${k}\``).join(', ')}.`;
   }
-  const { preset: name, models, project, secret, maxOutputTokens } = entry;
+  const { preset: name, models, secret, maxOutputTokens } = entry;
   if (typeof name !== 'string' || name === '') return '`preset` must be a preset name.';
   if (
     models !== undefined &&
@@ -156,9 +170,9 @@ function presetEntryProblem(entry: Readonly<Record<string, unknown>>): string | 
     return '`models` must be a non-empty list of model names.';
   }
   for (const [key, value] of [
-    ['project', project],
-    ['secret', secret],
-  ] as const) {
+    ...SETTING_KEYS.map((key) => [key, entry[key]] as const),
+    ['secret', secret] as const,
+  ]) {
     if (value !== undefined && (typeof value !== 'string' || value === '')) {
       return `\`${key}\` must be a non-empty string.`;
     }
