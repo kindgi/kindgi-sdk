@@ -50,6 +50,7 @@ export interface PackServiceSupervisorOptions {
    *
    *   - Node: `[process.execPath, '--enable-source-maps', <@kindgi/handler-runtime/pack-service-main>]`
    *   - Python: `[<the pack's python>, '-m', 'kindgi.pack', 'serve']`
+   *   - Java and Scala: `['sh', <kindgi-pack-java>, '-cp', <classpath> (or `@<argfile>`), 'com.kindgi.pack.Main', 'serve']`
    */
   readonly command: readonly [string, ...string[]];
   /** Where the index's module paths resolve — the pack directory. */
@@ -102,8 +103,16 @@ export type PackServiceSupervisorEvent =
   | { readonly kind: 'exited'; readonly code: number | null; readonly signal: string | null }
   | { readonly kind: 'restarting'; readonly attempt: number }
   | { readonly kind: 'gave-up'; readonly attempts: number }
-  /** One of the service's own JSON log lines (a call, draining, …). */
-  | { readonly kind: 'log'; readonly event: Readonly<Record<string, unknown>> };
+  /**
+   * A record the service wrote (a call, draining, an author's `ctx.log`
+   * line, …), or a bare event from an older service: `event` as
+   * `serviceEvent` reads it, `line` as written.
+   */
+  | {
+      readonly kind: 'log';
+      readonly event: Readonly<Record<string, unknown>>;
+      readonly line: string;
+    };
 
 export interface BootFailure {
   readonly problems: readonly string[];
@@ -122,7 +131,7 @@ export interface PackRelayCall {
   readonly requestId?: string;
   /** The caller's protocol version (`kindgi-protocol`), passed on as is. */
   readonly protocol?: string;
-  /** The caller's W3C trace context (`traceparent`), passed on as is. */
+  /** The caller's W3C trace context (`traceparent`), passed on as is, so the child's records carry its trace. */
   readonly traceparent?: string;
 }
 
@@ -225,7 +234,13 @@ export function createPackServiceSupervisor(
   let front: { readonly server: Server; readonly url: string; readonly port: number } | undefined;
 
   async function boot(indexPath: string): Promise<Result<Child, BootFailure>> {
-    const env = { ...(await options.env()), KINDGI_PACK_SERVICE_TOKEN: token, PORT: '0' };
+    // JSON whatever the pack's env says: this process reads the child's records.
+    const env = {
+      ...(await options.env()),
+      KINDGI_PACK_SERVICE_TOKEN: token,
+      PORT: '0',
+      KINDGI_LOG_FORMAT: 'json',
+    };
     const [program, ...args] = options.command;
     const child = spawn(
       program,
@@ -265,7 +280,7 @@ export function createPackServiceSupervisor(
         } else if (event.kind === 'boot-failed' || event.kind === 'config-invalid') {
           problems.push(...problemsOf(event));
         } else {
-          emit({ kind: 'log', event });
+          emit({ kind: 'log', event, line });
         }
       });
       child.once('error', (cause) => fail([cause.message]));
@@ -625,21 +640,58 @@ function problemsOf(event: Readonly<Record<string, unknown>>): readonly string[]
   return Array.isArray(event.problems) ? event.problems.map(String) : [];
 }
 
-/** The service's own log lines are JSON objects with a `kind`. */
-function serviceEvent(
+/** What a pack service from before records wrote as bare `{"kind": …}` lines. */
+const LEGACY_EVENTS: ReadonlySet<string> = new Set([
+  'listening',
+  'boot-failed',
+  'config-invalid',
+  'missing-env',
+  'draining',
+  'stopped',
+  'call',
+  'handler-finished-late',
+]);
+
+/**
+ * One of the service's own log lines, as an event with a `kind`:
+ *
+ *   - a record (`@kindgi/log`: `time`, `level`, `subsystem`, `message`).
+ *     The service's own, subsystem `pack`, carry their event as `event`
+ *     (`listening`, `call`, …), which becomes `kind`. Any other record, an
+ *     author's `ctx.log` (`pack.tool`) say, comes back with `kind: 'record'`,
+ *     to show, never to act on;
+ *   - a bare `{"kind": …}` line from a pack service from before records,
+ *     for the events it wrote. Any other JSON line is the pack's own
+ *     output, shown as it is.
+ */
+export function serviceEvent(
   line: string,
 ): (Record<string, unknown> & { readonly kind: string }) | undefined {
   if (!line.startsWith('{')) return undefined;
+  let parsed: unknown;
   try {
-    const parsed = JSON.parse(line) as unknown;
-    return parsed !== null &&
-      typeof parsed === 'object' &&
-      typeof (parsed as { kind?: unknown }).kind === 'string'
-      ? (parsed as Record<string, unknown> & { readonly kind: string })
-      : undefined;
+    parsed = JSON.parse(line);
   } catch {
     return undefined;
   }
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) return undefined;
+  const fields = parsed as Record<string, unknown>;
+  if (isRecord(fields)) {
+    const own = fields.subsystem === 'pack' && typeof fields.event === 'string';
+    return { ...fields, kind: own ? (fields.event as string) : 'record' };
+  }
+  return typeof fields.kind === 'string' && LEGACY_EVENTS.has(fields.kind)
+    ? (fields as Record<string, unknown> & { readonly kind: string })
+    : undefined;
+}
+
+function isRecord(fields: Record<string, unknown>): boolean {
+  return (
+    typeof fields.time === 'string' &&
+    typeof fields.level === 'string' &&
+    typeof fields.subsystem === 'string' &&
+    typeof fields.message === 'string'
+  );
 }
 
 function describe(cause: unknown): string {

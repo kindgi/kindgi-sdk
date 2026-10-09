@@ -16,11 +16,15 @@ export type {
   RunSnapshotRecord,
   RunSnapshotWriteInput,
 } from './run-snapshot-binding.js';
+export { DRAFTED_TEMPLATE_MAX, checkDraftedTemplate } from './drafted-template.js';
+export type { DraftedTemplateContext } from './drafted-template.js';
 export { defineAgent } from './define.js';
 export {
   BLOCK_KINDS,
   MODEL_SETTINGS_SCHEMA,
+  TUNABLE_MARKER,
   settingsSchemaIssues,
+  tunableKeys,
   validateBlock,
 } from './blocks.js';
 export type {
@@ -32,6 +36,7 @@ export type {
   ModelSettings,
   PromptBlockContent,
   SettingsBlockContent,
+  TunableKey,
 } from './blocks.js';
 export type { DefineAgentSpec } from './define.js';
 export { resolveEffectiveHitlPolicy } from './hitl-policy.js';
@@ -45,11 +50,12 @@ export type { GateDecision, GateDecisionValue } from './handlers/gate-decision.j
 export type { EffectiveHitlPolicy } from './hitl-policy.js';
 export { agentStepOutput, invokeAgent, resumeAgentTurn } from './invoke.js';
 export { parseFailureMessage, turnFailureMessage } from './handlers/errors.js';
-export { isReadOnlyTool } from './handlers/replay.js';
+export { isComputeOnlyTool, isReadOnlyTool } from './handlers/replay.js';
 export { SESSION_GATE_RECORD } from './handlers/setup.js';
 export type {
   ReplayApproval,
   ReplayBinding,
+  ReplayOverrides,
   ReplayToolDecision,
   ReplayToolInput,
   ReplayToolTrace,
@@ -71,6 +77,7 @@ export type {
   OutputSchemaViolationError,
   ResumeAgentTurnInput,
   RunSnapshotError,
+  SemanticUnavailableError,
   ToolInvocationError,
   UnresolvedToolError,
 } from './invoke.js';
@@ -106,7 +113,26 @@ export type {
   TurnStartedEvent,
 } from './streaming.js';
 export { AUTO_INJECTED_VARS, renderInstructions } from './prompt.js';
-export { formatRetrievedForPrompt, runRetrievals } from './retrieval.js';
+export {
+  EARLIER_ANSWER_NOTE,
+  MEMORY_DATA_RULE,
+  RECALL_DEFAULT_ROLES,
+  formatPoliciesForPrompt,
+  formatRetrievedForPrompt,
+  isPolicyFact,
+  retrieveForTurn,
+  runMemoryReaders,
+  runRetrievals,
+} from './retrieval.js';
+export type { DegradedIntent, RetrievalPass, RetrievalRun } from './retrieval.js';
+export {
+  DEFAULT_REMEMBER_DAYS,
+  MAX_REMEMBER_DAYS,
+  REMEMBER_TOOL_ID,
+  REMEMBER_TOOL_VERSION,
+  looksLikeInstruction,
+} from './remember.js';
+export type { RememberToolOutput } from './handlers/remember-tool.js';
 export type { RetrievalBindings } from './retrieval.js';
 export type {
   MissingParameterError,
@@ -140,6 +166,7 @@ export type {
   Agent,
   AgentBindings,
   AgentId,
+  AgentMemoryPolicy,
   AgentOutputSpec,
   BlockRef,
   Conversation,
@@ -149,6 +176,9 @@ export type {
   MessageRole,
   PromptParameter,
   PromptRef,
+  RecalledMemory,
+  RememberPolicy,
+  RememberScope,
   RetrievalIntent,
   RetrievedFact,
   ToolRef,

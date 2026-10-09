@@ -57,7 +57,7 @@ describe('kindgi eval-suites', () => {
 
   test('list rejects an unknown kind', async () => {
     const out = await run(['eval-suites', 'list', '--kind=bogus'], { evalSuites: {} });
-    expect(out.exitCode).toBe(1);
+    expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain('--kind must be one of');
   });
 
@@ -93,6 +93,8 @@ describe('kindgi eval-suites', () => {
         '--class=jc-1',
         '--class=jc-2',
         '--min-judgments=2',
+        '--segment=company:acme',
+        '--segment=role:cfo',
         '--description=First set',
       ],
       { evalSuites: { buildFromJudgments: rec('build', { caseCount: 3 }) } },
@@ -112,6 +114,10 @@ describe('kindgi eval-suites', () => {
           description: 'First set',
           judgeClassIds: ['jc-1', 'jc-2'],
           minJudgments: 2,
+          segments: [
+            { key: 'company', value: 'acme' },
+            { key: 'role', value: 'cfo' },
+          ],
         },
       ],
     ]);

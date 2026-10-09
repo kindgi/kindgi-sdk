@@ -7,10 +7,6 @@ sidebar:
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-:::note[Preview (0.1.4-rc)]
-Test sets are new in Kindgi 0.1.4, available now in its release candidates:
-`npx @kindgi/cli@next`, and `uv add --prerelease allow kindgi`.
-:::
 
 A **test set** is a set of past runs that people judged. Each case is a copy
 of one run, with the judgments of each item of its output added up. You
@@ -29,7 +25,7 @@ its own id:
   "articles": [
     { "id": "kb-101", "title": "Reset your password" },
     { "id": "kb-102", "title": "Change the email on your account" },
-    { "id": "kb-401", "title": "Close your account" }
+    { "id": "kb-103", "title": "Turn on two-step sign-in" }
   ]
 }
 ```
@@ -92,6 +88,13 @@ for (const c of cases.data) {
 }
 ```
 
+```text
+3 cases
+I was charged twice for one order. How do I get my money back? [ 'kb-201 1 yes, 0 no', 'kb-203 0 yes, 1 no', 'kb-202 0 yes, 1 no' ]
+I forgot my password and can't sign in. [ 'kb-101 1 yes, 0 no', 'kb-102 0 yes, 1 no', 'kb-103 0 yes, 1 no' ]
+My package hasn't arrived yet. Where is it? [ 'kb-301 1 yes, 0 no', 'kb-303 0 yes, 1 no', 'kb-201 0 yes, 1 no' ]
+```
+
 </TabItem>
 <TabItem label="Python">
 
@@ -118,15 +121,15 @@ for case in cases.data:
     print(case.input, [f"{item.key} {item.yes} yes, {item.no} no" for item in case.items])
 ```
 
-</TabItem>
-</Tabs>
-
 ```text
 3 cases
-My package hasn't arrived yet. Where is it? [ 'kb-301 1 yes, 0 no', 'kb-201 0 yes, 1 no', 'kb-302 0 yes, 1 no' ]
-I forgot my password and can't sign in. [ 'kb-101 1 yes, 0 no', 'kb-102 0 yes, 1 no', 'kb-401 0 yes, 1 no' ]
-I was charged twice for one order. How do I get my money back? [ 'kb-201 1 yes, 0 no', 'kb-203 0 yes, 1 no', 'kb-302 0 yes, 1 no' ]
+I was charged twice for one order. How do I get my money back? ['kb-201 1 yes, 0 no', 'kb-203 0 yes, 1 no', 'kb-202 0 yes, 1 no']
+I forgot my password and can't sign in. ['kb-101 1 yes, 0 no', 'kb-102 0 yes, 1 no', 'kb-103 0 yes, 1 no']
+My package hasn't arrived yet. Where is it? ['kb-301 1 yes, 0 no', 'kb-303 0 yes, 1 no', 'kb-201 0 yes, 1 no']
 ```
+
+</TabItem>
+</Tabs>
 
 - **The project's id:** `kindgi projects get-default` prints the Default
   project, with its `id`; `kindgi projects list` lists them all. In code:
@@ -143,6 +146,30 @@ I was charged twice for one order. How do I get my money back? [ 'kb-201 1 yes, 
   refused: `Eval suite "acme.article-picks" version "1.0.0" is already registered.`
 - **Building a test set takes `admin` on the project.**
 
+### Narrow it to a segment
+
+`--segment=<key:value>` (repeat it for a path, coarse to fine; `segments` in
+the clients) keeps the runs started in that segment or below it:
+
+```sh
+kindgi eval-suites from-judgments acme.rank-acme-segment --suite-version=1.0.0 --project=<project-id> \
+  --agent=acme.rank.scorer --segment=company:acme --description="acme company only"
+```
+
+```json
+{
+  "suiteId": "acme.rank-acme-segment",
+  "version": "1.0.0",
+  "kind": "judged",
+  "caseCount": 20,
+  "truncated": false
+}
+```
+
+A judged run keeps the segment path it was started with. Runs judged before
+0.1.5 kept none, so they're in no segment, and a narrowed test set leaves
+them out.
+
 ## What a case keeps
 
 `kindgi eval-suites cases acme.article-picks --suite-version=1.0.0` lists the
@@ -150,7 +177,7 @@ cases. One of them:
 
 ```json
 {
-  "caseId": "fc699799-2900-47d8-8a06-07d64f17cce4",
+  "caseId": "240c0a0b-542b-4cb1-9156-fe7153a4377a",
   "subject": { "kind": "agent", "id": "acme-ops.article-picker", "version": "0.1.0" },
   "input": "I forgot my password and can't sign in.",
   "items": [
@@ -162,6 +189,7 @@ cases. One of them:
       "no": 0,
       "yesWeight": 1,
       "totalWeight": 1,
+      "restricted": { "yesWeight": 0, "totalWeight": 0 },
       "reasons": [{ "verdict": "yes", "reason": "Resets the password" }]
     },
     …
@@ -180,7 +208,9 @@ cases. One of them:
 - **`output`** is the run's output, as it was judged.
 - **`context`**, for an agent turn, is what the turn had before it answered:
   the conversation so far (up to 200 messages) and what it retrieved. A
-  comparison replays the turn with the same context.
+  comparison replays the turn with the same context. Its `toolEnv` has the
+  [env values](../../tools/give-a-tool-env-values/) each tool was sent, by
+  tool id: a read-only tool the comparison runs live gets those, not today's.
 
 ## In the console
 

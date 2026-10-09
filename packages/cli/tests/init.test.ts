@@ -7,6 +7,9 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
+import { defaultTemplatesRoot } from '../src/commands/init.js';
+import { JVM_PREVIEW } from '../src/init/dependency-specs.js';
+import { substitute } from '../src/init/template-files.js';
 import { runCli } from '../src/main.js';
 import { publishedCliSpec } from '../src/package-manager.js';
 import { CLI_VERSION } from '../src/version-info.js';
@@ -83,9 +86,9 @@ describe('kindgi init — argument validation', () => {
     expect(out.stderr).toContain('kebab');
   });
 
-  test('unknown template → exit 1 listing available templates', async () => {
+  test('unknown template → exit 2 listing available templates', async () => {
     const out = await runCli(baseInputs({ argv: ['init', 'my-pack', '--template=nope'] }));
-    expect(out.exitCode).toBe(1);
+    expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain('Unknown template: nope');
     expect(out.stderr).toContain('minimal');
     expect(out.stderr).toContain('sample');
@@ -241,6 +244,85 @@ describe('kindgi init — a machine without pnpm (T280)', () => {
   });
 });
 
+describe("kindgi init — the README's commands are the Next steps' (T279)", () => {
+  const NO_PNPM = {
+    pnpmVersion: async () => {
+      throw new Error('spawn pnpm ENOENT');
+    },
+    packageManagerRuns: async (pm: string) => pm !== 'pnpm',
+  };
+  const cases = [
+    {
+      name: 'minimal, with pnpm',
+      argv: [] as string[],
+      env: {},
+      seam: undefined,
+      runner: 'pnpm exec kindgi',
+    },
+    { name: 'minimal, without pnpm', argv: [], env: {}, seam: NO_PNPM, runner: 'npx --no kindgi' },
+    {
+      name: 'sample, with pnpm',
+      argv: ['--template=sample'],
+      env: {},
+      seam: undefined,
+      runner: 'pnpm exec kindgi',
+    },
+    {
+      name: 'sample, without pnpm',
+      argv: ['--template=sample'],
+      env: {},
+      seam: NO_PNPM,
+      runner: 'npx --no kindgi',
+    },
+    // No npm project to hold the CLI: the published CLI, within its minor.
+    {
+      name: 'python, the npm CLI',
+      argv: ['--template=python'],
+      env: {},
+      seam: undefined,
+      runner: 'npx --yes @kindgi/cli@',
+    },
+    {
+      name: 'python, the PyPI CLI',
+      argv: ['--template=python'],
+      env: { KINDGI_CLI_INSTALL: 'pypi' },
+      seam: undefined,
+      runner: 'uv run kindgi',
+    },
+  ] as const;
+
+  test.each(cases)('$name', async ({ argv, env, seam, runner }) => {
+    const out = await runCli(
+      baseInputs({
+        argv: ['init', 'my-pack', ...argv],
+        env,
+        ...(seam !== undefined && { initSeam: seam }),
+      }),
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    const { nextSteps } = JSON.parse(out.stdout) as { nextSteps: readonly string[] };
+    const readme = await readFile(join(cwd, 'my-pack', 'README.md'), 'utf8');
+    const lines = readme.split('\n');
+    // Each Next step but `cd` is a line of the README, as a command.
+    for (const step of nextSteps.filter((s) => !s.startsWith('cd '))) {
+      const command = step.split('  #')[0]!.trim();
+      expect(
+        lines.some((l) => l === command || l.startsWith(`${command} `)),
+        `README lacks "${command}"`,
+      ).toBe(true);
+    }
+    // The runner the dev step uses runs every `kindgi` command the README shows.
+    const dev = nextSteps.find((s) => / dev\b/.test(s) && !s.startsWith('cd '))!;
+    const used = dev.split(' dev')[0]!;
+    expect(used.startsWith(runner), dev).toBe(true);
+    expect(lines.filter((l) => l.startsWith(`${used} `)).length).toBeGreaterThanOrEqual(3);
+    if (used !== 'kindgi') expect(readme).not.toMatch(/^kindgi /m);
+    expect(readme).not.toContain('{{');
+    expect(readme).not.toContain('not yet published');
+    if (seam === NO_PNPM) expect(readme).not.toMatch(/^pnpm /m);
+  });
+});
+
 describe('kindgi init — the pack pins the pnpm that installs it', () => {
   const manifest = async (dir: string): Promise<{ readonly packageManager?: string }> =>
     JSON.parse(await readFile(join(dir, 'package.json'), 'utf8')) as { packageManager?: string };
@@ -359,6 +441,159 @@ describe('kindgi init — python template', () => {
   });
 });
 
+describe('kindgi init — java template', () => {
+  test('scaffolds a Maven pack: kindgi.config.json, pom.xml, the wrapper, sources under the pack id', async () => {
+    const out = await runCli(baseInputs({ argv: ['init', 'acme.billing', '--template=java'] }));
+    expect(out.exitCode, out.stderr).toBe(0);
+    const all = await listRecursive(join(cwd, 'billing'));
+    // The skills written for Java packs: the shared ones and the Java getting-started and
+    // authoring skills, none of the TypeScript or Python ones.
+    expect(all.filter((f) => f.startsWith('.claude/'))).toEqual([
+      '.claude/skills/.kindgi-manifest.json',
+      '.claude/skills/kindgi-authoring-mcp-servers/SKILL.md',
+      '.claude/skills/kindgi-authoring-providers/SKILL.md',
+      '.claude/skills/kindgi-framework-feedback/SKILL.md',
+      '.claude/skills/kindgi-java-authoring-agents/SKILL.md',
+      '.claude/skills/kindgi-java-authoring-flows/SKILL.md',
+      '.claude/skills/kindgi-java-authoring-guardrails/SKILL.md',
+      '.claude/skills/kindgi-java-authoring-tools/SKILL.md',
+      '.claude/skills/kindgi-java-getting-started/SKILL.md',
+    ]);
+    const files = all.filter((f) => !f.startsWith('.claude/'));
+    expect(files).toEqual([
+      '.gitignore',
+      '.mvn/wrapper/maven-wrapper.properties',
+      'AGENTS.md',
+      'README.md',
+      'kindgi.config.json',
+      'kindgiw',
+      'kindgiw.cmd',
+      'mvnw',
+      'pom.xml',
+      'src/main/java/acme/billing/agents/EchoAgent.java',
+      'src/main/java/acme/billing/flows/EchoFlow.java',
+      'src/main/java/acme/billing/guardrails/ResponseNotEmpty.java',
+      'src/main/java/acme/billing/tools/Echo.java',
+      'src/main/java/acme/billing/tools/Greet.java',
+      'src/test/java/acme/billing/ToolsTest.java',
+    ]);
+    expect(JSON.parse(await readFile(join(cwd, 'billing', 'kindgi.config.json'), 'utf8'))).toEqual({
+      language: 'java',
+      cli: CLI_VERSION,
+      pack: { id: 'acme.billing', version: '0.1.0' },
+    });
+    const pom = await readFile(join(cwd, 'billing', 'pom.xml'), 'utf8');
+    expect(pom).toContain(`<kindgi.version>${CLI_VERSION}</kindgi.version>`);
+    expect(pom).toContain('<artifactId>kindgi-pack</artifactId>');
+    expect(pom).toContain('<maven.compiler.release>17</maven.compiler.release>');
+    const echo = await readFile(
+      join(cwd, 'billing', 'src/main/java/acme/billing/tools/Echo.java'),
+      'utf8',
+    );
+    expect(echo).toContain('package acme.billing.tools;');
+    expect(echo).toContain('Tool.define("acme.billing.echo")');
+    expect(echo).not.toMatch(/\{\{[A-Z_]+\}\}/);
+    expect((await stat(join(cwd, 'billing', 'mvnw'))).mode & 0o111).not.toBe(0);
+    expect((await stat(join(cwd, 'billing', 'kindgiw'))).mode & 0o111).not.toBe(0);
+    // From a checkout, the next steps install kindgi-pack from its sdks/java.
+    expect(out.stderr).toMatch(/\(cd .*sdks\/java && \.\/mvnw -q install -DskipTests\)/);
+    expect(out.stderr).toContain('./mvnw test');
+    expect(out.stderr).toContain('./kindgiw dev');
+    // Java packs are a preview, and say what that means.
+    expect(out.stderr).toContain(
+      `✓ Java pack scaffolded at ${join(cwd, 'billing')}/ (preview)\n  ${JVM_PREVIEW}`,
+    );
+    expect(JSON.parse(out.stdout)).toMatchObject({ preview: true });
+    expect(await readFile(join(cwd, 'billing', 'README.md'), 'utf8')).toContain(
+      'Java and Scala support is in preview',
+    );
+  });
+});
+
+describe('kindgi init — scala template', () => {
+  test('scaffolds an sbt pack: kindgi.config.json, build.sbt, the wrappers, sources under the pack id', async () => {
+    const out = await runCli(baseInputs({ argv: ['init', 'acme.type', '--template=scala'] }));
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(await listRecursive(join(cwd, 'type'))).toEqual([
+      // The skills written for Scala packs: the shared ones and the Scala getting-started and
+      // authoring skills.
+      '.claude/skills/.kindgi-manifest.json',
+      '.claude/skills/kindgi-authoring-mcp-servers/SKILL.md',
+      '.claude/skills/kindgi-authoring-providers/SKILL.md',
+      '.claude/skills/kindgi-framework-feedback/SKILL.md',
+      '.claude/skills/kindgi-scala-authoring-agents/SKILL.md',
+      '.claude/skills/kindgi-scala-authoring-flows/SKILL.md',
+      '.claude/skills/kindgi-scala-authoring-guardrails/SKILL.md',
+      '.claude/skills/kindgi-scala-authoring-tools/SKILL.md',
+      '.claude/skills/kindgi-scala-getting-started/SKILL.md',
+      '.gitignore',
+      'AGENTS.md',
+      'README.md',
+      'build.sbt',
+      'kindgi.config.json',
+      'kindgiw',
+      'kindgiw.cmd',
+      'project/build.properties',
+      // `type` is a Scala keyword: the package is `acme.type_`.
+      'src/main/scala/acme/type_/agents/EchoAgent.scala',
+      'src/main/scala/acme/type_/flows/EchoFlow.scala',
+      'src/main/scala/acme/type_/guardrails/ResponseNotEmpty.scala',
+      'src/main/scala/acme/type_/tools/Echo.scala',
+      'src/main/scala/acme/type_/tools/Greet.scala',
+      'src/test/scala/acme/type_/ToolsSuite.scala',
+    ]);
+    expect(JSON.parse(await readFile(join(cwd, 'type', 'kindgi.config.json'), 'utf8'))).toEqual({
+      language: 'scala',
+      cli: CLI_VERSION,
+      pack: { id: 'acme.type', version: '0.1.0' },
+    });
+    const build = await readFile(join(cwd, 'type', 'build.sbt'), 'utf8');
+    expect(build).toContain(`"com.kindgi" %% "kindgi-pack-scala" % "${CLI_VERSION}"`);
+    expect(build).toContain('scalaVersion := "3.3.8"');
+    const greet = await readFile(
+      join(cwd, 'type', 'src/main/scala/acme/type_/tools/Greet.scala'),
+      'utf8',
+    );
+    expect(greet).toContain('package acme.type_.tools');
+    expect(greet).toContain('Tool[Input, Output]("acme.type.greet")');
+    expect(greet).not.toMatch(/\{\{[A-Z_]+\}\}/);
+    expect((await stat(join(cwd, 'type', 'kindgiw'))).mode & 0o111).not.toBe(0);
+    // From a checkout, the next steps build kindgi-pack and kindgi-pack-scala from its sdks/.
+    expect(out.stderr).toMatch(
+      /\(cd .*sdks\/java && \.\/mvnw -q -pl kindgi-pack -am install -DskipTests\)/,
+    );
+    expect(out.stderr).toMatch(/\(cd .*sdks\/scala && sbt \+publishLocal\)/);
+    expect(out.stderr).toContain('sbt test');
+    expect(out.stderr).toContain('./kindgiw dev');
+    // ... and the build reads the local Maven repository, where kindgi-pack went.
+    expect(build).toContain('    resolvers += Resolver.mavenLocal,\n');
+    expect(out.stderr).toContain(
+      `✓ Scala pack scaffolded at ${join(cwd, 'type')}/ (preview)\n  ${JVM_PREVIEW}`,
+    );
+    expect(JSON.parse(out.stdout)).toMatchObject({ preview: true });
+  });
+
+  test('from Maven Central, build.sbt names no resolver: kindgi-pack-scala and kindgi-pack resolve there', async () => {
+    const raw = await readFile(join(defaultTemplatesRoot(), 'scala', 'build.sbt.tmpl'), 'utf8');
+    const build = substitute(raw, {
+      PACK_NAME: 'type',
+      PACK_ID: 'acme.type',
+      PACK_VERSION: '0.1.0',
+      KINDGI_SCALA_VERSION: '0.1.5',
+      SCALA_LOCAL_RESOLVER: '',
+    });
+    expect(build).not.toContain('resolvers');
+    expect(build).toContain('    version := "0.1.0",\n    libraryDependencies ++= Seq(');
+  });
+
+  test('--template=scala in a Node app is refused, pointing at --new-repo', async () => {
+    await writeFile(join(cwd, 'package.json'), '{"name":"app"}');
+    const out = await runCli(baseInputs({ argv: ['init', '--template=scala'] }));
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('--template=scala --new-repo');
+  });
+});
+
 describe('kindgi init — sample template', () => {
   test('scaffolds the larger file set including guardrails + flows', async () => {
     const out = await runCli(baseInputs({ argv: ['init', 'my-pack', '--template=sample'] }));
@@ -467,6 +702,13 @@ describe('kindgi init — path + force flags', () => {
 });
 
 describe('kindgi init --template in an existing app (augment mode)', () => {
+  test('--template=java in a Node app is refused, pointing at --new-repo', async () => {
+    await writeFile(join(cwd, 'package.json'), '{"name":"acme-app"}\n');
+    const out = await runCli(baseInputs({ argv: ['init', '--template=java'] }));
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('--template=java --new-repo');
+  });
+
   test('--template=python is refused before anything is written', async () => {
     await writeFile(
       join(cwd, 'package.json'),

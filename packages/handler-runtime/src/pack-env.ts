@@ -6,7 +6,7 @@
  * libraries they import take from `process.env` (a database URL a client
  * reads at import, a bucket name). Declared once per pack, in
  * `kindgi.config` (`env: { required, optional }`; Python:
- * `[tool.kindgi.env]`), and carried in `index.json`, so the pack service
+ * `[tool.kindgi.env]`; Java and Scala: `env` in `kindgi.config.json`), and carried in `index.json`, so the pack service
  * in an image knows what it needs.
  *
  * A deployment injects exactly these names: `required` must be there for
@@ -14,8 +14,8 @@
  * has a value. Nothing else from an env file reaches the process.
  *
  * Distinct from `needsSpec.env` / `ctx.env`, the per-call values the
- * runtime resolves for a call's tenant, and from `needsSpec.secrets` /
- * `ctx.secrets`.
+ * runtime resolves for a call (its project's, else its org's, else its
+ * tenant's, from `/v1/env`), and from `needsSpec.secrets` / `ctx.secrets`.
  */
 
 /** A pack's declared process environment, as `index.json` carries it. */

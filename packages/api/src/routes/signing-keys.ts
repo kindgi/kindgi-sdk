@@ -6,10 +6,12 @@ import { type Context, Hono } from 'hono';
 import type { Cursor, SigningKeyId, TenantId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
+import type { Authorizer } from '../middleware/authorize.js';
 import type { SigningKeyBinding, TrustedKey } from '../signing-key-binding.js';
 import type { AppEnv } from '../types.js';
 import { hasCapability } from './env.js';
 import { clampLimit } from './pagination.js';
+import { tenantResourceAccess } from './tenant-access.js';
 
 /**
  * The tenant's trusted signing keys: the public keys whose signatures
@@ -29,8 +31,12 @@ import { clampLimit } from './pagination.js';
  * Writes need the `signing-keys:write` capability; reads, the tenant's
  * bearer.
  */
-export function signingKeysRouter(binding: SigningKeyBinding): Hono<AppEnv> {
+export function signingKeysRouter(
+  binding: SigningKeyBinding,
+  authorizer?: Authorizer,
+): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+  r.use('*', tenantResourceAccess(authorizer));
 
   // ---------- POST / (trust a key) ----------
   r.post('/', async (c) => {

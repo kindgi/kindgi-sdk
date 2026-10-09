@@ -47,6 +47,12 @@ import {
 } from '../build/host-install.js';
 import { readImageConfig } from '../build/image-config.js';
 import { checkIntegrity } from '../build/integrity.js';
+import {
+  DEFAULT_JAVA_BUILD_IMAGE_REF,
+  DEFAULT_JAVA_RUNTIME_IMAGE_REF,
+  JAVA_PACK_SERVICE_COMMAND,
+  collectJavaContextFiles,
+} from '../build/java-image.js';
 import { nodeBaseImageFor } from '../build/node-image.js';
 import { resolvePackRoots } from '../build/pack-root.js';
 import {
@@ -62,8 +68,13 @@ import type {
   TarPackResult,
   TerminalPayload,
 } from '../build/runners.js';
+import {
+  DEFAULT_SCALA_BUILD_IMAGE_REF,
+  SCALA_PACK_SERVICE_COMMAND,
+  collectScalaContextFiles,
+} from '../build/scala-image.js';
 import type { CommandContext } from '../context.js';
-import { resolvePackPython } from '../dev/pack-code.js';
+import { resolvePackJava, resolvePackPython, resolvePackScala } from '../dev/pack-code.js';
 import type { IndexedCounts } from '../dev/runners.js';
 import { renderJson } from '../output.js';
 import { loadPackConfig } from '../pack-config.js';
@@ -91,8 +102,6 @@ export interface PackConfig {
 }
 
 export const DEFAULT_OUT_DIR = '.kindgi/build';
-/** SOURCE_DATE_EPOCH=0 baseline — the build-server also pins epoch=0. */
-export const DEFAULT_PUBLISHED_AT = '1970-01-01T00:00:00.000Z';
 
 export const buildCommand: LeafCommand = {
   kind: 'leaf',
@@ -143,12 +152,12 @@ export const buildCommand: LeafCommand = {
     'artifact-version': {
       type: 'string',
       description:
-        "The artifact version, in the image and its signature. Default: today's date as `YYYYMMDD.1` (UTC).",
+        'The artifact version, in the image and its signature. Default: the build time as `YYYYMMDD.HHMMSS` (UTC). For a reproducible build, pass `--artifact-version` and `--published-at`.',
     },
     'published-at': {
       type: 'string',
       description:
-        'The publish time (ISO 8601), in the image and its signature. Default: the Unix epoch, so builds are reproducible.',
+        'The publish time (ISO 8601), in the image and its signature. Default: the build time. For a reproducible build, pass `--artifact-version` and `--published-at`.',
     },
     tenant: {
       type: 'string',
@@ -527,7 +536,14 @@ async function runLocalBuild(
   lines(
     `    docker run --rm -p 8080:8080 -e KINDGI_PACK_SERVICE_TOKEN=<token> --env-file <the pack's env> ${tag}`,
   );
-  const service = args.language === 'python' ? PYTHON_PACK_SERVICE_COMMAND : PACK_SERVICE_COMMAND;
+  const service =
+    args.language === 'python'
+      ? PYTHON_PACK_SERVICE_COMMAND
+      : args.language === 'java'
+        ? JAVA_PACK_SERVICE_COMMAND
+        : args.language === 'scala'
+          ? SCALA_PACK_SERVICE_COMMAND
+          : PACK_SERVICE_COMMAND;
   lines(`    (the pack service: ${service.join(' ')})`);
   lines('');
 
@@ -682,6 +698,8 @@ function preparePackContext(
   expectedIndexPath: string,
   lines: (s: string) => void,
 ): Promise<PackContext> {
+  if (args.language === 'java' || args.language === 'scala')
+    return prepareJvmContext(ctx, runners, args, args.language, expectedIndexPath, lines);
   return args.language === 'python'
     ? preparePythonContext(ctx, runners, args, expectedIndexPath, lines)
     : prepareNodeContext(runners, args, expectedIndexPath, lines);
@@ -986,6 +1004,107 @@ async function preparePythonContext(
   return { kind: 'ok', contextDir, counts: localIndex.counts, secrets: [] };
 }
 
+/**
+ * A JVM pack (Java, Scala): Maven or sbt compiles it with the pack's JDK
+ * and the local index runs on its classes, then its Containerfile
+ * (`build/java-image.ts`, `build/scala-image.ts`), the pack root as the
+ * context (`<out>/context`).
+ */
+async function prepareJvmContext(
+  ctx: CommandContext,
+  runners: BuildRunners,
+  args: ResolvedBuildArgs,
+  language: 'java' | 'scala',
+  expectedIndexPath: string,
+  lines: (s: string) => void,
+): Promise<PackContext> {
+  const java = runners.jvm;
+  const name = language === 'java' ? 'Java' : 'Scala';
+  if (java === undefined)
+    return failure(`This CLI cannot build ${name} packs (no JVM build runners).\n`);
+  // The JDK and Maven or sbt as `kindgi dev` finds them; the build's own files under the output folder.
+  const resolved =
+    language === 'java'
+      ? await resolvePackJava(args.packDir, args.config, ctx.env)
+      : await resolvePackScala(args.packDir, args.config, ctx.env);
+  if (resolved.kind === 'err') return failure(`kindgi build: ${resolved.message}\n`);
+  const code = { ...resolved.value, workDir: join(args.outDir, language) };
+  const env: Record<string, string> = {};
+  for (const name of ['PATH', 'HOME', 'TMPDIR'] as const) {
+    const value = ctx.env[name];
+    if (value !== undefined) env[name] = value;
+  }
+  const prepared = await java.prepare({ packDir: args.packDir, code, env });
+  if (prepared.kind === 'err') {
+    return failure(
+      `The pack didn't compile — fix it before building:\n${prepared.errors.map((e) => `  ${e}`).join('\n')}\n`,
+    );
+  }
+  const localIndex = await java.runLocalIndexer({
+    packDir: args.packDir,
+    outputPath: expectedIndexPath,
+    artifactVersion: args.artifactVersion,
+    publishedAt: args.publishedAt,
+    code,
+    env,
+  });
+  if (localIndex.kind === 'err') {
+    return failure(
+      `Local indexer failed: [${localIndex.code}] ${localIndex.message}${localIndex.filePath !== undefined ? ` (at ${localIndex.filePath})` : ''}\n`,
+    );
+  }
+  if (localIndex.fileErrors.length > 0) {
+    return failure(
+      `Local indexer reported file errors — fix them before building:\n${localIndex.fileErrors
+        .map((e) => `  [${e.code}] ${e.message}`)
+        .join('\n')}\n`,
+    );
+  }
+  const tool = code.language === 'java' ? code.maven : code.sbt;
+  lines(`  Indexing (${name} — ${code.javaHome ?? code.java}; ${tool.join(' ')})`);
+  lines(
+    `    ✓ ${localIndex.counts.tools} tools, ${localIndex.counts.guardrails} guardrails, ` +
+      `${localIndex.counts.agents} agents, ${localIndex.counts.flows} flows discovered`,
+  );
+
+  const packFiles =
+    language === 'java'
+      ? await collectJavaContextFiles(args.packDir)
+      : await collectScalaContextFiles(args.packDir);
+  if (packFiles.kind === 'error') return failure(`${packFiles.message}\n`);
+  const image = args.config.image;
+  const system = checkAptPackages(
+    image !== null && typeof image === 'object'
+      ? (image as Record<string, unknown>).systemPackages
+      : undefined,
+    'image.systemPackages in kindgi.config.json',
+  );
+  if (system.kind === 'err') return failure(`kindgi build: ${system.message}\n`);
+  const containerfilePath = join(args.outDir, 'Containerfile');
+  await java.writeContainerfile({
+    language,
+    outputPath: containerfilePath,
+    artifactVersion: args.artifactVersion,
+    publishedAt: args.publishedAt,
+    buildTarget: args.buildTarget,
+    buildImageRef:
+      language === 'java' ? DEFAULT_JAVA_BUILD_IMAGE_REF : DEFAULT_SCALA_BUILD_IMAGE_REF,
+    runtimeImageRef: DEFAULT_JAVA_RUNTIME_IMAGE_REF,
+    systemPackages: system.packages,
+  });
+  const contextDir = join(args.outDir, 'context');
+  await java.writeContext({
+    packDir: args.packDir,
+    files: packFiles.files,
+    containerfilePath,
+    contextDir,
+  });
+  lines(
+    `    ✓ ${packFiles.files.length} pack file(s) in the image (the pack root, minus build output, IDE files and secrets); classes and dependencies from ${language === 'java' ? 'pom.xml' : 'build.sbt'}${system.packages.length > 0 ? `; Debian packages: ${system.packages.join(', ')}` : ''}`,
+  );
+  return { kind: 'ok', contextDir, counts: localIndex.counts, secrets: [] };
+}
+
 async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
   // --path — pack root; auto-detects repo root separately so augment-
   // mode packs (kindgi.config.ts under <repo>/kindgi/, package.json at
@@ -1051,14 +1170,13 @@ async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
   const outDirRaw = typeof outFlag === 'string' && outFlag !== '' ? outFlag : DEFAULT_OUT_DIR;
   const outDir = isAbsolute(outDirRaw) ? outDirRaw : resolve(packDir, outDirRaw);
 
-  // --artifact-version — pinned or auto YYYYMMDD.1.
+  // --artifact-version and --published-at: pinned, else the build time.
+  const defaults = buildTimeDefaults(new Date());
   const avFlag = ctx.options['artifact-version'];
   const artifactVersion =
-    typeof avFlag === 'string' && avFlag !== '' ? avFlag : defaultArtifactVersion();
-
-  // --published-at — SOURCE_DATE_EPOCH=0 baseline unless overridden.
+    typeof avFlag === 'string' && avFlag !== '' ? avFlag : defaults.artifactVersion;
   const paFlag = ctx.options['published-at'];
-  const publishedAt = typeof paFlag === 'string' && paFlag !== '' ? paFlag : DEFAULT_PUBLISHED_AT;
+  const publishedAt = typeof paFlag === 'string' && paFlag !== '' ? paFlag : defaults.publishedAt;
 
   // --tenant — flag > env block > KINDGI_TENANT_ID env var > error.
   const tenantFlag = ctx.options.tenant;
@@ -1214,12 +1332,20 @@ export function discoveryPatternsOf(config: PackConfig): readonly string[] {
   );
 }
 
-function defaultArtifactVersion(): string {
-  const now = new Date();
-  const yyyy = now.getUTCFullYear();
-  const mm = String(now.getUTCMonth() + 1).padStart(2, '0');
-  const dd = String(now.getUTCDate()).padStart(2, '0');
-  return `${yyyy}${mm}${dd}.1`;
+/**
+ * An unpinned build's artifact version and publish time, from one clock
+ * reading: `YYYYMMDD.HHMMSS` and the ISO time, both UTC. Builds a second or
+ * more apart get different versions, so a second build the same day gets
+ * its own image tag; the versions sort in build order.
+ */
+export function buildTimeDefaults(now: Date): {
+  readonly artifactVersion: string;
+  readonly publishedAt: string;
+} {
+  const two = (n: number): string => String(n).padStart(2, '0');
+  const day = `${now.getUTCFullYear()}${two(now.getUTCMonth() + 1)}${two(now.getUTCDate())}`;
+  const time = `${two(now.getUTCHours())}${two(now.getUTCMinutes())}${two(now.getUTCSeconds())}`;
+  return { artifactVersion: `${day}.${time}`, publishedAt: now.toISOString() };
 }
 
 function expandHome(path: string, home: string | undefined): string {

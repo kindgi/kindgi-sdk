@@ -496,6 +496,11 @@ class Agent:
     """Settings blocks by range: `[{"id": "acme.weights", "version": "^1.0.0"}]`."""
     model_settings: Mapping[str, str] | None = None
     """A model-settings block by range: `{"id": "acme.model", "version": "^1.0.0"}`."""
+    memory: Mapping[str, Any] | None = None
+    """How the agent uses memory. `{"instructionTypes": ["policy"]}` makes a retrieved,
+    verified fact of those types an instruction (in the system message); default: every
+    retrieved fact is data. `{"remember": {"types": ["preference"], "scope": "same-user",
+    "keepDays": 30}}` lets it remember through the built-in `kindgi_remember` tool."""
     module: str = field(default="", repr=False)
 
     def __post_init__(self) -> None:

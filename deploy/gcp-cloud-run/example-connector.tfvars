@@ -36,6 +36,10 @@ pack_image   = "northamerica-northeast2-docker.pkg.dev/acme-app-dev/kindgi-dev/a
 seed_tenant_id = "00000000-0000-0000-0000-000000000001"
 seed_user_id   = "00000000-0000-0000-0000-000000000002"
 
+# The version of the AAD key the server reads: the first one added (README step 3).
+# Pinned, never "latest": every secret stored in Postgres is bound to it.
+secrets_aad_key_version = "1"
+
 pack_min_instances = 0
 pack_max_instances = 2
 pack_timeout       = "600s"
@@ -53,3 +57,15 @@ pack_secret_env = {
 # The pack reads only its own prefix of a shared bucket (uniform bucket-level access).
 pack_bucket_readers         = ["acme-app-corpus"]
 pack_bucket_object_prefixes = { "acme-app-corpus" = ["acme/derived/"] }
+
+# An app service the pack's code calls with a Google ID token. Its ingress
+# is all, with IAM as the guard: the pack's egress isn't internal.
+pack_run_invokers = [
+  { project = "acme-app-dev", location = "northamerica-northeast2", service = "acme-search" },
+]
+
+# Console sign-in with the API token (off by default since runtime 0.1.5).
+# More sign-in settings: README, "7. Turn on sign-in".
+server_env = {
+  KINDGI_CONSOLE_TOKEN_SIGN_IN = "on"
+}

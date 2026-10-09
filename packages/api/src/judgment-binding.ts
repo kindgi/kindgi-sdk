@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import { REVIEWER_ROLE_RANK, type ReviewerRole } from '@kindgi/authz';
-import type { Cursor, ListScope, ProjectId, TenantId } from '@kindgi/types';
+import type { Cursor, ListScope, ProjectId, ScopeSegment, TenantId } from '@kindgi/types';
 
 /**
  * Caller-plugged surface for judgments: a person says yes or no, with an
@@ -272,6 +272,8 @@ export interface JudgedRunContext {
   readonly historyTruncated?: boolean;
   /** What the turn's retrievals returned. */
   readonly retrieved?: unknown;
+  /** Messages of earlier conversations the turn recalled. A replay of the turn reuses them. */
+  readonly recalled?: unknown;
   /**
    * The reviewer's decision at the turn's session approval gate, when the
    * turn waited on one. A replay of the turn follows it.
@@ -279,6 +281,13 @@ export interface JudgedRunContext {
   readonly sessionApproval?: { readonly approved: boolean; readonly rationale?: string };
   /** For a flow run: what it did (see `JudgedFlowContext`). */
   readonly flow?: JudgedFlowContext;
+  /**
+   * The env values each tool's calls were sent (`needsSpec.env`), by tool
+   * id: its first call's, as the run recorded them. A replay sends them to
+   * a read-only tool it runs live, so the tool reads the config the run
+   * saw, not today's. Absent for a run from before env was recorded.
+   */
+  readonly toolEnv?: Readonly<Record<string, Readonly<Record<string, string>>>>;
 }
 
 /** One tool call a judged run made, and its result. */
@@ -303,6 +312,8 @@ export interface JudgedFlowStep {
   readonly agentVersion: string;
   /** What the turn's retrievals returned. */
   readonly retrieved?: unknown;
+  /** Messages of earlier conversations the turn recalled. */
+  readonly recalled?: unknown;
 }
 
 /**
@@ -325,6 +336,11 @@ export interface JudgedRunCopy {
   readonly output: unknown;
   /** Absent for runs judged before context was captured, and for flow runs. */
   readonly context?: JudgedRunContext;
+  /**
+   * The segment path the run was started with (empty: none). Absent for
+   * runs judged before it was captured: such a run belongs to no segment.
+   */
+  readonly segments?: readonly ScopeSegment[];
   readonly capturedAt: string;
 }
 
@@ -345,6 +361,8 @@ export interface JudgmentRecordInput {
     readonly input: unknown;
     readonly output: unknown;
     readonly context?: JudgedRunContext;
+    /** The segment path the run was started with (empty: none). */
+    readonly segments?: readonly ScopeSegment[];
   };
   readonly item: JudgedItem;
   /** The item's value at `item.pointer`, resolved by the route from the run's output. */
@@ -393,6 +411,12 @@ export interface JudgedRunListInput {
   readonly since?: string;
   /** Runs first judged before this time (ISO 8601). */
   readonly until?: string;
+  /**
+   * Runs started in this segment path or below it (their captured
+   * `segments` start with it). A run judged before segments were captured
+   * is in none.
+   */
+  readonly segments?: readonly ScopeSegment[];
   readonly cursor?: Cursor;
   readonly limit: number;
 }

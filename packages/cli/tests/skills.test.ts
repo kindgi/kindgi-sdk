@@ -58,6 +58,11 @@ describe('skillPackLanguages', () => {
     ]);
     expect(skillPackLanguages('---\npack_languages: ["python"]\n---\n')).toEqual(['python']);
     expect(skillPackLanguages('---\npack_languages: [ruby, python]\n---\n')).toEqual(['python']);
+    expect(skillPackLanguages('---\npack_languages: [node, python, java]\n---\n')).toEqual([
+      'node',
+      'python',
+      'java',
+    ]);
   });
 });
 
@@ -137,6 +142,56 @@ describe('kindgi skills sync', () => {
       'kindgi-python-authoring-guardrails',
       'kindgi-python-authoring-tools',
       'kindgi-python-getting-started',
+    ]);
+  });
+
+  test('in a Scala pack, copies the bundled skills written for Scala packs', async () => {
+    await writeFile(
+      join(packDir, 'kindgi.config.json'),
+      '{"language": "scala", "pack": {"id": "ledger", "version": "0.1.0"}}',
+    );
+    const out = await runCli({
+      argv: ['skills', 'sync', '--json'],
+      env: {},
+      cwd: packDir,
+      home: packDir,
+    });
+    expect(out.exitCode).toBe(0);
+    expect(JSON.parse(out.stdout).packLanguage).toBe('scala');
+    expect(await installed()).toEqual([
+      'kindgi-authoring-mcp-servers',
+      'kindgi-authoring-providers',
+      'kindgi-framework-feedback',
+      'kindgi-scala-authoring-agents',
+      'kindgi-scala-authoring-flows',
+      'kindgi-scala-authoring-guardrails',
+      'kindgi-scala-authoring-tools',
+      'kindgi-scala-getting-started',
+    ]);
+  });
+
+  test('in a Java pack, copies the bundled skills written for Java packs', async () => {
+    await writeFile(
+      join(packDir, 'kindgi.config.json'),
+      '{"language": "java", "pack": {"id": "ledger", "version": "0.1.0"}}',
+    );
+    const out = await runCli({
+      argv: ['skills', 'sync', '--json'],
+      env: {},
+      cwd: packDir,
+      home: packDir,
+    });
+    expect(out.exitCode).toBe(0);
+    expect(JSON.parse(out.stdout).packLanguage).toBe('java');
+    expect(await installed()).toEqual([
+      'kindgi-authoring-mcp-servers',
+      'kindgi-authoring-providers',
+      'kindgi-framework-feedback',
+      'kindgi-java-authoring-agents',
+      'kindgi-java-authoring-flows',
+      'kindgi-java-authoring-guardrails',
+      'kindgi-java-authoring-tools',
+      'kindgi-java-getting-started',
     ]);
   });
 });

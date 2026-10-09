@@ -62,8 +62,10 @@ export interface PackServiceTarget {
  * A part of the contract a target can roll out separately.
  * - `pack-env`: the index's declared process env (`env.required`) gates
  *   readiness under `KINDGI_PACK_ENV_CHECK`, and `/v1/info` lists `missingEnv`.
+ * - `log-records`: the service's stderr lines are log records: the lifecycle,
+ *   and a record per call with its ids and the caller's trace.
  */
-export type ConformanceFeature = 'pack-env';
+export type ConformanceFeature = 'pack-env' | 'log-records';
 
 /** Root of a fixture pack shipped with this package (`node-pack`, `python-pack`). */
 export function fixturePackDir(name: string): string {
@@ -485,6 +487,43 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
         expect(listening).toMatchObject({ kind: 'listening', packId: FIXTURE_PACK_ID });
         expect(typeof listening?.port).toBe('number');
       });
+
+      test.skipIf(target.unsupported?.includes('log-records') === true)(
+        "its lines are log records: the lifecycle, and each call with its ids and the caller's trace",
+        async () => {
+          const listening = service.events.find((e) => e.kind === 'listening');
+          expect(listening).toMatchObject({
+            event: 'listening',
+            subsystem: 'pack',
+            level: 'info',
+            severity: 'INFO',
+          });
+          expect(typeof listening?.time).toBe('string');
+          const traceId = '4bf92f3577b34da6a3ce929d0e0e4736';
+          const answer = await invoke(
+            service,
+            toolCall('conformance.echo', { message: 'traced' }),
+            {
+              traceparent: `00-${traceId}-00f067aa0ba902b7-01`,
+            },
+          );
+          expect(answer.status).toBe(200);
+          const record = await waitFor(
+            () => service.events.find((e) => e.kind === 'call' && e.traceId === traceId),
+            5000,
+            'the call record',
+          );
+          expect(record).toMatchObject({
+            event: 'call',
+            subsystem: 'pack',
+            outcome: 'ok',
+            tenantId: CTX.tenantId,
+            runId: CTX.runId,
+            toolId: 'conformance.echo',
+          });
+          expect(record.spanId).toMatch(/^[0-9a-f]{16}$/);
+        },
+      );
 
       test('without a token: exit 1 with a config-invalid line', async () => {
         const { code, events } = await runToExit(target, indexPath, {
@@ -992,6 +1031,34 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
           kind: 'check-result',
           result: { passed: false, reason: 'too short' },
         });
+      });
+
+      test("a config that breaks the check's configSchema: input-validation-failed, and the check doesn't run", async () => {
+        const negative = response(
+          await invoke(service, checkCall('conformance.checks.min-length', { minLength: -1 }, 'x')),
+        );
+        // The message names the first issue: a runtime reports a check's error
+        // by its code and message alone.
+        expect(negative).toMatchObject({
+          kind: 'error',
+          code: 'input-validation-failed',
+          checkId: 'conformance.checks.min-length',
+          message:
+            'Check "conformance.checks.min-length" config failed validation at /minLength: must be >= 0',
+        });
+        expect(negative.issues).toContainEqual(
+          expect.objectContaining({ instancePath: '/minLength', keyword: 'minimum' }),
+        );
+        const wrongType = response(
+          await invoke(
+            service,
+            checkCall('conformance.checks.min-length', { minLength: 'three' }, 'x'),
+          ),
+        );
+        expect(wrongType).toMatchObject({ kind: 'error', code: 'input-validation-failed' });
+        expect(wrongType.issues).toContainEqual(
+          expect.objectContaining({ instancePath: '/minLength', keyword: 'type' }),
+        );
       });
 
       test('an unknown check: check-not-in-pack', async () => {

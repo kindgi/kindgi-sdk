@@ -33,6 +33,7 @@ import type {
   PackServiceSupervisorEvent,
 } from '@kindgi/handler-runtime/pack-service';
 
+import { type DevLogView, type DevOutput, parseRecord, showRecord } from './log-view.js';
 import type { PackCode } from './pack-code.js';
 import { devIndexPath, devStagedIndexPath, devStagedPackIndexPath } from './paths.js';
 import type { DevRunners, IndexResult, PackBuild, PackBuilder } from './runners.js';
@@ -52,6 +53,8 @@ export interface PackRefresherDeps {
    * it. Refreshes run one at a time, so calls never overlap.
    */
   readonly onBuild?: (build: Extract<PackBuild, { readonly kind: 'ok' }>) => Promise<void>;
+  /** What pack code prints while the indexer loads it, line by line. */
+  readonly onIndexerOutput?: (line: string, stream: 'stdout' | 'stderr') => void;
 }
 
 export interface PackRefresher {
@@ -91,6 +94,7 @@ export function createPackRefresher(deps: PackRefresherDeps): PackRefresher {
       bundleMap: build.bundleMap,
       env: deps.env,
       code: deps.code,
+      ...(deps.onIndexerOutput !== undefined && { onOutput: deps.onIndexerOutput }),
     });
     if (indexed.kind !== 'ok') {
       if (indexed.code === 'discovery-empty') await publishEmpty();
@@ -217,33 +221,78 @@ export function packServiceIndex(
   };
 }
 
-/**
- * The dev console's view of the pack service: what pack code prints,
- * failed calls, and crashes. Successful calls and restarts that work
- * stay quiet.
- */
-/** A pack service log line worth a line of `kindgi dev` output: a failed call, missing env. */
-function describePackLog(event: unknown): string | undefined {
-  const e = event as { kind?: unknown; id?: unknown; outcome?: unknown; names?: unknown };
-  if (e.kind === 'missing-env' && Array.isArray(e.names)) {
-    const names = e.names.map(String);
-    const one = names.length === 1;
-    return `  ⚠ the pack's env.required ${one ? 'name' : 'names'} ${names.join(', ')} ${one ? 'has' : 'have'} no value: add ${one ? 'it' : 'them'} to the pack's env files (a deployment won't be ready without ${one ? 'it' : 'them'})`;
-  }
-  return e.kind === 'call' && e.outcome !== 'ok'
-    ? `  [pack] ✗ ${String(e.id)}: ${String(e.outcome)}`
-    : undefined;
+/** The pack service's own lifecycle: `kindgi dev` reports swaps and crashes its own way. */
+const LIFECYCLE: ReadonlySet<string> = new Set([
+  'listening',
+  'boot-failed',
+  'config-invalid',
+  'draining',
+  'stopped',
+]);
+
+/** A line `kindgi dev` writes itself about the pack service, on stderr. */
+function note(line: string): DevOutput {
+  return { stream: 'stderr', lines: [line] };
 }
 
-export function describePackEvent(event: PackServiceSupervisorEvent): string | undefined {
+/** The `env.required` names the pack's env files don't give a value. */
+function missingEnv(names: readonly string[]): DevOutput {
+  const one = names.length === 1;
+  return note(
+    `⚠ the pack's env.required ${one ? 'name' : 'names'} ${names.join(', ')} ${one ? 'has' : 'have'} no value: add ${one ? 'it' : 'them'} to the pack's env files (a deployment won't be ready without ${one ? 'it' : 'them'})`,
+  );
+}
+
+/**
+ * The dev console's view of the pack service: its records (each call,
+ * what the pack's code logs with `ctx.log`) as the view shows records,
+ * missing env, and crashes. Its lifecycle, and restarts that work, stay
+ * out of the pretty view; `--log-format=json` passes every record on.
+ * `--quiet` keeps a pack service that keeps crashing, and error records.
+ */
+export function showPackEvent(
+  event: PackServiceSupervisorEvent,
+  view: DevLogView,
+): readonly DevOutput[] {
   switch (event.kind) {
     case 'exited':
-      return `  ⚠ pack service exited (${event.signal ?? event.code}) — restarting`;
+      return view.quiet
+        ? []
+        : [note(`⚠ pack service exited (${event.signal ?? event.code}) — restarting`)];
     case 'gave-up':
-      return `  ✗ pack service kept exiting (${event.attempts} restarts) — fix the code and save to retry`;
+      return [
+        note(
+          `✗ pack service kept exiting (${event.attempts} restarts) — fix the code and save to retry`,
+        ),
+      ];
     case 'log':
-      return describePackLog(event.event);
+      return showPackLog(event.event, event.line, view);
     default:
-      return undefined;
+      return [];
   }
+}
+
+function showPackLog(
+  event: Readonly<Record<string, unknown>>,
+  line: string,
+  view: DevLogView,
+): readonly DevOutput[] {
+  const names = Array.isArray(event.names) ? event.names.map(String) : undefined;
+  const record = parseRecord(line);
+  if (record === undefined) {
+    // A bare event, from a pack service from before records.
+    if (view.quiet) return [];
+    if (event.kind === 'missing-env' && names !== undefined) return [missingEnv(names)];
+    return event.kind === 'call' && event.outcome !== 'ok'
+      ? [note(`[pack] ✗ ${String(event.id)}: ${String(event.outcome)}`)]
+      : [];
+  }
+  const shown = showRecord('pack', record, line, view);
+  const own = record.subsystem === 'pack';
+  if (own && event.kind === 'missing-env' && names !== undefined) {
+    const warning = view.quiet ? [] : [missingEnv(names)];
+    return view.format === 'json' && shown !== undefined ? [shown, ...warning] : warning;
+  }
+  if (own && LIFECYCLE.has(event.kind as string) && view.format === 'pretty') return [];
+  return shown === undefined ? [] : [shown];
 }

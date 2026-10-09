@@ -13,8 +13,8 @@ import { latestVersion } from '@kindgi/tools';
 import type { Cursor, ProjectId, Semver, SigningKeyId, TenantId } from '@kindgi/types';
 
 import type { Scope } from '@kindgi/platform';
-import { createStubAppBindings } from '@kindgi/testing';
 import { makeEnvName } from '@kindgi/types';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type {
@@ -800,6 +800,38 @@ describe('POST /v1/deployments — happy path', () => {
     expect(inv).not.toBeNull();
   });
 
+  test("an unpinned `kindgi build`'s artifact version (YYYYMMDD.HHMMSS) deploys; one that isn't YYYYMMDD.N is refused", async () => {
+    const deploy = async (artifactVersion: string) => {
+      const fixture = buildSignedDeploy({
+        artifactVersion,
+        publishedAt: '2026-10-08T09:05:03.042Z',
+      });
+      const { app } = makeApp({ fixture });
+      return app.request('/v1/deployments', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify(fixture.wire),
+      });
+    };
+    const ok = await deploy('20261008.090503');
+    expect(ok.status).toBe(201);
+    expect(((await ok.json()) as { artifactVersion: string }).artifactVersion).toBe(
+      '20261008.090503',
+    );
+    for (const bad of ['2026-10-08.1', '20261008', '20261008.09:05:03']) {
+      const res = await deploy(bad);
+      expect(res.status, bad).toBe(400);
+      const body = (await res.json()) as {
+        error: { code: string; details?: { issues?: { path: string; message: string }[] } };
+      };
+      expect(body.error.code).toBe('bad-input');
+      expect(body.error.details?.issues).toContainEqual({
+        path: 'artifactVersion',
+        message: 'artifactVersion must match YYYYMMDD.N',
+      });
+    }
+  });
+
   test('tools and guardrails keep where their code is: an oci pointer into the deployed image', async () => {
     const fixture = buildSignedDeploy();
     const { app, toolRegistry, guardrailRegistry } = makeApp({ fixture });
@@ -854,7 +886,7 @@ describe('POST /v1/deployments — happy path', () => {
     expect(writes).toHaveLength(2);
   });
 
-  test('a guardrail as the indexer writes it (checkId, configSchema) deploys, its check from checkId', async () => {
+  test('a guardrail as the indexer writes it (checkId, configSchema) deploys, its check from checkId, its configSchema kept (T338)', async () => {
     const fixture = buildSignedDeploy({
       index: {
         v: 1,
@@ -898,7 +930,11 @@ describe('POST /v1/deployments — happy path', () => {
       codeArtifactRef: { kind: 'oci', modulePath: 'guardrails/cites.mjs' },
     });
     expect(guardrail.checkId).toBeUndefined();
-    expect(guardrail.configSchema).toBeUndefined();
+    // Kept: the runtime checks a guardrail naming this check against it.
+    expect(guardrail.configSchema).toEqual({
+      type: 'object',
+      properties: { strict: { type: 'boolean' } },
+    });
   });
 
   test("an index that declares the pack's process env deploys; the env is signed content, not a primitive", async () => {

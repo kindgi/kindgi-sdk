@@ -4,6 +4,7 @@
 import type { ListPage, Tool } from '@kindgi/client';
 import type { ToolId } from '@kindgi/types';
 
+import { UsageError } from '../errors.js';
 import {
   type TableSpec,
   projectIdFlag,
@@ -51,7 +52,7 @@ const list: LeafCommand = {
         const limitStr = stringFlag(ctx, 'limit');
         const limit = limitStr !== undefined ? Number.parseInt(limitStr, 10) : undefined;
         if (limit !== undefined && Number.isNaN(limit)) {
-          throw new Error(`--limit must be an integer, got "${limitStr}"`);
+          throw new UsageError(`--limit must be an integer, got "${limitStr}"`);
         }
         return await ctx.client().tools.list({
           ...(name !== undefined && { name }),
@@ -95,7 +96,8 @@ const publish: LeafCommand = {
   run: (ctx) =>
     runSdk(ctx, 'tools publish', async () => {
       const manifestText = stringFlag(ctx, 'manifest');
-      if (manifestText === undefined) throw new Error('--manifest=<json-or-@file> is required');
+      if (manifestText === undefined)
+        throw new UsageError('--manifest=<json-or-@file> is required');
       const manifest = (await readJsonInput(manifestText)) as Tool;
       const projectId = await projectIdFlag(ctx);
       return await ctx.client().tools.register(manifest, { projectId });
@@ -142,7 +144,7 @@ const versions: LeafCommand = {
       const limitStr = stringFlag(ctx, 'limit');
       const limit = limitStr !== undefined ? Number.parseInt(limitStr, 10) : undefined;
       if (limit !== undefined && Number.isNaN(limit)) {
-        throw new Error(`--limit must be an integer, got "${limitStr}"`);
+        throw new UsageError(`--limit must be an integer, got "${limitStr}"`);
       }
       const includeTombstoned = ctx.options['include-tombstoned'] === true;
       return await ctx.client().tools.versions.list(toolId as ToolId, {

@@ -14,6 +14,11 @@ export const PUBLIC_TOKEN_KEY_PATH_VAR = 'KINDGI_PUBLIC_TOKEN_SIGNING_KEY_PATH';
 /** The same key's PEM file, base64: the alternative to the path. */
 export const PUBLIC_TOKEN_KEY_VAR = 'KINDGI_PUBLIC_TOKEN_SIGNING_KEY';
 
+/** The export signing key's PEM file (an absolute path), its base64 value, or a Cloud KMS key version: exactly one. */
+export const EXPORT_SIGNING_KEY_PATH_VAR = 'KINDGI_EXPORT_SIGNING_KEY_PATH';
+export const EXPORT_SIGNING_KEY_VAR = 'KINDGI_EXPORT_SIGNING_KEY';
+export const EXPORT_SIGNING_KMS_KEY_VAR = 'KINDGI_EXPORT_SIGNING_KMS_KEY';
+
 /** The license key the server checks at startup outside development mode. */
 export const LICENSE_KEY_VAR = 'KINDGI_LICENSE_KEY';
 
@@ -22,6 +27,66 @@ export const CORS_ORIGINS_VAR = 'KINDGI_CORS_ORIGINS';
 
 /** The URL clients reach the runtime at, when it isn't the address it binds. */
 export const PUBLIC_URL_VAR = 'KINDGI_PUBLIC_URL';
+
+/** Sign-in with identity providers: the secret its browser flow signs with (a file). */
+export const AUTH_SECRET_PATH_VAR = 'KINDGI_AUTH_SECRET_PATH';
+
+/** The same secret, base64. */
+export const AUTH_SECRET_VAR = 'KINDGI_AUTH_SECRET';
+
+/** Identity provider origins on a private network the operator allows. */
+export const AUTH_PRIVATE_IDP_ORIGINS_VAR = 'KINDGI_AUTH_PRIVATE_IDP_ORIGINS';
+
+/** Email domains the operator verified, each for one tenant: `domain:tenant,…`. */
+export const AUTH_VERIFIED_DOMAINS_VAR = 'KINDGI_AUTH_VERIFIED_DOMAINS';
+
+/** "Continue with Google": the deployment's own app's client id. */
+export const AUTH_GOOGLE_CLIENT_ID_VAR = 'KINDGI_AUTH_GOOGLE_CLIENT_ID';
+
+/** Its client secret, or a file holding it (`…_SECRET_PATH`). */
+export const AUTH_GOOGLE_CLIENT_SECRET_VAR = 'KINDGI_AUTH_GOOGLE_CLIENT_SECRET';
+export const AUTH_GOOGLE_CLIENT_SECRET_PATH_VAR = 'KINDGI_AUTH_GOOGLE_CLIENT_SECRET_PATH';
+
+/** "Continue with Microsoft": the deployment's own app's client id. */
+export const AUTH_MICROSOFT_CLIENT_ID_VAR = 'KINDGI_AUTH_MICROSOFT_CLIENT_ID';
+
+/** Its client secret, or a file holding it (`…_SECRET_PATH`). */
+export const AUTH_MICROSOFT_CLIENT_SECRET_VAR = 'KINDGI_AUTH_MICROSOFT_CLIENT_SECRET';
+export const AUTH_MICROSOFT_CLIENT_SECRET_PATH_VAR = 'KINDGI_AUTH_MICROSOFT_CLIENT_SECRET_PATH';
+
+/** "Continue with GitHub": the deployment's own app's client id. */
+export const AUTH_GITHUB_CLIENT_ID_VAR = 'KINDGI_AUTH_GITHUB_CLIENT_ID';
+
+/** Its client secret, or a file holding it (`…_SECRET_PATH`). */
+export const AUTH_GITHUB_CLIENT_SECRET_VAR = 'KINDGI_AUTH_GITHUB_CLIENT_SECRET';
+export const AUTH_GITHUB_CLIENT_SECRET_PATH_VAR = 'KINDGI_AUTH_GITHUB_CLIENT_SECRET_PATH';
+
+/** The emailed sign-in link: the SMTP server to send it through (a URL with its credentials), or a file holding it. */
+export const AUTH_EMAIL_SMTP_URL_VAR = 'KINDGI_AUTH_EMAIL_SMTP_URL';
+export const AUTH_EMAIL_SMTP_URL_PATH_VAR = 'KINDGI_AUTH_EMAIL_SMTP_URL_PATH';
+
+/** The emailed sign-in link's From address. */
+export const AUTH_EMAIL_FROM_VAR = 'KINDGI_AUTH_EMAIL_FROM';
+
+/** At most this many emailed links to one address in 24 hours. Default 10. */
+export const AUTH_EMAIL_LINK_DAILY_CAP_VAR = 'KINDGI_AUTH_EMAIL_LINK_DAILY_CAP';
+
+/** Cloudflare Turnstile on asking for an emailed link: its secret (or a file holding it) and its site key. */
+export const AUTH_TURNSTILE_SECRET_VAR = 'KINDGI_AUTH_TURNSTILE_SECRET';
+export const AUTH_TURNSTILE_SECRET_PATH_VAR = 'KINDGI_AUTH_TURNSTILE_SECRET_PATH';
+export const AUTH_TURNSTILE_SITE_KEY_VAR = 'KINDGI_AUTH_TURNSTILE_SITE_KEY';
+
+/** Which hops in front of the runtime to trust for the client's address: a hop count, or IPs/CIDRs. */
+export const TRUSTED_PROXIES_VAR = 'KINDGI_TRUSTED_PROXIES';
+
+/** A browser session's absolute lifetime, in milliseconds. */
+export const SESSION_TTL_MS_VAR = 'KINDGI_SESSION_TTL_MS';
+
+/** How long a browser session may sit idle, in milliseconds. */
+export const SESSION_IDLE_TIMEOUT_MS_VAR = 'KINDGI_SESSION_IDLE_TIMEOUT_MS';
+
+/** Whether a person may sign in to the console with an API token (`on` / `off`). */
+export const CONSOLE_TOKEN_SIGN_IN_VAR = 'KINDGI_CONSOLE_TOKEN_SIGN_IN';
 
 /** The shared secret between the server and the pack service. */
 export const PACK_SERVICE_TOKEN_VAR = 'KINDGI_PACK_SERVICE_TOKEN';

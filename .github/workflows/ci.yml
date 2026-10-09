@@ -56,6 +56,9 @@ jobs:
       - name: References (docs exist in this repository; no internal process notes)
         run: pnpm run check:refs
 
+      - name: No package dependency cycles
+        run: pnpm run check:cycles
+
       - name: README package table
         run: pnpm run check:readme
 
@@ -63,6 +66,12 @@ jobs:
       # scripts/sync-python-version.mjs.
       - name: Python SDK version in step with the npm packages
         run: pnpm run check:python-version
+
+      # So do the JVM SDKs (sdks/java, and sdks/scala's version.sbt):
+      # scripts/sync-jvm-version.mjs. A Version Packages PR whose poms lag
+      # fails here, before it merges.
+      - name: JVM SDKs' version in step with the npm packages
+        run: pnpm run check:jvm-version
 
       # Before 1.0, and while release candidates are out, a minor or major
       # changeset needs a `Release-decision:` line:
@@ -72,6 +81,12 @@ jobs:
 
       - name: Validate JSON Schemas (@kindgi/specs)
         run: pnpm run spec:validate
+
+      # The Java pack service's JSON Schema validator answers as Ajv does:
+      # sdks/java/kindgi-pack/src/test/resources/ajv/oracle.json holds Ajv's
+      # verdicts on the corpus, and the Java tests require the same.
+      - name: Java pack service — the Ajv oracle is current
+        run: node sdks/java/kindgi-pack/scripts/ajv-oracle.mjs --check
 
       - name: Docs ship with the change
         if: github.event_name == 'pull_request'
@@ -104,6 +119,19 @@ jobs:
           cache-dependency-glob: sdks/python/uv.lock
       - name: Python SDK environment (for the pack conformance suite)
         run: uv sync --project sdks/python --frozen
+      # ...and against the Java SDK's (sdks/java/kindgi-pack): the suite
+      # compiles its fixture pack against the module's classes. Under CI that
+      # target fails rather than skip when they're missing. Installed, so the
+      # CLI's real Java pack build (tests/java-pack-code.test.ts) finds
+      # kindgi-pack in the local Maven repository too.
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+      - name: Java pack service (for the pack conformance suite and the CLI's Java builds)
+        working-directory: sdks/java
+        run: ./mvnw -B -ntp -pl kindgi-pack -am install -DskipTests
       - name: Build (prod-dependency topological order)
         run: pnpm run build
       - name: Typecheck
@@ -132,8 +160,24 @@ jobs:
       # and search index, from the workspace built above.
       - name: Docs site
         run: pnpm run docs:build
-      # Every sample that is a whole file compiles (TypeScript) or indexes
-      # (Python).
+      # The Java SDK, for the docs' Java samples: they compile against it. It's
+      # installed too, so the Scala layer and the Scala samples resolve kindgi-pack.
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+      - name: The Java SDK (for the docs' Java and Scala samples)
+        working-directory: sdks/java
+        run: ./mvnw -B -ntp install -DskipTests
+      # The Scala layer, published locally, for the docs' Scala samples: a fresh
+      # Scala pack compiles them against it.
+      - uses: sbt/setup-sbt@v1
+      - name: The Scala layer (for the docs' Scala samples)
+        working-directory: sdks/scala
+        run: sbt -batch publishLocal
+      # Every sample that is a whole file compiles (TypeScript, Java, Scala) or
+      # indexes (Python, Java, Scala).
       - name: Docs samples
         run: pnpm run docs:samples
 
@@ -171,7 +215,8 @@ jobs:
         if: matrix.python == '3.11'
         run: |
           uv venv /tmp/kindgi-floors
-          uv pip install --python /tmp/kindgi-floors --resolution lowest-direct -e . "pytest>=8"
+          # With the `verify` extra, so kindgi.exports is tested at its cryptography floor.
+          uv pip install --python /tmp/kindgi-floors --resolution lowest-direct -e ".[verify]" "pytest>=8"
           /tmp/kindgi-floors/bin/python -m pytest -p no:cacheprovider -k "not in_step_with_openapi"
       - name: Generated client in step with openapi.json
         run: uv run python scripts/gen_client.py --check

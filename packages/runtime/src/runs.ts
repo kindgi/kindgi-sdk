@@ -18,9 +18,10 @@ import type {
   ScopeSegment,
   TenantId,
   Timestamp,
+  TriggerId,
 } from '@kindgi/types';
 
-import type { RunAgentRef } from './inputs.js';
+import type { RunAgentRef, RunTriggerRef } from './inputs.js';
 import type { RunStatus } from './types.js';
 
 /**
@@ -66,6 +67,13 @@ export interface KernelRunRecord {
    * when it is a flow run. Absent when it was started without one.
    */
   readonly segments?: readonly ScopeSegment[];
+  /** Set on a run a trigger started (`RunTriggerRef`). */
+  readonly trigger?: RunTriggerRef;
+  /**
+   * When an erasure cleared the run's content (its input, output, failure
+   * message and journal payloads). Absent on every other run.
+   */
+  readonly contentErasedAt?: Timestamp;
   /**
    * The W3C trace id of the request that started the run
    * (`RunFlowInput.traceId`). Absent for a run no request started, and on
@@ -118,6 +126,8 @@ export interface ListRunsInput {
   readonly replays?: 'exclude' | 'include' | 'only';
   /** Only the replays of this eval run. */
   readonly evalRunId?: string;
+  /** Only the runs this trigger started (`RunTriggerRef.triggerId`). */
+  readonly triggerId?: TriggerId;
 }
 
 export interface ListRunsPage {
