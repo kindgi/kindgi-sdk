@@ -260,6 +260,19 @@ describe('a comparison eval run', () => {
     });
   });
 
+  test('a recomputed call (other settings, a tool that reads from nowhere) is not a divergence', async () => {
+    const recomputed = (input: EvalRunSubjectInvokeInput): EvalRunSubjectInvokeOutcome => {
+      const outcome = answers[input.replay?.of as unknown as string] as EvalRunSubjectInvokeOutcome;
+      if (input.replay?.of !== ('case-b' as RunId) || outcome.replay === undefined) return outcome;
+      const tools = outcome.replay.tools.map((t) => ({ ...t, recomputed: true as const }));
+      return { ...outcome, replay: { ...outcome.replay, tools } };
+    };
+    const { summary, perCase } = await compare({ answer: (input) => recomputed(input) });
+    expect(summary.diverged).toBe(0);
+    expect(perCase[1]?.tools?.[0]).toMatchObject({ source: 'live', recomputed: true });
+    expect(wireErrors({ summary, perCase })).toEqual([]);
+  });
+
   test('with reads live, a live read is not a divergence', async () => {
     const { summary } = await compare({ comparison: { ...DEFAULT_COMPARISON, reads: 'live' } });
     expect(summary.diverged).toBe(0);

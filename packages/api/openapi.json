@@ -293,13 +293,11 @@
           "signing-key-store-error": 500,
           "proposal-not-found": 404,
           "proposal-invalid-state-transition": 409,
-          "proposal-terminal": 409,
-          "baseline-mismatch": 422,
-          "apply-change-failed": 422,
-          "ground-layer-violation": 422,
-          "agent-not-in-registry": 422,
+          "proposal-needs-pin": 409,
+          "improve-unsupported": 501,
+          "improvement-pass-not-found": 404,
+          "improvement-pass-finished": 409,
           "version-already-exists": 409,
-          "invalid-new-version": 400,
           "supervisor-header-missing": 400,
           "blob-not-found": 404,
           "blob-hash-mismatch": 400,
@@ -4424,6 +4422,42 @@
               "minLength": 1
             },
             "description": "Fact types that are instructions for this agent: a retrieved, verified fact of one of these types goes into the system message under 'Policies (verified)'. Default: none."
+          },
+          "remember": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "types",
+              "scope"
+            ],
+            "description": "Lets the agent remember: its turns offer the built-in tool `kindgi_remember` (built-in tools are `kindgi_<verb>`; an agent cannot list one in `tools`, and a published tool cannot use the prefix). The model picks the type, the text (up to 2,000 characters), an optional slot `key` and when it stops being true; the scope comes from here and the run. Every remembered fact is `unverified`, attributed to the agent version and the call that wrote it, and expires after `keepDays` unless a person verifies it. A person approves it before any read sees it when the scope is wider than one person (`same-project`, `tenant`) or the text reads like an instruction.",
+            "properties": {
+              "types": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "description": "The fact types it may write."
+              },
+              "scope": {
+                "type": "string",
+                "enum": [
+                  "same-user",
+                  "same-conversation",
+                  "same-project",
+                  "tenant"
+                ],
+                "description": "Where its facts go: the conversation's end user (else the user the run acts for), the conversation, the run's project, or the tenant. Each but `tenant` includes the run's project."
+              },
+              "keepDays": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 3650,
+                "description": "Days an unverified fact is kept. Default 30."
+              }
+            }
           }
         }
       },
@@ -4797,6 +4831,10 @@
           "by": {
             "type": "string",
             "description": "For `edited`: who derived it (`user:<id>`)."
+          },
+          "proposalId": {
+            "type": "string",
+            "description": "For `edited`: the improvement proposal it was derived for. Such a version serves no scope until a promotion makes it live."
           }
         }
       },
@@ -5029,7 +5067,7 @@
           },
           "warnings": {
             "type": "array",
-            "description": "What the agent should know about this deployment before its first turn, e.g. `semantic-unavailable`: a retrieval intent searches by meaning and the deployment has no embeddings.",
+            "description": "What the agent should know about this deployment before its first turn, e.g. `semantic-unavailable` (a retrieval intent searches by meaning and the deployment has no embeddings) or `remember-unavailable` (the agent remembers and the deployment cannot store agent memories).",
             "items": {
               "type": "object",
               "additionalProperties": false,
@@ -6970,6 +7008,11 @@
               "pending"
             ],
             "description": "`pending` while a person must approve it: a pending fact is never retrieved."
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When this revision stops being readable: from its retention (`keepUntil`, or `keepDays` from the fact's first write), or an agent-remembered fact's unverified window. No read returns it after; absent: it doesn't expire."
           }
         }
       },
@@ -7216,189 +7259,356 @@
       "ProposalTier": {
         "type": "string",
         "enum": [
-          "prompt",
-          "retrieval",
-          "tool-config"
-        ]
+          "settings-block",
+          "prompt-block"
+        ],
+        "description": "What a proposal changes: a settings block (new values) or a prompt block (a new template) the agent version pins."
       },
       "FixProposalStatus": {
         "type": "string",
         "enum": [
           "draft",
-          "dry-running",
-          "dry-run-passed",
-          "dry-run-failed",
-          "proposed-for-review",
-          "approved",
+          "evaluating",
+          "evaluated",
+          "not-better",
+          "evaluation-failed",
+          "in-review",
+          "promoted",
+          "refused",
           "rejected",
-          "applied",
+          "expired",
+          "superseded",
           "rolled-back",
           "withdrawn"
-        ]
+        ],
+        "description": "Where a proposal stands, from its comparison and its promotion (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `promoted`: live for the scope (`promotion.liveNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's live version or policy changed. `rolled-back`: rolled back through the proposal. `withdrawn`: withdrawn."
       },
-      "PatternRef": {
+      "ProposalChange": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "kind",
-          "key",
-          "count",
-          "firstSeenAt",
-          "lastSeenAt",
-          "sampleConversations"
+          "blockId",
+          "fromVersion",
+          "content"
         ],
         "properties": {
-          "kind": {
+          "blockId": {
             "type": "string",
-            "enum": [
-              "guardrail-violation",
-              "tool-error",
-              "budget-exceeded",
-              "model-error",
-              "aborted"
-            ]
+            "description": "The data block the change is to."
           },
-          "key": {
-            "type": "string"
-          },
-          "count": {
-            "type": "integer",
-            "minimum": 1
-          },
-          "firstSeenAt": {
+          "fromVersion": {
             "type": "string",
-            "format": "date-time"
+            "description": "The block version the agent version pins: what's being changed."
           },
-          "lastSeenAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "sampleConversations": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "format": "uuid"
+          "content": {
+            "type": "object",
+            "description": "The new content: `{ values }` for a settings block (its schema carries over), `{ template }` for a prompt block (its parameters carry over).",
+            "additionalProperties": false,
+            "properties": {
+              "values": {
+                "type": "object",
+                "additionalProperties": true
+              },
+              "template": {
+                "type": "string"
+              }
             }
           }
         }
       },
-      "ProposedChange": {
-        "description": "Polymorphic change payload. Shape depends on the sibling `tier` on the proposal (prompt / retrieval / tool-config).",
+      "ProposalDrafter": {
         "type": "object",
-        "additionalProperties": true
+        "additionalProperties": false,
+        "required": [
+          "kind"
+        ],
+        "description": "Who wrote the proposal: a person, or one of the runtime's drafters.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "person",
+              "settings-optimizer",
+              "prompt-drafter"
+            ]
+          },
+          "by": {
+            "type": "string",
+            "description": "For a person: `user:<id>` (or `service:<id>`)."
+          },
+          "version": {
+            "type": "string",
+            "description": "For a drafter: the drafter's version."
+          },
+          "model": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "providerId",
+              "model"
+            ],
+            "description": "For a drafter that used a model: which.",
+            "properties": {
+              "providerId": {
+                "type": "string"
+              },
+              "model": {
+                "type": "string"
+              }
+            }
+          }
+        }
       },
-      "FixProposal": {
+      "ProposalCandidate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "agentVersion",
+          "blockVersion",
+          "pinsDigest"
+        ],
+        "description": "The versions evaluating the proposal published. They serve no scope until a promotion makes the agent version live.",
+        "properties": {
+          "agentVersion": {
+            "type": "string",
+            "description": "The derived agent version (its `derivedFrom.proposalId` names the proposal)."
+          },
+          "blockVersion": {
+            "type": "string",
+            "description": "The block version published from the proposal's content."
+          },
+          "pinsDigest": {
+            "type": "string"
+          }
+        }
+      },
+      "ProposalEvaluation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "evalRunId",
+          "suiteId",
+          "objective",
+          "startedAt"
+        ],
+        "description": "The comparison the proposal was evaluated with, and what it found on the objective metric (the full summary is the eval run's).",
+        "properties": {
+          "evalRunId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "suiteId": {
+            "type": "string",
+            "description": "The test set (a judged eval suite)."
+          },
+          "objective": {
+            "type": "string",
+            "enum": [
+              "weightedYesShare",
+              "weightedPrecisionAtK"
+            ]
+          },
+          "startedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "runStatus": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "running",
+              "completed",
+              "failed",
+              "cancelled"
+            ],
+            "description": "The eval run's status. Absent when the run can't be read."
+          },
+          "baseline": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "The recorded outputs' score; `null` without judged evidence."
+          },
+          "candidate": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "The candidate's score."
+          },
+          "delta": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "spread": {
+            "type": "number",
+            "description": "With more than one repetition: the candidate's max − min, the noise a delta must beat."
+          },
+          "cases": {
+            "type": "integer"
+          },
+          "better": {
+            "type": "boolean",
+            "description": "Set once the comparison finished."
+          }
+        }
+      },
+      "ProposalPromotion": {
         "type": "object",
         "additionalProperties": false,
         "required": [
           "id",
-          "tenantId",
-          "supervisorId",
+          "status"
+        ],
+        "description": "The promotion the proposal's request made.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "promoted",
+              "pending-approval",
+              "refused",
+              "superseded",
+              "rejected",
+              "expired"
+            ]
+          },
+          "approvalId": {
+            "type": "string",
+            "description": "The approval a request in review waits on."
+          },
+          "liveNow": {
+            "type": "boolean",
+            "description": "For a promoted proposal: whether its version still serves the scope."
+          }
+        }
+      },
+      "FixProposal": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "An improvement proposal: a change to one data block an agent version pins, for one live scope, taken through the same comparison, gate and promotion as any other version.",
+        "required": [
+          "id",
           "agentId",
-          "agentVersion",
+          "fromVersion",
+          "scope",
           "tier",
           "change",
-          "patternRefs",
           "hypothesis",
-          "proposerRuleId",
+          "drafter",
           "status",
-          "fingerprint",
           "createdAt",
           "updatedAt"
         ],
         "properties": {
           "id": {
             "type": "string",
-            "format": "uuid",
-            "description": "FixProposalId."
-          },
-          "tenantId": {
-            "type": "string",
             "format": "uuid"
-          },
-          "supervisorId": {
-            "type": "string"
           },
           "agentId": {
             "type": "string"
           },
-          "agentVersion": {
+          "fromVersion": {
             "type": "string",
-            "description": "Semver of the baseline agent version."
+            "description": "The agent version the change applies to."
+          },
+          "scope": {
+            "$ref": "#/components/schemas/LiveScope"
           },
           "tier": {
-            "type": "string",
-            "enum": [
-              "prompt",
-              "retrieval",
-              "tool-config"
-            ]
+            "$ref": "#/components/schemas/ProposalTier"
           },
           "change": {
-            "description": "Polymorphic change payload. Shape depends on the sibling `tier` on the proposal (prompt / retrieval / tool-config).",
-            "type": "object",
-            "additionalProperties": true
-          },
-          "patternRefs": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/PatternRef"
-            }
+            "$ref": "#/components/schemas/ProposalChange"
           },
           "hypothesis": {
-            "type": "string"
+            "type": "string",
+            "description": "What the change should improve, and why."
           },
-          "proposerRuleId": {
-            "type": "string"
+          "evidence": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "judgmentIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "drafter": {
+            "$ref": "#/components/schemas/ProposalDrafter"
           },
           "status": {
-            "type": "string",
-            "enum": [
-              "draft",
-              "dry-running",
-              "dry-run-passed",
-              "dry-run-failed",
-              "proposed-for-review",
-              "approved",
-              "rejected",
-              "applied",
-              "rolled-back",
-              "withdrawn"
-            ]
+            "$ref": "#/components/schemas/FixProposalStatus"
           },
-          "fingerprint": {
-            "type": "string",
-            "description": "sha256(tier + agentId + agentVersion + canonical(change)). Dedup key."
+          "candidate": {
+            "$ref": "#/components/schemas/ProposalCandidate"
           },
-          "resolutionReason": {
-            "type": "string"
+          "evaluation": {
+            "$ref": "#/components/schemas/ProposalEvaluation"
           },
-          "reviewApprovalId": {
-            "type": "string",
-            "format": "uuid",
-            "description": "HITL approval id created when the proposal was submitted for review."
+          "promotion": {
+            "$ref": "#/components/schemas/ProposalPromotion"
           },
-          "appliedVersion": {
-            "type": "string",
-            "description": "Semver of the new agent version the proposal materialized as. Present on `applied` and `rolled-back` proposals."
+          "rolledBack": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "at",
+              "promotionId",
+              "by"
+            ],
+            "properties": {
+              "at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "promotionId": {
+                "type": "string",
+                "description": "The rollback's own promotion row."
+              },
+              "by": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
           },
-          "appliedAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "rolledBackAt": {
-            "type": "string",
-            "format": "date-time"
+          "withdrawn": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "at",
+              "by",
+              "reason"
+            ],
+            "properties": {
+              "at": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "by": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            }
           },
           "createdAt": {
             "type": "string",
             "format": "date-time"
           },
           "updatedAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "resolvedAt": {
             "type": "string",
             "format": "date-time"
           }
@@ -7418,291 +7628,456 @@
               "$ref": "#/components/schemas/FixProposal"
             }
           },
-          "nextCursor": {
-            "type": "string",
-            "description": "Opaque cursor for the next page. Absent when `hasMore: false`."
-          },
           "hasMore": {
             "type": "boolean"
+          },
+          "nextCursor": {
+            "type": "string"
           }
         }
       },
-      "PassCriterion": {
-        "description": "How the dry-run judges whether the candidate is good enough to submit for review. Two kinds: `min-pass-rate` (candidate pass rate ≥ threshold) or `strict-improvement` (candidate pass rate exceeds baseline by ≥ delta).",
-        "oneOf": [
-          {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "kind",
-              "minPassRate"
-            ],
-            "properties": {
-              "kind": {
-                "type": "string",
-                "const": "min-pass-rate"
-              },
-              "minPassRate": {
-                "type": "number",
-                "minimum": 0,
-                "maximum": 1
-              }
-            }
+      "ImprovementBudget": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "maxCostUsd",
+          "maxCandidates"
+        ],
+        "properties": {
+          "maxCostUsd": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 100,
+            "description": "The most the pass's comparisons may cost, in US dollars."
           },
-          {
+          "maxCandidates": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200,
+            "description": "The most candidates it compares."
+          }
+        }
+      },
+      "ImprovementPassOutcome": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind"
+        ],
+        "description": "What a finished pass found. `proposed`: its best candidate beat the current values on the test set's hold-out part, so it wrote an improvement proposal (`proposalId`) for a reviewer to decide. `nothing-found`: no candidate beat them by more than the noise, or within the budget (`reason`; `holdOut` has the best candidate's numbers when one got that far). `failed`: `message` says why.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "proposed",
+              "nothing-found",
+              "failed"
+            ]
+          },
+          "proposalId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "holdOut": {
             "type": "object",
             "additionalProperties": false,
             "required": [
-              "kind",
-              "baselinePassRate",
-              "minDelta"
+              "baseline",
+              "candidate",
+              "delta"
             ],
             "properties": {
-              "kind": {
-                "type": "string",
-                "const": "strict-improvement"
+              "baseline": {
+                "type": [
+                  "number",
+                  "null"
+                ]
               },
-              "baselinePassRate": {
-                "type": "number",
-                "minimum": 0,
-                "maximum": 1
+              "candidate": {
+                "type": [
+                  "number",
+                  "null"
+                ]
               },
-              "minDelta": {
+              "delta": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "spread": {
                 "type": "number"
               }
             }
+          },
+          "message": {
+            "type": "string"
           }
-        ]
+        }
       },
-      "DraftProposalBody": {
-        "description": "Draft a fix proposal for `(agentId, agentVersion)`. The supervisor context comes from the `X-Supervisor-Id` header; the caller supplies the target agent + change payload + supporting evidence. Duplicate proposals (same `(supervisor, fingerprint)` in a non-terminal state) short-circuit to the pre-existing row and set `X-Proposal-Deduped: true` on the response.",
+      "ImprovementPass": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "An improvement pass: the runtime looking for better values for an agent version's tunable settings (`x-kindgi-tunable`) on a test set, within a budget. Its best candidate becomes an improvement proposal.",
+        "required": [
+          "id",
+          "agentId",
+          "fromVersion",
+          "scope",
+          "suiteId",
+          "tiers",
+          "objective",
+          "budget",
+          "requestedBy",
+          "status",
+          "candidatesEvaluated",
+          "costUsd",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "agentId": {
+            "type": "string"
+          },
+          "fromVersion": {
+            "type": "string",
+            "description": "The version whose settings it tunes."
+          },
+          "scope": {
+            "$ref": "#/components/schemas/LiveScope"
+          },
+          "suiteId": {
+            "type": "string",
+            "description": "The test set it searches and proves on."
+          },
+          "tiers": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "settings"
+              ]
+            }
+          },
+          "objective": {
+            "type": "string",
+            "enum": [
+              "weightedYesShare",
+              "weightedPrecisionAtK"
+            ]
+          },
+          "budget": {
+            "$ref": "#/components/schemas/ImprovementBudget"
+          },
+          "requestedBy": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "completed",
+              "failed",
+              "cancelled"
+            ]
+          },
+          "candidatesEvaluated": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "costUsd": {
+            "type": "string",
+            "description": "What its comparisons have cost so far (US dollars)."
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/ImprovementPassOutcome"
+          },
+          "comparisons": {
+            "type": "array",
+            "description": "Its comparisons so far, each an eval run to open: `reference` (the version as it is, on the search part), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the proposal, on the hold-out part). Absent from older servers.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "role",
+                "part"
+              ],
+              "properties": {
+                "evalRunId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "reference",
+                    "candidate",
+                    "proof"
+                  ]
+                },
+                "part": {
+                  "type": "string",
+                  "enum": [
+                    "search",
+                    "hold-out"
+                  ]
+                },
+                "blockId": {
+                  "type": "string"
+                },
+                "changed": {
+                  "type": "object",
+                  "additionalProperties": true
+                },
+                "score": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "failed": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "finishedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ImprovementPassCollectionPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "hasMore"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ImprovementPass"
+            }
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "nextCursor": {
+            "type": "string"
+          }
+        }
+      },
+      "ImproveBody": {
         "type": "object",
         "additionalProperties": false,
         "required": [
           "agentId",
-          "agentVersion",
+          "scope",
+          "suiteId"
+        ],
+        "description": "Start an improvement pass.",
+        "properties": {
+          "agentId": {
+            "type": "string"
+          },
+          "fromVersion": {
+            "type": "string",
+            "description": "The version whose settings it tunes. Default: the one serving `scope`."
+          },
+          "scope": {
+            "$ref": "#/components/schemas/LiveScope"
+          },
+          "suiteId": {
+            "type": "string",
+            "description": "The test set (a judged eval suite). The pass splits it into a search part and a hold-out part, and proves its best candidate on the hold-out part."
+          },
+          "tiers": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "settings"
+              ]
+            },
+            "default": [
+              "settings"
+            ]
+          },
+          "objective": {
+            "type": "string",
+            "enum": [
+              "weightedYesShare",
+              "weightedPrecisionAtK"
+            ],
+            "default": "weightedYesShare"
+          },
+          "budget": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Default: $5 and 30 candidates.",
+            "properties": {
+              "maxCostUsd": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 100
+              },
+              "maxCandidates": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 200
+              }
+            }
+          }
+        }
+      },
+      "CreateProposalBody": {
+        "description": "A hand-written proposal: new content for a data block that `fromVersion` pins, for a live scope. The same change from the same version for the same scope is one proposal (answered with `X-Proposal-Deduped: true`).",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "agentId",
+          "fromVersion",
+          "scope",
           "tier",
           "change",
-          "patternRefs",
-          "hypothesis",
-          "proposerRuleId"
+          "hypothesis"
         ],
         "properties": {
           "agentId": {
             "type": "string"
           },
-          "agentVersion": {
-            "type": "string"
+          "fromVersion": {
+            "type": "string",
+            "description": "The agent version the change applies to."
+          },
+          "scope": {
+            "$ref": "#/components/schemas/LiveScope"
           },
           "tier": {
-            "type": "string",
-            "enum": [
-              "prompt",
-              "retrieval",
-              "tool-config"
-            ]
+            "$ref": "#/components/schemas/ProposalTier"
           },
           "change": {
-            "description": "Polymorphic change payload. Shape depends on the sibling `tier` on the proposal (prompt / retrieval / tool-config).",
             "type": "object",
-            "additionalProperties": true
-          },
-          "patternRefs": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/PatternRef"
+            "additionalProperties": false,
+            "required": [
+              "blockId",
+              "content"
+            ],
+            "properties": {
+              "blockId": {
+                "type": "string",
+                "description": "A block `fromVersion` pins, of the tier's kind."
+              },
+              "content": {
+                "type": "object",
+                "description": "`{ values }` for a settings block (they must satisfy its schema), `{ template }` for a prompt block.",
+                "additionalProperties": false,
+                "properties": {
+                  "values": {
+                    "type": "object",
+                    "additionalProperties": true
+                  },
+                  "template": {
+                    "type": "string"
+                  }
+                }
+              }
             }
           },
           "hypothesis": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "maxLength": 2000
           },
-          "proposerRuleId": {
-            "type": "string",
-            "minLength": 1
-          }
-        }
-      },
-      "DryRunProposalBody": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "datasetId",
-          "datasetVersion",
-          "criterion"
-        ],
-        "properties": {
-          "datasetId": {
-            "type": "string",
-            "minLength": 1
-          },
-          "datasetVersion": {
-            "type": "string",
-            "minLength": 1
-          },
-          "criterion": {
-            "description": "How the dry-run judges whether the candidate is good enough to submit for review. Two kinds: `min-pass-rate` (candidate pass rate ≥ threshold) or `strict-improvement` (candidate pass rate exceeds baseline by ≥ delta).",
-            "oneOf": [
-              {
-                "type": "object",
-                "additionalProperties": false,
-                "required": [
-                  "kind",
-                  "minPassRate"
-                ],
-                "properties": {
-                  "kind": {
-                    "type": "string",
-                    "const": "min-pass-rate"
-                  },
-                  "minPassRate": {
-                    "type": "number",
-                    "minimum": 0,
-                    "maximum": 1
-                  }
-                }
-              },
-              {
-                "type": "object",
-                "additionalProperties": false,
-                "required": [
-                  "kind",
-                  "baselinePassRate",
-                  "minDelta"
-                ],
-                "properties": {
-                  "kind": {
-                    "type": "string",
-                    "const": "strict-improvement"
-                  },
-                  "baselinePassRate": {
-                    "type": "number",
-                    "minimum": 0,
-                    "maximum": 1
-                  },
-                  "minDelta": {
-                    "type": "number"
-                  }
+          "evidence": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "judgmentIds": {
+                "type": "array",
+                "items": {
+                  "type": "string"
                 }
               }
+            }
+          }
+        }
+      },
+      "EvaluateProposalBody": {
+        "description": "Compare the proposal's candidate on a test set. The first evaluation publishes the block version and derives the agent version (both serve nowhere until promoted).",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "suiteId"
+        ],
+        "properties": {
+          "suiteId": {
+            "type": "string",
+            "description": "The test set: a judged eval suite."
+          },
+          "objective": {
+            "type": "string",
+            "enum": [
+              "weightedYesShare",
+              "weightedPrecisionAtK"
+            ],
+            "default": "weightedYesShare",
+            "description": "The metric that says whether the candidate is better."
+          },
+          "reads": {
+            "type": "string",
+            "enum": [
+              "recorded",
+              "live"
             ]
-          }
-        }
-      },
-      "DryRunProposalResult": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "proposal",
-          "passed"
-        ],
-        "properties": {
-          "proposal": {
-            "$ref": "#/components/schemas/FixProposal"
           },
-          "passed": {
-            "type": "boolean",
-            "description": "True when the candidate met the criterion — proposal moves to `dry-run-passed`. False → `dry-run-failed` (still a legitimate response, not an error)."
-          }
-        }
-      },
-      "SubmitReviewProposalBody": {
-        "description": "Body is optional — omit to accept every default. `requiredRole` overrides the auto-derivation (meta-fixes → senior). `expiresAt` sets the HITL approval deadline.",
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "requiredRole": {
-            "$ref": "#/components/schemas/ReviewerRole"
+          "repetitions": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10
           },
-          "expiresAt": {
+          "k": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "classWeights": {
             "type": "string",
-            "format": "date-time"
+            "enum": [
+              "as-recorded",
+              "restricted-only"
+            ]
+          },
+          "sample": {
+            "$ref": "#/components/schemas/EvalSample"
           }
         }
       },
-      "SubmitReviewProposalResult": {
+      "ProposalReasonBody": {
         "type": "object",
         "additionalProperties": false,
-        "required": [
-          "proposal",
-          "approvalId",
-          "metaFix"
-        ],
-        "properties": {
-          "proposal": {
-            "$ref": "#/components/schemas/FixProposal"
-          },
-          "approvalId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "metaFix": {
-            "type": "boolean",
-            "description": "True when the proposal targets one of the supervisor's own agent ids — reviewer role auto-bumps to `senior` unless overridden."
-          }
-        }
-      },
-      "ApplyProposalBody": {
-        "description": "Body is optional. `newVersion` overrides the auto-derived patch bump of the baseline; omit to let the runtime bump `1.0.0 → 1.0.1`.",
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "newVersion": {
-            "type": "string",
-            "description": "Semver, strictly greater than the baseline."
-          }
-        }
-      },
-      "ApplyProposalResult": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "proposalId",
-          "appliedVersion",
-          "appliedAt"
-        ],
-        "properties": {
-          "proposalId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "appliedVersion": {
-            "type": "string"
-          },
-          "appliedAt": {
-            "type": "string",
-            "format": "date-time"
-          }
-        }
-      },
-      "RollbackProposalBody": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "reason"
-        ],
         "properties": {
           "reason": {
             "type": "string",
-            "minLength": 1
-          }
-        }
-      },
-      "RollbackProposalResult": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "proposalId",
-          "rolledBackAt"
-        ],
-        "properties": {
-          "proposalId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "rolledBackAt": {
-            "type": "string",
-            "format": "date-time"
+            "minLength": 1,
+            "maxLength": 2000
           }
         }
       },
@@ -7715,7 +8090,8 @@
         "properties": {
           "reason": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "maxLength": 2000
           }
         }
       },
@@ -10876,6 +11252,50 @@
           }
         ]
       },
+      "EvalOverrides": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "For an agent candidate: settings values its replays run instead of the version's pinned ones (an improvement pass's search), by settings block id. Each block must be one the version pins, and the values must satisfy its schema (`400 validation-failed`). A comparison with overrides can't gate a promotion.",
+        "properties": {
+          "settings": {
+            "type": "object",
+            "maxProperties": 20,
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      },
+      "EvalSample": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "part",
+          "seed",
+          "holdOutShare"
+        ],
+        "description": "Only part of the test set's cases: split once into a hold-out part (about `holdOutShare` of them) and a search part (the rest), stratified by judgment (the cases with a \"no\" and the others are split on their own, a stratum of two or more giving each part at least one), in the order of a hash of each case id and `seed`. The same seed always splits the same test set the same way. A promotion gate refuses a comparison on the search part (`comparison.sample`).",
+        "properties": {
+          "part": {
+            "type": "string",
+            "enum": [
+              "search",
+              "hold-out"
+            ]
+          },
+          "seed": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "holdOutShare": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 0.9
+          }
+        }
+      },
       "EvalComparison": {
         "type": "object",
         "additionalProperties": false,
@@ -10918,6 +11338,12 @@
               "restricted-only"
             ],
             "description": "Which judgments count: each at its class's weight (`as-recorded`, the default), or only those recorded while their class was restricted (`Judgment.restricted`), the others weighing 0 (`restricted-only`)."
+          },
+          "overrides": {
+            "$ref": "#/components/schemas/EvalOverrides"
+          },
+          "sample": {
+            "$ref": "#/components/schemas/EvalSample"
           }
         }
       },
@@ -11014,6 +11440,22 @@
               "pinsDigest": {
                 "type": "string",
                 "description": "The version's pinsDigest: what it ran, as a promotion gate checks. Absent for a version published before pins, and from a comparison recorded before it."
+              },
+              "overrides": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "settings"
+                ],
+                "description": "The settings blocks whose values the replays replaced (`overrides`): no published version ran, so it can't gate a promotion. Absent otherwise.",
+                "properties": {
+                  "settings": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
               }
             }
           },
@@ -11232,6 +11674,10 @@
               "restricted-only"
             ],
             "description": "Which judgments counted. Absent from a comparison recorded before restricted classes: `as-recorded`."
+          },
+          "sample": {
+            "$ref": "#/components/schemas/EvalSample",
+            "description": "The part of the test set it ran. Absent: every case."
           },
           "sampling": {
             "type": "object",
@@ -11520,6 +11966,10 @@
                     "refused"
                   ]
                 },
+                "recomputed": {
+                  "type": "boolean",
+                  "description": "With `source: 'live'`: the call ran again from the same arguments because the compared version pins other settings, and the tool reads from nowhere, so it didn't diverge. Absent from older servers, and otherwise."
+                },
                 "reason": {
                   "type": "string"
                 }
@@ -11733,6 +12183,12 @@
               "restricted-only"
             ],
             "description": "Which judgments count: each at its class's weight (`as-recorded`, the default), or only those recorded while their class was restricted (`Judgment.restricted`), the others weighing 0 (`restricted-only`)."
+          },
+          "overrides": {
+            "$ref": "#/components/schemas/EvalOverrides"
+          },
+          "sample": {
+            "$ref": "#/components/schemas/EvalSample"
           }
         },
         "description": "Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `judged` suite (a test set), the run is a comparison: `agentRef` or `flowRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't (a flow stops at a write the replay refuses); `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how. With `flowRef`, `versions` runs the flow with some of its agents or tools at other versions; an id the flow doesn't use, or a version that isn't published, is refused (`400 validation-failed`, each under `details.issues`)."
@@ -12245,6 +12701,14 @@
           "signInUrl": {
             "type": "string",
             "description": "Where the browser goes to start signing in with this provider."
+          },
+          "owner": {
+            "type": "string",
+            "enum": [
+              "tenant",
+              "deployment"
+            ],
+            "description": "Whose it is: a workspace's own identity provider (`tenant`), or one the deployment offers everyone it has added (\"Continue with Google\", `deployment`). A sign-in page shows a workspace's own first. Absent: `tenant`."
           }
         }
       },
@@ -12277,6 +12741,17 @@
               "apiToken": {
                 "type": "boolean",
                 "description": "Sign-in to the console with an API token (`POST /v1/auth/token-sign-in`)."
+              },
+              "emailLink": {
+                "type": "object",
+                "additionalProperties": false,
+                "description": "Present when the deployment emails sign-in links: a sign-in page offers \"Email me a sign-in link\". With `captchaSiteKey`, the request needs a Cloudflare Turnstile token (`x-captcha-response`).",
+                "properties": {
+                  "captchaSiteKey": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
               }
             }
           }
@@ -25137,7 +25612,7 @@
     "/v1/proposals": {
       "get": {
         "operationId": "proposals.list",
-        "summary": "List supervisor fix proposals",
+        "summary": "List improvement proposals",
         "tags": [
           "proposals"
         ],
@@ -25153,7 +25628,7 @@
             }
           },
           "400": {
-            "description": "Missing `X-Supervisor-Id` header or malformed query parameter.",
+            "description": "A malformed query parameter.",
             "content": {
               "application/json": {
                 "schema": {
@@ -25173,18 +25648,8 @@
             }
           }
         },
-        "description": "Cursor-paginated list scoped to `(tenantId, supervisorId)`. Filters: `?status=`, `?agentId=`, `?tier=`. Sort order is binding-defined (typically `createdAt desc, id desc`).",
+        "description": "Newest first, cursor-paginated, only the proposals of agents the caller can read. Filters: `?agentId=`, `?tier=`, `?status=` (statuses are derived, so a page filtered by status can hold fewer rows than `limit`), and the live scope a proposal is for (`scopeKind`, `scopeId`, `segment`, exactly as the promotions history takes it).",
         "parameters": [
-          {
-            "name": "X-Supervisor-Id",
-            "in": "header",
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "required": true,
-            "description": "SupervisorId scoping this request. Every /v1/proposals route requires this header — proposals are supervisor-owned, and the API does not derive supervisor scope from the token."
-          },
           {
             "name": "limit",
             "in": "query",
@@ -25213,7 +25678,7 @@
               "$ref": "#/components/schemas/FixProposalStatus"
             },
             "required": false,
-            "description": "Filter by proposal status."
+            "description": "Only proposals with this (derived) status."
           },
           {
             "name": "agentId",
@@ -25230,16 +25695,22 @@
               "$ref": "#/components/schemas/ProposalTier"
             },
             "required": false,
-            "description": "Filter by artifact tier."
+            "description": "Only proposals of this tier."
           },
           {
             "name": "scopeKind",
             "in": "query",
             "schema": {
-              "$ref": "#/components/schemas/ScopeKind"
+              "type": "string",
+              "enum": [
+                "tenant",
+                "org",
+                "project",
+                "segment"
+              ]
             },
             "required": false,
-            "description": "Optional scope discriminator. If absent, no scope filter is applied."
+            "description": "Only one scope: `tenant`, `org` or `project` (with `scopeId`), or `segment` (with `scopeId` and `segment`)."
           },
           {
             "name": "scopeId",
@@ -25252,14 +25723,17 @@
             "description": "Required IF scopeKind is `org` or `project`. MUST be absent if scopeKind=`tenant` (tenant is implicit from the session). Malformed combinations return 400 scope-invalid."
           },
           {
-            "name": "inherit",
+            "name": "segment",
             "in": "query",
             "schema": {
-              "type": "boolean",
-              "default": true
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             },
             "required": false,
-            "description": "Default `true`. `false` = literal-at-this-scope only (admin/audit view). Load-bearing for policy/config-scoped resources (mcp-endpoints); documented no-op for content-scoped resources (agents/flows/tools/...)."
+            "description": "One step of the segment path, `key:value`; repeat it in order, coarse to fine.",
+            "x-kindgi-segment-path": true
           }
         ],
         "security": [
@@ -25269,14 +25743,24 @@
         ]
       },
       "post": {
-        "operationId": "proposals.draft",
-        "summary": "Draft a fix proposal",
+        "operationId": "proposals.create",
+        "summary": "Propose new content for a data block",
         "tags": [
           "proposals"
         ],
         "responses": {
+          "200": {
+            "description": "The same proposal, made before.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FixProposal"
+                }
+              }
+            }
+          },
           "201": {
-            "description": "Proposal drafted (or deduped).",
+            "description": "The proposal, a `draft`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -25297,6 +25781,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`fromVersion` isn't an active version of the agent (`agent-version-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -25326,18 +25820,8 @@
             }
           }
         },
-        "description": "Inserts a new proposal in `draft` state. Duplicate proposals (same `(supervisor, fingerprint)` non-terminal) short-circuit to the pre-existing row and mark the response with `X-Proposal-Deduped: true`.",
+        "description": "A hand-written proposal: new settings values or a new prompt template for a block `fromVersion` pins, for a live scope. Checked as publishing that block version would be (its schema carries over), and refused when it equals the pinned content. The same change from the same version for the same scope is one proposal: answered `200` with `X-Proposal-Deduped: true`. Needs `publish` on the agent.",
         "parameters": [
-          {
-            "name": "X-Supervisor-Id",
-            "in": "header",
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "required": true,
-            "description": "SupervisorId scoping this request. Every /v1/proposals route requires this header — proposals are supervisor-owned, and the API does not derive supervisor scope from the token."
-          },
           {
             "name": "Idempotency-Key",
             "in": "header",
@@ -25354,7 +25838,116 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/DraftProposalBody"
+                "$ref": "#/components/schemas/CreateProposalBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/proposals/improve": {
+      "post": {
+        "operationId": "proposals.improve",
+        "summary": "Start an improvement pass",
+        "tags": [
+          "proposals"
+        ],
+        "responses": {
+          "202": {
+            "description": "The pass, running.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImprovementPass"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`fromVersion` (or the version serving the scope) is not an active version.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`improve-unsupported`: this runtime runs no improvement passes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. Checked first: the version is active and pins a settings block with tunable keys (`400 validation-failed`), the agent registry takes writes (`409 registry-read-only`), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). Needs `publish` on the agent. Without improvement passes in this runtime, `501 improve-unsupported`.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImproveBody"
               }
             }
           }
@@ -25369,27 +25962,17 @@
     "/v1/proposals/{proposalId}": {
       "get": {
         "operationId": "proposals.get",
-        "summary": "Fetch a fix proposal",
+        "summary": "Fetch an improvement proposal",
         "tags": [
           "proposals"
         ],
         "responses": {
           "200": {
-            "description": "Proposal.",
+            "description": "The proposal.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/FixProposal"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Missing `X-Supervisor-Id` header.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
                 }
               }
             }
@@ -25405,7 +25988,7 @@
             }
           },
           "404": {
-            "description": "No proposal visible under this supervisor with that id.",
+            "description": "No such proposal (or none the caller can read).",
             "content": {
               "application/json": {
                 "schema": {
@@ -25415,17 +25998,8 @@
             }
           }
         },
+        "description": "Needs `read` on its agent.",
         "parameters": [
-          {
-            "name": "X-Supervisor-Id",
-            "in": "header",
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "required": true,
-            "description": "SupervisorId scoping this request. Every /v1/proposals route requires this header — proposals are supervisor-owned, and the API does not derive supervisor scope from the token."
-          },
           {
             "name": "proposalId",
             "in": "path",
@@ -25434,7 +26008,7 @@
               "format": "uuid"
             },
             "required": true,
-            "description": "FixProposalId — opaque branded string (a UUID)."
+            "description": "The proposal id (a UUID)."
           }
         ],
         "security": [
@@ -25444,20 +26018,20 @@
         ]
       }
     },
-    "/v1/proposals/{proposalId}/dry-run": {
+    "/v1/proposals/{proposalId}/evaluate": {
       "post": {
-        "operationId": "proposals.dryRun",
-        "summary": "Dry-run a proposal against an eval dataset",
+        "operationId": "proposals.evaluate",
+        "summary": "Compare a proposal on a test set",
         "tags": [
           "proposals"
         ],
         "responses": {
-          "200": {
-            "description": "Dry-run completed.",
+          "202": {
+            "description": "The proposal, `evaluating`.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/DryRunProposalResult"
+                  "$ref": "#/components/schemas/FixProposal"
                 }
               }
             }
@@ -25483,7 +26057,7 @@
             }
           },
           "404": {
-            "description": "No proposal visible under this supervisor with that id.",
+            "description": "No such proposal, or no such test set.",
             "content": {
               "application/json": {
                 "schema": {
@@ -25493,17 +26067,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Baseline mismatch, apply-change failure, or runtime dry-run error.",
+            "description": "`proposal-needs-pin`: the agent has no live version for the whole tenant. `proposal-invalid-state-transition`: the proposal's status doesn't allow it. `registry-read-only`: the agent registry takes no writes (under `kindgi dev`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -25523,18 +26087,8 @@
             }
           }
         },
-        "description": "Runs the candidate agent against the caller-supplied dataset + criterion. Transitions the proposal to `dry-run-passed` or `dry-run-failed`. Legal only from `draft` or `dry-run-failed`.",
+        "description": "The first evaluation publishes the block version and derives the agent version (`derivedFrom.proposalId`); they serve no scope until a promotion makes them live. Then a comparison eval run replays that version on the test set, against the recorded outputs (`baseline: 'recorded'`). Needs `publish` on the agent, and a live version of it for the whole tenant: an agent with none serves its latest version wherever nothing is pinned, so a new version would go live there at once (`409 proposal-needs-pin`). Allowed from `draft`, `evaluated`, `not-better`, `evaluation-failed`, `refused`, `superseded` and `expired`.",
         "parameters": [
-          {
-            "name": "X-Supervisor-Id",
-            "in": "header",
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "required": true,
-            "description": "SupervisorId scoping this request. Every /v1/proposals route requires this header — proposals are supervisor-owned, and the API does not derive supervisor scope from the token."
-          },
           {
             "name": "proposalId",
             "in": "path",
@@ -25543,7 +26097,7 @@
               "format": "uuid"
             },
             "required": true,
-            "description": "FixProposalId — opaque branded string (a UUID)."
+            "description": "The proposal id (a UUID)."
           },
           {
             "name": "Idempotency-Key",
@@ -25561,7 +26115,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/DryRunProposalBody"
+                "$ref": "#/components/schemas/EvaluateProposalBody"
               }
             }
           }
@@ -25573,20 +26127,30 @@
         ]
       }
     },
-    "/v1/proposals/{proposalId}/submit-review": {
+    "/v1/proposals/{proposalId}/request": {
       "post": {
-        "operationId": "proposals.submitReview",
-        "summary": "Submit a dry-run-passed proposal for HITL review",
+        "operationId": "proposals.request",
+        "summary": "Request a proposal's promotion for its scope",
         "tags": [
           "proposals"
         ],
         "responses": {
-          "200": {
-            "description": "Review enqueued.",
+          "201": {
+            "description": "Promoted: the proposal, `promoted`.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SubmitReviewProposalResult"
+                  "$ref": "#/components/schemas/FixProposal"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "The gate passed and an approval is open: the proposal, `in-review`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FixProposal"
                 }
               }
             }
@@ -25612,7 +26176,7 @@
             }
           },
           "404": {
-            "description": "No proposal visible under this supervisor with that id.",
+            "description": "No such proposal.",
             "content": {
               "application/json": {
                 "schema": {
@@ -25622,7 +26186,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "The proposal's status doesn't allow it.",
             "content": {
               "application/json": {
                 "schema": {
@@ -25632,7 +26196,7 @@
             }
           },
           "422": {
-            "description": "Ground-layer guardrail violation.",
+            "description": "`gate-failed`: the gate refused it (the error carries the checks and `proposalId`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -25652,18 +26216,8 @@
             }
           }
         },
-        "description": "Enqueues a HITL approval and transitions the proposal to `proposed-for-review`. Legal only from `dry-run-passed`. Body is optional; defaults auto-derive the reviewer role (meta-fixes → senior).",
+        "description": "A promotion of the candidate for the proposal's scope, with its evaluation's comparison, through the scope's gate: as `POST /v1/agents/{agentId}/promotions` answers. Needs `promote` on the agent. Allowed from `evaluated`, `not-better` (the gate decides), `refused`, `superseded` and `expired`.",
         "parameters": [
-          {
-            "name": "X-Supervisor-Id",
-            "in": "header",
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "required": true,
-            "description": "SupervisorId scoping this request. Every /v1/proposals route requires this header — proposals are supervisor-owned, and the API does not derive supervisor scope from the token."
-          },
           {
             "name": "proposalId",
             "in": "path",
@@ -25672,7 +26226,7 @@
               "format": "uuid"
             },
             "required": true,
-            "description": "FixProposalId — opaque branded string (a UUID)."
+            "description": "The proposal id (a UUID)."
           },
           {
             "name": "Idempotency-Key",
@@ -25690,136 +26244,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SubmitReviewProposalBody"
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ]
-      }
-    },
-    "/v1/proposals/{proposalId}/apply": {
-      "post": {
-        "operationId": "proposals.apply",
-        "summary": "Apply an approved proposal",
-        "tags": [
-          "proposals"
-        ],
-        "responses": {
-          "200": {
-            "description": "Proposal applied.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ApplyProposalResult"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Malformed request body.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing / malformed / expired / revoked bearer token.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No proposal visible under this supervisor with that id.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Baseline agent not in registry, invalid new version, or apply-change failure.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error (unmapped domain code or framework crash).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          }
-        },
-        "description": "Materializes the proposed change into a new agent version, registers it in the agent registry, and transitions the proposal to `applied`. Legal only from `approved`.",
-        "parameters": [
-          {
-            "name": "X-Supervisor-Id",
-            "in": "header",
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "required": true,
-            "description": "SupervisorId scoping this request. Every /v1/proposals route requires this header — proposals are supervisor-owned, and the API does not derive supervisor scope from the token."
-          },
-          {
-            "name": "proposalId",
-            "in": "path",
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "required": true,
-            "description": "FixProposalId — opaque branded string (a UUID)."
-          },
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "required": false,
-            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
-          }
-        ],
-        "requestBody": {
-          "required": false,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ApplyProposalBody"
+                "$ref": "#/components/schemas/ProposalReasonBody"
               }
             }
           }
@@ -25834,132 +26259,13 @@
     "/v1/proposals/{proposalId}/rollback": {
       "post": {
         "operationId": "proposals.rollback",
-        "summary": "Roll back an applied proposal",
+        "summary": "Roll back a promoted proposal",
         "tags": [
           "proposals"
         ],
         "responses": {
           "200": {
-            "description": "Proposal rolled back.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RollbackProposalResult"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Malformed request body.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing / malformed / expired / revoked bearer token.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No proposal visible under this supervisor with that id.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error (unmapped domain code or framework crash).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          }
-        },
-        "description": "Unregisters the applied version from the agent registry and transitions the proposal to `rolled-back`. Legal only from `applied`.",
-        "parameters": [
-          {
-            "name": "X-Supervisor-Id",
-            "in": "header",
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "required": true,
-            "description": "SupervisorId scoping this request. Every /v1/proposals route requires this header — proposals are supervisor-owned, and the API does not derive supervisor scope from the token."
-          },
-          {
-            "name": "proposalId",
-            "in": "path",
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "required": true,
-            "description": "FixProposalId — opaque branded string (a UUID)."
-          },
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "required": false,
-            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RollbackProposalBody"
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ]
-      }
-    },
-    "/v1/proposals/{proposalId}/withdraw": {
-      "post": {
-        "operationId": "proposals.withdraw",
-        "summary": "Withdraw a non-terminal proposal",
-        "tags": [
-          "proposals"
-        ],
-        "responses": {
-          "200": {
-            "description": "Proposal withdrawn.",
+            "description": "The proposal, `rolled-back`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -25989,7 +26295,7 @@
             }
           },
           "404": {
-            "description": "No proposal visible under this supervisor with that id.",
+            "description": "No such proposal.",
             "content": {
               "application/json": {
                 "schema": {
@@ -25999,7 +26305,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "It isn't promoted, or its version doesn't serve the scope anymore.",
             "content": {
               "application/json": {
                 "schema": {
@@ -26019,18 +26325,8 @@
             }
           }
         },
-        "description": "Transitions the proposal to `withdrawn`. Legal from any non-terminal state (`draft | dry-running | dry-run-passed | dry-run-failed | proposed-for-review`). Terminal states surface as `409 proposal-invalid-state-transition`.",
+        "description": "The scope goes back to the version its own pin held before the proposal's promotion (or, with none, falls back to the scope above). Only while the proposal's version still serves the scope. Needs `promote` on the agent.",
         "parameters": [
-          {
-            "name": "X-Supervisor-Id",
-            "in": "header",
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "required": true,
-            "description": "SupervisorId scoping this request. Every /v1/proposals route requires this header — proposals are supervisor-owned, and the API does not derive supervisor scope from the token."
-          },
           {
             "name": "proposalId",
             "in": "path",
@@ -26039,7 +26335,116 @@
               "format": "uuid"
             },
             "required": true,
-            "description": "FixProposalId — opaque branded string (a UUID)."
+            "description": "The proposal id (a UUID)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProposalReasonBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/proposals/{proposalId}/withdraw": {
+      "post": {
+        "operationId": "proposals.withdraw",
+        "summary": "Withdraw a proposal",
+        "tags": [
+          "proposals"
+        ],
+        "responses": {
+          "200": {
+            "description": "The proposal, `withdrawn`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FixProposal"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such proposal.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The proposal's status doesn't allow it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Closes it. Not while it's in review (decide its approval instead), nor once promoted, rejected or rolled back. Needs `publish` on the agent.",
+        "parameters": [
+          {
+            "name": "proposalId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The proposal id (a UUID)."
           },
           {
             "name": "Idempotency-Key",
@@ -26062,6 +26467,262 @@
             }
           }
         },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/improvement-passes": {
+      "get": {
+        "operationId": "improvementPasses.list",
+        "summary": "List improvement passes",
+        "tags": [
+          "proposals"
+        ],
+        "responses": {
+          "200": {
+            "description": "Page of passes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImprovementPassCollectionPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`improve-unsupported`: this runtime runs no improvement passes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Newest first, only the passes of agents the caller can read. `?agentId=` narrows them.",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "description": "1..100. Default 25."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Opaque cursor from a prior response. Absent → first page."
+          },
+          {
+            "name": "agentId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/improvement-passes/{passId}": {
+      "get": {
+        "operationId": "improvementPasses.get",
+        "summary": "Fetch an improvement pass",
+        "tags": [
+          "proposals"
+        ],
+        "responses": {
+          "200": {
+            "description": "The pass.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImprovementPass"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such pass (or none the caller can read).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`improve-unsupported`: this runtime runs no improvement passes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Its status, the candidates it compared and what they cost, and once it ends, what it found. Needs `read` on its agent.",
+        "parameters": [
+          {
+            "name": "passId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The improvement pass id (a UUID)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/improvement-passes/{passId}/cancel": {
+      "post": {
+        "operationId": "improvementPasses.cancel",
+        "summary": "Cancel an improvement pass",
+        "tags": [
+          "proposals"
+        ],
+        "responses": {
+          "200": {
+            "description": "The pass, cancelled.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImprovementPass"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such pass.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`improvement-pass-finished`: it has ended already.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`improve-unsupported`: this runtime runs no improvement passes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "A running pass stops and ends `cancelled`, writing no proposal. Needs `publish` on its agent.",
+        "parameters": [
+          {
+            "name": "passId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The improvement pass id (a UUID)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
+          }
+        ],
         "security": [
           {
             "bearerAuth": []
@@ -33024,7 +33685,7 @@
             }
           }
         },
-        "description": "Public: nobody is signed in yet. With `email`, the identity providers for that email's domain (from the one tenant the domain is verified for; an unverified domain offers none); without, an empty list: sign-in is email first, so nothing is offered before an email. `methods` says which ways in the deployment allows: identity providers, and/or an API token (`POST /v1/auth/token-sign-in`); both `false` when nobody can sign in to the console. Always mounted. The answer depends only on the domain: two people at the same domain get the same answer, whether or not either has an account. Rate-limited per client (`429 rate-limit-exceeded`, with `Retry-After`).",
+        "description": "Public: nobody is signed in yet. With `email`, the ways in for that email's domain: the identity providers of the one tenant the domain is verified for (an unverified domain offers none), then any the deployment offers everyone it has added (`owner: deployment`, \"Continue with Google\"); without, an empty list: sign-in is email first, so nothing is offered before an email. `methods` says which ways in the deployment allows: identity providers, an API token (`POST /v1/auth/token-sign-in`), and an emailed sign-in link (`emailLink`, with a captcha site key when it needs one); `identityProviders` and `apiToken` both `false` when nobody can sign in to the console. Always mounted. The answer depends only on the domain: two people at the same domain get the same answer, whether or not either has an account. Rate-limited per client (`429 rate-limit-exceeded`, with `Retry-After`).",
         "parameters": [
           {
             "name": "email",
