@@ -43,7 +43,7 @@ import type { GuardrailRegistryBinding } from './guardrail-binding.js';
 import type { RunHandlerBinding } from './handler-binding.js';
 import type { HitlBinding } from './hitl-binding.js';
 import type { IdentityDirectoryBinding } from './identity-directory-binding.js';
-import type { IdentityProviderBinding, RefreshTokenFn } from './identity-provider-binding.js';
+import type { IdentityProviderBinding } from './identity-provider-binding.js';
 import type { ImageRegistryBinding } from './image-registry-binding.js';
 import type { ImprovementPassBinding } from './improvement-pass-binding.js';
 import type { JudgmentRegistryBinding } from './judgment-binding.js';
@@ -752,14 +752,6 @@ export interface CreateAppInput {
    * provider list.
    */
   readonly identityProvider?: IdentityProviderBinding;
-  /**
-   * Optional. When present, `POST /v1/auth/refresh` rotates the
-   * underlying provider tokens via this callback before re-issuing a
-   * session token. When absent, refresh only rotates the framework's
-   * session token (still useful for scoping expiry to the framework
-   * boundary; the provider tokens keep their original TTL).
-   */
-  readonly refreshToken?: RefreshTokenFn;
   /**
    * The rate limit on `GET /v1/auth/sign-in-options` (unauthenticated):
    * requests per client per window, and how to tell clients apart.
@@ -1581,7 +1573,6 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       authRouter({
         sessionStore: input.sessionStore,
         identityProvider: input.identityProvider,
-        ...(input.refreshToken !== undefined && { refreshToken: input.refreshToken }),
         ...(authorizer !== undefined && { authorizer }),
         ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
       }),

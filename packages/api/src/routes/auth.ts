@@ -15,17 +15,12 @@ import type {
   ClaimMappingSpec,
   IdentityProviderBinding,
   ProviderConfig,
-  RefreshTokenFn,
   SamlAttributeMapping,
 } from '../identity-provider-binding.js';
 import { encodeSessionToken } from '../middleware/auth.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { withholdFromReplay } from '../middleware/idempotency.js';
-import type {
-  Session,
-  SessionCreateOutput,
-  SessionStoreBinding,
-} from '../session-store-binding.js';
+import type { SessionCreateOutput, SessionStoreBinding } from '../session-store-binding.js';
 import type { AppEnv } from '../types.js';
 import { tenantResourceAccess } from './tenant-access.js';
 
@@ -40,12 +35,6 @@ import { tenantResourceAccess } from './tenant-access.js';
 export interface AuthRouterOptions {
   readonly sessionStore: SessionStoreBinding;
   readonly identityProvider: IdentityProviderBinding;
-  /**
-   * The provider's own refresh, for a session that holds a provider
-   * refresh token: `POST /refresh` rotates those tokens before minting a
-   * new session token. Without it, refresh re-issues the session token.
-   */
-  readonly refreshToken?: RefreshTokenFn;
   /**
    * With one (T243 A): the provider catalog is tenant-wide, so reading it
    * needs `read` on the tenant and changing it `admin`, as for every
@@ -66,7 +55,6 @@ export interface AuthRouterOptions {
  */
 export function authRouter(options: AuthRouterOptions): Hono<AppEnv> {
   const { sessionStore, identityProvider } = options;
-  const refreshToken = options.refreshToken;
 
   const authed = new Hono<AppEnv>();
 
@@ -302,56 +290,22 @@ export function authRouter(options: AuthRouterOptions): Hono<AppEnv> {
       );
     }
 
-    let created: { readonly session: Session; readonly rawToken: string };
-    if (refreshToken !== undefined && current.refreshToken !== undefined) {
-      let rotated: Awaited<ReturnType<RefreshTokenFn>>;
-      try {
-        rotated = await refreshToken({
-          tenantId,
-          providerId: current.providerId,
-          refreshToken: current.refreshToken,
-        });
-      } catch (err) {
-        c.status(statusFor('oauth-refresh-failed') as never);
-        return c.json(
-          toWireError(
-            {
-              code: 'oauth-refresh-failed',
-              message: err instanceof Error ? err.message : 'refresh failed',
-            },
-            requestId,
-          ),
-        );
-      }
-      const createdSession = await sessionStore.create({
-        tenantId,
-        userId: current.userId,
-        providerId: current.providerId,
-        accessToken: rotated.accessToken,
-        ...(rotated.refreshToken !== undefined && { refreshToken: rotated.refreshToken }),
-        expiresAt: rotated.expiresAt.toISOString() as never,
-        scopes: rotated.scopes,
-        ...(rotated.claims !== undefined && { metadata: rotated.claims }),
-      });
-      const fresh = await sessionStore.get({ tenantId, sessionId: createdSession.sessionId });
-      if (fresh === null) throw new Error('session vanished immediately after create');
-      created = { session: fresh, rawToken: sessionTokenOf(createdSession) };
-    } else {
-      // Rotate the framework token only; keep provider tokens as-is.
-      const createdSession = await sessionStore.create({
-        tenantId,
-        userId: current.userId,
-        providerId: current.providerId,
-        ...(current.accessToken !== undefined && { accessToken: current.accessToken }),
-        ...(current.refreshToken !== undefined && { refreshToken: current.refreshToken }),
-        expiresAt: current.expiresAt,
-        scopes: current.scopes,
-        ...(current.metadata !== undefined && { metadata: current.metadata }),
-      });
-      const fresh = await sessionStore.get({ tenantId, sessionId: createdSession.sessionId });
-      if (fresh === null) throw new Error('session vanished immediately after create');
-      created = { session: fresh, rawToken: sessionTokenOf(createdSession) };
-    }
+    // A new session in place of this one: same person, provider, scopes,
+    // expiry and metadata. Refresh never calls the provider, so any
+    // provider tokens the old session holds carry over as they are.
+    const createdSession = await sessionStore.create({
+      tenantId,
+      userId: current.userId,
+      providerId: current.providerId,
+      ...(current.accessToken !== undefined && { accessToken: current.accessToken }),
+      ...(current.refreshToken !== undefined && { refreshToken: current.refreshToken }),
+      expiresAt: current.expiresAt,
+      scopes: current.scopes,
+      ...(current.metadata !== undefined && { metadata: current.metadata }),
+    });
+    const fresh = await sessionStore.get({ tenantId, sessionId: createdSession.sessionId });
+    if (fresh === null) throw new Error('session vanished immediately after create');
+    const created = { session: fresh, rawToken: sessionTokenOf(createdSession) };
 
     // OAuth 2.1 BCP: mark the old session as ROTATED (not just revoked)
     // so the middleware can return `401 refresh-token-invalid` on reuse
