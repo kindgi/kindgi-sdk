@@ -246,9 +246,12 @@ link for an address isn't held by the 15 minutes, so someone else's
 requests can't keep that person out. Each client may ask 3 times a minute.
 
 Past 200 links in an hour across the whole deployment, the runtime logs a
-warning (at most one every 10 minutes): look at the `sign-in-link-sent` audit
-events for abuse, and turn on Turnstile if it's off. Links still go out; it's
-an alert, not a limit.
+warning, at most one every 10 minutes. Links still go out; it's an alert, not
+a limit:
+
+```text
+[sso] emailed link: more than 200 links this hour across the deployment: check the sign-in-link-sent audit events for abuse, and turn on Turnstile if it's off
+```
 
 A link opened in the browser asks the person to continue before it signs
 them in, so a mail scanner that opens it doesn't use it up.
@@ -266,7 +269,22 @@ A runtime that serves several workspaces doesn't start without it; with one
 workspace it's optional. The startup output says how links go out:
 
 ```text
-Emailed sign-in link: on, from Kindgi <sign-in@acme-live.example> (Turnstile; at most 10 a day per address)
+Emailed sign-in link: on, from Kindgi <sign-in@acme-live.example> (Turnstile; 3 per 15 minutes and at most 20 a day per address)
+```
+
+With one of Cloudflare's test secrets, every request passes, and the start log
+says so:
+
+```text
+[sso] Turnstile uses one of Cloudflare's test secrets: every request passes. Use your widget's own secret outside a test.
+```
+
+Without Turnstile, on a console others can reach (a `KINDGI_PUBLIC_URL` that
+isn't on this machine), the startup output recommends it:
+
+```text
+  Emailed sign-in link: on, from Kindgi <sign-in@acme-live.example> (no captcha: KINDGI_AUTH_TURNSTILE_SECRET adds one; 3 per 15 minutes and at most 20 a day per address)
+  ⚠ Emailed sign-in link without a captcha on a console others can reach: Turnstile is recommended (KINDGI_AUTH_TURNSTILE_SECRET, KINDGI_AUTH_TURNSTILE_SITE_KEY).
 ```
 
 ## Behind a load balancer

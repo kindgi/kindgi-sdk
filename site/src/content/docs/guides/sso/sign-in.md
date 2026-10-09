@@ -22,7 +22,11 @@ how to sign in:**
 - **Email me a sign-in link**, when the deployment sends them.
 
 When your workspace has its own identity provider, it's the way in for your
-domain: GitHub and the emailed link aren't offered there.
+domain, with Google or Microsoft for accounts your company manages. GitHub and
+the emailed link aren't offered there. For `pat@acme-live.example`, whose
+workspace signs in with "Acme Live":
+
+![The sign-in page for pat@acme-live.example: Sign in with Acme Live, Continue with Google, Continue with Microsoft](../../../../assets/sso/sign-in-own-idp.png)
 
 For a Gmail address, Google and GitHub:
 
@@ -42,8 +46,11 @@ same for any email:
 
 The link opens a page that says which email it signs you in as. Nothing
 happens until you choose **Continue as** your email: mail scanners open links
-too, and this keeps them from using yours. The link works once, for ten
-minutes. After that:
+too, and this keeps them from using yours.
+
+![This link signs you in as sam@acme-mail.example. Continue as sam@acme-mail.example. Didn't ask for a sign-in link? Close this page: nothing happens until you continue.](../../../../assets/sso/sign-in-continue.png)
+
+The link works once, for ten minutes. After that:
 
 ![This sign-in link has been used or has expired. A link works once, for ten minutes. Enter your email to get a new one.](../../../../assets/sso/sign-in-link-used.png)
 
@@ -65,6 +72,11 @@ minutes. After that:
 | Sign-in didn't complete | Something went wrong between your identity provider and Kindgi. The **Detail** line under it is what your admin needs. |
 
 Each message ends with a **Detail** line, the code your admin can look up.
+Two you may meet with Google or Microsoft:
+
+![Use your company's sign-in: Your workspace signs its people in with its own identity provider. Enter your email again and choose it. Detail: identity-provider-required](../../../../assets/sso/sign-in-idp-required.png)
+
+![Use your work account: Google or Microsoft confirm a work email only through your company's own account. Sign in with that, or another way your workspace offers. Detail: email-not-managed](../../../../assets/sso/sign-in-not-managed.png)
 
 ## With an API token
 
