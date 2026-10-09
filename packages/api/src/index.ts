@@ -232,6 +232,7 @@ export {
 } from './webhook-endpoint-binding.js';
 export type {
   FinishedRun,
+  ImprovementPassFinishedEvent,
   RunFinishedEvent,
   WebhookDelivery,
   WebhookDeliveryListInput,
@@ -406,8 +407,15 @@ export type {
   EvalCaseStoreBinding,
   JudgedEvalCase,
   JudgedItemSummary,
+  JudgedReason,
 } from './eval-case-binding.js';
-export { MAX_JUDGED_CASES } from './routes/judged-suites.js';
+export { MAX_JUDGED_CASES, buildJudgedSuite } from './routes/judged-suites.js';
+export type {
+  BuildJudgedSuiteInput,
+  BuildJudgedSuiteOutcome,
+  JudgedSuiteQuery,
+} from './routes/judged-suites.js';
+export { segmentsStartWith } from './routes/segments.js';
 export { MAX_JUDGED_HISTORY } from './routes/judgment-context.js';
 export type {
   JudgeClass,
@@ -491,6 +499,7 @@ export { GATE_METRICS } from './gate-policy-binding.js';
 export type { GateApproval, GateCheck, GateInput, GateResult } from './gate.js';
 export { evaluateGate, gateApproval } from './gate.js';
 export type { AgentReleaseGateDeps } from './routes/agent-releases.js';
+export { coordinatesOf as liveScopeCoordinates } from './routes/agent-releases.js';
 export type { GuardrailConfigCheck } from './routes/guardrails.js';
 export { EVAL_KINDS } from './eval-suite-binding.js';
 export type {
@@ -626,41 +635,89 @@ export type {
   MemoryWriteFactOutcome,
 } from './memory-binding.js';
 export type {
-  SupervisorApplyOutcome,
-  SupervisorApplyProposalInput,
-  SupervisorBinding,
-  SupervisorDraftOutcome,
-  SupervisorDraftProposalInput,
-  SupervisorDryRunOutcome,
-  SupervisorDryRunProposalInput,
-  SupervisorGetProposalInput,
-  SupervisorListProposalsInput,
-  SupervisorProposalPage,
-  SupervisorRollbackOutcome,
-  SupervisorRollbackProposalInput,
-  SupervisorSubmitReviewInput,
-  SupervisorSubmitReviewOutcome,
-  SupervisorWithdrawOutcome,
-  SupervisorWithdrawProposalInput,
-} from './supervisor-binding.js';
+  CreateMemoryErasureOutcome,
+  MemoryErasure,
+  MemoryErasureBinding,
+  MemoryErasureLedgerEntry,
+  MemoryErasureSelector,
+  MemoryErasureSelectorKind,
+  MemoryErasureStatus,
+  MemoryErasureWarning,
+  ReplayMemoryErasuresResult,
+} from './memory-erasure-binding.js';
 export type {
-  FixProposal,
-  FixProposalStatus,
+  CreateProposalInput,
+  CreateProposalOutcome,
+  GetProposalInput,
+  ListProposalsInput,
   Observation,
   ObservationStatus,
   ObservedViolation,
-  PassCriterion,
-  PatternKind,
-  PatternRef,
-  PromptChange,
+  ProposalCandidate,
+  ProposalDrafter,
+  ProposalEvaluationRef,
+  ProposalEvidence,
+  ProposalObjective,
+  ProposalStep,
+  ProposalTier,
   ProposedChange,
-  RetrievalChange,
-  RetrievalIntentShape,
+  RecordProposalInput,
+  RecordProposalOutcome,
+  StoredProposal,
+  StoredProposalPage,
+  SupervisorBinding,
   SupervisorObservationPage,
   SupervisorQueryObservationsInput,
   SupervisorQueryObservationsOutcome,
-  ToolConfigChange,
 } from './supervisor-binding.js';
+export type {
+  ImproveScheduleInput,
+  ImproveThreshold,
+  ImprovementBudget,
+  ImprovementModel,
+  ImprovementPass,
+  ImprovementPassBinding,
+  ImprovementPassComparison,
+  ImprovementPassOutcome,
+  ImprovementPassStatus,
+  ImprovementTier,
+  ListImprovementPassesInput,
+  StartImprovementPassInput,
+} from './improvement-pass-binding.js';
+export { IMPROVE_SCHEDULE_DEFAULTS } from './improvement-pass-binding.js';
+export {
+  DEFAULT_BUDGET as DEFAULT_IMPROVEMENT_BUDGET,
+  parseImproveScheduleInput,
+  serializePass,
+} from './routes/improvement-passes.js';
+export { sampleCases } from './eval-sample.js';
+export type { EvalOverrides, EvalSample } from './eval-run-binding.js';
+export {
+  DRAFTED_PROPOSAL_APPROVAL,
+  createProposalService,
+  proposalNotFound,
+} from './proposal-service.js';
+export type {
+  DraftProposalInput,
+  EvaluateProposalInput,
+  ProposalFacts,
+  ProposalOutcome,
+  ProposalService,
+  ProposalServiceDeps,
+  ProposalServiceError,
+} from './proposal-service.js';
+export {
+  FIX_PROPOSAL_STATUSES,
+  PROPOSAL_ACTIONS,
+  evaluationOutcome,
+  proposalActionAllowed,
+  proposalStatus,
+} from './proposal-status.js';
+export type {
+  FixProposalStatus,
+  ProposalAction,
+  ProposalEvaluationOutcome,
+} from './proposal-status.js';
 export type {
   Deployment,
   DeploymentBinding,

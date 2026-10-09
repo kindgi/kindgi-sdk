@@ -68,13 +68,15 @@ export interface WebhookEndpointBinding {
 }
 
 /** Event types an endpoint can subscribe to. */
-export const WEBHOOK_EVENT_TYPES = ['run.finished'] as const;
+export const WEBHOOK_EVENT_TYPES = ['run.finished', 'improvement-pass.finished'] as const;
 export type WebhookEventType = (typeof WEBHOOK_EVENT_TYPES)[number];
 
 /**
  * Which events reach the endpoint. Every field narrows; absent fields
  * don't. `run.finished` is sent for top-level runs only (never for a
- * child run, such as an agent step's turn).
+ * child run, such as an agent step's turn). `projectId` narrows
+ * `improvement-pass.finished` too (the pass's project); `flowIds` and
+ * `includeDryRuns` are about runs only.
  */
 export interface WebhookEndpointFilter {
   /** Only runs in this project. */
@@ -195,6 +197,19 @@ export interface RunFinishedEvent {
   readonly data: { readonly run: FinishedRun };
 }
 
+/**
+ * An improvement pass ended (`completed`, `failed` or `cancelled`), one a
+ * person started or one an `improve` schedule did. `data.pass` is the pass
+ * as `GET /v1/improvement-passes/{passId}` shows it: its outcome names the
+ * proposal it wrote, if it wrote one.
+ */
+export interface ImprovementPassFinishedEvent {
+  readonly id: WebhookEventId;
+  readonly type: 'improvement-pass.finished';
+  readonly createdAt: Timestamp;
+  readonly data: { readonly pass: Readonly<Record<string, unknown>> };
+}
+
 /** Sent only by `POST /v1/webhook-endpoints/:endpointId/test`. */
 export interface WebhookTestEvent {
   readonly id: WebhookEventId;
@@ -204,7 +219,7 @@ export interface WebhookTestEvent {
 }
 
 /** The JSON body of every webhook request. */
-export type WebhookEvent = RunFinishedEvent | WebhookTestEvent;
+export type WebhookEvent = RunFinishedEvent | ImprovementPassFinishedEvent | WebhookTestEvent;
 
 // ---------- deliveries ----------
 

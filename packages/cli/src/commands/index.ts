@@ -47,11 +47,13 @@ import { testCommand } from './test.js';
 import { tokensCommand } from './tokens.js';
 import { toolsCommand } from './tools.js';
 import type { Command } from './types.js';
+import { upgradeCommand } from './upgrade.js';
 import { versionCommand } from './version.js';
 
 export const ROOT_COMMANDS: readonly Command[] = [
   authCommand,
   initCommand,
+  upgradeCommand,
   devCommand,
   consoleCommand,
   buildCommand,

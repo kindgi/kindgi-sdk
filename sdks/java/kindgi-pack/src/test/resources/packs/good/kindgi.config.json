@@ -1,0 +1,5 @@
+{
+  "language": "java",
+  "pack": { "id": "acme", "version": "1.0.0" },
+  "env": { "required": ["DATABASE_URL"], "optional": ["SENTRY_DSN"] }
+}
