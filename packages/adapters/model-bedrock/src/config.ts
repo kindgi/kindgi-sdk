@@ -31,7 +31,8 @@ const KEYS = ['auth', 'baseURL'] as const;
 const REGION = /^[a-z]{2,4}(?:-[a-z]+)+-\d{1,2}$/;
 /**
  * The DNS suffix of each AWS partition other than `aws` (`amazonaws.com`), by region prefix:
- * the same table `@ai-sdk/amazon-bedrock` builds its default endpoint from.
+ * the same table `@ai-sdk/amazon-bedrock` builds its default endpoint from. The runtime's AWS
+ * identity keeps a copy for its STS endpoint, until both read one shared module.
  */
 const PARTITION_DNS_SUFFIXES: readonly (readonly [prefix: string, suffix: string])[] = [
   ['cn-', 'amazonaws.com.cn'],
