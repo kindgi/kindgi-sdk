@@ -259,7 +259,7 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
               arguments: call.arguments,
               gated: gate !== undefined,
             });
-      if (replayed !== undefined && replayed.kind !== 'live') {
+      if (replayed !== undefined && replayed.kind !== 'live' && replayed.kind !== 'recomputed') {
         const replayStarted = Date.now();
         await emitTurnEvent(ctx.bindings.onEvent, {
           kind: 'tool.started',
@@ -423,7 +423,10 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
         invocationId: call.id,
         output: dispatched.value.persisted.content,
         durationMs: Date.now() - toolStarted,
-        ...(replayed !== undefined && { replay: replayed.kind }),
+        // A recomputed call ran, as a live one does.
+        ...(replayed !== undefined && {
+          replay: replayed.kind === 'recomputed' ? ('live' as const) : replayed.kind,
+        }),
       });
     }
 

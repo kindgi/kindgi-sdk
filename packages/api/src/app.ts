@@ -49,6 +49,7 @@ import type {
   RefreshTokenFn,
 } from './identity-provider-binding.js';
 import type { ImageRegistryBinding } from './image-registry-binding.js';
+import type { ImprovementPassBinding } from './improvement-pass-binding.js';
 import type { JudgmentRegistryBinding } from './judgment-binding.js';
 import type { AgentReleaseBindings } from './live-version-binding.js';
 import type { MCPClientProbeBinding, MCPEndpointRegistryBinding } from './mcp-endpoint-binding.js';
@@ -110,6 +111,7 @@ import { flowsRouter } from './routes/flows.js';
 import { gatePoliciesRouter } from './routes/gate-policies.js';
 import { guardrailsRouter } from './routes/guardrails.js';
 import { identityRouter } from './routes/identity.js';
+import { improvementPassesRouter, mountImproveRoute } from './routes/improvement-passes.js';
 import { judgedSuitesRouter } from './routes/judged-suites.js';
 import { judgeClassesRouter, judgmentsRouter } from './routes/judgments.js';
 import { mcpRouter } from './routes/mcp.js';
@@ -450,6 +452,13 @@ export interface CreateAppInput {
    * registry. See `supervisor-binding.ts` for the full contract.
    */
   readonly supervisor?: SupervisorBinding;
+  /**
+   * Optional. Improvement passes (`POST /v1/proposals/improve`,
+   * `/v1/improvement-passes`): the runtime's search for better settings
+   * values, written as an improvement proposal. Without it, both answer
+   * `501 improve-unsupported`. Mounted with `/v1/proposals`.
+   */
+  readonly improvementPasses?: ImprovementPassBinding;
   /**
    * Optional. The key the deployment signs its exports with: an
    * approval's audit bundle (`POST /v1/approvals/:approvalId/audit-bundle`),
@@ -1269,8 +1278,35 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       }),
     );
   }
-  if (input.supervisor !== undefined) {
-    v1.route('/proposals', proposalsRouter(input.supervisor));
+  if (
+    input.supervisor !== undefined &&
+    input.agentRegistry !== undefined &&
+    input.blockRegistry !== undefined &&
+    input.evalRunBinding !== undefined &&
+    input.agentReleases !== undefined
+  ) {
+    const improveDeps = {
+      ...(input.improvementPasses !== undefined && { passes: input.improvementPasses }),
+      agents: input.agentRegistry,
+      blocks: input.blockRegistry,
+      releases: input.agentReleases,
+    };
+    v1.route(
+      '/proposals',
+      proposalsRouter(
+        input.supervisor,
+        {
+          agents: input.agentRegistry,
+          blocks: input.blockRegistry,
+          evalRuns: input.evalRunBinding,
+          releases: input.agentReleases,
+          ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
+        },
+        authorizer,
+        (r) => mountImproveRoute(r, improveDeps, authorizer),
+      ),
+    );
+    v1.route('/improvement-passes', improvementPassesRouter(input.improvementPasses, authorizer));
   }
   v1.route('/export-signing-keys', exportSigningKeysRouter(exportSigning));
   v1.route(
@@ -1552,6 +1588,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
             ...(input.agentRegistry !== undefined && { agents: input.agentRegistry }),
             ...(input.toolRegistry !== undefined && { tools: input.toolRegistry }),
           }
+        : undefined,
+      input.agentRegistry !== undefined && input.blockRegistry !== undefined
+        ? { agents: input.agentRegistry, blocks: input.blockRegistry }
         : undefined,
       authorizer,
     );
