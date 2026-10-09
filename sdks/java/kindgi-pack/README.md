@@ -272,8 +272,9 @@ one line for tools to read.
 The service runs the process contract every pack service does: `PORT`,
 `KINDGI_PACK_SERVICE_TOKEN`, `KINDGI_PACK_SERVICE_MAX_CONCURRENCY` (32),
 `KINDGI_PACK_ENV_CHECK` (`strict` or `warn`), and log records on stderr.
-SIGTERM drains in-flight calls for up to 8 seconds and exits 0. It passes the
-same conformance suite as the TypeScript and Python services
+SIGTERM drains in-flight calls for up to 8 seconds and exits 0: from the
+`draining` record on, `/readyz` and new calls answer 503 (with `Retry-After`),
+so a load balancer stops sending calls. It passes the same conformance suite as the TypeScript and Python services
 (`packages/pack-conformance`).
 
 **Logging:** the service writes the same log records as the TypeScript and
