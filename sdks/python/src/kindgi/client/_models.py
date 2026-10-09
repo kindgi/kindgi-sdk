@@ -3686,6 +3686,164 @@ class FixProposalCollectionPage(BaseModel):
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
+class ImprovementBudget(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    max_cost_usd: Annotated[float, Field(alias="maxCostUsd", gt=0.0, le=100.0)]
+    """
+    The most the pass's comparisons may cost, in US dollars.
+    """
+    max_candidates: Annotated[int, Field(alias="maxCandidates", ge=1, le=200)]
+    """
+    The most candidates it compares.
+    """
+
+
+class HoldOut(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    baseline: float | None
+    candidate: float | None
+    delta: float | None
+    spread: float | None = None
+
+
+class ImprovementPassOutcome(BaseModel):
+    """
+    What a finished pass found. `proposed`: its best candidate beat the current values on the test set's hold-out part, so it wrote an improvement proposal (`proposalId`) for a reviewer to decide. `nothing-found`: no candidate beat them by more than the noise, or within the budget (`reason`; `holdOut` has the best candidate's numbers when one got that far). `failed`: `message` says why.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["proposed", "nothing-found", "failed"]
+    proposal_id: Annotated[UUID | None, Field(alias="proposalId")] = None
+    reason: str | None = None
+    hold_out: Annotated[HoldOut | None, Field(alias="holdOut")] = None
+    message: str | None = None
+
+
+class Comparison1(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    eval_run_id: Annotated[UUID | None, Field(alias="evalRunId")] = None
+    role: Literal["reference", "candidate", "proof"]
+    part: Literal["search", "hold-out"]
+    block_id: Annotated[str | None, Field(alias="blockId")] = None
+    changed: dict[str, Any] | None = None
+    score: float | None = None
+    failed: str | None = None
+
+
+class ImprovementPass(BaseModel):
+    """
+    An improvement pass: the runtime looking for better values for an agent version's tunable settings (`x-kindgi-tunable`) on a test set, within a budget. Its best candidate becomes an improvement proposal.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: UUID
+    agent_id: Annotated[str, Field(alias="agentId")]
+    from_version: Annotated[str, Field(alias="fromVersion")]
+    """
+    The version whose settings it tunes.
+    """
+    scope: Annotated[
+        LiveScopeTenant | LiveScopeOrg | LiveScopeProject | LiveScopeSegment,
+        Field(discriminator="kind"),
+    ]
+    """
+    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    """
+    suite_id: Annotated[str, Field(alias="suiteId")]
+    """
+    The test set it searches and proves on.
+    """
+    tiers: list[Literal["settings"]]
+    objective: Literal["weightedYesShare", "weightedPrecisionAtK"]
+    budget: ImprovementBudget
+    requested_by: Annotated[str, Field(alias="requestedBy")]
+    status: Literal["running", "completed", "failed", "cancelled"]
+    candidates_evaluated: Annotated[int, Field(alias="candidatesEvaluated", ge=0)]
+    cost_usd: Annotated[str, Field(alias="costUsd")]
+    """
+    What its comparisons have cost so far (US dollars).
+    """
+    outcome: ImprovementPassOutcome | None = None
+    comparisons: list[Comparison1] | None = None
+    """
+    Its comparisons so far, each an eval run to open: `reference` (the version as it is, on the search part), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the proposal, on the hold-out part). Absent from older servers.
+    """
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+    finished_at: Annotated[AwareDatetime | None, Field(alias="finishedAt")] = None
+
+
+class ImprovementPassCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[ImprovementPass]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class Budget2(BaseModel):
+    """
+    Default: $5 and 30 candidates.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    max_cost_usd: Annotated[float | None, Field(alias="maxCostUsd", gt=0.0, le=100.0)] = None
+    max_candidates: Annotated[int | None, Field(alias="maxCandidates", ge=1, le=200)] = None
+
+
+class ImproveBody(BaseModel):
+    """
+    Start an improvement pass.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    agent_id: Annotated[str, Field(alias="agentId")]
+    from_version: Annotated[str | None, Field(alias="fromVersion")] = None
+    """
+    The version whose settings it tunes. Default: the one serving `scope`.
+    """
+    scope: Annotated[
+        LiveScopeTenant | LiveScopeOrg | LiveScopeProject | LiveScopeSegment,
+        Field(discriminator="kind"),
+    ]
+    """
+    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    """
+    suite_id: Annotated[str, Field(alias="suiteId")]
+    """
+    The test set (a judged eval suite). The pass splits it into a search part and a hold-out part, and proves its best candidate on the hold-out part.
+    """
+    tiers: list[Literal["settings"]] | None = ["settings"]
+    objective: Literal["weightedYesShare", "weightedPrecisionAtK"] | None = "weightedYesShare"
+    budget: Budget2 | None = None
+    """
+    Default: $5 and 30 candidates.
+    """
+
+
 class Content1(BaseModel):
     """
     `{ values }` for a settings block (they must satisfy its schema), `{ template }` for a prompt block.
@@ -3742,31 +3900,6 @@ class CreateProposalBody(BaseModel):
     change: Change
     hypothesis: Annotated[str, Field(max_length=2000, min_length=1)]
     evidence: Evidence1 | None = None
-
-
-class EvaluateProposalBody(BaseModel):
-    """
-    Compare the proposal's candidate on a test set. The first evaluation publishes the block version and derives the agent version (both serve nowhere until promoted).
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    suite_id: Annotated[str, Field(alias="suiteId")]
-    """
-    The test set: a judged eval suite.
-    """
-    objective: Literal["weightedYesShare", "weightedPrecisionAtK"] | None = "weightedYesShare"
-    """
-    The metric that says whether the candidate is better.
-    """
-    reads: Literal["recorded", "live"] | None = None
-    repetitions: Annotated[int | None, Field(ge=1, le=10)] = None
-    k: Annotated[int | None, Field(ge=1, le=100)] = None
-    class_weights: Annotated[
-        Literal["as-recorded", "restricted-only"] | None, Field(alias="classWeights")
-    ] = None
 
 
 class ProposalReasonBody(BaseModel):
@@ -5576,6 +5709,32 @@ class EvalBaseline2(BaseModel):
     live: Live
 
 
+class EvalOverrides(BaseModel):
+    """
+    For an agent candidate: settings values its replays run instead of the version's pinned ones (an improvement pass's search), by settings block id. Each block must be one the version pins, and the values must satisfy its schema (`400 validation-failed`). A comparison with overrides can't gate a promotion.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    settings: Annotated[dict[str, dict[str, Any]] | None, Field(max_length=20)] = None
+
+
+class EvalSample(BaseModel):
+    """
+    Only part of the test set's cases: split once into a hold-out part (about `holdOutShare` of them) and a search part (the rest), stratified by judgment (the cases with a "no" and the others are split on their own, a stratum of two or more giving each part at least one), in the order of a hash of each case id and `seed`. The same seed always splits the same test set the same way. A promotion gate refuses a comparison on the search part (`comparison.sample`).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    part: Literal["search", "hold-out"]
+    seed: Annotated[str, Field(max_length=200, min_length=1)]
+    hold_out_share: Annotated[float, Field(alias="holdOutShare", ge=0.1, le=0.9)]
+
+
 class EvalComparison(BaseModel):
     """
     A comparison eval run's settings (a `judged` suite).
@@ -5602,6 +5761,8 @@ class EvalComparison(BaseModel):
     """
     Which judgments count: each at its class's weight (`as-recorded`, the default), or only those recorded while their class was restricted (`Judgment.restricted`), the others weighing 0 (`restricted-only`).
     """
+    overrides: EvalOverrides | None = None
+    sample: EvalSample | None = None
 
 
 class ComparisonMetric(BaseModel):
@@ -5631,6 +5792,18 @@ class ComparisonMetric(BaseModel):
     """
 
 
+class Overrides(BaseModel):
+    """
+    The settings blocks whose values the replays replaced (`overrides`): no published version ran, so it can't gate a promotion. Absent otherwise.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    settings: list[str]
+
+
 class ComparisonCandidate1(BaseModel):
     """
     What ran on the cases: an agent version, or a flow version (with any versions it swapped in).
@@ -5646,6 +5819,10 @@ class ComparisonCandidate1(BaseModel):
     pins_digest: Annotated[str | None, Field(alias="pinsDigest")] = None
     """
     The version's pinsDigest: what it ran, as a promotion gate checks. Absent for a version published before pins, and from a comparison recorded before it.
+    """
+    overrides: Overrides | None = None
+    """
+    The settings blocks whose values the replays replaced (`overrides`): no published version ran, so it can't gate a promotion. Absent otherwise.
     """
 
 
@@ -5805,6 +5982,10 @@ class JudgedComparisonSummary(BaseModel):
     """
     Which judgments counted. Absent from a comparison recorded before restricted classes: `as-recorded`.
     """
+    sample: EvalSample | None = None
+    """
+    The part of the test set it ran. Absent: every case.
+    """
     sampling: Sampling
     repetitions: Annotated[int, Field(ge=1)]
     metrics: Metrics
@@ -5905,6 +6086,10 @@ class Tool1(BaseModel):
     tool_version: Annotated[str, Field(alias="toolVersion")]
     arguments: Any
     source: Literal["live", "recorded", "refused"]
+    recomputed: bool | None = None
+    """
+    With `source: 'live'`: the call ran again from the same arguments because the compared version pins other settings, and the tool reads from nowhere, so it didn't diverge. Absent from older servers, and otherwise.
+    """
     reason: str | None = None
 
 
@@ -6044,6 +6229,8 @@ class StartEvalRunBody(BaseModel):
     """
     Which judgments count: each at its class's weight (`as-recorded`, the default), or only those recorded while their class was restricted (`Judgment.restricted`), the others weighing 0 (`restricted-only`).
     """
+    overrides: EvalOverrides | None = None
+    sample: EvalSample | None = None
 
 
 class StartEvalRunResult(BaseModel):
@@ -9630,6 +9817,32 @@ class AgentCollectionPage(BaseModel):
     Opaque cursor for the next page. Absent when `hasMore: false`.
     """
     has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class EvaluateProposalBody(BaseModel):
+    """
+    Compare the proposal's candidate on a test set. The first evaluation publishes the block version and derives the agent version (both serve nowhere until promoted).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    suite_id: Annotated[str, Field(alias="suiteId")]
+    """
+    The test set: a judged eval suite.
+    """
+    objective: Literal["weightedYesShare", "weightedPrecisionAtK"] | None = "weightedYesShare"
+    """
+    The metric that says whether the candidate is better.
+    """
+    reads: Literal["recorded", "live"] | None = None
+    repetitions: Annotated[int | None, Field(ge=1, le=10)] = None
+    k: Annotated[int | None, Field(ge=1, le=100)] = None
+    class_weights: Annotated[
+        Literal["as-recorded", "restricted-only"] | None, Field(alias="classWeights")
+    ] = None
+    sample: EvalSample | None = None
 
 
 class CallUsage(BaseModel):

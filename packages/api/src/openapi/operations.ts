@@ -573,6 +573,14 @@ const InheritQueryParam: ParameterSpec = {
   schema: { type: 'boolean', default: true },
 };
 
+const ImprovementPassIdPathParam: ParameterSpec = {
+  name: 'passId',
+  in: 'path',
+  required: true,
+  description: 'The improvement pass id (a UUID).',
+  schema: { type: 'string', format: 'uuid' },
+};
+
 const ProposalIdPathParam: ParameterSpec = {
   name: 'proposalId',
   in: 'path',
@@ -3121,6 +3129,27 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'post',
+    honoPath: '/v1/proposals/improve',
+    openapiPath: '/v1/proposals/improve',
+    operationId: 'proposals.improve',
+    summary: 'Start an improvement pass',
+    description:
+      "The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. Checked first: the version is active and pins a settings block with tunable keys (`400 validation-failed`), the agent registry takes writes (`409 registry-read-only`), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). Needs `publish` on the agent. Without improvement passes in this runtime, `501 improve-unsupported`.",
+    tags: ['proposals'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('ImproveBody') },
+    responses: {
+      '202': { description: 'The pass, running.', schema: ref('ImprovementPass') },
+      ...CommonMutationErrors,
+      '404': ErrorResponse(
+        '`fromVersion` (or the version serving the scope) is not an active version.',
+      ),
+      '501': ErrorResponse('`improve-unsupported`: this runtime runs no improvement passes.'),
+    },
+  },
+  {
     method: 'get',
     honoPath: '/v1/proposals/:proposalId',
     openapiPath: '/v1/proposals/{proposalId}',
@@ -3240,6 +3269,62 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       '404': ErrorResponse('No such proposal.'),
       '409': ErrorResponse("The proposal's status doesn't allow it."),
+    },
+  },
+
+  // ---------- improvement passes ----------
+  {
+    method: 'get',
+    honoPath: '/v1/improvement-passes',
+    openapiPath: '/v1/improvement-passes',
+    operationId: 'improvementPasses.list',
+    summary: 'List improvement passes',
+    description:
+      'Newest first, only the passes of agents the caller can read. `?agentId=` narrows them.',
+    tags: ['proposals'],
+    security: 'bearer',
+    parameters: [LimitQueryParam, CursorQueryParam, AgentIdQueryParam],
+    responses: {
+      '200': { description: 'Page of passes.', schema: ref('ImprovementPassCollectionPage') },
+      ...CommonAuthErrors,
+      '501': ErrorResponse('`improve-unsupported`: this runtime runs no improvement passes.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/improvement-passes/:passId',
+    openapiPath: '/v1/improvement-passes/{passId}',
+    operationId: 'improvementPasses.get',
+    summary: 'Fetch an improvement pass',
+    description:
+      'Its status, the candidates it compared and what they cost, and once it ends, what it found. Needs `read` on its agent.',
+    tags: ['proposals'],
+    security: 'bearer',
+    parameters: [ImprovementPassIdPathParam],
+    responses: {
+      '200': { description: 'The pass.', schema: ref('ImprovementPass') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No such pass (or none the caller can read).'),
+      '501': ErrorResponse('`improve-unsupported`: this runtime runs no improvement passes.'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/improvement-passes/:passId/cancel',
+    openapiPath: '/v1/improvement-passes/{passId}/cancel',
+    operationId: 'improvementPasses.cancel',
+    summary: 'Cancel an improvement pass',
+    description:
+      'A running pass stops and ends `cancelled`, writing no proposal. Needs `publish` on its agent.',
+    tags: ['proposals'],
+    security: 'bearer',
+    parameters: [ImprovementPassIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '200': { description: 'The pass, cancelled.', schema: ref('ImprovementPass') },
+      ...CommonMutationErrors,
+      '404': ErrorResponse('No such pass.'),
+      '409': ErrorResponse('`improvement-pass-finished`: it has ended already.'),
+      '501': ErrorResponse('`improve-unsupported`: this runtime runs no improvement passes.'),
     },
   },
 

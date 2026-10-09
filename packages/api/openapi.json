@@ -294,6 +294,9 @@
           "proposal-not-found": 404,
           "proposal-invalid-state-transition": 409,
           "proposal-needs-pin": 409,
+          "improve-unsupported": 501,
+          "improvement-pass-not-found": 404,
+          "improvement-pass-finished": 409,
           "version-already-exists": 409,
           "supervisor-header-missing": 400,
           "blob-not-found": 404,
@@ -7633,6 +7636,317 @@
           }
         }
       },
+      "ImprovementBudget": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "maxCostUsd",
+          "maxCandidates"
+        ],
+        "properties": {
+          "maxCostUsd": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 100,
+            "description": "The most the pass's comparisons may cost, in US dollars."
+          },
+          "maxCandidates": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200,
+            "description": "The most candidates it compares."
+          }
+        }
+      },
+      "ImprovementPassOutcome": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind"
+        ],
+        "description": "What a finished pass found. `proposed`: its best candidate beat the current values on the test set's hold-out part, so it wrote an improvement proposal (`proposalId`) for a reviewer to decide. `nothing-found`: no candidate beat them by more than the noise, or within the budget (`reason`; `holdOut` has the best candidate's numbers when one got that far). `failed`: `message` says why.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "proposed",
+              "nothing-found",
+              "failed"
+            ]
+          },
+          "proposalId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "holdOut": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "baseline",
+              "candidate",
+              "delta"
+            ],
+            "properties": {
+              "baseline": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "candidate": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "delta": {
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "spread": {
+                "type": "number"
+              }
+            }
+          },
+          "message": {
+            "type": "string"
+          }
+        }
+      },
+      "ImprovementPass": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "An improvement pass: the runtime looking for better values for an agent version's tunable settings (`x-kindgi-tunable`) on a test set, within a budget. Its best candidate becomes an improvement proposal.",
+        "required": [
+          "id",
+          "agentId",
+          "fromVersion",
+          "scope",
+          "suiteId",
+          "tiers",
+          "objective",
+          "budget",
+          "requestedBy",
+          "status",
+          "candidatesEvaluated",
+          "costUsd",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "agentId": {
+            "type": "string"
+          },
+          "fromVersion": {
+            "type": "string",
+            "description": "The version whose settings it tunes."
+          },
+          "scope": {
+            "$ref": "#/components/schemas/LiveScope"
+          },
+          "suiteId": {
+            "type": "string",
+            "description": "The test set it searches and proves on."
+          },
+          "tiers": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "settings"
+              ]
+            }
+          },
+          "objective": {
+            "type": "string",
+            "enum": [
+              "weightedYesShare",
+              "weightedPrecisionAtK"
+            ]
+          },
+          "budget": {
+            "$ref": "#/components/schemas/ImprovementBudget"
+          },
+          "requestedBy": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "completed",
+              "failed",
+              "cancelled"
+            ]
+          },
+          "candidatesEvaluated": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "costUsd": {
+            "type": "string",
+            "description": "What its comparisons have cost so far (US dollars)."
+          },
+          "outcome": {
+            "$ref": "#/components/schemas/ImprovementPassOutcome"
+          },
+          "comparisons": {
+            "type": "array",
+            "description": "Its comparisons so far, each an eval run to open: `reference` (the version as it is, on the search part), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the proposal, on the hold-out part). Absent from older servers.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "role",
+                "part"
+              ],
+              "properties": {
+                "evalRunId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "role": {
+                  "type": "string",
+                  "enum": [
+                    "reference",
+                    "candidate",
+                    "proof"
+                  ]
+                },
+                "part": {
+                  "type": "string",
+                  "enum": [
+                    "search",
+                    "hold-out"
+                  ]
+                },
+                "blockId": {
+                  "type": "string"
+                },
+                "changed": {
+                  "type": "object",
+                  "additionalProperties": true
+                },
+                "score": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "failed": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "finishedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ImprovementPassCollectionPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "hasMore"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ImprovementPass"
+            }
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "nextCursor": {
+            "type": "string"
+          }
+        }
+      },
+      "ImproveBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "agentId",
+          "scope",
+          "suiteId"
+        ],
+        "description": "Start an improvement pass.",
+        "properties": {
+          "agentId": {
+            "type": "string"
+          },
+          "fromVersion": {
+            "type": "string",
+            "description": "The version whose settings it tunes. Default: the one serving `scope`."
+          },
+          "scope": {
+            "$ref": "#/components/schemas/LiveScope"
+          },
+          "suiteId": {
+            "type": "string",
+            "description": "The test set (a judged eval suite). The pass splits it into a search part and a hold-out part, and proves its best candidate on the hold-out part."
+          },
+          "tiers": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "settings"
+              ]
+            },
+            "default": [
+              "settings"
+            ]
+          },
+          "objective": {
+            "type": "string",
+            "enum": [
+              "weightedYesShare",
+              "weightedPrecisionAtK"
+            ],
+            "default": "weightedYesShare"
+          },
+          "budget": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Default: $5 and 30 candidates.",
+            "properties": {
+              "maxCostUsd": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 100
+              },
+              "maxCandidates": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 200
+              }
+            }
+          }
+        }
+      },
       "CreateProposalBody": {
         "description": "A hand-written proposal: new content for a data block that `fromVersion` pins, for a live scope. The same change from the same version for the same scope is one proposal (answered with `X-Proposal-Deduped: true`).",
         "type": "object",
@@ -7750,6 +8064,9 @@
               "as-recorded",
               "restricted-only"
             ]
+          },
+          "sample": {
+            "$ref": "#/components/schemas/EvalSample"
           }
         }
       },
@@ -10935,6 +11252,50 @@
           }
         ]
       },
+      "EvalOverrides": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "For an agent candidate: settings values its replays run instead of the version's pinned ones (an improvement pass's search), by settings block id. Each block must be one the version pins, and the values must satisfy its schema (`400 validation-failed`). A comparison with overrides can't gate a promotion.",
+        "properties": {
+          "settings": {
+            "type": "object",
+            "maxProperties": 20,
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": true
+            }
+          }
+        }
+      },
+      "EvalSample": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "part",
+          "seed",
+          "holdOutShare"
+        ],
+        "description": "Only part of the test set's cases: split once into a hold-out part (about `holdOutShare` of them) and a search part (the rest), stratified by judgment (the cases with a \"no\" and the others are split on their own, a stratum of two or more giving each part at least one), in the order of a hash of each case id and `seed`. The same seed always splits the same test set the same way. A promotion gate refuses a comparison on the search part (`comparison.sample`).",
+        "properties": {
+          "part": {
+            "type": "string",
+            "enum": [
+              "search",
+              "hold-out"
+            ]
+          },
+          "seed": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "holdOutShare": {
+            "type": "number",
+            "minimum": 0.1,
+            "maximum": 0.9
+          }
+        }
+      },
       "EvalComparison": {
         "type": "object",
         "additionalProperties": false,
@@ -10977,6 +11338,12 @@
               "restricted-only"
             ],
             "description": "Which judgments count: each at its class's weight (`as-recorded`, the default), or only those recorded while their class was restricted (`Judgment.restricted`), the others weighing 0 (`restricted-only`)."
+          },
+          "overrides": {
+            "$ref": "#/components/schemas/EvalOverrides"
+          },
+          "sample": {
+            "$ref": "#/components/schemas/EvalSample"
           }
         }
       },
@@ -11073,6 +11440,22 @@
               "pinsDigest": {
                 "type": "string",
                 "description": "The version's pinsDigest: what it ran, as a promotion gate checks. Absent for a version published before pins, and from a comparison recorded before it."
+              },
+              "overrides": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "settings"
+                ],
+                "description": "The settings blocks whose values the replays replaced (`overrides`): no published version ran, so it can't gate a promotion. Absent otherwise.",
+                "properties": {
+                  "settings": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
               }
             }
           },
@@ -11291,6 +11674,10 @@
               "restricted-only"
             ],
             "description": "Which judgments counted. Absent from a comparison recorded before restricted classes: `as-recorded`."
+          },
+          "sample": {
+            "$ref": "#/components/schemas/EvalSample",
+            "description": "The part of the test set it ran. Absent: every case."
           },
           "sampling": {
             "type": "object",
@@ -11579,6 +11966,10 @@
                     "refused"
                   ]
                 },
+                "recomputed": {
+                  "type": "boolean",
+                  "description": "With `source: 'live'`: the call ran again from the same arguments because the compared version pins other settings, and the tool reads from nowhere, so it didn't diverge. Absent from older servers, and otherwise."
+                },
                 "reason": {
                   "type": "string"
                 }
@@ -11792,6 +12183,12 @@
               "restricted-only"
             ],
             "description": "Which judgments count: each at its class's weight (`as-recorded`, the default), or only those recorded while their class was restricted (`Judgment.restricted`), the others weighing 0 (`restricted-only`)."
+          },
+          "overrides": {
+            "$ref": "#/components/schemas/EvalOverrides"
+          },
+          "sample": {
+            "$ref": "#/components/schemas/EvalSample"
           }
         },
         "description": "Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `judged` suite (a test set), the run is a comparison: `agentRef` or `flowRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't (a flow stops at a write the replay refuses); `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how. With `flowRef`, `versions` runs the flow with some of its agents or tools at other versions; an id the flow doesn't use, or a version that isn't published, is refused (`400 validation-failed`, each under `details.issues`)."
@@ -25453,6 +25850,115 @@
         ]
       }
     },
+    "/v1/proposals/improve": {
+      "post": {
+        "operationId": "proposals.improve",
+        "summary": "Start an improvement pass",
+        "tags": [
+          "proposals"
+        ],
+        "responses": {
+          "202": {
+            "description": "The pass, running.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImprovementPass"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "`fromVersion` (or the version serving the scope) is not an active version.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`improve-unsupported`: this runtime runs no improvement passes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. Checked first: the version is active and pins a settings block with tunable keys (`400 validation-failed`), the agent registry takes writes (`409 registry-read-only`), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). Needs `publish` on the agent. Without improvement passes in this runtime, `501 improve-unsupported`.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ImproveBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
     "/v1/proposals/{proposalId}": {
       "get": {
         "operationId": "proposals.get",
@@ -25961,6 +26467,262 @@
             }
           }
         },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/improvement-passes": {
+      "get": {
+        "operationId": "improvementPasses.list",
+        "summary": "List improvement passes",
+        "tags": [
+          "proposals"
+        ],
+        "responses": {
+          "200": {
+            "description": "Page of passes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImprovementPassCollectionPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`improve-unsupported`: this runtime runs no improvement passes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Newest first, only the passes of agents the caller can read. `?agentId=` narrows them.",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "description": "1..100. Default 25."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Opaque cursor from a prior response. Absent → first page."
+          },
+          {
+            "name": "agentId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/improvement-passes/{passId}": {
+      "get": {
+        "operationId": "improvementPasses.get",
+        "summary": "Fetch an improvement pass",
+        "tags": [
+          "proposals"
+        ],
+        "responses": {
+          "200": {
+            "description": "The pass.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImprovementPass"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such pass (or none the caller can read).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`improve-unsupported`: this runtime runs no improvement passes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Its status, the candidates it compared and what they cost, and once it ends, what it found. Needs `read` on its agent.",
+        "parameters": [
+          {
+            "name": "passId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The improvement pass id (a UUID)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/improvement-passes/{passId}/cancel": {
+      "post": {
+        "operationId": "improvementPasses.cancel",
+        "summary": "Cancel an improvement pass",
+        "tags": [
+          "proposals"
+        ],
+        "responses": {
+          "200": {
+            "description": "The pass, cancelled.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImprovementPass"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such pass.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`improvement-pass-finished`: it has ended already.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`improve-unsupported`: this runtime runs no improvement passes.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "A running pass stops and ends `cancelled`, writing no proposal. Needs `publish` on its agent.",
+        "parameters": [
+          {
+            "name": "passId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The improvement pass id (a UUID)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
+          }
+        ],
         "security": [
           {
             "bearerAuth": []

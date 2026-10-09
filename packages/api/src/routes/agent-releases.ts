@@ -12,7 +12,7 @@ import type { AgentRegistryBinding } from '../agent-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { EvalRun, EvalRunBinding } from '../eval-run-binding.js';
 import type { GatePolicy } from '../gate-policy-binding.js';
-import { type GateCheck, type GateResult, evaluateGate } from '../gate.js';
+import { type GateApproval, type GateCheck, type GateResult, evaluateGate } from '../gate.js';
 import type { JudgedComparisonSummary } from '../judged-dispatcher.js';
 import type {
   AgentReleaseBindings,
@@ -302,10 +302,24 @@ export async function requestPromotion(
   releases: AgentReleaseBindings,
   deps: AgentReleaseGateDeps,
   input: PromoteInput,
+  options: {
+    /** An approval the promotion waits for even when the scope's policy asks for none. */
+    readonly requireApproval?: GateApproval;
+  } = {},
 ): Promise<PromotionRequestOutcome> {
   const policy = await policyFor(releases, input.tenantId, input.agentId, input.scope);
   if (releases.promotions.request === undefined) {
     if (policy !== null) return { kind: 'gate-unsupported', policy };
+    if (options.requireApproval !== undefined) {
+      return {
+        kind: 'err',
+        error: {
+          code: 'promotion-gate-unsupported',
+          message:
+            "This promotion waits for a reviewer's approval, and this deployment can't record a gated promotion yet.",
+        },
+      };
+    }
     // No gate, and a binding from before gates: promote as before.
     const outcome = await releases.promotions.promote(input);
     return outcome.kind === 'err'
@@ -314,13 +328,14 @@ export async function requestPromotion(
   }
   const gate = await runGate(registry, releases, deps, input, policy);
   if (gate.kind === 'err') return gate;
+  const approval = gate.result.approval ?? options.requireApproval;
   const outcome = await releases.promotions.request({
     ...input,
     gate: {
       policy: policy === null ? null : { id: policy.id, version: policy.version },
       checks: gate.result.checks,
       passed: gate.result.passed,
-      ...(gate.result.approval !== undefined && { approval: gate.result.approval }),
+      ...(approval !== undefined && { approval }),
       servingVersion: gate.servingVersion as Semver,
       ...(gate.pinInPlace && { pinInPlace: true }),
     },

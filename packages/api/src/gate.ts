@@ -4,6 +4,7 @@
 import type { ReviewerRole } from '@kindgi/authz';
 import type { LiveScope } from '@kindgi/types';
 
+import type { EvalSample } from './eval-run-binding.js';
 import type { GateMetricName, GateMetricSpec, GatePolicySpec } from './gate-policy-binding.js';
 import type { ComparisonMetric, JudgedComparisonSummary } from './judged-dispatcher.js';
 
@@ -114,6 +115,7 @@ export function evaluateGate(input: GateInput): GateResult {
     checks.push(freshnessCheck(spec.comparison.maxAgeHours, summary, input.now));
   }
   if (spec.comparison?.suite !== undefined) checks.push(suiteCheck(spec.comparison.suite, summary));
+  if (summary.sample !== undefined) checks.push(sampleCheck(summary.sample));
   checks.push(sameContentsCheck(input));
   checks.push(baselineCheck(summary, input));
   checks.push(scopeCheck(summary, input));
@@ -204,6 +206,23 @@ function suiteCheck(
   };
 }
 
+/**
+ * A comparison on part of the test set: the hold-out part proves a
+ * candidate; the search part chose it, so its numbers flatter it.
+ */
+function sampleCheck(sample: EvalSample): GateCheck {
+  const passed = sample.part === 'hold-out';
+  return {
+    name: 'comparison.sample',
+    passed,
+    message: passed
+      ? `The comparison ran the hold-out part of the test set (seed ${sample.seed}).`
+      : 'The comparison ran the search part of the test set, which chose this candidate: compare on the hold-out part, or the whole test set.',
+    value: sample.part,
+    threshold: 'hold-out',
+  };
+}
+
 function sameContentsCheck(input: GateInput): GateCheck {
   const { promotion, summary } = input;
   const candidate = summary?.candidate;
@@ -217,6 +236,13 @@ function sameContentsCheck(input: GateInput): GateCheck {
     };
   }
   const compared = `${candidate.agentId} ${candidate.version}`;
+  if (candidate.overrides !== undefined) {
+    return {
+      name,
+      passed: false,
+      message: `The comparison ran ${compared} with other values for ${candidate.overrides.settings.join(', ')} than it pins (an improvement pass's search): compare the published version.`,
+    };
+  }
   if (candidate.agentId !== promotion.agentId || candidate.version !== promotion.version) {
     return {
       name,

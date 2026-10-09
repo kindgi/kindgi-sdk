@@ -26,6 +26,10 @@ import { type FlowsClient, makeFlowsClient } from './resources/flows.js';
 import { type GatePoliciesClient, makeGatePoliciesClient } from './resources/gate-policies.js';
 import { type GuardrailsClient, makeGuardrailsClient } from './resources/guardrails.js';
 import { type IdentityClient, makeIdentityClient } from './resources/identity.js';
+import {
+  type ImprovementPassesClient,
+  makeImprovementPassesClient,
+} from './resources/improvement-passes.js';
 import { type JudgeClassesClient, makeJudgeClassesClient } from './resources/judge-classes.js';
 import { type JudgmentsClient, makeJudgmentsClient } from './resources/judgments.js';
 import { type McpClient, makeMcpClient } from './resources/mcp.js';
@@ -85,6 +89,8 @@ export interface KindgiClient {
   readonly supervisor: SupervisorClient;
   /** Improvement proposals: new content for a data block, evaluated, then promoted for a scope. */
   readonly proposals: ProposalsClient;
+  /** Improvement passes, started with `proposals.improve`. */
+  readonly improvementPasses: ImprovementPassesClient;
   readonly observations: ObservationsClient;
   readonly approvals: ApprovalsClient;
   // Platform & configuration
@@ -160,6 +166,7 @@ export function createClient(options: ClientOptions): KindgiClient {
     provenance: makeProvenanceClient(transport),
     supervisor: makeSupervisorClient(transport),
     proposals: makeProposalsClient(transport),
+    improvementPasses: makeImprovementPassesClient(transport),
     observations: makeObservationsClient(transport),
     approvals: makeApprovalsClient(transport),
     tenant: makeTenantClient(transport),

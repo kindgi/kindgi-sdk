@@ -84,7 +84,34 @@ export interface ProposalsClient {
 
   /** @wire `POST /v1/proposals/{proposalId}/withdraw` */
   withdraw(id: FixProposalId | string, input: WithdrawInput): Promise<FixProposal>;
+
+  /**
+   * Start an improvement pass: the runtime looks for better values for the
+   * version's tunable settings (`x-kindgi-tunable`) on the test set, within
+   * the budget, and writes its best candidate as a proposal. Answers at
+   * once with the pass, `running` (`client.improvementPasses.get`).
+   *
+   * @wire `POST /v1/proposals/improve`
+   */
+  improve(input: ImproveInput): Promise<ImprovementPass>;
 }
+
+export interface ImproveInput {
+  readonly agentId: AgentId | string;
+  /** Default: the version serving `scope`. */
+  readonly fromVersion?: string;
+  readonly scope: LiveScope;
+  /** The test set to search and prove on. */
+  readonly suiteId: string;
+  readonly tiers?: readonly 'settings'[];
+  readonly objective?: ProposalObjective;
+  /** Default: $5 and 30 candidates. */
+  readonly budget?: { readonly maxCostUsd?: number; readonly maxCandidates?: number };
+  readonly idempotencyKey?: string;
+}
+
+/** An improvement pass — `@kindgi/api/openapi.json#ImprovementPass`. */
+export type ImprovementPass = import('../generated/api.js').ImprovementPass;
 
 export interface ProposalsListInput {
   readonly limit?: number;
@@ -121,6 +148,12 @@ export interface EvaluateProposalInput {
   readonly repetitions?: number;
   readonly k?: number;
   readonly classWeights?: 'as-recorded' | 'restricted-only';
+  /** Only part of the test set: the hold-out part proves a candidate (a gate refuses the search part). */
+  readonly sample?: {
+    readonly part: 'search' | 'hold-out';
+    readonly seed: string;
+    readonly holdOutShare: number;
+  };
   readonly idempotencyKey?: string;
 }
 
@@ -194,6 +227,16 @@ export function makeProposalsClient(transport: Transport): ProposalsClient {
     async withdraw(id, input) {
       const { idempotencyKey, ...body } = input;
       return post({ path: `/v1/proposals/${seg(id)}/withdraw`, body, idempotencyKey });
+    },
+
+    async improve(input) {
+      const { idempotencyKey, ...body } = input;
+      return transport.request<ImprovementPass>({
+        method: 'POST',
+        path: '/v1/proposals/improve',
+        body: body as unknown as Record<string, unknown>,
+        ...(idempotencyKey !== undefined && { idempotencyKey }),
+      });
     },
   };
 }
