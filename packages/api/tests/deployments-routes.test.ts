@@ -3460,7 +3460,7 @@ describe("POST /v1/deployments — a guardrail id that's already live", () => {
     const body = JSON.parse(answer.text) as { error: { code: string; message: string } };
     expect(body.error.code).toBe('guardrail-already-registered');
     expect(body.error.message).toBe(
-      "The guardrail acme.no-fabricated-quotes wasn't published: it is already registered with a different definition; unregister it and deploy again; nothing was deployed",
+      "The guardrail acme.no-fabricated-quotes wasn't published: it is already registered with a different definition; unregister it (`kindgi guardrails unregister acme.no-fabricated-quotes`) and deploy again; nothing was deployed",
     );
     expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toHaveLength(1);
     const kept = (await guardrailRegistry.get({
@@ -3468,6 +3468,42 @@ describe("POST /v1/deployments — a guardrail id that's already live", () => {
       guardrailId: 'acme.no-fabricated-quotes' as never,
     })) as unknown as { action: unknown };
     expect(kept.action).toEqual({ 'on-violation': 'halt' });
+  });
+
+  test.each([
+    [
+      'stored by a 0.1.4 deploy (no configSchema), the pack now carrying one',
+      {},
+      { configSchema: { type: 'object', properties: { min: { type: 'integer' } } } },
+    ],
+    ['stored with a field a later release added', { checkBuiltIn: false }, {}],
+  ])('in this project, %s: kept, the deploy goes through', async (_why, stored, indexed) => {
+    const fixture = buildSignedDeploy({ index: indexWith('20260920.1', indexed) });
+    const { app, guardrailRegistry } = makeApp({ fixture });
+    await guardrailRegistry.register({
+      tenantId,
+      projectId: DEFAULT_PROJECT_ID,
+      guardrail: {
+        id: 'acme.no-fabricated-quotes',
+        kind: 'zero-llm',
+        check: 'must-cite',
+        action: { 'on-violation': 'halt' },
+        codeArtifactRef: {
+          kind: 'oci',
+          imageRef: 'ghcr.io/acme/aperture@sha256:0123',
+          modulePath: './guardrails/must-cite.js',
+          artifactVersion: '20260901.1',
+        },
+        ...stored,
+      } as never,
+      enqueueTuples: () => [],
+    });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status, await res.text()).toBe(201);
   });
 
   test('unregistered between the registry answering and the deploy looking: registered again', async () => {
@@ -3515,6 +3551,8 @@ describe('sameGuardrailDefinition', () => {
   test.each([
     ['keys in another order', g({ action: { 'on-violation': 'halt' }, id: base.id })],
     ['an undefined field', g({ description: undefined })],
+    ['a configSchema only one has', g({ configSchema: { type: 'object' } })],
+    ['a field a later release adds', g({ checkBuiltIn: true })],
     [
       'another image and artifact version',
       g({
@@ -3533,6 +3571,7 @@ describe('sameGuardrailDefinition', () => {
   test.each([
     ['another action', g({ action: { 'on-violation': 'flag' } })],
     ['another check', g({ check: 'never-call-tool' })],
+    ['another description', g({ description: 'Quotes must be cited.' })],
     ['a config', g({ config: { min: 1 } })],
     [
       'another module path',

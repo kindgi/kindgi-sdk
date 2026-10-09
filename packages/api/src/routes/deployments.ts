@@ -1251,7 +1251,7 @@ interface DeployedImage {
 /**
  * A deploy keeps a guardrail id that's already live only when it's the
  * deploy's own: in the project the deploy registers into, with the same
- * definition (`sameGuardrailDefinition`). An id live in another project
+ * definition (`sameGuardrailDefinition`, what its author declares). An id live in another project
  * is refused (`guardrail-project-mismatch`, its project never named): the
  * pack's agents would otherwise run that project's guardrail. One in this
  * project with another definition is refused too
@@ -1281,8 +1281,7 @@ async function keepRegisteredGuardrail(
       if (!sameGuardrailDefinition(existing, guardrail)) {
         throw new PublishRefused('guardrail', guardrail.id, {
           code: 'guardrail-already-registered',
-          reason:
-            'it is already registered with a different definition; unregister it and deploy again',
+          reason: `it is already registered with a different definition; unregister it (\`kindgi guardrails unregister ${guardrail.id}\`) and deploy again`,
         });
       }
       return 'kept';
@@ -1330,20 +1329,47 @@ async function guardrailInProject(
 }
 
 /**
- * The same guardrail definition: equal as JSON with keys in any order (a
- * registry may store it as JSONB), apart from where its code lives. An
- * `oci` pointer names the deployed image and its artifact version, which
- * every new image of the same pack changes; its module path counts.
+ * The fields of a guardrail its author declares, which a deploy compares.
+ * Never compared: what a deploy or a release derives. That includes
+ * `configSchema`, which the deploy route dropped before 0.1.5, so a row a
+ * 0.1.4 deploy stored has none; the image and artifact version a code
+ * pointer names, which every new image changes; and any field a later
+ * release adds. So an unchanged pack redeploys across releases.
+ */
+const DECLARED_GUARDRAIL_FIELDS = [
+  'name',
+  'description',
+  'kind',
+  'check',
+  'config',
+  'action',
+  'severity',
+  'scope',
+  'budget',
+  'judgeCapabilities',
+  'sandbox',
+  'limits',
+  'network',
+  'needsSpec',
+] as const;
+
+/**
+ * The same guardrail definition: equal in what its author declares
+ * (`DECLARED_GUARDRAIL_FIELDS`, and of where its code lives only the
+ * module path), as JSON with keys in any order (a registry may store it as
+ * JSONB) and an absent field the same as an `undefined` one.
  */
 export function sameGuardrailDefinition(a: Guardrail, b: Guardrail): boolean {
   return canonicalJson(definitionOf(a)) === canonicalJson(definitionOf(b));
 }
 
-function definitionOf(guardrail: Guardrail): unknown {
-  const ref = guardrail.codeArtifactRef;
-  if (ref?.kind !== 'oci') return guardrail;
-  const { imageRef: _image, artifactVersion: _version, ...where } = ref;
-  return { ...guardrail, codeArtifactRef: where };
+function definitionOf(guardrail: Guardrail): Record<string, unknown> {
+  const declared: Record<string, unknown> = {};
+  for (const field of DECLARED_GUARDRAIL_FIELDS) {
+    declared[field] = (guardrail as unknown as Record<string, unknown>)[field];
+  }
+  declared.modulePath = guardrail.codeArtifactRef?.modulePath;
+  return declared;
 }
 
 /** JSON with every object's keys sorted, and absent and `undefined` alike. */
