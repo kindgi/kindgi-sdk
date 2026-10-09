@@ -24,9 +24,12 @@ import type { AppEnv } from '../types.js';
  * Only a person's **full** key opens a session. A service account's key is
  * for machines, and a narrowed key (a `member` role, or one project) would
  * be widened to the person's full grants by a session: both are refused,
- * 403 `token-sign-in-not-allowed`. The session never outlives the key: it
- * ends when the key expires, and, with a store that has `revokeByProvider`,
- * when the key is revoked (its `providerId` is `api-token:<tokenId>`).
+ * 403 `token-sign-in-not-allowed`. The session acts as the key did: it
+ * carries the key's scopes (a deployment without an authorizer reads tenant
+ * admin from them; a key's scopes never change after it's minted). It never
+ * outlives the key: it ends when the key expires, and, with a store that has
+ * `revokeByProvider`, when the key is revoked (its `providerId` is
+ * `api-token:<tokenId>`).
  * Refusals are audited (`sign-in-refused`), as is each sign-in.
  */
 export type TokenSignInRouteOptions =
@@ -121,7 +124,9 @@ export function tokenSignInRouter(options: TokenSignInRouteOptions): Hono<AppEnv
       userId,
       providerId: tokenId === undefined ? 'api-token' : `api-token:${tokenId}`,
       expiresAt: new Date(expires).toISOString() as Timestamp,
-      scopes: [],
+      // What the key may do, so the session acts as it did: with authz off,
+      // an admin key's `tenant-admin` is how the server and console know.
+      scopes: [...(c.get('scopes') ?? [])],
     });
     setCookie(c, options.cookieName, created.token ?? encodeSessionToken(created.sessionId), {
       httpOnly: true,
