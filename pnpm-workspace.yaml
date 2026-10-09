@@ -15,7 +15,11 @@ allowBuilds:
   '@google/genai': false
   'esbuild': true
   'msw': true
-  'onnxruntime-node': true
+  # @huggingface/transformers' backend (@kindgi/adapter-model-in-process). The
+  # CPU runtime ships in the package; its install script only downloads the
+  # CUDA/TensorRT providers (Linux x64, from NuGet), which nothing here uses,
+  # and a network blip there failed `pnpm install` in CI.
+  'onnxruntime-node': false
   'protobufjs': true
   'sharp': true
 

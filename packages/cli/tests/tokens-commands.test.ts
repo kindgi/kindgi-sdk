@@ -157,7 +157,8 @@ describe('kindgi tokens', () => {
     [['--expires=soon'], '--expires must be like 30d'],
   ])('create refuses %j before any call', async (flags, message) => {
     const { out, calls } = await run(['tokens', 'create', ...flags]);
-    expect(out.exitCode).toBe(1);
+    // Usage errors.
+    expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain(message);
     expect(calls).toEqual([]);
   });
@@ -217,7 +218,7 @@ describe('kindgi service-accounts', () => {
     const b = await run(['service-accounts', 'ungrant', 'sa-1', '--tenant-admin']);
     expect(b.calls).toEqual([['sa.ungrant', 'sa-1', { kind: 'tenant-admin' }]]);
     const neither = await run(['service-accounts', 'grant', 'sa-1']);
-    expect(neither.out.exitCode).toBe(1);
+    expect(neither.out.exitCode).toBe(2);
     expect(neither.out.stderr).toContain(
       'Give one of --tenant-admin, --tenant-member or --project',
     );
@@ -243,7 +244,7 @@ describe('kindgi service-accounts', () => {
       '--tenant-member',
       '--tenant-admin',
     ]);
-    expect(both.out.exitCode).toBe(1);
+    expect(both.out.exitCode).toBe(2);
     expect(both.calls).toEqual([]);
   });
 
@@ -300,8 +301,9 @@ describe('kindgi people', () => {
     expect(out.stderr).toBe(
       'Removed Carol: 2 key(s) and 1 session(s) revoked, 3 role(s) and membership(s) taken away.\n',
     );
+    // A missing argument is a usage error.
     const missing = await run(['people', 'remove']);
-    expect(missing.out.exitCode).toBe(1);
+    expect(missing.out.exitCode).toBe(2);
     expect(missing.calls).toEqual([]);
   });
 });
@@ -326,7 +328,7 @@ describe("kindgi people: a person's grants", () => {
     const u = await run(['people', 'ungrant', 'u-9', '--tenant-admin']);
     expect(u.calls).toEqual([['users.ungrant', 'u-9', { kind: 'tenant-admin' }]]);
     const none = await run(['people', 'grant', 'u-9']);
-    expect(none.out.exitCode).toBe(1);
+    expect(none.out.exitCode).toBe(2);
     expect(none.out.stderr).toContain('Give --tenant-admin');
     expect(none.calls).toEqual([]);
   });

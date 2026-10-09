@@ -1,8 +1,15 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { FactsClient, SupersedeFactInput, WriteFactInput } from '@kindgi/client';
+import type {
+  FactsClient,
+  MemoryClient,
+  SearchInput,
+  SupersedeFactInput,
+  WriteFactInput,
+} from '@kindgi/client';
 
+import { UsageError } from '../errors.js';
 import {
   type TableSpec,
   integerFlag,
@@ -10,7 +17,6 @@ import {
   requiredPositional,
   runSdk,
   stringFlag,
-  throwUnwired,
   truncateCell,
 } from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
@@ -74,7 +80,7 @@ async function jsonObjectFlag(
 ): Promise<Readonly<Record<string, unknown>>> {
   const value = await readJsonInput(text);
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error(`--${flag} must be a JSON object`);
+    throw new UsageError(`--${flag} must be a JSON object`);
   }
   return value as Readonly<Record<string, unknown>>;
 }
@@ -179,11 +185,11 @@ const factsWrite: LeafCommand = {
   run: (ctx) =>
     runSdk(ctx, 'memory facts write', async () => {
       const inputText = stringFlag(ctx, 'input');
-      if (inputText === undefined) throw new Error('--input=<json-or-@file> is required');
+      if (inputText === undefined) throw new UsageError('--input=<json-or-@file> is required');
       const input = (await jsonObjectFlag(inputText, 'input')) as Partial<WriteFactInput>;
       const scope: unknown = input.scope ?? {};
       if (scope === null || typeof scope !== 'object' || Array.isArray(scope)) {
-        throw new Error('--input `scope` must be a JSON object');
+        throw new UsageError('--input `scope` must be a JSON object');
       }
       const client = ctx.client();
       // The API asks for the scope's tenant, which can only be the caller's.
@@ -217,9 +223,9 @@ const factsSupersede: LeafCommand = {
     runSdk(ctx, 'memory facts supersede', async () => {
       const id = requiredPositional(ctx, 0, 'fact-id');
       const inputText = stringFlag(ctx, 'input');
-      if (inputText === undefined) throw new Error('--input=<json-or-@file> is required');
+      if (inputText === undefined) throw new UsageError('--input=<json-or-@file> is required');
       const input = (await jsonObjectFlag(inputText, 'input')) as Partial<SupersedeFactInput>;
-      if (!('content' in input)) throw new Error('--input needs `content`: the next revision');
+      if (!('content' in input)) throw new UsageError('--input needs `content`: the next revision');
       const expectVersion = integerFlag(ctx, 'expect-version');
       // The rest is the server's to check.
       return await ctx.client().memory.facts.supersede(id as never, {
@@ -264,19 +270,48 @@ const factsVerify: LeafCommand = {
     }),
 };
 
+type RetrievalHits = Awaited<ReturnType<MemoryClient['search']>>;
+
+/** `memory facts retrieve --table`: best first. */
+const HITS_TABLE: TableSpec<RetrievalHits, RetrievalHits[number]> = {
+  rows: (hits) => hits,
+  columns: [
+    { header: 'ID', get: (h) => String(h.fact.id) },
+    { header: 'TYPE', get: (h) => h.fact.type },
+    { header: 'TRUST', get: (h) => h.fact.trust ?? 'asserted' },
+    { header: 'SCORE', get: (h) => (h.score === undefined ? '' : h.score.toFixed(4)) },
+    { header: 'CONTENT', get: (h) => contentCell(h.fact) },
+  ],
+};
+
 const factsRetrieve: LeafCommand = {
   kind: 'leaf',
   name: 'retrieve',
-  description: 'Retrieve memory facts by query.',
+  description:
+    'Search the memory facts you may see: newest first, by keyword, by meaning, or both fused by rank.',
   usage: 'kindgi memory facts retrieve --query=<json-or-@file>',
   optionSpec: {
     query: {
       type: 'string',
       description:
-        'The retrieval as inline JSON or `@<file>`: a `mode` (`list`, `keyword`, `semantic` or `both`), and optionally `query`, `type`, `scope` and `limit`.',
+        'The retrieval as inline JSON or `@<file>`: a `mode` (`list`, `keyword`, `semantic` or `both`), and optionally `query` (required for a search), `type`, `scope` and `limit`. `semantic` and `both` need embeddings on the runtime (`KINDGI_MEMORY_EMBEDDINGS`). Required.',
     },
   },
-  run: (ctx) => runSdk(ctx, 'memory facts retrieve', async () => throwUnwired('memory.retrieve')),
+  run: (ctx) =>
+    runSdk(
+      ctx,
+      'memory facts retrieve',
+      async () => {
+        const text = stringFlag(ctx, 'query');
+        if (text === undefined) throw new UsageError('--query=<json-or-@file> is required');
+        const input = (await jsonObjectFlag(text, 'query')) as Partial<SearchInput>;
+        // The mode and the rest are the server's to check.
+        return await ctx
+          .client()
+          .memory.search({ ...input, mode: input.mode as SearchInput['mode'] });
+      },
+      HITS_TABLE,
+    ),
 };
 
 const factsGroup: Command = {

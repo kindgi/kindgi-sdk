@@ -105,6 +105,8 @@ async function doctor(
     env?: Record<string, string>;
     fetchImpl?: typeof fetch;
     providers?: unknown[] | Error;
+    /** `providers.check` per provider id: its issues (default none), or an error it throws. */
+    checks?: Record<string, { path: string; message: string }[]> | Error;
     json?: boolean;
   } = {},
 ) {
@@ -121,6 +123,11 @@ async function doctor(
           list: async () => {
             if (options.providers instanceof Error) throw options.providers;
             return { data: options.providers ?? [], hasMore: false };
+          },
+          check: async (providerId: string) => {
+            if (options.checks instanceof Error) throw options.checks;
+            const issues = options.checks?.[providerId] ?? [];
+            return { providerId, adapterId: '@acme/adapter', checked: true, issues };
           },
         },
       }) as never,
@@ -299,12 +306,31 @@ describe('a TypeScript project', () => {
     expect(check('project')?.message).toContain('kindgi dev has run here (.kindgirc.json)');
     expect(check('runtime')).toMatchObject({
       status: 'pass',
-      message: 'The runtime answers at http://127.0.0.1:4999.',
+      message:
+        'The runtime answers at http://127.0.0.1:4999; its console is at http://127.0.0.1:4999/console/.',
     });
+    expect(report?.consoleUrl).toBe('http://127.0.0.1:4999/console/');
     expect(check('provider')).toMatchObject({
       status: 'pass',
       message: 'A provider is registered: anthropic.',
     });
+  });
+
+  test('a runtime that serves no console: said so, and no console URL', async () => {
+    await tsProject({ installed: true, rc: RC, envLocal: `ANTHROPIC_API_KEY=${SECRET}\n` });
+    const headless: typeof fetch = async (input) =>
+      String(input).endsWith('/console/')
+        ? new Response('{"error":{"code":"route-not-found"}}', { status: 404 })
+        : new Response('{"status":"ok"}', { status: 200 });
+    const { report, check } = await doctor({
+      fetchImpl: headless,
+      providers: [{ id: 'anthropic' }],
+    });
+    expect(check('runtime')).toMatchObject({
+      status: 'pass',
+      message: 'The runtime answers at http://127.0.0.1:4999 (it serves no console).',
+    });
+    expect(report?.consoleUrl).toBeUndefined();
   });
 
   test("only kindgi dev's dev-echo: a failure, since it isn't a model", async () => {
@@ -333,6 +359,162 @@ describe('a TypeScript project', () => {
   });
 });
 
+describe("a registration the runtime can't build: its problems, from GET /v1/providers/{id}/check", () => {
+  const withPresets = (): DoctorSeam => ({ ...seam(), presets: () => loadProviderPresets() });
+  const run = async (
+    providers: unknown[],
+    checks: Record<string, { path: string; message: string }[]> | Error,
+    json = true,
+  ) => {
+    await tsProject({ installed: true, rc: RC, envLocal: `ANTHROPIC_API_KEY=${SECRET}\n` });
+    return doctor({ fetchImpl: healthy, providers, checks, seam: withPresets(), json });
+  };
+  const API = {
+    path: '/adapter_config/api',
+    message: 'api must be one of responses, chat-completions.',
+  };
+
+  test('one of two: a warning naming it, each problem, and how to register it again; exit 0', async () => {
+    const { out, report, check } = await run([{ id: 'openai' }, { id: 'anthropic' }], {
+      openai: [API],
+    });
+    expect(out.exitCode).toBe(0);
+    expect(report?.ok).toBe(true);
+    expect(check('provider')).toMatchObject({
+      status: 'warn',
+      message:
+        "2 providers are registered: openai, anthropic. The runtime can't build openai from its registration, so agents only get the others.",
+      details: ['openai: /adapter_config/api: api must be one of responses, chat-completions.'],
+    });
+    expect(check('provider')?.fix).toMatch(
+      /^Unregister openai \(.*providers unregister openai\), then register it again: .*providers register --preset=openai/,
+    );
+  });
+
+  test('every model provider: a failure, exit 1, each problem listed', async () => {
+    const { out, report, check } = await run(
+      [{ id: 'openai' }, { id: 'acme-llm' }, { id: 'dev-echo' }],
+      {
+        openai: [API],
+        'acme-llm': [
+          {
+            path: '/adapter_id',
+            message:
+              'This runtime has no adapter "@acme/llm", so it can\'t build provider "acme-llm".',
+          },
+          { path: '/secret_ref', message: 'secret_ref is required.' },
+        ],
+      },
+    );
+    expect(out.exitCode).toBe(1);
+    expect(report?.ok).toBe(false);
+    expect(check('provider')).toMatchObject({
+      status: 'fail',
+      message:
+        "No usable provider: the runtime can't build any of openai, acme-llm from their registration, so an agent has no model to call.",
+      details: [
+        'openai: /adapter_config/api: api must be one of responses, chat-completions.',
+        'acme-llm: /adapter_id: This runtime has no adapter "@acme/llm", so it can\'t build provider "acme-llm".',
+        'acme-llm: /secret_ref: secret_ref is required.',
+      ],
+    });
+    // Not from a preset: its own spec, with the setting fixed.
+    expect(check('provider')?.fix).toContain(
+      'providers register --spec=@<file>. (its spec with the setting fixed)',
+    );
+  });
+
+  test('the human report: each problem under the check, marked ✗', async () => {
+    const { out } = await run([{ id: 'openai' }, { id: 'anthropic' }], { openai: [API] }, false);
+    expect(out.stdout).toContain(
+      "  ! Provider: 2 providers are registered: openai, anthropic. The runtime can't build openai",
+    );
+    expect(out.stdout).toContain(
+      '\n      ✗ openai: /adapter_config/api: api must be one of responses, chat-completions.\n',
+    );
+    expect(out.stdout).toMatch(/\n {6}Fix: Unregister openai /);
+  });
+
+  test('a runtime without the route (before 0.1.5): the check is skipped, the rest as before', async () => {
+    const missing = Object.assign(
+      new Error('No route registered for GET /v1/providers/openai/check.'),
+      {
+        code: 'not-found',
+        serverCode: 'route-not-found',
+      },
+    );
+    const { check } = await run([{ id: 'openai' }], missing);
+    expect(check('provider')).toMatchObject({
+      status: 'pass',
+      message: 'A provider is registered: openai.',
+    });
+    expect(check('provider')?.details).toBeUndefined();
+  });
+
+  test('a provider gone between the list and its check is left out, not reported', async () => {
+    const gone = Object.assign(new Error('Provider "openai" not found'), {
+      code: 'not-found',
+      serverCode: 'provider-not-found',
+    });
+    const { check } = await run([{ id: 'openai' }], gone);
+    expect(check('provider')).toMatchObject({ status: 'pass' });
+  });
+});
+
+describe('a Vertex provider and the Google credentials kindgi dev gives the runtime', () => {
+  const vertex = [
+    { id: 'gemini', models: [{ name: 'gemini-3.8-flash' }], defaultModel: 'gemini-3.8-flash' },
+  ];
+
+  test('none (KINDGI_DEV_GOOGLE_CREDENTIALS unset): a warning that says how to give them', async () => {
+    await tsProject({ installed: true, rc: RC, envLocal: `ANTHROPIC_API_KEY=${SECRET}\n` });
+    const { out, check } = await doctor({ fetchImpl: healthy, providers: vertex });
+    expect(out.exitCode).toBe(0);
+    expect(check('provider')).toMatchObject({
+      status: 'warn',
+      message:
+        'A provider is registered: gemini. gemini is Vertex AI, and kindgi dev gives the runtime no Google credentials (KINDGI_DEV_GOOGLE_CREDENTIALS is unset).',
+      fix: "Provider gemini (Vertex AI) has no Google credentials: set KINDGI_DEV_GOOGLE_CREDENTIALS=adc (or a credentials file), in the pack's .env or the shell, and restart kindgi dev.",
+    });
+  });
+
+  test('named in the shell or the env files: a pass', async () => {
+    const creds = join(dir, 'vertex-sa.json');
+    await writeFile(
+      creds,
+      JSON.stringify({ type: 'service_account', client_email: 'v@acme.iam.gserviceaccount.com' }),
+    );
+    await tsProject({ installed: true, rc: RC, envLocal: `ANTHROPIC_API_KEY=${SECRET}\n` });
+    const shell = await doctor({
+      fetchImpl: healthy,
+      providers: vertex,
+      env: { KINDGI_DEV_GOOGLE_CREDENTIALS: creds },
+    });
+    expect(shell.check('provider')).toMatchObject({
+      status: 'pass',
+      message: 'A provider is registered: gemini.',
+    });
+    await tsProject({
+      installed: true,
+      rc: RC,
+      envLocal: `ANTHROPIC_API_KEY=${SECRET}\nKINDGI_DEV_GOOGLE_CREDENTIALS=${creds}\n`,
+    });
+    const files = await doctor({ fetchImpl: healthy, providers: vertex });
+    expect(files.check('provider')).toMatchObject({ status: 'pass' });
+  });
+
+  test('a value kindgi dev would refuse: the warning says why', async () => {
+    await tsProject({ installed: true, rc: RC, envLocal: `ANTHROPIC_API_KEY=${SECRET}\n` });
+    const { check } = await doctor({
+      fetchImpl: healthy,
+      providers: vertex,
+      env: { KINDGI_DEV_GOOGLE_CREDENTIALS: 'relative.json' },
+    });
+    expect(check('provider')).toMatchObject({ status: 'warn' });
+    expect(check('provider')?.message).toContain('KINDGI_DEV_GOOGLE_CREDENTIALS must be `adc`');
+  });
+});
+
 describe('a registration whose default model the preset no longer gives: a warning', () => {
   const models = (...names: string[]) => names.map((name) => ({ name }));
   /** The bundled presets, as `kindgi providers register --preset` reads them. */
@@ -351,7 +533,7 @@ describe('a registration whose default model the preset no longer gives: a warni
     expect(check('provider')).toMatchObject({
       status: 'warn',
       message:
-        'A provider is registered: gemini. On gemini, an agent that names no model gets gemini-2.5-flash, which the gemini preset no longer lists.',
+        'A provider is registered: gemini. On gemini, an agent that names no model gets gemini-2.5-flash, which the gemini preset no longer lists. gemini is Vertex AI, and kindgi dev gives the runtime no Google credentials (KINDGI_DEV_GOOGLE_CREDENTIALS is unset).',
     });
     expect(check('provider')?.fix).toContain(
       'kindgi providers register --preset=gemini --project=<project>',
@@ -397,7 +579,9 @@ describe('a registration whose default model the preset no longer gives: a warni
     expect(check('provider')?.message).toMatch(
       /^2 providers are registered: anthropic, gemini\. On anthropic, .* On gemini, /,
     );
-    expect(check('provider')?.fix).toMatch(/Re-register anthropic: .* Re-register gemini /);
+    expect(check('provider')?.fix).toMatch(
+      /Unregister anthropic \(.*providers unregister anthropic\), then register it again: .* Unregister gemini \(/,
+    );
   });
 
   test('a --json reader that knows only pass, fail and skip still reads it as ready', async () => {
@@ -421,7 +605,10 @@ describe('a registration whose default model the preset no longer gives: a warni
     expect(out.stdout).toContain(
       '  ! Provider: A provider is registered: gemini. On gemini, an agent that names no model gets gemini-2.5-flash',
     );
-    expect(out.stdout).toMatch(/\n {6}Fix: Re-register gemini for the preset's current models: /);
+    // A registered id is taken: the fix unregisters it first (registering it again is a 409).
+    expect(out.stdout).toMatch(
+      /\n {6}Fix: Unregister gemini \(.*providers unregister gemini\), then register it again: .*--preset=gemini/,
+    );
     expect(out.stdout).toContain('Everything checked is ready, with 1 warning.\n');
   });
 
