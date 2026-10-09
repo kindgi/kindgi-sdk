@@ -163,7 +163,16 @@ locals {
     var.trusted_proxies == "" ? {} : { KINDGI_TRUSTED_PROXIES = var.trusted_proxies },
     # The key version's URL: the server reads the key at boot and signs there.
     var.export_signing == "kms" ? { KINDGI_EXPORT_SIGNING_KMS_KEY = azurerm_key_vault_key.exports[0].id } : {},
+    var.public_url == "" ? {} : { KINDGI_PUBLIC_URL = var.public_url },
   )
+
+  # Every name the module sets on the server (some only with an option on),
+  # plus KINDGI_DEV: server_env and server_secret_env can't set these.
+  server_module_env = setunion(keys(local.server_env), keys(local.server_secret_refs), [
+    "KINDGI_CORS_ORIGINS", "KINDGI_DEV", "KINDGI_EXPORT_SIGNING_KEY", "KINDGI_EXPORT_SIGNING_KMS_KEY",
+    "KINDGI_OPENFGA_API_URL", "KINDGI_PACK_CALL_TIMEOUT_MS", "KINDGI_PUBLIC_URL", "KINDGI_TRUSTED_PROXIES",
+  ])
+  server_extra_env = setunion(keys(var.server_env), keys(var.server_secret_env))
 }
 
 resource "azurerm_container_app" "server" {
@@ -190,6 +199,14 @@ resource "azurerm_container_app" "server" {
     content {
       name                = secret.value
       key_vault_secret_id = local.secret_ids_by_name[secret.value]
+      identity            = azurerm_user_assigned_identity.server.id
+    }
+  }
+  dynamic "secret" {
+    for_each = local.server_extra_secret_ids
+    content {
+      name                = "server-env-${lower(replace(secret.key, "_", "-"))}"
+      key_vault_secret_id = secret.value
       identity            = azurerm_user_assigned_identity.server.id
     }
   }
@@ -244,6 +261,23 @@ resource "azurerm_container_app" "server" {
         }
       }
 
+      # The operator's own settings (sign-in, among others): plain values,
+      # then Key Vault references, read with the server's identity.
+      dynamic "env" {
+        for_each = var.server_env
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
+      dynamic "env" {
+        for_each = var.server_secret_env
+        content {
+          name        = env.key
+          secret_name = "server-env-${lower(replace(env.key, "_", "-"))}"
+        }
+      }
+
       # C-RT-4: a slow first start runs the migrations; up to 2 minutes.
       startup_probe {
         transport               = "HTTP"
@@ -270,6 +304,18 @@ resource "azurerm_container_app" "server" {
     precondition {
       condition     = var.erasure_ledger_key_version != ""
       error_message = "erasure_ledger_key_version is needed for the services: the version `az keyvault secret set` printed for erasure-ledger-key (README, step 3)."
+    }
+    precondition {
+      condition     = length(setintersection(local.server_module_env, local.server_extra_env)) == 0
+      error_message = "server_env and server_secret_env can't set a name this module sets itself (its variables do: public_url for KINDGI_PUBLIC_URL, trusted_proxies, cors_origins, ...), nor KINDGI_DEV, which is for `kindgi dev` only."
+    }
+    precondition {
+      condition     = length(setintersection(keys(var.server_env), keys(var.server_secret_env))) == 0
+      error_message = "A name is in both server_env and server_secret_env: keep it in one."
+    }
+    precondition {
+      condition     = length(setintersection(local.server_extra_env, toset(["KINDGI_AUTH_SECRET", "KINDGI_AUTH_SECRET_PATH"]))) == 0 || var.public_url != ""
+      error_message = "Sign-in with identity providers (KINDGI_AUTH_SECRET) needs public_url: the URL people open the console at, where identity providers send them back. The server won't start without it."
     }
   }
 
