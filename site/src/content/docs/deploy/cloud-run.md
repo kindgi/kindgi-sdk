@@ -220,7 +220,8 @@ database under a Cloud KMS key the module creates. With
 - **Not created:** the KMS key ring and key, their grants, and the
   `$N-secrets-aad-key` secret; `secrets_aad_key_version` isn't needed.
 - **The runtime stores no secrets of its own.** `/v1/secrets` isn't served:
-  it answers `404 route-not-found`, and the startup lines have no KMS check.
+  it answers `404 route-not-found`, and the runtime checks no KMS key at
+  start.
 - **Who it fits:** a deployment whose pack's secrets all come by reference
   (`pack_secret_env`) and whose model uses the service's own identity
   ([Gemini on Vertex AI](#use-gemini)). A provider whose API key would be
@@ -263,6 +264,17 @@ They name the pack's service it reached, and how it calls it:
 ```text
 Pack service: https://kindgi-pack-…a.run.app — acme (artifact …), protocol 2, 3 tools, 1 check
 Pack service auth: a Google ID token per call (KINDGI_PACK_SERVICE_AUTH)
+```
+
+The KMS check comes just before, as a log line of its own:
+
+```sh
+gcloud logging read 'resource.labels.service_name="'$N'-server" AND textPayload:"KMS probe"' \
+  --limit=1 --format='value(textPayload)'
+```
+
+```text
+KMS probe OK (gcp-cloud-kms): gcp-cloud-kms v1 (encrypt/decrypt round trip, key version 1) (170ms)
 ```
 
 **On the first apply,** the pack service line can read instead:
