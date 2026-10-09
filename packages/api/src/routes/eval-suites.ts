@@ -77,6 +77,18 @@ export function evalSuitesRouter(
     r.use('/:suiteId/*', async (c, next) => {
       const action = c.req.method === 'GET' ? 'read' : 'admin';
       const suiteId = c.req.param('suiteId') ?? '';
+      // A test set built from judgments under a suite id never registered
+      // (no head row, a tombstoned suite included) has no suite to check
+      // yet: the build checks `admin` on the project it names, the project
+      // the new suite belongs to. Anything else under a suite id, and a
+      // build under an existing one, checks the suite.
+      if (
+        c.req.method === 'POST' &&
+        c.req.path.endsWith('/versions/from-judgments') &&
+        !(await binding.headExists({ tenantId: c.get('tenantId') as TenantId, suiteId }))
+      ) {
+        return next();
+      }
       const mw = authorizer.authorize(action, () => ref('eval_suite', suiteId));
       return mw(c, next);
     });
