@@ -4,8 +4,7 @@
 /**
  * The Amazon Bedrock adapter, without AWS: each registration problem `checkConfig` reports, and
  * what the factory's provider sends (captured at the fetch the runtime hands it): the endpoint,
- * the model, and how it signs in. The live run is the adapter's own, in LIVE-TESTS, once the
- * account's Bedrock quotas allow it.
+ * the model, and how it signs in.
  */
 
 import { ModelProviderError } from '@kindgi/adapter-model-shared';
@@ -14,6 +13,7 @@ import { attemptsOf } from '@kindgi/capabilities/attempts';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import {
+  IDENTITY_TIMEOUT_MS,
   NOVA_THINKING_REMOVED,
   bedrockAdapterFactory,
   bedrockCheckConfig,
@@ -103,6 +103,60 @@ describe('checkConfig', () => {
     ]);
     // A Bedrock API key needs no identity.
     expect(on(false, { auth: 'api-key' }, true)).toEqual([]);
+  });
+
+  test("the runtime's AWS credentials go only to Bedrock's runtime in the region; any other host is refused, named", () => {
+    const refused = (baseURL: string, region = 'us-east-2') => {
+      const host = new URL(baseURL).hostname;
+      expect(check({ baseURL }, false, region)).toEqual([
+        {
+          path: '/adapter_config/baseURL',
+          message: expect.stringContaining(`go only to Bedrock's runtime in ${region}`),
+        },
+      ]);
+      expect(check({ baseURL }, false, region)[0]?.message).toContain(`${host} isn't one`);
+    };
+    refused('https://collector.example');
+    // A look-alike, another region, another service, another partition's suffix.
+    refused('https://bedrock-runtime.us-east-2.amazonaws.com.collector.example');
+    refused('https://bedrock-runtime.us-west-2.amazonaws.com');
+    refused('https://bedrock.us-east-2.amazonaws.com');
+    refused('https://bedrock-runtime.us-east-2.amazonaws.com.cn');
+    refused('https://evil.bedrock-runtime.us-east-2.vpce.amazonaws.com');
+    for (const [baseURL, region] of [
+      ['https://bedrock-runtime.us-east-2.amazonaws.com', 'us-east-2'],
+      ['https://bedrock-runtime-fips.us-east-2.amazonaws.com/', 'us-east-2'],
+      [
+        'https://vpce-0a1b2c3d4e5f-abcdefgh.bedrock-runtime.us-east-2.vpce.amazonaws.com',
+        'us-east-2',
+      ],
+      [
+        'https://vpce-0a1b2c3d-us-east-2a.bedrock-runtime.us-east-2.vpce.amazonaws.com',
+        'us-east-2',
+      ],
+      ['https://bedrock-runtime-fips.us-gov-west-1.amazonaws.com', 'us-gov-west-1'],
+      ['https://bedrock-runtime.cn-north-1.amazonaws.com.cn', 'cn-north-1'],
+    ] as const) {
+      expect(check({ baseURL }, false, region)).toEqual([]);
+    }
+    // A Bedrock API key goes where its own registration says: a gateway, any path.
+    expect(check({ auth: 'api-key', baseURL: 'https://gw.acme.example/bedrock' }, true)).toEqual(
+      [],
+    );
+  });
+
+  test.each([
+    ['https://user:pw@gw.acme.example', "can't hold credentials"],
+    ['https://gw.acme.example/?key=k', "can't hold a query or a fragment"],
+    ['https://gw.acme.example/#here', "can't hold a query or a fragment"],
+  ])('a baseURL %s → %s', (baseURL, words) => {
+    expect(check({ auth: 'api-key', baseURL }, true)[0]?.message).toContain(words);
+  });
+
+  test("Bedrock's own host takes no path: the adapter adds the API's", () => {
+    expect(
+      check({ baseURL: 'https://bedrock-runtime.us-east-2.amazonaws.com/v1' })[0]?.message,
+    ).toContain("is an endpoint's root");
   });
 
   test("each partition's own endpoint", () => {
@@ -269,7 +323,245 @@ describe('what the provider sends', () => {
   });
 });
 
+describe('a failed sign-in is auth, once, never retried', () => {
+  test('the identity throws: auth, naming KINDGI_AWS_IDENTITY, asked once, nothing sent', async () => {
+    const sent: Sent[] = [];
+    const aws = vi.fn(async () => {
+      throw new Error('AccessDenied: not authorized to perform sts:AssumeRole');
+    });
+    const err = await build({}, { fetch: capturingFetch(sent), identities: { aws } })
+      .invoke(ask())
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ModelProviderError);
+    expect(err).toMatchObject({ kind: 'auth' });
+    expect((err as Error).message).toContain('sts:AssumeRole');
+    expect((err as Error).message).toContain('KINDGI_AWS_IDENTITY');
+    expect(aws).toHaveBeenCalledTimes(1);
+    expect(sent).toEqual([]);
+  });
+
+  test('the identity returns no key: auth', async () => {
+    const aws = vi.fn(async () => ({ accessKeyId: '', secretAccessKey: '' }));
+    const err = await build({}, { fetch: capturingFetch([]), identities: { aws } })
+      .invoke(ask())
+      .catch((e: unknown) => e);
+    expect(err).toMatchObject({ kind: 'auth' });
+    expect((err as Error).message).toContain('returned no credentials');
+  });
+
+  test('the identity hangs: auth after the bound', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const aws = vi.fn(() => new Promise<never>(() => {}));
+      const pending = build({}, { fetch: capturingFetch([]), identities: { aws } })
+        .invoke(ask())
+        .catch((e: unknown) => e);
+      while (aws.mock.calls.length === 0) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+      await vi.advanceTimersByTimeAsync(IDENTITY_TIMEOUT_MS);
+      const err = await pending;
+      expect(err).toMatchObject({ kind: 'auth' });
+      expect((err as Error).message).toContain('no answer in 10 s');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('the key can’t be read, or is empty: auth, nothing sent', async () => {
+    for (const resolveApiKey of [
+      async () => {
+        throw new Error('secret store unreachable');
+      },
+      async () => '',
+    ]) {
+      const sent: Sent[] = [];
+      const read = vi.fn(resolveApiKey);
+      const err = await build(
+        { auth: 'api-key' },
+        { fetch: capturingFetch(sent), resolveApiKey: read },
+      )
+        .invoke(ask())
+        .catch((e: unknown) => e);
+      expect(err).toMatchObject({ kind: 'auth' });
+      expect(read).toHaveBeenCalledTimes(1);
+      expect(sent).toEqual([]);
+    }
+  });
+});
+
+/** A fetch that answers each request in turn from `answers` (the last one repeats). */
+function answering(
+  sent: Sent[],
+  answers: readonly { status: number; body: unknown; headers?: Record<string, string> }[],
+): typeof fetch {
+  let i = 0;
+  return (async (input: string | URL | Request, init?: RequestInit) => {
+    sent.push({
+      url: String(input),
+      headers: new Headers(init?.headers),
+      body: JSON.parse(String(init?.body ?? '{}')),
+    });
+    const a = answers[Math.min(i, answers.length - 1)] as (typeof answers)[number];
+    i += 1;
+    return new Response(JSON.stringify(a.body), {
+      status: a.status,
+      headers: { 'content-type': 'application/json', 'x-amzn-requestid': `req-${i}`, ...a.headers },
+    });
+  }) as typeof fetch;
+}
+
+describe('more of what it sends', () => {
+  test('a 429, then the answer: each attempt signed with fresh credentials', async () => {
+    const sent: Sent[] = [];
+    const aws = identity();
+    const r = await build(
+      {},
+      {
+        fetch: answering(sent, [
+          {
+            status: 429,
+            body: { message: 'Too many requests' },
+            headers: { 'retry-after-ms': '0' },
+          },
+          { status: 200, body: CONVERSE_BODY },
+        ]),
+        identities: { aws },
+      },
+    ).invoke(ask());
+    expect(r.attempts).toBe(2);
+    expect(aws).toHaveBeenCalledTimes(2);
+    expect(sent.map((s) => s.headers.get('x-amz-security-token'))).toEqual([
+      'session-1',
+      'session-2',
+    ]);
+  });
+
+  test('a 403 (expired token): auth after one attempt, with what to check', async () => {
+    const err = await build(
+      {},
+      {
+        fetch: capturingFetch([], 403, {
+          message: 'The security token included in the request is expired',
+        }),
+        identities: { aws: identity() },
+      },
+    )
+      .invoke(ask())
+      .catch((e: unknown) => e);
+    expect(err).toMatchObject({ kind: 'auth', status: 403 });
+    expect(attemptsOf(err)).toBe(1);
+    const message = (err as Error).message;
+    expect(message).toContain('is expired');
+    expect(message).toContain('bedrock:InvokeModel');
+    expect(message).toContain('access to the model in us-east-2');
+  });
+
+  test('a 408 (the model timed out) is unavailable, retried, never context-too-long', async () => {
+    const err = await build(
+      {},
+      {
+        fetch: answering(
+          [],
+          [
+            {
+              status: 408,
+              body: { message: 'The request took too long to process.' },
+              headers: { 'retry-after-ms': '0', 'x-amzn-errortype': 'ModelTimeoutException' },
+            },
+          ],
+        ),
+        identities: { aws: identity() },
+      },
+    )
+      .invoke(ask())
+      .catch((e: unknown) => e);
+    expect(err).toMatchObject({ kind: 'unavailable', status: 408 });
+    expect(attemptsOf(err)).toBe(3);
+  });
+
+  test('a tool call, then its result on the next call (toolResult with its toolUseId)', async () => {
+    const sent: Sent[] = [];
+    const toolUse = {
+      ...CONVERSE_BODY,
+      output: {
+        message: {
+          role: 'assistant',
+          content: [
+            {
+              toolUse: { toolUseId: 'tu-1', name: 'acme__lookup_order', input: { orderId: 'A-1' } },
+            },
+          ],
+        },
+      },
+      stopReason: 'tool_use',
+    };
+    const provider = build(
+      {},
+      {
+        fetch: answering(sent, [
+          { status: 200, body: toolUse },
+          { status: 200, body: CONVERSE_BODY },
+        ]),
+        identities: { aws: identity() },
+      },
+    );
+    const tools = [
+      {
+        name: 'acme.lookup_order',
+        description: 'Look up an order.',
+        inputSchema: { type: 'object' },
+      },
+    ];
+    const first = await provider.invoke({ ...ask(), tools });
+    expect(first.finishReason).toBe('tool-use');
+    await provider.invoke({
+      ...ask(),
+      tools,
+      messages: [
+        ...ask().messages,
+        first.message,
+        { role: 'tool', toolCallId: 'tu-1', content: '{"status":"shipped"}' },
+      ],
+    });
+    const messages = sent[1]?.body.messages as {
+      role: string;
+      content: Record<string, unknown>[];
+    }[];
+    expect(messages.flatMap((m) => m.content)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ toolResult: expect.objectContaining({ toolUseId: 'tu-1' }) }),
+      ]),
+    );
+  });
+
+  test('out of context (model_context_window_exceeded) is length', async () => {
+    const r = await build(
+      {},
+      {
+        fetch: capturingFetch([], 200, {
+          ...CONVERSE_BODY,
+          stopReason: 'model_context_window_exceeded',
+        }),
+        identities: { aws: identity() },
+      },
+    ).invoke(ask());
+    expect(r.finishReason).toBe('length');
+  });
+});
+
 describe('the factory refuses', () => {
+  test("a host other than Bedrock's runtime for the runtime's identity, before asking it", () => {
+    const aws = identity();
+    expect(() =>
+      build(
+        { baseURL: 'https://collector.example' },
+        { fetch: capturingFetch([]), identities: { aws } },
+      ),
+    ).toThrow("collector.example isn't one");
+    expect(aws).not.toHaveBeenCalled();
+  });
+
   test("the runtime's identity when the runtime has none: the check's own words", () => {
     expect(() => build({}, {})).toThrow(
       '@kindgi/adapter-model-bedrock: provider "bedrock-acme": adapter_config.auth = aws-identity (the default) needs the runtime\'s AWS identity',
