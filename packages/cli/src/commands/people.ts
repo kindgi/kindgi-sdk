@@ -4,6 +4,7 @@
 import type { ListPage, PersonGrants, User } from '@kindgi/client';
 
 import type { CommandContext } from '../context.js';
+import { UsageError } from '../errors.js';
 import { renderJson } from '../output.js';
 import {
   type TableSpec,
@@ -58,7 +59,7 @@ const add: LeafCommand = {
   run: (ctx) =>
     runSdkRendered(ctx, 'people add', async () => {
       const displayName = stringFlag(ctx, 'name');
-      if (displayName === undefined) throw new Error('--name is required');
+      if (displayName === undefined) throw new UsageError('--name is required');
       const email = stringFlag(ctx, 'email');
       const userId = await ctx.client().users.create({
         displayName,
@@ -154,7 +155,7 @@ const grants: LeafCommand = {
 /** Only `--tenant-admin` is granted here: project and team roles are memberships. */
 function tenantAdminFlag(ctx: CommandContext): { readonly kind: 'tenant-admin' } {
   if (ctx.options['tenant-admin'] !== true) {
-    throw new Error(
+    throw new UsageError(
       "Give --tenant-admin: a person's project and team roles are memberships (`/v1/projects/{id}/memberships`, `/v1/teams/{id}/memberships`)",
     );
   }

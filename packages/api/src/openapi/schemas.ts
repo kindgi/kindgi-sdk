@@ -167,6 +167,31 @@ export const RunAgentSchema: JsonSchema = {
   },
 };
 
+/**
+ * The trigger that started a run. A component of its own, so generated
+ * clients name it `RunTrigger`.
+ */
+export const RunTriggerSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['triggerId', 'kind', 'fireId'],
+  description:
+    'Set on a run a trigger started (a schedule, an event trigger or an inbound webhook): the trigger and the fire that started it. Absent on other runs.',
+  properties: {
+    triggerId: { type: 'string', format: 'uuid' },
+    kind: { type: 'string', enum: ['schedule', 'event', 'webhook'] },
+    fireId: {
+      type: 'string',
+      description: "The fire that started the run: one entry of the trigger's fire history.",
+    },
+    scheduledFor: {
+      type: 'string',
+      format: 'date-time',
+      description: "A schedule's fire: the occurrence the run is for.",
+    },
+  },
+};
+
 export const ScopeSegmentSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -642,6 +667,7 @@ export const RunSchema: JsonSchema = {
       description: 'Set on a child run: the node in the parent run that started it.',
     },
     agent: { $ref: '#/components/schemas/RunAgent' },
+    trigger: { $ref: '#/components/schemas/RunTrigger' },
     replayOf: {
       type: 'string',
       format: 'uuid',
@@ -919,7 +945,7 @@ const ApiTokenRoleSchema: JsonSchema = {
   type: 'string',
   enum: ['admin', 'member'],
   description:
-    "The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action, whoever it's for.",
+    "The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action on the tenant, whoever it's for; below it, its principal's roles hold (a project admin's member key administers that project).",
 };
 
 export const ApiKeyPrincipalSchema: JsonSchema = {
@@ -1563,9 +1589,33 @@ export const RetrievalIntentSchema: JsonSchema = {
   required: ['types', 'scope'],
   properties: {
     types: { type: 'array', items: { type: 'string' }, minItems: 1 },
-    scope: { type: 'string', enum: ['same-conversation', 'same-project', 'tenant'] },
+    scope: {
+      type: 'string',
+      enum: ['same-conversation', 'same-user', 'same-project', 'tenant'],
+      description:
+        "What the intent selects within what the run may see: this conversation's facts; this run's end user's and user's; the run's project's (none without a project); or every fact of the type it may see.",
+    },
     limit: { type: 'integer', minimum: 1 },
-    mode: { type: 'string', enum: ['keyword', 'semantic', 'both'] },
+    mode: {
+      type: 'string',
+      enum: ['keyword', 'semantic', 'both'],
+      description:
+        "With the user's message as the query: full-text, by meaning (fails the turn with `semantic-unavailable` on a runtime without embeddings), or both fused by rank (without embeddings, the keyword half). Absent: the newest facts.",
+    },
+  },
+};
+
+export const AgentMemoryPolicySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: 'How the agent uses what it retrieves.',
+  properties: {
+    instructionTypes: {
+      type: 'array',
+      items: { type: 'string', minLength: 1 },
+      description:
+        "Fact types that are instructions for this agent: a retrieved, verified fact of one of these types goes into the system message under 'Policies (verified)'. Default: none.",
+    },
   },
 };
 
@@ -1700,6 +1750,7 @@ export const AgentSchema: JsonSchema = {
     capabilities: { type: 'array', items: { $ref: '#/components/schemas/Capability' } },
     tools: { type: 'array', items: { $ref: '#/components/schemas/ToolRef' } },
     retrieval: { type: 'array', items: { $ref: '#/components/schemas/RetrievalIntent' } },
+    memory: { $ref: '#/components/schemas/AgentMemoryPolicy' },
     guardrails: { type: 'array', items: { type: 'string' } },
     preferredProvider: {
       type: 'string',
@@ -1865,6 +1916,7 @@ export const PublishAgentBodySchema: JsonSchema = {
     capabilities: { type: 'array', items: { $ref: '#/components/schemas/Capability' } },
     tools: { type: 'array', items: { $ref: '#/components/schemas/ToolRef' } },
     retrieval: { type: 'array', items: { $ref: '#/components/schemas/RetrievalIntent' } },
+    memory: { $ref: '#/components/schemas/AgentMemoryPolicy' },
     guardrails: { type: 'array', items: { type: 'string' } },
     preferredProvider: {
       type: 'string',
@@ -1893,6 +1945,17 @@ export const PublishAgentResultSchema: JsonSchema = {
   properties: {
     agentId: { type: 'string' },
     version: { type: 'string' },
+    warnings: {
+      type: 'array',
+      description:
+        'What the agent should know about this deployment before its first turn, e.g. `semantic-unavailable`: a retrieval intent searches by meaning and the deployment has no embeddings.',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['code', 'message'],
+        properties: { code: { type: 'string' }, message: { type: 'string' } },
+      },
+    },
   },
 };
 
@@ -3049,7 +3112,7 @@ export const JudgedRunContextSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    'What a judged run needs besides its input to be replayed, captured when it was first judged. For an agent turn: the conversation before it, what its retrievals returned, and the decision at its session approval gate. For a flow run: its tool calls with their results.',
+    'What a judged run needs besides its input to be replayed, captured when it was first judged. For an agent turn: the conversation before it, what its retrievals returned, and the decision at its session approval gate. For a flow run: its tool calls with their results. For both: the env values its tools were sent.',
   properties: {
     history: {
       type: 'array',
@@ -3121,6 +3184,12 @@ export const JudgedRunContextSchema: JsonSchema = {
         },
         truncated: { type: 'boolean', description: 'More calls were made than were kept.' },
       },
+    },
+    toolEnv: {
+      type: 'object',
+      additionalProperties: { type: 'object', additionalProperties: { type: 'string' } },
+      description:
+        "The env values each tool's calls were sent (`needsSpec.env`), by tool id: its first call's, as the run recorded them. A replay sends them to a read-only tool it runs live, so the tool reads the config the run saw, not today's. Absent for a run from before env was recorded.",
     },
   },
 };
@@ -3589,7 +3658,7 @@ export const VerifyFactBodySchema: JsonSchema = {
 
 export const RetrieveIntentSchema: JsonSchema = {
   description:
-    'Retrieval intent — mirrors `RetrievalIntent` from `@kindgi/agents`, widened for direct-HTTP use. `mode: "list"` returns a plain scoped list (no query). `mode: "keyword"` runs full-text search. `mode: "semantic"` runs vector similarity search — requires an embedding provider bound on the deployment; if unavailable, the route returns `400 bad-input`. `mode: "both"` unions keyword + semantic results, dedup by fact id.',
+    'Retrieval intent — mirrors `RetrievalIntent` from `@kindgi/agents`, widened for direct-HTTP use. `mode: "list"` returns a plain scoped list (no query), newest first. `mode: "keyword"` runs full-text search. `mode: "semantic"` searches by meaning — it needs embeddings on the deployment; without them the route answers `422 semantic-unavailable`. `mode: "both"` runs both and fuses them by rank (reciprocal rank fusion), as `semantic` needing embeddings.',
   type: 'object',
   additionalProperties: false,
   required: ['mode'],
@@ -3617,7 +3686,7 @@ export const RetrievalHitSchema: JsonSchema = {
     score: {
       type: 'number',
       description:
-        'Relevance score. Keyword mode returns an implementation-defined rank (higher = better). Semantic mode returns cosine similarity in [-1, 1] (higher = better). Absent for `list` mode.',
+        'Relevance score. Keyword mode returns an implementation-defined rank (higher = better). Semantic mode returns cosine similarity in [-1, 1] (higher = better). Both: the fused rank score, `Σ 1/(60 + rank)` (higher = better). Absent for `list` mode.',
     },
   },
 };
@@ -4587,6 +4656,11 @@ export const RegisterProviderBodySchema: JsonSchema = {
       description:
         "The adapter's connection settings: flat, non-secret values (a cloud project, a base URL). Each adapter documents its keys. Credentials go in `secret_ref`, never here.",
     },
+    send_traceparent: {
+      type: 'boolean',
+      description:
+        "Send each model call's W3C `traceparent` to this provider, as a request header, so its request logs can be matched to the run. Ids only, never content. Default `false`: nothing about a run's trace leaves the deployment unless a registration opts in. The runtime enforces it; an older runtime ignores the field and sends none.",
+    },
   },
 };
 
@@ -4760,6 +4834,11 @@ export const MCPEndpointSchema: JsonSchema = {
       type: 'object',
       additionalProperties: true,
       description: 'Optional caller-defined metadata bag.',
+    },
+    sendTraceparent: {
+      type: 'boolean',
+      description:
+        "Send the W3C `traceparent` of the run calling a tool to this endpoint, as a request header, so the server's logs can be matched to the run. Ids only, never content. Default `false`. HTTP transports only: `true` on a `stdio` endpoint is refused (`invalid-mcp-endpoint`, reason `invalid-send-traceparent`). An older runtime ignores it and sends none.",
     },
   },
 };
@@ -7826,11 +7905,17 @@ export const ProjectMembershipCollectionPageSchema: JsonSchema = {
 };
 
 export const AddProjectMembershipBodySchema: JsonSchema = {
+  description: 'Exactly one of `userId` and `email` names the person.',
   type: 'object',
   additionalProperties: false,
-  required: ['userId', 'role'],
+  required: ['role'],
   properties: {
     userId: { type: 'string', minLength: 1 },
+    email: {
+      type: 'string',
+      minLength: 1,
+      description: "The person's email, as the tenant has it.",
+    },
     role: { $ref: '#/components/schemas/ProjectRole' },
   },
 };
@@ -8423,11 +8508,11 @@ export const TriggerStatusSchema: JsonSchema = {
 export const ScheduleRecordSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
+  description:
+    'A schedule: what it runs (a flow at a version, or an agent), when (a cron expression in a timezone), as whom (its owner), and what it does after a gap or while a run is still going.',
   required: [
     'scheduleId',
     'triggerId',
-    'flowId',
-    'flowVersion',
     'cronExpression',
     'label',
     'status',
@@ -8443,8 +8528,29 @@ export const ScheduleRecordSchema: JsonSchema = {
         'Domain-friendly alias for `triggerId` — the trigger id (a UUID). Use interchangeably in admin URLs.',
     },
     triggerId: { type: 'string' },
-    flowId: { type: 'string', minLength: 1 },
+    flowId: {
+      type: 'string',
+      minLength: 1,
+      description: 'A schedule that runs a flow: the flow, at `flowVersion`.',
+    },
     flowVersion: { type: 'string', minLength: 1 },
+    agentId: {
+      type: 'string',
+      minLength: 1,
+      description:
+        "A schedule that runs an agent: the agent, at `agentVersion`, else its version live for the schedule's project (else the latest), as a run that names none.",
+    },
+    agentVersion: { type: 'string', minLength: 1 },
+    projectId: {
+      type: 'string',
+      format: 'uuid',
+      description: "The schedule's project: its runs are this project's.",
+    },
+    owner: {
+      $ref: '#/components/schemas/TriggerOwner',
+      description:
+        'Who its runs act as: whoever registered it, until an admin takes it over (`POST …/owner`). Checked again at every fire.',
+    },
     cronExpression: {
       type: 'string',
       minLength: 1,
@@ -8456,19 +8562,101 @@ export const ScheduleRecordSchema: JsonSchema = {
       description: 'IANA timezone (e.g. `UTC`, `America/New_York`). Absent → `UTC`.',
     },
     input: {
-      description: 'Static input handed to the flow on every fire. Absent → `{}`.',
+      description: 'Static input handed to the run on every fire. Absent → `{}`.',
+    },
+    catchUp: {
+      type: 'string',
+      enum: ['latest', 'skip'],
+      description:
+        'After a gap (the runtime was down, or a fire is later than `startingDeadlineSeconds`): `latest` runs once, for the latest missed occurrence, and its fire says how many it missed; `skip` drops the missed occurrences. Never a run per missed occurrence.',
+    },
+    overlap: {
+      type: 'string',
+      enum: ['skip', 'allow'],
+      description:
+        'When an occurrence comes while the previous run of this schedule is still running: `skip` records the fire as skipped; `allow` starts another run.',
+    },
+    startingDeadlineSeconds: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        'How late a fire may start and still count as on time; past it, `catchUp` applies.',
     },
     label: { type: ['string', 'null'] },
     status: { $ref: '#/components/schemas/TriggerStatus' },
+    statusReason: {
+      type: 'string',
+      description:
+        'Why the runtime paused it: repeated fires that were refused (the owner lost access) or failed. Skipped fires (an overlap, an erasure in progress) never count.',
+    },
     nextFireAt: {
       type: ['string', 'null'],
       format: 'date-time',
       description:
         'Wall-clock time of the next scheduled fire. `null` on paused rows if the cron scheduler never re-armed.',
     },
+    upcoming: {
+      type: 'array',
+      items: { type: 'string', format: 'date-time' },
+      description: 'The next occurrences, when the request asked for them (`?upcoming=N`).',
+    },
     lastFiredAt: { type: ['string', 'null'], format: 'date-time' },
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const TriggerOwnerSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'id'],
+  properties: {
+    kind: { type: 'string', enum: ['user', 'service'] },
+    id: { type: 'string' },
+  },
+};
+
+export const ScheduleFireSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    'One fire of a schedule (an occurrence, or a `run-now`) and what came of it. `pending` while its run is being started.',
+  required: ['fireId', 'scheduleId', 'triggerId', 'firedAt', 'outcome'],
+  properties: {
+    fireId: { type: 'string' },
+    scheduleId: { type: 'string' },
+    triggerId: { type: 'string' },
+    scheduledFor: {
+      type: 'string',
+      format: 'date-time',
+      description: 'The occurrence it is for; absent on a `run-now` fire.',
+    },
+    firedAt: { type: 'string', format: 'date-time' },
+    outcome: {
+      type: 'string',
+      enum: ['pending', 'started', 'skipped-overlap', 'skipped-erasure', 'refused', 'failed'],
+      description:
+        "`skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. Neither counts toward the auto-pause; `refused` and `failed` do.",
+    },
+    runId: { type: 'string', format: 'uuid', description: 'The run it started.' },
+    detail: { type: 'string', description: 'Why it was refused, skipped or failed.' },
+    missedCount: {
+      type: 'integer',
+      minimum: 1,
+      description: 'Occurrences this fire stood in for after a gap (`catchUp: latest`).',
+    },
+    manual: { type: 'boolean', description: 'A `run-now` fire, outside the schedule.' },
+  },
+};
+
+export const ScheduleFirePageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/ScheduleFire' } },
+    hasMore: { type: 'boolean' },
+    nextCursor: { type: 'string' },
   },
 };
 
@@ -8486,10 +8674,23 @@ export const ScheduleCollectionPageSchema: JsonSchema = {
 export const RegisterScheduleBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['flowId', 'flowVersion', 'config'],
+  description:
+    'Name what it runs: `flowId` with `flowVersion`, or `agentId` (with an optional `agentVersion`). Registering needs `write` on the project and `execute` on what it runs; its runs act as the caller.',
+  required: ['config'],
   properties: {
-    flowId: { type: 'string', minLength: 1 },
+    flowId: { type: 'string', minLength: 1, description: 'Run a flow (with `flowVersion`).' },
     flowVersion: { type: 'string', minLength: 1 },
+    agentId: {
+      type: 'string',
+      minLength: 1,
+      description: 'Run an agent (instead of a flow): at `agentVersion`, else its live version.',
+    },
+    agentVersion: { type: 'string', minLength: 1 },
+    projectId: {
+      type: 'string',
+      format: 'uuid',
+      description: "The schedule's project. Absent → the tenant's default project.",
+    },
     config: {
       type: 'object',
       additionalProperties: false,
@@ -8497,8 +8698,19 @@ export const RegisterScheduleBodySchema: JsonSchema = {
       properties: {
         cronExpression: { type: 'string', minLength: 1 },
         timezone: { type: 'string' },
-        input: {},
+        input: {
+          description:
+            "What each run gets. An agent schedule's runs take the agent payload, `{ userMessage, parameters? }`, so it needs `userMessage`; a flow's take the flow's input.",
+        },
       },
+    },
+    catchUp: { type: 'string', enum: ['latest', 'skip'], description: 'Default `latest`.' },
+    overlap: { type: 'string', enum: ['skip', 'allow'], description: 'Default `skip`.' },
+    startingDeadlineSeconds: {
+      type: 'integer',
+      minimum: 1,
+      maximum: 86400,
+      description: 'Default 600.',
     },
     label: { type: 'string' },
   },
@@ -8507,21 +8719,41 @@ export const RegisterScheduleBodySchema: JsonSchema = {
 export const PatchScheduleBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
+  description:
+    'Change what it runs (the target fields, as at registration, which also needs `execute` on the new target), when, or its policies.',
   properties: {
+    flowId: { type: 'string', minLength: 1, description: 'Run a flow (with `flowVersion`).' },
+    flowVersion: { type: 'string', minLength: 1 },
+    agentId: {
+      type: 'string',
+      minLength: 1,
+      description: 'Run an agent (instead of a flow): at `agentVersion`, else its live version.',
+    },
+    agentVersion: { type: 'string', minLength: 1 },
     config: {
       type: 'object',
       additionalProperties: false,
       properties: {
         cronExpression: { type: 'string' },
         timezone: { type: 'string' },
-        input: {},
+        input: {
+          description:
+            "What each run gets. An agent schedule's runs take the agent payload, `{ userMessage, parameters? }`, so it needs `userMessage`; a flow's take the flow's input.",
+        },
       },
+    },
+    catchUp: { type: 'string', enum: ['latest', 'skip'], description: 'Default `latest`.' },
+    overlap: { type: 'string', enum: ['skip', 'allow'], description: 'Default `skip`.' },
+    startingDeadlineSeconds: {
+      type: 'integer',
+      minimum: 1,
+      maximum: 86400,
+      description: 'Default 600.',
     },
     label: {
       type: ['string', 'null'],
       description: '`null` clears the label; omit to leave unchanged.',
     },
-    flowVersion: { type: 'string' },
   },
 };
 
@@ -9080,6 +9312,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['HealthResult', HealthResultSchema],
   ['RunStatus', RunStatusSchema],
   ['RunAgent', RunAgentSchema],
+  ['RunTrigger', RunTriggerSchema],
   ['ScopeSegment', ScopeSegmentSchema],
   ['LiveScopeTenant', LiveScopeTenantSchema],
   ['LiveScopeOrg', LiveScopeOrgSchema],
@@ -9182,6 +9415,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['BuildJudgedSuiteResult', BuildJudgedSuiteResultSchema],
   ['PromptParameter', PromptParameterSchema],
   ['RetrievalIntent', RetrievalIntentSchema],
+  ['AgentMemoryPolicy', AgentMemoryPolicySchema],
   ['ConversationPolicy', ConversationPolicySchema],
   ['TurnBudget', TurnBudgetSchema],
   ['Capability', CapabilitySchema],
@@ -9507,6 +9741,9 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   // Trigger surface.
   ['TriggerStatus', TriggerStatusSchema],
   ['ScheduleRecord', ScheduleRecordSchema],
+  ['TriggerOwner', TriggerOwnerSchema],
+  ['ScheduleFire', ScheduleFireSchema],
+  ['ScheduleFirePage', ScheduleFirePageSchema],
   ['ScheduleCollectionPage', ScheduleCollectionPageSchema],
   ['RegisterScheduleBody', RegisterScheduleBodySchema],
   ['PatchScheduleBody', PatchScheduleBodySchema],

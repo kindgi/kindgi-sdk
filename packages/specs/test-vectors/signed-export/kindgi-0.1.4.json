@@ -1,0 +1,40 @@
+{
+  "description": "Signed exports made by Kindgi 0.1.4 (the published @kindgi/api@0.1.4, an embedder's createApp with its own signingKey; the 0.1.4 runtime itself signed none). 0.1.4's audit bundle stamped the envelope's exportedAt separately from the signed one, so about 1 in 10 came out a millisecond apart. A verifier must check all three: \"auditBundle\" (the two stamps equal), \"auditBundleStampsDiffer\" (valid, with \"note\": it reports the signed time), and \"provenance\" (1.1.0, no signed exportedAt). The leniency is for this format only: envelope bundleSchemaVersion 1 over a signed bundleVersion 1.",
+  "made": "2026-10-08, @kindgi/api@0.1.4 and @kindgi/crypto@0.1.4 from npm",
+  "algorithm": "ed25519",
+  "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAkDYWwEzj1U6P8hOFpI4HAm2jzR/BXyCctqdjH8d+i8g=\n-----END PUBLIC KEY-----\n",
+  "auditBundle": {
+    "approvalId": "00000000-0000-4000-8000-0000000000d4",
+    "bundle": "eyJhcHByb3ZhbElkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMGQ0IiwiYnVuZGxlVmVyc2lvbiI6MSwiY3JlYXRlZEF0IjoiMjAyNi0xMC0wMVQxMDowMDowMC4wMDBaIiwiZGVjaWRlZEF0IjoiMjAyNi0xMC0wMVQxMDowNTowMC4wMDBaIiwiZGVjaXNpb24iOnsiZGVjaWRlZEF0IjoiMjAyNi0xMC0wMVQxMDowNTowMC4wMDBaIiwia2luZCI6ImFwcHJvdmUiLCJyYXRpb25hbGUiOiJXaXRoaW4gdGhlIHJlZnVuZCBsaW1pdC4iLCJyZXZpZXdlcklkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMGMzIiwicmV2aWV3ZXJSb2xlQXREZWNpc2lvbiI6InN0YW5kYXJkIn0sImV2aWRlbmNlIjp7Imd1YXJkcmFpbFJlc3VsdHMiOlt7ImlkIjoiYWNtZS5saW1pdCIsIm9rIjp0cnVlfV19LCJleHBvcnRlZEF0IjoiMjAyNi0xMC0wOFQxMzoxMjoyMS41MzRaIiwicmVxdWlyZWRSb2xlIjoic3RhbmRhcmQiLCJzdGF0dXMiOiJhcHByb3ZlZCIsInN1YmplY3RLaW5kIjoidG9vbC1jYWxsIiwic3ViamVjdFJlZiI6eyJjYWxsSWQiOiJjMSIsInRvb2xJZCI6ImFjbWUucmVmdW5kIn0sInRlbmFudElkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMGExIn0=",
+    "bundleSchemaVersion": 1,
+    "algorithm": "ed25519",
+    "signingKeyId": "acme-export-key-1",
+    "signature": "tLStGUncaT7NwAiBRQVQ8rA9F/Ql6YBeAAXBD9ENbymg0LYImzW/692ZAmmBe5Tje3ve6VkexKTi7SGRAXJvDg==",
+    "publicKey": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAkDYWwEzj1U6P8hOFpI4HAm2jzR/BXyCctqdjH8d+i8g=\n-----END PUBLIC KEY-----\n",
+    "canonicalization": "sorted-key-json",
+    "exportedAt": "2026-10-08T13:12:21.534Z"
+  },
+  "auditBundleStampsDiffer": {
+    "approvalId": "00000000-0000-4000-8000-0000000000d4",
+    "bundle": "eyJhcHByb3ZhbElkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMGQ0IiwiYnVuZGxlVmVyc2lvbiI6MSwiY3JlYXRlZEF0IjoiMjAyNi0xMC0wMVQxMDowMDowMC4wMDBaIiwiZGVjaWRlZEF0IjoiMjAyNi0xMC0wMVQxMDowNTowMC4wMDBaIiwiZGVjaXNpb24iOnsiZGVjaWRlZEF0IjoiMjAyNi0xMC0wMVQxMDowNTowMC4wMDBaIiwia2luZCI6ImFwcHJvdmUiLCJyYXRpb25hbGUiOiJXaXRoaW4gdGhlIHJlZnVuZCBsaW1pdC4iLCJyZXZpZXdlcklkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMGMzIiwicmV2aWV3ZXJSb2xlQXREZWNpc2lvbiI6InN0YW5kYXJkIn0sImV2aWRlbmNlIjp7Imd1YXJkcmFpbFJlc3VsdHMiOlt7ImlkIjoiYWNtZS5saW1pdCIsIm9rIjp0cnVlfV19LCJleHBvcnRlZEF0IjoiMjAyNi0xMC0wOFQxMzoxMjoyMS41MzJaIiwicmVxdWlyZWRSb2xlIjoic3RhbmRhcmQiLCJzdGF0dXMiOiJhcHByb3ZlZCIsInN1YmplY3RLaW5kIjoidG9vbC1jYWxsIiwic3ViamVjdFJlZiI6eyJjYWxsSWQiOiJjMSIsInRvb2xJZCI6ImFjbWUucmVmdW5kIn0sInRlbmFudElkIjoiMDAwMDAwMDAtMDAwMC00MDAwLTgwMDAtMDAwMDAwMDAwMGExIn0=",
+    "bundleSchemaVersion": 1,
+    "algorithm": "ed25519",
+    "signingKeyId": "acme-export-key-1",
+    "signature": "8UGQrLv3plY8TdURP/gAUYGpv6nVBzTBndKDNbfF8jslMAg4Y3Jlr5SQ6Ab615prS5BxaJqldkrEVL3rMgsVAQ==",
+    "publicKey": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAkDYWwEzj1U6P8hOFpI4HAm2jzR/BXyCctqdjH8d+i8g=\n-----END PUBLIC KEY-----\n",
+    "canonicalization": "sorted-key-json",
+    "exportedAt": "2026-10-08T13:12:21.533Z"
+  },
+  "note": "made by Kindgi 0.1.4, which stamped the envelope's exportedAt separately: the signed export time is 2026-10-08T13:12:21.532Z (the envelope says 2026-10-08T13:12:21.533Z)",
+  "provenance": {
+    "runId": "run_acme_0001",
+    "bundle": "eyJidW5kbGVTY2hlbWFWZXJzaW9uIjoiMS4xLjAiLCJjcmVhdGVkQXQiOiIyMDI2LTEwLTAxVDEwOjAwOjAwLjAwMFoiLCJkYWciOnsiZWRnZXMiOlt7ImZyb20iOiJuMSIsImtpbmQiOiJjYXVzYWwiLCJ0byI6Im4yIn1dLCJub2RlcyI6W3siaWQiOiJuMSIsImtpbmQiOiJpbnB1dCIsInRpbWVzdGFtcCI6IjIwMjYtMTAtMDFUMTA6MDA6MDAuMDAwWiJ9LHsiaWQiOiJuMiIsImtpbmQiOiJtb2RlbC1vdXRwdXQiLCJtb2RlbFZlcnNpb24iOiJhY21lLW1vZGVsIiwidGltZXN0YW1wIjoiMjAyNi0xMC0wMVQxMDowMDowMi4wMDBaIn1dfSwicHJvdmVuYW5jZUlkIjoicHJvdl9hY21lXzAwMDEiLCJydW5JZCI6InJ1bl9hY21lXzAwMDEiLCJ0ZW5hbnRJZCI6IjAwMDAwMDAwLTAwMDAtNDAwMC04MDAwLTAwMDAwMDAwMDBhMSIsInZlcnNpb24iOiIxLjAuMCJ9",
+    "bundleSchemaVersion": "1.1.0",
+    "algorithm": "ed25519",
+    "signingKeyId": "acme-export-key-1",
+    "signature": "X5o+gYHP12nU4yGQo4yCazWyGIyEkjIRH2U5wS788XJf5/ZlA9FezqTzYh0Nh5Q4temPZ0ac6pwOyEldlVfFBQ==",
+    "publicKey": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAkDYWwEzj1U6P8hOFpI4HAm2jzR/BXyCctqdjH8d+i8g=\n-----END PUBLIC KEY-----\n",
+    "canonicalization": "sorted-key-json",
+    "exportedAt": "2026-10-08T13:12:21.594Z"
+  }
+}

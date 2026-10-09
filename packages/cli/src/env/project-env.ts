@@ -69,7 +69,9 @@ export function describeEnvDiagnostics(
       case 'malformed':
         return `${file}:${d.line}: ignored — ${d.reason}`;
       case 'unresolved':
-        return `${file}: ${d.key} references \${${d.ref}}, which no env file (or the environment) defines — expanded to ""`;
+        return d.ref === d.key
+          ? `${file}: ${d.key}=\${${d.key}} takes the environment's ${d.key}, and the environment doesn't have it — expanded to ""`
+          : `${file}: ${d.key} references \${${d.ref}}, which no env file (or the environment) defines — expanded to ""`;
       case 'cycle':
         return `${file}: ${d.key} references \${${d.ref}} in a cycle — the reference expanded to ""`;
     }

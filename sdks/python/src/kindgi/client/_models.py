@@ -54,6 +54,27 @@ class RunStatus(
     root: Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]
 
 
+class RunTrigger(BaseModel):
+    """
+    Set on a run a trigger started (a schedule, an event trigger or an inbound webhook): the trigger and the fire that started it. Absent on other runs.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    trigger_id: Annotated[UUID, Field(alias="triggerId")]
+    kind: Literal["schedule", "event", "webhook"]
+    fire_id: Annotated[str, Field(alias="fireId")]
+    """
+    The fire that started the run: one entry of the trigger's fire history.
+    """
+    scheduled_for: Annotated[AwareDatetime | None, Field(alias="scheduledFor")] = None
+    """
+    A schedule's fire: the occurrence the run is for.
+    """
+
+
 class ScopeSegment(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -1511,7 +1532,7 @@ class Flow(BaseModel):
 
 class JudgedRunContext(BaseModel):
     """
-    What a judged run needs besides its input to be replayed, captured when it was first judged. For an agent turn: the conversation before it, what its retrievals returned, and the decision at its session approval gate. For a flow run: its tool calls with their results.
+    What a judged run needs besides its input to be replayed, captured when it was first judged. For an agent turn: the conversation before it, what its retrievals returned, and the decision at its session approval gate. For a flow run: its tool calls with their results. For both: the env values its tools were sent.
     """
 
     model_config = ConfigDict(
@@ -1537,6 +1558,10 @@ class JudgedRunContext(BaseModel):
     flow: Flow | None = None
     """
     For a flow run: what it did, kept at its first judgment so it can be replayed. Every tool call it made with its result (at its tool nodes, in its agent steps' turns and in its sub-flows), at most 500, and its agent steps.
+    """
+    tool_env: Annotated[dict[str, dict[str, str]] | None, Field(alias="toolEnv")] = None
+    """
+    The env values each tool's calls were sent (`needsSpec.env`), by tool id: its first call's, as the run recorded them. A replay sends them to a read-only tool it runs live, so the tool reads the config the run saw, not today's. Absent for a run from before env was recorded.
     """
 
 
@@ -1819,9 +1844,36 @@ class RetrievalIntent(BaseModel):
         populate_by_name=True,
     )
     types: Annotated[list[str], Field(min_length=1)]
-    scope: Literal["same-conversation", "same-project", "tenant"]
+    scope: Literal["same-conversation", "same-user", "same-project", "tenant"]
+    """
+    What the intent selects within what the run may see: this conversation's facts; this run's end user's and user's; the run's project's (none without a project); or every fact of the type it may see.
+    """
     limit: Annotated[int | None, Field(ge=1)] = None
     mode: Literal["keyword", "semantic", "both"] | None = None
+    """
+    With the user's message as the query: full-text, by meaning (fails the turn with `semantic-unavailable` on a runtime without embeddings), or both fused by rank (without embeddings, the keyword half). Absent: the newest facts.
+    """
+
+
+class InstructionType(RootModel[str]):
+    root: Annotated[str, Field(min_length=1)]
+
+
+class AgentMemoryPolicy(BaseModel):
+    """
+    How the agent uses what it retrieves.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    instruction_types: Annotated[list[InstructionType] | None, Field(alias="instructionTypes")] = (
+        None
+    )
+    """
+    Fact types that are instructions for this agent: a retrieved, verified fact of one of these types goes into the system message under 'Policies (verified)'. Default: none.
+    """
 
 
 class ConversationPolicy(BaseModel):
@@ -2113,6 +2165,7 @@ class PublishAgentBody(BaseModel):
     capabilities: list[Capability4]
     tools: list[ToolRef]
     retrieval: list[RetrievalIntent]
+    memory: AgentMemoryPolicy | None = None
     guardrails: list[str]
     preferred_provider: Annotated[str | None, Field(alias="preferredProvider", min_length=1)] = None
     """
@@ -2131,6 +2184,15 @@ class PublishAgentBody(BaseModel):
     tool_errors: Annotated[ToolErrorsSpec | None, Field(alias="toolErrors")] = None
 
 
+class Warning(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    code: str
+    message: str
+
+
 class PublishAgentResult(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -2138,6 +2200,10 @@ class PublishAgentResult(BaseModel):
     )
     agent_id: Annotated[str, Field(alias="agentId")]
     version: str
+    warnings: list[Warning] | None = None
+    """
+    What the agent should know about this deployment before its first turn, e.g. `semantic-unavailable`: a retrieval intent searches by meaning and the deployment has no embeddings.
+    """
 
 
 class UnregisterAgentResult(BaseModel):
@@ -3268,7 +3334,7 @@ class FactRevisionList(BaseModel):
 
 class RetrieveIntent(BaseModel):
     """
-    Retrieval intent — mirrors `RetrievalIntent` from `@kindgi/agents`, widened for direct-HTTP use. `mode: "list"` returns a plain scoped list (no query). `mode: "keyword"` runs full-text search. `mode: "semantic"` runs vector similarity search — requires an embedding provider bound on the deployment; if unavailable, the route returns `400 bad-input`. `mode: "both"` unions keyword + semantic results, dedup by fact id.
+    Retrieval intent — mirrors `RetrievalIntent` from `@kindgi/agents`, widened for direct-HTTP use. `mode: "list"` returns a plain scoped list (no query), newest first. `mode: "keyword"` runs full-text search. `mode: "semantic"` searches by meaning — it needs embeddings on the deployment; without them the route answers `422 semantic-unavailable`. `mode: "both"` runs both and fuses them by rank (reciprocal rank fusion), as `semantic` needing embeddings.
     """
 
     model_config = ConfigDict(
@@ -3288,7 +3354,7 @@ class RetrieveIntent(BaseModel):
 
 class RetrieveMemoryBody(BaseModel):
     """
-    Retrieval intent — mirrors `RetrievalIntent` from `@kindgi/agents`, widened for direct-HTTP use. `mode: "list"` returns a plain scoped list (no query). `mode: "keyword"` runs full-text search. `mode: "semantic"` runs vector similarity search — requires an embedding provider bound on the deployment; if unavailable, the route returns `400 bad-input`. `mode: "both"` unions keyword + semantic results, dedup by fact id.
+    Retrieval intent — mirrors `RetrievalIntent` from `@kindgi/agents`, widened for direct-HTTP use. `mode: "list"` returns a plain scoped list (no query), newest first. `mode: "keyword"` runs full-text search. `mode: "semantic"` searches by meaning — it needs embeddings on the deployment; without them the route answers `422 semantic-unavailable`. `mode: "both"` runs both and fuses them by rank (reciprocal rank fusion), as `semantic` needing embeddings.
     """
 
     model_config = ConfigDict(
@@ -3314,7 +3380,7 @@ class RetrievalHit(BaseModel):
     fact: Fact
     score: float | None = None
     """
-    Relevance score. Keyword mode returns an implementation-defined rank (higher = better). Semantic mode returns cosine similarity in [-1, 1] (higher = better). Absent for `list` mode.
+    Relevance score. Keyword mode returns an implementation-defined rank (higher = better). Semantic mode returns cosine similarity in [-1, 1] (higher = better). Both: the fused rank score, `Σ 1/(60 + rank)` (higher = better). Absent for `list` mode.
     """
 
 
@@ -4308,6 +4374,10 @@ class RegisterProviderBody(BaseModel):
     adapter_config: dict[str, str | float | bool] | None = None
     """
     The adapter's connection settings: flat, non-secret values (a cloud project, a base URL). Each adapter documents its keys. Credentials go in `secret_ref`, never here.
+    """
+    send_traceparent: bool | None = None
+    """
+    Send each model call's W3C `traceparent` to this provider, as a request header, so its request logs can be matched to the run. Ids only, never content. Default `false`: nothing about a run's trace leaves the deployment unless a registration opts in. The runtime enforces it; an older runtime ignores the field and sends none.
     """
 
 
@@ -7536,11 +7606,19 @@ class ProjectMembershipCollectionPage(BaseModel):
 
 
 class AddProjectMembershipBody(BaseModel):
+    """
+    Exactly one of `userId` and `email` names the person.
+    """
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    user_id: Annotated[str, Field(alias="userId", min_length=1)]
+    user_id: Annotated[str | None, Field(alias="userId", min_length=1)] = None
+    email: Annotated[str | None, Field(min_length=1)] = None
+    """
+    The person's email, as the tenant has it.
+    """
     role: Literal["viewer", "editor", "owner", "admin", "member"]
     """
     Role on a project membership.
@@ -8090,52 +8168,64 @@ class SecretRevokeResult(BaseModel):
     hard: bool
 
 
-class ScheduleRecord(BaseModel):
+class TriggerOwner(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
+    kind: Literal["user", "service"]
+    id: str
+
+
+class ScheduleFire(BaseModel):
+    """
+    One fire of a schedule (an occurrence, or a `run-now`) and what came of it. `pending` while its run is being started.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    fire_id: Annotated[str, Field(alias="fireId")]
     schedule_id: Annotated[str, Field(alias="scheduleId")]
-    """
-    Domain-friendly alias for `triggerId` — the trigger id (a UUID). Use interchangeably in admin URLs.
-    """
     trigger_id: Annotated[str, Field(alias="triggerId")]
-    flow_id: Annotated[str, Field(alias="flowId", min_length=1)]
-    flow_version: Annotated[str, Field(alias="flowVersion", min_length=1)]
-    cron_expression: Annotated[str, Field(alias="cronExpression", min_length=1)]
+    scheduled_for: Annotated[AwareDatetime | None, Field(alias="scheduledFor")] = None
     """
-    5- or 6-field cron expression (croner-compatible). 6-field enables second precision.
+    The occurrence it is for; absent on a `run-now` fire.
     """
-    timezone: str | None = None
+    fired_at: Annotated[AwareDatetime, Field(alias="firedAt")]
+    outcome: Literal[
+        "pending", "started", "skipped-overlap", "skipped-erasure", "refused", "failed"
+    ]
     """
-    IANA timezone (e.g. `UTC`, `America/New_York`). Absent → `UTC`.
+    `skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. Neither counts toward the auto-pause; `refused` and `failed` do.
     """
-    input: Any | None = None
+    run_id: Annotated[UUID | None, Field(alias="runId")] = None
     """
-    Static input handed to the flow on every fire. Absent → `{}`.
+    The run it started.
     """
-    label: str | None
-    status: Literal["active", "paused"]
+    detail: str | None = None
     """
-    Lifecycle status. Only `active` triggers fire. Tombstoned rows are excluded from every read path.
+    Why it was refused, skipped or failed.
     """
-    next_fire_at: Annotated[AwareDatetime | None, Field(alias="nextFireAt")]
+    missed_count: Annotated[int | None, Field(alias="missedCount", ge=1)] = None
     """
-    Wall-clock time of the next scheduled fire. `null` on paused rows if the cron scheduler never re-armed.
+    Occurrences this fire stood in for after a gap (`catchUp: latest`).
     """
-    last_fired_at: Annotated[AwareDatetime | None, Field(alias="lastFiredAt")]
-    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
-    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+    manual: bool | None = None
+    """
+    A `run-now` fire, outside the schedule.
+    """
 
 
-class ScheduleCollectionPage(BaseModel):
+class ScheduleFirePage(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    data: list[ScheduleRecord]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    data: list[ScheduleFire]
     has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
 class Config6(BaseModel):
@@ -8146,16 +8236,49 @@ class Config6(BaseModel):
     cron_expression: Annotated[str, Field(alias="cronExpression", min_length=1)]
     timezone: str | None = None
     input: Any | None = None
+    """
+    What each run gets. An agent schedule's runs take the agent payload, `{ userMessage, parameters? }`, so it needs `userMessage`; a flow's take the flow's input.
+    """
 
 
 class RegisterScheduleBody(BaseModel):
+    """
+    Name what it runs: `flowId` with `flowVersion`, or `agentId` (with an optional `agentVersion`). Registering needs `write` on the project and `execute` on what it runs; its runs act as the caller.
+    """
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    flow_id: Annotated[str, Field(alias="flowId", min_length=1)]
-    flow_version: Annotated[str, Field(alias="flowVersion", min_length=1)]
+    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
+    """
+    Run a flow (with `flowVersion`).
+    """
+    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
+    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
+    """
+    Run an agent (instead of a flow): at `agentVersion`, else its live version.
+    """
+    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The schedule's project. Absent → the tenant's default project.
+    """
     config: Config6
+    catch_up: Annotated[Literal["latest", "skip"] | None, Field(alias="catchUp")] = None
+    """
+    Default `latest`.
+    """
+    overlap: Literal["skip", "allow"] | None = None
+    """
+    Default `skip`.
+    """
+    starting_deadline_seconds: Annotated[
+        int | None, Field(alias="startingDeadlineSeconds", ge=1, le=86400)
+    ] = None
+    """
+    Default 600.
+    """
     label: str | None = None
 
 
@@ -8167,19 +8290,49 @@ class Config7(BaseModel):
     cron_expression: Annotated[str | None, Field(alias="cronExpression")] = None
     timezone: str | None = None
     input: Any | None = None
+    """
+    What each run gets. An agent schedule's runs take the agent payload, `{ userMessage, parameters? }`, so it needs `userMessage`; a flow's take the flow's input.
+    """
 
 
 class PatchScheduleBody(BaseModel):
+    """
+    Change what it runs (the target fields, as at registration, which also needs `execute` on the new target), when, or its policies.
+    """
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
+    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
+    """
+    Run a flow (with `flowVersion`).
+    """
+    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
+    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
+    """
+    Run an agent (instead of a flow): at `agentVersion`, else its live version.
+    """
+    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
     config: Config7 | None = None
+    catch_up: Annotated[Literal["latest", "skip"] | None, Field(alias="catchUp")] = None
+    """
+    Default `latest`.
+    """
+    overlap: Literal["skip", "allow"] | None = None
+    """
+    Default `skip`.
+    """
+    starting_deadline_seconds: Annotated[
+        int | None, Field(alias="startingDeadlineSeconds", ge=1, le=86400)
+    ] = None
+    """
+    Default 600.
+    """
     label: str | None = None
     """
     `null` clears the label; omit to leave unchanged.
     """
-    flow_version: Annotated[str | None, Field(alias="flowVersion")] = None
 
 
 class ScheduleUnregisterResult(BaseModel):
@@ -8770,6 +8923,7 @@ class Run(BaseModel):
     Set on a child run: the node in the parent run that started it.
     """
     agent: RunAgent | None = None
+    trigger: RunTrigger | None = None
     replay_of: Annotated[UUID | None, Field(alias="replayOf")] = None
     """
     Set on a replay run (an eval run re-running a past run): the run it replays.
@@ -8838,6 +8992,7 @@ class Datum(BaseModel):
     Set on a child run: the node in the parent run that started it.
     """
     agent: RunAgent | None = None
+    trigger: RunTrigger | None = None
     replay_of: Annotated[UUID | None, Field(alias="replayOf")] = None
     """
     Set on a replay run (an eval run re-running a past run): the run it replays.
@@ -8892,7 +9047,7 @@ class MintTokenBody(BaseModel):
     for_: Annotated[ApiKeyPrincipal | None, Field(alias="for")] = None
     role: Literal["admin", "member"] | None = None
     """
-    The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action, whoever it's for. Default `member`; `admin` needs a tenant admin minting it.
+    The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action on the tenant, whoever it's for; below it, its principal's roles hold (a project admin's member key administers that project). Default `member`; `admin` needs a tenant admin minting it.
     """
     capabilities: list[Capability] | None = None
     """
@@ -8925,7 +9080,7 @@ class MintTokenResult(BaseModel):
     principal: ApiKeyPrincipal | None = None
     role: Literal["admin", "member"]
     """
-    The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action, whoever it's for.
+    The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action on the tenant, whoever it's for; below it, its principal's roles hold (a project admin's member key administers that project).
     """
     capabilities: list[Capability]
     """
@@ -8969,7 +9124,7 @@ class ApiToken(BaseModel):
     principal: ApiKeyPrincipal | None = None
     role: Literal["admin", "member"]
     """
-    The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action, whoever it's for.
+    The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action on the tenant, whoever it's for; below it, its principal's roles hold (a project admin's member key administers that project).
     """
     capabilities: list[Capability]
     """
@@ -9009,7 +9164,7 @@ class Datum2(BaseModel):
     principal: ApiKeyPrincipal | None = None
     role: Literal["admin", "member"]
     """
-    The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action, whoever it's for.
+    The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action on the tenant, whoever it's for; below it, its principal's roles hold (a project admin's member key administers that project).
     """
     capabilities: list[Capability]
     """
@@ -9331,6 +9486,7 @@ class Agent(BaseModel):
     capabilities: list[Capability4]
     tools: list[ToolRef]
     retrieval: list[RetrievalIntent]
+    memory: AgentMemoryPolicy | None = None
     guardrails: list[str]
     preferred_provider: Annotated[str | None, Field(alias="preferredProvider", min_length=1)] = None
     """
@@ -9522,6 +9678,10 @@ class MCPEndpoint(BaseModel):
     """
     Optional caller-defined metadata bag.
     """
+    send_traceparent: Annotated[bool | None, Field(alias="sendTraceparent")] = None
+    """
+    Send the W3C `traceparent` of the run calling a tool to this endpoint, as a request header, so the server's logs can be matched to the run. Ids only, never content. Default `false`. HTTP transports only: `true` on a `stdio` endpoint is refused (`invalid-mcp-endpoint`, reason `invalid-send-traceparent`). An older runtime ignores it and sends none.
+    """
 
 
 class MCPEndpointCollectionPage(BaseModel):
@@ -9560,6 +9720,10 @@ class RegisterMCPEndpointBody(BaseModel):
     metadata: dict[str, Any] | None = None
     """
     Optional caller-defined metadata bag.
+    """
+    send_traceparent: Annotated[bool | None, Field(alias="sendTraceparent")] = None
+    """
+    Send the W3C `traceparent` of the run calling a tool to this endpoint, as a request header, so the server's logs can be matched to the run. Ids only, never content. Default `false`. HTTP transports only: `true` on a `stdio` endpoint is refused (`invalid-mcp-endpoint`, reason `invalid-send-traceparent`). An older runtime ignores it and sends none.
     """
     scope_kind: Annotated[Literal["tenant", "org", "project"], Field(alias="scopeKind")]
     """
@@ -9754,6 +9918,96 @@ class DeploymentSecretsSyncRequest(BaseModel):
     """
     Zero or more secret entries. Each entry MUST set exactly one of `ref` (validate-only) or `value` (write new version).
     """
+
+
+class ScheduleRecord(BaseModel):
+    """
+    A schedule: what it runs (a flow at a version, or an agent), when (a cron expression in a timezone), as whom (its owner), and what it does after a gap or while a run is still going.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    schedule_id: Annotated[str, Field(alias="scheduleId")]
+    """
+    Domain-friendly alias for `triggerId` — the trigger id (a UUID). Use interchangeably in admin URLs.
+    """
+    trigger_id: Annotated[str, Field(alias="triggerId")]
+    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
+    """
+    A schedule that runs a flow: the flow, at `flowVersion`.
+    """
+    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
+    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
+    """
+    A schedule that runs an agent: the agent, at `agentVersion`, else its version live for the schedule's project (else the latest), as a run that names none.
+    """
+    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The schedule's project: its runs are this project's.
+    """
+    owner: TriggerOwner | None = None
+    """
+    Who its runs act as: whoever registered it, until an admin takes it over (`POST …/owner`). Checked again at every fire.
+    """
+    cron_expression: Annotated[str, Field(alias="cronExpression", min_length=1)]
+    """
+    5- or 6-field cron expression (croner-compatible). 6-field enables second precision.
+    """
+    timezone: str | None = None
+    """
+    IANA timezone (e.g. `UTC`, `America/New_York`). Absent → `UTC`.
+    """
+    input: Any | None = None
+    """
+    Static input handed to the run on every fire. Absent → `{}`.
+    """
+    catch_up: Annotated[Literal["latest", "skip"] | None, Field(alias="catchUp")] = None
+    """
+    After a gap (the runtime was down, or a fire is later than `startingDeadlineSeconds`): `latest` runs once, for the latest missed occurrence, and its fire says how many it missed; `skip` drops the missed occurrences. Never a run per missed occurrence.
+    """
+    overlap: Literal["skip", "allow"] | None = None
+    """
+    When an occurrence comes while the previous run of this schedule is still running: `skip` records the fire as skipped; `allow` starts another run.
+    """
+    starting_deadline_seconds: Annotated[
+        int | None, Field(alias="startingDeadlineSeconds", ge=1)
+    ] = None
+    """
+    How late a fire may start and still count as on time; past it, `catchUp` applies.
+    """
+    label: str | None
+    status: Literal["active", "paused"]
+    """
+    Lifecycle status. Only `active` triggers fire. Tombstoned rows are excluded from every read path.
+    """
+    status_reason: Annotated[str | None, Field(alias="statusReason")] = None
+    """
+    Why the runtime paused it: repeated fires that were refused (the owner lost access) or failed. Skipped fires (an overlap, an erasure in progress) never count.
+    """
+    next_fire_at: Annotated[AwareDatetime | None, Field(alias="nextFireAt")]
+    """
+    Wall-clock time of the next scheduled fire. `null` on paused rows if the cron scheduler never re-armed.
+    """
+    upcoming: list[AwareDatetime] | None = None
+    """
+    The next occurrences, when the request asked for them (`?upcoming=N`).
+    """
+    last_fired_at: Annotated[AwareDatetime | None, Field(alias="lastFiredAt")]
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+
+
+class ScheduleCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[ScheduleRecord]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
 
 
 class WebhookEndpoint(BaseModel):

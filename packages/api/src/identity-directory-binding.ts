@@ -31,6 +31,14 @@ export interface IdentityDirectoryBinding {
    */
   getUser(input: IdentityGetUserInput): Promise<UserRecord | null>;
   /**
+   * Optional. The person still in the tenant whose `primaryEmail` is
+   * `email`, compared as the directory compares emails when it adds a
+   * person (case-insensitively, for the runtime's); `null` when none.
+   * When present, `POST /v1/projects/{projectId}/memberships` takes an
+   * `email` as well as a `userId`.
+   */
+  findUserByEmail?(input: IdentityFindUserByEmailInput): Promise<UserRecord | null>;
+  /**
    * Cursor-paginated list of users in the tenant. Optional `query`
    * is a prefix match on `displayName` — the natural filter shape
    * for a "search users" surface. Sort order is binding-defined (e.g.
@@ -124,6 +132,11 @@ export interface IdentityGetUserInput {
   readonly userId: UserId;
 }
 
+export interface IdentityFindUserByEmailInput {
+  readonly tenantId: TenantId;
+  readonly email: string;
+}
+
 export interface IdentityListUsersInput {
   readonly tenantId: TenantId;
   readonly limit: number;
@@ -142,6 +155,8 @@ export interface IdentityListSessionsInput {
 export interface IdentityRevokeSessionsInput {
   readonly tenantId: TenantId;
   readonly userId: UserId;
+  /** Who asked (`user:<id>`, `service_account:<id>`), for the audit trail. */
+  readonly revokedBy?: string;
 }
 
 /**

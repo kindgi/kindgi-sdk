@@ -102,7 +102,8 @@ def find_order(lookup: Lookup, ctx: ToolContext) -> Found:
   the tool and the value, and gives the command that sets it.
 - **The values a call used are recorded with it**, so the call re-run after a
   wait (an approval, say) or a retry sees the same ones, even after someone
-  changes them. A replay of the run reads today's values for now.
+  changes them. A comparison that replays the run sends a read-only tool it
+  runs live the values the run's call saw, so a changed value can't skew it.
 - **The context** holds only what the tool declares. `ctx.env` is optional in
   the TypeScript type because a unit test builds its own context.
 
@@ -147,6 +148,17 @@ uv run kindgi env set ORDERS_REGION us --scope=project:<project-id> --env=local
   `kindgi env list --scope=… --env=…` shows a scope's values, and
   `kindgi env unset NAME --scope=… --env=…` removes one, so a call gets the
   next scope's value again.
+
+### A value nobody set
+
+A call that needs a declared value no scope sets, and that has no `default`,
+fails before the tool runs. The message names the value and the command that
+sets it. For a tool `acme-orders.needs-account` that declares
+`ACME_ACCOUNT_ID`, which nobody set, it reads:
+
+```text
+precondition-failed: Tool "acme-orders.needs-account" was not run: env-value-missing: tool "acme-orders.needs-account" needs env value "ACME_ACCOUNT_ID" in env "local", and none is set for project e889c1f5-eae7-45dc-8669-5bd029a5d85c, its org, or the tenant. Set it: kindgi env set ACME_ACCOUNT_ID <value> --scope=project:e889c1f5-eae7-45dc-8669-5bd029a5d85c --env=local (or --scope=tenant, for every project)
+```
 
 :::note
 Without `--scope`, `kindgi env set`, `list` and `unset` edit the pack's own

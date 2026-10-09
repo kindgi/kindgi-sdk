@@ -163,6 +163,24 @@ It exits 1. The TypeScript and Python verifiers give the same line in `issues`. 
 
 Checked without trusted keys, a valid export only proves its bytes weren't changed: anyone could have signed it with a key of their own. Checking against your deployment's keys is what tells you it's yours.
 
+### An audit bundle made with `@kindgi/api` 0.1.4
+
+The 0.1.4 runtime didn't sign exports (its three export routes answered `404 signing-not-configured`), but an app that embedded `@kindgi/api` 0.1.4 with its own key could export audit bundles. Those verify. That version stamped a bundle's envelope `exportedAt` separately from the signed one, so the two can be a millisecond apart. The envelope's copy isn't signed, so the verifiers report the signed time in `notes` and don't compare the two:
+
+```text
+$ kindgi exports verify approval.json --trust=export-signing.pub.pem
+{
+  "valid": true,
+  "signingKeyId": "acme-export-key-1",
+  "checkedAgainst": "trusted-keys",
+  "notes": [
+    "made by Kindgi 0.1.4, which stamped the envelope's exportedAt separately: the signed export time is 2026-10-08T13:12:21.532Z (the envelope says 2026-10-08T13:12:21.533Z)"
+  ]
+}
+```
+
+It exits 0. The TypeScript and Python verifiers give the same line in `notes`. Only 0.1.4's audit bundle format (an envelope `bundleSchemaVersion` of `1`) is checked this way; in every later export, an envelope `exportedAt` that isn't the signed one fails the check.
+
 ## Rotate the key
 
 Replace the key (the file, the secret's version, or the KMS key version) and restart. New exports carry the new key's id, and `GET /v1/export-signing-keys` lists only the new key. An export signed before still checks out against the old public key, so keep the old key's public half wherever you pinned it.

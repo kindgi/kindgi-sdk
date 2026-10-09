@@ -22,7 +22,7 @@ import type {
 } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
-import type { RunHandlerBinding } from '../handler-binding.js';
+import type { RunHandlerBinding, RunTrace } from '../handler-binding.js';
 import type {
   Approval,
   ApprovalStatus,
@@ -523,7 +523,13 @@ export function approvalsRouter(
       // whose run couldn't go on (a tool version it started with is gone,
       // say) isn't reported as plain success.
       if (runHandler !== undefined) {
-        resume = await resumeInline(runHandler, tenantId, approval.provenanceRef.runId as RunId);
+        const trace = c.get('trace');
+        resume = await resumeInline(
+          runHandler,
+          tenantId,
+          approval.provenanceRef.runId as RunId,
+          trace !== undefined ? { traceId: trace.traceId, spanId: trace.spanId } : undefined,
+        );
       }
     }
 
@@ -826,9 +832,14 @@ async function resumeInline(
   runHandler: RunHandlerBinding,
   tenantId: TenantId,
   runId: RunId,
+  trace: RunTrace | undefined,
 ): Promise<ResumeReport> {
   try {
-    const outcome = await runHandler.resumeRun({ tenantId, runId });
+    const outcome = await runHandler.resumeRun({
+      tenantId,
+      runId,
+      ...(trace !== undefined && { trace }),
+    });
     return outcome.kind === 'ok'
       ? { kind: 'ok' }
       : { kind: 'failed', code: outcome.error.code, message: outcome.error.message };
