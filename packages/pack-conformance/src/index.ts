@@ -486,6 +486,36 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
         expect(typeof listening?.port).toBe('number');
       });
 
+      test("its lines are log records: the lifecycle, and each call with its ids and the caller's trace", async () => {
+        const listening = service.events.find((e) => e.kind === 'listening');
+        expect(listening).toMatchObject({
+          event: 'listening',
+          subsystem: 'pack',
+          level: 'info',
+          severity: 'INFO',
+        });
+        expect(typeof listening?.time).toBe('string');
+        const traceId = '4bf92f3577b34da6a3ce929d0e0e4736';
+        const answer = await invoke(service, toolCall('conformance.echo', { message: 'traced' }), {
+          traceparent: `00-${traceId}-00f067aa0ba902b7-01`,
+        });
+        expect(answer.status).toBe(200);
+        const record = await waitFor(
+          () => service.events.find((e) => e.kind === 'call' && e.traceId === traceId),
+          5000,
+          'the call record',
+        );
+        expect(record).toMatchObject({
+          event: 'call',
+          subsystem: 'pack',
+          outcome: 'ok',
+          tenantId: CTX.tenantId,
+          runId: CTX.runId,
+          toolId: 'conformance.echo',
+        });
+        expect(record.spanId).toMatch(/^[0-9a-f]{16}$/);
+      });
+
       test('without a token: exit 1 with a config-invalid line', async () => {
         const { code, events } = await runToExit(target, indexPath, {
           KINDGI_PACK_SERVICE_TOKEN: '',
