@@ -346,7 +346,8 @@ and what's different after:
   changing them `admin`. Webhook endpoints and compliance evidence need
   `admin`. Starting a run needs `execute` on what it runs, and `write` on a
   project it names. Lists hold only what the caller may read. A single admin
-  sees no change ([Authorization](../authorization/)).
+  sees no change ([Authorization](../authorization/)). Unregistering a
+  conversation takes `write` on its project.
 - **With authorization on, a permission change that fails no longer holds up
   the others.** In 0.1.4, one could leave a new project unreadable by its
   creator (`403`) until an operator replayed the outbox. 0.1.5 also carries
@@ -454,7 +455,8 @@ and what's different after:
   - **Logs:** a pack's service writes log records, `kindgi dev` shows them,
     and records from a run carry its ids; providers and MCP endpoints can opt
     in to the run's trace ([Logs](../logs/)).
-  - **Java and Scala, as a preview:**
+  - **Java and Scala, as a preview** (a Java or Scala pack needs Jackson
+    2.18 or later in your app, which is Spring Boot 3.4 or later):
     [Quickstart: Java](../../start/quickstart-java/),
     [Quickstart: Scala](../../start/quickstart-scala/) and
     [Call Kindgi from a Java app](../../start/java-app/).
