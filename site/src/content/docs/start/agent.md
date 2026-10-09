@@ -171,7 +171,9 @@ it's running, and how to stop it: `kill <the process id>`. Also tell them
 where the console is: the `Console` line of `.kindgi/dev.log`, its first
 address (`kindgi doctor --json` has it as `consoleUrl`, and `kindgi console`
 opens it in their browser). They sign in there with **Sign in as seeded
-user**, which needs no token: don't print the token in the chat.
+user**, which needs no token: don't print the token in the chat. Tell them
+to use Chrome or Firefox: Safari can't keep the local sign-in over http yet
+([Known limitations](../../deploy/operate/#known-limitations-in-015)).
 
 ## Step 4: the model key
 
