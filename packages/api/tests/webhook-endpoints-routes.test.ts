@@ -16,7 +16,7 @@ import type {
   WebhookEventId,
 } from '@kindgi/types';
 
-import { createStubAppBindings } from '@kindgi/testing';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type {
@@ -424,6 +424,23 @@ describe('POST /v1/webhook-endpoints/generate-secret', () => {
     expect(isStrongWebhookSecret(secret)).toBe(true);
     expect(b.json.secret).not.toBe(secret);
     expect(binding.rows.size).toBe(0);
+  });
+
+  test('with an Idempotency-Key, a retry gets 409 replay-withheld, never the secret again (T392)', async () => {
+    const { app } = makeApp();
+    const send = () =>
+      app.request('/v1/webhook-endpoints/generate-secret', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN_A}`, 'idempotency-key': 'gen-1' },
+      });
+    const first = await send();
+    const { secret } = (await first.json()) as { secret: string };
+    expect(first.status).toBe(200);
+    const again = await send();
+    expect(again.status).toBe(409);
+    const text = await again.text();
+    expect(text).not.toContain(secret);
+    expect(JSON.parse(text).error.code).toBe('idempotency-key-replay-withheld');
   });
 });
 

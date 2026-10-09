@@ -27,9 +27,10 @@ export interface IdentityProviderBinding {
    * The ways a person can sign in, before anyone is signed in
    * (`GET /v1/auth/sign-in-options`, unauthenticated). Answer by the email
    * DOMAIN only, never by whether a person exists:
-   * - with `emailDomain`: the providers whose (verified) `domains` include
-   *   it, from the one tenant that claims it; none when no tenant does,
-   *   or when more than one does;
+   * - with `emailDomain`: the providers whose `domains` include it, from
+   *   the one tenant the domain is verified for (the deployment decides
+   *   how: e.g. the only tenant it serves, or one its operator named);
+   *   none when the domain isn't verified for any tenant;
    * - without: the route doesn't ask. Sign-in is email first, so nothing
    *   is offered before an email.
    * Absent → the route answers an empty list.
@@ -89,6 +90,13 @@ export interface SignInOption {
   readonly displayName: string;
   /** Where the browser goes to start signing in with this provider. */
   readonly signInUrl: string;
+  /**
+   * Whose it is: a workspace's own identity provider (`tenant`), or one
+   * the deployment offers everyone it has added ("Continue with Google",
+   * `deployment`). A sign-in page shows a workspace's own first. Absent:
+   * `tenant`.
+   */
+  readonly owner?: 'tenant' | 'deployment';
 }
 
 /**
