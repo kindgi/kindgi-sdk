@@ -1201,6 +1201,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           ...(input.memory?.semanticSearch !== undefined && {
             semanticSearch: input.memory.semanticSearch,
           }),
+          ...(input.memory?.agentRemember !== undefined && {
+            remember: input.memory.agentRemember,
+          }),
         },
       ),
     );

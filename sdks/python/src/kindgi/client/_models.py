@@ -1859,6 +1859,33 @@ class InstructionType(RootModel[str]):
     root: Annotated[str, Field(min_length=1)]
 
 
+class Type(RootModel[str]):
+    root: Annotated[str, Field(min_length=1)]
+
+
+class Remember(BaseModel):
+    """
+    Lets the agent remember: its turns offer the built-in tool `kindgi_remember` (built-in tools are `kindgi_<verb>`; an agent cannot list one in `tools`, and a published tool cannot use the prefix). The model picks the type, the text (up to 2,000 characters), an optional slot `key` and when it stops being true; the scope comes from here and the run. Every remembered fact is `unverified`, attributed to the agent version and the call that wrote it, and expires after `keepDays` unless a person verifies it. A person approves it before any read sees it when the scope is wider than one person (`same-project`, `tenant`) or the text reads like an instruction.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    types: Annotated[list[Type], Field(min_length=1)]
+    """
+    The fact types it may write.
+    """
+    scope: Literal["same-user", "same-conversation", "same-project", "tenant"]
+    """
+    Where its facts go: the conversation's end user (else the user the run acts for), the conversation, the run's project, or the tenant. Each but `tenant` includes the run's project.
+    """
+    keep_days: Annotated[int | None, Field(alias="keepDays", ge=1, le=3650)] = None
+    """
+    Days an unverified fact is kept. Default 30.
+    """
+
+
 class AgentMemoryPolicy(BaseModel):
     """
     How the agent uses what it retrieves.
@@ -1873,6 +1900,10 @@ class AgentMemoryPolicy(BaseModel):
     )
     """
     Fact types that are instructions for this agent: a retrieved, verified fact of one of these types goes into the system message under 'Policies (verified)'. Default: none.
+    """
+    remember: Remember | None = None
+    """
+    Lets the agent remember: its turns offer the built-in tool `kindgi_remember` (built-in tools are `kindgi_<verb>`; an agent cannot list one in `tools`, and a published tool cannot use the prefix). The model picks the type, the text (up to 2,000 characters), an optional slot `key` and when it stops being true; the scope comes from here and the run. Every remembered fact is `unverified`, attributed to the agent version and the call that wrote it, and expires after `keepDays` unless a person verifies it. A person approves it before any read sees it when the scope is wider than one person (`same-project`, `tenant`) or the text reads like an instruction.
     """
 
 
@@ -2202,7 +2233,7 @@ class PublishAgentResult(BaseModel):
     version: str
     warnings: list[Warning] | None = None
     """
-    What the agent should know about this deployment before its first turn, e.g. `semantic-unavailable`: a retrieval intent searches by meaning and the deployment has no embeddings.
+    What the agent should know about this deployment before its first turn, e.g. `semantic-unavailable` (a retrieval intent searches by meaning and the deployment has no embeddings) or `remember-unavailable` (the agent remembers and the deployment cannot store agent memories).
     """
 
 
@@ -3253,6 +3284,10 @@ class Fact(BaseModel):
     review: Literal["pending"] | None = None
     """
     `pending` while a person must approve it: a pending fact is never retrieved.
+    """
+    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
+    """
+    When this revision stops being readable: from its retention (`keepUntil`, or `keepDays` from the fact's first write), or an agent-remembered fact's unverified window. No read returns it after; absent: it doesn't expire.
     """
 
 
