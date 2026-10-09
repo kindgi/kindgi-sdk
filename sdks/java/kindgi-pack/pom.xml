@@ -23,7 +23,7 @@
       newer; an app's newer 2.x wins at run time. Unlike kindgi-client, nothing is shaded: pack code
       runs inside the app, with its classes.
     -->
-    <jackson2.version>2.15.4</jackson2.version>
+    <jackson2.version>2.18.11</jackson2.version>
   </properties>
 
   <dependencies>
