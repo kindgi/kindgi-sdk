@@ -216,4 +216,12 @@ describe('the pack service logs', () => {
     expect(built).toMatchObject({ kind: 'err' });
     expect(built.kind === 'err' && built.message).toContain('KINDGI_LOG_LEVEL');
   });
+
+  test("a level for a subsystem pack code logs under is no problem (its names aren't known)", () => {
+    const built = packServiceLogs({
+      env: { KINDGI_LOG_LEVELS: 'billing=debug,pack=warn' },
+      write: () => undefined,
+    });
+    expect(built).toMatchObject({ kind: 'ok', problems: [] });
+  });
 });
