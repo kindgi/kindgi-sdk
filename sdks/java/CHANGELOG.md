@@ -7,6 +7,25 @@ heading into its version.
 
 ## Unreleased
 
+- `kindgi-pack`, `kindgi-pack-scala`: **a guardrail can't ship its check under
+  a built-in check's id** (`must-cite`, `never-call-tool`, `max-tool-calls`,
+  `output-matches`, `tool-order`, `required-substring`,
+  `forbidden-substring`). The runtime runs the built-in for a guardrail naming
+  one, so the pack's check would be silently replaced. `Guardrail.Builder.check`
+  (Scala: `check`) refuses it, saying to rename the check; the indexer reports
+  the file. `Guardrail.RESERVED_CHECK_IDS` lists them, and a test holds it
+  equal to `@kindgi/guardrails`' built-in checks, as the TypeScript and Python
+  pack SDKs do. (#461)
+- `kindgi-pack`, `kindgi-pack-scala`: **Jackson 2.18.11 or later.** kindgi-pack's
+  Jackson (core, databind, annotations, jdk8, jsr310) and the Scala layer's
+  jackson-module-scala move from 2.15.4 to 2.18.11, which fixes advisories that
+  reach the pack service through an app's own input types: a `Path` resolved
+  through any file system provider, eager DNS for `InetAddress` (SSRF), unknown
+  type ids kept without bound, `@JsonIgnore` on a record component bypassed
+  under a naming strategy, and `@JsonIgnoreProperties` bypassed by
+  case-insensitive binding. An app's newer Jackson still wins; Spring Boot
+  3.4 and later manage 2.18 or newer. kindgi-models keeps its optional
+  jackson-annotations at 2.15, and kindgi-client's Jackson stays shaded. (#446)
 - `kindgi-pack`, `kindgi-pack-scala`: **the Java pack service writes log
   records**, the same as the TypeScript and Python services' and the
   runtime's: one per call (`tool acme.lookup ok 12ms`) with the call's ids and

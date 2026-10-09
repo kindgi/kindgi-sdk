@@ -177,6 +177,12 @@ public static final Flow FLOW = Flow.define("acme.record")
     .build();
 ```
 
+A guardrail ships its check, so its check id (`checkId`, else the guardrail's
+id) can't be a built-in check's (`must-cite`, `never-call-tool`,
+`max-tool-calls`, … in `Guardrail.RESERVED_CHECK_IDS`): the runtime runs the
+built-in for a guardrail naming one. `check(…)` refuses it, saying to rename
+your check, and the indexer reports the file.
+
 An agent or a flow takes any other field of its schema with
 `set(field, value)`. A node or an edge with more than `toolNode`, `agentNode`
 or `edge(id, from, to)` say is a map, as the flow schema describes it: a node
@@ -328,8 +334,8 @@ public internet. Its HTTP server is deliberately small and strict:
 ## Jackson
 
 Pack code runs inside your app, with your app's classes, so `kindgi-pack`
-binds inputs and outputs with your app's own Jackson 2 (2.15 or later; your
-version wins). Your Jackson annotations, modules and custom deserializers
+binds inputs and outputs with your app's own Jackson 2 (2.18.11 or later;
+your version wins). Your Jackson annotations, modules and custom deserializers
 apply to tool inputs as they do everywhere else in the app. `kindgi-client`
 is the other way around: it shades its Jackson so the API client never meets
 yours.

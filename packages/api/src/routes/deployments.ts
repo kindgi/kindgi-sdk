@@ -9,7 +9,12 @@ import type { Agent, AgentId, AgentPins } from '@kindgi/agents';
 import { tuplesForCreate } from '@kindgi/authz';
 import { parsePublicKeyPem, verifyEd25519 } from '@kindgi/crypto';
 import type { Flow, FlowPins } from '@kindgi/flow';
-import { type Guardrail, validateGuardrailSpec } from '@kindgi/guardrails';
+import {
+  GUARDRAIL_SPEC_KEYS,
+  type Guardrail,
+  createCheckRegistry,
+  validateGuardrailSpec,
+} from '@kindgi/guardrails';
 import type { ProjectBinding, Scope } from '@kindgi/platform';
 import { validateToolManifest } from '@kindgi/tools';
 import type {
@@ -482,10 +487,11 @@ export function deploymentsRouter(
     }
 
     // ---- Manifest validation ----
-    const validation = validatePrimitives(imageIndex, {
-      imageRef: wire.imageRef,
-      artifactVersion: wire.artifactVersion,
-    });
+    const validation = validatePrimitives(
+      imageIndex,
+      { imageRef: wire.imageRef, artifactVersion: wire.artifactVersion },
+      c.get('log'),
+    );
     if (validation.kind === 'err') {
       c.status(statusFor('deployment-validation-failed') as never);
       return c.json(
@@ -586,7 +592,7 @@ export function deploymentsRouter(
               await bindings.toolRegistry?.unregister({ tenantId, toolId, version });
             });
           } else if (outcome.kind !== 'already-registered') {
-            throw new PublishRefused('tool', `${tool.id}@${tool.version}`, outcome.kind);
+            throw new PublishRefused('tool', `${tool.id}@${tool.version}`, outcome);
           }
         }
       }
@@ -611,7 +617,7 @@ export function deploymentsRouter(
               await bindings.guardrailRegistry?.unregister({ tenantId, guardrailId });
             });
           } else if (outcome.kind !== 'already-registered') {
-            throw new PublishRefused('guardrail', guardrail.id, outcome.kind);
+            throw new PublishRefused('guardrail', guardrail.id, outcome);
           }
         }
       }
@@ -651,6 +657,13 @@ export function deploymentsRouter(
       // A primitive refused with a typed outcome is the caller's to fix:
       // that outcome's own status and code. Anything thrown is a 500.
       if (cause instanceof PublishRefused) {
+        if (cause.projectId !== undefined) {
+          c.get('log').info(`${cause.message}: deploy refused`, {
+            primitive: cause.primitive,
+            id: cause.id,
+            ownerProjectId: cause.projectId as unknown as string,
+          });
+        }
         c.status(statusFor(cause.code) as never);
         return c.json(
           toWireError(
@@ -1242,9 +1255,13 @@ function ociCodeArtifactRef(image: DeployedImage, modulePath: unknown) {
  * a guardrail's `checkId` becomes its `check`, as `kindgi dev`'s disk
  * registry maps it.
  */
+/** The built-in checks, for the config of a guardrail naming one. */
+const builtInChecks = createCheckRegistry();
+
 function validatePrimitives(
   index: Readonly<Record<string, unknown>>,
   image: DeployedImage,
+  log?: { debug(message: string): void },
 ): ValidateResult {
   const details: ValidationDetail[] = [];
 
@@ -1293,8 +1310,19 @@ function validatePrimitives(
       return;
     }
     // The rest is the guardrail as registered, its `configSchema` included:
-    // the runtime checks a guardrail naming this check against it.
-    const { checkModulePath, checkId, ...rest } = raw as Record<string, unknown>;
+    // the runtime checks a guardrail naming this check against it. A field
+    // the guardrail spec doesn't have (an index from a newer CLI) is dropped,
+    // never refused, so a newer CLI never breaks a deployment.
+    const { checkModulePath, checkId, ...indexed } = raw as Record<string, unknown>;
+    const dropped = Object.keys(indexed).filter((k) => !GUARDRAIL_SPEC_KEYS.includes(k));
+    const rest = Object.fromEntries(
+      Object.entries(indexed).filter(([k]) => GUARDRAIL_SPEC_KEYS.includes(k)),
+    );
+    if (dropped.length > 0) {
+      log?.debug(
+        `deployment: guardrail ${String(indexed.id)}: ignored index field(s) this runtime doesn't know: ${dropped.join(', ')}`,
+      );
+    }
     const r = validateGuardrailSpec({
       ...rest,
       check: checkId ?? rest.check ?? rest.id,
@@ -1324,6 +1352,21 @@ function validatePrimitives(
           ...idBase,
           path: '',
           message: err.message,
+        });
+      }
+      return;
+    }
+    // A guardrail naming a built-in check: its config against the built-in's.
+    const builtIn = builtInChecks.get(r.value.check);
+    const configProblems = builtIn?.configProblems?.(r.value.config) ?? [];
+    if (configProblems.length > 0) {
+      for (const problem of configProblems) {
+        details.push({
+          primitive: 'guardrail',
+          index: i,
+          id: r.value.id as unknown as string,
+          path: problem.path,
+          message: problem.message,
         });
       }
       return;
@@ -1527,7 +1570,7 @@ async function registerAgents(input: {
       const outcome = await agents.publish({ tenantId, projectId, agent, enqueueTuples });
       if (outcome.kind === 'ok') written(outcome.agentId, outcome.version);
       else if (outcome.kind !== 'already-registered') {
-        throw new PublishRefused('agent', `${agent.id}@${agent.version}`, outcome.kind);
+        throw new PublishRefused('agent', `${agent.id}@${agent.version}`, outcome);
       }
     }
     return input.defined.map(deployedPrimitive);
@@ -1591,7 +1634,7 @@ async function registerFlows(input: {
       const outcome = await flows.publish({ tenantId, projectId, flow, enqueueTuples });
       if (outcome.kind === 'ok') written(outcome.flowId, outcome.version as unknown as string);
       else if (outcome.kind !== 'already-registered') {
-        throw new PublishRefused('flow', `${flow.id}@${flow.version}`, outcome.kind);
+        throw new PublishRefused('flow', `${flow.id}@${flow.version}`, outcome);
       }
     }
     return input.defined.map(deployedPrimitive);

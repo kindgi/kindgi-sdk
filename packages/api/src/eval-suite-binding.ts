@@ -62,6 +62,8 @@ export interface EvalSuiteRegistryBinding {
    * before calling — the binding receives a well-formed `EvalSuite`.
    * Bindings MAY reject with `already-registered` when the same
    * `(suiteId, version)` is re-published; the route maps that to `409`.
+   * A version of an eval suite whose versions live in another project is
+   * `project-mismatch` (suites never move between projects; `409 eval-suite-project-mismatch`).
    */
   publish(input: EvalSuitePublishInput): Promise<EvalSuitePublishOutcome>;
   /**
@@ -238,6 +240,18 @@ export type EvalSuitePublishOutcome =
       readonly kind: 'project-not-found';
       readonly suiteId: string;
       readonly version: string;
+      readonly projectId: ProjectId;
+    }
+  | {
+      /**
+       * The eval suite's versions live in another project: an eval suite belongs to
+       * the project its first version was published into, and never
+       * moves. Nothing is written (the route answers `409 eval-suite-project-mismatch`).
+       */
+      readonly kind: 'project-mismatch';
+      readonly suiteId: string;
+      readonly version: string;
+      /** The project the eval suite belongs to. */
       readonly projectId: ProjectId;
     };
 

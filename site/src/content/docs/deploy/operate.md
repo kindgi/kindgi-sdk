@@ -346,11 +346,19 @@ and what's different after:
   changing them `admin`. Webhook endpoints and compliance evidence need
   `admin`. Starting a run needs `execute` on what it runs, and `write` on a
   project it names. Lists hold only what the caller may read. A single admin
-  sees no change ([Authorization](../authorization/)).
+  sees no change ([Authorization](../authorization/)). Unregistering a
+  conversation takes `write` on its project.
 - **With authorization on, a permission change that fails no longer holds up
   the others.** In 0.1.4, one could leave a new project unreadable by its
   creator (`403`) until an operator replayed the outbox. 0.1.5 also carries
   the fixes in runtime 0.1.4.1 and 0.1.4.2 (below).
+- **An agent, flow, tool or test set stays in the project it was first
+  published into.** Publishing a version of one under another project is
+  refused with a `409` (`agent-project-mismatch`, `flow-…`, `tool-…`,
+  `eval-suite-project-mismatch`), even for an admin of both, and nothing is
+  written; 0.1.4 accepted it. A deploy that includes one is refused whole,
+  even when it's unchanged. The refusal carries the id, not the other project
+  ([Organize work by org and project](../../guides/projects/organize-by-org-and-project/)).
 - **Run OpenFGA v1.22.0.** Published OpenFGA advisories affect v1.9.0
   ([An OpenFGA you already run](../authorization/#an-openfga-you-already-run)).
 - **Expired rows are deleted every hour:** idempotency answers, sessions and
@@ -373,6 +381,28 @@ and what's different after:
   config fails every turn it checks; unregister it, and register it again
   with a config that fits
   ([Configure a guardrail](../../guides/guardrails/configure-a-guardrail/)).
+- **A halting guardrail whose check can't run now stops the turn; it used to
+  let it through.** That's a check that can't run, for any reason: no check
+  by that name is registered, its configuration is invalid, an `llm-judge`
+  guardrail's judge can't be routed to a model, or the check throws
+  (`check-failed`: pack code that crashed, a pack service that couldn't be
+  reached, a judge call that failed). With `halt`, the turn fails with
+  `guardrail-violation`, and `evaluationErrors` says which guardrail and why.
+  With any other action, the turn goes on; in 0.1.4 a check that threw failed
+  the turn whatever the action. Either way, the error is in the run's
+  provenance and journal
+  ([When the check can't run](../../guides/guardrails/halt-or-record/#when-the-check-cant-run)).
+- **The built-in guardrail checks run.** A guardrail that names one
+  (`must-cite`, `never-call-tool`, `max-tool-calls`, `output-matches`,
+  `tool-order`, `required-substring`, `forbidden-substring`) runs it, from a
+  pack file or `POST /v1/guardrails`. In 0.1.4 it never ran
+  ([Use a built-in check](../../guides/guardrails/use-a-built-in-check/)).
+- **A pack can't ship its own guardrail check under a built-in check's id:**
+  the runtime runs the built-in for a guardrail naming one, so a pack's
+  implementation under that id would be silently replaced. Building the pack
+  refuses it with `reserved-check-id` (Python: `DefinitionError`), saying to
+  rename the check. Rebuild your packs with the 0.1.5 CLI: a pack built with
+  an earlier one that ships such a check runs the built-in instead.
 - **The runtime signs exports** (audit bundles, provenance, compliance
   evidence) with the deployment's export key: set
   `KINDGI_EXPORT_SIGNING_KEY_PATH`, `KINDGI_EXPORT_SIGNING_KEY` or
@@ -454,7 +484,8 @@ and what's different after:
   - **Logs:** a pack's service writes log records, `kindgi dev` shows them,
     and records from a run carry its ids; providers and MCP endpoints can opt
     in to the run's trace ([Logs](../logs/)).
-  - **Java and Scala, as a preview:**
+  - **Java and Scala, as a preview** (a Java or Scala pack needs Jackson
+    2.18 or later in your app, which is Spring Boot 3.4 or later):
     [Quickstart: Java](../../start/quickstart-java/),
     [Quickstart: Scala](../../start/quickstart-scala/) and
     [Call Kindgi from a Java app](../../start/java-app/).
@@ -470,6 +501,13 @@ and what's different after:
   `http://localhost`, where Chrome and Firefox do. Open the local console in
   Chrome or Firefox. A fix is planned. A deployment's console needs `https`
   in every browser (above).
+
+- **The built-in guardrail checks don't check their config yet.** A setting
+  of the wrong type is ignored: `never-call-tool` with
+  `tools: 'my-pack.issue-refund'` (a string, not a list) forbids nothing and
+  passes every turn. Copy the shapes in
+  [Use a built-in check](../../guides/guardrails/use-a-built-in-check/#the-built-in-checks)
+  exactly. A fix is planned.
 
 ### Runtime 0.1.4.2
 
@@ -610,7 +648,13 @@ The `Token` line in the log now shows the new token's last four characters, and 
 `KINDGI_API_TOKEN` is one token: switch your CLI and apps to the new one when you restart.
 
 Console sessions signed in with the old token end at the restart, and people
-sign in again.
+sign in again. The startup log counts them:
+
+```text
+  Signed out: 1 console session an earlier token opened
+```
+
+A request with such a session afterwards answers `401`.
 
 ## Rotate the pack service token
 
