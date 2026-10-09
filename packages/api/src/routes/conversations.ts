@@ -274,6 +274,9 @@ export function conversationsRouter(
   // A tombstone: from now on no read, list or recall returns the
   // conversation, and no message can be added; the retention sweep
   // removes it after the tenant's grace. Unregistered already, or never: 404.
+  // It needs `write` on the conversation's project (its agent, for one from
+  // before projects): an editor or above. Reading it isn't enough, nor is
+  // `execute`, which opening and closing one take.
   r.post('/:conversationId/unregister', refuseMalformedConversationId, async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
@@ -290,6 +293,13 @@ export function conversationsRouter(
         ),
       );
     }
+    const existing = await conversationBinding.getConversation(tenantId, conversationId);
+    if (existing.kind === 'err') {
+      c.status(statusFor(existing.error.code) as never);
+      return c.json(toWireError(existing.error as never, requestId));
+    }
+    const refused = await deniedBy(authorizer, c, 'write', conversationRef(existing.value));
+    if (refused !== undefined) return refused;
     const unregistered = await conversationBinding.unregisterConversation(tenantId, conversationId);
     if (unregistered.kind === 'err') {
       c.status(statusFor(unregistered.error.code) as never);
