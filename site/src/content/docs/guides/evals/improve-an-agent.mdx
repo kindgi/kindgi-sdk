@@ -50,7 +50,9 @@ kindgi proposals improve --agent=acme-ops.reply-drafter --tenant --test-set=acme
 - **The version** is the one serving the scope, unless `--from-version` names
   another.
 - **The budget:** `--max-cost` in US dollars (default 5, at most 100) and
-  `--max-candidates` (default 30, at most 200). A pass stops at either.
+  `--max-candidates` (default 30, at most 200). A pass stops at whichever it
+  reaches first. It checks the cost between comparisons, so the one already
+  running can take it a little over `--max-cost`.
 - **What better means:** `--objective`, `weightedYesShare` (the default) or
   `weightedPrecisionAtK`, as in a
   [comparison](../compare-an-agent-version/#read-the-result).
