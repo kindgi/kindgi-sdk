@@ -20,8 +20,12 @@ export interface LicenseStatus {
   readonly expiresAt?: string;
   /** Whole days until it expires; negative once it has. */
   readonly daysLeft?: number;
-  /** `expiring`: 30 days or fewer left; `grace`: expired, and the runtime still starts with it. */
-  readonly standing?: 'valid' | 'expiring' | 'grace';
+  /**
+   * `expiring`: 30 days or fewer left; `grace`: expired, and the runtime
+   * still starts with it; `expired`: past the grace too, so this server
+   * runs on but won't start with it again.
+   */
+  readonly standing?: 'valid' | 'expiring' | 'grace' | 'expired';
   /** How to get the next key, as the banner says it; present from 30 days before it expires. */
   readonly renew?: string;
 }

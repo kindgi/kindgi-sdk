@@ -1193,9 +1193,9 @@ class LicenseStatus(BaseModel):
     """
     Whole days until it expires; negative once it has.
     """
-    standing: Literal["valid", "expiring", "grace"] | None = None
+    standing: Literal["valid", "expiring", "grace", "expired"] | None = None
     """
-    `expiring`: 30 days or fewer left. `grace`: expired, and the runtime still starts with it (for 14 days).
+    `expiring`: 30 days or fewer left. `grace`: expired, and the runtime still starts with it (for 14 days). `expired`: past the grace too: this server runs on, but won't start with it again.
     """
     renew: str | None = None
     """

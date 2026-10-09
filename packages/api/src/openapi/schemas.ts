@@ -1511,9 +1511,9 @@ export const LicenseStatusSchema: JsonSchema = {
     },
     standing: {
       type: 'string',
-      enum: ['valid', 'expiring', 'grace'],
+      enum: ['valid', 'expiring', 'grace', 'expired'],
       description:
-        '`expiring`: 30 days or fewer left. `grace`: expired, and the runtime still starts with it (for 14 days).',
+        '`expiring`: 30 days or fewer left. `grace`: expired, and the runtime still starts with it (for 14 days). `expired`: past the grace too: this server runs on, but won\'t start with it again.',
     },
     renew: {
       type: 'string',
