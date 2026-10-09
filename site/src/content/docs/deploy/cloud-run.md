@@ -580,5 +580,3 @@ Cloud Run hasn't released its addresses yet: run it again later.
 ## Limits today
 
 - **One runtime instance.** Several aren't supported yet.
-- **Sign-in with an identity provider** hasn't been checked on Cloud SQL yet;
-  API tokens work.
