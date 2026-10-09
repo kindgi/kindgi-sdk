@@ -72,10 +72,12 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'already-terminal': 409,
   'fact-changed': 409,
   'legal-hold': 409,
+  'erasure-in-progress': 409,
   'run-already-terminal': 409,
   'run-lease-lost': 409,
   'idempotency-key-body-mismatch': 409,
   'idempotency-key-in-flight': 409,
+  'idempotency-key-replay-withheld': 409,
   'hitl-required': 409,
   'duplicate-node-id': 409,
   'duplicate-edge-id': 409,
@@ -83,6 +85,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'agent-already-registered': 409,
   'registry-read-only': 409,
   'agent-gone': 410,
+  'run-erased': 410,
   'flow-gone': 410,
   'policy-gone': 410,
   'eval-suite-gone': 410,
@@ -154,16 +157,16 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'signing-key-revoked': 409,
   'signing-key-algorithm-unsupported': 400,
   'signing-key-store-error': 500,
-  // Supervisor proposals lifecycle.
+  // Improvement proposals.
   'proposal-not-found': 404,
   'proposal-invalid-state-transition': 409,
-  'proposal-terminal': 409,
-  'baseline-mismatch': 422,
-  'apply-change-failed': 422,
-  'ground-layer-violation': 422,
-  'agent-not-in-registry': 422,
+  // Evaluating would make a version that serves every unpinned scope.
+  'proposal-needs-pin': 409,
+  // Improvement passes.
+  'improve-unsupported': 501,
+  'improvement-pass-not-found': 404,
+  'improvement-pass-finished': 409,
   'version-already-exists': 409,
-  'invalid-new-version': 400,
   'supervisor-header-missing': 400,
   // Artifacts.
   'blob-not-found': 404,
@@ -251,6 +254,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // The judgment binding can't list judged runs, so no test sets from judgments.
   'test-sets-not-supported': 501,
   'memory-operation-unsupported': 501,
+  // The conversation binding can't unregister (a runtime built before it).
+  'conversation-unregister-unsupported': 501,
   // Authorization is enforced, but a membership change can't be kept in step with it.
   'authz-membership-unsupported': 501,
   'eval-run-already-terminal': 409,

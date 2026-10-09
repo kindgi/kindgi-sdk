@@ -33,6 +33,9 @@ each one by the name in the second column.
 | `judge_class` | Retired judge classes | retired judge classes |
 | `org` | Deleted orgs | deleted orgs, once their environments' and MCP endpoints' records are purged |
 | `provider` | Removed model providers | unregistered model providers |
+| `artifact` | Deleted artifacts | deleted artifacts, with their files |
+| `api_key` | Revoked API keys | revoked and expired API keys |
+| `service_account` | Removed service accounts | unregistered service accounts |
 | `*` | All deleted records | every domain that has no policy of its own |
 
 :::caution[`run` and `*` purge finished runs]
@@ -210,6 +213,11 @@ A pass that purged something logs it, per tenant:
 
 A value under `60000` stops the runtime at start:
 `KINDGI_RETENTION_SWEEP_INTERVAL_MS must be at least 60000 milliseconds. Got 59999.`
+
+**Expired rows go on their own,** whatever this setting says: every hour, the
+runtime deletes expired idempotency answers, sessions and sign-in state. They
+aren't records a policy keeps, so no setting turns that on. The retention
+sweep is for deleted records past their policy's grace.
 
 ## Keep records for good
 

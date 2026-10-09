@@ -155,6 +155,8 @@ export interface IdentityListSessionsInput {
 export interface IdentityRevokeSessionsInput {
   readonly tenantId: TenantId;
   readonly userId: UserId;
+  /** Who asked (`user:<id>`, `service_account:<id>`), for the audit trail. */
+  readonly revokedBy?: string;
 }
 
 /**

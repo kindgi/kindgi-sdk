@@ -42,6 +42,7 @@ from pydantic import ValidationError as PydanticError
 
 from .._json import compact_dumps
 from .._schema import Issue, SchemaValidator, apply_defaults, issues_from_pydantic
+from ..log import Logger, child_span, noop_logger, parse_traceparent
 from .context import Cancellation, ToolContext
 from .define import Guardrail, Tool, check_result_to_wire
 from .loader import import_pack_module, mount_pack, primitives_of
@@ -120,6 +121,7 @@ class PackService:
         env_check: EnvCheck = "strict",
         environ: Mapping[str, str] | None = None,
         logger: Callable[[Mapping[str, Any]], None] = log_json,
+        log: Logger | None = None,
     ) -> None:
         self._index = index
         self._module_root = module_root.resolve()
@@ -128,6 +130,8 @@ class PackService:
         self._max_body_bytes = max_body_bytes
         self._default_timeout_ms = default_timeout_ms
         self._log = logger
+        # Records (`kindgi.log`, subsystem `pack`): a call's record, and `ctx.log` beneath it.
+        self._records = log or noop_logger
         # Every version of a tool the pack holds, side by side: one agent
         # version may pin tool@1 while another pins tool@2.
         self._tools: dict[str, list[Mapping[str, Any]]] = {}
@@ -333,13 +337,22 @@ class PackService:
         call_id = message.tool_id if isinstance(message, ToolInvoke) else message.check_id
         ids = {"toolId": call_id} if target == "tool" else {"checkId": call_id}
 
+        # The call's ids and trace, on its record and on the handler's `ctx.log`.
+        call_log = self._records.child(
+            {
+                **_call_ids(message.ctx if isinstance(message, ToolInvoke) else None),
+                **_call_trace(_header(scope, PACK_HEADERS.traceparent)),
+                "target": target,
+                **ids,
+            }
+        )
         cancellation = Cancellation()
         timeout_ms = (
             _parse_timeout(_header(scope, PACK_HEADERS.timeout_ms)) or self._default_timeout_ms
         )
         started = time.monotonic()
         work = asyncio.ensure_future(
-            self._run_tool(message, cancellation)
+            self._run_tool(message, cancellation, call_log)
             if isinstance(message, ToolInvoke)
             else self._run_check(message)
         )
@@ -362,34 +375,66 @@ class PackService:
                 else f"{call_id} was cancelled"
             )
             outcome = pack_error(reason, text, **ids)
-            work.add_done_callback(lambda task: self._finished_late(task, target, call_id, started))
+            work.add_done_callback(
+                lambda task: self._finished_late(task, target, call_id, started, call_log)
+            )
             work.cancel()
+        duration_ms = int((time.monotonic() - started) * 1000)
+        result = outcome["code"] if outcome.get("kind") == "error" else "ok"
         self._log(
             {
                 "kind": "call",
                 "target": target,
                 "id": call_id,
-                "durationMs": int((time.monotonic() - started) * 1000),
-                "outcome": outcome["code"] if outcome.get("kind") == "error" else "ok",
+                "durationMs": duration_ms,
+                "outcome": result,
             }
+        )
+        (call_log.info if result == "ok" else call_log.warn)(
+            f"{target} {call_id} {result} {duration_ms}ms",
+            {
+                "event": "call",
+                "kind": "call",
+                "id": call_id,
+                "outcome": result,
+                "durationMs": duration_ms,
+            },
+            in_message=("target", "id", "outcome", "durationMs"),
         )
         return outcome
 
     def _finished_late(
-        self, task: asyncio.Future[Message], target: Target, call_id: str, started: float
+        self,
+        task: asyncio.Future[Message],
+        target: Target,
+        call_id: str,
+        started: float,
+        call_log: Logger = noop_logger,
     ) -> None:
         if not task.cancelled():
-            self._late(target, call_id, started)
+            self._late(target, call_id, started, call_log)
 
-    def _late(self, target: Target, call_id: str, started: float) -> None:
+    def _late(
+        self, target: Target, call_id: str, started: float, call_log: Logger = noop_logger
+    ) -> None:
         after_ms = int((time.monotonic() - started) * 1000)
         self._log(
             {"kind": "handler-finished-late", "target": target, "id": call_id, "afterMs": after_ms}
         )
+        call_log.warn(
+            f"{target} {call_id} finished {after_ms} ms after its call ended",
+            {
+                "event": "handler-finished-late",
+                "kind": "handler-finished-late",
+                "afterMs": after_ms,
+            },
+        )
 
     # -- running pack code --------------------------------------------------
 
-    async def _run_tool(self, message: ToolInvoke, cancellation: Cancellation) -> Message:
+    async def _run_tool(
+        self, message: ToolInvoke, cancellation: Cancellation, call_log: Logger = noop_logger
+    ) -> Message:
         tool_id = message.tool_id
         versions = self._tools.get(tool_id, [])
         if not versions:
@@ -446,13 +491,17 @@ class PackService:
                 issues=issues_from_pydantic(error),
             )
 
-        ctx = ToolContext.from_wire(message.ctx, cancellation)
+        # The handler's records are its own (`pack.tool`), shown, never acted on.
+        ctx = ToolContext.from_wire(
+            message.ctx, cancellation, call_log.child(subsystem="pack.tool")
+        )
         try:
             result = await self._call(
                 tool.handler,
                 tool.is_async,
                 *tool.invoke_args(argument, ctx),
                 late=("tool", tool_id),
+                late_log=call_log,
             )
         except asyncio.CancelledError:
             raise
@@ -568,7 +617,12 @@ class PackService:
         return {"v": PACK_PROTOCOL_VERSION, "kind": "check-result", "result": wire}
 
     async def _call(
-        self, fn: Callable[..., Any], is_async: bool, *args: Any, late: tuple[Target, str]
+        self,
+        fn: Callable[..., Any],
+        is_async: bool,
+        *args: Any,
+        late: tuple[Target, str],
+        late_log: Logger = noop_logger,
     ) -> Any:
         if is_async:
             return await fn(*args)
@@ -585,7 +639,7 @@ class PackService:
                     lambda f: (
                         None
                         if f.cancelled()
-                        else loop.call_soon_threadsafe(self._late, *late, started)
+                        else loop.call_soon_threadsafe(self._late, *late, started, late_log)
                     )
                 )
             raise
@@ -709,3 +763,24 @@ def _serialize_cause(cause: BaseException) -> Message:
         "message": str(cause),
         "stack": "".join(traceback.format_exception(cause)),
     }
+
+
+def _call_ids(ctx: Mapping[str, Any] | None) -> dict[str, str]:
+    """The ids a call's records carry, from its context."""
+    if ctx is None:
+        return {}
+    return {
+        key: value
+        for key in ("tenantId", "projectId", "orgId", "runId", "requestId")
+        if isinstance(value := ctx.get(key), str) and value != ""
+    }
+
+
+def _call_trace(header: str | None) -> dict[str, str]:
+    """The caller's trace id and a span of this call's own, parented to the caller's; none
+    without a `traceparent` (an older runtime): a fresh trace would join nothing."""
+    parent = parse_traceparent(header)
+    if parent is None:
+        return {}
+    span = child_span(parent)
+    return {"traceId": span.trace_id, "spanId": span.span_id}

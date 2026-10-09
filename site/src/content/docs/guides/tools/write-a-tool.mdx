@@ -234,6 +234,43 @@ A flow without a declared `output` returns its last step's output. The
     [pack] lookup-order ord_1001 for tenant bb22c936-5111-429a-bfce-09650af85492
 ```
 
+## Log from a tool
+
+`ctx.log` writes a record bound to the call: it carries the run's ids, the
+tool's id and the runtime's trace id, so it can be found beside the run's own
+records ([Logs](../../../deploy/logs/#your-packs-service)). Fields go in as
+an object, never in the message:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// in tools/lookup-order/index.ts, in the handler
+ctx.log?.info('looked up order', { orderId, status: order.status });
+```
+
+The pack service sets `ctx.log`. A context your own code builds may not have
+one, so write `ctx.log?.`.
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# in tools/lookup_order.py, in the handler
+ctx.log.info("looked up order", {"orderId": ref.order_id, "status": order["status"]})
+```
+
+Fields can also be keywords (`order_id=…`). In a test,
+`ToolContext.for_test(…)` logs nothing unless you pass it a logger as `log=`.
+
+</TabItem>
+</Tabs>
+
+The record's subsystem is `pack.tool`, and its level is the method's: `info`,
+`warn`, `error`, `debug` or `trace`. Values under secret-looking keys are
+redacted, but don't log a secret. Printing the context itself
+(`console.log(ctx)`, `print(ctx)`) never shows its secrets.
+
 ## When a call fails
 
 Kindgi checks the input before your handler runs. An order id that doesn't

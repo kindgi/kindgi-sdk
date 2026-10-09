@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 
 import { Hono } from 'hono';
 import type { Context, MiddlewareHandler } from 'hono';
 
-import type { SessionId, TenantId, UserId } from '@kindgi/types';
+import type { AuditEventBinding } from '@kindgi/audit-events';
+import type { SessionId, TenantId, Timestamp, UserId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import type {
@@ -20,6 +21,7 @@ import type {
 } from '../identity-provider-binding.js';
 import { encodeSessionToken } from '../middleware/auth.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { withholdFromReplay } from '../middleware/idempotency.js';
 import type {
   Session,
   SessionCreateOutput,
@@ -77,6 +79,8 @@ export interface AuthRouterOptions {
    * providers already there, are the same either way.
    */
   readonly providerChanges?: 'tenant' | 'operator';
+  /** `signed-out` events, best effort. */
+  readonly auditEvents?: AuditEventBinding;
 }
 
 /** The answer to a tenant's change to a provider when the operator manages sign-in. */
@@ -544,6 +548,8 @@ export function authRouters(options: AuthRouterOptions): {
     // a full re-auth.
     await sessionStore.revoke({ tenantId, sessionId, reason: 'rotate' });
 
+    // A session token: an Idempotency-Key repeat doesn't get it.
+    withholdFromReplay(c);
     return c.json({
       sessionToken: created.rawToken,
       sessionId: created.session.id,
@@ -552,7 +558,7 @@ export function authRouters(options: AuthRouterOptions): {
   });
 
   // ---------- POST /logout ----------
-  authed.post('/logout', logoutHandler(sessionStore));
+  authed.post('/logout', logoutHandler(sessionStore, options.auditEvents));
 
   const callback = new Hono<AppEnv>();
 
@@ -657,6 +663,8 @@ export function authRouters(options: AuthRouterOptions): {
         ...(outcome.claims !== undefined && { metadata: outcome.claims }),
       });
 
+      // A session token: an Idempotency-Key repeat doesn't get it.
+      withholdFromReplay(c);
       c.status(201);
       return c.json({
         sessionToken: sessionTokenOf(created),
@@ -1250,6 +1258,7 @@ function parseCallbackBody(
  */
 export function logoutHandler(
   sessionStore: SessionStoreBinding,
+  auditEvents?: AuditEventBinding,
 ): (c: Context<AppEnv>) => Promise<Response> {
   return async (c) => {
     const requestId = c.get('requestId');
@@ -1269,6 +1278,29 @@ export function logoutHandler(
       );
     }
     const outcome = await sessionStore.revoke({ tenantId, sessionId });
+    const userId = c.get('userId');
+    if (auditEvents !== undefined && outcome.revoked) {
+      try {
+        const appended = await auditEvents.append([
+          {
+            id: randomUUID(),
+            tenantId,
+            kind: 'signed-out',
+            timestamp: new Date().toISOString() as Timestamp,
+            actor: userId !== undefined ? `user:${userId}` : 'system',
+            outcome: 'succeeded',
+            payload: { v: 1, doc: { sessionId } },
+          },
+        ]);
+        if (appended.kind === 'err') {
+          c.get('log').warn(`signed-out audit event failed: ${appended.error.message}`);
+        }
+      } catch (cause) {
+        c.get('log').warn(
+          `signed-out audit event failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+        );
+      }
+    }
     const cookieName = c.get('sessionCookieName');
     if (cookieName !== undefined) {
       // A browser session: the cookie goes with it.

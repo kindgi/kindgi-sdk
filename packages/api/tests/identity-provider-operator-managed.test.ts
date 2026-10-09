@@ -15,8 +15,6 @@ import { describe, expect, test } from 'vitest';
 
 import type { TenantId } from '@kindgi/types';
 
-import { createStubAppBindings } from '@kindgi/testing';
-
 import { createApp } from '../src/index.js';
 import type {
   IdentityProviderBinding,
@@ -27,6 +25,7 @@ import type {
   TokenResolver,
 } from '../src/index.js';
 import { OPERATOR_MANAGED_MESSAGE } from '../src/routes/auth.js';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 const tenantId = randomUUID() as TenantId;
 /** A tenant admin's key. */

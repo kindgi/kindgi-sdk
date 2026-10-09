@@ -37,7 +37,6 @@ describe('buildRuntimeEnv', () => {
     expect(buildRuntimeEnv(BASE)).toEqual({
       KINDGI_DEV: 'true',
       KINDGI_ENV: 'local',
-      KINDGI_LOG_FORMAT: 'pretty',
       KINDGI_API_PORT: '4000',
       KINDGI_PUBLIC_URL: 'http://127.0.0.1:4001',
       KINDGI_DEV_HOST_ALIAS: 'host.docker.internal',
@@ -53,6 +52,25 @@ describe('buildRuntimeEnv', () => {
       KINDGI_PACK_SERVICE_URL: 'http://127.0.0.1:61000',
       KINDGI_PACK_SERVICE_TOKEN: 'pack-token',
     });
+  });
+
+  test("the log settings it's given (kindgi dev's levels; JSON for the container)", () => {
+    const log = {
+      KINDGI_LOG_FORMAT: 'json',
+      KINDGI_LOG_LEVEL: 'debug',
+      KINDGI_LOG_LEVELS: 'http=warn',
+    };
+    const env = buildRuntimeEnv({ ...BASE, log });
+    expect(env).toMatchObject(log);
+    expect(Object.keys(env).slice(0, 5)).toEqual([
+      'KINDGI_DEV',
+      'KINDGI_ENV',
+      'KINDGI_LOG_FORMAT',
+      'KINDGI_LOG_LEVEL',
+      'KINDGI_LOG_LEVELS',
+    ]);
+    // A runtime you run writes to your terminal: no format unless given.
+    expect(buildRuntimeEnv(BASE)).not.toHaveProperty('KINDGI_LOG_FORMAT');
   });
 
   test('Linux host networking: the API binds loopback, no alias', () => {

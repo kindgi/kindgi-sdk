@@ -168,6 +168,24 @@ variable "pack_bucket_readers" {
   default     = []
 }
 
+variable "pack_run_invokers" {
+  description = "Cloud Run services the pack's code calls, IAM-protected (an app's own service): { project, location, service } each, the service's name, not its URL. The pack's service account gets roles/run.invoker on each. The call leaves through the pack's own egress, so the service's ingress must take it (see the README)."
+  type = list(object({
+    project  = string
+    location = string
+    service  = string
+  }))
+  default = []
+  validation {
+    condition     = alltrue([for s in var.pack_run_invokers : can(regex("^[a-z]([-a-z0-9]{0,47}[a-z0-9])?$", s.service))])
+    error_message = "Each pack_run_invokers service is a Cloud Run service name (lowercase letters, digits and dashes), not its URL."
+  }
+  validation {
+    condition     = length(distinct([for s in var.pack_run_invokers : "${s.project}/${s.location}/${s.service}"])) == length(var.pack_run_invokers)
+    error_message = "pack_run_invokers names a service twice."
+  }
+}
+
 # ---- the database -------------------------------------------------------------
 
 variable "database_tier" {
@@ -298,10 +316,83 @@ variable "subnet_cidr" {
 }
 
 variable "secrets_aad_key_version" {
-  description = "The Secret Manager version of KINDGI_SECRETS_AAD_KEY the server reads: \"1\" for a new deployment (the first version added). Pin it; never \"latest\". Every secret stored in Postgres is bound to this key, so a new version is a key change that needs every stored secret re-encrypted, and a version added by mistake must not reach the server."
+  description = "With secrets_backend = \"postgres\" (required then): the Secret Manager version of KINDGI_SECRETS_AAD_KEY the server reads, \"1\" for a new deployment (the first version added). Pin it; never \"latest\". Every secret stored in Postgres is bound to this key, so a new version is a key change that needs every stored secret re-encrypted, and a version added by mistake must not reach the server."
   type        = string
+  default     = null
   validation {
-    condition     = can(regex("^[1-9][0-9]*$", var.secrets_aad_key_version))
+    condition     = var.secrets_aad_key_version == null || can(regex("^[1-9][0-9]*$", var.secrets_aad_key_version))
     error_message = "secrets_aad_key_version is a version number (\"1\" for a new deployment), never \"latest\": every secret stored in Postgres is bound to the key it names."
+  }
+}
+
+variable "secrets_backend" {
+  description = "Where secrets set through Kindgi's API live (KINDGI_SECRETS_BACKEND). \"postgres\" (default): envelope-encrypted in Kindgi's database under a Cloud KMS key the module creates, with secrets_aad_key_version required. \"none\": the runtime stores no secrets of its own (no KMS key, no AAD key); for a deployment whose pack secrets all come by reference from Secret Manager and whose model uses the service's own credentials."
+  type        = string
+  default     = "postgres"
+  validation {
+    condition     = contains(["postgres", "none"], var.secrets_backend)
+    error_message = "secrets_backend is \"postgres\" or \"none\"."
+  }
+}
+
+variable "image_repository" {
+  description = "An existing Artifact Registry repository for the runtime and pack images, instead of the module's own (<name_prefix>): { project, location, repository }. The server's service account gets roles/artifactregistry.reader on it (and, in another project, this project's Cloud Run service agent too, to pull). Check its cleanup policies keep the digests a running revision pins."
+  type = object({
+    project    = string
+    location   = string
+    repository = string
+  })
+  default = null
+}
+
+variable "trusted_proxies" {
+  description = "KINDGI_TRUSTED_PROXIES on the server: which proxies in front of it to trust for a client's address, which rate limits and audit records use. A hop count, or comma-separated IPs/CIDR ranges. Cloud Run's front end appends the client to X-Forwarded-For, so 1; add one for each proxy you put in front of it (an external Application Load Balancer: 2). Empty leaves it unset, and every client counts as Cloud Run's front end."
+  type        = string
+  default     = "1"
+
+  validation {
+    condition     = var.trusted_proxies == "" || can(regex("^[1-9][0-9]*$", var.trusted_proxies)) || can(regex("^[0-9a-fA-F]*[.:][0-9a-fA-F:./]*( *, *[0-9a-fA-F]*[.:][0-9a-fA-F:./]*)*$", var.trusted_proxies))
+    error_message = "trusted_proxies: a hop count (1, 2, ...) or comma-separated IPs/CIDR ranges."
+  }
+}
+
+variable "public_url" {
+  description = "KINDGI_PUBLIC_URL on the server: the URL people open the console at, such as `terraform output -raw server_url` after the first apply, or your own domain. Sign-in with identity providers and the emailed link need it; console sign-in with an API token doesn't. When set, console sessions are accepted from this origin only. Empty leaves it unset."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.public_url == "" || can(regex("^https://[^/?#]+/?$", var.public_url))
+    error_message = "public_url: an https:// origin with no path, such as https://kindgi.example.com."
+  }
+}
+
+variable "server_env" {
+  description = "The server's own settings beyond the ones this module sets, as plain values: sign-in (`KINDGI_CONSOLE_TOKEN_SIGN_IN = \"on\"`, `KINDGI_AUTH_EMAIL_FROM`, ...) and others. A secret goes in server_secret_env instead. A name the module sets itself is refused."
+  type        = map(string)
+  default     = {}
+
+  validation {
+    condition     = alltrue([for name in keys(var.server_env) : can(regex("^[A-Z_][A-Z0-9_]*$", name))])
+    error_message = "server_env: a name is upper-case letters, digits and underscores."
+  }
+  validation {
+    condition     = alltrue([for name in keys(var.server_env) : !can(regex("SECRET|_SMTP_URL$", name))])
+    error_message = "server_env: a secret (a *SECRET* name, or the SMTP URL with its password) goes in server_secret_env, by reference to Secret Manager, so its value isn't in the plan, the state or the service's configuration."
+  }
+}
+
+variable "server_secret_env" {
+  description = "The server's secret settings, by reference to Secret Manager: `KINDGI_AUTH_SECRET`, `KINDGI_AUTH_EMAIL_SMTP_URL`, ... The operator creates each secret; the server's service account gets read access to exactly these (one in another project is granted there). A name the module sets itself is refused."
+  type = map(object({
+    secret  = string
+    version = string
+    project = optional(string)
+  }))
+  default = {}
+
+  validation {
+    condition     = alltrue([for name in keys(var.server_secret_env) : can(regex("^[A-Z_][A-Z0-9_]*$", name))])
+    error_message = "server_secret_env: a name is upper-case letters, digits and underscores."
   }
 }

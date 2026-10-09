@@ -695,6 +695,31 @@ def test_every_model_a_method_names_exists() -> None:
     assert sorted(n for n in named if not hasattr(_models, n)) == []
 
 
+def test_create_erasure_sends_exactly_one_selector() -> None:
+    created = {
+        "id": "6ccd0eca-40b4-4b86-b8f5-24b0900ddd02",
+        "selectorKind": "participant",
+        "status": "pending",
+        "phase": "seed",
+        "requestedBy": "user:u-1",
+        "matchable": True,
+        "counts": {},
+        "attempts": 0,
+        "createdAt": "2026-10-08T00:00:00.000Z",
+    }
+    api, seen = client(lambda r: httpx.Response(202, json=created))
+    out = api.memory.create_erasure(subject={"kind": "participant", "id": "p-1"})
+    assert isinstance(out, models.MemoryErasureCreated) and out.selector_kind == "participant"
+    api.memory.create_erasure({"conversationId": "c-1"}, idempotency_key="k-1")
+    api.memory.create_erasure(models.MemoryErasureFactSelector(fact_id="f-1"))
+    assert [json.loads(r.content) for r in seen] == [
+        {"subject": {"kind": "participant", "id": "p-1"}},
+        {"conversationId": "c-1"},
+        {"factId": "f-1"},
+    ]
+    assert seen[1].headers["Idempotency-Key"] == "k-1"
+
+
 def test_api_keys_for_a_principal_and_service_accounts() -> None:
     minted = {
         "tokenId": "6ccd0eca-40b4-4b86-b8f5-24b0900ddd01",

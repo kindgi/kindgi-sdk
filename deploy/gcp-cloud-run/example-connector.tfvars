@@ -57,3 +57,15 @@ pack_secret_env = {
 # The pack reads only its own prefix of a shared bucket (uniform bucket-level access).
 pack_bucket_readers         = ["acme-app-corpus"]
 pack_bucket_object_prefixes = { "acme-app-corpus" = ["acme/derived/"] }
+
+# An app service the pack's code calls with a Google ID token. Its ingress
+# is all, with IAM as the guard: the pack's egress isn't internal.
+pack_run_invokers = [
+  { project = "acme-app-dev", location = "northamerica-northeast2", service = "acme-search" },
+]
+
+# Console sign-in with the API token (off by default since runtime 0.1.5).
+# More sign-in settings: README, "7. Turn on sign-in".
+server_env = {
+  KINDGI_CONSOLE_TOKEN_SIGN_IN = "on"
+}

@@ -143,7 +143,7 @@ _NOT_FOUND = {
 }  # fmt: skip
 _CONFLICT = {
     "conflict", "already-terminal", "run-already-terminal", "idempotency-key-body-mismatch",
-    "idempotency-key-in-flight",
+    "idempotency-key-in-flight", "idempotency-key-replay-withheld",
     "hitl-required", "agent-already-registered", "tool-already-registered",
     "guardrail-already-registered", "flow-already-registered", "conversation-closed",
     "provider-already-registered", "proposal-invalid-state-transition", "approval-not-decided",
@@ -155,6 +155,7 @@ _CONFLICT = {
     "judge-class-name-taken", "promotion-superseded", "gate-policy-already-registered",
     "gate-policy-scope-taken", "gate-policy-scope-changed", "gate-policy-scope-unpinned",
     "gate-policy-needs-pin", "gate-policy-descendant-unpinned", "fact-changed", "legal-hold",
+    "erasure-in-progress",
 }  # fmt: skip
 _INVALID = {
     "invalid-request", "validation-failed", "unknown-field", "bad-input", "unresolved-tool",

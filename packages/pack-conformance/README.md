@@ -31,9 +31,16 @@ It checks, from the outside:
 |---|---|---|---|
 | `tests/node.test.ts` | `runIndexer` (`@kindgi/handler-runtime`) | `@kindgi/handler-runtime/pack-service-main` | `fixtures/node-pack` |
 | `tests/python.test.ts` | `python -m kindgi.pack index` | `python -m kindgi.pack serve` | `fixtures/python-pack` |
+| `tests/java.test.ts` | `com.kindgi.pack.Main index` | `kindgi-pack-java … com.kindgi.pack.Main serve` | `fixtures/java-pack` |
 
 The Python target uses `KINDGI_CONFORMANCE_PYTHON`, else `sdks/python/.venv`
 (`uv sync` in `sdks/python`), and is skipped — saying why — when neither exists.
+
+The Java target uses the JDK 17+ in `KINDGI_CONFORMANCE_JAVA_HOME`, else
+`JAVA_HOME`, else the `java` on PATH, and the built `sdks/java/kindgi-pack`
+(`./mvnw -pl kindgi-pack -am compile` in `sdks/java`). It compiles the fixture
+pack against them and starts the service through its launcher. Without a JDK or
+the build it's skipped, saying why; under CI it fails instead.
 
 A target that hasn't implemented part of the contract yet lists it in
 `unsupported` (`ConformanceFeature`, e.g. `'pack-env'`): those cases are skipped

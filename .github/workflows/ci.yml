@@ -56,6 +56,9 @@ jobs:
       - name: References (docs exist in this repository; no internal process notes)
         run: pnpm run check:refs
 
+      - name: No package dependency cycles
+        run: pnpm run check:cycles
+
       - name: README package table
         run: pnpm run check:readme
 
@@ -72,6 +75,12 @@ jobs:
 
       - name: Validate JSON Schemas (@kindgi/specs)
         run: pnpm run spec:validate
+
+      # The Java pack service's JSON Schema validator answers as Ajv does:
+      # sdks/java/kindgi-pack/src/test/resources/ajv/oracle.json holds Ajv's
+      # verdicts on the corpus, and the Java tests require the same.
+      - name: Java pack service — the Ajv oracle is current
+        run: node sdks/java/kindgi-pack/scripts/ajv-oracle.mjs --check
 
       - name: Docs ship with the change
         if: github.event_name == 'pull_request'
@@ -104,6 +113,17 @@ jobs:
           cache-dependency-glob: sdks/python/uv.lock
       - name: Python SDK environment (for the pack conformance suite)
         run: uv sync --project sdks/python --frozen
+      # ...and against the Java SDK's (sdks/java/kindgi-pack): the suite
+      # compiles its fixture pack against the module's classes. Under CI that
+      # target fails rather than skip when they're missing.
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+      - name: Java pack service (for the pack conformance suite)
+        working-directory: sdks/java
+        run: ./mvnw -B -ntp -pl kindgi-pack -am compile
       - name: Build (prod-dependency topological order)
         run: pnpm run build
       - name: Typecheck

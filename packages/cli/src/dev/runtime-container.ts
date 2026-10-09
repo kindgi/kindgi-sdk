@@ -18,6 +18,8 @@
 import { type ChildProcess, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 
+import { lineReader } from './lines.js';
+import { textLines } from './log-view.js';
 import {
   RUNTIME_EXPORT_SIGNING_KEY,
   RUNTIME_GOOGLE_CREDENTIALS,
@@ -167,8 +169,8 @@ export interface RuntimeContainerOptions {
   readonly googleCredentials?: string;
   readonly publicTokenKey?: string;
   readonly exportSigningKey?: string;
-  /** Every line the runtime writes. */
-  readonly onLog: (line: string) => void;
+  /** Every line the runtime writes, with the stream it came on. */
+  readonly onLog: (line: string, stream: 'stdout' | 'stderr') => void;
   /** A stop while it starts: the container is stopped and removed, and the wait throws `RuntimeStartStopped`. */
   readonly signal?: AbortSignal;
 }
@@ -268,25 +270,30 @@ export async function startRuntimeContainer(
     throw new Error(`docker run failed: ${dockerFailureDetail(started.stderr)}`);
   }
 
-  // The runtime's latest lines, enough for the boot wait and a failure's
-  // tail: a long session's lines aren't kept (they're printed as they come).
+  // The runtime's latest lines as text (a record as its pretty line, the
+  // JSON boot record as its banner lines), enough for the boot wait and a
+  // failure's tail: a long session's lines aren't kept (they're shown as
+  // they come).
   const lines: string[] = [];
   let logs: ChildProcess | undefined = spawn('docker', ['logs', '--follow', name], {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
-  const onChunk = (chunk: Buffer) => {
-    for (const line of chunk.toString().split('\n')) {
+  const reader = (stream: 'stdout' | 'stderr') =>
+    lineReader((line) => {
       // `docker logs` prints its own errors on the same stream as the
       // container's stderr: a container that already exited gets "can not
       // get logs from container which is dead…". They aren't the runtime's.
-      if (line === '' || line.startsWith(DOCKER_DAEMON_ERROR)) continue;
-      lines.push(line);
+      if (line.startsWith(DOCKER_DAEMON_ERROR)) return;
+      lines.push(...textLines(line));
       if (lines.length > KEPT_LINES) lines.splice(0, lines.length - KEPT_LINES);
-      options.onLog(line);
-    }
-  };
-  logs.stdout?.on('data', onChunk);
-  logs.stderr?.on('data', onChunk);
+      options.onLog(line, stream);
+    });
+  const out = reader('stdout');
+  const err = reader('stderr');
+  logs.stdout?.setEncoding('utf8');
+  logs.stderr?.setEncoding('utf8');
+  logs.stdout?.on('data', (chunk: string) => out.push(chunk));
+  logs.stderr?.on('data', (chunk: string) => err.push(chunk));
 
   // Stop following: listeners off first, so the follower's last output
   // (`docker logs --follow` can panic once its container is gone) is never
