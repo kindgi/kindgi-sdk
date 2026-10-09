@@ -335,3 +335,27 @@ variable "erasure_ledger_key_version" {
     error_message = "erasure_ledger_key_version: a 32-hex Key Vault secret version id."
   }
 }
+
+# ---- renewing the license key (optional) ----------------------------------------
+
+variable "license_renewal_schedule" {
+  description = "When this deployment renews its own license key: a cron schedule in UTC (minute hour day month weekday; \"17 6 * * *\" is daily at 06:17). Empty (the default): no renewal job, and nothing in this deployment calls Kindgi; renew by hand or from your own scheduler with the license_renew_command output. Before turning it on, enroll once (the license_enroll_command output)."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.license_renewal_schedule == "" || can(regex("^[0-9*,/-]+ [0-9*,/-]+ [0-9*,/?LW-]+ [0-9A-Za-z*,/-]+ [0-9A-Za-z*,/?L#-]+$", var.license_renewal_schedule))
+    error_message = "license_renewal_schedule: empty, or five cron fields (minute hour day month weekday), in UTC."
+  }
+}
+
+variable "license_renewer_secret" {
+  description = "The vault secret that holds this deployment's renewer key: `kindgi license enroll` writes it, and renewing reads it. Empty (the default): license-renewer."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.license_renewer_secret == "" || can(regex("^[0-9A-Za-z-]{1,127}$", var.license_renewer_secret))
+    error_message = "license_renewer_secret: a Key Vault secret name (letters, digits and -, up to 127)."
+  }
+}
