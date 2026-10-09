@@ -85,11 +85,12 @@ After an upgrade, a start that brings the store up to the new version's model
 logs one line for it ([From 0.1.3 to 0.1.4](../operate/#from-013-to-014)).
 
 :::caution[Keep the seed user]
-With authorization on, keep `KINDGI_SEED_USER_ID` set, and the same. The
-OpenFGA store's admin is the seed user of the first start. A runtime started
-with another id, or with none (it then picks a new one), runs as a user with no
-access: requests get `403`, lists come back empty, and the log still says
-`admin@tenant`. Start it with the first id again to get access back.
+With authorization on, keep the seed user the same: set `KINDGI_SEED_USER_ID`,
+or keep `KINDGI_API_TOKEN` unchanged (the runtime then keeps the token's user
+across restarts). Each boot makes its seed user a tenant admin, but what was
+granted to an earlier one (a project role, the keys minted for them) stays with
+that user. A runtime started with a new token and no `KINDGI_SEED_USER_ID` says
+so when it starts: `⚠ KINDGI_API_TOKEN changed, so it acts as a new user`.
 :::
 
 **When OpenFGA is unreachable,** requests that need a check answer `500`
