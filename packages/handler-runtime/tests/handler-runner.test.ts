@@ -56,6 +56,32 @@ describe('runHandler — happy path', () => {
     }
   });
 
+  test('a union of types in the schemas (type: [...], as Zod writes a union of scalars)', async () => {
+    const scalar = {
+      type: 'object',
+      properties: { value: { type: ['string', 'number', 'boolean', 'null'] } },
+      required: ['value'],
+      additionalProperties: false,
+    };
+    const union = tool({ inputSchema: scalar, outputSchema: scalar });
+    for (const value of ['a', 1, true, null]) {
+      const outcome = await runHandler({
+        tool: union,
+        input: { value },
+        ctx: ctx(),
+        importHandler: wrap((input) => input),
+      });
+      expect(outcome, String(value)).toEqual({ kind: 'ok', value: { value } });
+    }
+    const bad = await runHandler({
+      tool: union,
+      input: { value: [1] },
+      ctx: ctx(),
+      importHandler: wrap((input) => input),
+    });
+    expect(bad.kind === 'err' && bad.error.code).toBe('input-validation-failed');
+  });
+
   test('awaits a Promise-returning handler', async () => {
     const outcome = await runHandler({
       tool: tool(),

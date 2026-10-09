@@ -112,6 +112,7 @@ The handler gets the **parsed** input, typed `z.infer` of `input` (Zod's output 
 - **Transforms and refinements.** `.transform()` results and `.refine()` checks apply before the handler runs. A failed refinement comes back as `input-validation-failed`.
 - **Extra keys.** A plain `z.object` accepts them and strips them. Use `z.strictObject` to reject them.
 - **JSON-Schema-authored tools** get each property's `default` filled in the same way.
+- **Unions of scalars** (`z.union([z.string(), z.number()])`, `type: ['string', 'number']` on the wire) compile and validate. A schema Kindgi's strict schema check still refuses (an open tuple, an unknown keyword) says so at `defineTool`; for a field that may hold any JSON value, `z.json()` compiles.
 
 The output side is the reverse: the advertised output schema requires every field, defaulted ones included. Return them all.
 
