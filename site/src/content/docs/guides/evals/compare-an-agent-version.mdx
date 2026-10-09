@@ -7,10 +7,6 @@ sidebar:
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-:::note[Preview (0.1.4-rc)]
-Comparisons are new in Kindgi 0.1.4, available now in its release candidates:
-`npx @kindgi/cli@next`, and `uv add --prerelease allow kindgi`.
-:::
 
 A **comparison** runs an agent version on each case of a
 [test set](../build-a-test-set/), as a replay of the past run, and rates its
@@ -39,7 +35,7 @@ kindgi eval-runs start acme.article-picks --project=<project-id> --agent=acme-op
 
 ```json
 {
-  "runId": "584dd89f-0828-47bc-9f07-0f5627c35587",
+  "runId": "b0b9f27a-14d9-4a4d-bc46-31aea6948d5f",
   "status": "completed",
   "result": {
     "summary": {
@@ -47,14 +43,14 @@ kindgi eval-runs start acme.article-picks --project=<project-id> --agent=acme-op
       "candidate": { "kind": "agent", "agentId": "acme-ops.article-picker", "version": "0.2.0" },
       "baseline": { "kind": "recorded", "versions": [{ "agentId": "acme-ops.article-picker", "version": "0.1.0", "cases": 3 }] },
       "metrics": {
-        "weightedYesShare": { "baseline": 0.3333333333333333, "candidate": 0.75, "delta": 0.4166666666666667, "n": 3, … },
-        "judgedCoverage": { "baseline": 0.75, "candidate": 0.5714285714285714, "delta": -0.1785714285714286, "n": 3, … },
-        "weightedPrecisionAtK": { "k": 10, "baseline": 0.3333333333333333, "candidate": 0.75, "delta": 0.4166666666666667, "n": 3, … }
+        "weightedYesShare": { "baseline": 0.3333333333333333, "candidate": 1, "delta": 0.6666666666666667, "n": 3, … },
+        "judgedCoverage": { "baseline": 0.75, "candidate": 0.5, "delta": -0.25, "n": 3, … },
+        "weightedPrecisionAtK": { "k": 10, "baseline": 0.3333333333333333, "candidate": 1, "delta": 0.6666666666666667, "n": 3, … }
       },
-      "diverged": 3,
+      "diverged": 1,
       "refusedWrites": 0,
       "errors": 0,
-      "sampling": { "models": [{ "providerId": "anthropic", "model": "claude-haiku-4-5", "runs": 3 }] },
+      "sampling": { "models": [{ "providerId": "anthropic", "model": "claude-sonnet-5-5", "runs": 3 }] },
       …
     },
     "perCase": [ … ]
@@ -95,6 +91,12 @@ for (const [name, metric] of Object.entries(comparison?.summary.metrics ?? {})) 
 }
 ```
 
+```text
+judgedCoverage: 0.75 → 0.5
+weightedYesShare: 0.3333333333333333 → 1
+weightedPrecisionAtK: 0.3333333333333333 → 1
+```
+
 </TabItem>
 <TabItem label="Python">
 
@@ -131,21 +133,21 @@ if comparison is not None:
         print(f"{name}: {metric.baseline} → {metric.candidate}")
 ```
 
+```text
+judgedCoverage: 0.75 → 0.5
+weightedYesShare: 0.3333333333333333 → 1.0
+weightedPrecisionAtK: 0.3333333333333333 → 1.0
+```
+
 </TabItem>
 </Tabs>
-
-```text
-judgedCoverage: 0.75 → 0.5714285714285714
-weightedYesShare: 0.3333333333333333 → 0.75
-weightedPrecisionAtK: 0.3333333333333333 → 0.75
-```
 
 `comparisonOf` (Python: `comparison_of`) reads a finished comparison's
 result, typed: its `summary` and each case. It returns `undefined` (`None`)
 for a comparison that hasn't finished, or a dry run.
 
 A model doesn't answer the same way every time: run the same comparison
-again, and 0.2.0 may keep only the right article in every case.
+again, and the scores may differ.
 `--repetitions=<n>` (`repetitions` in the clients, up to 10) runs each case
 several times, and each metric gets a `spread`: its highest value minus its
 lowest.
@@ -157,7 +159,8 @@ version (`candidate`), the `delta`, and `n`, the cases it's based on.
 
 - **`weightedYesShare`** ("Judged yes" in the console): of the items in the
   answer that people judged, the share they said yes to, weighted by judge
-  class. 0.1.0's answers had 3 yes of 9 judged articles; 0.2.0's had 3 of 4.
+  class. 0.1.0's answers had 3 yes of 9 judged articles; 0.2.0's had 3 of 3: it
+  kept only the right article each time.
 - **`judgedCoverage`** ("Judged items"): the share of the answer's items that
   people judged. Items no one judged bring it down: here, each answer's text
   is an item too, and no one judged it.
@@ -189,18 +192,18 @@ cases, one of them judged only under a class restricted afterwards:
 
 ```json
 {
-  "caseId": "1b2f8b4c-1c20-4820-8c41-7037138e0396",
-  "runIds": ["5e0f685c-bbd7-4cb3-ac59-d783351f4af4"],
+  "caseId": "240c0a0b-542b-4cb1-9156-fe7153a4377a",
+  "runIds": ["732235ae-2321-46fe-876e-9e9818671cbf"],
   "changes": {
-    "kept": [{ "key": "kb-301", "rankBefore": 0, "rank": 0 }],
-    "dropped": [{ "key": "kb-201", "rankBefore": 1 }, { "key": "kb-302", "rankBefore": 2 }],
+    "kept": [{ "key": "kb-101", "rankBefore": 0, "rank": 0 }],
+    "dropped": [{ "key": "kb-102", "rankBefore": 1 }, { "key": "kb-103", "rankBefore": 2 }],
     "new": [{ "key": "answer", "pointer": "/appended/3/content" }]
   },
   "tools": [
     {
       "toolId": "acme-ops.search-articles",
       "toolVersion": "0.1.0",
-      "arguments": { "question": "package hasn't arrived tracking status" },
+      "arguments": { "query": "I forgot my password and can't sign in" },
       "source": "live",
       …
     }
@@ -216,7 +219,8 @@ cases, one of them judged only under a class restricted afterwards:
 - **`tools`:** each tool call, and what happened to it: `live` (it ran),
   `recorded` (it got the past run's result) or `refused`.
 - **`diverged`:** the version read something the past run didn't, so the
-  read ran live. Here, 0.2.0 searched with other words than 0.1.0 did.
+  read ran live. Here, 0.2.0 left the final period off the customer's
+  question when it searched, so the call wasn't the same as 0.1.0's.
 
 ## What a replay does
 
@@ -331,8 +335,9 @@ many runs per case, whether to read live data instead of the past runs'
 results, and **Count only restricted judge classes**. Its **Comparisons** list links each one to its page, which has:
 
 - a headline in words: "People's judgments rate acme-ops.article-picker 0.2.0
-  better than the recorded runs: 33% yes before, 75% now, on the 3 of 3 cases
-  with answers people judged.";
+  better than the recorded runs: 33% yes before, 100% now, on the 3 of 3 cases
+  with answers people judged. In 1 case it read something the recording didn't
+  have.";
 - the metrics, for the recorded runs and the version, with the change (a
   comparison that counted only restricted classes says so: "Only judgments
   in judge classes restricted to some judges counted; the others weighed

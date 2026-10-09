@@ -5,6 +5,7 @@ import { type FlowRefs, type FlowVersionOverrides, overridableRefs } from '@kind
 import type { FlowId } from '@kindgi/types';
 
 import type { CommandContext } from '../context.js';
+import { UsageError } from '../errors.js';
 import {
   integerFlag,
   listFlag,
@@ -29,7 +30,7 @@ export function oneOfFlag<T extends string>(
 ): T | undefined {
   const raw = stringFlag(ctx, name);
   if (raw !== undefined && !(values as readonly string[]).includes(raw)) {
-    throw new Error(`--${name} must be one of ${values.join(', ')}, got "${raw}"`);
+    throw new UsageError(`--${name} must be one of ${values.join(', ')}, got "${raw}"`);
   }
   return raw as T | undefined;
 }
@@ -92,10 +93,10 @@ function baselineFrom(ctx: CommandContext): Baseline | undefined {
   const project = stringFlag(ctx, 'baseline-project');
   const segments = segmentsFlag(ctx, 'baseline-segment');
   if (baseline !== 'live' && (project !== undefined || segments.length > 0)) {
-    throw new Error('--baseline-project and --baseline-segment need --baseline=live');
+    throw new UsageError('--baseline-project and --baseline-segment need --baseline=live');
   }
   if (segments.length > 0 && project === undefined) {
-    throw new Error(
+    throw new UsageError(
       '--baseline-segment is a segment path in a project: it needs --baseline-project',
     );
   }
@@ -110,7 +111,9 @@ function baselineFrom(ctx: CommandContext): Baseline | undefined {
   }
   const at = baseline.lastIndexOf('@');
   if (at < 1 || at === baseline.length - 1) {
-    throw new Error(`--baseline must be recorded, live or <agentId>@<version>, got "${baseline}"`);
+    throw new UsageError(
+      `--baseline must be recorded, live or <agentId>@<version>, got "${baseline}"`,
+    );
   }
   return { agentId: baseline.slice(0, at), version: baseline.slice(at + 1) };
 }
@@ -120,15 +123,15 @@ function targetFrom(ctx: CommandContext) {
   const agent = stringFlag(ctx, 'agent');
   const flow = stringFlag(ctx, 'flow');
   if ((agent === undefined) === (flow === undefined)) {
-    throw new Error('Give exactly one of --agent=<id> or --flow=<id>');
+    throw new UsageError('Give exactly one of --agent=<id> or --flow=<id>');
   }
   const agentVersion = stringFlag(ctx, 'agent-version');
   const flowVersion = stringFlag(ctx, 'flow-version');
   if (agentVersion !== undefined && agent === undefined) {
-    throw new Error('--agent-version needs --agent');
+    throw new UsageError('--agent-version needs --agent');
   }
   if (flowVersion !== undefined && flow === undefined) {
-    throw new Error('--flow-version needs --flow');
+    throw new UsageError('--flow-version needs --flow');
   }
   return agent !== undefined
     ? { agentRef: { agentId: agent, ...(agentVersion !== undefined && { version: agentVersion }) } }
@@ -144,7 +147,7 @@ function targetFrom(ctx: CommandContext) {
 function idAtVersion(entry: string): { readonly id: string; readonly version: string } {
   const at = entry.lastIndexOf('@');
   if (at < 1 || at === entry.length - 1) {
-    throw new Error(`--with must be <id>@<version>, got "${entry}"`);
+    throw new UsageError(`--with must be <id>@<version>, got "${entry}"`);
   }
   return { id: entry.slice(0, at), version: entry.slice(at + 1) };
 }
@@ -158,11 +161,11 @@ function splitVersions(
   const agents: Record<string, string> = {};
   const tools: Record<string, string> = {};
   for (const { id, version } of entries) {
-    if (id in agents || id in tools) throw new Error(`--with names ${id} twice`);
+    if (id in agents || id in tools) throw new UsageError(`--with names ${id} twice`);
     const agent = refs.agents.includes(id);
     const tool = refs.tools.includes(id);
-    if (agent && tool) throw new Error(`${id} is both an agent and a tool in flow ${label}`);
-    if (!agent && !tool) throw new Error(`flow ${label} doesn't use ${id}`);
+    if (agent && tool) throw new UsageError(`${id} is both an agent and a tool in flow ${label}`);
+    if (!agent && !tool) throw new UsageError(`flow ${label} doesn't use ${id}`);
     (agent ? agents : tools)[id] = version;
   }
   return {
@@ -182,7 +185,7 @@ async function versionsFrom(
   const entries = listFlag(ctx, 'with').map(idAtVersion);
   if (entries.length === 0) return undefined;
   if (!('flowRef' in target) || target.flowRef.version === undefined) {
-    throw new Error(
+    throw new UsageError(
       '--with needs --flow and --flow-version: it swaps versions into one flow version',
     );
   }
@@ -268,7 +271,7 @@ const start: LeafCommand = {
     runSdk(ctx, 'eval-runs start', async () => {
       const suiteId = requiredPositional(ctx, 0, 'suite-id');
       const projectId = stringFlag(ctx, 'project');
-      if (projectId === undefined) throw new Error('--project=<id> is required');
+      if (projectId === undefined) throw new UsageError('--project=<id> is required');
       const target = targetFrom(ctx);
       const reads = oneOfFlag(ctx, 'reads', READS);
       const classWeights = oneOfFlag(ctx, 'class-weights', CLASS_WEIGHTS);
@@ -322,7 +325,7 @@ const list: LeafCommand = {
     runSdk(ctx, 'eval-runs list', async () => {
       const status = stringFlag(ctx, 'status');
       if (status !== undefined && !(STATUSES as readonly string[]).includes(status)) {
-        throw new Error(`--status must be one of ${STATUSES.join(', ')}, got "${status}"`);
+        throw new UsageError(`--status must be one of ${STATUSES.join(', ')}, got "${status}"`);
       }
       const suiteId = stringFlag(ctx, 'suite');
       const agentId = stringFlag(ctx, 'agent');
