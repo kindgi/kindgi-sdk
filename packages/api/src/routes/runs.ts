@@ -13,6 +13,7 @@ import type {
   ScopeSegment,
   Semver,
   TenantId,
+  TriggerId,
 } from '@kindgi/types';
 
 import { type Principal, denyPayload, ref } from '@kindgi/authz';
@@ -748,6 +749,16 @@ function serializeRun(
     }),
     ...(row.replayOf != null && { replayOf: row.replayOf as unknown as string }),
     ...(row.evalRunId != null && { evalRunId: row.evalRunId }),
+    ...(row.trigger !== undefined && {
+      trigger: {
+        triggerId: row.trigger.triggerId as unknown as string,
+        kind: row.trigger.kind,
+        fireId: row.trigger.fireId,
+        ...(row.trigger.scheduledFor !== undefined && {
+          scheduledFor: row.trigger.scheduledFor as unknown as string,
+        }),
+      },
+    }),
     ...(row.versions != null && { versions: row.versions }),
     ...(row.contentErasedAt !== undefined && {
       contentErasedAt: row.contentErasedAt as unknown as string,
@@ -825,6 +836,7 @@ function listRunsInput(input: {
     ...(filter.agentId !== undefined && { agentId: filter.agentId }),
     replays: filter.replays,
     ...(filter.evalRunId !== undefined && { evalRunId: filter.evalRunId }),
+    ...(filter.triggerId !== undefined && { triggerId: filter.triggerId }),
   };
 }
 
@@ -834,6 +846,7 @@ interface RunListFilter {
   readonly agentId?: string;
   readonly replays: 'exclude' | 'include' | 'only';
   readonly evalRunId?: string;
+  readonly triggerId?: TriggerId;
   readonly includeOutput: boolean;
 }
 
@@ -841,12 +854,15 @@ interface RunListFilter {
  * `?parentRunId=` (children of a run), `?topLevel=true`, `?agentId=` (an
  * agent's turns), `?replays=exclude|include|only` (default `exclude`),
  * `?evalRunId=` (one eval run's replays; implies they are included),
- * `?include=output`.
+ * `?triggerId=` (the runs a trigger started), `?include=output`.
  */
 function parseRunListFilter(
   query: Readonly<Record<string, string>>,
 ): { kind: 'ok'; value: RunListFilter } | { kind: 'err'; message: string } {
-  const { parentRunId, topLevel, agentId, replays, evalRunId, include } = query;
+  const { parentRunId, topLevel, agentId, replays, evalRunId, triggerId, include } = query;
+  if (triggerId !== undefined && !UUID_RE.test(triggerId)) {
+    return { kind: 'err', message: '`triggerId` must be a trigger id (a UUID)' };
+  }
   if (agentId !== undefined && agentId.trim() === '') {
     return { kind: 'err', message: '`agentId` must not be empty' };
   }
@@ -887,6 +903,7 @@ function parseRunListFilter(
       ...(agentId !== undefined && { agentId }),
       replays: replays ?? (evalRunId !== undefined ? 'include' : 'exclude'),
       ...(evalRunId !== undefined && { evalRunId }),
+      ...(triggerId !== undefined && { triggerId: triggerId as TriggerId }),
       includeOutput: includes.includes('output'),
     },
   };

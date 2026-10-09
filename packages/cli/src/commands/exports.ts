@@ -51,6 +51,7 @@ const verify: LeafCommand = {
           signingKeyId: checked.signingKeyId,
           checkedAgainst: checked.checkedAgainst,
           ...(checked.issues !== undefined && { issues: checked.issues }),
+          ...(checked.notes !== undefined && { notes: checked.notes }),
         },
         ctx.globals.format,
       );

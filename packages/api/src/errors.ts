@@ -48,6 +48,17 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // A deployment refuses tenant configuration that reaches its host
   // (KINDGI_TENANT_HOST_ACCESS): a stdio MCP endpoint.
   'host-access-denied': 403,
+  // A request signed in by the session cookie, from an origin the
+  // deployment doesn't allow (or with no Origin): cross-site request
+  // forgery protection for browser sessions.
+  'csrf-origin-mismatch': 403,
+  // `POST /v1/auth/token-sign-in` on a deployment that doesn't allow
+  // signing in to the console with an API token.
+  'token-sign-in-off': 403,
+  // `POST /v1/auth/token-sign-in` with a key that can't open a console
+  // session: a service account's, or a narrowed one (a `member` role or one
+  // project), which a session would widen to the person's full grants.
+  'token-sign-in-not-allowed': 403,
   // 404
   'not-found': 404,
   'run-not-found': 404,
@@ -65,6 +76,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'run-already-terminal': 409,
   'run-lease-lost': 409,
   'idempotency-key-body-mismatch': 409,
+  'idempotency-key-in-flight': 409,
   'hitl-required': 409,
   'duplicate-node-id': 409,
   'duplicate-edge-id': 409,
@@ -79,6 +91,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'tool-gone': 410,
   'tool-already-registered': 409,
   'guardrail-already-registered': 409,
+  'guardrail-config-invalid': 422,
   'flow-already-registered': 409,
   'conversation-closed': 409,
   'invalid-agent': 400,
@@ -267,12 +280,22 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'session-inactive': 401,
   'identity-provider-not-found': 404,
   'identity-provider-already-registered': 409,
+  // The deployment couldn't use a provider's configuration (its issuer's
+  // discovery failed, its SAML metadata didn't parse, a host it may not
+  // reach): 422 with what went wrong.
+  'identity-provider-invalid': 422,
   'oauth-state-invalid': 400,
   'oauth-code-exchange-failed': 422,
   'oauth-refresh-failed': 422,
   'oauth-refresh-not-supported': 422,
   'invalid-provider-config': 400,
   'auth-not-session-token': 400,
+  // `POST /v1/auth/refresh` with a browser session (cookie): refused, so a
+  // fresh session token never reaches page scripts.
+  'cookie-session-not-refreshable': 400,
+  // `POST /v1/auth/token-sign-in` signed in by a session (a cookie or a
+  // session token) rather than an API token: there's nothing to exchange.
+  'token-sign-in-needs-an-api-token': 400,
   // OAuth redirect URIs + refresh.
   'redirect-uri-not-allowed': 400,
   'redirect-uri-mismatch': 400,
@@ -338,6 +361,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'trigger-register-failed': 500,
   'trigger-update-failed': 500,
   'trigger-lifecycle-failed': 500,
+  /** The deployment's trigger registry can't do this yet (fire history, run-now, a new owner). */
+  'trigger-operation-unsupported': 501,
   'webhook-signature-invalid': 401,
   'webhook-inactive': 410,
   'webhook-secret-missing': 500,

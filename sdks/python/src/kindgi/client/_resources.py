@@ -535,6 +535,21 @@ OPERATIONS: dict[str, Operation] = {
     "auth.providers.register": Operation(
         "auth.providers.register", "POST", "/v1/auth/providers", "json", True
     ),
+    "auth.signInOptions": Operation(
+        "auth.signInOptions", "GET", "/v1/auth/sign-in-options", "json", False
+    ),
+    "auth.tokenSignIn": Operation(
+        "auth.tokenSignIn", "POST", "/v1/auth/token-sign-in", "json", False
+    ),
+    "auth.providers.get": Operation(
+        "auth.providers.get", "GET", "/v1/auth/providers/{providerId}", "json", False
+    ),
+    "auth.providers.update": Operation(
+        "auth.providers.update", "PATCH", "/v1/auth/providers/{providerId}", "json", True
+    ),
+    "auth.providers.signIn": Operation(
+        "auth.providers.signIn", "GET", "/v1/auth/providers/{providerId}/sign-in", "json", False
+    ),
     "auth.providers.unregister": Operation(
         "auth.providers.unregister",
         "POST",
@@ -715,6 +730,15 @@ OPERATIONS: dict[str, Operation] = {
     "schedules.unregister": Operation(
         "schedules.unregister", "POST", "/v1/schedules/{triggerId}/unregister", "json", True
     ),
+    "schedules.fires": Operation(
+        "schedules.fires", "GET", "/v1/schedules/{triggerId}/fires", "json", False
+    ),
+    "schedules.runNow": Operation(
+        "schedules.runNow", "POST", "/v1/schedules/{triggerId}/run-now", "json", True
+    ),
+    "schedules.takeOwnership": Operation(
+        "schedules.takeOwnership", "POST", "/v1/schedules/{triggerId}/owner", "json", True
+    ),
     "eventTriggers.list": Operation(
         "eventTriggers.list", "GET", "/v1/event-triggers", "json", False
     ),
@@ -805,6 +829,10 @@ OPERATIONS: dict[str, Operation] = {
         "json",
         True,
     ),
+    "runs.follow": Operation("runs.follow", "GET", "/v1/runs/{runId}/stream", "sse", False),
+    "runs.followProgress": Operation(
+        "runs.followProgress", "GET", "/v1/runs/{runId}/progress/stream", "sse", False
+    ),
 }
 _OPERATIONS = OPERATIONS
 
@@ -863,6 +891,7 @@ class RunsResource:
         agent_id: str | UUID | None = None,
         replays: Literal["exclude", "include", "only"] | None = None,
         eval_run_id: str | UUID | None = None,
+        trigger_id: str | UUID | None = None,
         include: Literal["output"] | None = None,
         timeout: float | None = None,
     ) -> _models.RunCollectionPage:
@@ -883,6 +912,7 @@ class RunsResource:
                 "agentId": agent_id,
                 "replays": replays,
                 "evalRunId": eval_run_id,
+                "triggerId": trigger_id,
                 "include": include,
             },
             headers={},
@@ -1035,6 +1065,48 @@ class RunsResource:
         """
         return self._client._stream(
             _OPERATIONS["runs.progressStream"],
+            path={"runId": run_id},
+            query={},
+            headers={"Last-Event-Id": last_event_id},
+            response=_models.RunProgressEvent,
+            timeout=timeout,
+        )
+
+    def follow(
+        self,
+        run_id: str | UUID,
+        /,
+        *,
+        last_event_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> Iterator[_models.RunEvent]:
+        """Follow a run's events to its end. `GET /v1/runs/{runId}/stream`
+
+        `runs.stream`, through to the run's terminal event (`run.completed`, `run.failed` or `run.cancelled`), each event once. The server ends a run's stream after 5 minutes while the run goes on; this reconnects with `Last-Event-Id` and goes on. A dropped connection, a 429 or a 502-504 is retried with backoff; any other error is raised. Ends after the terminal event.
+        """
+        return self._client._follow(
+            _OPERATIONS["runs.follow"],
+            path={"runId": run_id},
+            query={},
+            headers={"Last-Event-Id": last_event_id},
+            response=_models.RunEvent,
+            timeout=timeout,
+        )
+
+    def follow_progress(
+        self,
+        run_id: str | UUID,
+        /,
+        *,
+        last_event_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> Iterator[_models.RunProgressEvent]:
+        """Follow a run's progress to its end. `GET /v1/runs/{runId}/progress/stream`
+
+        `runs.progress_stream`, through to the run's terminal event (`run.completed`, `run.failed` or `run.cancelled`), each event once. The server ends a run's stream after 5 minutes while the run goes on; this reconnects with `Last-Event-Id` and goes on. A dropped connection, a 429 or a 502-504 is retried with backoff; any other error is raised. Ends after the terminal event.
+        """
+        return self._client._follow(
+            _OPERATIONS["runs.followProgress"],
             path={"runId": run_id},
             query={},
             headers={"Last-Event-Id": last_event_id},
@@ -5066,7 +5138,7 @@ class AuthProvidersResource:
     def list(self, /, *, timeout: float | None = None) -> _models.IdentityProviderCollectionPage:
         """List identity providers configured for the tenant. `GET /v1/auth/providers`
 
-        Returns the OAuth 2.0 / OIDC providers a caller can `login` through. `clientSecretRef` is a REFERENCE — the plaintext client secret is never on the wire.
+        Returns the tenant's identity providers (OIDC, SAML, OAuth 2.0), each with `signIn` when the deployment sets it. Secrets appear only as REFERENCES (`clientSecretRef`, `spSigningKeyRef`…); a plaintext secret is never on the wire.
         """
         return self._client._request(
             _OPERATIONS["auth.providers.list"],
@@ -5079,24 +5151,85 @@ class AuthProvidersResource:
 
     def register(
         self,
-        body: _models.IdentityProviderConfig | Mapping[str, Any] | None = None,
+        body: _models.RegisterIdentityProviderBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.RegisterIdentityProviderResult:
-        """Register a new OAuth/OIDC identity provider. `POST /v1/auth/providers`
+        """Register an identity provider (OIDC, SAML or OAuth 2.0). `POST /v1/auth/providers`
 
-        Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered` — unregister it first, then register again.
+        Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered`; change it with `PATCH /v1/auth/providers/{providerId}`, which keeps its sign-in URLs. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`. The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.
         """
         return self._client._request(
             _OPERATIONS["auth.providers.register"],
             path={},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.IdentityProviderConfig, body, fields),
+            body=_body(_models.RegisterIdentityProviderBody, body, fields),
             response=_models.RegisterIdentityProviderResult,
+            timeout=timeout,
+        )
+
+    def get(
+        self, provider_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.GetIdentityProviderResult:
+        """Get one identity provider. `GET /v1/auth/providers/{providerId}`
+
+        The provider as stored, with `signIn` when the deployment sets it. Secrets appear only as references.
+        """
+        return self._client._request(
+            _OPERATIONS["auth.providers.get"],
+            path={"providerId": provider_id},
+            query={},
+            headers={},
+            response=_models.GetIdentityProviderResult,
+            timeout=timeout,
+        )
+
+    def update(
+        self,
+        provider_id: str | UUID,
+        body: _models.UpdateIdentityProviderBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.UpdateIdentityProviderResult:
+        """Change an identity provider, keeping its sign-in URLs. `PATCH /v1/auth/providers/{providerId}`
+
+        Merges the changes into the stored provider and checks the result as a registration is (`400 invalid-provider-config`; `422 identity-provider-invalid` when the deployment can't use it). The provider keeps its `signIn`, so nothing changes on the identity provider's side. Not mounted when the deployment can't update providers.
+        """
+        return self._client._request(
+            _OPERATIONS["auth.providers.update"],
+            path={"providerId": provider_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.UpdateIdentityProviderBody, body, fields),
+            response=_models.UpdateIdentityProviderResult,
+            timeout=timeout,
+        )
+
+    def sign_in(
+        self,
+        provider_id: str | UUID,
+        /,
+        *,
+        kind: Literal["oauth2", "oidc", "saml"] | None = None,
+        timeout: float | None = None,
+    ) -> _models.IdentityProviderSignInUrls:
+        """What to give the identity provider, before or after registering. `GET /v1/auth/providers/{providerId}/sign-in`
+
+        The redirect URI (OIDC) or the ACS URL, entity ID and metadata URL (SAML) a provider under this `providerId` gets: the same before it's registered, after, and after an unregister and a new registration. So an admin sets up the identity provider's side first, then registers with what it gives back. `kind` is required until the provider is registered. Not mounted when the deployment can't say.
+        """
+        return self._client._request(
+            _OPERATIONS["auth.providers.signIn"],
+            path={"providerId": provider_id},
+            query={"kind": kind},
+            headers={},
+            response=_models.IdentityProviderSignInUrls,
             timeout=timeout,
         )
 
@@ -5125,6 +5258,36 @@ class AuthResource:
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
         self.providers = AuthProvidersResource(client)
+
+    def sign_in_options(
+        self, /, *, email: str | None = None, timeout: float | None = None
+    ) -> _models.SignInOptions:
+        """How a person can sign in. `GET /v1/auth/sign-in-options`
+
+        Public: nobody is signed in yet. With `email`, the identity providers for that email's domain (from the one tenant that claims it); without, an empty list: sign-in is email first, so nothing is offered before an email. `methods` says which ways in the deployment allows: identity providers, and/or an API token (`POST /v1/auth/token-sign-in`); both `false` when nobody can sign in to the console. Always mounted. The answer depends only on the domain: two people at the same domain get the same answer, whether or not either has an account. Rate-limited per client (`429 rate-limit-exceeded`, with `Retry-After`).
+        """
+        return self._client._request(
+            _OPERATIONS["auth.signInOptions"],
+            path={},
+            query={"email": email},
+            headers={},
+            response=_models.SignInOptions,
+            timeout=timeout,
+        )
+
+    def token_sign_in(self, /, *, timeout: float | None = None) -> _models.TokenSignInResult:
+        """Sign in to the console with an API token. `POST /v1/auth/token-sign-in`
+
+        The API token in `Authorization` is exchanged once for a browser session in the session cookie (HttpOnly; the same as a sign-in with an identity provider), so the browser never keeps the token. Only a person's full key opens a session: a service account's key, or a narrowed one (a `member` role, or one project), is refused `403 token-sign-in-not-allowed`. The session ends after its lifetime, or when the key expires if sooner. `403 token-sign-in-off` when the deployment doesn't allow it (always mounted, so a console gets that answer); `400 token-sign-in-needs-an-api-token` when the request is already signed in by a session.
+        """
+        return self._client._request(
+            _OPERATIONS["auth.tokenSignIn"],
+            path={},
+            query={},
+            headers={},
+            response=_models.TokenSignInResult,
+            timeout=timeout,
+        )
 
     def login(
         self,
@@ -5178,7 +5341,7 @@ class AuthResource:
     ) -> _models.RefreshResult:
         """Refresh the current session token. `POST /v1/auth/refresh`
 
-        Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. When the deployment wired a `refreshToken` callback and the provider issued a refresh token, provider tokens rotate too; otherwise only the framework session token rotates. OAuth 2.1 BCP refresh-token rotation: the OLD session token is invalidated (marked rotated) — reusing it after refresh returns `401 refresh-token-invalid` so compliant clients can retry with the fresh token instead of prompting a re-auth.
+        Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. When the deployment wired a `refreshToken` callback and the provider issued a refresh token, provider tokens rotate too; otherwise only the framework session token rotates. OAuth 2.1 BCP refresh-token rotation: the OLD session token is invalidated (marked rotated) — reusing it after refresh returns `401 refresh-token-invalid` so compliant clients can retry with the fresh token instead of prompting a re-auth. A browser session (the session cookie) is not refreshed: `400 cookie-session-not-refreshable`, so a new token never reaches page scripts; it ends at its TTL.
         """
         return self._client._request(
             _OPERATIONS["auth.refresh"],
@@ -5194,7 +5357,7 @@ class AuthResource:
     ) -> _models.LogoutResult:
         """Revoke the current session. `POST /v1/auth/logout`
 
-        Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. Idempotent — revoking an already-revoked session returns `{ revoked: false }`.
+        Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. Idempotent — revoking an already-revoked session returns `{ revoked: false }`. A browser session (the session cookie) also gets its cookie cleared (`Set-Cookie` with `Max-Age=0`).
         """
         return self._client._request(
             _OPERATIONS["auth.logout"],
@@ -5224,7 +5387,7 @@ class IdentityUsersResource:
     ) -> _models.UserCollectionPage:
         """List users in the tenant. `GET /v1/identity/users`
 
-        Cursor-paginated list of tenant users (sort order is binding-defined). Optional `?query=` is a prefix match on `displayName` — the natural filter shape for a "search users" surface. `primaryEmail` may be redacted per tenant policy.
+        Cursor-paginated list of tenant users (sort order is binding-defined), for tenant admins only. Optional `?query=` is a prefix match on `displayName` — the natural filter shape for a "search users" surface. `primaryEmail` may be redacted per tenant policy. Anyone else adds a person to a project by their email or id (`POST /v1/projects/{projectId}/memberships`).
         """
         return self._client._request(
             _OPERATIONS["identity.users.list"],
@@ -5264,7 +5427,10 @@ class IdentityUsersResource:
         )
 
     def get(self, user_id: str | UUID, /, *, timeout: float | None = None) -> _models.UserRecord:
-        """Get a user by id. `GET /v1/identity/users/{userId}`"""
+        """Get a user by id. `GET /v1/identity/users/{userId}`
+
+        A tenant admin, or the person themselves.
+        """
         return self._client._request(
             _OPERATIONS["identity.users.get"],
             path={"userId": user_id},
@@ -5279,7 +5445,7 @@ class IdentityUsersResource:
     ) -> _models.IdentitySessionCollectionPage:
         """List active sessions for a user. `GET /v1/identity/users/{userId}/sessions`
 
-        Returns the wire-safe `IdentitySessionSummary` shape — provider access-token + refresh-token never cross the wire, even to admins. Unknown user id returns an empty list (call `GET /v1/identity/users/:userId` first to distinguish "no sessions" from "no user").
+        A tenant admin, or the person themselves. Returns the wire-safe `IdentitySessionSummary` shape — provider access-token + refresh-token never cross the wire, even to admins. Unknown user id returns an empty list (call `GET /v1/identity/users/:userId` first to distinguish "no sessions" from "no user").
         """
         return self._client._request(
             _OPERATIONS["identity.users.listSessions"],
@@ -5997,7 +6163,7 @@ class ProjectsMembershipsResource:
     ) -> _models.AddProjectMembershipResult:
         """Add a user directly to a project. `POST /v1/projects/{projectId}/memberships`
 
-        Idempotent on `(projectId, userId)` — re-adding an existing member with a different role does NOT overwrite; use PATCH for role changes.
+        Names the person by exactly one of `userId` and `email` (matched as the runtime matches emails when it adds a person); someone who is not a person of this tenant, or was removed from it, is refused with 404 `identity-user-not-found`. Idempotent on `(projectId, userId)` — re-adding an existing member with a different role does NOT overwrite; use PATCH for role changes.
         """
         return self._client._request(
             _OPERATIONS["projects.memberships.add"],
@@ -6059,7 +6225,7 @@ class ProjectsResource:
     def get_default(self, /, *, timeout: float | None = None) -> _models.Project:
         """Fetch the tenant's Default project. `GET /v1/projects/default`
 
-        Returns the row where `Project.isDefault = true` (exactly one per tenant). Returns 404 `project-not-found` when no Default has been provisioned.
+        Returns the row where `Project.isDefault = true` (exactly one per tenant), to a caller who can read it, as `GET /v1/projects/{projectId}` checks. Returns 404 `project-not-found` when no Default has been provisioned.
         """
         return self._client._request(
             _OPERATIONS["projects.getDefault"],
@@ -6661,13 +6827,18 @@ class SchedulesResource:
         )
 
     def get(
-        self, trigger_id: str | UUID, /, *, timeout: float | None = None
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        upcoming: int | None = None,
+        timeout: float | None = None,
     ) -> _models.ScheduleRecord:
         """Fetch a cron schedule. `GET /v1/schedules/{triggerId}`"""
         return self._client._request(
             _OPERATIONS["schedules.get"],
             path={"triggerId": trigger_id},
-            query={},
+            query={"upcoming": upcoming},
             headers={},
             response=_models.ScheduleRecord,
             timeout=timeout,
@@ -6757,6 +6928,70 @@ class SchedulesResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.ScheduleUnregisterResult,
+            timeout=timeout,
+        )
+
+    def fires(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ScheduleFirePage:
+        """A schedule's fire history. `GET /v1/schedules/{triggerId}/fires`
+
+        Newest first: each occurrence (and `run-now`) the schedule fired for, and what came of it: the run it started, or why it was skipped, refused or failed.
+        """
+        return self._client._request(
+            _OPERATIONS["schedules.fires"],
+            path={"triggerId": trigger_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.ScheduleFirePage,
+            timeout=timeout,
+        )
+
+    def run_now(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ScheduleFire:
+        """Run a schedule now. `POST /v1/schedules/{triggerId}/run-now`
+
+        One fire outside the schedule (`manual: true` in its history), starting one run as the schedule's owner. The schedule's next occurrence is unchanged.
+        """
+        return self._client._request(
+            _OPERATIONS["schedules.runNow"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.ScheduleFire,
+            timeout=timeout,
+        )
+
+    def take_ownership(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ScheduleRecord:
+        """Take over a schedule. `POST /v1/schedules/{triggerId}/owner`
+
+        The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project and `execute` on what it runs. For a schedule whose owner left or lost access.
+        """
+        return self._client._request(
+            _OPERATIONS["schedules.takeOwnership"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.ScheduleRecord,
             timeout=timeout,
         )
 
@@ -7278,6 +7513,7 @@ class AsyncRunsResource:
         agent_id: str | UUID | None = None,
         replays: Literal["exclude", "include", "only"] | None = None,
         eval_run_id: str | UUID | None = None,
+        trigger_id: str | UUID | None = None,
         include: Literal["output"] | None = None,
         timeout: float | None = None,
     ) -> _models.RunCollectionPage:
@@ -7298,6 +7534,7 @@ class AsyncRunsResource:
                 "agentId": agent_id,
                 "replays": replays,
                 "evalRunId": eval_run_id,
+                "triggerId": trigger_id,
                 "include": include,
             },
             headers={},
@@ -7450,6 +7687,48 @@ class AsyncRunsResource:
         """
         return self._client._stream(
             _OPERATIONS["runs.progressStream"],
+            path={"runId": run_id},
+            query={},
+            headers={"Last-Event-Id": last_event_id},
+            response=_models.RunProgressEvent,
+            timeout=timeout,
+        )
+
+    def follow(
+        self,
+        run_id: str | UUID,
+        /,
+        *,
+        last_event_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> AsyncIterator[_models.RunEvent]:
+        """Follow a run's events to its end. `GET /v1/runs/{runId}/stream`
+
+        `runs.stream`, through to the run's terminal event (`run.completed`, `run.failed` or `run.cancelled`), each event once. The server ends a run's stream after 5 minutes while the run goes on; this reconnects with `Last-Event-Id` and goes on. A dropped connection, a 429 or a 502-504 is retried with backoff; any other error is raised. Ends after the terminal event.
+        """
+        return self._client._follow(
+            _OPERATIONS["runs.follow"],
+            path={"runId": run_id},
+            query={},
+            headers={"Last-Event-Id": last_event_id},
+            response=_models.RunEvent,
+            timeout=timeout,
+        )
+
+    def follow_progress(
+        self,
+        run_id: str | UUID,
+        /,
+        *,
+        last_event_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> AsyncIterator[_models.RunProgressEvent]:
+        """Follow a run's progress to its end. `GET /v1/runs/{runId}/progress/stream`
+
+        `runs.progress_stream`, through to the run's terminal event (`run.completed`, `run.failed` or `run.cancelled`), each event once. The server ends a run's stream after 5 minutes while the run goes on; this reconnects with `Last-Event-Id` and goes on. A dropped connection, a 429 or a 502-504 is retried with backoff; any other error is raised. Ends after the terminal event.
+        """
+        return self._client._follow(
+            _OPERATIONS["runs.followProgress"],
             path={"runId": run_id},
             query={},
             headers={"Last-Event-Id": last_event_id},
@@ -11503,7 +11782,7 @@ class AsyncAuthProvidersResource:
     ) -> _models.IdentityProviderCollectionPage:
         """List identity providers configured for the tenant. `GET /v1/auth/providers`
 
-        Returns the OAuth 2.0 / OIDC providers a caller can `login` through. `clientSecretRef` is a REFERENCE — the plaintext client secret is never on the wire.
+        Returns the tenant's identity providers (OIDC, SAML, OAuth 2.0), each with `signIn` when the deployment sets it. Secrets appear only as REFERENCES (`clientSecretRef`, `spSigningKeyRef`…); a plaintext secret is never on the wire.
         """
         return await self._client._request(
             _OPERATIONS["auth.providers.list"],
@@ -11516,24 +11795,85 @@ class AsyncAuthProvidersResource:
 
     async def register(
         self,
-        body: _models.IdentityProviderConfig | Mapping[str, Any] | None = None,
+        body: _models.RegisterIdentityProviderBody | Mapping[str, Any] | None = None,
         /,
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.RegisterIdentityProviderResult:
-        """Register a new OAuth/OIDC identity provider. `POST /v1/auth/providers`
+        """Register an identity provider (OIDC, SAML or OAuth 2.0). `POST /v1/auth/providers`
 
-        Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered` — unregister it first, then register again.
+        Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered`; change it with `PATCH /v1/auth/providers/{providerId}`, which keeps its sign-in URLs. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`. The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.
         """
         return await self._client._request(
             _OPERATIONS["auth.providers.register"],
             path={},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.IdentityProviderConfig, body, fields),
+            body=_body(_models.RegisterIdentityProviderBody, body, fields),
             response=_models.RegisterIdentityProviderResult,
+            timeout=timeout,
+        )
+
+    async def get(
+        self, provider_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.GetIdentityProviderResult:
+        """Get one identity provider. `GET /v1/auth/providers/{providerId}`
+
+        The provider as stored, with `signIn` when the deployment sets it. Secrets appear only as references.
+        """
+        return await self._client._request(
+            _OPERATIONS["auth.providers.get"],
+            path={"providerId": provider_id},
+            query={},
+            headers={},
+            response=_models.GetIdentityProviderResult,
+            timeout=timeout,
+        )
+
+    async def update(
+        self,
+        provider_id: str | UUID,
+        body: _models.UpdateIdentityProviderBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.UpdateIdentityProviderResult:
+        """Change an identity provider, keeping its sign-in URLs. `PATCH /v1/auth/providers/{providerId}`
+
+        Merges the changes into the stored provider and checks the result as a registration is (`400 invalid-provider-config`; `422 identity-provider-invalid` when the deployment can't use it). The provider keeps its `signIn`, so nothing changes on the identity provider's side. Not mounted when the deployment can't update providers.
+        """
+        return await self._client._request(
+            _OPERATIONS["auth.providers.update"],
+            path={"providerId": provider_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.UpdateIdentityProviderBody, body, fields),
+            response=_models.UpdateIdentityProviderResult,
+            timeout=timeout,
+        )
+
+    async def sign_in(
+        self,
+        provider_id: str | UUID,
+        /,
+        *,
+        kind: Literal["oauth2", "oidc", "saml"] | None = None,
+        timeout: float | None = None,
+    ) -> _models.IdentityProviderSignInUrls:
+        """What to give the identity provider, before or after registering. `GET /v1/auth/providers/{providerId}/sign-in`
+
+        The redirect URI (OIDC) or the ACS URL, entity ID and metadata URL (SAML) a provider under this `providerId` gets: the same before it's registered, after, and after an unregister and a new registration. So an admin sets up the identity provider's side first, then registers with what it gives back. `kind` is required until the provider is registered. Not mounted when the deployment can't say.
+        """
+        return await self._client._request(
+            _OPERATIONS["auth.providers.signIn"],
+            path={"providerId": provider_id},
+            query={"kind": kind},
+            headers={},
+            response=_models.IdentityProviderSignInUrls,
             timeout=timeout,
         )
 
@@ -11562,6 +11902,36 @@ class AsyncAuthResource:
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
         self.providers = AsyncAuthProvidersResource(client)
+
+    async def sign_in_options(
+        self, /, *, email: str | None = None, timeout: float | None = None
+    ) -> _models.SignInOptions:
+        """How a person can sign in. `GET /v1/auth/sign-in-options`
+
+        Public: nobody is signed in yet. With `email`, the identity providers for that email's domain (from the one tenant that claims it); without, an empty list: sign-in is email first, so nothing is offered before an email. `methods` says which ways in the deployment allows: identity providers, and/or an API token (`POST /v1/auth/token-sign-in`); both `false` when nobody can sign in to the console. Always mounted. The answer depends only on the domain: two people at the same domain get the same answer, whether or not either has an account. Rate-limited per client (`429 rate-limit-exceeded`, with `Retry-After`).
+        """
+        return await self._client._request(
+            _OPERATIONS["auth.signInOptions"],
+            path={},
+            query={"email": email},
+            headers={},
+            response=_models.SignInOptions,
+            timeout=timeout,
+        )
+
+    async def token_sign_in(self, /, *, timeout: float | None = None) -> _models.TokenSignInResult:
+        """Sign in to the console with an API token. `POST /v1/auth/token-sign-in`
+
+        The API token in `Authorization` is exchanged once for a browser session in the session cookie (HttpOnly; the same as a sign-in with an identity provider), so the browser never keeps the token. Only a person's full key opens a session: a service account's key, or a narrowed one (a `member` role, or one project), is refused `403 token-sign-in-not-allowed`. The session ends after its lifetime, or when the key expires if sooner. `403 token-sign-in-off` when the deployment doesn't allow it (always mounted, so a console gets that answer); `400 token-sign-in-needs-an-api-token` when the request is already signed in by a session.
+        """
+        return await self._client._request(
+            _OPERATIONS["auth.tokenSignIn"],
+            path={},
+            query={},
+            headers={},
+            response=_models.TokenSignInResult,
+            timeout=timeout,
+        )
 
     async def login(
         self,
@@ -11615,7 +11985,7 @@ class AsyncAuthResource:
     ) -> _models.RefreshResult:
         """Refresh the current session token. `POST /v1/auth/refresh`
 
-        Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. When the deployment wired a `refreshToken` callback and the provider issued a refresh token, provider tokens rotate too; otherwise only the framework session token rotates. OAuth 2.1 BCP refresh-token rotation: the OLD session token is invalidated (marked rotated) — reusing it after refresh returns `401 refresh-token-invalid` so compliant clients can retry with the fresh token instead of prompting a re-auth.
+        Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. When the deployment wired a `refreshToken` callback and the provider issued a refresh token, provider tokens rotate too; otherwise only the framework session token rotates. OAuth 2.1 BCP refresh-token rotation: the OLD session token is invalidated (marked rotated) — reusing it after refresh returns `401 refresh-token-invalid` so compliant clients can retry with the fresh token instead of prompting a re-auth. A browser session (the session cookie) is not refreshed: `400 cookie-session-not-refreshable`, so a new token never reaches page scripts; it ends at its TTL.
         """
         return await self._client._request(
             _OPERATIONS["auth.refresh"],
@@ -11631,7 +12001,7 @@ class AsyncAuthResource:
     ) -> _models.LogoutResult:
         """Revoke the current session. `POST /v1/auth/logout`
 
-        Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. Idempotent — revoking an already-revoked session returns `{ revoked: false }`.
+        Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. Idempotent — revoking an already-revoked session returns `{ revoked: false }`. A browser session (the session cookie) also gets its cookie cleared (`Set-Cookie` with `Max-Age=0`).
         """
         return await self._client._request(
             _OPERATIONS["auth.logout"],
@@ -11661,7 +12031,7 @@ class AsyncIdentityUsersResource:
     ) -> _models.UserCollectionPage:
         """List users in the tenant. `GET /v1/identity/users`
 
-        Cursor-paginated list of tenant users (sort order is binding-defined). Optional `?query=` is a prefix match on `displayName` — the natural filter shape for a "search users" surface. `primaryEmail` may be redacted per tenant policy.
+        Cursor-paginated list of tenant users (sort order is binding-defined), for tenant admins only. Optional `?query=` is a prefix match on `displayName` — the natural filter shape for a "search users" surface. `primaryEmail` may be redacted per tenant policy. Anyone else adds a person to a project by their email or id (`POST /v1/projects/{projectId}/memberships`).
         """
         return await self._client._request(
             _OPERATIONS["identity.users.list"],
@@ -11703,7 +12073,10 @@ class AsyncIdentityUsersResource:
     async def get(
         self, user_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.UserRecord:
-        """Get a user by id. `GET /v1/identity/users/{userId}`"""
+        """Get a user by id. `GET /v1/identity/users/{userId}`
+
+        A tenant admin, or the person themselves.
+        """
         return await self._client._request(
             _OPERATIONS["identity.users.get"],
             path={"userId": user_id},
@@ -11718,7 +12091,7 @@ class AsyncIdentityUsersResource:
     ) -> _models.IdentitySessionCollectionPage:
         """List active sessions for a user. `GET /v1/identity/users/{userId}/sessions`
 
-        Returns the wire-safe `IdentitySessionSummary` shape — provider access-token + refresh-token never cross the wire, even to admins. Unknown user id returns an empty list (call `GET /v1/identity/users/:userId` first to distinguish "no sessions" from "no user").
+        A tenant admin, or the person themselves. Returns the wire-safe `IdentitySessionSummary` shape — provider access-token + refresh-token never cross the wire, even to admins. Unknown user id returns an empty list (call `GET /v1/identity/users/:userId` first to distinguish "no sessions" from "no user").
         """
         return await self._client._request(
             _OPERATIONS["identity.users.listSessions"],
@@ -12436,7 +12809,7 @@ class AsyncProjectsMembershipsResource:
     ) -> _models.AddProjectMembershipResult:
         """Add a user directly to a project. `POST /v1/projects/{projectId}/memberships`
 
-        Idempotent on `(projectId, userId)` — re-adding an existing member with a different role does NOT overwrite; use PATCH for role changes.
+        Names the person by exactly one of `userId` and `email` (matched as the runtime matches emails when it adds a person); someone who is not a person of this tenant, or was removed from it, is refused with 404 `identity-user-not-found`. Idempotent on `(projectId, userId)` — re-adding an existing member with a different role does NOT overwrite; use PATCH for role changes.
         """
         return await self._client._request(
             _OPERATIONS["projects.memberships.add"],
@@ -12498,7 +12871,7 @@ class AsyncProjectsResource:
     async def get_default(self, /, *, timeout: float | None = None) -> _models.Project:
         """Fetch the tenant's Default project. `GET /v1/projects/default`
 
-        Returns the row where `Project.isDefault = true` (exactly one per tenant). Returns 404 `project-not-found` when no Default has been provisioned.
+        Returns the row where `Project.isDefault = true` (exactly one per tenant), to a caller who can read it, as `GET /v1/projects/{projectId}` checks. Returns 404 `project-not-found` when no Default has been provisioned.
         """
         return await self._client._request(
             _OPERATIONS["projects.getDefault"],
@@ -13102,13 +13475,18 @@ class AsyncSchedulesResource:
         )
 
     async def get(
-        self, trigger_id: str | UUID, /, *, timeout: float | None = None
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        upcoming: int | None = None,
+        timeout: float | None = None,
     ) -> _models.ScheduleRecord:
         """Fetch a cron schedule. `GET /v1/schedules/{triggerId}`"""
         return await self._client._request(
             _OPERATIONS["schedules.get"],
             path={"triggerId": trigger_id},
-            query={},
+            query={"upcoming": upcoming},
             headers={},
             response=_models.ScheduleRecord,
             timeout=timeout,
@@ -13198,6 +13576,70 @@ class AsyncSchedulesResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.ScheduleUnregisterResult,
+            timeout=timeout,
+        )
+
+    async def fires(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ScheduleFirePage:
+        """A schedule's fire history. `GET /v1/schedules/{triggerId}/fires`
+
+        Newest first: each occurrence (and `run-now`) the schedule fired for, and what came of it: the run it started, or why it was skipped, refused or failed.
+        """
+        return await self._client._request(
+            _OPERATIONS["schedules.fires"],
+            path={"triggerId": trigger_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.ScheduleFirePage,
+            timeout=timeout,
+        )
+
+    async def run_now(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ScheduleFire:
+        """Run a schedule now. `POST /v1/schedules/{triggerId}/run-now`
+
+        One fire outside the schedule (`manual: true` in its history), starting one run as the schedule's owner. The schedule's next occurrence is unchanged.
+        """
+        return await self._client._request(
+            _OPERATIONS["schedules.runNow"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.ScheduleFire,
+            timeout=timeout,
+        )
+
+    async def take_ownership(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ScheduleRecord:
+        """Take over a schedule. `POST /v1/schedules/{triggerId}/owner`
+
+        The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project and `execute` on what it runs. For a schedule whose owner left or lost access.
+        """
+        return await self._client._request(
+            _OPERATIONS["schedules.takeOwnership"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.ScheduleRecord,
             timeout=timeout,
         )
 

@@ -176,7 +176,8 @@
       "description": "Sensitive per-env values (`/v1/secrets/*`). The ONLY endpoint that accepts plaintext is `POST /v1/secrets`; every other route is metadata-only (`value` NEVER returns on list / get / listVersions / getVersion — structural redaction). Rotation is discriminated: sync providers return 201 inline, async providers return 202 with a status URL + SSE events URL. Hard-revoke performs cryptographic erasure. Every mutating route is capability-gated (`secrets:write`, `secrets:rotate`, `secrets:revoke`, `secrets:revoke:hard`)."
     },
     {
-      "name": "schedules"
+      "name": "schedules",
+      "description": "Run an agent or a flow on a schedule: a cron expression in a timezone. Each occurrence is one fire, which starts one run as the schedule's owner (re-checked at every fire), through the same path as `POST /v1/runs`; a run a schedule started names it (`Run.trigger`). After a gap, `catchUp` runs once for the latest missed occurrence (or skips them), never once per missed one; `overlap` skips an occurrence while the previous run is still going. `GET …/fires` is the schedule's history; `run-now` fires it outside the schedule. Mounted when the deployment fires schedules."
     },
     {
       "name": "event-triggers"
@@ -211,6 +212,9 @@
           "auth-revoked": 401,
           "permission-denied": 403,
           "host-access-denied": 403,
+          "csrf-origin-mismatch": 403,
+          "token-sign-in-off": 403,
+          "token-sign-in-not-allowed": 403,
           "not-found": 404,
           "run-not-found": 404,
           "agent-not-found": 404,
@@ -226,6 +230,7 @@
           "run-already-terminal": 409,
           "run-lease-lost": 409,
           "idempotency-key-body-mismatch": 409,
+          "idempotency-key-in-flight": 409,
           "hitl-required": 409,
           "duplicate-node-id": 409,
           "duplicate-edge-id": 409,
@@ -240,6 +245,7 @@
           "tool-gone": 410,
           "tool-already-registered": 409,
           "guardrail-already-registered": 409,
+          "guardrail-config-invalid": 422,
           "flow-already-registered": 409,
           "conversation-closed": 409,
           "invalid-agent": 400,
@@ -373,12 +379,15 @@
           "session-inactive": 401,
           "identity-provider-not-found": 404,
           "identity-provider-already-registered": 409,
+          "identity-provider-invalid": 422,
           "oauth-state-invalid": 400,
           "oauth-code-exchange-failed": 422,
           "oauth-refresh-failed": 422,
           "oauth-refresh-not-supported": 422,
           "invalid-provider-config": 400,
           "auth-not-session-token": 400,
+          "cookie-session-not-refreshable": 400,
+          "token-sign-in-needs-an-api-token": 400,
           "redirect-uri-not-allowed": 400,
           "redirect-uri-mismatch": 400,
           "refresh-token-invalid": 401,
@@ -432,6 +441,7 @@
           "trigger-register-failed": 500,
           "trigger-update-failed": 500,
           "trigger-lifecycle-failed": 500,
+          "trigger-operation-unsupported": 501,
           "webhook-signature-invalid": 401,
           "webhook-inactive": 410,
           "webhook-secret-missing": 500,
@@ -533,6 +543,39 @@
           "liveScope": {
             "$ref": "#/components/schemas/LiveScope",
             "description": "The pin that chose the version, when `via` is `live`."
+          }
+        }
+      },
+      "RunTrigger": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "triggerId",
+          "kind",
+          "fireId"
+        ],
+        "description": "Set on a run a trigger started (a schedule, an event trigger or an inbound webhook): the trigger and the fire that started it. Absent on other runs.",
+        "properties": {
+          "triggerId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "schedule",
+              "event",
+              "webhook"
+            ]
+          },
+          "fireId": {
+            "type": "string",
+            "description": "The fire that started the run: one entry of the trigger's fire history."
+          },
+          "scheduledFor": {
+            "type": "string",
+            "format": "date-time",
+            "description": "A schedule's fire: the occurrence the run is for."
           }
         }
       },
@@ -1393,6 +1436,9 @@
           "agent": {
             "$ref": "#/components/schemas/RunAgent"
           },
+          "trigger": {
+            "$ref": "#/components/schemas/RunTrigger"
+          },
           "replayOf": {
             "type": "string",
             "format": "uuid",
@@ -1676,6 +1722,9 @@
                 },
                 "agent": {
                   "$ref": "#/components/schemas/RunAgent"
+                },
+                "trigger": {
+                  "$ref": "#/components/schemas/RunTrigger"
                 },
                 "replayOf": {
                   "type": "string",
@@ -1979,7 +2028,7 @@
               "admin",
               "member"
             ],
-            "description": "The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action, whoever it's for. Default `member`; `admin` needs a tenant admin minting it."
+            "description": "The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action on the tenant, whoever it's for; below it, its principal's roles hold (a project admin's member key administers that project). Default `member`; `admin` needs a tenant admin minting it."
           },
           "capabilities": {
             "type": "array",
@@ -2031,7 +2080,7 @@
               "admin",
               "member"
             ],
-            "description": "The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action, whoever it's for."
+            "description": "The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action on the tenant, whoever it's for; below it, its principal's roles hold (a project admin's member key administers that project)."
           },
           "capabilities": {
             "type": "array",
@@ -2102,7 +2151,7 @@
               "admin",
               "member"
             ],
-            "description": "The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action, whoever it's for."
+            "description": "The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action on the tenant, whoever it's for; below it, its principal's roles hold (a project admin's member key administers that project)."
           },
           "capabilities": {
             "type": "array",
@@ -2179,7 +2228,7 @@
                     "admin",
                     "member"
                   ],
-                  "description": "The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action, whoever it's for."
+                  "description": "The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action on the tenant, whoever it's for; below it, its principal's roles hold (a project admin's member key administers that project)."
                 },
                 "capabilities": {
                   "type": "array",
@@ -3785,7 +3834,7 @@
       "JudgedRunContext": {
         "type": "object",
         "additionalProperties": false,
-        "description": "What a judged run needs besides its input to be replayed, captured when it was first judged. For an agent turn: the conversation before it, what its retrievals returned, and the decision at its session approval gate. For a flow run: its tool calls with their results.",
+        "description": "What a judged run needs besides its input to be replayed, captured when it was first judged. For an agent turn: the conversation before it, what its retrievals returned, and the decision at its session approval gate. For a flow run: its tool calls with their results. For both: the env values its tools were sent.",
         "properties": {
           "history": {
             "type": "array",
@@ -3898,6 +3947,16 @@
                 "description": "More calls were made than were kept."
               }
             }
+          },
+          "toolEnv": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "description": "The env values each tool's calls were sent (`needsSpec.env`), by tool id: its first call's, as the run recorded them. A replay sends them to a read-only tool it runs live, so the tool reads the config the run saw, not today's. Absent for a run from before env was recorded."
           }
         }
       },
@@ -9230,6 +9289,10 @@
               ]
             },
             "description": "The adapter's connection settings: flat, non-secret values (a cloud project, a base URL). Each adapter documents its keys. Credentials go in `secret_ref`, never here."
+          },
+          "send_traceparent": {
+            "type": "boolean",
+            "description": "Send each model call's W3C `traceparent` to this provider, as a request header, so its request logs can be matched to the run. Ids only, never content. Default `false`: nothing about a run's trace leaves the deployment unless a registration opts in. The runtime enforces it; an older runtime ignores the field and sends none."
           }
         }
       },
@@ -9450,6 +9513,10 @@
             "type": "object",
             "additionalProperties": true,
             "description": "Optional caller-defined metadata bag."
+          },
+          "sendTraceparent": {
+            "type": "boolean",
+            "description": "Send the W3C `traceparent` of the run calling a tool to this endpoint, as a request header, so the server's logs can be matched to the run. Ids only, never content. Default `false`. HTTP transports only: `true` on a `stdio` endpoint is refused (`invalid-mcp-endpoint`, reason `invalid-send-traceparent`). An older runtime ignores it and sends none."
           }
         }
       },
@@ -9614,6 +9681,10 @@
             "type": "object",
             "additionalProperties": true,
             "description": "Optional caller-defined metadata bag."
+          },
+          "sendTraceparent": {
+            "type": "boolean",
+            "description": "Send the W3C `traceparent` of the run calling a tool to this endpoint, as a request header, so the server's logs can be matched to the run. Ids only, never content. Default `false`. HTTP transports only: `true` on a `stdio` endpoint is refused (`invalid-mcp-endpoint`, reason `invalid-send-traceparent`). An older runtime ignores it and sends none."
           },
           "scopeKind": {
             "$ref": "#/components/schemas/ScopeKind"
@@ -12185,8 +12256,10 @@
         "type": "string",
         "enum": [
           "oauth2",
-          "oidc"
-        ]
+          "oidc",
+          "saml"
+        ],
+        "description": "`oidc`: an OpenID Connect identity provider people sign in with (Okta, Entra ID, Google, Keycloak…); its endpoints come from its discovery document. `saml`: a SAML 2.0 identity provider people sign in with. `oauth2`: a plain OAuth 2.0 provider that isn't OpenID Connect (e.g. GitHub), with its endpoints given; pick `oidc` for any provider that speaks OpenID Connect."
       },
       "ClaimMappingScopesSpec": {
         "description": "Claim path + optional delimiter for extracting Kindgi OAuth scopes from provider claims. When absent, scopes come from the token response `scope` field instead.",
@@ -12234,8 +12307,247 @@
           }
         }
       },
-      "IdentityProviderConfig": {
-        "description": "OAuth 2.0 / OIDC provider configuration registered on a tenant. `clientSecretRef` is a REFERENCE resolved server-side (env-var key, secrets-manager path, KMS handle) — the plaintext client secret never crosses the wire.",
+      "IdentityProviderSignIn": {
+        "description": "What to give the identity provider so it can send people back: set by the deployment on what it returns, ignored on registration. OIDC / OAuth 2.0: `redirectUri`. SAML: `spEntityId`, `acsUrl`, `spMetadataUrl`.",
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "redirectUri"
+            ],
+            "properties": {
+              "redirectUri": {
+                "type": "string",
+                "format": "uri"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "spEntityId",
+              "acsUrl",
+              "spMetadataUrl"
+            ],
+            "properties": {
+              "spEntityId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "acsUrl": {
+                "type": "string",
+                "format": "uri"
+              },
+              "spMetadataUrl": {
+                "type": "string",
+                "format": "uri"
+              }
+            }
+          }
+        ]
+      },
+      "OidcIdentityProviderConfig": {
+        "description": "An OpenID Connect identity provider people sign in with. The endpoints come from the issuer's discovery document when absent, and are returned once the deployment has them.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "providerId",
+          "kind",
+          "issuer",
+          "clientId",
+          "clientSecretRef"
+        ],
+        "properties": {
+          "providerId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The name a sign-in page shows (\"Sign in with …\"). Default: `providerId`."
+          },
+          "domains": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "The email domains whose people sign in with this provider (lowercase, e.g. `acme.com`): how an email-first sign-in page finds it."
+          },
+          "join": {
+            "type": "string",
+            "enum": [
+              "invite",
+              "domain"
+            ],
+            "description": "Who may sign in the first time: `invite` (default) only people a tenant admin added; `domain` also anyone from one of `domains`, once the deployment has verified them."
+          },
+          "signIn": {
+            "$ref": "#/components/schemas/IdentityProviderSignIn"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "kind": {
+            "type": "string",
+            "const": "oidc"
+          },
+          "issuer": {
+            "type": "string",
+            "format": "uri"
+          },
+          "clientId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "clientSecretRef": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Opaque reference resolved server-side. Never a plaintext secret."
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Default `openid email profile`."
+          },
+          "authorizationEndpoint": {
+            "type": "string",
+            "format": "uri"
+          },
+          "tokenEndpoint": {
+            "type": "string",
+            "format": "uri"
+          },
+          "userinfoEndpoint": {
+            "type": "string",
+            "format": "uri"
+          },
+          "jwksEndpoint": {
+            "type": "string",
+            "format": "uri"
+          },
+          "allowedRedirectUris": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "OAuth 2.1 BCP redirect-URI allowlist. Exact-string match required at /v1/auth/login. Absent/empty means no redirect-URI allowlist check (pass-through)."
+          },
+          "claimMapping": {
+            "$ref": "#/components/schemas/ClaimMappingSpec"
+          }
+        }
+      },
+      "SamlIdentityProviderConfig": {
+        "description": "A SAML 2.0 identity provider people sign in with: its metadata XML, or its entity ID, single sign-on URL and signing certificates. Keys are given as references, never as keys.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "providerId",
+          "kind"
+        ],
+        "properties": {
+          "providerId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The name a sign-in page shows (\"Sign in with …\"). Default: `providerId`."
+          },
+          "domains": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "The email domains whose people sign in with this provider (lowercase, e.g. `acme.com`): how an email-first sign-in page finds it."
+          },
+          "join": {
+            "type": "string",
+            "enum": [
+              "invite",
+              "domain"
+            ],
+            "description": "Who may sign in the first time: `invite` (default) only people a tenant admin added; `domain` also anyone from one of `domains`, once the deployment has verified them."
+          },
+          "signIn": {
+            "$ref": "#/components/schemas/IdentityProviderSignIn"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "kind": {
+            "type": "string",
+            "const": "saml"
+          },
+          "idpMetadataXml": {
+            "type": "string",
+            "minLength": 1
+          },
+          "idpEntityId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "idpSsoUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "The IdP's single sign-on URL (HTTP-Redirect binding)."
+          },
+          "idpCertificates": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "The IdP's signing certificates (PEM); several during a rollover."
+          },
+          "spSigningKeyRef": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Opaque reference to the service provider's signing key, for IdPs that require signed AuthnRequests. Never a plaintext key."
+          },
+          "spDecryptionKeyRef": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Opaque reference to the key that decrypts encrypted assertions. Never a plaintext key."
+          },
+          "wantAssertionsSigned": {
+            "type": "boolean",
+            "description": "Require signed assertions. Default `true`."
+          },
+          "attributeMapping": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Assertion attribute names. Defaults: `userId` = the NameID, `email` = `email`.",
+            "properties": {
+              "userId": {
+                "type": "string",
+                "minLength": 1
+              },
+              "email": {
+                "type": "string",
+                "minLength": 1
+              },
+              "displayName": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        }
+      },
+      "OAuth2IdentityProviderConfig": {
+        "description": "A plain OAuth 2.0 provider that isn't OpenID Connect (e.g. GitHub), run by this API's own OAuth flow (`/v1/auth/login` + callback). For a provider that speaks OpenID Connect, use `oidc`.",
         "type": "object",
         "additionalProperties": false,
         "required": [
@@ -12252,12 +12564,37 @@
             "type": "string",
             "minLength": 1
           },
-          "kind": {
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The name a sign-in page shows (\"Sign in with …\"). Default: `providerId`."
+          },
+          "domains": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "The email domains whose people sign in with this provider (lowercase, e.g. `acme.com`): how an email-first sign-in page finds it."
+          },
+          "join": {
             "type": "string",
             "enum": [
-              "oauth2",
-              "oidc"
-            ]
+              "invite",
+              "domain"
+            ],
+            "description": "Who may sign in the first time: `invite` (default) only people a tenant admin added; `domain` also anyone from one of `domains`, once the deployment has verified them."
+          },
+          "signIn": {
+            "$ref": "#/components/schemas/IdentityProviderSignIn"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "kind": {
+            "type": "string",
+            "const": "oauth2"
           },
           "clientId": {
             "type": "string",
@@ -12296,10 +12633,72 @@
           },
           "claimMapping": {
             "$ref": "#/components/schemas/ClaimMappingSpec"
+          }
+        }
+      },
+      "IdentityProviderConfig": {
+        "description": "An identity provider registered on a tenant, one shape per `kind` (narrow on `kind` before reading kind-specific fields). Secrets are always REFERENCES resolved server-side (`clientSecretRef`, `spSigningKeyRef`, `spDecryptionKeyRef`); a plaintext secret never crosses the wire, and a `clientSecret` field is refused.",
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/OidcIdentityProviderConfig"
           },
-          "metadata": {
-            "type": "object",
-            "additionalProperties": true
+          {
+            "$ref": "#/components/schemas/SamlIdentityProviderConfig"
+          },
+          {
+            "$ref": "#/components/schemas/OAuth2IdentityProviderConfig"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "kind",
+          "mapping": {
+            "oidc": "#/components/schemas/OidcIdentityProviderConfig",
+            "saml": "#/components/schemas/SamlIdentityProviderConfig",
+            "oauth2": "#/components/schemas/OAuth2IdentityProviderConfig"
+          }
+        }
+      },
+      "RegisterIdentityProviderBody": {
+        "description": "The identity provider to register, one shape per `kind`: `oidc`, `saml` or `oauth2`. Secrets by reference only (`clientSecretRef`, `spSigningKeyRef`, `spDecryptionKeyRef`); a `clientSecret` field is refused.",
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/OidcIdentityProviderConfig"
+          },
+          {
+            "$ref": "#/components/schemas/SamlIdentityProviderConfig"
+          },
+          {
+            "$ref": "#/components/schemas/OAuth2IdentityProviderConfig"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "kind",
+          "mapping": {
+            "oidc": "#/components/schemas/OidcIdentityProviderConfig",
+            "saml": "#/components/schemas/SamlIdentityProviderConfig",
+            "oauth2": "#/components/schemas/OAuth2IdentityProviderConfig"
+          }
+        }
+      },
+      "GetIdentityProviderResult": {
+        "description": "An identity provider as stored, one shape per `kind`, with `signIn` when the deployment sets it. Secrets appear only as references.",
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/OidcIdentityProviderConfig"
+          },
+          {
+            "$ref": "#/components/schemas/SamlIdentityProviderConfig"
+          },
+          {
+            "$ref": "#/components/schemas/OAuth2IdentityProviderConfig"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "kind",
+          "mapping": {
+            "oidc": "#/components/schemas/OidcIdentityProviderConfig",
+            "saml": "#/components/schemas/SamlIdentityProviderConfig",
+            "oauth2": "#/components/schemas/OAuth2IdentityProviderConfig"
           }
         }
       },
@@ -12322,6 +12721,85 @@
           }
         }
       },
+      "SignInOption": {
+        "description": "One way to sign in, as a sign-in page shows it.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "providerId",
+          "displayName",
+          "signInUrl"
+        ],
+        "properties": {
+          "providerId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "description": "\"Sign in with …\"."
+          },
+          "signInUrl": {
+            "type": "string",
+            "description": "Where the browser goes to start signing in with this provider."
+          }
+        }
+      },
+      "SignInOptions": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SignInOption"
+            }
+          },
+          "methods": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "identityProviders",
+              "apiToken"
+            ],
+            "description": "The ways in this deployment allows, for a sign-in page to show. Absent from older servers.",
+            "properties": {
+              "identityProviders": {
+                "type": "boolean",
+                "description": "Sign-in with an organization's identity provider (email first)."
+              },
+              "apiToken": {
+                "type": "boolean",
+                "description": "Sign-in to the console with an API token (`POST /v1/auth/token-sign-in`)."
+              }
+            }
+          }
+        }
+      },
+      "TokenSignInResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "userId",
+          "expiresAt"
+        ],
+        "properties": {
+          "userId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The person now signed in."
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the session ends at the latest: its lifetime, or the key's expiry if sooner."
+          }
+        }
+      },
       "RegisterIdentityProviderResult": {
         "type": "object",
         "additionalProperties": false,
@@ -12332,6 +12810,10 @@
           "providerId": {
             "type": "string",
             "minLength": 1
+          },
+          "provider": {
+            "$ref": "#/components/schemas/IdentityProviderConfig",
+            "description": "The provider as stored: discovered endpoints, and `signIn` (what to give the identity provider). Absent from older servers."
           }
         }
       },
@@ -12350,6 +12832,271 @@
           "unregistered": {
             "type": "boolean",
             "const": true
+          }
+        }
+      },
+      "UpdateIdentityProviderBody": {
+        "description": "Changes to a registered identity provider: a field given replaces the stored one, `null` removes an optional one, and anything not given stays. The result must still be a whole provider of its `kind` (the fields `IdentityProviderConfig` requires for it), checked as a registration is. `providerId` and `kind` can't change; `signIn` is the deployment's and is ignored. A new `issuer` drops the endpoints discovered from the old one.",
+        "type": "object",
+        "additionalProperties": false,
+        "minProperties": 1,
+        "properties": {
+          "providerId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Must match the path when given."
+          },
+          "kind": {
+            "$ref": "#/components/schemas/IdentityProviderKind"
+          },
+          "displayName": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "domains": {
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "join": {
+            "oneOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "invite",
+                  "domain"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "metadata": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": true
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "issuer": {
+            "type": "string",
+            "format": "uri"
+          },
+          "clientId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "clientSecretRef": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Opaque reference resolved server-side. Never a plaintext secret."
+          },
+          "scopes": {
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "authorizationEndpoint": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri"
+          },
+          "tokenEndpoint": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri"
+          },
+          "userinfoEndpoint": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri"
+          },
+          "jwksEndpoint": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri"
+          },
+          "allowedRedirectUris": {
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "claimMapping": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/ClaimMappingSpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "idpMetadataXml": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "idpEntityId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "idpSsoUrl": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uri"
+          },
+          "idpCertificates": {
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "spSigningKeyRef": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "spDecryptionKeyRef": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "wantAssertionsSigned": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "attributeMapping": {
+            "oneOf": [
+              {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "userId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "email": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "displayName": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "UpdateIdentityProviderResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "providerId",
+          "provider"
+        ],
+        "properties": {
+          "providerId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "provider": {
+            "$ref": "#/components/schemas/IdentityProviderConfig",
+            "description": "The provider as stored now; its `signIn` is unchanged."
+          }
+        }
+      },
+      "IdentityProviderSignInUrls": {
+        "description": "What to give the identity provider so it can send people back, for a provider under this `providerId`: the same before it's registered, after, and after an unregister and a new registration, so the identity provider's side can be set up first. Not secrets: they're in every sign-in's browser redirects.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "providerId",
+          "kind",
+          "signIn",
+          "registered"
+        ],
+        "properties": {
+          "providerId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "$ref": "#/components/schemas/IdentityProviderKind"
+          },
+          "signIn": {
+            "$ref": "#/components/schemas/IdentityProviderSignIn"
+          },
+          "registered": {
+            "type": "boolean",
+            "description": "Whether a provider is registered under this `providerId` now."
           }
         }
       },
@@ -12424,7 +13171,7 @@
         "properties": {
           "sessionToken": {
             "type": "string",
-            "description": "Opaque framework-issued session token (`kgi_sk_<sessionId>`). Send as `Authorization: Bearer <sessionToken>` on subsequent requests. The underlying provider access-token never leaves the server."
+            "description": "Opaque session token (`kgi_sk_…`), shown once: the server keeps only a hash of it. Never parse it. Send as `Authorization: Bearer <sessionToken>` on subsequent requests. The underlying provider access-token never leaves the server."
           },
           "sessionId": {
             "type": "string"
@@ -12446,7 +13193,7 @@
         "properties": {
           "sessionToken": {
             "type": "string",
-            "description": "Opaque framework-issued session token (`kgi_sk_<sessionId>`). Send as `Authorization: Bearer <sessionToken>` on subsequent requests. The underlying provider access-token never leaves the server."
+            "description": "Opaque session token (`kgi_sk_…`), shown once: the server keeps only a hash of it. Never parse it. Send as `Authorization: Bearer <sessionToken>` on subsequent requests. The underlying provider access-token never leaves the server."
           },
           "sessionId": {
             "type": "string"
@@ -14318,16 +15065,21 @@
         }
       },
       "AddProjectMembershipBody": {
+        "description": "Exactly one of `userId` and `email` names the person.",
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "userId",
           "role"
         ],
         "properties": {
           "userId": {
             "type": "string",
             "minLength": 1
+          },
+          "email": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The person's email, as the tenant has it."
           },
           "role": {
             "$ref": "#/components/schemas/ProjectRole"
@@ -15415,11 +16167,10 @@
       "ScheduleRecord": {
         "type": "object",
         "additionalProperties": false,
+        "description": "A schedule: what it runs (a flow at a version, or an agent), when (a cron expression in a timezone), as whom (its owner), and what it does after a gap or while a run is still going.",
         "required": [
           "scheduleId",
           "triggerId",
-          "flowId",
-          "flowVersion",
           "cronExpression",
           "label",
           "status",
@@ -15438,11 +16189,30 @@
           },
           "flowId": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "description": "A schedule that runs a flow: the flow, at `flowVersion`."
           },
           "flowVersion": {
             "type": "string",
             "minLength": 1
+          },
+          "agentId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "A schedule that runs an agent: the agent, at `agentVersion`, else its version live for the schedule's project (else the latest), as a run that names none."
+          },
+          "agentVersion": {
+            "type": "string",
+            "minLength": 1
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The schedule's project: its runs are this project's."
+          },
+          "owner": {
+            "$ref": "#/components/schemas/TriggerOwner",
+            "description": "Who its runs act as: whoever registered it, until an admin takes it over (`POST …/owner`). Checked again at every fire."
           },
           "cronExpression": {
             "type": "string",
@@ -15454,7 +16224,28 @@
             "description": "IANA timezone (e.g. `UTC`, `America/New_York`). Absent → `UTC`."
           },
           "input": {
-            "description": "Static input handed to the flow on every fire. Absent → `{}`."
+            "description": "Static input handed to the run on every fire. Absent → `{}`."
+          },
+          "catchUp": {
+            "type": "string",
+            "enum": [
+              "latest",
+              "skip"
+            ],
+            "description": "After a gap (the runtime was down, or a fire is later than `startingDeadlineSeconds`): `latest` runs once, for the latest missed occurrence, and its fire says how many it missed; `skip` drops the missed occurrences. Never a run per missed occurrence."
+          },
+          "overlap": {
+            "type": "string",
+            "enum": [
+              "skip",
+              "allow"
+            ],
+            "description": "When an occurrence comes while the previous run of this schedule is still running: `skip` records the fire as skipped; `allow` starts another run."
+          },
+          "startingDeadlineSeconds": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "How late a fire may start and still count as on time; past it, `catchUp` applies."
           },
           "label": {
             "type": [
@@ -15465,6 +16256,10 @@
           "status": {
             "$ref": "#/components/schemas/TriggerStatus"
           },
+          "statusReason": {
+            "type": "string",
+            "description": "Why the runtime paused it: repeated fires that were refused (the owner lost access) or failed. Skipped fires (an overlap, an erasure in progress) never count."
+          },
           "nextFireAt": {
             "type": [
               "string",
@@ -15472,6 +16267,14 @@
             ],
             "format": "date-time",
             "description": "Wall-clock time of the next scheduled fire. `null` on paused rows if the cron scheduler never re-armed."
+          },
+          "upcoming": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "description": "The next occurrences, when the request asked for them (`?upcoming=N`)."
           },
           "lastFiredAt": {
             "type": [
@@ -15487,6 +16290,110 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "TriggerOwner": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "id"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "user",
+              "service"
+            ]
+          },
+          "id": {
+            "type": "string"
+          }
+        }
+      },
+      "ScheduleFire": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "One fire of a schedule (an occurrence, or a `run-now`) and what came of it. `pending` while its run is being started.",
+        "required": [
+          "fireId",
+          "scheduleId",
+          "triggerId",
+          "firedAt",
+          "outcome"
+        ],
+        "properties": {
+          "fireId": {
+            "type": "string"
+          },
+          "scheduleId": {
+            "type": "string"
+          },
+          "triggerId": {
+            "type": "string"
+          },
+          "scheduledFor": {
+            "type": "string",
+            "format": "date-time",
+            "description": "The occurrence it is for; absent on a `run-now` fire."
+          },
+          "firedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "started",
+              "skipped-overlap",
+              "skipped-erasure",
+              "refused",
+              "failed"
+            ],
+            "description": "`skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. Neither counts toward the auto-pause; `refused` and `failed` do."
+          },
+          "runId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The run it started."
+          },
+          "detail": {
+            "type": "string",
+            "description": "Why it was refused, skipped or failed."
+          },
+          "missedCount": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Occurrences this fire stood in for after a gap (`catchUp: latest`)."
+          },
+          "manual": {
+            "type": "boolean",
+            "description": "A `run-now` fire, outside the schedule."
+          }
+        }
+      },
+      "ScheduleFirePage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "hasMore"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ScheduleFire"
+            }
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "nextCursor": {
+            "type": "string"
           }
         }
       },
@@ -15515,19 +16422,33 @@
       "RegisterScheduleBody": {
         "type": "object",
         "additionalProperties": false,
+        "description": "Name what it runs: `flowId` with `flowVersion`, or `agentId` (with an optional `agentVersion`). Registering needs `write` on the project and `execute` on what it runs; its runs act as the caller.",
         "required": [
-          "flowId",
-          "flowVersion",
           "config"
         ],
         "properties": {
           "flowId": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "description": "Run a flow (with `flowVersion`)."
           },
           "flowVersion": {
             "type": "string",
             "minLength": 1
+          },
+          "agentId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Run an agent (instead of a flow): at `agentVersion`, else its live version."
+          },
+          "agentVersion": {
+            "type": "string",
+            "minLength": 1
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The schedule's project. Absent → the tenant's default project."
           },
           "config": {
             "type": "object",
@@ -15543,8 +16464,32 @@
               "timezone": {
                 "type": "string"
               },
-              "input": {}
+              "input": {
+                "description": "What each run gets. An agent schedule's runs take the agent payload, `{ userMessage, parameters? }`, so it needs `userMessage`; a flow's take the flow's input."
+              }
             }
+          },
+          "catchUp": {
+            "type": "string",
+            "enum": [
+              "latest",
+              "skip"
+            ],
+            "description": "Default `latest`."
+          },
+          "overlap": {
+            "type": "string",
+            "enum": [
+              "skip",
+              "allow"
+            ],
+            "description": "Default `skip`."
+          },
+          "startingDeadlineSeconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 86400,
+            "description": "Default 600."
           },
           "label": {
             "type": "string"
@@ -15554,7 +16499,26 @@
       "PatchScheduleBody": {
         "type": "object",
         "additionalProperties": false,
+        "description": "Change what it runs (the target fields, as at registration, which also needs `execute` on the new target), when, or its policies.",
         "properties": {
+          "flowId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Run a flow (with `flowVersion`)."
+          },
+          "flowVersion": {
+            "type": "string",
+            "minLength": 1
+          },
+          "agentId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Run an agent (instead of a flow): at `agentVersion`, else its live version."
+          },
+          "agentVersion": {
+            "type": "string",
+            "minLength": 1
+          },
           "config": {
             "type": "object",
             "additionalProperties": false,
@@ -15565,8 +16529,32 @@
               "timezone": {
                 "type": "string"
               },
-              "input": {}
+              "input": {
+                "description": "What each run gets. An agent schedule's runs take the agent payload, `{ userMessage, parameters? }`, so it needs `userMessage`; a flow's take the flow's input."
+              }
             }
+          },
+          "catchUp": {
+            "type": "string",
+            "enum": [
+              "latest",
+              "skip"
+            ],
+            "description": "Default `latest`."
+          },
+          "overlap": {
+            "type": "string",
+            "enum": [
+              "skip",
+              "allow"
+            ],
+            "description": "Default `skip`."
+          },
+          "startingDeadlineSeconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 86400,
+            "description": "Default 600."
           },
           "label": {
             "type": [
@@ -15574,9 +16562,6 @@
               "null"
             ],
             "description": "`null` clears the label; omit to leave unchanged."
-          },
-          "flowVersion": {
-            "type": "string"
           }
         }
       },
@@ -16583,7 +17568,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -16735,6 +17720,16 @@
             },
             "required": false,
             "description": "Only the replay runs of this eval run. Implies replays are included; cannot be combined with `replays=exclude`."
+          },
+          {
+            "name": "triggerId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": false,
+            "description": "Only the runs this trigger started (`Run.trigger.triggerId`)."
           },
           {
             "name": "include",
@@ -16913,7 +17908,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [
@@ -17002,7 +17997,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -17411,7 +18406,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -17647,7 +18642,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -17756,7 +18751,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -18031,7 +19026,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [
@@ -18130,7 +19125,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -18397,7 +19392,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -18515,7 +19510,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -18633,7 +19628,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [
@@ -18732,7 +19727,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -19061,7 +20056,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -19237,7 +20232,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -19414,7 +20409,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [
@@ -19523,7 +20518,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -19728,7 +20723,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -19980,7 +20975,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -20162,7 +21157,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [
@@ -20269,7 +21264,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [
@@ -20536,7 +21531,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -21029,7 +22024,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -21579,7 +22574,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -21677,7 +22672,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -21882,7 +22877,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -22200,7 +23195,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [
@@ -22307,7 +23302,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [
@@ -22502,7 +23497,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -22841,7 +23836,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [
@@ -22948,7 +23943,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [
@@ -23122,6 +24117,16 @@
               }
             }
           },
+          "422": {
+            "description": "`guardrail-config-invalid`: the guardrail's `config` breaks the `configSchema` of the pack check it names, which the pack service would refuse on every call. `details.issues` lists each problem, `{ path, message }` with `path` a JSON pointer into the guardrail (`/config/maxChars`); the message names the guardrail, the check and the setting. Checked when the check's deployment carries its schema.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Server error (unmapped domain code or framework crash).",
             "content": {
@@ -23143,7 +24148,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -23307,7 +24312,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [
@@ -23505,7 +24510,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -23682,7 +24687,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [
@@ -23791,7 +24796,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [
@@ -24095,7 +25100,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -24475,7 +25480,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -24603,7 +25608,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -24712,7 +25717,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -24811,7 +25816,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -25035,7 +26040,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -25154,7 +26159,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -25455,7 +26460,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -25662,7 +26667,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -25791,7 +26796,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -25920,7 +26925,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -26039,7 +27044,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -26158,7 +27163,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -26481,7 +27486,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -26696,7 +27701,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -26922,7 +27927,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [
@@ -27327,7 +28332,7 @@
             }
           },
           "422": {
-            "description": "`provider-config-invalid`: the provider's adapter refuses the registration (its `adapter_config`, its metadata, or a missing `secret_ref`); `details.issues` lists each (`path`, a JSON pointer, and `message`), as other validation errors do. Nothing is stored.",
+            "description": "`provider-config-invalid`: a `send_traceparent` that isn't a boolean, or the provider's adapter refuses the registration (its `adapter_config`, its metadata, or a missing `secret_ref`); `details.issues` lists each (`path`, a JSON pointer, and `message`), the registration's own fields first, as other validation errors do. Nothing is stored.",
             "content": {
               "application/json": {
                 "schema": {
@@ -27357,7 +28362,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -27639,7 +28644,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [
@@ -27748,7 +28753,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -28086,7 +29091,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [
@@ -28175,7 +29180,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -28452,7 +29457,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -28571,7 +29576,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [
@@ -28766,7 +29771,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -28933,7 +29938,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [
@@ -29982,7 +30987,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -30070,7 +31075,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -30246,7 +31251,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -30580,7 +31585,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [
@@ -30689,7 +31694,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [
@@ -31177,7 +32182,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -31512,7 +32517,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -31720,7 +32725,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [
@@ -31829,7 +32834,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [
@@ -32033,7 +33038,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -32379,7 +33384,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [
@@ -32498,7 +33503,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [
@@ -32607,7 +33612,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -32999,7 +34004,7 @@
             }
           }
         },
-        "description": "Returns the OAuth 2.0 / OIDC providers a caller can `login` through. `clientSecretRef` is a REFERENCE — the plaintext client secret is never on the wire.",
+        "description": "Returns the tenant's identity providers (OIDC, SAML, OAuth 2.0), each with `signIn` when the deployment sets it. Secrets appear only as REFERENCES (`clientSecretRef`, `spSigningKeyRef`…); a plaintext secret is never on the wire.",
         "security": [
           {
             "bearerAuth": []
@@ -33008,7 +34013,7 @@
       },
       "post": {
         "operationId": "auth.providers.register",
-        "summary": "Register a new OAuth/OIDC identity provider",
+        "summary": "Register an identity provider (OIDC, SAML or OAuth 2.0)",
         "tags": [
           "auth"
         ],
@@ -33053,6 +34058,16 @@
               }
             }
           },
+          "422": {
+            "description": "The deployment could not use the configuration (`identity-provider-invalid`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "500": {
             "description": "Server error (unmapped domain code or framework crash).",
             "content": {
@@ -33064,7 +34079,7 @@
             }
           }
         },
-        "description": "Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered` — unregister it first, then register again.",
+        "description": "Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered`; change it with `PATCH /v1/auth/providers/{providerId}`, which keeps its sign-in URLs. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`. The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -33074,7 +34089,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -33082,11 +34097,364 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/IdentityProviderConfig"
+                "$ref": "#/components/schemas/RegisterIdentityProviderBody"
               }
             }
           }
         },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/auth/sign-in-options": {
+      "get": {
+        "operationId": "auth.signInOptions",
+        "summary": "How a person can sign in",
+        "tags": [
+          "auth"
+        ],
+        "responses": {
+          "200": {
+            "description": "The ways to sign in (possibly none).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignInOptions"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`email` is not an email address.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many lookups from this client.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Public: nobody is signed in yet. With `email`, the identity providers for that email's domain (from the one tenant that claims it); without, an empty list: sign-in is email first, so nothing is offered before an email. `methods` says which ways in the deployment allows: identity providers, and/or an API token (`POST /v1/auth/token-sign-in`); both `false` when nobody can sign in to the console. Always mounted. The answer depends only on the domain: two people at the same domain get the same answer, whether or not either has an account. Rate-limited per client (`429 rate-limit-exceeded`, with `Retry-After`).",
+        "parameters": [
+          {
+            "name": "email",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 3
+            },
+            "required": false,
+            "description": "The email the person typed; only its domain is used."
+          }
+        ],
+        "security": []
+      }
+    },
+    "/v1/auth/token-sign-in": {
+      "post": {
+        "operationId": "auth.tokenSignIn",
+        "summary": "Sign in to the console with an API token",
+        "tags": [
+          "auth"
+        ],
+        "responses": {
+          "200": {
+            "description": "Signed in: the session cookie is set.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenSignInResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Signed in by a session, not an API token (`token-sign-in-needs-an-api-token`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not allowed here (`token-sign-in-off`), or not this key (`token-sign-in-not-allowed`): a service account's, or a narrowed one.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "The API token in `Authorization` is exchanged once for a browser session in the session cookie (HttpOnly; the same as a sign-in with an identity provider), so the browser never keeps the token. Only a person's full key opens a session: a service account's key, or a narrowed one (a `member` role, or one project), is refused `403 token-sign-in-not-allowed`. The session ends after its lifetime, or when the key expires if sooner. `403 token-sign-in-off` when the deployment doesn't allow it (always mounted, so a console gets that answer); `400 token-sign-in-needs-an-api-token` when the request is already signed in by a session.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/auth/providers/{providerId}": {
+      "get": {
+        "operationId": "auth.providers.get",
+        "summary": "Get one identity provider",
+        "tags": [
+          "auth"
+        ],
+        "responses": {
+          "200": {
+            "description": "The provider.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GetIdentityProviderResult"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No identity provider registered with that id under this tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "The provider as stored, with `signIn` when the deployment sets it. Secrets appear only as references.",
+        "parameters": [
+          {
+            "name": "providerId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "auth.providers.update",
+        "summary": "Change an identity provider, keeping its sign-in URLs",
+        "tags": [
+          "auth"
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateIdentityProviderResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No identity provider registered with that id under this tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The deployment could not use the configuration (`identity-provider-invalid`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Merges the changes into the stored provider and checks the result as a registration is (`400 invalid-provider-config`; `422 identity-provider-invalid` when the deployment can't use it). The provider keeps its `signIn`, so nothing changes on the identity provider's side. Not mounted when the deployment can't update providers.",
+        "parameters": [
+          {
+            "name": "providerId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateIdentityProviderBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/auth/providers/{providerId}/sign-in": {
+      "get": {
+        "operationId": "auth.providers.signIn",
+        "summary": "What to give the identity provider, before or after registering",
+        "tags": [
+          "auth"
+        ],
+        "responses": {
+          "200": {
+            "description": "What to give the identity provider.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/IdentityProviderSignInUrls"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`kind` missing for a provider that isn't registered, or a kind this deployment doesn't sign in with (`bad-input`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "The redirect URI (OIDC) or the ACS URL, entity ID and metadata URL (SAML) a provider under this `providerId` gets: the same before it's registered, after, and after an unregister and a new registration. So an admin sets up the identity provider's side first, then registers with what it gives back. `kind` is required until the provider is registered. Not mounted when the deployment can't say.",
+        "parameters": [
+          {
+            "name": "providerId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/IdentityProviderKind"
+            },
+            "required": false,
+            "description": "The provider's kind; default: the registered provider's."
+          }
+        ],
         "security": [
           {
             "bearerAuth": []
@@ -33181,7 +34549,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [
@@ -33279,7 +34647,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -33382,7 +34750,7 @@
             }
           },
           "400": {
-            "description": "Caller presented a bearer token; refresh is session-only.",
+            "description": "Caller presented a bearer token (refresh is session-only), or a browser session (cookie).",
             "content": {
               "application/json": {
                 "schema": {
@@ -33442,7 +34810,7 @@
             }
           }
         },
-        "description": "Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. When the deployment wired a `refreshToken` callback and the provider issued a refresh token, provider tokens rotate too; otherwise only the framework session token rotates. OAuth 2.1 BCP refresh-token rotation: the OLD session token is invalidated (marked rotated) — reusing it after refresh returns `401 refresh-token-invalid` so compliant clients can retry with the fresh token instead of prompting a re-auth.",
+        "description": "Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. When the deployment wired a `refreshToken` callback and the provider issued a refresh token, provider tokens rotate too; otherwise only the framework session token rotates. OAuth 2.1 BCP refresh-token rotation: the OLD session token is invalidated (marked rotated) — reusing it after refresh returns `401 refresh-token-invalid` so compliant clients can retry with the fresh token instead of prompting a re-auth. A browser session (the session cookie) is not refreshed: `400 cookie-session-not-refreshable`, so a new token never reaches page scripts; it ends at its TTL.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -33452,7 +34820,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [
@@ -33521,7 +34889,7 @@
             }
           }
         },
-        "description": "Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. Idempotent — revoking an already-revoked session returns `{ revoked: false }`.",
+        "description": "Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. Idempotent — revoking an already-revoked session returns `{ revoked: false }`. A browser session (the session cookie) also gets its cookie cleared (`Set-Cookie` with `Max-Age=0`).",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -33531,7 +34899,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [
@@ -33568,9 +34936,19 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "Not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
           }
         },
-        "description": "Cursor-paginated list of tenant users (sort order is binding-defined). Optional `?query=` is a prefix match on `displayName` — the natural filter shape for a \"search users\" surface. `primaryEmail` may be redacted per tenant policy.",
+        "description": "Cursor-paginated list of tenant users (sort order is binding-defined), for tenant admins only. Optional `?query=` is a prefix match on `displayName` — the natural filter shape for a \"search users\" surface. `primaryEmail` may be redacted per tenant policy. Anyone else adds a person to a project by their email or id (`POST /v1/projects/{projectId}/memberships`).",
         "parameters": [
           {
             "name": "limit",
@@ -33696,7 +35074,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -33744,6 +35122,16 @@
               }
             }
           },
+          "403": {
+            "description": "Someone else's record, and not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No user with that id under this tenant.",
             "content": {
@@ -33755,6 +35143,7 @@
             }
           }
         },
+        "description": "A tenant admin, or the person themselves.",
         "parameters": [
           {
             "name": "userId",
@@ -33800,9 +35189,19 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "Someone else's sessions, and not a tenant admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
           }
         },
-        "description": "Returns the wire-safe `IdentitySessionSummary` shape — provider access-token + refresh-token never cross the wire, even to admins. Unknown user id returns an empty list (call `GET /v1/identity/users/:userId` first to distinguish \"no sessions\" from \"no user\").",
+        "description": "A tenant admin, or the person themselves. Returns the wire-safe `IdentitySessionSummary` shape — provider access-token + refresh-token never cross the wire, even to admins. Unknown user id returns an empty list (call `GET /v1/identity/users/:userId` first to distinguish \"no sessions\" from \"no user\").",
         "parameters": [
           {
             "name": "userId",
@@ -33919,7 +35318,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [
@@ -34017,7 +35416,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [
@@ -34213,7 +35612,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -34341,7 +35740,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -34487,7 +35886,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -34750,7 +36149,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -35034,7 +36433,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -35438,7 +36837,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -35593,7 +36992,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -35662,7 +37061,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [
@@ -35836,7 +37235,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -35991,7 +37390,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -36049,7 +37448,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [
@@ -36224,7 +37623,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -36303,7 +37702,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [
@@ -36410,7 +37809,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -36458,6 +37857,16 @@
               }
             }
           },
+          "403": {
+            "description": "The caller can't read the Default project.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Tenant has no Default project.",
             "content": {
@@ -36469,7 +37878,7 @@
             }
           }
         },
-        "description": "Returns the row where `Project.isDefault = true` (exactly one per tenant). Returns 404 `project-not-found` when no Default has been provisioned.",
+        "description": "Returns the row where `Project.isDefault = true` (exactly one per tenant), to a caller who can read it, as `GET /v1/projects/{projectId}` checks. Returns 404 `project-not-found` when no Default has been provisioned.",
         "security": [
           {
             "bearerAuth": []
@@ -36642,7 +38051,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -36798,7 +38207,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -36856,7 +38265,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [
@@ -36982,7 +38391,7 @@
             }
           },
           "404": {
-            "description": "No project with that id under this tenant.",
+            "description": "No project with that id under this tenant (`project-not-found`), or the person named is not a member of this tenant (`identity-user-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -37012,7 +38421,7 @@
             }
           }
         },
-        "description": "Idempotent on `(projectId, userId)` — re-adding an existing member with a different role does NOT overwrite; use PATCH for role changes.",
+        "description": "Names the person by exactly one of `userId` and `email` (matched as the runtime matches emails when it adds a person); someone who is not a person of this tenant, or was removed from it, is refused with 404 `identity-user-not-found`. Idempotent on `(projectId, userId)` — re-adding an existing member with a different role does NOT overwrite; use PATCH for role changes.",
         "parameters": [
           {
             "name": "projectId",
@@ -37031,7 +38440,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -37110,7 +38519,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [
@@ -37217,7 +38626,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -37439,7 +38848,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -37797,7 +39206,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -38116,7 +39525,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -38736,7 +40145,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -39031,7 +40440,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -39167,6 +40576,17 @@
             },
             "required": true,
             "description": "TriggerId — the trigger id (a UUID)."
+          },
+          {
+            "name": "upcoming",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 20
+            },
+            "required": false,
+            "description": "Include the next N occurrences (`upcoming`), 1 to 20."
           }
         ],
         "security": [
@@ -39263,7 +40683,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -39372,7 +40792,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [
@@ -39471,7 +40891,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [
@@ -39560,7 +40980,315 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/schedules/{triggerId}/fires": {
+      "get": {
+        "operationId": "schedules.fires",
+        "summary": "A schedule's fire history",
+        "tags": [
+          "schedules"
+        ],
+        "responses": {
+          "200": {
+            "description": "Page of fires.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleFirePage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No cron trigger with that id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`trigger-operation-unsupported`: this deployment keeps no fire history.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Newest first: each occurrence (and `run-now`) the schedule fired for, and what came of it: the run it started, or why it was skipped, refused or failed.",
+        "parameters": [
+          {
+            "name": "triggerId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "TriggerId — the trigger id (a UUID)."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "description": "1..100. Default 25."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Opaque cursor from a prior response. Absent → first page."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/schedules/{triggerId}/run-now": {
+      "post": {
+        "operationId": "schedules.runNow",
+        "summary": "Run a schedule now",
+        "tags": [
+          "schedules"
+        ],
+        "responses": {
+          "202": {
+            "description": "The fire; its run starts in the background.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleFire"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No cron trigger with that id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`trigger-operation-unsupported`: this deployment has no run-now.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "One fire outside the schedule (`manual: true` in its history), starting one run as the schedule's owner. The schedule's next occurrence is unchanged.",
+        "parameters": [
+          {
+            "name": "triggerId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "TriggerId — the trigger id (a UUID)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/schedules/{triggerId}/owner": {
+      "post": {
+        "operationId": "schedules.takeOwnership",
+        "summary": "Take over a schedule",
+        "tags": [
+          "schedules"
+        ],
+        "responses": {
+          "200": {
+            "description": "The schedule, with its new owner.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleRecord"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No cron trigger with that id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`trigger-operation-unsupported`: this deployment can't change a schedule's owner.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project and `execute` on what it runs. For a schedule whose owner left or lost access.",
+        "parameters": [
+          {
+            "name": "triggerId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "TriggerId — the trigger id (a UUID)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [
@@ -39639,7 +41367,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -39869,7 +41597,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -39977,7 +41705,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [
@@ -40075,7 +41803,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [
@@ -40163,7 +41891,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [
@@ -40242,7 +41970,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -40473,7 +42201,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -40581,7 +42309,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [
@@ -40679,7 +42407,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [
@@ -40767,7 +42495,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [
@@ -40856,7 +42584,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -41113,7 +42841,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "requestBody": {
@@ -41211,7 +42939,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [
@@ -41416,7 +43144,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [
@@ -41514,7 +43242,7 @@
               "minLength": 1
             },
             "required": false,
-            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1)."
+            "description": "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer."
           }
         ],
         "security": [

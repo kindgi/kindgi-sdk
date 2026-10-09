@@ -37,6 +37,7 @@ export type {
 export type {
   Run,
   RunAgent,
+  RunTrigger,
   RunFailure,
   RunsClient,
   ResumeRunInput,
@@ -250,9 +251,12 @@ export type {
 } from './resources/events.js';
 export type { ArtifactFilter, ArtifactsClient } from './resources/artifacts.js';
 export type {
+  ListScheduleFiresFilter,
   ListSchedulesFilter,
   RegisterScheduleInput,
   Schedule,
+  ScheduleFire,
+  ScheduleFirePage,
   SchedulePage,
   SchedulesClient,
   UnregisterScheduleResult,
@@ -407,10 +411,15 @@ export type {
   IdentityProviderPage,
   IdentityProviderRegisterInput,
   IdentityProviderRegisterOutcome,
+  IdentityProviderSignInUrlsResult,
   IdentityProviderUnregisterOutcome,
+  IdentityProviderUpdateInput,
+  IdentityProviderUpdateOutcome,
   LoginInput,
   LoginResult,
   LogoutResultShape,
+  SignInOptionsResult,
+  TokenSignInResultShape,
   RefreshResultShape,
 } from './resources/auth.js';
 export type { ListRunsFilter, RunPage } from './resources/runs.js';

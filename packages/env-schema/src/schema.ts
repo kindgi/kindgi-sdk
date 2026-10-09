@@ -290,6 +290,60 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_AUTH_SECRET_PATH',
+    description:
+      'Turns on sign-in with identity providers (OIDC, SAML): absolute path to a 32-byte random key (mode 0600) the browser sign-in flow signs its state with (`openssl rand 32 > auth-secret`). Needs `KINDGI_PUBLIC_URL`: identity providers send people back there. Unset (with `KINDGI_AUTH_SECRET` unset too): sign-in is off, and the API takes only API keys.',
+    example: '/etc/kindgi/auth-secret',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_AUTH_SECRET',
+    description:
+      "The same key, base64 (`base64 < auth-secret`): for platforms that give secrets as environment variables (Cloud Run with Secret Manager), where a key file's mode can't be 0600. Set this or `KINDGI_AUTH_SECRET_PATH`, not both.",
+    example: '',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_AUTH_PRIVATE_IDP_ORIGINS',
+    description:
+      "Comma-separated origins of identity providers on a private network (a self-hosted Keycloak or AD FS behind a VPN, e.g. `https://sso.corp.internal`) that tenants may register. Only public HTTPS identity providers are allowed otherwise: a tenant admin can't point the runtime at the deployment's own network.",
+    example: 'https://sso.corp.internal',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_SESSION_TTL_MS',
+    description:
+      "A browser session's absolute lifetime, in milliseconds: the person signs in again after it. Default 43200000 (12 hours); at least 60000.",
+    example: '43200000',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_SESSION_IDLE_TIMEOUT_MS',
+    description:
+      'How long a browser session may sit idle before it ends, in milliseconds. Default 3600000 (60 minutes); at least 60000, and no longer than `KINDGI_SESSION_TTL_MS`.',
+    example: '3600000',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_CONSOLE_TOKEN_SIGN_IN',
+    description:
+      "Whether a person may sign in to the console with an API token: `on` or `off`. Default `off`, and `on` in local development (`kindgi dev`). The token is exchanged once for a browser session (the same cookie as sign-in with an identity provider) and never kept in the browser. Only a person's full key opens a session, never a service account's or a narrowed key. API tokens work for the API, CLI and SDKs either way. Set `on` to keep signing in to the console by pasting a token when it has no identity provider.",
+    example: 'on',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_EXPORT_SIGNING_KEY_PATH',
     description:
       'Absolute path to the private key (PKCS#8 PEM, mode 0600) that signs exports: approval audit bundles, run provenance and compliance evidence. An Ed25519 key signs `ed25519` (`openssl genpkey -algorithm ed25519`); an EC P-256 key signs `ecdsa-p256-sha256`. Use a key for this alone; `GET /v1/export-signing-keys` publishes its public half. Set one of this, `KINDGI_EXPORT_SIGNING_KEY` or `KINDGI_EXPORT_SIGNING_KMS_KEY`. None: in development mode the server signs with a key generated at startup; otherwise exports answer `404 signing-not-configured`.',
@@ -443,8 +497,6 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     appliesTo: appliesToServer,
     group: 'core',
   },
-
-  // ---- logging ----------------------------------------------------
   {
     name: 'KINDGI_LOG_LEVEL',
     description:
@@ -477,8 +529,6 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'logging',
     allowedValues: ['auto', 'json', 'pretty'],
   },
-
-  // ---- secrets backend --------------------------------------------
   {
     name: 'KINDGI_SECRETS_BACKEND',
     description:
@@ -535,8 +585,6 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     appliesTo: appliesToPostgresBackend,
     group: 'secrets',
   },
-
-  // ---- GCP vendor -------------------------------------------------
   {
     name: 'KINDGI_SECRETS_GCP_PROJECT_ID',
     description: 'GCP project id owning the KMS keyring + key.',
@@ -569,8 +617,6 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     appliesTo: appliesToPostgresGcp,
     group: 'gcp',
   },
-
-  // ---- local key (libsodium) --------------------------------------
   {
     name: 'KINDGI_SECRETS_LOCAL_KEY_PATH',
     description:
@@ -599,10 +645,6 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'local-key',
     allowedValues: ['single-node'],
   },
-
-  // ---- pack service -----------------------------------------------
-  // The server's side: where the pack service is, and how long a call
-  // may take.
   {
     name: 'KINDGI_PACK_SERVICE_URL',
     description:
@@ -631,7 +673,6 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'pack-service',
     allowedValues: ['token', 'google-id-token'],
   },
-  // Both sides: the shared token.
   {
     name: 'KINDGI_PACK_SERVICE_TOKEN',
     description:
@@ -641,8 +682,6 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     appliesTo: (t) => appliesToPackService(t) || appliesToServerHttpPackTransport(t),
     group: 'pack-service',
   },
-  // The pack service's side. It also listens on `PORT` (default 8080),
-  // the platform convention, which is not a Kindgi variable.
   {
     name: 'KINDGI_PACK_INDEX',
     description:
@@ -671,10 +710,6 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'pack-service',
     allowedValues: ['strict', 'warn'],
   },
-
-  // ---- image registry ---------------------------------------------
-  // How the server reads a deployment's image to verify it (`POST
-  // /v1/deployments`): anonymous unless credentials are set.
   {
     name: 'KINDGI_IMAGE_REGISTRY_HOST',
     description:
@@ -721,8 +756,6 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'image-registry',
     allowedValues: ['static', 'google'],
   },
-
-  // ---- development (`kindgi dev`) ---------------------------------
   {
     name: 'KINDGI_PACK_DIR',
     description:

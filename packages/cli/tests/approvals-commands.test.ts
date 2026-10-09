@@ -55,7 +55,7 @@ describe('kindgi approvals', () => {
 
   test('list refuses an unknown status', async () => {
     const out = await run(['approvals', 'list', '--status=open'], { approvals: {} });
-    expect(out.exitCode).toBe(1);
+    expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain('--status must be one of pending');
   });
 
@@ -79,10 +79,10 @@ describe('kindgi approvals', () => {
 
   test('complete needs a known --decision', async () => {
     const missing = await run(['approvals', 'complete', 'a-1'], { approvals: {} });
-    expect(missing.exitCode).toBe(1);
+    expect(missing.exitCode).toBe(2);
     expect(missing.stderr).toContain('--decision=approve|reject|escalate|withdraw is required');
     const wrong = await run(['approvals', 'complete', 'a-1', '--decision=yes'], { approvals: {} });
-    expect(wrong.exitCode).toBe(1);
+    expect(wrong.exitCode).toBe(2);
     expect(wrong.stderr).toContain('--decision must be one of approve');
   });
 });
@@ -111,7 +111,7 @@ describe('kindgi reviewers', () => {
 
   test('register needs a role', async () => {
     const out = await run(['reviewers', 'register', '--spec={}'], { approvals: { reviewers: {} } });
-    expect(out.exitCode).toBe(1);
+    expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain('`role`');
   });
 
