@@ -154,8 +154,10 @@ config schema you give. `Flow("acme.pipeline")` builds a flow
 (`toolNode`, `agentNode`, `edge`); a node or an edge with more than those say
 (an `inputMapping`, a condition `when`, a `policy`) is a map: `node(Map(…))`,
 `edge(Map("id" -> "e2", "from" -> "classify", "to" -> "billing", "when" -> Map(…)))`.
-Maps and lists anywhere in these builders are Scala's. A unit test runs a
-check with `evaluate`:
+Maps and lists anywhere in these builders are Scala's. A check id
+(`checkId`, else the guardrail's id) can't be a built-in check's
+(`com.kindgi.pack.Guardrail.RESERVED_CHECK_IDS`): `check` refuses it. A unit
+test runs a check with `evaluate`:
 `Checks.minLength.evaluate(MinLength(3), new RunTrace(java.util.Map.of("output", "abc")))`.
 
 ## The pack
