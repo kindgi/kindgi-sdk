@@ -104,7 +104,14 @@ Idempotency-Key was reused with a different request body. Use a fresh key or the
 - The key must come with the same request. The same key with a different
   body (another input, other options) is refused with a conflict, and nothing
   starts.
-- Keys are kept for 24 hours, per tenant.
+- Keys are kept for 24 hours, per tenant and per caller: the same key from
+  someone else (another person, another API key) is their own request, and
+  never gets your response.
+- A response that carries a secret (a new API key, a session token, a
+  generated webhook signing secret) isn't kept. A retry with its key is
+  refused with a conflict, `idempotency-key-replay-withheld`, saying when the
+  first one succeeded. It never gets the secret again, and nothing is made
+  twice.
 
 Pick a key that names the work, not the attempt: `review-A-200` for "review
 order A-200", the same on every retry. A new key per attempt defeats it.

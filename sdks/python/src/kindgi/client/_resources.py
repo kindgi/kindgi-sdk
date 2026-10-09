@@ -6324,7 +6324,7 @@ class EnvResource:
     ) -> _models.EnvRecord:
         """Upsert an env entry. `PUT /v1/env/{name}`
 
-        Requires the `env:write` capability. Every write bumps `revision`; optional `ifRevision` guards against concurrent updates (409 `env-write-conflict`).
+        Requires the `env:write` capability. Every write bumps `revision`; optional `ifRevision` guards against concurrent updates (409 `env-write-conflict`). Env values aren't secret: they're recorded with each run that uses them. A credential goes in `/v1/secrets`.
         """
         return self._client._request(
             _OPERATIONS["env.put"],
@@ -7152,7 +7152,7 @@ class WebhookEndpointsResource:
     def generate_secret(self, /, *, timeout: float | None = None) -> _models.GeneratedWebhookSecret:
         """Generate a webhook signing secret. `POST /v1/webhook-endpoints/generate-secret`
 
-        Returns a new strong secret (`whsec_` + base64 of 32 random bytes). Nothing is stored: put it in your secrets, then register the endpoint with its name.
+        Returns a new strong secret (`whsec_` + base64 of 32 random bytes). Nothing is stored: put it in your secrets, then register the endpoint with its name. Sent with an `Idempotency-Key`, a retry gets `409 idempotency-key-replay-withheld`, not the secret again.
         """
         return self._client._request(
             _OPERATIONS["webhookEndpoints.generateSecret"],
@@ -12824,7 +12824,7 @@ class AsyncEnvResource:
     ) -> _models.EnvRecord:
         """Upsert an env entry. `PUT /v1/env/{name}`
 
-        Requires the `env:write` capability. Every write bumps `revision`; optional `ifRevision` guards against concurrent updates (409 `env-write-conflict`).
+        Requires the `env:write` capability. Every write bumps `revision`; optional `ifRevision` guards against concurrent updates (409 `env-write-conflict`). Env values aren't secret: they're recorded with each run that uses them. A credential goes in `/v1/secrets`.
         """
         return await self._client._request(
             _OPERATIONS["env.put"],
@@ -13654,7 +13654,7 @@ class AsyncWebhookEndpointsResource:
     ) -> _models.GeneratedWebhookSecret:
         """Generate a webhook signing secret. `POST /v1/webhook-endpoints/generate-secret`
 
-        Returns a new strong secret (`whsec_` + base64 of 32 random bytes). Nothing is stored: put it in your secrets, then register the endpoint with its name.
+        Returns a new strong secret (`whsec_` + base64 of 32 random bytes). Nothing is stored: put it in your secrets, then register the endpoint with its name. Sent with an `Idempotency-Key`, a retry gets `409 idempotency-key-replay-withheld`, not the secret again.
         """
         return await self._client._request(
             _OPERATIONS["webhookEndpoints.generateSecret"],
