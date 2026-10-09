@@ -245,6 +245,14 @@ network (`KINDGI_AUTH_EMAIL_LINK_DAILY_CAP`). The browser that already got a
 link for an address isn't held by the 15 minutes, so someone else's
 requests can't keep that person out. Each client may ask 3 times a minute.
 
+Past 200 links in an hour across the whole deployment, the runtime logs a
+warning (at most one every 10 minutes): look at the `sign-in-link-sent` audit
+events for abuse, and turn on Turnstile if it's off. Links still go out; it's
+an alert, not a limit.
+
+A link opened in the browser asks the person to continue before it signs
+them in, so a mail scanner that opens it doesn't use it up.
+
 **A captcha in front:** [Cloudflare Turnstile](https://developers.cloudflare.com/turnstile/).
 Add a widget (mode Managed) whose hostname is the console's, and give the
 runtime its keys:

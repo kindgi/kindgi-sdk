@@ -40,8 +40,10 @@ same for any email:
 
 ![Check your email: if pat@acme-live.example can sign in here, a sign-in link is on its way. It works once and lasts 10 minutes.](../../../../assets/sso/sign-in-check-your-email.png)
 
-The link signs you in to the console. It works
-once, for ten minutes. After that:
+The link opens a page that says which email it signs you in as. Nothing
+happens until you choose **Continue as** your email: mail scanners open links
+too, and this keeps them from using yours. The link works once, for ten
+minutes. After that:
 
 ![This sign-in link has been used or has expired. A link works once, for ten minutes. Enter your email to get a new one.](../../../../assets/sso/sign-in-link-used.png)
 
