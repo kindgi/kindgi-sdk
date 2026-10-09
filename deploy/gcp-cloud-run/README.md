@@ -155,10 +155,20 @@ gcloud logging read 'resource.labels.service_name="'$N'-server" AND jsonPayload.
 ```
 
 ```
-KMS probe OK (gcp-cloud-kms): …
 Background work: tenant <seed tenant id>
 Pack service: https://<pack service> — <pack id> (artifact …), protocol 2, 3 tools, 1 check
 Pack service auth: a Google ID token per call (KINDGI_PACK_SERVICE_AUTH)
+```
+
+With the KMS key (`secrets_backend = "postgres"`), the key's check is its own record, logged just before:
+
+```sh
+gcloud logging read 'resource.labels.service_name="'$N'-server" AND textPayload:"KMS probe"' \
+  --limit=1 --format='value(textPayload)'
+```
+
+```
+KMS probe OK (gcp-cloud-kms): gcp-cloud-kms v1 (encrypt/decrypt round trip, key version 1) (170ms)
 ```
 
 **On the first apply** the pack service line can read `⚠ Pack service at https://… isn't answering (pack-service-unauthorized: The platform in front of the pack service refused the call: …)`. The server's invoker grant on the pack service is seconds old then, and IAM is still propagating it. Calls work once it has, without a restart (in our run, the first tool call, 3½ minutes after the warning, worked). If tool calls still fail after that, check that the server's service account has `roles/run.invoker` on the pack service.
