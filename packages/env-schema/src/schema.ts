@@ -208,7 +208,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_SEED_USER_ID',
     description:
-      'Seed user UUID. Pinning this across restarts keeps the FGA admin@tenant tuple stable.',
+      "The user the runtime's API token (`KINDGI_API_TOKEN`) acts as, made a tenant admin at every boot. Unset: the user that token had at an earlier boot (kept by the token's hash), or a new one the first time a token is used. Set it to keep one user across token changes.",
     example: '00000000-0000-4000-8000-000000000002',
     required: false,
     appliesTo: appliesToServer,
