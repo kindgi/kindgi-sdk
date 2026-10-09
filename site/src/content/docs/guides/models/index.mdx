@@ -225,6 +225,12 @@ worktree, after `--reset`, and on a teammate's machine.
 providers: [
   { preset: 'anthropic', models: ['claude-sonnet-5-5'] }, // its key, ANTHROPIC_API_KEY, from the env files
   { preset: 'gemini', project: 'acme-gcp', models: ['gemini-3.8-flash'] },
+  {
+    preset: 'azure-openai',
+    resourceName: 'acme-openai',
+    deployments: { 'gpt-6.1-sol': 'gpt-6-1-sol' }, // the deployment serving each model
+    models: ['gpt-6.1-sol'],
+  },
   { spec: { /* what --spec takes */ } },
 ],
 ```
@@ -242,6 +248,14 @@ models = ["claude-sonnet-5-5"]  # its key, ANTHROPIC_API_KEY, from the env files
 preset = "gemini"
 project = "acme-gcp"
 models = ["gemini-3.8-flash"]
+
+[[tool.kindgi.providers]]
+preset = "azure-openai"
+resourceName = "acme-openai"
+models = ["gpt-6.1-sol"]
+
+[tool.kindgi.providers.deployments]  # the deployment serving each model
+"gpt-6.1-sol" = "gpt-6-1-sol"
 ```
 
 </TabItem>
@@ -250,8 +264,13 @@ models = ["gemini-3.8-flash"]
 A preset entry takes `models`, the settings its preset asks for (`project` for
 `gemini`; `resourceName` and `deployments` for `azure-openai`; `region` for
 `bedrock`), `maxOutputTokens`, and `secret`: the key's name, in place of the
-preset's own. The keys are spelled the same in
-`pyproject.toml`. A `spec` entry is what `--spec`
+preset's own. Its own settings are required, and another preset's are refused.
+`deployments` is a map of model to deployment here (a table in
+`pyproject.toml`), where the `--deployments` flag takes `model=deployment,…`.
+The keys are spelled the same in `pyproject.toml`. `kindgi dev` checks each
+entry against its preset when it starts, and a `kindgi.config.ts` that
+`satisfies KindgiConfig` (`@kindgi/handler-runtime`) gets the same check from
+TypeScript. A `spec` entry is what `--spec`
 takes. A key is always a secret's name, read from the env files; a `spec` with
 a credential in `adapter_config` is refused.
 

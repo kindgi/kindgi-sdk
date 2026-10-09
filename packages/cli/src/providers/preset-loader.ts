@@ -57,8 +57,11 @@ export interface PresetSetting {
  * `providers` declarations (`kindgi.config.ts`, `pyproject.toml`): the
  * `providers register` flag that takes it, and that flag's help. The
  * register flags, `kindgi dev`'s declaration keys and the presets list all
- * read this table, and `KindgiProviderDeclaration` has a field for each key
- * (a type test holds them equal).
+ * read this table. `KindgiPresetSettingValues` has a field for each key, and
+ * each preset's `adapterConfig` is its `PRESET_DECLARATION_SETTINGS` row
+ * (tests hold them equal). A `map` setting is a map in a declaration
+ * (`{ "gpt-6.1-sol": "gpt-6-1-sol" }`) and `key=value,…` on the flag and the
+ * wire.
  */
 export const PRESET_SETTINGS = {
   project: {
@@ -74,19 +77,29 @@ export const PRESET_SETTINGS = {
     flag: 'deployments',
     description:
       'For `azure-openai`: the deployment serving each model, `model=deployment,…` (e.g. `gpt-6.1-sol=gpt-6-1-sol`).',
+    map: true,
   },
   region: {
     flag: 'region',
     description: 'For `bedrock`: the AWS region Bedrock runs in (e.g. `us-east-2`).',
   },
 } as const satisfies Readonly<
-  Record<string, { readonly flag: string; readonly description: string }>
+  Record<string, { readonly flag: string; readonly description: string; readonly map?: true }>
 >;
 
 export type PresetSettingKey = keyof typeof PRESET_SETTINGS;
 
 const isPresetSettingKey = (key: string): key is PresetSettingKey =>
   Object.hasOwn(PRESET_SETTINGS, key);
+
+/** Whether a setting is a map in a declaration (`deployments`), `key=value,…` on the flag. */
+export const isMapSetting = (key: PresetSettingKey): boolean => 'map' in PRESET_SETTINGS[key];
+
+/** A `map` setting's declared map as its flag's and the wire's `key=value,…`. */
+export const presetSettingMapValue = (map: Readonly<Record<string, string>>): string =>
+  Object.entries(map)
+    .map(([key, value]) => `${key}=${value}`)
+    .join(',');
 
 /** A setting's `providers register` flag, as a message names it: `--resource-name`. */
 export const presetSettingFlag = (key: string): string =>
@@ -158,18 +171,8 @@ function checkPreset(input: unknown): ProviderPreset | string {
   ) {
     return '"metadata" must have an id and at least one named model';
   }
-  // The region is the preset's own, or the caller's (`--region`) and then never the preset's,
-  // so nobody takes a value that's never sent for a fallback.
-  const region = (metadata as { readonly region?: unknown }).region;
-  const regionFromCaller = ((p.adapterConfig ?? []) as readonly PresetSetting[]).some(
-    (s) => s.key === 'region' && s.in === 'metadata',
-  );
-  if (regionFromCaller && region !== undefined) {
-    return '"metadata.region" comes from --region (its "adapterConfig" setting): leave it out';
-  }
-  if (!regionFromCaller && (typeof region !== 'string' || region === '')) {
-    return '"metadata.region" must be a non-empty string, or an "adapterConfig" setting "region" with "in": "metadata"';
-  }
+  const region = regionProblem(p, (metadata as { readonly region?: unknown }).region);
+  if (region !== undefined) return region;
   const defaultModel = (metadata as { readonly defaultModel?: unknown }).defaultModel;
   if (
     defaultModel !== undefined &&
@@ -178,6 +181,23 @@ function checkPreset(input: unknown): ProviderPreset | string {
     return '"metadata.defaultModel" must name one of its models';
   }
   return input as ProviderPreset;
+}
+
+/**
+ * The region is the preset's own, or the caller's (`--region`) and then never the preset's, so
+ * nobody takes a value that's never sent for a fallback.
+ */
+function regionProblem(p: Readonly<Record<string, unknown>>, region: unknown): string | undefined {
+  const fromCaller = ((p.adapterConfig ?? []) as readonly PresetSetting[]).some(
+    (s) => s.key === 'region' && s.in === 'metadata',
+  );
+  if (fromCaller && region !== undefined) {
+    return '"metadata.region" comes from --region (its "adapterConfig" setting): leave it out';
+  }
+  if (!fromCaller && (typeof region !== 'string' || region === '')) {
+    return '"metadata.region" must be a non-empty string, or an "adapterConfig" setting "region" with "in": "metadata"';
+  }
+  return undefined;
 }
 
 /** What's wrong with a preset's `adapterConfig` / `adapterConfigValues`, if anything. */

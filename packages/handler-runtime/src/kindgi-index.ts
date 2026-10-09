@@ -143,24 +143,7 @@ export interface KindgiConfig {
 
 /** One provider in `KindgiConfig.providers`: a preset, or a full registration. */
 export type KindgiProviderDeclaration =
-  | {
-      /** A preset by name (`kindgi providers presets` lists them). */
-      readonly preset: string;
-      /** Only these of the preset's models. Default: all. */
-      readonly models?: readonly string[];
-      /** The Google Cloud project, for a preset that needs one (`gemini`). */
-      readonly project?: string;
-      /** The Azure OpenAI resource (`<name>.openai.azure.com`), for `azure-openai`. */
-      readonly resourceName?: string;
-      /** The deployment serving each model, `"model=deployment,…"`, for `azure-openai`. */
-      readonly deployments?: string;
-      /** The AWS region Bedrock runs in (`us-east-2`), for `bedrock`. */
-      readonly region?: string;
-      /** The secret holding the API key, in place of the preset's own. */
-      readonly secret?: string;
-      /** Each model's output cap, in place of the preset's (the model's own limit). */
-      readonly maxOutputTokens?: number;
-    }
+  | KindgiPresetDeclaration
   | {
       /**
        * A registration body, as `kindgi providers register --spec` takes it.
@@ -168,6 +151,64 @@ export type KindgiProviderDeclaration =
        */
       readonly spec: Readonly<Record<string, unknown>>;
     };
+
+/**
+ * The settings each preset (`kindgi providers presets` lists them) takes in a declaration, by
+ * preset. `KindgiPresetDeclaration` is built from it: a preset's own settings are required, and
+ * another preset's are refused. The CLI's presets ask for the same (a test holds them equal).
+ */
+export const PRESET_DECLARATION_SETTINGS = {
+  anthropic: [],
+  'azure-openai': ['resourceName', 'deployments'],
+  bedrock: ['region'],
+  gemini: ['project'],
+  'gemini-api': [],
+  groq: [],
+  openai: [],
+  openrouter: [],
+} as const satisfies Readonly<Record<string, readonly (keyof KindgiPresetSettingValues)[]>>;
+
+/** A preset's name. */
+export type KindgiPresetName = keyof typeof PRESET_DECLARATION_SETTINGS;
+
+/** Each setting a preset may ask for, with its value's shape in a declaration. */
+export interface KindgiPresetSettingValues {
+  /** The Google Cloud project Vertex AI runs and bills in (`gemini`). */
+  readonly project: string;
+  /** The Azure OpenAI resource, as in `<name>.openai.azure.com` (`azure-openai`). */
+  readonly resourceName: string;
+  /**
+   * The deployment serving each model, by model: `{ "gpt-6.1-sol": "gpt-6-1-sol" }`
+   * (`azure-openai`). A TOML table in `pyproject.toml`.
+   */
+  readonly deployments: Readonly<Record<string, string>>;
+  /** The AWS region Bedrock runs in, e.g. `us-east-2` (`bedrock`). */
+  readonly region: string;
+}
+
+/** What every preset declaration takes, whatever its preset. */
+export interface KindgiPresetChoices {
+  /** Only these of the preset's models. Default: all. */
+  readonly models?: readonly string[];
+  /** The secret holding the API key, in place of the preset's own. */
+  readonly secret?: string;
+  /** Each model's output cap, in place of the preset's (the model's own limit). */
+  readonly maxOutputTokens?: number;
+}
+
+type SettingsOf<P extends KindgiPresetName> = (typeof PRESET_DECLARATION_SETTINGS)[P][number];
+
+/**
+ * A preset declaration: the preset's name, its own settings (each required), and none of
+ * another preset's (`{ preset: 'bedrock', region: 'us-east-2' }`).
+ */
+export type KindgiPresetDeclaration = {
+  readonly [P in KindgiPresetName]: KindgiPresetChoices & { readonly preset: P } & {
+    readonly [K in SettingsOf<P>]: KindgiPresetSettingValues[K];
+  } & {
+    readonly [K in Exclude<keyof KindgiPresetSettingValues, SettingsOf<P>>]?: never;
+  };
+}[KindgiPresetName];
 
 /** The language of a loaded config's pack code. */
 export function packLanguage(config: KindgiConfig): PackLanguage {
