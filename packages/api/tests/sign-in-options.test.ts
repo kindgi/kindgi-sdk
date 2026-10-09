@@ -261,10 +261,10 @@ describe('the rate limit with a shared store', () => {
     };
     const { app } = makeApp({ rateLimit: { store }, logLines });
     expect((await lookup(app, 'a@acme.com')).status).toBe(200);
-    expect(
-      logLines.some(
-        (l) => l.includes('the rate-limit store failed') && l.includes('connection refused'),
-      ),
-    ).toBe(true);
+    expect((await lookup(app, 'b@acme.com')).status).toBe(200);
+    const warnings = logLines.filter((l) => l.includes('the rate-limit store failed'));
+    // One warning while the store is down, not one a lookup.
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('connection refused');
   });
 });

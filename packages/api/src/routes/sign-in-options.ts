@@ -65,6 +65,8 @@ export interface SignInOptionsRateLimit {
 
 const DEFAULT_LIMIT = 30;
 const DEFAULT_WINDOW_MS = 60_000;
+// While the store fails, one warning at most this often (not one a lookup).
+const STORE_FAILED_WARN_EVERY_MS = 60_000;
 
 // One `@`, a non-empty local part, and a domain with a dot.
 const EMAIL_RE = /^[^\s@]+@([^\s@]+\.[^\s@]+)$/;
@@ -75,6 +77,8 @@ export function signInOptionsRouter(options: SignInOptionsRouteOptions): Hono<Ap
   const windowMs = options.rateLimit?.windowMs ?? DEFAULT_WINDOW_MS;
   const clientKey = options.rateLimit?.clientKey ?? defaultClientKey;
   const store = options.rateLimit?.store ?? createInMemoryRateLimitStore();
+  let lastWarnedAt: number | undefined;
+  let uncounted = 0;
 
   const router = new Hono<AppEnv>();
   router.get('/', async (c) => {
@@ -85,9 +89,15 @@ export function signInOptionsRouter(options: SignInOptionsRouteOptions): Hono<Ap
     try {
       taken = await store.take({ key, limit, windowMs });
     } catch (cause) {
-      c.get('log').warn(
-        `sign-in options: the rate-limit store failed, so this lookup isn't counted: ${cause instanceof Error ? cause.message : String(cause)}`,
-      );
+      uncounted += 1;
+      const now = Date.now();
+      if (lastWarnedAt === undefined || now - lastWarnedAt >= STORE_FAILED_WARN_EVERY_MS) {
+        c.get('log').warn(
+          `sign-in options: the rate-limit store failed, so lookups aren't counted (${uncounted} since the last warning): ${cause instanceof Error ? cause.message : String(cause)}`,
+        );
+        lastWarnedAt = now;
+        uncounted = 0;
+      }
       taken = { allowed: true };
     }
     if (!taken.allowed) {
