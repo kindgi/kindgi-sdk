@@ -344,3 +344,14 @@ variable "image_repository" {
   })
   default = null
 }
+
+variable "trusted_proxies" {
+  description = "KINDGI_TRUSTED_PROXIES on the server: which proxies in front of it to trust for a client's address, which rate limits and audit records use. A hop count, or comma-separated IPs/CIDR ranges. Cloud Run's front end appends the client to X-Forwarded-For, so 1; add one for each proxy you put in front of it (an external Application Load Balancer: 2). Empty leaves it unset, and every client counts as Cloud Run's front end."
+  type        = string
+  default     = "1"
+
+  validation {
+    condition     = var.trusted_proxies == "" || can(regex("^[1-9][0-9]*$", var.trusted_proxies)) || can(regex("^[0-9a-fA-F]*[.:][0-9a-fA-F:./]*( *, *[0-9a-fA-F]*[.:][0-9a-fA-F:./]*)*$", var.trusted_proxies))
+    error_message = "trusted_proxies: a hop count (1, 2, ...) or comma-separated IPs/CIDR ranges."
+  }
+}

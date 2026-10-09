@@ -204,3 +204,53 @@ run "a_service_named_twice_is_refused" {
 
   expect_failures = [var.pack_run_invokers]
 }
+
+# Cloud Run's front end appends the client to X-Forwarded-For, and the
+# container's peer is its own proxy (measured live, 2026-10-08): one trusted
+# hop by default, so rate limits and audit records see the client.
+run "trusts_one_proxy_by_default" {
+  command = plan
+  assert {
+    condition = one([
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.value
+      if e.name == "KINDGI_TRUSTED_PROXIES"
+    ]) == "1"
+    error_message = "The server trusts one hop: Cloud Run's front end."
+  }
+}
+
+run "trusted_proxies_takes_ranges" {
+  command = plan
+  variables {
+    trusted_proxies = "10.0.0.0/8, 2001:db8::/32"
+  }
+  assert {
+    condition = one([
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.value
+      if e.name == "KINDGI_TRUSTED_PROXIES"
+    ]) == "10.0.0.0/8, 2001:db8::/32"
+    error_message = "IP/CIDR ranges pass through as given."
+  }
+}
+
+run "empty_trusted_proxies_leaves_it_unset" {
+  command = plan
+  variables {
+    trusted_proxies = ""
+  }
+  assert {
+    condition = length([
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.name
+      if e.name == "KINDGI_TRUSTED_PROXIES"
+    ]) == 0
+    error_message = "An empty trusted_proxies sets no KINDGI_TRUSTED_PROXIES."
+  }
+}
+
+run "trusted_proxies_refuses_a_word" {
+  command = plan
+  variables {
+    trusted_proxies = "all"
+  }
+  expect_failures = [var.trusted_proxies]
+}
