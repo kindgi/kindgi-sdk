@@ -17,7 +17,7 @@ heading into its version.
   `ToolContext.forTest(log)` takes a logger for a unit test. `ToolContext`
   gains the `log` component. The logger, `com.kindgi.log`, redacts
   secret-looking keys and known secret shapes, and writes exactly the records
-  of `@kindgi/log`'s shared vectors. (#PR)
+  of `@kindgi/log`'s shared vectors. (#393)
 - `kindgi-client`: **every 409 is a `ConflictException`.** A 409 whose code the
   client didn't list was a `ServerException`; now it's a conflict, as a 404 is
   a `NotFoundException`. Twenty codes the API documents move, such as
