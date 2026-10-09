@@ -81,7 +81,6 @@ async function erasures(argv: readonly string[]) {
 describe('kindgi memory erasures (T273 M-5)', () => {
   test.each([
     [['--participant=end-7'], { subject: { kind: 'participant', id: 'end-7' } }],
-    [['--user=u-1'], { subject: { kind: 'user', id: 'u-1' } }],
     [['--external=ext-1'], { subject: { kind: 'external', id: 'ext-1' } }],
     [['--fact=f-1'], { factId: 'f-1' }],
     [['--conversation=c-1'], { conversationId: 'c-1' }],
@@ -93,12 +92,18 @@ describe('kindgi memory erasures (T273 M-5)', () => {
   });
 
   test('create refuses none, or more than one, selector', async () => {
-    for (const flags of [[], ['--fact=f-1', '--user=u-1']]) {
+    for (const flags of [[], ['--fact=f-1', '--external=ext-1']]) {
       const { out, calls } = await erasures(['create', ...flags]);
       expect(out.exitCode).not.toBe(0);
       expect(out.stderr).toContain('Name exactly one of');
       expect(calls).toEqual([]);
     }
+  });
+
+  test("create has no --user: erasing a Kindgi user isn't offered", async () => {
+    const { out, calls } = await erasures(['create', '--user=u-1']);
+    expect(out.exitCode).not.toBe(0);
+    expect(calls).toEqual([]);
   });
 
   test('get, and list as a table', async () => {

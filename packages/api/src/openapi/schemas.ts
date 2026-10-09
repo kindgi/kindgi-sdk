@@ -3781,7 +3781,7 @@ export const RetrieveMemoryResultSchema: JsonSchema = {
 
 const ErasureSelectorKindSchema: JsonSchema = {
   type: 'string',
-  enum: ['fact', 'participant', 'user', 'external', 'conversation'],
+  enum: ['fact', 'participant', 'external', 'conversation'],
 };
 
 const ErasureStatusSchema: JsonSchema = {
@@ -3806,14 +3806,14 @@ export const MemoryErasureSubjectSelectorSchema: JsonSchema = {
   additionalProperties: false,
   required: ['subject'],
   description:
-    "A person: an app's end user (`participant`), a Kindgi `user`, or an `external` subject facts name.",
+    "A person: an app's end user (`participant`), or an `external` subject facts name. Erasing a Kindgi user isn't offered.",
   properties: {
     subject: {
       type: 'object',
       additionalProperties: false,
       required: ['kind', 'id'],
       properties: {
-        kind: { type: 'string', enum: ['participant', 'user', 'external'] },
+        kind: { type: 'string', enum: ['participant', 'external'] },
         id: { type: 'string', minLength: 1, maxLength: 256 },
       },
     },
@@ -3838,7 +3838,7 @@ const MEMORY_ERASURE_SELECTORS = [
 /** Whose words to erase: exactly one of a fact, a person or a conversation. */
 export const MemoryErasureSelectorSchema: JsonSchema = {
   description:
-    "Whose words to erase: one fact (`factId`), a person (`subject`: an app's end user `participant`, a Kindgi `user`, or an `external` subject facts name), or one conversation (`conversationId`).",
+    "Whose words to erase: one fact (`factId`), a person (`subject`: an app's end user `participant`, or an `external` subject facts name), or one conversation (`conversationId`).",
   oneOf: MEMORY_ERASURE_SELECTORS,
 };
 
@@ -3847,7 +3847,7 @@ export const MemoryErasureSelectorSchema: JsonSchema = {
 // away by the Python generator (as `RegisterIdentityProviderBody`).
 export const CreateMemoryErasureBodySchema: JsonSchema = {
   description:
-    "Whose words to erase: one fact (`factId`), a person (`subject`: an app's end user `participant`, a Kindgi `user`, or an `external` subject facts name), or one conversation (`conversationId`).",
+    "Whose words to erase: one fact (`factId`), a person (`subject`: an app's end user `participant`, or an `external` subject facts name), or one conversation (`conversationId`).",
   oneOf: MEMORY_ERASURE_SELECTORS,
 };
 

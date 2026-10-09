@@ -7325,7 +7325,7 @@
         "required": [
           "subject"
         ],
-        "description": "A person: an app's end user (`participant`), a Kindgi `user`, or an `external` subject facts name.",
+        "description": "A person: an app's end user (`participant`), or an `external` subject facts name. Erasing a Kindgi user isn't offered.",
         "properties": {
           "subject": {
             "type": "object",
@@ -7339,7 +7339,6 @@
                 "type": "string",
                 "enum": [
                   "participant",
-                  "user",
                   "external"
                 ]
               },
@@ -7368,7 +7367,7 @@
         }
       },
       "MemoryErasureSelector": {
-        "description": "Whose words to erase: one fact (`factId`), a person (`subject`: an app's end user `participant`, a Kindgi `user`, or an `external` subject facts name), or one conversation (`conversationId`).",
+        "description": "Whose words to erase: one fact (`factId`), a person (`subject`: an app's end user `participant`, or an `external` subject facts name), or one conversation (`conversationId`).",
         "oneOf": [
           {
             "$ref": "#/components/schemas/MemoryErasureFactSelector"
@@ -7382,7 +7381,7 @@
         ]
       },
       "CreateMemoryErasureBody": {
-        "description": "Whose words to erase: one fact (`factId`), a person (`subject`: an app's end user `participant`, a Kindgi `user`, or an `external` subject facts name), or one conversation (`conversationId`).",
+        "description": "Whose words to erase: one fact (`factId`), a person (`subject`: an app's end user `participant`, or an `external` subject facts name), or one conversation (`conversationId`).",
         "oneOf": [
           {
             "$ref": "#/components/schemas/MemoryErasureFactSelector"
@@ -7419,7 +7418,6 @@
             "enum": [
               "fact",
               "participant",
-              "user",
               "external",
               "conversation"
             ]
@@ -7598,7 +7596,6 @@
             "enum": [
               "fact",
               "participant",
-              "user",
               "external",
               "conversation"
             ]
@@ -17554,7 +17551,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body; or an erasure of the turn's person (its conversation, its `participantId`, or the user it acts for) is in progress (`erasure-in-progress`): no new turn starts for them until it completes.",
+            "description": "Idempotency-Key was reused with a different body; or an erasure of the turn's person (its conversation or its `participantId`) is in progress (`erasure-in-progress`): no new turn starts for them until it completes.",
             "content": {
               "application/json": {
                 "schema": {
@@ -25782,7 +25779,7 @@
             }
           },
           "400": {
-            "description": "Not exactly one of `factId`, `subject` or `conversationId`.",
+            "description": "Not exactly one of `factId`, `subject` or `conversationId`; or a `subject` of kind `user` (erasing a Kindgi user isn't offered).",
             "content": {
               "application/json": {
                 "schema": {
@@ -25832,7 +25829,7 @@
             }
           }
         },
-        "description": "Starts erasing, in the background, one fact (`factId`), a person (`subject`: an app's end user `participant`, a Kindgi `user`, or an `external` subject facts name) or one conversation (`conversationId`): their facts, conversations (messages, recall rows), the runs that served them (input, output, journal, snapshots) and the free text they left in provenance; facts written from them go to review. Answers `202` with the erasure; follow it with `GET /v1/memory/erasures/{erasureId}`. A completed erasure keeps no identifier, only a keyed hash for a replay after a backup restore; `warnings` says when this deployment can't keep one (`erasure-unmatchable`: no erasure ledger key, `KINDGI_ERASURE_LEDGER_KEY`). Requires `admin` on the tenant.",
+        "description": "Starts erasing, in the background, one fact (`factId`), a person (`subject`: an app's end user `participant`, or an `external` subject facts name) or one conversation (`conversationId`): their facts, conversations (messages, recall rows), the runs that served them (input, output, journal, snapshots) and the free text they left in provenance; facts written from them go to review. Answers `202` with the erasure; follow it with `GET /v1/memory/erasures/{erasureId}`. A completed erasure keeps no identifier, only a keyed hash for a replay after a backup restore; `warnings` says when this deployment can't keep one (`erasure-unmatchable`: no erasure ledger key, `KINDGI_ERASURE_LEDGER_KEY`). Requires `admin` on the tenant.",
         "parameters": [
           {
             "name": "Idempotency-Key",

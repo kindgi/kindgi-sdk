@@ -129,11 +129,10 @@ export function memoryErasuresRouter(
 }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const SUBJECT_KINDS = ['participant', 'user', 'external'] as const;
+const SUBJECT_KINDS = ['participant', 'external'] as const;
 const SELECTOR_KINDS: readonly MemoryErasureSelectorKind[] = [
   'fact',
   'participant',
-  'user',
   'external',
   'conversation',
 ];
@@ -186,8 +185,11 @@ function parseSelector(body: unknown): MemoryErasureSelector | string {
   }
   const s = b.subject as { kind?: unknown; id?: unknown } | null;
   if (s === null || typeof s !== 'object') return '`subject` must be `{kind, id}`';
+  if (s.kind === 'user') {
+    return "Erasing a Kindgi user isn't offered: `subject.kind` must be `participant` (an app's end user) or `external`";
+  }
   if (!SUBJECT_KINDS.includes(s.kind as (typeof SUBJECT_KINDS)[number])) {
-    return '`subject.kind` must be `participant`, `user` or `external`';
+    return '`subject.kind` must be `participant` or `external`';
   }
   if (!isId(s.id)) return '`subject.id` must be a non-empty string';
   return { subject: { kind: s.kind as (typeof SUBJECT_KINDS)[number], id: s.id } };

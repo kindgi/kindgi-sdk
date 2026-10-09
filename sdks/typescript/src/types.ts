@@ -1240,14 +1240,15 @@ export interface RetrievalResult {
 
 /**
  * Whose words to erase: one fact, a person (an app's end user
- * `participant`, a Kindgi `user`, or an `external` subject facts name),
- * or one conversation. Matches `@kindgi/api/openapi.json#MemoryErasureSelector`.
+ * `participant`, or an `external` subject facts name), or one
+ * conversation. Erasing a Kindgi user isn't offered. Matches
+ * `@kindgi/api/openapi.json#MemoryErasureSelector`.
  */
 export type MemoryErasureSelector =
   | { readonly factId: string }
   | {
       readonly subject: {
-        readonly kind: 'participant' | 'user' | 'external';
+        readonly kind: 'participant' | 'external';
         readonly id: string;
       };
     }
@@ -1258,7 +1259,7 @@ export type MemoryErasureStatus = 'pending' | 'running' | 'waiting-on-run' | 'co
 /** An erasure and how far it got. Matches `@kindgi/api/openapi.json#MemoryErasure`. */
 export interface MemoryErasure {
   readonly id: string;
-  readonly selectorKind: 'fact' | 'participant' | 'user' | 'external' | 'conversation';
+  readonly selectorKind: 'fact' | 'participant' | 'external' | 'conversation';
   /** Only while it runs: a completed or failed erasure keeps no identifier. */
   readonly selector?: MemoryErasureSelector;
   readonly status: MemoryErasureStatus;

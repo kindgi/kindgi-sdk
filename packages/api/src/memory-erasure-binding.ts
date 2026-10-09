@@ -49,25 +49,20 @@ export interface MemoryErasureBinding {
 
 /**
  * Whose words to erase: one fact, a person (an app's end user
- * `participant`, a Kindgi `user`, or an `external` subject facts name),
- * or one conversation.
+ * `participant`, or an `external` subject facts name), or one
+ * conversation. Erasing a Kindgi user isn't offered.
  */
 export type MemoryErasureSelector =
   | { readonly factId: string }
   | {
       readonly subject: {
-        readonly kind: 'participant' | 'user' | 'external';
+        readonly kind: 'participant' | 'external';
         readonly id: string;
       };
     }
   | { readonly conversationId: string };
 
-export type MemoryErasureSelectorKind =
-  | 'fact'
-  | 'participant'
-  | 'user'
-  | 'external'
-  | 'conversation';
+export type MemoryErasureSelectorKind = 'fact' | 'participant' | 'external' | 'conversation';
 
 /**
  * `waiting-on-run`: a turn of the person's sits in a flow that serves

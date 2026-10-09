@@ -1301,7 +1301,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '422': ErrorResponse('Guardrail violation or budget exceeded.'),
       '409': ErrorResponse(
-        "Idempotency-Key was reused with a different body; or an erasure of the turn's person (its conversation, its `participantId`, or the user it acts for) is in progress (`erasure-in-progress`): no new turn starts for them until it completes.",
+        "Idempotency-Key was reused with a different body; or an erasure of the turn's person (its conversation or its `participantId`) is in progress (`erasure-in-progress`): no new turn starts for them until it completes.",
       ),
       '400': ErrorResponse(
         "Malformed request body, or the body's `projectId` isn't a project id (a UUID).",
@@ -3144,7 +3144,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'memory.createErasure',
     summary: "Erase a person's words",
     description:
-      "Starts erasing, in the background, one fact (`factId`), a person (`subject`: an app's end user `participant`, a Kindgi `user`, or an `external` subject facts name) or one conversation (`conversationId`): their facts, conversations (messages, recall rows), the runs that served them (input, output, journal, snapshots) and the free text they left in provenance; facts written from them go to review. Answers `202` with the erasure; follow it with `GET /v1/memory/erasures/{erasureId}`. A completed erasure keeps no identifier, only a keyed hash for a replay after a backup restore; `warnings` says when this deployment can't keep one (`erasure-unmatchable`: no erasure ledger key, `KINDGI_ERASURE_LEDGER_KEY`). Requires `admin` on the tenant.",
+      "Starts erasing, in the background, one fact (`factId`), a person (`subject`: an app's end user `participant`, or an `external` subject facts name) or one conversation (`conversationId`): their facts, conversations (messages, recall rows), the runs that served them (input, output, journal, snapshots) and the free text they left in provenance; facts written from them go to review. Answers `202` with the erasure; follow it with `GET /v1/memory/erasures/{erasureId}`. A completed erasure keeps no identifier, only a keyed hash for a replay after a backup restore; `warnings` says when this deployment can't keep one (`erasure-unmatchable`: no erasure ledger key, `KINDGI_ERASURE_LEDGER_KEY`). Requires `admin` on the tenant.",
     tags: ['memory'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -3152,7 +3152,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '202': { description: 'Started.', schema: ref('MemoryErasureCreated') },
       ...CommonMutationErrors,
-      '400': ErrorResponse('Not exactly one of `factId`, `subject` or `conversationId`.'),
+      '400': ErrorResponse(
+        "Not exactly one of `factId`, `subject` or `conversationId`; or a `subject` of kind `user` (erasing a Kindgi user isn't offered).",
+      ),
       '403': ErrorResponse('Not a tenant admin.'),
       '409': ErrorResponse(
         '`legal-hold`: a fact it reaches is under legal hold (`details.factIds`); nothing started.',

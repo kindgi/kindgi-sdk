@@ -181,7 +181,9 @@ describe('POST /v1/memory/erasures', () => {
     [{ factId: 'f', conversationId: 'c' }, 'Name exactly one'],
     [{ factId: '' }, '`factId`'],
     [{ subject: { kind: 'tenant', id: 'x' } }, '`subject.kind`'],
-    [{ subject: { kind: 'user' } }, '`subject.id`'],
+    [{ subject: { kind: 'participant' } }, '`subject.id`'],
+    // Erasing a Kindgi user (an employee) isn't offered.
+    [{ subject: { kind: 'user', id: 'u-1' } }, "Erasing a Kindgi user isn't offered"],
     [{ factId: 'f', note: 'x' }, 'Unknown field `note`'],
   ])('400 for %j', async (body, message) => {
     const res = await harness().call('POST', '/v1/memory/erasures', body);
@@ -194,7 +196,7 @@ describe('POST /v1/memory/erasures', () => {
     for (const body of [
       { factId: 'f' },
       { conversationId: 'c' },
-      { subject: { kind: 'user', id: 'member-1' } },
+      { subject: { kind: 'participant', id: 'end-7' } },
     ]) {
       expect((await h.call('POST', '/v1/memory/erasures', body, MEMBER)).status).toBe(403);
     }

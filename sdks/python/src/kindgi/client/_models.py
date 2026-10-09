@@ -3471,13 +3471,13 @@ class Subject(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    kind: Literal["participant", "user", "external"]
+    kind: Literal["participant", "external"]
     id: Annotated[str, Field(max_length=256, min_length=1)]
 
 
 class MemoryErasureSubjectSelector(BaseModel):
     """
-    A person: an app's end user (`participant`), a Kindgi `user`, or an `external` subject facts name.
+    A person: an app's end user (`participant`), or an `external` subject facts name. Erasing a Kindgi user isn't offered.
     """
 
     model_config = ConfigDict(
@@ -3508,7 +3508,7 @@ class CreateMemoryErasureBody(
         MemoryErasureFactSelector | MemoryErasureSubjectSelector | MemoryErasureConversationSelector
     )
     """
-    Whose words to erase: one fact (`factId`), a person (`subject`: an app's end user `participant`, a Kindgi `user`, or an `external` subject facts name), or one conversation (`conversationId`).
+    Whose words to erase: one fact (`factId`), a person (`subject`: an app's end user `participant`, or an `external` subject facts name), or one conversation (`conversationId`).
     """
 
 
@@ -3535,8 +3535,7 @@ class MemoryErasure(BaseModel):
     )
     id: UUID
     selector_kind: Annotated[
-        Literal["fact", "participant", "user", "external", "conversation"],
-        Field(alias="selectorKind"),
+        Literal["fact", "participant", "external", "conversation"], Field(alias="selectorKind")
     ]
     selector: (
         MemoryErasureFactSelector
@@ -3630,8 +3629,7 @@ class MemoryErasureLedgerEntry(BaseModel):
     )
     id: UUID
     selector_kind: Annotated[
-        Literal["fact", "participant", "user", "external", "conversation"],
-        Field(alias="selectorKind"),
+        Literal["fact", "participant", "external", "conversation"], Field(alias="selectorKind")
     ]
     selector_hmac: Annotated[str | None, Field(alias="selectorHmac", pattern="^[0-9a-f]{64}$")] = (
         None

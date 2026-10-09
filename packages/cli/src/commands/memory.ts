@@ -353,7 +353,7 @@ const ERASURES_TABLE: TableSpec<ErasurePage, Erasure> = {
   ],
 };
 
-const SELECTOR_FLAGS = ['participant', 'user', 'external', 'fact', 'conversation'] as const;
+const SELECTOR_FLAGS = ['participant', 'external', 'fact', 'conversation'] as const;
 
 const erasuresCreate: LeafCommand = {
   kind: 'leaf',
@@ -361,13 +361,12 @@ const erasuresCreate: LeafCommand = {
   description:
     "Erase a person's words: their facts, conversations, the runs that served them, and what those left in provenance. Runs in the background; a tenant admin only.",
   usage:
-    'kindgi memory erasures create (--participant=<id> | --user=<id> | --external=<id> | --fact=<fact-id> | --conversation=<conversation-id>)',
+    'kindgi memory erasures create (--participant=<id> | --external=<id> | --fact=<fact-id> | --conversation=<conversation-id>)',
   optionSpec: {
     participant: {
       type: 'string',
       description: "An app's end user (the `participantId` it gave).",
     },
-    user: { type: 'string', description: 'A Kindgi user.' },
     external: { type: 'string', description: 'A person facts name as an `external` subject.' },
     fact: { type: 'string', description: 'One fact, every revision.' },
     conversation: { type: 'string', description: 'One conversation.' },
@@ -376,9 +375,7 @@ const erasuresCreate: LeafCommand = {
     runSdk(ctx, 'memory erasures create', async () => {
       const given = SELECTOR_FLAGS.filter((f) => stringFlag(ctx, f) !== undefined);
       if (given.length !== 1) {
-        throw new Error(
-          'Name exactly one of --participant, --user, --external, --fact or --conversation',
-        );
+        throw new Error('Name exactly one of --participant, --external, --fact or --conversation');
       }
       const flag = given[0] as (typeof SELECTOR_FLAGS)[number];
       const id = stringFlag(ctx, flag) as string;
