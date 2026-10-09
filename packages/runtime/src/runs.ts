@@ -70,6 +70,11 @@ export interface KernelRunRecord {
   /** Set on a run a trigger started (`RunTriggerRef`). */
   readonly trigger?: RunTriggerRef;
   /**
+   * When an erasure cleared the run's content (its input, output, failure
+   * message and journal payloads). Absent on every other run.
+   */
+  readonly contentErasedAt?: Timestamp;
+  /**
    * The W3C trace id of the request that started the run
    * (`RunFlowInput.traceId`). Absent for a run no request started, and on
    * runs from before runs recorded it.

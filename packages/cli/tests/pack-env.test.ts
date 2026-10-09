@@ -52,6 +52,27 @@ describe('devPackEnv', () => {
     });
   });
 
+  test("a file's ${VAR} references, a key's reference to itself included, take the shell's value; nothing else does (T377)", async () => {
+    await writeFile(
+      join(dir, '.env'),
+      'ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}\nACME_URL=https://${ACME_HOST}/v1\nMISSING=${NOT_IN_SHELL}\n',
+    );
+    const env = await devPackEnv({
+      packDir: dir,
+      hostEnv: {
+        ANTHROPIC_API_KEY: 'sk-shell',
+        ACME_HOST: 'api.example.com',
+        AWS_SECRET_ACCESS_KEY: 'leak',
+      },
+    });
+    expect(env).toEqual({
+      ANTHROPIC_API_KEY: 'sk-shell',
+      ACME_URL: 'https://api.example.com/v1',
+      MISSING: '',
+      NODE_ENV: 'development',
+    });
+  });
+
   test('dev.envFiles replaces the default files', async () => {
     await writeFile(join(dir, '.env'), 'FROM_DEFAULT=1\n');
     await writeFile(join(dir, 'config.env'), 'FROM_CONFIG=1\n');

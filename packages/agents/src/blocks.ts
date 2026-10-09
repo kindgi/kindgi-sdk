@@ -180,7 +180,8 @@ function settingsIssues(content: unknown): BlockIssue[] {
   if (c.schema === null || typeof c.schema !== 'object' || Array.isArray(c.schema)) {
     return [{ path: '/content/schema', message: 'schema must be a JSON Schema object' }];
   }
-  return settingsSchemaIssues(c.values, c.schema as Readonly<Record<string, unknown>>);
+  const schema = c.schema as Readonly<Record<string, unknown>>;
+  return [...tunableIssues(schema), ...settingsSchemaIssues(c.values, schema)];
 }
 
 function invalid(issues: readonly BlockIssue[]): Result<never, InvalidBlock> {
@@ -230,4 +231,77 @@ export interface BlockReader {
     readonly tenantId: TenantId;
     readonly blockId: string;
   }): Promise<readonly string[]>;
+}
+
+/** The schema marker that lets an improvement pass search a settings key's values. */
+export const TUNABLE_MARKER = 'x-kindgi-tunable';
+
+/** A settings key an improvement pass may search: a bounded number, or one of a list. */
+export type TunableKey =
+  | {
+      readonly key: string;
+      readonly kind: 'number' | 'integer';
+      readonly minimum: number;
+      readonly maximum: number;
+    }
+  | { readonly key: string; readonly kind: 'enum'; readonly values: readonly unknown[] };
+
+function schemaProperties(
+  schema: Readonly<Record<string, unknown>>,
+): readonly [string, Readonly<Record<string, unknown>>][] {
+  const props = schema.properties;
+  if (props === null || typeof props !== 'object' || Array.isArray(props)) return [];
+  return Object.entries(props).flatMap(([key, value]) =>
+    value !== null && typeof value === 'object' && !Array.isArray(value)
+      ? [[key, value as Readonly<Record<string, unknown>>] as const]
+      : [],
+  );
+}
+
+function tunableOf(key: string, prop: Readonly<Record<string, unknown>>): TunableKey | undefined {
+  if (Array.isArray(prop.enum) && prop.enum.length > 1) {
+    return { key, kind: 'enum', values: prop.enum };
+  }
+  const { type, minimum, maximum } = prop;
+  if (
+    (type === 'number' || type === 'integer') &&
+    typeof minimum === 'number' &&
+    typeof maximum === 'number' &&
+    minimum < maximum
+  ) {
+    return { key, kind: type, minimum, maximum };
+  }
+  return undefined;
+}
+
+/**
+ * The settings keys a schema marks tunable (`"x-kindgi-tunable": true` on
+ * a top-level property): what an improvement pass may search, within the
+ * bounds the schema gives. Nothing is tunable unless its author says so.
+ */
+export function tunableKeys(schema: Readonly<Record<string, unknown>> | undefined): TunableKey[] {
+  if (schema === undefined) return [];
+  return schemaProperties(schema).flatMap(([key, prop]) => {
+    if (prop[TUNABLE_MARKER] !== true) return [];
+    const tunable = tunableOf(key, prop);
+    return tunable === undefined ? [] : [tunable];
+  });
+}
+
+/** A tunable mark on a key it can't apply to: a number without both bounds, say. */
+function tunableIssues(schema: Readonly<Record<string, unknown>>): BlockIssue[] {
+  return schemaProperties(schema).flatMap(([key, prop]) => {
+    const mark = prop[TUNABLE_MARKER];
+    if (mark === undefined) return [];
+    const path = `/content/schema/properties/${key.replaceAll('~', '~0').replaceAll('/', '~1')}/${TUNABLE_MARKER}`;
+    if (mark !== true) return [{ path, message: `${TUNABLE_MARKER} must be true when given` }];
+    return tunableOf(key, prop) === undefined
+      ? [
+          {
+            path,
+            message: `"${key}" can be tunable only as a number or integer with a minimum below its maximum, or with an enum of two or more values`,
+          },
+        ]
+      : [];
+  });
 }

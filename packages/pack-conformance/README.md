@@ -31,9 +31,25 @@ It checks, from the outside:
 |---|---|---|---|
 | `tests/node.test.ts` | `runIndexer` (`@kindgi/handler-runtime`) | `@kindgi/handler-runtime/pack-service-main` | `fixtures/node-pack` |
 | `tests/python.test.ts` | `python -m kindgi.pack index` | `python -m kindgi.pack serve` | `fixtures/python-pack` |
+| `tests/java.test.ts` | `com.kindgi.pack.Main index` | `kindgi-pack-java … com.kindgi.pack.Main serve` | `fixtures/java-pack` |
+| `tests/scala.test.ts` | `com.kindgi.pack.Main index` | `kindgi-pack-java … com.kindgi.pack.Main serve` | `fixtures/scala-pack` |
 
 The Python target uses `KINDGI_CONFORMANCE_PYTHON`, else `sdks/python/.venv`
 (`uv sync` in `sdks/python`), and is skipped — saying why — when neither exists.
+
+The Java target uses the JDK 17+ in `KINDGI_CONFORMANCE_JAVA_HOME`, else
+`JAVA_HOME`, else the `java` on PATH, and the built `sdks/java/kindgi-pack`
+(`./mvnw -pl kindgi-pack -am compile` in `sdks/java`). It compiles the fixture
+pack against them and starts the service through its launcher. Without a JDK or
+the build it's skipped, saying why; under CI it fails instead.
+
+The Scala target runs the same service and indexer on the fixture pack in Scala
+(`kindgi-pack-scala`, `sdks/scala`). sbt builds that fixture against the layer
+from source: with kindgi-pack installed (`./mvnw -pl kindgi-pack -am install
+-DskipTests`), `sbt writeClasspath` in `fixtures/scala-pack` writes
+`target/classpath.txt` (Scala 3; `sbt "++2.13.18!" writeClasspath` for 2.13).
+Without it the target is skipped, saying why. The Scala job sets
+`KINDGI_CONFORMANCE_SCALA=1`, under which it fails instead.
 
 A target that hasn't implemented part of the contract yet lists it in
 `unsupported` (`ConformanceFeature`, e.g. `'pack-env'`): those cases are skipped

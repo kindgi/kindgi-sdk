@@ -25,7 +25,9 @@
  * `scripts/sync-python-version.mjs --check`'s, not this script's.
  *
  * publint and attw run for several packages at once (`KINDGI_PUBLISH_CHECK_JOBS`,
- * default 6): one at a time they took two minutes for 38 packages.
+ * default 6): one at a time they took two minutes for 38 packages. Each attw
+ * run reads a tarball packed into a directory of its own (`pack-tarball.mjs`),
+ * never `attw --pack`'s shared one in the package's folder (T395).
  *
  * Requires a prior `pnpm run build`. Usage: `pnpm run check:publish`.
  */
@@ -35,6 +37,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { cpus } from 'node:os';
 import { join, relative } from 'node:path';
 import { promisify } from 'node:util';
+
+import { withOwnTarball } from './pack-tarball.mjs';
 
 const run = promisify(execFile);
 const JOBS = Math.max(
@@ -66,21 +70,30 @@ function exportEntries(exportsField) {
   );
 }
 
-/** Run a root dev tool (`node_modules/.bin`, no `pnpm exec` start-up per call); its output when it fails. */
-async function check(args) {
-  try {
-    await run(join(root, 'node_modules', '.bin', args[0]), args.slice(1), {
+/**
+ * Run a root dev tool (`node_modules/.bin`, no `pnpm exec` start-up per call); its output when it
+ * fails. With `packageDir`, the package is packed into a directory of its own first, and the
+ * tarball's path is the tool's first argument.
+ */
+async function check(args, packageDir) {
+  const tool = (argv) =>
+    run(join(root, 'node_modules', '.bin', argv[0]), argv.slice(1), {
       cwd: root,
       encoding: 'utf8',
       maxBuffer: 16 * 1024 * 1024,
     });
+  try {
+    if (packageDir === undefined) await tool(args);
+    else await withOwnTarball(packageDir, (tarball) => tool([args[0], tarball, ...args.slice(1)]));
     return undefined;
   } catch (err) {
-    return `${err.stdout ?? ''}${err.stderr ?? ''}`;
+    return `${err.stdout ?? ''}${err.stderr ?? ''}` || String(err);
   }
 }
 
-const tools = []; // [name, label, args] for publint and attw, run in parallel below
+// [name, label, args, packageDir?] for publint and attw, run in parallel below; attw gets
+// `packageDir`, packed into a directory of its own (`check`).
+const tools = [];
 const cjsChecked = []; // package dirs for the CommonJS check
 for (const pkg of workspace) {
   if (pkg.path === root) continue;
@@ -116,7 +129,7 @@ for (const pkg of workspace) {
 
   tools.push([name, 'publint', ['publint', pkg.path, '--strict']]);
   if (hasRequireCondition(manifest.exports)) {
-    tools.push([name, 'are-the-types-wrong', ['attw', '--pack', pkg.path]]);
+    tools.push([name, 'are-the-types-wrong', ['attw'], pkg.path]);
   } else {
     // ES modules for every caller. From CommonJS they resolve and are typed
     // through `default`; loading them with `require()` is Node 22.12's and
@@ -129,20 +142,20 @@ for (const pkg of workspace) {
       'are-the-types-wrong',
       [
         'attw',
-        '--pack',
-        pkg.path,
         '--profile',
         'node16',
         '--ignore-rules',
         'cjs-resolves-to-esm',
         ...(programs.length > 0 ? ['--exclude-entrypoints', ...programs] : []),
       ],
+      pkg.path,
     ]);
     if (programs.length > 0) {
       tools.push([
         name,
         'are-the-types-wrong (programs)',
-        ['attw', '--pack', pkg.path, '--profile', 'esm-only', '--entrypoints', ...programs],
+        ['attw', '--profile', 'esm-only', '--entrypoints', ...programs],
+        pkg.path,
       ]);
     }
   }
@@ -172,7 +185,7 @@ await Promise.all(
   Array.from({ length: Math.min(JOBS, tools.length) }, async () => {
     while (next < tools.length) {
       const i = next++;
-      results[i] = await check(tools[i][2]);
+      results[i] = await check(tools[i][2], tools[i][3]);
     }
   }),
 );

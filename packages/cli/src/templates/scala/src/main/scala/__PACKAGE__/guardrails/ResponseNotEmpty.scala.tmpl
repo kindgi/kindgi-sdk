@@ -1,0 +1,21 @@
+package {{SCALA_PACKAGE}}.guardrails
+
+import com.kindgi.pack.scaladsl._
+import jakarta.validation.constraints.Min
+
+/** {{PACK_ID}}.response-not-empty — a zero-LLM guardrail: the run's answer has content. */
+object ResponseNotEmpty {
+  final case class Config(@Min(value = 0) minLength: Int = 1)
+
+  val guardrail: Guardrail[Config] = Guardrail[Config]("{{PACK_ID}}.response-not-empty")
+    .name("Response is non-empty")
+    .checkId("{{PACK_ID}}.checks.response-not-empty")
+    .onViolation("halt")
+    .severity("error")
+    .set("scope", Map("when" -> "runtime-only"))
+    .check { (config, trace) =>
+      val text = Option(trace.output).getOrElse("").strip
+      if (text.length >= config.minLength) CheckResult.pass
+      else CheckResult.fail(s"Response too short: ${text.length} chars, expected >= ${config.minLength}.")
+    }
+}

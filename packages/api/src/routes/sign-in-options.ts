@@ -25,6 +25,17 @@ export interface SignInOptionsRouteOptions {
   readonly identityProvider?: IdentityProviderBinding;
   /** Whether a person may sign in to the console with an API token here. */
   readonly tokenSignIn: boolean;
+  /**
+   * The emailed sign-in link, when the deployment offers it: a sign-in page
+   * shows "Email me a sign-in link", with the Turnstile widget when there's
+   * a site key. `allowedFor`: whether it's offered for an email's domain
+   * (say, not where a workspace signs its people in with its own identity
+   * provider). Absent: for every domain.
+   */
+  readonly emailLink?: {
+    readonly captchaSiteKey?: string;
+    readonly allowedFor?: (emailDomain: string) => Promise<boolean>;
+  };
   readonly rateLimit?: SignInOptionsRateLimit;
 }
 
@@ -34,9 +45,11 @@ export interface SignInOptionsRateLimit {
   /** Default 60 000 ms. */
   readonly windowMs?: number;
   /**
-   * Who the client is. Default: the first `X-Forwarded-For` address, else
-   * one shared bucket. A deployment whose proxy sets another header (or
-   * that sees the socket address) passes its own.
+   * Who the client is. Default: the nearest `X-Forwarded-For` hop (the
+   * rightmost, written by the proxy in front), else one shared bucket;
+   * never the leftmost, which the client writes. A deployment that knows
+   * its client's address (the socket's, or past its trusted proxies)
+   * passes its own.
    */
   readonly clientKey?: (request: Request) => string;
 }
@@ -100,16 +113,30 @@ export function signInOptionsRouter(options: SignInOptionsRouteOptions): Hono<Ap
       identityProvider?.signInOptions === undefined || emailDomain === undefined
         ? []
         : await identityProvider.signInOptions({ emailDomain });
+    const emailLink = options.emailLink;
+    const linkOffered =
+      emailLink !== undefined &&
+      (emailDomain === undefined ||
+        emailLink.allowedFor === undefined ||
+        (await emailLink.allowedFor(emailDomain)));
     c.header('Cache-Control', 'no-store');
     return c.json({
       data: offered.map((o) => ({
         providerId: o.providerId,
         displayName: o.displayName,
         signInUrl: o.signInUrl,
+        ...(o.owner !== undefined && { owner: o.owner }),
       })),
       methods: {
         identityProviders: identityProvider !== undefined,
         apiToken: options.tokenSignIn,
+        ...(linkOffered && {
+          emailLink: {
+            ...(emailLink.captchaSiteKey !== undefined && {
+              captchaSiteKey: emailLink.captchaSiteKey,
+            }),
+          },
+        }),
       },
     });
   });
@@ -117,9 +144,11 @@ export function signInOptionsRouter(options: SignInOptionsRouteOptions): Hono<Ap
 }
 
 function defaultClientKey(request: Request): string {
-  const forwarded = request.headers.get('x-forwarded-for');
-  const first = forwarded?.split(',')[0]?.trim();
-  return first !== undefined && first.length > 0 ? first : 'shared';
+  const hops = (request.headers.get('x-forwarded-for') ?? '')
+    .split(',')
+    .map((h) => h.trim())
+    .filter((h) => h !== '');
+  return hops.at(-1) ?? 'shared';
 }
 
 function pruneExpired(
