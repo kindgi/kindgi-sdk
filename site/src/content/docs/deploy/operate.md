@@ -374,13 +374,15 @@ and what's different after:
   with a config that fits
   ([Configure a guardrail](../../guides/guardrails/configure-a-guardrail/)).
 - **A halting guardrail whose check can't run now stops the turn; it used to
-  let it through.** That's a check that can't run, for any reason: it isn't
-  registered, the check refuses its config, it throws, its pack's service
-  can't be reached, or an `llm-judge` guardrail's judge can't be routed to a
-  model. With `halt`, the turn fails with `guardrail-violation`, and
-  `evaluationErrors` says which guardrail and why. With any other action, the
-  turn goes on; in 0.1.4 a check that threw failed the turn whatever the
-  action. Either way, the error is in the run's provenance and journal
+  let it through.** That's a check that can't run, for any reason: no check
+  by that name is registered, its configuration is invalid, an `llm-judge`
+  guardrail's judge can't be routed to a model, or the check throws
+  (`check-failed`: pack code that crashed, a pack service that couldn't be
+  reached, a judge call that failed). With `halt`, the turn fails with
+  `guardrail-violation`, and `evaluationErrors` says which guardrail and why.
+  With any other action, the turn goes on; in 0.1.4 a check that threw failed
+  the turn whatever the action. Either way, the error is in the run's
+  provenance and journal
   ([When the check can't run](../../guides/guardrails/halt-or-record/#when-the-check-cant-run)).
 - **The runtime signs exports** (audit bundles, provenance, compliance
   evidence) with the deployment's export key: set
