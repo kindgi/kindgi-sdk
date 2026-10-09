@@ -368,7 +368,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_EXPORT_SIGNING_KMS_KEY',
     description:
-      "Optional: a Cloud KMS key version that signs exports, so the private key never leaves KMS: `projects/<p>/locations/<l>/keyRings/<r>/cryptoKeys/<k>/cryptoKeyVersions/<n>`. It must be an `EC_SIGN_ED25519` key (it signs `ed25519`) or an `EC_SIGN_P256_SHA256` key (`ecdsa-p256-sha256`), and the server's service account needs `roles/cloudkms.signerVerifier` on it (and `roles/cloudkms.publicKeyViewer`, to read its public key at boot).",
+      "Optional: a KMS key version that signs exports, so the private key never leaves the KMS. Its shape picks the KMS. **Cloud KMS:** `projects/<p>/locations/<l>/keyRings/<r>/cryptoKeys/<k>/cryptoKeyVersions/<n>`, an `EC_SIGN_ED25519` key (it signs `ed25519`) or an `EC_SIGN_P256_SHA256` key (`ecdsa-p256-sha256`); the server's service account needs `roles/cloudkms.signerVerifier` on it (and `roles/cloudkms.publicKeyViewer`, to read its public key at boot). **Azure Key Vault:** `https://<vault>.vault.azure.net/keys/<name>/<version>`, with its version, an EC P-256 key allowed to sign (`ecdsa-p256-sha256`: Key Vault has no Ed25519); the server's identity needs Key Vault Crypto User on it. Any other value stops the server at boot, naming both shapes.",
     example:
       'projects/acme/locations/global/keyRings/kindgi/cryptoKeys/exports/cryptoKeyVersions/1',
     required: false,
