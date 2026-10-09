@@ -344,10 +344,43 @@ and what's different after:
     adds `KINDGI_DEV_GOOGLE_CREDENTIALS=adc` to its `.env`
     ([Gemini on Vertex AI](../../guides/models/gemini-on-vertex-ai/));
   - `kindgi console` opens the console, and so does `kindgi dev --open`.
-- **New:** sign-in with your organization's identity provider
-  ([Set up SSO](../../guides/sso/)), and with Google, Microsoft or GitHub
-  accounts or an emailed link through the deployment's own apps
-  ([Turn on sign-in](../sign-in/)).
+- **New in 0.1.5:**
+  - **Sign-in** with your organization's identity provider
+    ([Set up SSO](../../guides/sso/)), and with Google, Microsoft or GitHub
+    accounts or an emailed link through the deployment's own apps
+    ([Turn on sign-in](../sign-in/)).
+  - **People, API keys and service accounts:** each person and pipeline acts
+    with its own key and grants
+    ([People, API keys and service accounts](../people-and-keys/)).
+  - **Schedules:** an agent or a flow at set times, as you, with a history
+    of each time it ran ([Run on a schedule](../../guides/runs/run-on-a-schedule/)).
+  - **Memory:** an agent remembers what its declaration allows
+    (`kindgi_remember`), with the scope and how long chosen by you, not the
+    model, and can recall earlier conversations. Retrieval can search by
+    meaning through an embeddings endpoint (`KINDGI_MEMORY_EMBEDDINGS`). A
+    tenant admin can erase an end user's words, their conversations and the
+    runs that served them (`kindgi memory erasures`).
+  - **Improvement passes:** propose new settings or a new prompt for an
+    agent version, compare the candidate on a test set, and promote it
+    through the scope's gate after review (`kindgi proposals`). A pass can
+    look for better settings on its own, and a schedule can start one.
+  - **Files kept with a run** (artifacts) and the capability catalog
+    ([Keep files with a run](../../guides/runs/keep-files-with-a-run/)).
+  - **A tool's env values per project** (`ctx.env`)
+    ([Give a tool env values](../../guides/tools/give-a-tool-env-values/)).
+  - **A failed run says why, as data:** `failure`, with its `code` and
+    `message`, on the run.
+  - **Logs:** a pack's service writes log records, `kindgi dev` shows them,
+    and records from a run carry its ids; providers and MCP endpoints can opt
+    in to the run's trace ([Logs](../logs/)).
+  - **Java and Scala, as a preview:**
+    [Quickstart: Java](../../start/quickstart-java/),
+    [Quickstart: Scala](../../start/quickstart-scala/) and
+    [Call Kindgi from a Java app](../../start/java-app/).
+  - **The Cloud Run module:** an image repository you already have, no KMS
+    key, calling your app's Cloud Run services from a tool, client
+    addresses, and the runtime's own settings for sign-in
+    ([Deploy on Google Cloud Run](../cloud-run/)).
 
 #### Known limitations in 0.1.5
 
