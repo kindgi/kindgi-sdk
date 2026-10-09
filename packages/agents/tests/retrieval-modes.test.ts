@@ -103,7 +103,7 @@ function memoryWith(rankings: {
 const embeddings = {} as EmbeddingProviderRegistry;
 
 describe('same-user', () => {
-  test("selects the run's end user's and user's facts, nothing else", async () => {
+  test("selects the run's end user's facts, nothing else: not the user the run acts for", async () => {
     const facts = [
       fact('e1', { projectId: acme, participantId: 'e-1' }),
       fact('u1', { userId: 'u-1' as UserId }),
@@ -119,8 +119,30 @@ describe('same-user', () => {
       { userId: 'u-1' as UserId },
     );
     if (out.kind === 'err') throw new Error(out.error.message);
-    expect(out.value.facts.map((r) => r.fact.id).sort()).toEqual(['e1', 'u1']);
-    expect(calls).toEqual(['list {"participantId":"e-1"}', 'list {"userId":"u-1"}']);
+    expect(out.value.facts.map((r) => r.fact.id)).toEqual(['e1']);
+    expect(calls).toEqual(['list {"participantId":"e-1"}']);
+  });
+
+  test("an old fact kept for a service account's user isn't read for a named customer", async () => {
+    // Before, `remember` kept a fact for the run's user when no end user was
+    // named: a service account serving many customers may hold theirs, mixed.
+    const facts = [
+      fact('mixed', { userId: 'svc' as UserId }),
+      fact('ben', { projectId: acme, participantId: 'cus_ben' }),
+    ];
+    const { memory, calls } = memoryWith({ facts });
+    const ben = { ...conversation, participantId: 'cus_ben' } as unknown as Conversation;
+    const out = await retrieveForTurn(
+      agent([{ types: ['acme.note'], scope: 'same-user' }]),
+      ben,
+      conversationId,
+      'refund',
+      { memory },
+      { userId: 'svc' as UserId },
+    );
+    if (out.kind === 'err') throw new Error(out.error.message);
+    expect(out.value.facts.map((r) => r.fact.id)).toEqual(['ben']);
+    expect(calls).toEqual(['list {"participantId":"cus_ben"}']);
   });
 
   test("a run with a user but no end user selects nothing: never the user's facts for everyone it serves", async () => {

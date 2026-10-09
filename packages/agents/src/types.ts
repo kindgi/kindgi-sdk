@@ -98,11 +98,11 @@ export interface PromptParameter {
  * end user's):
  *   - `same-conversation`: this conversation's facts.
  *   - `same-user`:         the facts of this run's end user (the
- *                          conversation's participant), and then of the
- *                          Kindgi user it acts for. None in a run that
- *                          names no end user (`participantId`): the user
- *                          a credential acts for may serve many people
- *                          (the turn says so: `memory-needs-participant`).
+ *                          conversation's participant) only. None in a
+ *                          run that names no end user (`participantId`);
+ *                          never facts keyed to the user a credential
+ *                          acts for, which may serve many people (the
+ *                          turn says so: `memory-needs-participant`).
  *   - `same-project`:      the run's project's facts; none in a run
  *                          without a project.
  *   - `tenant`:            any fact of the declared type the run may see.

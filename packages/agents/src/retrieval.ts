@@ -643,11 +643,11 @@ function selectionsFor(
       return projectId === undefined ? [] : [{ projectId }];
     }
     case 'same-user': {
-      // Only with the end user named (`retrieveForTurn` skips the intent
-      // otherwise); then the user the run acts for too, as documented.
+      // The end user's facts only (`retrieveForTurn` skips the intent when
+      // none is named). Never facts keyed to the user the run acts for:
+      // a key that served many people may hold theirs, mixed, under it.
       const participantId = runParticipantId(conversation, run);
-      if (participantId === undefined) return [];
-      return [{ participantId }, ...(run.userId !== undefined ? [{ userId: run.userId }] : [])];
+      return participantId === undefined ? [] : [{ participantId }];
     }
     case 'tenant':
       return [undefined];
