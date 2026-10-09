@@ -244,9 +244,15 @@ kindgi people remove <user-id>
 Removed Sam Rivera: 1 key(s) and 0 session(s) revoked, 1 role(s) and membership(s) taken away.
 ```
 
-In one step, before it answers, their API keys are revoked (the next request
-with one gets `401`), their sessions end, and every grant and membership is
-taken away. Their record stays, so runs, approvals and the audit trail still
+In one step, before it answers, their API keys are revoked, their sessions
+end, and every grant and membership is taken away. The next request with
+Sam's key:
+
+```text
+{"error":{"code":"auth-missing","message":"Bearer token is not recognized","requestId":"req-ea8f3a9a-f1df-4365-9f7c-7bab23beea86"}}
+```
+
+That's a `401`. Their record stays, so runs, approvals and the audit trail still
 say who they were. Adding their email again makes a new person, with nothing
 granted.
 
@@ -261,12 +267,16 @@ It's refused for yourself and for the seed user
   key** makes one for you, or, for a tenant admin, for a person or a service
   account, with its role, project and expiry. The secret shows once, with a
   Copy button.
+
+  ![The API keys page: one key, labelled laptop, acting as Sam Rivera with the member role, never used, expiring a month after it was made, with a Revoke button.](../../../assets/people/api-keys.png)
 - **People** (tenant admins): **Add a person**, each person's roles in words,
   making or unmaking a tenant admin, a key for them, and removing them.
 
   ![The People page: the seed user and one person added by email, each with their active keys and when they were added, and an Add a person button.](../../../assets/people/people.png)
 - **Service accounts** (tenant admins): create one with its grants, change
   them, make it a key, unregister it.
+
+  ![The Service accounts page: acme-ci, "Deploys from CI", editor on the Default project, with no active keys yet.](../../../assets/people/service-accounts.png)
 
 A project you have no role on shows **No access**, with the projects you can
 open.
