@@ -125,6 +125,18 @@ locals {
     )
   }
   pack_secret_names = toset([for ref in values(var.pack_secret_env) : ref.secret])
+
+  # The server's own secret settings (`server_secret_env`, sign-in's among
+  # them), one container-app secret per env name.
+  server_extra_secret_ids = {
+    for env_name, ref in var.server_secret_env :
+    env_name => (
+      ref.version == "latest"
+      ? "${azurerm_key_vault.kindgi.vault_uri}secrets/${ref.secret}"
+      : "${azurerm_key_vault.kindgi.vault_uri}secrets/${ref.secret}/${ref.version}"
+    )
+  }
+  server_extra_secret_names = toset([for ref in values(var.server_secret_env) : ref.secret])
 }
 
 # Who may read which secret: on each secret, never the whole vault. The
@@ -148,6 +160,14 @@ resource "azurerm_role_assignment" "pack_reads_token" {
   principal_type       = "ServicePrincipal"
 }
 
+resource "azurerm_role_assignment" "server_reads_its_secrets" {
+  for_each             = local.server_extra_secret_names
+  scope                = "${azurerm_key_vault.kindgi.id}/secrets/${each.value}"
+  role_definition_name = "Key Vault Secrets User"
+  principal_id         = azurerm_user_assigned_identity.server.principal_id
+  principal_type       = "ServicePrincipal"
+}
+
 resource "azurerm_role_assignment" "pack_reads_its_secrets" {
   for_each             = local.pack_secret_names
   scope                = "${azurerm_key_vault.kindgi.id}/secrets/${each.value}"
@@ -162,6 +182,7 @@ resource "time_sleep" "secret_grants" {
   create_duration = "60s"
   depends_on = [
     azurerm_role_assignment.server_reads,
+    azurerm_role_assignment.server_reads_its_secrets,
     azurerm_role_assignment.pack_reads_token,
     azurerm_role_assignment.pack_reads_its_secrets,
     azurerm_role_assignment.server_signs_exports,

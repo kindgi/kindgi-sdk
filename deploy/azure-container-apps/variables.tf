@@ -336,6 +336,57 @@ variable "erasure_ledger_key_version" {
   }
 }
 
+# ---- the server's own settings ------------------------------------------------------
+
+variable "public_url" {
+  description = "KINDGI_PUBLIC_URL on the server: the URL people open the console at, such as `terraform output -raw server_url` after the first apply, or your own domain. Sign-in with identity providers and the emailed link need it; console sign-in with an API token doesn't. When set, console sessions are accepted from this origin only. Empty leaves it unset."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.public_url == "" || can(regex("^https://[^/?#]+/?$", var.public_url))
+    error_message = "public_url: an https:// origin with no path, such as https://kindgi.example.com."
+  }
+}
+
+variable "server_env" {
+  description = "The server's own settings beyond the ones this module sets, as plain values: sign-in (`KINDGI_CONSOLE_TOKEN_SIGN_IN = \"on\"`, `KINDGI_AUTH_EMAIL_FROM`, ...) and others. A secret goes in server_secret_env instead. A name the module sets itself is refused."
+  type        = map(string)
+  default     = {}
+
+  validation {
+    condition     = alltrue([for name in keys(var.server_env) : can(regex("^[A-Z_][A-Z0-9_]*$", name))])
+    error_message = "server_env: a name is upper-case letters, digits and underscores."
+  }
+  validation {
+    condition     = alltrue([for name in keys(var.server_env) : !can(regex("SECRET|_SMTP_URL$", name))])
+    error_message = "server_env: a secret (a *SECRET* name, or the SMTP URL with its password) goes in server_secret_env, by reference to Key Vault, so its value isn't in the plan, the state or the app's configuration."
+  }
+}
+
+variable "server_secret_env" {
+  description = "The server's secret settings, by reference to this module's Key Vault: `KINDGI_AUTH_SECRET`, `KINDGI_AUTH_EMAIL_SMTP_URL`, ... Each a secret name (`secret`) and its version (`latest`, or a version id). The operator creates each secret; the server gets read access to exactly these. A name the module sets itself is refused."
+  type = map(object({
+    secret  = string
+    version = string
+    project = optional(string)
+  }))
+  default = {}
+
+  validation {
+    condition     = alltrue([for name in keys(var.server_secret_env) : can(regex("^[A-Z_][A-Z0-9_]*$", name))])
+    error_message = "server_secret_env: a name is upper-case letters, digits and underscores."
+  }
+  validation {
+    condition     = alltrue([for ref in values(var.server_secret_env) : ref.project == null])
+    error_message = "server_secret_env: `project` names a GCP project. On Azure each secret is a name in this module's Key Vault."
+  }
+  validation {
+    condition     = alltrue([for ref in values(var.server_secret_env) : can(regex("^[0-9A-Za-z-]{1,127}$", ref.secret)) && can(regex("^(latest|[0-9a-f]{32})$", ref.version))])
+    error_message = "server_secret_env: a Key Vault secret name (letters, digits, dashes) and `latest` or a 32-hex version id."
+  }
+}
+
 # ---- renewing the license key (optional) ----------------------------------------
 
 variable "license_renewal_schedule" {

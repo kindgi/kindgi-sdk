@@ -345,6 +345,109 @@ run "the_services_need_the_erasure_ledger_key_version" {
   expect_failures = [azurerm_container_app.server]
 }
 
+# The server's own settings (sign-in, among others), as the Cloud Run module
+# takes them: plain values, then Key Vault references the server alone reads.
+run "server_settings_plain_and_by_reference" {
+  command = plan
+  variables {
+    public_url = "https://kindgi.acme.example"
+    server_env = {
+      KINDGI_CONSOLE_TOKEN_SIGN_IN = "on"
+      KINDGI_AUTH_EMAIL_FROM       = "kindgi@acme.example"
+    }
+    server_secret_env = {
+      KINDGI_AUTH_SECRET         = { secret = "auth-secret", version = "0123456789abcdef0123456789abcdef" }
+      KINDGI_AUTH_EMAIL_SMTP_URL = { secret = "smtp-url", version = "latest" }
+    }
+  }
+  assert {
+    condition     = local.server_env.KINDGI_PUBLIC_URL == "https://kindgi.acme.example"
+    error_message = "public_url sets KINDGI_PUBLIC_URL."
+  }
+  assert {
+    condition     = toset([for e in azurerm_container_app.server.template[0].container[0].env : "${e.name}=${e.value}" if contains(["KINDGI_CONSOLE_TOKEN_SIGN_IN", "KINDGI_AUTH_EMAIL_FROM"], e.name)]) == toset(["KINDGI_CONSOLE_TOKEN_SIGN_IN=on", "KINDGI_AUTH_EMAIL_FROM=kindgi@acme.example"])
+    error_message = "server_env's plain values reach the server."
+  }
+  assert {
+    condition     = toset([for e in azurerm_container_app.server.template[0].container[0].env : "${e.name}>${e.secret_name}" if contains(["KINDGI_AUTH_SECRET", "KINDGI_AUTH_EMAIL_SMTP_URL"], e.name)]) == toset(["KINDGI_AUTH_SECRET>server-env-kindgi-auth-secret", "KINDGI_AUTH_EMAIL_SMTP_URL>server-env-kindgi-auth-email-smtp-url"])
+    error_message = "server_secret_env's names read container-app secrets."
+  }
+  assert {
+    condition     = toset([for s in azurerm_container_app.server.secret : "${s.name}=${s.key_vault_secret_id}" if startswith(s.name, "server-env-")]) == toset(["server-env-kindgi-auth-secret=https://kindgi-ab12.vault.azure.net/secrets/auth-secret/0123456789abcdef0123456789abcdef", "server-env-kindgi-auth-email-smtp-url=https://kindgi-ab12.vault.azure.net/secrets/smtp-url"])
+    error_message = "Each is a Key Vault reference: pinned at a version, or without one for latest."
+  }
+  assert {
+    condition     = toset([for a in values(azurerm_role_assignment.server_reads_its_secrets) : a.scope]) == toset(["/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/acme-kindgi-dev/providers/Microsoft.KeyVault/vaults/kindgi-ab12/secrets/auth-secret", "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/acme-kindgi-dev/providers/Microsoft.KeyVault/vaults/kindgi-ab12/secrets/smtp-url"]) && !contains([for a in values(azurerm_role_assignment.pack_reads_its_secrets) : a.scope], "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/acme-kindgi-dev/providers/Microsoft.KeyVault/vaults/kindgi-ab12/secrets/auth-secret")
+    error_message = "The server reads exactly those secrets; the pack doesn't."
+  }
+}
+
+run "no_public_url_by_default" {
+  command = plan
+  assert {
+    condition     = !contains(keys(local.server_env), "KINDGI_PUBLIC_URL") && length(azurerm_role_assignment.server_reads_its_secrets) == 0
+    error_message = "No public_url, no server settings: nothing set, nothing granted."
+  }
+}
+
+run "refuses_a_public_url_with_a_path" {
+  command = plan
+  variables {
+    public_url = "https://kindgi.acme.example/console"
+  }
+  expect_failures = [var.public_url]
+}
+
+run "refuses_a_secret_as_a_plain_value" {
+  command = plan
+  variables {
+    server_env = { KINDGI_AUTH_GOOGLE_CLIENT_SECRET = "oops" }
+  }
+  expect_failures = [var.server_env]
+}
+
+run "refuses_a_gcp_project_in_server_secret_env" {
+  command = plan
+  variables {
+    server_secret_env = { KINDGI_AUTH_SECRET = { secret = "auth-secret", version = "latest", project = "acme" } }
+    public_url        = "https://kindgi.acme.example"
+  }
+  expect_failures = [var.server_secret_env]
+}
+
+run "refuses_a_name_the_module_sets" {
+  command = plan
+  variables {
+    server_env = { KINDGI_TRUSTED_PROXIES = "2" }
+  }
+  expect_failures = [azurerm_container_app.server]
+}
+
+run "refuses_kindgi_dev" {
+  command = plan
+  variables {
+    server_env = { KINDGI_DEV = "true" }
+  }
+  expect_failures = [azurerm_container_app.server]
+}
+
+run "refuses_a_name_in_both_maps" {
+  command = plan
+  variables {
+    server_env        = { KINDGI_AUTH_EMAIL_FROM = "kindgi@acme.example" }
+    server_secret_env = { KINDGI_AUTH_EMAIL_FROM = { secret = "from", version = "latest" } }
+  }
+  expect_failures = [azurerm_container_app.server]
+}
+
+run "sign_in_with_providers_needs_public_url" {
+  command = plan
+  variables {
+    server_secret_env = { KINDGI_AUTH_SECRET = { secret = "auth-secret", version = "latest" } }
+  }
+  expect_failures = [azurerm_container_app.server]
+}
+
 # Renewing the license key: off by default. The server still gets where the
 # two keys are, so its 30-day warning prints the exact command.
 run "license_renewal_is_off_by_default" {
@@ -430,6 +533,14 @@ run "refuses_a_renewer_secret_the_module_uses" {
   command = plan
   variables {
     license_renewer_secret = "license-key"
+  }
+  expect_failures = [azurerm_container_app.server]
+}
+
+run "refuses_the_license_refs_in_server_env" {
+  command = plan
+  variables {
+    server_env = { KINDGI_LICENSE_RENEWER_REF = "azure:https://elsewhere.vault.azure.net/secrets/x" }
   }
   expect_failures = [azurerm_container_app.server]
 }

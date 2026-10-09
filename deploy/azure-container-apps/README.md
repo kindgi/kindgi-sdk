@@ -177,6 +177,54 @@ kindgi deploy --env dev --endpoint "$URL" --token <api token>
 
 The runtime reads the pack image from the registry with its own identity (`KINDGI_IMAGE_REGISTRY_AUTH=azure`). Then `kindgi health`, `kindgi tools list` and a run, with `--url "$URL" --token <api token>`.
 
+## 7. Turn on sign-in
+
+**Nobody can sign in to the console until you turn sign-in on.** The API takes API tokens either way. Console sign-in is off by default outside `kindgi dev`, and the server's boot lines say so: `⚠ Console sign-in: nobody can sign in to the console. …`
+
+The server's own settings go in two variables, as the pack's do:
+- `server_env`: plain values;
+- `server_secret_env`: Key Vault references, read with the server's identity. You create each secret in the module's vault (`put`, step 3), and the server gets read access to exactly those.
+
+The plan refuses a name the module sets itself (its own variables cover those, such as `public_url` below), `KINDGI_DEV`, a name in both maps, and a secret given as a plain value. The Cloud Run module takes the same variables, with Secret Manager references.
+
+**With the API token,** which the console's sign-in page takes:
+
+```hcl
+server_env = {
+  KINDGI_CONSOLE_TOKEN_SIGN_IN = "on"
+}
+```
+
+**With an emailed link.** It needs the server's sign-in secret, an SMTP server and `public_url`:
+
+```sh
+# The sign-in secret: 32 bytes, base64.
+openssl rand 32 | base64 | tr -d '\n' | put auth-secret
+# The SMTP URL, password included: paste it; it never goes in a file.
+read -rs SMTP_URL && printf '%s' "$SMTP_URL" | put smtp-url && unset SMTP_URL
+```
+
+```hcl
+public_url = "https://kindgi-server.<environment domain>" # terraform output -raw server_url
+server_env = {
+  KINDGI_CONSOLE_TOKEN_SIGN_IN = "on"
+  KINDGI_AUTH_EMAIL_FROM       = "kindgi@acme.example"
+}
+server_secret_env = {
+  KINDGI_AUTH_SECRET         = { secret = "auth-secret", version = "<the version put printed>" }
+  KINDGI_AUTH_EMAIL_SMTP_URL = { secret = "smtp-url", version = "latest" }
+}
+```
+
+- **`public_url`** (`KINDGI_PUBLIC_URL`) is the URL people open the console at: `terraform output -raw server_url` after the services apply, or your own domain in front. The emailed link therefore comes with a second apply.
+  - Console sessions are then accepted from that origin only, so open the console there.
+  - The plan refuses `KINDGI_AUTH_SECRET` without it, because the server wouldn't start.
+- **Pin the sign-in secret to its version,** as you do the AAD key. A new version would sign everyone out. `latest` suits the SMTP URL, which you may rotate.
+- **Continue with Google, Microsoft or GitHub, verified domains, and Turnstile** go the same way:
+  - in `server_env`: each provider's client id, `KINDGI_AUTH_VERIFIED_DOMAINS` (`acme.com:<tenant id>`) and the Turnstile site key;
+  - in `server_secret_env`: each `…_CLIENT_SECRET` and `KINDGI_AUTH_TURNSTILE_SECRET`.
+  - The `…_PATH` forms read a file, which this module doesn't mount, so use the value forms.
+
 ## Operating it
 
 - **Signed exports** (approval audit bundles, run provenance, compliance evidence) are off by default (`export_signing = "none"`). `"kms"`: the module makes an EC P-256 key in the vault (`<name_prefix>-exports`) and the server signs with it there, with Key Vault Crypto User on that key alone; exports are `ecdsa-p256-sha256`, since Key Vault has no Ed25519. `"secret"`: a key you put in the vault as `export-signing-key` (step 3).
