@@ -3,6 +3,7 @@
 
 package com.kindgi.pack;
 
+import com.kindgi.log.Logger;
 import com.kindgi.pack.internal.Json;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -96,9 +97,12 @@ final class Requests {
     return new Call(false, (String) id, null, null, Map.of(), (Map<String, Object>) config, message.get("trace"));
   }
 
-  /** The context for a v2 {@code ctx}: maps where it sends them, empty ones where it doesn't. */
+  /**
+   * The context for a v2 {@code ctx}: maps where it sends them, empty ones where it doesn't, and the
+   * call's logger.
+   */
   @SuppressWarnings("unchecked")
-  static ToolContext context(Map<String, Object> ctx, Cancellation cancellation) {
+  static ToolContext context(Map<String, Object> ctx, Cancellation cancellation, Logger log) {
     Map<String, Map<String, Object>> settings = new LinkedHashMap<>();
     if (ctx.get("settings") instanceof Map) {
       ((Map<String, Object>) ctx.get("settings")).forEach((block, values) -> {
@@ -117,7 +121,8 @@ final class Requests {
         map(ctx, "secrets"),
         map(ctx, "config"),
         settings,
-        cancellation);
+        cancellation,
+        log);
   }
 
   private static @Nullable String text(Map<String, Object> ctx, String key) {

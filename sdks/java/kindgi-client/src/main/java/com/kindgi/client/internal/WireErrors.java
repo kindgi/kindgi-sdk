@@ -52,7 +52,7 @@ public final class WireErrors {
           "invalid-request", "validation-failed", "unknown-field", "bad-input", "unresolved-tool",
           "unresolved-guardrail", "schema-validation-failed", "invalid-agent", "invalid-tool-definition",
           "invalid-schema", "unknown-effect", "invalid-guardrail", "invalid-provider",
-          "supervisor-header-missing", "scope-invalid");
+          "provider-config-invalid", "supervisor-header-missing", "scope-invalid");
   static final Map<String, AuthException.Reason> AUTH =
       Map.of(
           "auth-missing", AuthException.Reason.UNAUTHENTICATED,
@@ -61,10 +61,13 @@ public final class WireErrors {
           "permission-denied", AuthException.Reason.FORBIDDEN);
   private static final List<String> ID_FIELDS =
       List.of("agentId", "toolId", "runId", "adapterId", "userId", "providerId", "capabilityId", "tokenId", "factId", "guardrailId", "id");
-  // 409 and 422 aren't here: a code this client doesn't list stays a ServerException (the docs
-  // match `budget-exceeded`, `agent-version-mismatch` by serverCode()).
+  // 422 isn't here: a code this client doesn't list stays a ServerException (the docs match
+  // `budget-exceeded`, `output-schema-violation` by serverCode()). WireErrorsTest holds this to the
+  // API's own list (`x-error-codes` in openapi.json).
   private static final Map<Integer, String> BY_STATUS =
-      Map.of(404, "not-found", 410, "not-found", 400, "invalid", 401, "auth", 403, "auth", 429, "rate-limited");
+      Map.of(
+          404, "not-found", 410, "not-found", 400, "invalid", 413, "invalid", 401, "auth", 403, "auth",
+          409, "conflict", 429, "rate-limited");
 
   /**
    * The exception for a non-2xx answer.

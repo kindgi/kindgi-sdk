@@ -9,6 +9,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
@@ -32,6 +33,17 @@ class PackConfigTest {
     assertThat(config.discovery()).containsEntry("tools", "src/main/java/com/acme/kindgi/**/*.java")
         .containsEntry("flows", "src/main/java/**/flows/**/*.java");
     assertThat(config.env()).isNull();
+  }
+
+  @Test
+  void aScalaPacksDefaultsAreItsSources() throws Exception {
+    PackConfig config = load("{\"language\": \"scala\", \"pack\": {\"id\": \"acme\", \"version\": \"1.0.0\"}}");
+    assertThat(config.layout()).isEqualTo(SourceLayout.SCALA);
+    assertThat(config.discovery()).containsExactly(
+        Map.entry("tools", "src/main/scala/**/tools/**/*.scala"),
+        Map.entry("guardrails", "src/main/scala/**/guardrails/**/*.scala"),
+        Map.entry("agents", "src/main/scala/**/agents/**/*.scala"),
+        Map.entry("flows", "src/main/scala/**/flows/**/*.scala"));
   }
 
   @Test

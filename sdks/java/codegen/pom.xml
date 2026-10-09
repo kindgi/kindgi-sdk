@@ -9,7 +9,7 @@
   <parent>
     <groupId>com.kindgi</groupId>
     <artifactId>kindgi-java-parent</artifactId>
-    <version>0.1.4-rc.4</version>
+    <version>0.1.4</version>
   </parent>
 
   <artifactId>kindgi-codegen-maven-plugin</artifactId>
@@ -25,6 +25,18 @@
     <!-- Build-time only: never deployed. -->
     <maven.deploy.skip>true</maven.deploy.skip>
   </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>tools.jackson</groupId>
+        <artifactId>jackson-bom</artifactId>
+        <version>${jackson.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
 
   <dependencies>
     <dependency>

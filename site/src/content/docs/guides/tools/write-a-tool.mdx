@@ -264,7 +264,37 @@ Fields can also be keywords (`order_id=…`). In a test,
 `ToolContext.for_test(…)` logs nothing unless you pass it a logger as `log=`.
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// in src/main/java/acme/tools/LookupOrder.java, in the handler
+ctx.log().info("looked up order", Map.of("orderId", input.orderId()));
+```
+
+`ctx.log().warn("retrying", e)` logs an exception, under `err`. In a
+test, `ToolContext.forTest()` logs nothing; `ToolContext.forTest(log)` takes
+a logger.
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// in src/main/scala/acme/tools/LookupOrder.scala, in the handler
+ctx.log.info("looked up order", "orderId" -> in.orderId)
+```
+
+Fields can also be a map. A case class is logged as an object of its fields,
+so one named like a secret (`apiKey`) is redacted.
+
+</TabItem>
 </Tabs>
+
+Under `kindgi dev`, the record shows as a `[pack]` line. Here from a Java
+pack:
+
+```text
+    [pack] 12:39:41.533 INFO  [pack.tool] looked up order traceId=877833b3f86d26ce95c94bd7b7bea72f spanId=cfe974bcb4284c35 requestId=669b77fc-7ae6-4c48-8002-ebfca944e287 tenantId=cac037c9-c5ff-4f0a-ae85-7a0e5e324bc3 projectId=12a6cc0f-83d8-4739-8223-5f99210c73f0 runId=669b77fc-7ae6-4c48-8002-ebfca944e287 toolId=acme.lookup-order packId=acme artifactVersion=20261009.1 target=tool orderId=o-1001
+```
 
 The record's subsystem is `pack.tool`, and its level is the method's: `info`,
 `warn`, `error`, `debug` or `trace`. Values under secret-looking keys are

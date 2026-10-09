@@ -9,6 +9,7 @@ import com.kindgi.pack.internal.Json;
 import com.kindgi.pack.internal.PackConfig;
 import com.kindgi.pack.internal.SchemaDeriver;
 import com.kindgi.pack.internal.SchemaValidator;
+import com.kindgi.pack.internal.SourceLayout;
 import com.kindgi.pack.internal.Specs;
 import java.io.IOException;
 import java.io.PrintWriter;
@@ -57,7 +58,6 @@ import org.jspecify.annotations.Nullable;
 final class Indexer {
   static final int INDEX_ENVELOPE_VERSION = 1;
   static final int KERNEL_PAYLOAD_VERSION = 1;
-  static final String SOURCE_ROOT = "src/main/java/";
 
   private static final Map<String, String> FOLDERS = new LinkedHashMap<>();
 
@@ -135,18 +135,27 @@ final class Indexer {
       if (rel.endsWith("/package-info.java") || rel.endsWith("/module-info.java")) {
         continue;
       }
-      if (!rel.startsWith(SOURCE_ROOT) || !rel.endsWith(".java")) {
-        fileErrors.add(fileError("file-import-failed",
-            "File " + rel + " isn't a Java source under " + SOURCE_ROOT + ", so it names no class", rel, null));
+      SourceLayout layout = SourceLayout.of(rel);
+      if (layout == null) {
+        fileErrors.add(fileError("file-import-failed", "File " + rel + " isn't a Java source under "
+            + SourceLayout.JAVA.root() + " or a Scala source under " + SourceLayout.SCALA.root() + ", so it names no class",
+            rel, null));
         continue;
       }
-      String className = className(rel);
+      String className = layout.className(rel);
       Class<?> type;
       try {
         type = Class.forName(className, true, loader);
       } catch (ClassNotFoundException e) {
-        fileErrors.add(fileError("file-import-failed",
-            "Failed to load " + rel + ": class " + className + " isn't on the classpath (compile the pack first)", rel, null));
+        if (layout == SourceLayout.SCALA && isOnClasspath(layout.sourceName(rel), loader)) {
+          // A Scala class or trait with no object: a helper, as a Java record is.
+          continue;
+        }
+        fileErrors.add(fileError("file-import-failed", layout == SourceLayout.SCALA
+            ? "Failed to load " + rel + ": object " + simpleName(layout.sourceName(rel)) + " (class " + className
+                + ") isn't on the classpath. A Scala file's tools, guardrails, agents and flows are vals of an object"
+                + " named like the file (compile the pack first)"
+            : "Failed to load " + rel + ": class " + className + " isn't on the classpath (compile the pack first)", rel, null));
         continue;
       } catch (ExceptionInInitializerError e) {
         Throwable cause = e.getCause() == null ? e : e.getCause();
@@ -167,7 +176,16 @@ final class Indexer {
         continue;
       }
       if (primitives.isEmpty()) {
-        if (!isHelper(type)) {
+        if (layout == SourceLayout.SCALA) {
+          // An object with no vals of primitives is a companion or a helper, unless it defines one
+          // the indexer can't read without running it.
+          List<String> unread = unreadDefinitions(type);
+          if (!unread.isEmpty()) {
+            fileErrors.add(fileError("no-primitives", "File " + rel + ": object " + simpleName(layout.sourceName(rel))
+                + " defines " + String.join(", ", unread) + " as a def or a lazy val, which the indexer can't read"
+                + " without running it; make it a val", rel, null));
+          }
+        } else if (!isHelper(type)) {
           fileErrors.add(fileError("no-primitives", "File " + rel + " defines no tool, guardrail, agent or flow in a"
               + " static field of " + className + " (a helper class is package-private, or a record, an enum or an"
               + " interface)", rel, null));
@@ -259,17 +277,31 @@ final class Indexer {
   // Classes and primitives
   // ---------------------------------------------------------------------------------------------
 
-  /** {@code src/main/java/com/acme/tools/Greet.java} → {@code com.acme.tools.Greet}. */
-  static String className(String rel) {
-    return rel.substring(SOURCE_ROOT.length(), rel.length() - ".java".length()).replace('/', '.');
+  /**
+   * {@code src/main/java/com/acme/tools/Greet.java} → {@code com.acme.tools.Greet}; {@code
+   * src/main/scala/com/acme/tools/Greet.scala} → {@code com.acme.tools.Greet$} (the object);
+   * {@code null} for any other path.
+   */
+  static @Nullable String className(String rel) {
+    SourceLayout layout = SourceLayout.of(rel);
+    return layout == null ? null : layout.className(rel);
+  }
+
+  private static String simpleName(String name) {
+    return name.substring(name.lastIndexOf('.') + 1);
+  }
+
+  private static boolean isOnClasspath(String name, ClassLoader loader) {
+    return loader.getResource(name.replace('.', '/') + ".class") != null;
   }
 
   /** The kind a file's package names: the last of its packages named {@code tools}, {@code guardrails}, …. */
   private static @Nullable String expectedKind(String rel) {
-    if (!rel.startsWith(SOURCE_ROOT)) {
+    SourceLayout layout = SourceLayout.of(rel);
+    if (layout == null) {
       return null;
     }
-    String[] segments = rel.substring(SOURCE_ROOT.length()).split("/");
+    String[] segments = layout.segments(rel);
     for (int i = segments.length - 2; i >= 0; i--) {
       String kind = FOLDERS.get(segments[i]);
       if (kind != null) {
@@ -283,18 +315,23 @@ final class Indexer {
     return FOLDERS.entrySet().stream().filter(e -> e.getValue().equals(kind)).findFirst().orElseThrow().getKey();
   }
 
-  /** The primitives the class's static fields hold, defined by the class (or one nested in it), in field order. */
+  /**
+   * The primitives the class's static fields hold, defined by the class (or one nested in it), in
+   * field order; for a Scala object, its vals too, read through its {@code MODULE$}.
+   */
   static List<Object> primitivesOf(Class<?> type) {
     List<Object> found = new ArrayList<>();
     Set<Object> seen = Collections.newSetFromMap(new IdentityHashMap<>());
+    Object module = moduleOf(type);
     for (Field f : type.getDeclaredFields()) {
-      if (!Modifier.isStatic(f.getModifiers()) || f.isSynthetic()) {
+      boolean isStatic = Modifier.isStatic(f.getModifiers());
+      if (f.isSynthetic() || (!isStatic && module == null)) {
         continue;
       }
       Object value;
       try {
         f.setAccessible(true);
-        value = f.get(null);
+        value = f.get(isStatic ? null : module);
       } catch (ReflectiveOperationException | RuntimeException e) {
         continue;
       }
@@ -304,6 +341,54 @@ final class Indexer {
       }
     }
     return found;
+  }
+
+  /** A Scala object's instance ({@code MODULE$}); {@code null} for any other class. */
+  private static @Nullable Object moduleOf(Class<?> type) {
+    try {
+      Field f = type.getDeclaredField("MODULE$");
+      if (!Modifier.isStatic(f.getModifiers()) || f.getType() != type) {
+        return null;
+      }
+      f.setAccessible(true);
+      return f.get(null);
+    } catch (ReflectiveOperationException | RuntimeException e) {
+      return null;
+    }
+  }
+
+  private static final List<Class<?>> PRIMITIVE_TYPES = List.of(Tool.class, Guardrail.class, Agent.class, Flow.class);
+
+  /**
+   * A Scala object's definitions of primitives that no val holds: a {@code def}, or a {@code lazy
+   * val} not yet run. Each is a parameterless method returning a primitive type, with no field of its
+   * name holding a value.
+   */
+  private static List<String> unreadDefinitions(Class<?> type) {
+    Object module = moduleOf(type);
+    if (module == null) {
+      return List.of();
+    }
+    List<String> unread = new ArrayList<>();
+    for (java.lang.reflect.Method m : type.getDeclaredMethods()) {
+      if (m.getParameterCount() != 0 || m.isSynthetic() || Modifier.isStatic(m.getModifiers())
+          || PRIMITIVE_TYPES.stream().noneMatch(p -> p.isAssignableFrom(m.getReturnType()))) {
+        continue;
+      }
+      Object held = null;
+      try {
+        Field f = type.getDeclaredField(m.getName());
+        f.setAccessible(true);
+        held = f.get(module);
+      } catch (ReflectiveOperationException | RuntimeException e) {
+        // No field of that name: a def.
+      }
+      if (held == null) {
+        unread.add(m.getName());
+      }
+    }
+    unread.sort(null);
+    return unread;
   }
 
   private static @Nullable Class<?> definedIn(@Nullable Object value) {

@@ -8,6 +8,8 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import com.kindgi.pack.Tool;
 import java.time.Duration;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicReference;
 
 /** Tools for the service's own tests (PackServiceTest). */
 public final class Tools {
@@ -58,6 +60,40 @@ public final class Tools {
   public static final Tool<Count, Map<String, Object>> TYPED = Tool.define("acme.typed")
       .input(Count.class)
       .handler((input, ctx) -> Map.of("count", input.getCount()));
+
+  /** Answers later, on another thread. */
+  public static final Tool<Map<String, Object>, Map<String, Object>> LATER = Tool.define("acme.later")
+      .asyncHandler((input, ctx) -> CompletableFuture.<Map<String, Object>>supplyAsync(() -> Map.of("echo", input)));
+
+  /** Its future fails. */
+  public static final Tool<Map<String, Object>, Map<String, Object>> LATER_FAILS = Tool.define("acme.laterFails")
+      .asyncHandler((input, ctx) -> CompletableFuture.failedFuture(new IllegalStateException("card declined")));
+
+  /** Returns no future at all. */
+  public static final Tool<Map<String, Object>, Map<String, Object>> LATER_NULL = Tool.define("acme.laterNull")
+      .asyncHandler((input, ctx) -> null);
+
+  /** The last future {@link #LATER_NEVER} returned. */
+  public static final AtomicReference<CompletableFuture<Map<String, Object>>> NEVER = new AtomicReference<>();
+
+  /** Its future never completes. */
+  public static final Tool<Map<String, Object>, Map<String, Object>> LATER_NEVER = Tool.define("acme.laterNever")
+      .asyncHandler((input, ctx) -> {
+        CompletableFuture<Map<String, Object>> future = new CompletableFuture<>();
+        NEVER.set(future);
+        return future;
+      });
+
+  /**
+   * Logs through its context: a record with a field, and one that tries to show the context itself
+   * (its secrets must not appear).
+   */
+  public static final Tool<Map<String, Object>, Map<String, Object>> LOGS = Tool.define("acme.logs")
+      .handler((input, ctx) -> {
+        ctx.log().info("looked up order", Map.of("orderId", "o-1"));
+        ctx.log().info("the context is " + ctx, Map.of("ctx", ctx, "seen", ctx.secrets().keySet()));
+        return Map.of("logged", 2);
+      });
 
   private Tools() {}
 }

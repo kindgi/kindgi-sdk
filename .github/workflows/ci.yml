@@ -67,6 +67,12 @@ jobs:
       - name: Python SDK version in step with the npm packages
         run: pnpm run check:python-version
 
+      # So do the JVM SDKs (sdks/java, and sdks/scala's version.sbt):
+      # scripts/sync-jvm-version.mjs. A Version Packages PR whose poms lag
+      # fails here, before it merges.
+      - name: JVM SDKs' version in step with the npm packages
+        run: pnpm run check:jvm-version
+
       # Before 1.0, and while release candidates are out, a minor or major
       # changeset needs a `Release-decision:` line:
       # scripts/check-changeset-bumps.mjs.
@@ -115,15 +121,17 @@ jobs:
         run: uv sync --project sdks/python --frozen
       # ...and against the Java SDK's (sdks/java/kindgi-pack): the suite
       # compiles its fixture pack against the module's classes. Under CI that
-      # target fails rather than skip when they're missing.
+      # target fails rather than skip when they're missing. Installed, so the
+      # CLI's real Java pack build (tests/java-pack-code.test.ts) finds
+      # kindgi-pack in the local Maven repository too.
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
           cache: maven
-      - name: Java pack service (for the pack conformance suite)
+      - name: Java pack service (for the pack conformance suite and the CLI's Java builds)
         working-directory: sdks/java
-        run: ./mvnw -B -ntp -pl kindgi-pack -am compile
+        run: ./mvnw -B -ntp -pl kindgi-pack -am install -DskipTests
       - name: Build (prod-dependency topological order)
         run: pnpm run build
       - name: Typecheck
@@ -152,8 +160,24 @@ jobs:
       # and search index, from the workspace built above.
       - name: Docs site
         run: pnpm run docs:build
-      # Every sample that is a whole file compiles (TypeScript) or indexes
-      # (Python).
+      # The Java SDK, for the docs' Java samples: they compile against it. It's
+      # installed too, so the Scala layer and the Scala samples resolve kindgi-pack.
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+      - name: The Java SDK (for the docs' Java and Scala samples)
+        working-directory: sdks/java
+        run: ./mvnw -B -ntp install -DskipTests
+      # The Scala layer, published locally, for the docs' Scala samples: a fresh
+      # Scala pack compiles them against it.
+      - uses: sbt/setup-sbt@v1
+      - name: The Scala layer (for the docs' Scala samples)
+        working-directory: sdks/scala
+        run: sbt -batch publishLocal
+      # Every sample that is a whole file compiles (TypeScript, Java, Scala) or
+      # indexes (Python, Java, Scala).
       - name: Docs samples
         run: pnpm run docs:samples
 

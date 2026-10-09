@@ -38,7 +38,7 @@ public final class Flow {
    * @return a builder
    */
   public static Builder define(String id) {
-    return new Builder(id, StackWalker.getInstance(StackWalker.Option.RETAIN_CLASS_REFERENCE).getCallerClass());
+    return new Builder(id, Callers.definer());
   }
 
   /** @return the flow's id */
@@ -161,6 +161,19 @@ public final class Flow {
       edge.put("from", from);
       edge.put("to", to);
       edges.add(edge);
+      return this;
+    }
+
+    /**
+     * An edge with more than its ends: a condition ({@code when}) that decides whether it fires, or a
+     * {@code policy} for the step it leads to ({@code retry}, {@code timeoutMs}, …).
+     *
+     * @param edge any edge, as the flow schema describes it ({@code id}, {@code from}, {@code to},
+     *     and the rest)
+     * @return this
+     */
+    public Builder edge(Map<String, Object> edge) {
+      edges.add(new LinkedHashMap<>(edge));
       return this;
     }
 
