@@ -13,7 +13,12 @@ import type { ProvenanceBuilder } from '@kindgi/provenance';
 import type { Timestamp } from '@kindgi/types';
 
 import { REMEMBER_TOOL_ID } from '../remember.js';
-import type { ConversationMessage, RetrievalIntent, RetrievedFact } from '../types.js';
+import type {
+  ConversationMessage,
+  RecalledMemory,
+  RetrievalIntent,
+  RetrievedFact,
+} from '../types.js';
 import type { TurnContext } from './context.js';
 import type { GateDecision } from './gate-decision.js';
 import type { RememberToolOutput } from './remember-tool.js';
@@ -40,10 +45,12 @@ export function addRetrievalNodes(
   intents: readonly RetrievalIntent[],
   retrieved: readonly RetrievedFact[],
   input: ConversationMessage,
+  recalled: readonly RecalledMemory[] = [],
 ): void {
   const searchIds = intents.map((intent, i) => {
     const id = `memory-read:search:${input.sequence}:${i}`;
     const found = retrieved.filter((r) => sameIntent(r.intent, intent));
+    const quoted = recalled.filter((r) => sameIntent(r.intent, intent));
     provenance.addNode({
       id,
       kind: 'memory-read',
@@ -51,10 +58,13 @@ export function addRetrievalNodes(
       attributes: {
         operation: 'search_memory',
         intent: i,
-        types: [...intent.types],
+        source: intent.source ?? 'facts',
+        ...(intent.types !== undefined && { types: [...intent.types] }),
         scope: intent.scope,
         mode: intent.mode ?? 'list',
-        factIds: found.map((r) => r.fact.id as unknown as string),
+        ...(intent.source === 'conversations'
+          ? { messages: quoted.map((r) => recallRef(r)) }
+          : { factIds: found.map((r) => r.fact.id as unknown as string) }),
       },
     });
     provenance.addEdge({ from: id, to: `input:${input.sequence}`, kind: 'caused-by' });
@@ -83,6 +93,46 @@ export function addRetrievalNodes(
       to: `input:${input.sequence}`,
       kind: 'influenced-by',
     });
+  }
+  addRecalledNodes(provenance, intents, searchIds, recalled, input);
+}
+
+/** A recalled message: its conversation and place in it. */
+function recallRef(r: RecalledMemory): string {
+  return `${r.message.conversationId}#${r.message.sequence}`;
+}
+
+/**
+ * The recalled messages: a `retrieval` node each (source conversations),
+ * `retrieved-from` its search and `influenced-by` the input.
+ */
+function addRecalledNodes(
+  provenance: ProvenanceBuilder,
+  intents: readonly RetrievalIntent[],
+  searchIds: readonly string[],
+  recalled: readonly RecalledMemory[],
+  input: ConversationMessage,
+): void {
+  for (const r of recalled) {
+    const id = `retrieval:recall:${recallRef(r)}`;
+    provenance.addNode({
+      id,
+      kind: 'retrieval',
+      timestamp: input.createdAt,
+      attributes: {
+        source: 'conversations',
+        conversationId: r.message.conversationId,
+        sequence: r.message.sequence,
+        role: r.message.role,
+        intentScope: r.intent.scope,
+        ...(r.anotherPerson === true && { anotherPerson: true }),
+        ...(r.score !== undefined && { score: r.score }),
+        ...(r.ranks !== undefined && { ranks: { ...r.ranks } }),
+      },
+    });
+    const search = searchIds[intents.findIndex((intent) => sameIntent(r.intent, intent))];
+    if (search !== undefined) provenance.addEdge({ from: id, to: search, kind: 'retrieved-from' });
+    provenance.addEdge({ from: id, to: `input:${input.sequence}`, kind: 'influenced-by' });
   }
 }
 

@@ -20,6 +20,16 @@ export type {
 // ============ The scope guard ============
 export { isReadableBy } from './readers.js';
 
+// ============ Recalling earlier conversations ============
+export { isRecallReadableBy } from './recall.js';
+export type {
+  RecallHit,
+  RecallRow,
+  RecallSelection,
+  RecalledMessage,
+  SearchConversationsInput,
+} from './recall.js';
+
 // ============ Hybrid retrieval ============
 export { RRF_K, fuseByRank } from './fusion.js';
 export type { Fused } from './fusion.js';
@@ -33,6 +43,7 @@ export type { RetrievalHit } from './retrieval.js';
 
 // ============ Errors ============
 export type {
+  ErasureInProgressError,
   FactNotFoundError,
   InvalidFactError,
   InvalidLogEntryError,

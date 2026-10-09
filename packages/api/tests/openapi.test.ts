@@ -45,6 +45,7 @@ import type {
   JudgmentRegistryBinding,
   MCPEndpointRegistryBinding,
   MemoryBinding,
+  MemoryErasureBinding,
   PolicyRegistryBinding,
   ProviderRegistryBinding,
   PublicRunTokenConfig,
@@ -358,6 +359,18 @@ const noopRetention: RetentionBinding = {
   sweep: async () => ({ perDomain: [], totalPurged: 0 }),
 };
 
+const noopMemoryErasures: MemoryErasureBinding = {
+  create: async () => ({
+    kind: 'refused',
+    refusal: { code: 'legal-hold', message: 'noop' },
+  }),
+  get: async () => undefined,
+  list: async () => ({ data: [] }),
+  exportLedger: async () => [],
+  resume: async () => undefined,
+  replay: async () => ({ replayed: [], restored: [], unmatched: [] }),
+};
+
 const noopAgentReleases: AgentReleaseBindings = {
   live: { resolve: async () => null, list: async () => [] },
   promotions: {
@@ -549,15 +562,8 @@ const noopSecretsBinding: SecretBinding = {
 const noopSupervisor: SupervisorBinding = {
   listProposals: async () => ({ data: [] }),
   getProposal: async () => null,
-  draftProposal: async () => ({
-    kind: 'ok',
-    proposal: {} as never,
-  }),
-  dryRunProposal: async ({ proposalId }) => ({ kind: 'not-found', proposalId }),
-  submitReview: async ({ proposalId }) => ({ kind: 'not-found', proposalId }),
-  applyProposal: async ({ proposalId }) => ({ kind: 'not-found', proposalId }),
-  rollbackProposal: async ({ proposalId }) => ({ kind: 'not-found', proposalId }),
-  withdrawProposal: async ({ proposalId }) => ({ kind: 'not-found', proposalId }),
+  createProposal: async () => ({ kind: 'ok', proposal: {} as never }),
+  recordProposal: async () => ({ kind: 'not-found' }),
   queryObservations: async () => ({ kind: 'ok', page: { data: [] } }),
 };
 
@@ -586,6 +592,7 @@ function collectMountedRoutes(): HonoRouteRecord[] {
     toolRegistry: noopToolRegistry,
     guardrailRegistry: noopGuardrailRegistry,
     memory: noopMemory,
+    memoryErasures: noopMemoryErasures,
     supervisor: noopSupervisor,
     blobStorage: noopBlobStorage,
     capabilityRegistry: noopCapabilityRegistry,

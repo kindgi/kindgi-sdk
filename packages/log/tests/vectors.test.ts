@@ -22,6 +22,8 @@ interface VectorCase {
   readonly message: string;
   readonly fields: Record<string, unknown>;
   readonly error?: { readonly name: string; readonly message: string; readonly code?: string };
+  /** `LogOptions.inMessage`, when the case writes with it. */
+  readonly inMessage?: readonly string[];
   readonly expected: Record<string, unknown> | null;
 }
 
@@ -46,7 +48,11 @@ describe('the shared record vectors', () => {
       if (c.error.code !== undefined) err.code = c.error.code;
       fields.err = err;
     }
-    log[c.level](c.message, fields);
+    log[c.level](
+      c.message,
+      fields,
+      c.inMessage !== undefined ? { inMessage: c.inMessage } : undefined,
+    );
     if (c.expected === null) {
       expect(lines).toEqual([]);
       return;

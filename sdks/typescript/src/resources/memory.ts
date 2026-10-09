@@ -13,6 +13,11 @@ import type {
   LogEntry,
   LogFilter,
   LogVerifyResult,
+  MemoryErasure,
+  MemoryErasureCreated,
+  MemoryErasureLedgerEntry,
+  MemoryErasureSelector,
+  ReplayMemoryErasuresResult,
   RetrievalResult,
   SearchInput,
   SupersedeFactInput,
@@ -39,6 +44,7 @@ import type {
  *   - `POST   /v1/memory/facts/{factId}/verify`
  *   - `POST   /v1/memory/retrieve` (`RetrieveIntent` body → `{ results:
  *     RetrievalHit[] }`; not paginated — bounded by `limit`)
+ *   - `/v1/memory/erasures`: erasing a person's words (`.erasures`)
  *
  * The `.logs.*` methods have no API routes and throw `not-yet-wired`.
  *
@@ -47,6 +53,8 @@ import type {
 export interface MemoryClient {
   readonly facts: FactsClient;
   readonly logs: LogsClient;
+  /** Erasing a person's words (a tenant admin only). */
+  readonly erasures: MemoryErasuresClient;
 
   /**
    * Retrieve facts. `mode` selects the search: `list` (no query),
@@ -61,6 +69,52 @@ export interface MemoryClient {
    * use `limit` on `SearchInput`).
    */
   search(input: SearchInput): Promise<readonly RetrievalResult[]>;
+}
+
+/**
+ * Erasing a person's words: their facts, conversations, the runs that
+ * served them and what those left in provenance. An erasure runs in the
+ * background; a completed one keeps no identifier, only a keyed hash in
+ * the ledger, which you export off-box and replay after restoring a
+ * backup. A tenant admin only.
+ */
+export interface MemoryErasuresClient {
+  /**
+   * Start erasing one fact, a person or one conversation. `409
+   * legal-hold` (`details.factIds`) when a fact it reaches is held.
+   *
+   * @wire `POST /v1/memory/erasures`
+   */
+  create(
+    selector: MemoryErasureSelector,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<MemoryErasureCreated>;
+  /** @wire `GET /v1/memory/erasures/{erasureId}` */
+  get(id: string): Promise<MemoryErasure>;
+  /** Newest first. @wire `GET /v1/memory/erasures` */
+  list(filter?: { readonly limit?: number; readonly cursor?: string }): Promise<
+    ListPage<MemoryErasure>
+  >;
+  /** The whole ledger, content-free, to keep off-box. @wire `GET /v1/memory/erasures/export` */
+  export(): Promise<readonly MemoryErasureLedgerEntry[]>;
+  /**
+   * Try an unfinished erasure again now. With `force`, one
+   * `waiting-on-run` (a turn of the person's in a flow serving other
+   * people) stops waiting: the run is cancelled and it goes on.
+   *
+   * @wire `POST /v1/memory/erasures/{erasureId}/resume`
+   */
+  resume(id: string, options?: { readonly force?: boolean }): Promise<MemoryErasure>;
+  /**
+   * After restoring a backup: the exported ledger back, and its
+   * erasures run again for whoever the tenant holds again.
+   *
+   * @wire `POST /v1/memory/erasures/replay`
+   */
+  replay(
+    erasures: readonly MemoryErasureLedgerEntry[],
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<ReplayMemoryErasuresResult>;
 }
 
 export interface FactsClient {
@@ -165,6 +219,58 @@ interface WireRetrieveResult {
 
 export function makeMemoryClient(transport: Transport): MemoryClient {
   return {
+    erasures: {
+      async create(selector, options) {
+        return transport.request<MemoryErasureCreated>({
+          method: 'POST',
+          path: '/v1/memory/erasures',
+          body: selector,
+          ...(options?.idempotencyKey !== undefined && {
+            idempotencyKey: options.idempotencyKey,
+          }),
+        });
+      },
+      async get(id) {
+        return transport.request<MemoryErasure>({
+          method: 'GET',
+          path: `/v1/memory/erasures/${encodeURIComponent(id)}`,
+        });
+      },
+      async list(filter) {
+        const page = await transport.request<WirePage<MemoryErasure>>({
+          method: 'GET',
+          path: '/v1/memory/erasures',
+          query: {
+            ...(filter?.limit !== undefined && { limit: filter.limit }),
+            ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
+          },
+        });
+        return listPage(page);
+      },
+      async resume(id, options) {
+        return transport.request<MemoryErasure>({
+          method: 'POST',
+          path: `/v1/memory/erasures/${encodeURIComponent(id)}/resume`,
+          body: { ...(options?.force === true && { force: true }) },
+        });
+      },
+      async export() {
+        const ledger = await transport.request<{
+          readonly data: readonly MemoryErasureLedgerEntry[];
+        }>({ method: 'GET', path: '/v1/memory/erasures/export' });
+        return ledger.data;
+      },
+      async replay(erasures, options) {
+        return transport.request<ReplayMemoryErasuresResult>({
+          method: 'POST',
+          path: '/v1/memory/erasures/replay',
+          body: { erasures },
+          ...(options?.idempotencyKey !== undefined && {
+            idempotencyKey: options.idempotencyKey,
+          }),
+        });
+      },
+    },
     facts: {
       async write(input, options) {
         return transport.request<Fact>({

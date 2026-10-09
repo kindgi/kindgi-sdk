@@ -1511,6 +1511,10 @@ class Step(BaseModel):
     """
     What the step's turn retrieved.
     """
+    recalled: Any | None = None
+    """
+    Messages of earlier conversations the step's turn recalled.
+    """
 
 
 class Flow(BaseModel):
@@ -1551,6 +1555,10 @@ class JudgedRunContext(BaseModel):
     """
     What the turn's retrievals returned.
     """
+    recalled: Any | None = None
+    """
+    Messages of earlier conversations the turn recalled (intents over conversations), as quoted to the model.
+    """
     session_approval: Annotated[SessionApproval | None, Field(alias="sessionApproval")] = None
     """
     The reviewer's decision at the turn's session approval gate, when the turn waited on one. A replay of the turn follows it.
@@ -1579,6 +1587,10 @@ class JudgedRunCopy(BaseModel):
     input: Any
     context: JudgedRunContext | None = None
     output: Any
+    segments: list[ScopeSegment] | None = None
+    """
+    The segment path the run was started with (empty: none). Absent for runs judged before it was recorded.
+    """
     captured_at: Annotated[AwareDatetime, Field(alias="capturedAt")]
 
 
@@ -1659,6 +1671,14 @@ class Reason(BaseModel):
     )
     verdict: Literal["yes", "no"]
     reason: str
+    judge_class_id: Annotated[str | None, Field(alias="judgeClassId")] = None
+    """
+    The judgment's class, when it had one.
+    """
+    restricted: Literal[True] | None = None
+    """
+    Set when the judgment was recorded while its class was restricted (`Judgment.restricted`).
+    """
 
 
 class JudgedItemSummary(BaseModel):
@@ -1750,6 +1770,10 @@ class JudgedEvalCase(BaseModel):
     context: JudgedRunContext | None = None
     output: Any
     items: list[JudgedItemSummary]
+    erased: Literal[True] | None = None
+    """
+    An erasure cleared this case (a person's words were erased): `input` and `output` are null, `items` empty, and eval runs leave it out (counted as `erased`).
+    """
 
 
 class JudgedEvalCaseCollectionPage(BaseModel):
@@ -1805,6 +1829,10 @@ class BuildJudgedSuiteBody(BaseModel):
     """
     Leave out runs with fewer counted judgments. Default 1.
     """
+    segments: list[ScopeSegment] | None = None
+    """
+    Only runs started in this segment path or below it, coarse to fine (e.g. `company=acme`). A run judged before its segments were recorded with its judgments is in no segment, so it's left out.
+    """
     description: str | None = None
 
 
@@ -1843,10 +1871,21 @@ class RetrievalIntent(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    types: Annotated[list[str], Field(min_length=1)]
-    scope: Literal["same-conversation", "same-user", "same-project", "tenant"]
+    source: Literal["facts", "conversations"] | None = None
     """
-    What the intent selects within what the run may see: this conversation's facts; this run's end user's and user's; the run's project's (none without a project); or every fact of the type it may see.
+    What it reads: facts (the default), or messages of this agent's earlier conversations, quoted in the turn's `<memory>` block as earlier conversation, never as turns.
+    """
+    types: Annotated[list[str] | None, Field(min_length=1)] = None
+    """
+    The fact types it retrieves: required for facts; not used for conversations.
+    """
+    roles: Annotated[list[Literal["user", "agent"]] | None, Field(min_length=1)] = None
+    """
+    For conversations: whose messages it recalls. Default `['user']`, the people's own words. Adding `agent` recalls the agent's earlier answers too, which can carry its mistakes: they are quoted as unverified earlier answers, and publishing warns `recall-agent-answers`.
+    """
+    scope: Literal["same-conversation", "same-user", "same-segment", "same-project", "tenant"]
+    """
+    What the intent selects within what the run may see. Facts: this conversation's; this run's end user's and user's; the run's project's (none without a project); or every fact of the type it may see (`tenant`). Conversations: this person's other conversations with the agent (`same-user`); this conversation's messages older than the history window (`same-conversation`); conversations in the run's segment path (`same-segment`) or its project (`same-project`), whoever had them: those two quote other people's conversations, so publishing warns and their messages are marked as another person's. `same-segment` is for conversations only, `tenant` for facts only.
     """
     limit: Annotated[int | None, Field(ge=1)] = None
     mode: Literal["keyword", "semantic", "both"] | None = None
@@ -2104,6 +2143,10 @@ class VersionDerivation(BaseModel):
     """
     For `edited`: who derived it (`user:<id>`).
     """
+    proposal_id: Annotated[str | None, Field(alias="proposalId")] = None
+    """
+    For `edited`: the improvement proposal it was derived for. Such a version serves no scope until a promotion makes it live.
+    """
 
 
 class AgentPinSwaps(BaseModel):
@@ -2233,7 +2276,7 @@ class PublishAgentResult(BaseModel):
     version: str
     warnings: list[Warning] | None = None
     """
-    What the agent should know about this deployment before its first turn, e.g. `semantic-unavailable` (a retrieval intent searches by meaning and the deployment has no embeddings) or `remember-unavailable` (the agent remembers and the deployment cannot store agent memories).
+    What the agent should know about this deployment before its first turn, e.g. `semantic-unavailable` (a retrieval intent searches by meaning and the deployment has no embeddings), `remember-unavailable` (the agent remembers and the deployment cannot store agent memories), `recall-other-people` (an intent recalls conversations in the run's segment or project, whoever had them) or `recall-unavailable` (the deployment cannot recall earlier conversations).
     """
 
 
@@ -3014,6 +3057,10 @@ class Conversation(BaseModel):
     """
     opened_at: Annotated[AwareDatetime, Field(alias="openedAt")]
     closed_at: Annotated[AwareDatetime | None, Field(alias="closedAt")] = None
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    When it was unregistered (`POST /v1/conversations/{conversationId}/unregister`). Only the unregister call returns it: reads no longer do.
+    """
     turn_count: Annotated[int, Field(alias="turnCount", ge=0)]
     last_message_at: Annotated[AwareDatetime | None, Field(alias="lastMessageAt")] = None
     metadata: dict[str, Any] | None = None
@@ -3427,118 +3474,504 @@ class RetrieveMemoryResult(BaseModel):
     results: list[RetrievalHit]
 
 
-class ProposalTier(RootModel[Literal["prompt", "retrieval", "tool-config"]]):
-    root: Literal["prompt", "retrieval", "tool-config"]
+class MemoryErasureFactSelector(BaseModel):
+    """
+    One fact.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    fact_id: Annotated[str, Field(alias="factId", max_length=256, min_length=1)]
 
 
-class FixProposalStatus(
+class Subject(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["participant", "external"]
+    id: Annotated[str, Field(max_length=256, min_length=1)]
+
+
+class MemoryErasureSubjectSelector(BaseModel):
+    """
+    A person: an app's end user (`participant`), or an `external` subject facts name. Erasing a Kindgi user isn't offered.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    subject: Subject
+
+
+class MemoryErasureConversationSelector(BaseModel):
+    """
+    One conversation.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    conversation_id: Annotated[str, Field(alias="conversationId", max_length=256, min_length=1)]
+
+
+class CreateMemoryErasureBody(
     RootModel[
-        Literal[
-            "draft",
-            "dry-running",
-            "dry-run-passed",
-            "dry-run-failed",
-            "proposed-for-review",
-            "approved",
-            "rejected",
-            "applied",
-            "rolled-back",
-            "withdrawn",
-        ]
+        MemoryErasureFactSelector | MemoryErasureSubjectSelector | MemoryErasureConversationSelector
     ]
 ):
-    root: Literal[
-        "draft",
-        "dry-running",
-        "dry-run-passed",
-        "dry-run-failed",
-        "proposed-for-review",
-        "approved",
-        "rejected",
-        "applied",
-        "rolled-back",
-        "withdrawn",
-    ]
-
-
-class PatternRef(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
+    root: (
+        MemoryErasureFactSelector | MemoryErasureSubjectSelector | MemoryErasureConversationSelector
     )
-    kind: Literal["guardrail-violation", "tool-error", "budget-exceeded", "model-error", "aborted"]
-    key: str
-    count: Annotated[int, Field(ge=1)]
-    first_seen_at: Annotated[AwareDatetime, Field(alias="firstSeenAt")]
-    last_seen_at: Annotated[AwareDatetime, Field(alias="lastSeenAt")]
-    sample_conversations: Annotated[list[UUID], Field(alias="sampleConversations")]
-
-
-class ProposedChange(BaseModel):
     """
-    Polymorphic change payload. Shape depends on the sibling `tier` on the proposal (prompt / retrieval / tool-config).
+    Whose words to erase: one fact (`factId`), a person (`subject`: an app's end user `participant`, or an `external` subject facts name), or one conversation (`conversationId`).
+    """
+
+
+CountsAdditionalProperty = TypeAliasType("CountsAdditionalProperty", Annotated[int, Field(ge=0)])
+
+
+class WaitingOn(BaseModel):
+    """
+    The run it waits (or waited) for, and until when; kept as the record of the wait.
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
+    run_id: Annotated[UUID, Field(alias="runId")]
+    until: AwareDatetime | None = None
 
 
-class FixProposal(BaseModel):
+class MemoryErasure(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
     id: UUID
+    selector_kind: Annotated[
+        Literal["fact", "participant", "external", "conversation"], Field(alias="selectorKind")
+    ]
+    selector: (
+        MemoryErasureFactSelector
+        | MemoryErasureSubjectSelector
+        | MemoryErasureConversationSelector
+        | None
+    ) = None
     """
-    FixProposalId.
+    Only while it runs: a completed or failed erasure keeps no identifier.
     """
-    tenant_id: Annotated[UUID, Field(alias="tenantId")]
-    supervisor_id: Annotated[str, Field(alias="supervisorId")]
-    agent_id: Annotated[str, Field(alias="agentId")]
+    status: Literal["pending", "running", "waiting-on-run", "completed", "failed"]
+    """
+    `waiting-on-run`: a turn of the person's sits in a flow that serves other people; the erasure waits for it (`waitingOn`) until its deadline, then cancels it.
+    """
+    phase: Literal["seed", "expand", "settle", "erase", "done"]
+    """
+    Where a running erasure is: `seed`, `expand`, `settle` (the person's unfinished runs end, or it waits for them, before anything is cleared), `erase`, then `done`.
+    """
+    requested_by: Annotated[str, Field(alias="requestedBy")]
+    """
+    `user:<id>` or `service:<id>`.
+    """
+    matchable: bool
+    """
+    A replay after a backup restore can find this person again: a keyed hash was kept.
+    """
+    counts: dict[str, CountsAdditionalProperty]
+    """
+    What each store cleared or deleted, by store.
+    """
+    attempts: Annotated[int, Field(ge=0)]
+    """
+    Failed attempts so far.
+    """
+    last_error: Annotated[str | None, Field(alias="lastError")] = None
+    """
+    The last failure's code, or `not-yet:<reason>` while it waits. Never content.
+    """
+    waiting_on: Annotated[WaitingOn | None, Field(alias="waitingOn")] = None
+    """
+    The run it waits (or waited) for, and until when; kept as the record of the wait.
+    """
+    forced: Literal[True] | None = None
+    """
+    A tenant admin said not to wait.
+    """
+    settle_rounds_capped: Annotated[Literal[True] | None, Field(alias="settleRoundsCapped")] = None
+    """
+    Runs of the person's kept appearing, round after round: the erasure went on to erase after its last round rather than wait any longer. Absent: it didn't.
+    """
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    started_at: Annotated[AwareDatetime | None, Field(alias="startedAt")] = None
+    completed_at: Annotated[AwareDatetime | None, Field(alias="completedAt")] = None
+    replayed_at: Annotated[AwareDatetime | None, Field(alias="replayedAt")] = None
+
+
+class Warning1(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    code: Literal["erasure-unmatchable"]
+    """
+    `erasure-unmatchable`: this deployment has no erasure ledger key (`KINDGI_ERASURE_LEDGER_KEY`), so a replay after a restore can't find this person.
+    """
+    message: str
+
+
+class MemoryErasureCreated(MemoryErasure):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    warnings: list[Warning1] | None = None
+
+
+class MemoryErasurePage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[MemoryErasure]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class MemoryErasureLedgerEntry(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: UUID
+    selector_kind: Annotated[
+        Literal["fact", "participant", "external", "conversation"], Field(alias="selectorKind")
+    ]
+    selector_hmac: Annotated[str | None, Field(alias="selectorHmac", pattern="^[0-9a-f]{64}$")] = (
+        None
+    )
+    """
+    HMAC-SHA256 of the selector under the tenant's ledger key; absent without one.
+    """
+    key_id: Annotated[str | None, Field(alias="keyId")] = None
+    """
+    Which ledger key made `selectorHmac`.
+    """
+    requested_by: Annotated[str, Field(alias="requestedBy")]
+    status: Literal["pending", "running", "waiting-on-run", "completed", "failed"]
+    """
+    `waiting-on-run`: a turn of the person's sits in a flow that serves other people; the erasure waits for it (`waitingOn`) until its deadline, then cancels it.
+    """
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    completed_at: Annotated[AwareDatetime | None, Field(alias="completedAt")] = None
+
+
+class MemoryErasureLedger(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[MemoryErasureLedgerEntry]
+
+
+class ReplayMemoryErasuresBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    erasures: Annotated[list[MemoryErasureLedgerEntry], Field(max_length=10000)]
+    """
+    The ledger as `GET /v1/memory/erasures/export` gave it.
+    """
+
+
+class ResumeMemoryErasureBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    force: bool | None = None
+    """
+    Stop waiting for a run in a flow that serves other people: it's cancelled, and the erasure goes on.
+    """
+
+
+class UnmatchedItem(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: UUID
+    reason: Literal["no-keyed-hash", "unknown-key"]
+
+
+class ReplayMemoryErasuresResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    replayed: list[UUID]
+    """
+    Found in the tenant again: run again.
+    """
+    restored: list[UUID]
+    """
+    Put back in the ledger; nothing in the tenant matches.
+    """
+    unmatched: list[UnmatchedItem]
+
+
+class Content(BaseModel):
+    """
+    The new content: `{ values }` for a settings block (its schema carries over), `{ template }` for a prompt block (its parameters carry over).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    values: dict[str, Any] | None = None
+    template: str | None = None
+
+
+class ProposalChange(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    block_id: Annotated[str, Field(alias="blockId")]
+    """
+    The data block the change is to.
+    """
+    from_version: Annotated[str, Field(alias="fromVersion")]
+    """
+    The block version the agent version pins: what's being changed.
+    """
+    content: Content
+    """
+    The new content: `{ values }` for a settings block (its schema carries over), `{ template }` for a prompt block (its parameters carry over).
+    """
+
+
+class Model(BaseModel):
+    """
+    For a drafter that used a model: which.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    provider_id: Annotated[str, Field(alias="providerId")]
+    model: str
+
+
+class ProposalDrafter(BaseModel):
+    """
+    Who wrote the proposal: a person, or one of the runtime's drafters.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["person", "settings-optimizer", "prompt-drafter"]
+    by: str | None = None
+    """
+    For a person: `user:<id>` (or `service:<id>`).
+    """
+    version: str | None = None
+    """
+    For a drafter: the drafter's version.
+    """
+    model: Model | None = None
+    """
+    For a drafter that used a model: which.
+    """
+    pass_id: Annotated[str | None, Field(alias="passId")] = None
+    """
+    For a drafter: the improvement pass that drafted it (`GET /v1/improvement-passes/{passId}`).
+    """
+
+
+class ProposalCandidate(BaseModel):
+    """
+    The versions evaluating the proposal published. They serve no scope until a promotion makes the agent version live.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
     agent_version: Annotated[str, Field(alias="agentVersion")]
     """
-    Semver of the baseline agent version.
+    The derived agent version (its `derivedFrom.proposalId` names the proposal).
     """
-    tier: Literal["prompt", "retrieval", "tool-config"]
-    change: dict[str, Any]
+    block_version: Annotated[str, Field(alias="blockVersion")]
     """
-    Polymorphic change payload. Shape depends on the sibling `tier` on the proposal (prompt / retrieval / tool-config).
+    The block version published from the proposal's content.
     """
-    pattern_refs: Annotated[list[PatternRef], Field(alias="patternRefs")]
+    pins_digest: Annotated[str, Field(alias="pinsDigest")]
+
+
+class ProposalEvaluation(BaseModel):
+    """
+    The comparison the proposal was evaluated with, and what it found on the objective metric (the full summary is the eval run's).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    eval_run_id: Annotated[UUID, Field(alias="evalRunId")]
+    suite_id: Annotated[str, Field(alias="suiteId")]
+    """
+    The test set (a judged eval suite).
+    """
+    objective: Literal["weightedYesShare", "weightedPrecisionAtK"]
+    started_at: Annotated[AwareDatetime, Field(alias="startedAt")]
+    run_status: Annotated[
+        Literal["pending", "running", "completed", "failed", "cancelled"] | None,
+        Field(alias="runStatus"),
+    ] = None
+    """
+    The eval run's status. Absent when the run can't be read.
+    """
+    baseline: float | None = None
+    """
+    The recorded outputs' score; `null` without judged evidence.
+    """
+    candidate: float | None = None
+    """
+    The candidate's score.
+    """
+    delta: float | None = None
+    spread: float | None = None
+    """
+    With more than one repetition: the candidate's max − min, the noise a delta must beat.
+    """
+    cases: int | None = None
+    better: bool | None = None
+    """
+    Set once the comparison finished.
+    """
+
+
+class ProposalPromotion(BaseModel):
+    """
+    The promotion the proposal's request made.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    status: Literal["promoted", "pending-approval", "refused", "superseded", "rejected", "expired"]
+    approval_id: Annotated[str | None, Field(alias="approvalId")] = None
+    """
+    The approval a request in review waits on.
+    """
+    live_now: Annotated[bool | None, Field(alias="liveNow")] = None
+    """
+    For a promoted proposal: whether its version still serves the scope.
+    """
+
+
+class Evidence1(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    judgment_ids: Annotated[list[str] | None, Field(alias="judgmentIds")] = None
+
+
+class RolledBack(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    at: AwareDatetime
+    promotion_id: Annotated[str, Field(alias="promotionId")]
+    """
+    The rollback's own promotion row.
+    """
+    by: str
+    reason: str | None = None
+
+
+class Withdrawn(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    at: AwareDatetime
+    by: str
+    reason: str
+
+
+class FixProposal(BaseModel):
+    """
+    An improvement proposal: a change to one data block an agent version pins, for one live scope, taken through the same comparison, gate and promotion as any other version.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: UUID
+    agent_id: Annotated[str, Field(alias="agentId")]
+    from_version: Annotated[str, Field(alias="fromVersion")]
+    """
+    The agent version the change applies to.
+    """
+    scope: Annotated[
+        LiveScopeTenant | LiveScopeOrg | LiveScopeProject | LiveScopeSegment,
+        Field(discriminator="kind"),
+    ]
+    """
+    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    """
+    tier: Literal["settings-block", "prompt-block"]
+    """
+    What a proposal changes: a settings block (new values) or a prompt block (a new template) the agent version pins.
+    """
+    change: ProposalChange
     hypothesis: str
-    proposer_rule_id: Annotated[str, Field(alias="proposerRuleId")]
+    """
+    What the change should improve, and why.
+    """
+    evidence: Evidence1 | None = None
+    drafter: ProposalDrafter
     status: Literal[
         "draft",
-        "dry-running",
-        "dry-run-passed",
-        "dry-run-failed",
-        "proposed-for-review",
-        "approved",
+        "evaluating",
+        "evaluated",
+        "not-better",
+        "evaluation-failed",
+        "in-review",
+        "promoted",
+        "refused",
         "rejected",
-        "applied",
+        "expired",
+        "superseded",
         "rolled-back",
         "withdrawn",
     ]
-    fingerprint: str
     """
-    sha256(tier + agentId + agentVersion + canonical(change)). Dedup key.
+    Where a proposal stands, from its comparison and its promotion (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `promoted`: live for the scope (`promotion.liveNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's live version or policy changed. `rolled-back`: rolled back through the proposal. `withdrawn`: withdrawn.
     """
-    resolution_reason: Annotated[str | None, Field(alias="resolutionReason")] = None
-    review_approval_id: Annotated[UUID | None, Field(alias="reviewApprovalId")] = None
-    """
-    HITL approval id created when the proposal was submitted for review.
-    """
-    applied_version: Annotated[str | None, Field(alias="appliedVersion")] = None
-    """
-    Semver of the new agent version the proposal materialized as. Present on `applied` and `rolled-back` proposals.
-    """
-    applied_at: Annotated[AwareDatetime | None, Field(alias="appliedAt")] = None
-    rolled_back_at: Annotated[AwareDatetime | None, Field(alias="rolledBackAt")] = None
+    candidate: ProposalCandidate | None = None
+    evaluation: ProposalEvaluation | None = None
+    promotion: ProposalPromotion | None = None
+    rolled_back: Annotated[RolledBack | None, Field(alias="rolledBack")] = None
+    withdrawn: Withdrawn | None = None
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
-    resolved_at: Annotated[AwareDatetime | None, Field(alias="resolvedAt")] = None
 
 
 class FixProposalCollectionPage(BaseModel):
@@ -3547,50 +3980,212 @@ class FixProposalCollectionPage(BaseModel):
         populate_by_name=True,
     )
     data: list[FixProposal]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
-    """
-    Opaque cursor for the next page. Absent when `hasMore: false`.
-    """
     has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
-class PassCriterion1(BaseModel):
+class ImprovementBudget(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    max_cost_usd: Annotated[float, Field(alias="maxCostUsd", gt=0.0, le=100.0)]
     """
-    How the dry-run judges whether the candidate is good enough to submit for review. Two kinds: `min-pass-rate` (candidate pass rate ≥ threshold) or `strict-improvement` (candidate pass rate exceeds baseline by ≥ delta).
+    The most the pass's comparisons may cost, in US dollars.
+    """
+    max_candidates: Annotated[int, Field(alias="maxCandidates", ge=1, le=200)]
+    """
+    The most candidates it compares.
+    """
+
+
+class HoldOut(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    baseline: float | None
+    candidate: float | None
+    delta: float | None
+    spread: float | None = None
+
+
+class ImprovementPassOutcome(BaseModel):
+    """
+    What a finished pass found. `proposed`: its best candidate beat the current values on the test set's hold-out part, so it wrote an improvement proposal (`proposalId`) for a reviewer to decide. `nothing-found`: no candidate beat them by more than the noise, or within the budget (`reason`; `holdOut` has the best candidate's numbers when one got that far). `failed`: `message` says why.
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    kind: Literal["min-pass-rate"]
-    min_pass_rate: Annotated[float, Field(alias="minPassRate", ge=0.0, le=1.0)]
+    kind: Literal["proposed", "nothing-found", "failed"]
+    proposal_id: Annotated[UUID | None, Field(alias="proposalId")] = None
+    reason: str | None = None
+    hold_out: Annotated[HoldOut | None, Field(alias="holdOut")] = None
+    message: str | None = None
 
 
-class PassCriterion2(BaseModel):
+class Model1(BaseModel):
     """
-    How the dry-run judges whether the candidate is good enough to submit for review. Two kinds: `min-pass-rate` (candidate pass rate ≥ threshold) or `strict-improvement` (candidate pass rate exceeds baseline by ≥ delta).
+    For a prompt pass: the provider and model that drafts the templates.
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    kind: Literal["strict-improvement"]
-    baseline_pass_rate: Annotated[float, Field(alias="baselinePassRate", ge=0.0, le=1.0)]
-    min_delta: Annotated[float, Field(alias="minDelta")]
+    provider_id: Annotated[str, Field(alias="providerId")]
+    model: str
 
 
-class PassCriterion(RootModel[PassCriterion1 | PassCriterion2]):
-    root: PassCriterion1 | PassCriterion2
+class RefusedItem(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    path: str
+    message: str
+
+
+class Comparison1(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    eval_run_id: Annotated[UUID | None, Field(alias="evalRunId")] = None
+    role: Literal["reference", "candidate", "proof"]
+    part: Literal["search", "hold-out"]
+    block_id: Annotated[str | None, Field(alias="blockId")] = None
+    changed: dict[str, Any] | None = None
+    score: float | None = None
+    failed: str | None = None
+    refused: list[RefusedItem] | None = None
     """
-    How the dry-run judges whether the candidate is good enough to submit for review. Two kinds: `min-pass-rate` (candidate pass rate ≥ threshold) or `strict-improvement` (candidate pass rate exceeds baseline by ≥ delta).
+    For a drafted template that was never compared: why the check refused it (what it reads or names that the agent doesn't have, or its size).
+    """
+    hypothesis: str | None = None
+    """
+    For a drafted template: what the drafter meant it to change.
     """
 
 
-class DraftProposalBody(BaseModel):
+class Trigger(BaseModel):
     """
-    Draft a fix proposal for `(agentId, agentVersion)`. The supervisor context comes from the `X-Supervisor-Id` header; the caller supplies the target agent + change payload + supporting evidence. Duplicate proposals (same `(supervisor, fingerprint)` in a non-terminal state) short-circuit to the pre-existing row and set `X-Proposal-Deduped: true` on the response.
+    The improve schedule and fire that started it (`GET /v1/schedules/{triggerId}/fires`); absent for a pass a person started.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    trigger_id: Annotated[str, Field(alias="triggerId")]
+    fire_id: Annotated[str, Field(alias="fireId")]
+
+
+class ImprovementPass(BaseModel):
+    """
+    An improvement pass: the runtime looking for better values for an agent version's tunable settings (`x-kindgi-tunable`) on a test set, within a budget. Its best candidate becomes an improvement proposal.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: UUID
+    agent_id: Annotated[str, Field(alias="agentId")]
+    from_version: Annotated[str, Field(alias="fromVersion")]
+    """
+    The version whose settings it tunes.
+    """
+    scope: Annotated[
+        LiveScopeTenant | LiveScopeOrg | LiveScopeProject | LiveScopeSegment,
+        Field(discriminator="kind"),
+    ]
+    """
+    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    """
+    suite_id: Annotated[str, Field(alias="suiteId")]
+    """
+    The test set it searches and proves on.
+    """
+    tiers: list[Literal["settings", "prompt"]]
+    objective: Literal["weightedYesShare", "weightedPrecisionAtK"]
+    class_weights: Annotated[
+        Literal["as-recorded", "restricted-only"] | None, Field(alias="classWeights")
+    ] = None
+    """
+    Which judgments its comparisons count. Absent from older servers: `restricted-only`.
+    """
+    model: Model1 | None = None
+    """
+    For a prompt pass: the provider and model that drafts the templates.
+    """
+    candidates: Annotated[int | None, Field(ge=1, le=5)] = None
+    """
+    For a prompt pass: how many templates it drafts.
+    """
+    budget: ImprovementBudget
+    requested_by: Annotated[str, Field(alias="requestedBy")]
+    status: Literal["running", "completed", "failed", "cancelled"]
+    candidates_evaluated: Annotated[int, Field(alias="candidatesEvaluated", ge=0)]
+    cost_usd: Annotated[str, Field(alias="costUsd")]
+    """
+    What its comparisons have cost so far (US dollars).
+    """
+    outcome: ImprovementPassOutcome | None = None
+    comparisons: list[Comparison1] | None = None
+    """
+    Its comparisons so far, each an eval run to open: `reference` (the version as it is, on the search part), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the proposal, on the hold-out part). Absent from older servers.
+    """
+    trigger: Trigger | None = None
+    """
+    The improve schedule and fire that started it (`GET /v1/schedules/{triggerId}/fires`); absent for a pass a person started.
+    """
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+    finished_at: Annotated[AwareDatetime | None, Field(alias="finishedAt")] = None
+
+
+class ImprovementPassCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[ImprovementPass]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class Model2(BaseModel):
+    """
+    For a prompt pass: the tenant's provider and model that drafts the templates.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    provider_id: Annotated[str, Field(alias="providerId")]
+    model: str
+
+
+class Budget2(BaseModel):
+    """
+    Default: $5 and 30 candidates.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    max_cost_usd: Annotated[float | None, Field(alias="maxCostUsd", gt=0.0, le=100.0)] = None
+    max_candidates: Annotated[int | None, Field(alias="maxCandidates", ge=1, le=200)] = None
+
+
+class ImproveBody(BaseModel):
+    """
+    Start an improvement pass.
     """
 
     model_config = ConfigDict(
@@ -3598,140 +4193,112 @@ class DraftProposalBody(BaseModel):
         populate_by_name=True,
     )
     agent_id: Annotated[str, Field(alias="agentId")]
-    agent_version: Annotated[str, Field(alias="agentVersion")]
-    tier: Literal["prompt", "retrieval", "tool-config"]
-    change: dict[str, Any]
+    from_version: Annotated[str | None, Field(alias="fromVersion")] = None
     """
-    Polymorphic change payload. Shape depends on the sibling `tier` on the proposal (prompt / retrieval / tool-config).
+    The version whose settings it tunes. Default: the one serving `scope`.
     """
-    pattern_refs: Annotated[list[PatternRef], Field(alias="patternRefs")]
-    hypothesis: Annotated[str, Field(min_length=1)]
-    proposer_rule_id: Annotated[str, Field(alias="proposerRuleId", min_length=1)]
-
-
-class Criterion(BaseModel):
+    scope: Annotated[
+        LiveScopeTenant | LiveScopeOrg | LiveScopeProject | LiveScopeSegment,
+        Field(discriminator="kind"),
+    ]
     """
-    How the dry-run judges whether the candidate is good enough to submit for review. Two kinds: `min-pass-rate` (candidate pass rate ≥ threshold) or `strict-improvement` (candidate pass rate exceeds baseline by ≥ delta).
+    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
     """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    kind: Literal["min-pass-rate"]
-    min_pass_rate: Annotated[float, Field(alias="minPassRate", ge=0.0, le=1.0)]
-
-
-class Criterion1(BaseModel):
+    suite_id: Annotated[str, Field(alias="suiteId")]
     """
-    How the dry-run judges whether the candidate is good enough to submit for review. Two kinds: `min-pass-rate` (candidate pass rate ≥ threshold) or `strict-improvement` (candidate pass rate exceeds baseline by ≥ delta).
+    The test set (a judged eval suite). The pass splits it into a search part and a hold-out part, and proves its best candidate on the hold-out part.
     """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    kind: Literal["strict-improvement"]
-    baseline_pass_rate: Annotated[float, Field(alias="baselinePassRate", ge=0.0, le=1.0)]
-    min_delta: Annotated[float, Field(alias="minDelta")]
-
-
-class DryRunProposalBody(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    dataset_id: Annotated[str, Field(alias="datasetId", min_length=1)]
-    dataset_version: Annotated[str, Field(alias="datasetVersion", min_length=1)]
-    criterion: Criterion | Criterion1
+    tiers: Annotated[
+        list[Literal["settings", "prompt"]] | None, Field(max_length=1, min_length=1)
+    ] = ["settings"]
     """
-    How the dry-run judges whether the candidate is good enough to submit for review. Two kinds: `min-pass-rate` (candidate pass rate ≥ threshold) or `strict-improvement` (candidate pass rate exceeds baseline by ≥ delta).
+    `['settings']`: values for the tunable settings keys. `['prompt']`: a model drafts templates for the prompt block (needs `model`); a template that reads or names anything the agent doesn't have is refused, and a drafted proposal always waits for a reviewer.
+    """
+    model: Model2 | None = None
+    """
+    For a prompt pass: the tenant's provider and model that drafts the templates.
+    """
+    candidates: Annotated[int | None, Field(ge=1, le=5)] = 3
+    """
+    For a prompt pass: how many templates it drafts.
+    """
+    class_weights: Annotated[
+        Literal["as-recorded", "restricted-only"] | None, Field(alias="classWeights")
+    ] = "restricted-only"
+    """
+    Which judgments the pass learns from: by default only those recorded under a restricted (trusted) judge class.
+    """
+    objective: Literal["weightedYesShare", "weightedPrecisionAtK"] | None = "weightedYesShare"
+    budget: Budget2 | None = None
+    """
+    Default: $5 and 30 candidates.
     """
 
 
-class DryRunProposalResult(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    proposal: FixProposal
-    passed: bool
+class Content1(BaseModel):
     """
-    True when the candidate met the criterion — proposal moves to `dry-run-passed`. False → `dry-run-failed` (still a legitimate response, not an error).
-    """
-
-
-class SubmitReviewProposalBody(BaseModel):
-    """
-    Body is optional — omit to accept every default. `requiredRole` overrides the auto-derivation (meta-fixes → senior). `expiresAt` sets the HITL approval deadline.
+    `{ values }` for a settings block (they must satisfy its schema), `{ template }` for a prompt block.
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    required_role: Annotated[
-        Literal["standard", "senior", "admin"] | None, Field(alias="requiredRole")
-    ] = None
-    """
-    Reviewer role class. Hierarchy: standard < senior < admin.
-    """
-    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
+    values: dict[str, Any] | None = None
+    template: str | None = None
 
 
-class SubmitReviewProposalResult(BaseModel):
+class Change(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    proposal: FixProposal
-    approval_id: Annotated[UUID, Field(alias="approvalId")]
-    meta_fix: Annotated[bool, Field(alias="metaFix")]
+    block_id: Annotated[str, Field(alias="blockId")]
     """
-    True when the proposal targets one of the supervisor's own agent ids — reviewer role auto-bumps to `senior` unless overridden.
+    A block `fromVersion` pins, of the tier's kind.
+    """
+    content: Content1
+    """
+    `{ values }` for a settings block (they must satisfy its schema), `{ template }` for a prompt block.
     """
 
 
-class ApplyProposalBody(BaseModel):
+class CreateProposalBody(BaseModel):
     """
-    Body is optional. `newVersion` overrides the auto-derived patch bump of the baseline; omit to let the runtime bump `1.0.0 → 1.0.1`.
+    A hand-written proposal: new content for a data block that `fromVersion` pins, for a live scope. The same change from the same version for the same scope is one proposal (answered with `X-Proposal-Deduped: true`).
     """
 
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    new_version: Annotated[str | None, Field(alias="newVersion")] = None
+    agent_id: Annotated[str, Field(alias="agentId")]
+    from_version: Annotated[str, Field(alias="fromVersion")]
     """
-    Semver, strictly greater than the baseline.
+    The agent version the change applies to.
     """
+    scope: Annotated[
+        LiveScopeTenant | LiveScopeOrg | LiveScopeProject | LiveScopeSegment,
+        Field(discriminator="kind"),
+    ]
+    """
+    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    """
+    tier: Literal["settings-block", "prompt-block"]
+    """
+    What a proposal changes: a settings block (new values) or a prompt block (a new template) the agent version pins.
+    """
+    change: Change
+    hypothesis: Annotated[str, Field(max_length=2000, min_length=1)]
+    evidence: Evidence1 | None = None
 
 
-class ApplyProposalResult(BaseModel):
+class ProposalReasonBody(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    proposal_id: Annotated[UUID, Field(alias="proposalId")]
-    applied_version: Annotated[str, Field(alias="appliedVersion")]
-    applied_at: Annotated[AwareDatetime, Field(alias="appliedAt")]
-
-
-class RollbackProposalBody(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    reason: Annotated[str, Field(min_length=1)]
-
-
-class RollbackProposalResult(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    proposal_id: Annotated[UUID, Field(alias="proposalId")]
-    rolled_back_at: Annotated[AwareDatetime, Field(alias="rolledBackAt")]
+    reason: Annotated[str | None, Field(max_length=2000, min_length=1)] = None
 
 
 class WithdrawProposalBody(BaseModel):
@@ -3739,7 +4306,7 @@ class WithdrawProposalBody(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    reason: Annotated[str, Field(min_length=1)]
+    reason: Annotated[str, Field(max_length=2000, min_length=1)]
 
 
 class ProvenanceNodeKind(
@@ -4647,7 +5214,7 @@ class MCPPromptCollection(BaseModel):
     data: list[MCPPrompt]
 
 
-class Content(BaseModel):
+class Content2(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -4656,7 +5223,7 @@ class Content(BaseModel):
     text: str
 
 
-class Content1(BaseModel):
+class Content3(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -4675,7 +5242,7 @@ class MCPPromptMessage(BaseModel):
         populate_by_name=True,
     )
     role: Literal["user", "assistant"]
-    content: Content | Content1
+    content: Content2 | Content3
 
 
 class GetMCPPromptBody(BaseModel):
@@ -5036,10 +5603,15 @@ class RetentionPolicyConflict(BaseModel):
         "judgment",
         "judge_class",
         "provider",
+        "memory",
+        "conversation",
         "api_key",
         "service_account",
         "*",
     ]
+    """
+    The kind of record a retention policy covers. `*` covers every domain without a policy of its own, except `memory` and `conversation`: they hold people's words, so only a policy naming them purges them.
+    """
     policy_ids: Annotated[list[str], Field(alias="policyIds", min_length=2)]
     """
     Every policy id that covers the domain, sorted.
@@ -5071,10 +5643,15 @@ class RetentionScheduledItem(BaseModel):
         "judgment",
         "judge_class",
         "provider",
+        "memory",
+        "conversation",
         "api_key",
         "service_account",
         "*",
     ]
+    """
+    The kind of record a retention policy covers. `*` covers every domain without a policy of its own, except `memory` and `conversation`: they hold people's words, so only a policy naming them purges them.
+    """
     id: str
     """
     The tombstoned row's id in its domain.
@@ -5131,6 +5708,8 @@ class RetentionScheduledPage(BaseModel):
                 "judgment",
                 "judge_class",
                 "provider",
+                "memory",
+                "conversation",
                 "api_key",
                 "service_account",
                 "*",
@@ -5159,6 +5738,8 @@ class RetentionScheduledPage(BaseModel):
                 "judgment",
                 "judge_class",
                 "provider",
+                "memory",
+                "conversation",
                 "api_key",
                 "service_account",
                 "*",
@@ -5197,6 +5778,8 @@ class RetentionSweepBody(BaseModel):
             "judgment",
             "judge_class",
             "provider",
+            "memory",
+            "conversation",
             "api_key",
             "service_account",
             "*",
@@ -5244,10 +5827,15 @@ class PerDomainItem(BaseModel):
         "judgment",
         "judge_class",
         "provider",
+        "memory",
+        "conversation",
         "api_key",
         "service_account",
         "*",
     ]
+    """
+    The kind of record a retention policy covers. `*` covers every domain without a policy of its own, except `memory` and `conversation`: they hold people's words, so only a policy naming them purges them.
+    """
     purged: Annotated[int, Field(ge=0)]
     remaining: Annotated[int, Field(ge=0)]
     """
@@ -5533,6 +6121,41 @@ class EvalBaseline2(BaseModel):
     live: Live
 
 
+class Prompts(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    template: str
+
+
+class EvalOverrides(BaseModel):
+    """
+    For an agent candidate: block content its replays run instead of the version's pinned content (an improvement pass's search). `settings`: values by settings block id, each a block the version pins, satisfying its schema. `prompts`: a template for the prompt block the version pins, which reads and names only what the agent has (its parameters, the variables the current template reads, the settings blocks it pins, its tools' and blocks' ids) and is at most twice as long. Anything else is `400 validation-failed`. A comparison with overrides can't gate a promotion.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    settings: Annotated[dict[str, dict[str, Any]] | None, Field(max_length=20)] = None
+    prompts: Annotated[dict[str, Prompts] | None, Field(max_length=1)] = None
+
+
+class EvalSample(BaseModel):
+    """
+    Only part of the test set's cases: split once into a hold-out part (about `holdOutShare` of them) and a search part (the rest), stratified by judgment (the cases with a "no" and the others are split on their own, a stratum of two or more giving each part at least one), in the order of a hash of each case id and `seed`. The same seed always splits the same test set the same way. A promotion gate refuses a comparison on the search part (`comparison.sample`).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    part: Literal["search", "hold-out"]
+    seed: Annotated[str, Field(max_length=200, min_length=1)]
+    hold_out_share: Annotated[float, Field(alias="holdOutShare", ge=0.1, le=0.9)]
+
+
 class EvalComparison(BaseModel):
     """
     A comparison eval run's settings (a `judged` suite).
@@ -5559,6 +6182,8 @@ class EvalComparison(BaseModel):
     """
     Which judgments count: each at its class's weight (`as-recorded`, the default), or only those recorded while their class was restricted (`Judgment.restricted`), the others weighing 0 (`restricted-only`).
     """
+    overrides: EvalOverrides | None = None
+    sample: EvalSample | None = None
 
 
 class ComparisonMetric(BaseModel):
@@ -5588,6 +6213,19 @@ class ComparisonMetric(BaseModel):
     """
 
 
+class Overrides(BaseModel):
+    """
+    The blocks whose content the replays replaced (`overrides`): no published version ran, so it can't gate a promotion. Absent otherwise.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    settings: list[str] | None = None
+    prompts: list[str] | None = None
+
+
 class ComparisonCandidate1(BaseModel):
     """
     What ran on the cases: an agent version, or a flow version (with any versions it swapped in).
@@ -5603,6 +6241,10 @@ class ComparisonCandidate1(BaseModel):
     pins_digest: Annotated[str | None, Field(alias="pinsDigest")] = None
     """
     The version's pinsDigest: what it ran, as a promotion gate checks. Absent for a version published before pins, and from a comparison recorded before it.
+    """
+    overrides: Overrides | None = None
+    """
+    The blocks whose content the replays replaced (`overrides`): no published version ran, so it can't gate a promotion. Absent otherwise.
     """
 
 
@@ -5682,7 +6324,7 @@ class Scope(BaseModel):
     project_id: Annotated[str | None, Field(alias="projectId")] = None
 
 
-class Model(BaseModel):
+class Model3(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -5697,7 +6339,7 @@ class Sampling(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    models: list[Model]
+    models: list[Model3]
     """
     The models that answered the candidate's replays, and how many replays each.
     """
@@ -5751,6 +6393,10 @@ class JudgedComparisonSummary(BaseModel):
     """
     Cases none of whose repetitions ran.
     """
+    erased: Annotated[int | None, Field(ge=1)] = None
+    """
+    Cases an erasure cleared (a person's words were erased): left out of the run and the metrics. Absent: none.
+    """
     stopped: Annotated[int, Field(ge=0)]
     """
     Flow cases that stopped at a write the replay refused: no output to score, so they're left out of the metrics.
@@ -5761,6 +6407,10 @@ class JudgedComparisonSummary(BaseModel):
     ] = None
     """
     Which judgments counted. Absent from a comparison recorded before restricted classes: `as-recorded`.
+    """
+    sample: EvalSample | None = None
+    """
+    The part of the test set it ran. Absent: every case.
     """
     sampling: Sampling
     repetitions: Annotated[int, Field(ge=1)]
@@ -5862,6 +6512,10 @@ class Tool1(BaseModel):
     tool_version: Annotated[str, Field(alias="toolVersion")]
     arguments: Any
     source: Literal["live", "recorded", "refused"]
+    recomputed: bool | None = None
+    """
+    With `source: 'live'`: the call ran again from the same arguments because the compared version pins other settings, and the tool reads from nowhere, so it didn't diverge. Absent from older servers, and otherwise.
+    """
     reason: str | None = None
 
 
@@ -6001,6 +6655,8 @@ class StartEvalRunBody(BaseModel):
     """
     Which judgments count: each at its class's weight (`as-recorded`, the default), or only those recorded while their class was restricted (`Judgment.restricted`), the others weighing 0 (`restricted-only`).
     """
+    overrides: EvalOverrides | None = None
+    sample: EvalSample | None = None
 
 
 class StartEvalRunResult(BaseModel):
@@ -7067,7 +7723,7 @@ class Actor(BaseModel):
     user_agent: Annotated[str | None, Field(alias="userAgent")] = None
 
 
-class Subject(BaseModel):
+class Subject1(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -7169,7 +7825,7 @@ class ComplianceEvidence(BaseModel):
     """
     timestamp: AwareDatetime
     actor: Actor | None = None
-    subject: Subject | None = None
+    subject: Subject1 | None = None
     outcome: Literal["allowed", "denied", "succeeded", "failed", "escalated"] | None = None
     payload: dict[str, Any]
     """
@@ -8230,14 +8886,18 @@ class ScheduleFire(BaseModel):
     """
     fired_at: Annotated[AwareDatetime, Field(alias="firedAt")]
     outcome: Literal[
-        "pending", "started", "skipped-overlap", "skipped-erasure", "refused", "failed"
+        "pending", "started", "skipped-overlap", "skipped-erasure", "skipped", "refused", "failed"
     ]
     """
-    `skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. Neither counts toward the auto-pause; `refused` and `failed` do.
+    `skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`: what an improve schedule waits for wasn't there (its threshold, or its monthly cap), as `detail` says. None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do.
     """
     run_id: Annotated[UUID | None, Field(alias="runId")] = None
     """
     The run it started.
+    """
+    pass_id: Annotated[UUID | None, Field(alias="passId")] = None
+    """
+    The improvement pass it started (an improve schedule).
     """
     detail: str | None = None
     """
@@ -8272,49 +8932,8 @@ class Config6(BaseModel):
     timezone: str | None = None
     input: Any | None = None
     """
-    What each run gets. An agent schedule's runs take the agent payload, `{ userMessage, parameters? }`, so it needs `userMessage`; a flow's take the flow's input.
+    What each run gets. An agent schedule's runs take the agent payload, `{ userMessage, parameters? }`, so it needs `userMessage`; a flow's take the flow's input. An improve schedule's is `ImproveScheduleInput`, kept with its defaults applied.
     """
-
-
-class RegisterScheduleBody(BaseModel):
-    """
-    Name what it runs: `flowId` with `flowVersion`, or `agentId` (with an optional `agentVersion`). Registering needs `write` on the project and `execute` on what it runs; its runs act as the caller.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
-    """
-    Run a flow (with `flowVersion`).
-    """
-    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
-    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
-    """
-    Run an agent (instead of a flow): at `agentVersion`, else its live version.
-    """
-    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
-    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
-    """
-    The schedule's project. Absent → the tenant's default project.
-    """
-    config: Config6
-    catch_up: Annotated[Literal["latest", "skip"] | None, Field(alias="catchUp")] = None
-    """
-    Default `latest`.
-    """
-    overlap: Literal["skip", "allow"] | None = None
-    """
-    Default `skip`.
-    """
-    starting_deadline_seconds: Annotated[
-        int | None, Field(alias="startingDeadlineSeconds", ge=1, le=86400)
-    ] = None
-    """
-    Default 600.
-    """
-    label: str | None = None
 
 
 class Config7(BaseModel):
@@ -8326,47 +8945,7 @@ class Config7(BaseModel):
     timezone: str | None = None
     input: Any | None = None
     """
-    What each run gets. An agent schedule's runs take the agent payload, `{ userMessage, parameters? }`, so it needs `userMessage`; a flow's take the flow's input.
-    """
-
-
-class PatchScheduleBody(BaseModel):
-    """
-    Change what it runs (the target fields, as at registration, which also needs `execute` on the new target), when, or its policies.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
-    """
-    Run a flow (with `flowVersion`).
-    """
-    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
-    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
-    """
-    Run an agent (instead of a flow): at `agentVersion`, else its live version.
-    """
-    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
-    config: Config7 | None = None
-    catch_up: Annotated[Literal["latest", "skip"] | None, Field(alias="catchUp")] = None
-    """
-    Default `latest`.
-    """
-    overlap: Literal["skip", "allow"] | None = None
-    """
-    Default `skip`.
-    """
-    starting_deadline_seconds: Annotated[
-        int | None, Field(alias="startingDeadlineSeconds", ge=1, le=86400)
-    ] = None
-    """
-    Default 600.
-    """
-    label: str | None = None
-    """
-    `null` clears the label; omit to leave unchanged.
+    What each run gets. An agent schedule's runs take the agent payload, `{ userMessage, parameters? }`, so it needs `userMessage`; a flow's take the flow's input. An improve schedule's is `ImproveScheduleInput`, kept with its defaults applied.
     """
 
 
@@ -8614,7 +9193,9 @@ class CreateWebhookEndpointBody(BaseModel):
     """
     Absolute https URL (http only where the deployment allows it, e.g. development). No credentials in the URL. The deployment may refuse private network addresses (`400 webhook-url-refused`).
     """
-    events: Annotated[list[Literal["run.finished"]], Field(min_length=1)]
+    events: Annotated[
+        list[Literal["run.finished", "improvement-pass.finished"]], Field(min_length=1)
+    ]
     filter: WebhookEndpointFilter | None = None
     secret_ref: Annotated[WebhookSecretRef, Field(alias="secretRef")]
     description: Annotated[str | None, Field(max_length=500)] = None
@@ -8630,7 +9211,9 @@ class PatchWebhookEndpointBody(BaseModel):
         populate_by_name=True,
     )
     url: AnyUrl | None = None
-    events: Annotated[list[Literal["run.finished"]] | None, Field(min_length=1)] = None
+    events: Annotated[
+        list[Literal["run.finished", "improvement-pass.finished"]] | None, Field(min_length=1)
+    ] = None
     filter: WebhookEndpointFilter | None = None
     secret_ref: Annotated[WebhookSecretRef | None, Field(alias="secretRef")] = None
     description: Annotated[str | None, Field(max_length=500)] = None
@@ -8719,6 +9302,120 @@ class Data1(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
+    pass_: Annotated[ImprovementPass, Field(alias="pass")]
+    """
+    The pass, as `GET /v1/improvement-passes/{passId}` shows it.
+    """
+
+
+class ImprovementPassFinishedEvent(BaseModel):
+    """
+    An improvement pass ended (`completed`, `failed` or `cancelled`): one a person started, or one an `improve` schedule did. Its outcome names the proposal it wrote, if it wrote one.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    """
+    Event id, also sent as the `webhook-id` header; the same on every retry.
+    """
+    type: Literal["improvement-pass.finished"]
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    data: Data1
+
+
+class ImproveScheduleTarget(BaseModel):
+    """
+    What an improve schedule works on: the agent, and the live scope its passes propose for and count judgments in.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    agent_id: Annotated[str, Field(alias="agentId", min_length=1)]
+    scope: Annotated[
+        LiveScopeTenant | LiveScopeOrg | LiveScopeProject | LiveScopeSegment,
+        Field(discriminator="kind"),
+    ]
+    """
+    Where a live version is pinned, from least to most specific: tenant, org, project, segment path. A run takes the most specific pin that covers it.
+    """
+
+
+class Model4(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    provider_id: Annotated[str, Field(alias="providerId")]
+    model: str
+
+
+class Budget3(BaseModel):
+    """
+    Each pass's budget (default $5 and 30 candidates), never more than what's left of the month's cap.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    max_cost_usd: Annotated[float | None, Field(alias="maxCostUsd", gt=0.0, le=100.0)] = None
+    max_candidates: Annotated[int | None, Field(alias="maxCandidates", ge=1, le=200)] = None
+
+
+class Threshold(BaseModel):
+    """
+    Default 5 judgments, across 3 runs, from 2 judges.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    judgments: Annotated[int | None, Field(ge=1, le=1000)] = None
+    runs: Annotated[int | None, Field(ge=1, le=1000)] = None
+    judges: Annotated[int | None, Field(ge=1, le=1000)] = None
+
+
+class ImproveScheduleInput(BaseModel):
+    """
+    An improve schedule's `config.input`. Each fire counts the trusted "no" judgments (recorded under a restricted judge class) on the agent's runs in the scope since its last pass. When there are enough, across enough runs and judges, it starts a pass on a fresh test set of those runs; otherwise the fire is `skipped`, saying which count was short. A pass that proposes asks for the review at once.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tiers: list[Literal["settings", "prompt"]] | None = None
+    objective: Literal["weightedYesShare", "weightedPrecisionAtK"] | None = None
+    class_weights: Annotated[
+        Literal["restricted-only", "as-recorded"] | None, Field(alias="classWeights")
+    ] = None
+    model: Model4 | None = None
+    candidates: Annotated[int | None, Field(ge=1, le=5)] = None
+    budget: Budget3 | None = None
+    """
+    Each pass's budget (default $5 and 30 candidates), never more than what's left of the month's cap.
+    """
+    threshold: Threshold | None = None
+    """
+    Default 5 judgments, across 3 runs, from 2 judges.
+    """
+    monthly_cap_usd: Annotated[float | None, Field(alias="monthlyCapUsd", gt=0.0, le=1000.0)] = None
+    """
+    The most its passes may cost in a calendar month (UTC). Default 20.
+    """
+
+
+class Data2(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
     endpoint_id: Annotated[str, Field(alias="endpointId")]
 
 
@@ -8730,7 +9427,7 @@ class WebhookTestEvent(BaseModel):
     id: str
     type: Literal["webhook.test"]
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
-    data: Data1
+    data: Data2
 
 
 class WebhookDelivery(BaseModel):
@@ -8740,7 +9437,10 @@ class WebhookDelivery(BaseModel):
     )
     delivery_id: Annotated[str, Field(alias="deliveryId")]
     endpoint_id: Annotated[str, Field(alias="endpointId")]
-    event: Annotated[RunFinishedEvent | WebhookTestEvent, Field(discriminator="type")]
+    event: Annotated[
+        RunFinishedEvent | ImprovementPassFinishedEvent | WebhookTestEvent,
+        Field(discriminator="type"),
+    ]
     """
     The JSON body of every webhook request.
     """
@@ -8949,6 +9649,10 @@ class Run(BaseModel):
     """
     The run's output once it completed. Present on single-run responses; on lists only with `?include=output`.
     """
+    content_erased_at: Annotated[AwareDatetime | None, Field(alias="contentErasedAt")] = None
+    """
+    When an erasure cleared the run's content (its input, output, failure message and journal payloads): a person's words were erased. Structure (status, times, ids) stays.
+    """
     parent_run_id: Annotated[UUID | None, Field(alias="parentRunId")] = None
     """
     Set on a child run (a sub-flow run, or the agent turn an agent step started): the run that started it.
@@ -9017,6 +9721,10 @@ class Datum(BaseModel):
     output: Any | None = None
     """
     The run's output once it completed. Present on single-run responses; on lists only with `?include=output`.
+    """
+    content_erased_at: Annotated[AwareDatetime | None, Field(alias="contentErasedAt")] = None
+    """
+    When an erasure cleared the run's content (its input, output, failure message and journal payloads): a person's words were erased. Structure (status, times, ids) stays.
     """
     parent_run_id: Annotated[UUID | None, Field(alias="parentRunId")] = None
     """
@@ -9589,6 +10297,32 @@ class AgentCollectionPage(BaseModel):
     has_more: Annotated[bool, Field(alias="hasMore")]
 
 
+class EvaluateProposalBody(BaseModel):
+    """
+    Compare the proposal's candidate on a test set. The first evaluation publishes the block version and derives the agent version (both serve nowhere until promoted).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    suite_id: Annotated[str, Field(alias="suiteId")]
+    """
+    The test set: a judged eval suite.
+    """
+    objective: Literal["weightedYesShare", "weightedPrecisionAtK"] | None = "weightedYesShare"
+    """
+    The metric that says whether the candidate is better.
+    """
+    reads: Literal["recorded", "live"] | None = None
+    repetitions: Annotated[int | None, Field(ge=1, le=10)] = None
+    k: Annotated[int | None, Field(ge=1, le=100)] = None
+    class_weights: Annotated[
+        Literal["as-recorded", "restricted-only"] | None, Field(alias="classWeights")
+    ] = None
+    sample: EvalSample | None = None
+
+
 class CallUsage(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -9983,6 +10717,10 @@ class ScheduleRecord(BaseModel):
     A schedule that runs an agent: the agent, at `agentVersion`, else its version live for the schedule's project (else the latest), as a run that names none.
     """
     agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
+    improve: ImproveScheduleTarget | None = None
+    """
+    A schedule that starts improvement passes: on this agent, for this scope, when enough new trusted "no" judgments have come in (`input`: the threshold, the monthly cap and the pass options).
+    """
     project_id: Annotated[UUID | None, Field(alias="projectId")] = None
     """
     The schedule's project: its runs are this project's.
@@ -10049,6 +10787,95 @@ class ScheduleCollectionPage(BaseModel):
     has_more: Annotated[bool, Field(alias="hasMore")]
 
 
+class RegisterScheduleBody(BaseModel):
+    """
+    Name what it runs: `flowId` with `flowVersion`, `agentId` (with an optional `agentVersion`), or `improve` (improvement passes). Registering needs `write` on the project and `execute` on what it runs (`publish` on the agent for `improve`); its runs act as the caller.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
+    """
+    Run a flow (with `flowVersion`).
+    """
+    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
+    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
+    """
+    Run an agent (instead of a flow): at `agentVersion`, else its live version.
+    """
+    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
+    improve: ImproveScheduleTarget | None = None
+    """
+    Start an improvement pass instead of a run (instead of `flowId` or `agentId`). Its `config.input` is the pass options; registering needs `publish` on the agent.
+    """
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The schedule's project. Absent → the tenant's default project.
+    """
+    config: Config6
+    catch_up: Annotated[Literal["latest", "skip"] | None, Field(alias="catchUp")] = None
+    """
+    Default `latest`.
+    """
+    overlap: Literal["skip", "allow"] | None = None
+    """
+    Default `skip`.
+    """
+    starting_deadline_seconds: Annotated[
+        int | None, Field(alias="startingDeadlineSeconds", ge=1, le=86400)
+    ] = None
+    """
+    Default 600.
+    """
+    label: str | None = None
+
+
+class PatchScheduleBody(BaseModel):
+    """
+    Change what it runs (the target fields, as at registration, which also needs `execute` on the new target), when, or its policies.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    flow_id: Annotated[str | None, Field(alias="flowId", min_length=1)] = None
+    """
+    Run a flow (with `flowVersion`).
+    """
+    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
+    agent_id: Annotated[str | None, Field(alias="agentId", min_length=1)] = None
+    """
+    Run an agent (instead of a flow): at `agentVersion`, else its live version.
+    """
+    agent_version: Annotated[str | None, Field(alias="agentVersion", min_length=1)] = None
+    improve: ImproveScheduleTarget | None = None
+    """
+    Start an improvement pass instead of a run (instead of `flowId` or `agentId`). Its `config.input` is the pass options; registering needs `publish` on the agent.
+    """
+    config: Config7 | None = None
+    catch_up: Annotated[Literal["latest", "skip"] | None, Field(alias="catchUp")] = None
+    """
+    Default `latest`.
+    """
+    overlap: Literal["skip", "allow"] | None = None
+    """
+    Default `skip`.
+    """
+    starting_deadline_seconds: Annotated[
+        int | None, Field(alias="startingDeadlineSeconds", ge=1, le=86400)
+    ] = None
+    """
+    Default 600.
+    """
+    label: str | None = None
+    """
+    `null` clears the label; omit to leave unchanged.
+    """
+
+
 class WebhookEndpoint(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -10056,7 +10883,7 @@ class WebhookEndpoint(BaseModel):
     )
     endpoint_id: Annotated[str, Field(alias="endpointId")]
     url: AnyUrl
-    events: list[Literal["run.finished"]]
+    events: list[Literal["run.finished", "improvement-pass.finished"]]
     filter: WebhookEndpointFilter
     description: str | None
     secret_ref: Annotated[WebhookSecretRef, Field(alias="secretRef")]

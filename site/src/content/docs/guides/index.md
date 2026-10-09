@@ -33,6 +33,8 @@ version of Kindgi these docs describe.
   it happens.
 - [Secrets and env](secrets/): where a pack's settings and secrets live on
   your machine and in a deployment, and how your code gets them.
+- [Sign-in](sso/sign-in/): signing in to the console, sessions, and the
+  enterprise sign-in options, built with you.
 - [Cost and provenance](observability/trace-an-answer/): trace an answer to
   the model and tool calls behind it, and what each call cost.
 - [Evals](evals/judge-a-runs-output/): judge runs' answers, build a test set

@@ -133,7 +133,7 @@ describe('same-user', () => {
       'q',
       { memory },
     );
-    expect(out).toEqual({ kind: 'ok', value: { facts: [], degraded: [] } });
+    expect(out).toEqual({ kind: 'ok', value: { facts: [], recalled: [], degraded: [] } });
     expect(calls).toEqual([]);
   });
 });

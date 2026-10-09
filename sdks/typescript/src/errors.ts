@@ -316,6 +316,7 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'gate-policy-needs-pin':
     case 'fact-changed':
     case 'legal-hold':
+    case 'erasure-in-progress':
     case 'gate-policy-descendant-unpinned':
     case 'service-account-name-taken':
     case 'service-account-unregistered':
