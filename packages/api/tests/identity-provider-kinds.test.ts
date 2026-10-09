@@ -47,6 +47,8 @@ function makeApp(
     kind: 'ok',
     providerId: config.providerId,
   }),
+  /** A binding that gives URLs whatever the kind (as a runtime's could). */
+  signInForAnyKind = false,
 ) {
   const stored = new Map<string, ProviderConfig>();
   const identityProvider: IdentityProviderBinding = {
@@ -64,7 +66,7 @@ function makeApp(
       return { kind: 'ok', provider: config };
     },
     signInUrls: async ({ providerId, kind }) =>
-      kind === 'oidc'
+      kind === 'oidc' || signInForAnyKind
         ? { redirectUri: `https://kindgi.example.com/sso/callback/${providerId}` }
         : undefined,
   };
@@ -304,6 +306,22 @@ describe('a provider stored as oauth2 (from before)', () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { data: Record<string, unknown>[] };
     expect(body.data).toEqual([{ providerId: 'github', kind: 'oauth2', displayName: 'GitHub' }]);
+  });
+
+  test('its sign-in URLs: 400, a kind this deployment does not sign in with, whatever the binding says', async () => {
+    const { app, stored } = makeApp(undefined, true);
+    stored.set('github', {
+      providerId: 'github',
+      kind: 'oauth2',
+      clientId: 'gh-client',
+    } as unknown as ProviderConfig);
+    const res = await app.request('/v1/auth/providers/github/sign-in', {
+      headers: { authorization: `Bearer ${BEARER}` },
+    });
+    expect(res.status).toBe(400);
+    const error = await errorOf(res);
+    expect(error.code).toBe('bad-input');
+    expect(error.message).toBe("This deployment doesn't sign in with `oauth2` providers");
   });
 });
 

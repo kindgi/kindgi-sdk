@@ -161,6 +161,25 @@ export function authRouter(options: AuthRouterOptions): Hono<AppEnv> {
         );
       }
       const registered = await identityProvider.get({ tenantId, providerId });
+      // A provider stored before as a kind sign-in no longer uses (a plain
+      // OAuth 2.0 one, `oauth2`) gets the same answer as a kind this
+      // deployment doesn't sign in with, whatever its binding would say.
+      const stored = registered?.kind as string | undefined;
+      const notSignedInWith = (k: string) => {
+        c.status(statusFor('bad-input') as never);
+        return c.json(
+          toWireError(
+            {
+              code: 'bad-input',
+              message: `This deployment doesn't sign in with \`${k}\` providers`,
+            },
+            requestId,
+          ),
+        );
+      };
+      if (asked === undefined && stored !== undefined && stored !== 'oidc' && stored !== 'saml') {
+        return notSignedInWith(stored);
+      }
       const kind = asked ?? registered?.kind;
       if (kind === undefined) {
         c.status(statusFor('bad-input') as never);
@@ -175,18 +194,7 @@ export function authRouter(options: AuthRouterOptions): Hono<AppEnv> {
         );
       }
       const signIn = await signInUrls({ tenantId, providerId, kind });
-      if (signIn === undefined) {
-        c.status(statusFor('bad-input') as never);
-        return c.json(
-          toWireError(
-            {
-              code: 'bad-input',
-              message: `This deployment doesn't sign in with \`${kind}\` providers`,
-            },
-            requestId,
-          ),
-        );
-      }
+      if (signIn === undefined) return notSignedInWith(kind);
       return c.json({ providerId, kind, signIn, registered: registered !== null });
     });
   }
