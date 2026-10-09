@@ -50,13 +50,27 @@ export type {
   DraftProposalsInput,
   ProposalDryRunInput,
   ProposalListInput,
-  ProposalsClient,
   ReflectReviewInput,
   RollbackProposalInput,
   SubmitForReviewInput,
   SupervisorClient,
+  SupervisorProposalsClient,
   WithdrawProposalInput,
 } from './resources/supervisor.js';
+export type {
+  ImprovementPassesClient,
+  ImprovementPassesListInput,
+} from './resources/improvement-passes.js';
+export type {
+  CreateProposalInput,
+  EvaluateProposalInput,
+  ImproveInput,
+  ImprovementPass,
+  ProposalReasonInput,
+  ProposalsClient,
+  ProposalsListInput,
+  WithdrawInput,
+} from './resources/proposals.js';
 export type {
   ObservationFilter,
   ObservationsClient,
@@ -128,7 +142,12 @@ export type {
   ConversationsClient,
   MessageFilter,
 } from './resources/conversations.js';
-export type { FactsClient, LogsClient, MemoryClient } from './resources/memory.js';
+export type {
+  FactsClient,
+  LogsClient,
+  MemoryClient,
+  MemoryErasuresClient,
+} from './resources/memory.js';
 export type { ProvenanceClient, ProvenanceExportInput } from './resources/provenance.js';
 export type { TenantClient, TenantConfigClient } from './resources/tenant.js';
 export type {
@@ -492,6 +511,9 @@ export type {
   FixProposal,
   FixProposalId,
   FixProposalStatus,
+  ProposalContent,
+  ProposalObjective,
+  ProposalTier,
   Flow,
   FlowEdge,
   FlowId,
@@ -574,6 +596,12 @@ export type {
   ProviderId,
   ProviderSpec,
   PutArtifactInput,
+  MemoryErasure,
+  MemoryErasureCreated,
+  MemoryErasureLedgerEntry,
+  MemoryErasureSelector,
+  MemoryErasureStatus,
+  ReplayMemoryErasuresResult,
   RetrievalResult,
   RevokeSessionsResult,
   RouteResult,

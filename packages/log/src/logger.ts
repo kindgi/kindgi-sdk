@@ -53,6 +53,8 @@ const CORRELATION = [
 ] as const;
 
 const FIXED: ReadonlySet<string> = new Set(['time', 'level', 'severity', 'subsystem', 'message']);
+/** Names a field can't take: the fixed five and `inMessage`, the record's own. */
+const RESERVED: ReadonlySet<string> = new Set([...FIXED, 'inMessage']);
 
 function serializeError(err: unknown, withStack: boolean, depth = 0): SerializedError | string {
   if (!(err instanceof Error)) return scrubText(String(err));
@@ -70,8 +72,8 @@ function serializeError(err: unknown, withStack: boolean, depth = 0): Serialized
 /**
  * Copy a record's own fields into `out`, after the fixed five and the
  * correlation ones; an `Error` among them is serialized. A field named
- * like one of the fixed five can't replace it: it comes back to be kept
- * under `fields`.
+ * like one of the fixed five (or `inMessage`) can't replace it: it comes
+ * back to be kept under `fields`.
  */
 function copyFields(
   out: Record<string, unknown>,
@@ -82,7 +84,7 @@ function copyFields(
   for (const [key, value] of Object.entries(merged)) {
     if (value === undefined || key === 'subsystem' || key === 'err') continue;
     if ((CORRELATION as readonly string[]).includes(key)) continue;
-    if (FIXED.has(key)) reserved[key] = value;
+    if (RESERVED.has(key)) reserved[key] = value;
     else out[key] = value instanceof Error ? serializeError(value, level === 'error') : value;
   }
   return reserved;
@@ -104,7 +106,12 @@ function build(shared: Shared, bindings: LogFields): Logger {
   const threshold = levelFor(subsystem, shared.levels, shared.threshold);
   const extra = shared.options.redact ?? [];
 
-  function record(level: LogLevel, message: string, fields: LogFields | undefined): LogRecord {
+  function record(
+    level: LogLevel,
+    message: string,
+    fields: LogFields | undefined,
+    how: LogOptions | undefined,
+  ): LogRecord {
     const merged: Record<string, unknown> = { ...bindings, ...fields };
     const out: Record<string, unknown> = {
       time: shared.now().toISOString(),
@@ -125,18 +132,21 @@ function build(shared: Shared, bindings: LogFields): Logger {
       const withStack = level === 'error' || levelEnabled('debug', threshold);
       redacted.err = serializeError(merged.err, withStack);
     }
+    // The fields the message states, of those the record has: a renderer
+    // (the pretty format, `kindgi dev`) leaves them out of the line.
+    const stated = (how?.inMessage ?? []).filter(
+      (key) => !RESERVED.has(key) && key !== 'err' && key in redacted,
+    );
+    if (stated.length > 0) redacted.inMessage = stated;
     return redacted as LogRecord;
   }
 
   function write(level: LogLevel, message: string, fields?: LogFields, how?: LogOptions): void {
     if (!levelEnabled(level, threshold)) return;
-    const rec = record(level, message, fields);
+    const rec = record(level, message, fields, how);
     const line =
       shared.format === 'pretty'
-        ? formatPretty(rec, {
-            color: shared.options.color === true,
-            ...(how?.inMessage !== undefined && { omit: how.inMessage }),
-          })
+        ? formatPretty(rec, { color: shared.options.color === true })
         : formatJson(rec);
     try {
       shared.options.write(line);

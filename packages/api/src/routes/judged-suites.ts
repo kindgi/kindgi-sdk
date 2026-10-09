@@ -4,7 +4,7 @@
 import { type Context, Hono } from 'hono';
 
 import { type Principal, ref, tuplesForCreate } from '@kindgi/authz';
-import type { Cursor, ProjectId, TenantId, UserId } from '@kindgi/types';
+import type { Cursor, ProjectId, ScopeSegment, TenantId, UserId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import type {
@@ -22,6 +22,7 @@ import type {
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
+import { parseSegmentsBody } from './segments.js';
 
 /** The most cases a test set built from judgments holds. */
 export const MAX_JUDGED_CASES = 1000;
@@ -66,35 +67,13 @@ export function judgedSuitesRouter(
       );
     }
 
-    const built = await buildCases(judgments, tenantId, body);
     const principal = c.get('principal') as Principal | undefined;
     const creatorUserId =
       principal?.actor.kind === 'user' ? (principal.actor.id as UserId) : undefined;
-    const outcome = await suites.publish({
-      tenantId,
-      projectId: body.projectId,
-      suite: {
-        id: suiteId,
-        tenantId,
-        version: body.version,
-        kind: 'judged',
-        ...(body.description !== undefined && { description: body.description }),
-        spec: {
-          source: 'judgments',
-          // Where the judgments came from: a comparison's summary names it.
-          projectId: body.projectId,
-          query: body.query,
-          caseCount: built.cases.length,
-          truncated: built.truncated,
-          builtAt: new Date().toISOString(),
-        },
-      },
-      enqueueTuples: (id) =>
-        tuplesForCreate(
-          { kind: 'eval_suite', id, tenantId, projectId: body.projectId },
-          creatorUserId,
-        ),
-    });
+    const outcome = await buildJudgedSuite(
+      { suites, judgments, cases },
+      { tenantId, suiteId, ...body, ...(creatorUserId !== undefined && { creatorUserId }) },
+    );
     if (outcome.kind === 'already-registered') {
       return fail(
         c,
@@ -105,14 +84,13 @@ export function judgedSuitesRouter(
     if (outcome.kind === 'project-not-found') {
       return fail(c, 'bad-input', `\`projectId\` "${body.projectId}" is not a project here.`);
     }
-    await cases.putCases({ tenantId, suiteId, version: body.version, cases: built.cases });
     c.status(201);
     return c.json({
       suiteId,
       version: body.version,
       kind: 'judged',
-      caseCount: built.cases.length,
-      truncated: built.truncated,
+      caseCount: outcome.caseCount,
+      truncated: outcome.truncated,
     });
   });
 
@@ -144,6 +122,82 @@ export function judgedSuitesRouter(
   return r;
 }
 
+/** Which judged runs a test set is built from, and which of their judgments count. */
+export interface JudgedSuiteQuery {
+  readonly agentId?: string;
+  readonly agentVersion?: string;
+  readonly flowId?: string;
+  readonly since?: string;
+  readonly until?: string;
+  readonly judgeClassIds?: readonly string[];
+  readonly minJudgments?: number;
+  /** Only runs started in this segment path or below it. */
+  readonly segments?: readonly ScopeSegment[];
+}
+
+export interface BuildJudgedSuiteInput {
+  readonly tenantId: TenantId;
+  readonly suiteId: string;
+  readonly version: string;
+  /** The project whose judged runs it takes, and the suite's project. */
+  readonly projectId: ProjectId;
+  readonly description?: string;
+  readonly query: JudgedSuiteQuery;
+  /** The user who built it, made the suite's creator. */
+  readonly creatorUserId?: UserId;
+}
+
+export type BuildJudgedSuiteOutcome =
+  | { readonly kind: 'ok'; readonly caseCount: number; readonly truncated: boolean }
+  | { readonly kind: 'already-registered' }
+  | { readonly kind: 'project-not-found' };
+
+/**
+ * Build a test set and publish it as a `judged` suite version, as
+ * `POST /v1/eval-suites/{suiteId}/versions/from-judgments` does: the
+ * judged runs the query picks (newest first, at most `MAX_JUDGED_CASES`),
+ * each a case with its items' judgments summed up. The binding must list
+ * judged runs (`listJudgedRuns`).
+ */
+export async function buildJudgedSuite(
+  deps: {
+    readonly suites: EvalSuiteRegistryBinding;
+    readonly judgments: JudgmentRegistryBinding;
+    readonly cases: EvalCaseStoreBinding;
+  },
+  input: BuildJudgedSuiteInput,
+): Promise<BuildJudgedSuiteOutcome> {
+  const { tenantId, suiteId, version, projectId } = input;
+  const built = await buildCases(deps.judgments, tenantId, input);
+  const outcome = await deps.suites.publish({
+    tenantId,
+    projectId,
+    suite: {
+      id: suiteId,
+      tenantId,
+      version,
+      kind: 'judged',
+      ...(input.description !== undefined && { description: input.description }),
+      spec: {
+        source: 'judgments',
+        // Where the judgments came from: a comparison's summary names it.
+        projectId,
+        query: input.query,
+        caseCount: built.cases.length,
+        truncated: built.truncated,
+        builtAt: new Date().toISOString(),
+      },
+    },
+    enqueueTuples: (id) =>
+      tuplesForCreate({ kind: 'eval_suite', id, tenantId, projectId }, input.creatorUserId),
+  });
+  if (outcome.kind === 'already-registered' || outcome.kind === 'project-not-found') {
+    return { kind: outcome.kind };
+  }
+  await deps.cases.putCases({ tenantId, suiteId, version, cases: built.cases });
+  return { kind: 'ok', caseCount: built.cases.length, truncated: built.truncated };
+}
+
 function fail(c: Context<AppEnv>, code: string, message: string): Response {
   c.status(statusFor(code) as never);
   return c.json(toWireError({ code, message }, c.get('requestId')));
@@ -156,15 +210,7 @@ interface BuildBody {
   readonly projectId: ProjectId;
   readonly description?: string;
   /** The judged-run filter, as recorded in the suite's spec. */
-  readonly query: {
-    readonly agentId?: string;
-    readonly agentVersion?: string;
-    readonly flowId?: string;
-    readonly since?: string;
-    readonly until?: string;
-    readonly judgeClassIds?: readonly string[];
-    readonly minJudgments?: number;
-  };
+  readonly query: JudgedSuiteQuery;
 }
 
 /** Each class's weight, read once (an unclassified judgment counts 1; a missing class too). */
@@ -186,7 +232,7 @@ function classWeights(
 
 function judgedRunFilter(
   tenantId: TenantId,
-  body: BuildBody,
+  body: Pick<BuildBody, 'projectId' | 'query'>,
 ): Omit<JudgedRunListInput, 'limit' | 'cursor'> {
   const { judgeClassIds: _ids, minJudgments: _min, ...runFilter } = body.query;
   return { tenantId, projectId: body.projectId, ...runFilter };
@@ -196,7 +242,7 @@ function judgedRunFilter(
 async function buildCases(
   judgments: JudgmentRegistryBinding,
   tenantId: TenantId,
-  body: BuildBody,
+  body: Pick<BuildBody, 'projectId' | 'query'>,
 ): Promise<{ readonly cases: JudgedEvalCase[]; readonly truncated: boolean }> {
   const list = judgments.listJudgedRuns as NonNullable<JudgmentRegistryBinding['listJudgedRuns']>;
   const weightOf = classWeights(judgments, tenantId);
@@ -277,7 +323,16 @@ async function summarize(
     totalWeight,
     restricted,
     reasons: judgments.flatMap((j) =>
-      j.reason !== undefined ? [{ verdict: j.verdict, reason: j.reason }] : [],
+      j.reason !== undefined
+        ? [
+            {
+              verdict: j.verdict,
+              reason: j.reason,
+              ...(j.judgeClassId !== undefined && { judgeClassId: j.judgeClassId }),
+              ...(j.restricted === true && { restricted: true as const }),
+            },
+          ]
+        : [],
     ),
   };
 }
@@ -335,7 +390,13 @@ function parseQuery(b: Record<string, unknown>): BuildBody['query'] | string {
   if (typeof strings === 'string') return strings;
   const counted = parseJudgmentFilters(b);
   if (typeof counted === 'string') return counted;
-  return { ...strings, ...counted };
+  const segments = parseSegmentsBody(b.segments);
+  if (segments.kind === 'err') return segments.message;
+  return {
+    ...strings,
+    ...counted,
+    ...(segments.segments !== undefined && { segments: segments.segments }),
+  };
 }
 
 function parseBuildBody(raw: unknown): Parsed<BuildBody> {

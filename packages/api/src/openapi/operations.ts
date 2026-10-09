@@ -488,6 +488,14 @@ const ObservationUntilQueryParam: ParameterSpec = {
   schema: { type: 'string', format: 'date-time' },
 };
 
+const ErasureIdPathParam: ParameterSpec = {
+  name: 'erasureId',
+  in: 'path',
+  required: true,
+  description: 'The erasure (a UUID).',
+  schema: { type: 'string', format: 'uuid' },
+};
+
 const FactIdPathParam: ParameterSpec = {
   name: 'factId',
   in: 'path',
@@ -573,20 +581,19 @@ const InheritQueryParam: ParameterSpec = {
   schema: { type: 'boolean', default: true },
 };
 
-const SupervisorIdHeaderParam: ParameterSpec = {
-  name: 'X-Supervisor-Id',
-  in: 'header',
+const ImprovementPassIdPathParam: ParameterSpec = {
+  name: 'passId',
+  in: 'path',
   required: true,
-  description:
-    'SupervisorId scoping this request. Every /v1/proposals route requires this header — proposals are supervisor-owned, and the API does not derive supervisor scope from the token.',
-  schema: { type: 'string', minLength: 1 },
+  description: 'The improvement pass id (a UUID).',
+  schema: { type: 'string', format: 'uuid' },
 };
 
 const ProposalIdPathParam: ParameterSpec = {
   name: 'proposalId',
   in: 'path',
   required: true,
-  description: 'FixProposalId — opaque branded string (a UUID).',
+  description: 'The proposal id (a UUID).',
   schema: { type: 'string', format: 'uuid' },
 };
 
@@ -619,7 +626,7 @@ const ProposalStatusQueryParam: ParameterSpec = {
   name: 'status',
   in: 'query',
   required: false,
-  description: 'Filter by proposal status.',
+  description: 'Only proposals with this (derived) status.',
   schema: { $ref: '#/components/schemas/FixProposalStatus' },
 };
 
@@ -627,7 +634,7 @@ const ProposalTierQueryParam: ParameterSpec = {
   name: 'tier',
   in: 'query',
   required: false,
-  description: 'Filter by artifact tier.',
+  description: 'Only proposals of this tier.',
   schema: { $ref: '#/components/schemas/ProposalTier' },
 };
 
@@ -1292,6 +1299,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'Agent or flow not found; or `projectId` names no project of this tenant (`project-not-found`).',
       ),
       '422': ErrorResponse('Guardrail violation or budget exceeded.'),
+      '409': ErrorResponse(
+        "Idempotency-Key was reused with a different body; or an erasure of the turn's person (its conversation or its `participantId`) is in progress (`erasure-in-progress`): no new turn starts for them until it completes.",
+      ),
       '400': ErrorResponse(
         "Malformed request body, or the body's `projectId` isn't a project id (a UUID).",
       ),
@@ -2894,6 +2904,32 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'post',
+    honoPath: '/v1/conversations/:conversationId/unregister',
+    openapiPath: '/v1/conversations/{conversationId}/unregister',
+    operationId: 'conversations.unregister',
+    summary: 'Unregister a conversation',
+    description:
+      "A tombstone: from now on no read, list or recall of earlier conversations returns it, and no message can be added. The retention sweep removes it after the tenant's grace.",
+    tags: ['conversations'],
+    security: 'bearer',
+    parameters: [ConversationIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '200': {
+        description: 'The conversation, with `unregisteredAt`.',
+        schema: ref('Conversation'),
+      },
+      ...CommonMutationErrors,
+      '400': ErrorResponse('`conversationId` is not a conversation id (a UUID).'),
+      '404': ErrorResponse(
+        'No conversation with that id under this tenant, or it is unregistered already.',
+      ),
+      '501': ErrorResponse(
+        "`conversation-unregister-unsupported`: this runtime can't unregister conversations.",
+      ),
+    },
+  },
+  {
     method: 'get',
     honoPath: '/v1/conversations/:conversationId/messages',
     openapiPath: '/v1/conversations/{conversationId}/messages',
@@ -3003,6 +3039,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'Malformed body, or the fact type requires semantic indexing and no embedding provider is bound.',
       ),
       '403': ErrorResponse("`permission-denied`: the caller may not write in the fact's scope."),
+      '409': ErrorResponse(
+        "Idempotency-Key was reused with a different body; or an erasure of the fact's person (by scope or subject) or conversation is in progress (`erasure-in-progress`): nothing new is stored for them until it completes.",
+      ),
     },
   },
   {
@@ -3102,32 +3141,169 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
 
-  // ---------- proposals (supervisor fix lifecycle) ----------
+  // ---------- memory erasures (a person's words) ----------
+  {
+    method: 'post',
+    honoPath: '/v1/memory/erasures',
+    openapiPath: '/v1/memory/erasures',
+    operationId: 'memory.createErasure',
+    summary: "Erase a person's words",
+    description:
+      "Starts erasing, in the background, one fact (`factId`), a person (`subject`: an app's end user `participant`, or an `external` subject facts name) or one conversation (`conversationId`): their facts, conversations (messages, recall rows), the runs that served them (input, output, journal, snapshots) and the free text they left in provenance; facts written from them go to review. Answers `202` with the erasure; follow it with `GET /v1/memory/erasures/{erasureId}`. A completed erasure keeps no identifier, only a keyed hash for a replay after a backup restore; `warnings` says when this deployment can't keep one (`erasure-unmatchable`: no erasure ledger key, `KINDGI_ERASURE_LEDGER_KEY`). Requires `admin` on the tenant.",
+    tags: ['memory'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('CreateMemoryErasureBody') },
+    responses: {
+      '202': { description: 'Started.', schema: ref('MemoryErasureCreated') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "Not exactly one of `factId`, `subject` or `conversationId`; or a `subject` of kind `user` (erasing a Kindgi user isn't offered).",
+      ),
+      '403': ErrorResponse('Not a tenant admin.'),
+      '409': ErrorResponse(
+        '`legal-hold`: a fact it reaches is under legal hold (`details.factIds`); nothing started.',
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/memory/erasures',
+    openapiPath: '/v1/memory/erasures',
+    operationId: 'memory.listErasures',
+    summary: 'List erasures',
+    description:
+      'Cursor-paginated, newest first: each erasure, how far it got and what it cleared. A completed one shows no selector. Requires `admin` on the tenant.',
+    tags: ['memory'],
+    security: 'bearer',
+    parameters: [LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': { description: 'Page of erasures.', schema: ref('MemoryErasurePage') },
+      ...CommonAuthErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
+      '400': ErrorResponse('`cursor` is not one this list issued.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/memory/erasures/export',
+    openapiPath: '/v1/memory/erasures/export',
+    operationId: 'memory.exportErasures',
+    summary: 'Export the erasure ledger',
+    description:
+      "The whole ledger, oldest first, content-free: each erasure's selector kind, the keyed hash of whom it erased, who asked and when. Keep it off-box: restoring a backup rolls the ledger back too, and `POST /v1/memory/erasures/replay` with it runs the erasures again. Requires `admin` on the tenant.",
+    tags: ['memory'],
+    security: 'bearer',
+    responses: {
+      '200': { description: 'The ledger.', schema: ref('MemoryErasureLedger') },
+      ...CommonAuthErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/memory/erasures/replay',
+    openapiPath: '/v1/memory/erasures/replay',
+    operationId: 'memory.replayErasures',
+    summary: 'Replay erasures after a backup restore',
+    description:
+      "Takes the ledger `GET /v1/memory/erasures/export` gave, puts back the rows the restore lost, and finds each erasure's person (or fact, or conversation) again by its keyed hash: those run again (`replayed`); ones nothing in the tenant matches are only restored (`restored`); ones with no keyed hash, or a key this deployment doesn't hold, are `unmatched`. Requires `admin` on the tenant.",
+    tags: ['memory'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('ReplayMemoryErasuresBody') },
+    responses: {
+      '200': { description: 'What was replayed.', schema: ref('ReplayMemoryErasuresResult') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse('Not `{erasures: [...]}` as the export gave them.'),
+      '403': ErrorResponse('Not a tenant admin.'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/memory/erasures/:erasureId/resume',
+    openapiPath: '/v1/memory/erasures/{erasureId}/resume',
+    operationId: 'memory.resumeErasure',
+    summary: 'Resume an erasure',
+    description:
+      "Tries an unfinished erasure again now. With `force: true`, an erasure `waiting-on-run` (a turn of the person's in a flow that serves other people) stops waiting: the run is cancelled and the erasure goes on; without it, it waits until its deadline (`waitingOn.until`). A finished erasure comes back as it is. Requires `admin` on the tenant.",
+    tags: ['memory'],
+    security: 'bearer',
+    parameters: [ErasureIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: false, schema: ref('ResumeMemoryErasureBody') },
+    responses: {
+      '200': { description: 'The erasure.', schema: ref('MemoryErasure') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse('The body is `{force?: boolean}`.'),
+      '403': ErrorResponse('Not a tenant admin.'),
+      '404': ErrorResponse('No such erasure in this tenant.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/memory/erasures/:erasureId',
+    openapiPath: '/v1/memory/erasures/{erasureId}',
+    operationId: 'memory.getErasure',
+    summary: 'Get an erasure',
+    description:
+      'One erasure: its status (`pending`, `running`, `completed`, `failed`), phase, what each store cleared (`counts`), and `lastError` (a code, or `not-yet:<reason>` while it waits for a run to finish). Requires `admin` on the tenant.',
+    tags: ['memory'],
+    security: 'bearer',
+    parameters: [ErasureIdPathParam],
+    responses: {
+      '200': { description: 'The erasure.', schema: ref('MemoryErasure') },
+      ...CommonAuthErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
+      '404': ErrorResponse('No such erasure in this tenant.'),
+    },
+  },
+
+  // ---------- improvement proposals ----------
   {
     method: 'get',
     honoPath: '/v1/proposals',
     openapiPath: '/v1/proposals',
     operationId: 'proposals.list',
-    summary: 'List supervisor fix proposals',
+    summary: 'List improvement proposals',
     description:
-      'Cursor-paginated list scoped to `(tenantId, supervisorId)`. Filters: `?status=`, `?agentId=`, `?tier=`. Sort order is binding-defined (typically `createdAt desc, id desc`).',
+      'Newest first, cursor-paginated, only the proposals of agents the caller can read. Filters: `?agentId=`, `?tier=`, `?status=` (statuses are derived, so a page filtered by status can hold fewer rows than `limit`), and the live scope a proposal is for (`scopeKind`, `scopeId`, `segment`, exactly as the promotions history takes it).',
     tags: ['proposals'],
     security: 'bearer',
     parameters: [
-      SupervisorIdHeaderParam,
       LimitQueryParam,
       CursorQueryParam,
       ProposalStatusQueryParam,
       AgentIdQueryParam,
       ProposalTierQueryParam,
-      ScopeKindQueryParam,
+      PromotionScopeKindQueryParam,
       ScopeIdQueryParam,
-      InheritQueryParam,
+      SegmentQueryParam,
     ],
     responses: {
       '200': { description: 'Page of proposals.', schema: ref('FixProposalCollectionPage') },
       ...CommonAuthErrors,
-      '400': ErrorResponse('Missing `X-Supervisor-Id` header or malformed query parameter.'),
+      '400': ErrorResponse('A malformed query parameter.'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/proposals/improve',
+    openapiPath: '/v1/proposals/improve',
+    operationId: 'proposals.improve',
+    summary: 'Start an improvement pass',
+    description:
+      "The runtime looks for better values for the version's tunable settings (keys its settings blocks' schemas mark `x-kindgi-tunable`) on the test set, within the budget, and writes its best candidate as an improvement proposal, which waits for a reviewer when requested. It answers at once with the pass, `running`. Checked first: the version is active and pins a settings block with tunable keys (`400 validation-failed`), the agent registry takes writes (`409 registry-read-only`), and the agent has a live version for the whole tenant (`409 proposal-needs-pin`). Needs `publish` on the agent. Without improvement passes in this runtime, `501 improve-unsupported`.",
+    tags: ['proposals'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('ImproveBody') },
+    responses: {
+      '202': { description: 'The pass, running.', schema: ref('ImprovementPass') },
+      ...CommonMutationErrors,
+      '404': ErrorResponse(
+        '`fromVersion` (or the version serving the scope) is not an active version.',
+      ),
+      '501': ErrorResponse('`improve-unsupported`: this runtime runs no improvement passes.'),
     },
   },
   {
@@ -3135,93 +3311,82 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/proposals/:proposalId',
     openapiPath: '/v1/proposals/{proposalId}',
     operationId: 'proposals.get',
-    summary: 'Fetch a fix proposal',
+    summary: 'Fetch an improvement proposal',
+    description: 'Needs `read` on its agent.',
     tags: ['proposals'],
     security: 'bearer',
-    parameters: [SupervisorIdHeaderParam, ProposalIdPathParam],
+    parameters: [ProposalIdPathParam],
     responses: {
-      '200': { description: 'Proposal.', schema: ref('FixProposal') },
+      '200': { description: 'The proposal.', schema: ref('FixProposal') },
       ...CommonAuthErrors,
-      '400': ErrorResponse('Missing `X-Supervisor-Id` header.'),
-      '404': ErrorResponse('No proposal visible under this supervisor with that id.'),
+      '404': ErrorResponse('No such proposal (or none the caller can read).'),
     },
   },
   {
     method: 'post',
     honoPath: '/v1/proposals',
     openapiPath: '/v1/proposals',
-    operationId: 'proposals.draft',
-    summary: 'Draft a fix proposal',
+    operationId: 'proposals.create',
+    summary: 'Propose new content for a data block',
     description:
-      'Inserts a new proposal in `draft` state. Duplicate proposals (same `(supervisor, fingerprint)` non-terminal) short-circuit to the pre-existing row and mark the response with `X-Proposal-Deduped: true`.',
+      'A hand-written proposal: new settings values or a new prompt template for a block `fromVersion` pins, for a live scope. Checked as publishing that block version would be (its schema carries over), and refused when it equals the pinned content. The same change from the same version for the same scope is one proposal: answered `200` with `X-Proposal-Deduped: true`. Needs `publish` on the agent.',
     tags: ['proposals'],
     security: 'bearer',
-    parameters: [SupervisorIdHeaderParam, IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('DraftProposalBody') },
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('CreateProposalBody') },
     responses: {
-      '201': { description: 'Proposal drafted (or deduped).', schema: ref('FixProposal') },
+      '201': { description: 'The proposal, a `draft`.', schema: ref('FixProposal') },
+      '200': { description: 'The same proposal, made before.', schema: ref('FixProposal') },
       ...CommonMutationErrors,
+      '404': ErrorResponse(
+        "`fromVersion` isn't an active version of the agent (`agent-version-not-found`).",
+      ),
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/proposals/:proposalId/dry-run',
-    openapiPath: '/v1/proposals/{proposalId}/dry-run',
-    operationId: 'proposals.dryRun',
-    summary: 'Dry-run a proposal against an eval dataset',
+    honoPath: '/v1/proposals/:proposalId/evaluate',
+    openapiPath: '/v1/proposals/{proposalId}/evaluate',
+    operationId: 'proposals.evaluate',
+    summary: 'Compare a proposal on a test set',
     description:
-      'Runs the candidate agent against the caller-supplied dataset + criterion. Transitions the proposal to `dry-run-passed` or `dry-run-failed`. Legal only from `draft` or `dry-run-failed`.',
+      "The first evaluation publishes the block version and derives the agent version (`derivedFrom.proposalId`); they serve no scope until a promotion makes them live. Then a comparison eval run replays that version on the test set, against the recorded outputs (`baseline: 'recorded'`). Needs `publish` on the agent, and a live version of it for the whole tenant: an agent with none serves its latest version wherever nothing is pinned, so a new version would go live there at once (`409 proposal-needs-pin`). Allowed from `draft`, `evaluated`, `not-better`, `evaluation-failed`, `refused`, `superseded` and `expired`.",
     tags: ['proposals'],
     security: 'bearer',
-    parameters: [SupervisorIdHeaderParam, ProposalIdPathParam, IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('DryRunProposalBody') },
+    parameters: [ProposalIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('EvaluateProposalBody') },
     responses: {
-      '200': { description: 'Dry-run completed.', schema: ref('DryRunProposalResult') },
+      '202': { description: 'The proposal, `evaluating`.', schema: ref('FixProposal') },
       ...CommonMutationErrors,
-      '404': ErrorResponse('No proposal visible under this supervisor with that id.'),
-      '422': ErrorResponse('Baseline mismatch, apply-change failure, or runtime dry-run error.'),
+      '404': ErrorResponse('No such proposal, or no such test set.'),
+      '409': ErrorResponse(
+        "`proposal-needs-pin`: the agent has no live version for the whole tenant. `proposal-invalid-state-transition`: the proposal's status doesn't allow it. `registry-read-only`: the agent registry takes no writes (under `kindgi dev`).",
+      ),
     },
   },
   {
     method: 'post',
-    honoPath: '/v1/proposals/:proposalId/submit-review',
-    openapiPath: '/v1/proposals/{proposalId}/submit-review',
-    operationId: 'proposals.submitReview',
-    summary: 'Submit a dry-run-passed proposal for HITL review',
+    honoPath: '/v1/proposals/:proposalId/request',
+    openapiPath: '/v1/proposals/{proposalId}/request',
+    operationId: 'proposals.request',
+    summary: "Request a proposal's promotion for its scope",
     description:
-      'Enqueues a HITL approval and transitions the proposal to `proposed-for-review`. Legal only from `dry-run-passed`. Body is optional; defaults auto-derive the reviewer role (meta-fixes → senior).',
+      "A promotion of the candidate for the proposal's scope, with its evaluation's comparison, through the scope's gate: as `POST /v1/agents/{agentId}/promotions` answers. Needs `promote` on the agent. Allowed from `evaluated`, `not-better` (the gate decides), `refused`, `superseded` and `expired`.",
     tags: ['proposals'],
     security: 'bearer',
-    parameters: [SupervisorIdHeaderParam, ProposalIdPathParam, IdempotencyKeyParam],
-    requestBody: { required: false, schema: ref('SubmitReviewProposalBody') },
+    parameters: [ProposalIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: false, schema: ref('ProposalReasonBody') },
     responses: {
-      '200': {
-        description: 'Review enqueued.',
-        schema: ref('SubmitReviewProposalResult'),
+      '201': { description: 'Promoted: the proposal, `promoted`.', schema: ref('FixProposal') },
+      '202': {
+        description: 'The gate passed and an approval is open: the proposal, `in-review`.',
+        schema: ref('FixProposal'),
       },
       ...CommonMutationErrors,
-      '404': ErrorResponse('No proposal visible under this supervisor with that id.'),
-      '422': ErrorResponse('Ground-layer guardrail violation.'),
-    },
-  },
-  {
-    method: 'post',
-    honoPath: '/v1/proposals/:proposalId/apply',
-    openapiPath: '/v1/proposals/{proposalId}/apply',
-    operationId: 'proposals.apply',
-    summary: 'Apply an approved proposal',
-    description:
-      'Materializes the proposed change into a new agent version, registers it in the agent registry, and transitions the proposal to `applied`. Legal only from `approved`.',
-    tags: ['proposals'],
-    security: 'bearer',
-    parameters: [SupervisorIdHeaderParam, ProposalIdPathParam, IdempotencyKeyParam],
-    requestBody: { required: false, schema: ref('ApplyProposalBody') },
-    responses: {
-      '200': { description: 'Proposal applied.', schema: ref('ApplyProposalResult') },
-      ...CommonMutationErrors,
-      '404': ErrorResponse('No proposal visible under this supervisor with that id.'),
+      '404': ErrorResponse('No such proposal.'),
+      '409': ErrorResponse("The proposal's status doesn't allow it."),
       '422': ErrorResponse(
-        'Baseline agent not in registry, invalid new version, or apply-change failure.',
+        '`gate-failed`: the gate refused it (the error carries the checks and `proposalId`).',
       ),
     },
   },
@@ -3230,17 +3395,18 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/proposals/:proposalId/rollback',
     openapiPath: '/v1/proposals/{proposalId}/rollback',
     operationId: 'proposals.rollback',
-    summary: 'Roll back an applied proposal',
+    summary: 'Roll back a promoted proposal',
     description:
-      'Unregisters the applied version from the agent registry and transitions the proposal to `rolled-back`. Legal only from `applied`.',
+      "The scope goes back to the version its own pin held before the proposal's promotion (or, with none, falls back to the scope above). Only while the proposal's version still serves the scope. Needs `promote` on the agent.",
     tags: ['proposals'],
     security: 'bearer',
-    parameters: [SupervisorIdHeaderParam, ProposalIdPathParam, IdempotencyKeyParam],
-    requestBody: { required: true, schema: ref('RollbackProposalBody') },
+    parameters: [ProposalIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: false, schema: ref('ProposalReasonBody') },
     responses: {
-      '200': { description: 'Proposal rolled back.', schema: ref('RollbackProposalResult') },
+      '200': { description: 'The proposal, `rolled-back`.', schema: ref('FixProposal') },
       ...CommonMutationErrors,
-      '404': ErrorResponse('No proposal visible under this supervisor with that id.'),
+      '404': ErrorResponse('No such proposal.'),
+      '409': ErrorResponse("It isn't promoted, or its version doesn't serve the scope anymore."),
     },
   },
   {
@@ -3248,17 +3414,74 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/proposals/:proposalId/withdraw',
     openapiPath: '/v1/proposals/{proposalId}/withdraw',
     operationId: 'proposals.withdraw',
-    summary: 'Withdraw a non-terminal proposal',
+    summary: 'Withdraw a proposal',
     description:
-      'Transitions the proposal to `withdrawn`. Legal from any non-terminal state (`draft | dry-running | dry-run-passed | dry-run-failed | proposed-for-review`). Terminal states surface as `409 proposal-invalid-state-transition`.',
+      "Closes it. Not while it's in review (decide its approval instead), nor once promoted, rejected or rolled back. Needs `publish` on the agent.",
     tags: ['proposals'],
     security: 'bearer',
-    parameters: [SupervisorIdHeaderParam, ProposalIdPathParam, IdempotencyKeyParam],
+    parameters: [ProposalIdPathParam, IdempotencyKeyParam],
     requestBody: { required: true, schema: ref('WithdrawProposalBody') },
     responses: {
-      '200': { description: 'Proposal withdrawn.', schema: ref('FixProposal') },
+      '200': { description: 'The proposal, `withdrawn`.', schema: ref('FixProposal') },
       ...CommonMutationErrors,
-      '404': ErrorResponse('No proposal visible under this supervisor with that id.'),
+      '404': ErrorResponse('No such proposal.'),
+      '409': ErrorResponse("The proposal's status doesn't allow it."),
+    },
+  },
+
+  // ---------- improvement passes ----------
+  {
+    method: 'get',
+    honoPath: '/v1/improvement-passes',
+    openapiPath: '/v1/improvement-passes',
+    operationId: 'improvementPasses.list',
+    summary: 'List improvement passes',
+    description:
+      'Newest first, only the passes of agents the caller can read. `?agentId=` narrows them.',
+    tags: ['proposals'],
+    security: 'bearer',
+    parameters: [LimitQueryParam, CursorQueryParam, AgentIdQueryParam],
+    responses: {
+      '200': { description: 'Page of passes.', schema: ref('ImprovementPassCollectionPage') },
+      ...CommonAuthErrors,
+      '501': ErrorResponse('`improve-unsupported`: this runtime runs no improvement passes.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/improvement-passes/:passId',
+    openapiPath: '/v1/improvement-passes/{passId}',
+    operationId: 'improvementPasses.get',
+    summary: 'Fetch an improvement pass',
+    description:
+      'Its status, the candidates it compared and what they cost, and once it ends, what it found. Needs `read` on its agent.',
+    tags: ['proposals'],
+    security: 'bearer',
+    parameters: [ImprovementPassIdPathParam],
+    responses: {
+      '200': { description: 'The pass.', schema: ref('ImprovementPass') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No such pass (or none the caller can read).'),
+      '501': ErrorResponse('`improve-unsupported`: this runtime runs no improvement passes.'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/improvement-passes/:passId/cancel',
+    openapiPath: '/v1/improvement-passes/{passId}/cancel',
+    operationId: 'improvementPasses.cancel',
+    summary: 'Cancel an improvement pass',
+    description:
+      'A running pass stops and ends `cancelled`, writing no proposal. Needs `publish` on its agent.',
+    tags: ['proposals'],
+    security: 'bearer',
+    parameters: [ImprovementPassIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '200': { description: 'The pass, cancelled.', schema: ref('ImprovementPass') },
+      ...CommonMutationErrors,
+      '404': ErrorResponse('No such pass.'),
+      '409': ErrorResponse('`improvement-pass-finished`: it has ended already.'),
+      '501': ErrorResponse('`improve-unsupported`: this runtime runs no improvement passes.'),
     },
   },
 
@@ -3707,6 +3930,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '404': ErrorResponse('`run-not-found`.'),
       '409': ErrorResponse('`run-not-finished`: the run has no output to judge yet.'),
+      '410': ErrorResponse(
+        "`run-erased`: an erasure cleared the run's content (a person's words were removed); there's nothing to judge.",
+      ),
     },
   },
   {
@@ -4492,7 +4718,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'evalSuites.buildFromJudgments',
     summary: 'Build a test set from judgments',
     description:
-      "Publishes a `judged` eval suite version whose cases are copies of judged runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the judged output, and each item's judgments summed up: yes and no counts, the weight behind yes and behind all judgments (an unclassified judgment counts 1), and the reasons. `judgeClassIds` counts only judgments of those classes; `minJudgments` leaves out runs with fewer. Needs `admin` on the project.",
+      "Publishes a `judged` eval suite version whose cases are copies of judged runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the judged output, and each item's judgments summed up: yes and no counts, the weight behind yes and behind all judgments (an unclassified judgment counts 1), and the reasons. `judgeClassIds` counts only judgments of those classes; `minJudgments` leaves out runs with fewer; `segments` keeps only runs started in that segment path or below it. Needs `admin` on the project.",
     tags: ['eval-suites'],
     security: 'bearer',
     parameters: [EvalSuiteIdPathParam, IdempotencyKeyParam],

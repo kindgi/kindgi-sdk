@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { RunBinding } from '@kindgi/runtime';
-import type { ListScope, ProjectId, Result, Semver, TenantId } from '@kindgi/types';
+import type { ListScope, ProjectId, Result, ScopeSegment, Semver, TenantId } from '@kindgi/types';
 
 import type { AgentError } from './errors.js';
 import type {
@@ -51,12 +51,31 @@ export interface AppendMessageInput {
    * assistant response for a turn omits this flag (counts as a turn).
    */
   readonly isIntermediate?: boolean;
+  /**
+   * What the conversation-recall index keeps with the message, from the
+   * turn (the conversation row has neither): the user the turn acts for,
+   * and the run's segment path. A user's message and an agent's final
+   * answer are indexed; tool messages and tool-call turns are not.
+   * Absent: indexed without them.
+   */
+  readonly recall?: {
+    readonly userId?: string;
+    readonly segments?: readonly ScopeSegment[];
+  };
 }
 
 export interface ReadMessagesInput {
   readonly tenantId: TenantId;
   readonly conversationId: ConversationId;
   readonly sinceSequence?: number;
+  /** Only messages before this sequence. */
+  readonly beforeSequence?: number;
+  /**
+   * Only the newest `last` messages (after the other bounds), oldest
+   * first: a turn's history window. A binding that ignores it returns
+   * them all, and the caller keeps the newest.
+   */
+  readonly last?: number;
   readonly limit?: number;
 }
 
@@ -152,7 +171,24 @@ export interface ConversationBinding {
     runBinding?: RunBinding,
   ): Promise<Result<Conversation, AgentError>>;
 
-  deleteConversation(tenantId: TenantId, id: ConversationId): Promise<Result<void, AgentError>>;
+  /**
+   * Unregister a conversation: a tombstone (`unregisteredAt`). From then
+   * on no read, list or recall returns it, and no message can be added;
+   * the retention sweep removes it after the tenant's grace. Optional: a
+   * binding without it can't unregister (the route answers 501).
+   */
+  unregisterConversation?(
+    tenantId: TenantId,
+    id: ConversationId,
+  ): Promise<Result<Conversation, AgentError>>;
+
+  /**
+   * @deprecated Removed with the conversation-recall index: deleting a
+   * row left its messages behind. Unregister instead
+   * (`unregisterConversation`). Optional only so a runtime built before
+   * it still compiles; the next release drops it.
+   */
+  deleteConversation?(tenantId: TenantId, id: ConversationId): Promise<Result<void, AgentError>>;
 
   appendMessage(input: AppendMessageInput): Promise<Result<ConversationMessage, AgentError>>;
 

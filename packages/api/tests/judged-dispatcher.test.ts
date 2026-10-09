@@ -260,6 +260,19 @@ describe('a comparison eval run', () => {
     });
   });
 
+  test('a recomputed call (other settings, a tool that reads from nowhere) is not a divergence', async () => {
+    const recomputed = (input: EvalRunSubjectInvokeInput): EvalRunSubjectInvokeOutcome => {
+      const outcome = answers[input.replay?.of as unknown as string] as EvalRunSubjectInvokeOutcome;
+      if (input.replay?.of !== ('case-b' as RunId) || outcome.replay === undefined) return outcome;
+      const tools = outcome.replay.tools.map((t) => ({ ...t, recomputed: true as const }));
+      return { ...outcome, replay: { ...outcome.replay, tools } };
+    };
+    const { summary, perCase } = await compare({ answer: (input) => recomputed(input) });
+    expect(summary.diverged).toBe(0);
+    expect(perCase[1]?.tools?.[0]).toMatchObject({ source: 'live', recomputed: true });
+    expect(wireErrors({ summary, perCase })).toEqual([]);
+  });
+
   test('with reads live, a live read is not a divergence', async () => {
     const { summary } = await compare({ comparison: { ...DEFAULT_COMPARISON, reads: 'live' } });
     expect(summary.diverged).toBe(0);
@@ -339,6 +352,45 @@ describe('a comparison eval run', () => {
     const { invoked, ...out } = await compare({ dryRun: true });
     expect(invoked).toEqual([]);
     expect(out).toMatchObject({ dryRun: true, cases: 2 });
+  });
+});
+
+describe('an erased case (T273 M-5)', () => {
+  const erasedB: JudgedEvalCase = {
+    caseId: 'case-b',
+    subject: caseB.subject,
+    input: null,
+    output: null,
+    items: [],
+    erased: true,
+  };
+
+  test('is left out of the run and the metrics, and counted; the result is still the wire schema', async () => {
+    const { invoked, summary, perCase } = await compare({ cases: [caseA, erasedB] });
+    expect(invoked.map((i) => i.replay?.of)).toEqual(['case-a']);
+    expect(perCase.map((c) => c.caseId)).toEqual(['case-a']);
+    expect(summary).toMatchObject({ cases: 1, erased: 1 });
+    expect(wireErrors({ summary, perCase })).toEqual([]);
+  });
+
+  test('a dry run counts it too; with none erased, no count', async () => {
+    const dry = await compare({ cases: [caseA, erasedB], dryRun: true });
+    expect(dry).toMatchObject({ dryRun: true, cases: 1, erased: 1 });
+    const { summary } = await compare({});
+    expect(summary.erased).toBeUndefined();
+  });
+
+  test('erased after it was listed (the runtime refuses its replay): left out and counted, never an error', async () => {
+    const { invoked, summary, perCase } = await compare({
+      answer: (input) =>
+        (input.replay?.of as unknown as string) === 'case-b'
+          ? { erased: true, durationMs: 3 }
+          : (answers['case-a'] as EvalRunSubjectInvokeOutcome),
+    });
+    expect(invoked.map((i) => i.replay?.of)).toEqual(['case-a', 'case-b']);
+    expect(perCase.map((c) => c.caseId)).toEqual(['case-a']);
+    expect(summary).toMatchObject({ cases: 1, erased: 1, errors: 0, status: 'completed' });
+    expect(wireErrors({ summary, perCase })).toEqual([]);
   });
 });
 

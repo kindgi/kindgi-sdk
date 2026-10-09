@@ -362,6 +362,7 @@ function serializeFact(f: Fact): Record<string, unknown> {
     ...(f.invalidatedBy !== undefined && { invalidatedBy: f.invalidatedBy }),
     ...(f.invalidationReason !== undefined && { invalidationReason: f.invalidationReason }),
     ...(f.review !== undefined && { review: f.review }),
+    ...(f.expiresAt !== undefined && { expiresAt: f.expiresAt }),
   };
 }
 

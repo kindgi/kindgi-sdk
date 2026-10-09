@@ -173,6 +173,37 @@ export interface EvalComparison {
   readonly versions?: FlowVersionOverrides;
   /** Which judgments count (absent: `as-recorded`). */
   readonly classWeights?: EvalClassWeights;
+  /**
+   * For an agent candidate: block content its replays run instead of the
+   * version's pinned content (settings values, a prompt template: an
+   * improvement pass's search). A comparison with overrides can't gate a
+   * promotion: it didn't run a published version.
+   */
+  readonly overrides?: EvalOverrides;
+  /** Only part of the test set's cases (absent: all of them). */
+  readonly sample?: EvalSample;
+}
+
+/** Block content that replaces a version's pinned content: settings values and prompt templates, by block id. */
+export interface EvalOverrides {
+  readonly settings?: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+  readonly prompts?: Readonly<Record<string, { readonly template: string }>>;
+}
+
+/**
+ * Part of a test set: its cases split once into a hold-out part (about
+ * `holdOutShare` of them) and a search part (the rest), stratified by
+ * judgment (the cases with a "no" and the others split on their own), in
+ * the order of a hash of each case id and `seed`. The same seed splits
+ * the same test set the same way, so an improvement pass searches on one
+ * part and proves its candidate on the other. A promotion gate refuses a
+ * comparison on the search part.
+ */
+export interface EvalSample {
+  readonly part: 'search' | 'hold-out';
+  readonly seed: string;
+  /** 0.1 to 0.9. */
+  readonly holdOutShare: number;
 }
 
 export interface EvalRunStartInput {

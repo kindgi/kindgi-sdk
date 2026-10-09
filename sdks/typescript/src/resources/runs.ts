@@ -391,6 +391,11 @@ export interface Run {
   /** The segment path the run was started with; a child run has its parent's. */
   readonly segments?: readonly ScopeSegment[];
   /**
+   * When an erasure cleared the run's content (its input, output, failure
+   * message and journal payloads): a person's words were erased.
+   */
+  readonly contentErasedAt?: string;
+  /**
    * The W3C trace id of the request that started the run (yours, when you
    * sent a `traceparent`). Absent for a run no request started, and from
    * an older runtime.
