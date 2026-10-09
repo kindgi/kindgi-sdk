@@ -2,4 +2,4 @@
 "@kindgi/sdk": patch
 ---
 
-The guardrails authoring skill (`kindgi-authoring-guardrails` 0.3.7) no longer offers the built-in checks: the runtime doesn't run them yet, so it says to ship your own check with `defineCheck`. A guardrail that names a built-in has no check to run, and a check that can't run never counts as passed: with `halt`, the turn is blocked with `guardrail-violation`; with any other action, the turn goes on and the error is recorded.
+The guardrails authoring skills cover the built-in checks: `kindgi-authoring-guardrails` 0.3.7 shows how a pack names one (`check: 'forbidden-substring'`, no implementation), each one's `config`, that their ids are reserved for a pack's own checks (`reserved-check-id`), and that they don't check their config yet; `kindgi-python-authoring-guardrails` 0.1.4 says a `check_id` can't be a built-in's (`DefinitionError`) and that a Python pack uses a built-in through the API (`POST /v1/guardrails`).

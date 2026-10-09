@@ -384,6 +384,17 @@ and what's different after:
   the turn whatever the action. Either way, the error is in the run's
   provenance and journal
   ([When the check can't run](../../guides/guardrails/halt-or-record/#when-the-check-cant-run)).
+- **The built-in guardrail checks run.** A guardrail that names one
+  (`must-cite`, `never-call-tool`, `max-tool-calls`, `output-matches`,
+  `tool-order`, `required-substring`, `forbidden-substring`) runs it, from a
+  pack file or `POST /v1/guardrails`. In 0.1.4 it never ran
+  ([Use a built-in check](../../guides/guardrails/use-a-built-in-check/)).
+- **A pack can't ship its own guardrail check under a built-in check's id:**
+  the runtime runs the built-in for a guardrail naming one, so a pack's
+  implementation under that id would be silently replaced. Building the pack
+  refuses it with `reserved-check-id` (Python: `DefinitionError`), saying to
+  rename the check. Rebuild your packs with the 0.1.5 CLI: a pack built with
+  an earlier one that ships such a check runs the built-in instead.
 - **The runtime signs exports** (audit bundles, provenance, compliance
   evidence) with the deployment's export key: set
   `KINDGI_EXPORT_SIGNING_KEY_PATH`, `KINDGI_EXPORT_SIGNING_KEY` or
@@ -482,12 +493,12 @@ and what's different after:
   Chrome or Firefox. A fix is planned. A deployment's console needs `https`
   in every browser (above).
 
-- **Built-in guardrail checks don't run yet.** A guardrail that names one of
-  the built-in checks in `@kindgi/guardrails` (`must-cite`,
-  `never-call-tool`, …) has no check to run, so under `halt` it stops every
-  turn it checks (above). Write your own check instead
-  ([Write a guardrail](../../guides/guardrails/write-a-guardrail/)). A fix is
-  planned.
+- **The built-in guardrail checks don't check their config yet.** A setting
+  of the wrong type is ignored: `never-call-tool` with
+  `tools: 'my-pack.issue-refund'` (a string, not a list) forbids nothing and
+  passes every turn. Copy the shapes in
+  [Use a built-in check](../../guides/guardrails/use-a-built-in-check/#the-built-in-checks)
+  exactly. A fix is planned.
 
 ### Runtime 0.1.4.2
 
