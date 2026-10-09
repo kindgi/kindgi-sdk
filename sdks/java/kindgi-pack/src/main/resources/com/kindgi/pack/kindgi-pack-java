@@ -1,0 +1,29 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+# Copyright (C) 2026 Kindgi Inc.
+#
+# kindgi-pack-java: starts a Java pack service with its token out of the
+# environment. The token authenticates the service's callers; the pack's code,
+# loaded into the same JVM, has no use for it, and a dependency that read it
+# could call the pack's tools around the runtime. A JVM can't drop a variable
+# from its own environment, so this script does before the JVM starts, and
+# hands the token over on file descriptor 3 (a pipe, read once).
+#
+#   kindgi-pack-java [JVM options] -cp <classpath> com.kindgi.pack.Main serve [serve options]
+#
+# Runs $JAVA_HOME/bin/java, else the java on PATH. POSIX sh; on Windows, run it
+# under WSL.
+set -eu
+java=java
+if [ -n "${JAVA_HOME:-}" ]; then
+  java="$JAVA_HOME/bin/java"
+fi
+if [ -z "${KINDGI_PACK_SERVICE_TOKEN+set}" ]; then
+  # No token: the service says so (config-invalid).
+  exec "$java" "$@"
+fi
+token=$KINDGI_PACK_SERVICE_TOKEN
+unset KINDGI_PACK_SERVICE_TOKEN
+exec "$java" -Dkindgi.pack.tokenFd=3 "$@" 3<<KINDGI_TOKEN
+$token
+KINDGI_TOKEN

@@ -191,15 +191,68 @@ A deploy that was refused (say, before the key was trusted) is answered the same
 
 Then `kindgi health`, `kindgi tools list` and a run, with `--url "$URL" --token <api token>`.
 
+## 7. Turn on sign-in
+
+**Nobody can sign in to the console until you turn sign-in on.** The API takes API tokens either way. Since runtime 0.1.5, console sign-in is off by default outside `kindgi dev`, and the server's boot lines say so: `⚠ Console sign-in: nobody can sign in to the console. …`
+
+The server's own settings go in two variables, as the pack's do:
+- `server_env`: plain values;
+- `server_secret_env`: Secret Manager references, read with the server's identity. You create each secret, and the server gets read access to exactly those (a secret in another project is granted there).
+
+The plan refuses a name the module sets itself (its own variables cover those, such as `public_url` below), `KINDGI_DEV`, and a secret given as a plain value.
+
+**With the API token,** which the console's sign-in page takes:
+
+```hcl
+server_env = {
+  KINDGI_CONSOLE_TOKEN_SIGN_IN = "on"
+}
+```
+
+**With an emailed link.** It needs the server's sign-in secret, an SMTP server and `public_url`:
+
+```sh
+# The sign-in secret: 32 bytes, base64.
+openssl rand 32 | base64 | gcloud secrets create $N-auth-secret --data-file=-
+# The SMTP URL, password included: paste it; it never goes in a file.
+read -rs SMTP_URL && printf '%s' "$SMTP_URL" | gcloud secrets create $N-smtp-url --data-file=- && unset SMTP_URL
+```
+
+```hcl
+public_url = "https://kindgi-dev-server-abc123-pd.a.run.app" # terraform output -raw server_url
+server_env = {
+  KINDGI_CONSOLE_TOKEN_SIGN_IN = "on"
+  KINDGI_AUTH_EMAIL_FROM       = "kindgi@acme.example"
+}
+server_secret_env = {
+  KINDGI_AUTH_SECRET         = { secret = "kindgi-dev-auth-secret", version = "1" }
+  KINDGI_AUTH_EMAIL_SMTP_URL = { secret = "kindgi-dev-smtp-url", version = "1" }
+}
+```
+
+Pin each secret to a version, as above, rather than `latest`: a new version then reaches the server only when you change `version` here.
+
+- **`public_url`** (`KINDGI_PUBLIC_URL`) is the URL people open the console at. On a new deployment that's `terraform output -raw server_url` after the first apply, so the emailed link comes with a second apply. With your own domain in front, it's that domain.
+  - Console sessions are then accepted from that origin only, so open the console there.
+  - The plan refuses `KINDGI_AUTH_SECRET` without it, because the server wouldn't start.
+- **Continue with Google, Microsoft or GitHub, verified domains, and Turnstile** go the same way:
+  - in `server_env`: each provider's client id, `KINDGI_AUTH_VERIFIED_DOMAINS` (`acme.com:<tenant id>`) and the Turnstile site key;
+  - in `server_secret_env`: each `…_CLIENT_SECRET` and `KINDGI_AUTH_TURNSTILE_SECRET`.
+  - The `…_PATH` forms read a file, which this module doesn't mount, so use the value forms.
+
 ## Testing the module
 
-`terraform init -backend=false && terraform test` runs `tests/module.tftest.hcl` with a mock Google provider. No credentials are used and no cloud calls are made. It plans the module with each option and checks what it would create: the default secrets backend and repository, `secrets_backend = "none"`, the AAD key's pin, an existing repository in the same project and in another, and the pack's invoker grants.
+`terraform init -backend=false && terraform test` runs `tests/module.tftest.hcl` with a mock Google provider. No credentials are used and no cloud calls are made. It plans the module with each option and checks what it would create: the default secrets backend and repository, `secrets_backend = "none"`, the AAD key's pin, an existing repository in the same project and in another, the pack's invoker grants, the client-address setting, and the server's own settings (sign-in).
+
+## Upgrading
+
+- **To runtime 0.1.5: add `KINDGI_CONSOLE_TOKEN_SIGN_IN = "on"` to `server_env` first, or nobody can sign in to the console.** Up to 0.1.4 the console's sign-in page took the API token on its own. From 0.1.5 that's off by default outside `kindgi dev`. The API keeps taking tokens either way, and "7. Turn on sign-in" has the other ways in.
+- **Upgrades roll forward:** migrations only go forward, so an older runtime can break on a database a newer one migrated. Deploy a new runtime revision at 100% traffic, keep a database backup from before, and roll back by restoring it.
 
 ## Operating it
 
 - **Client addresses:** the server trusts one proxy, Cloud Run's front end, which appends the caller to `X-Forwarded-For` (`trusted_proxies = "1"`, `KINDGI_TRUSTED_PROXIES`), so rate limits and audit records see the caller. With an external Application Load Balancer in front, set `"2"`: it appends the client and then its own address ([Google: the X-Forwarded-For header](https://docs.cloud.google.com/load-balancing/docs/https#x-forwarded-for_header)).
 - **One server instance** (`server_max_instances = 1`) until several replicas are verified. Migrations run at boot and need a direct database connection (the socket or a private IP, not a transaction pooler).
-- **Upgrades roll forward:** migrations only go forward, so an older runtime can break on a database a newer one migrated. Deploy a new runtime revision at 100% traffic, keep a database backup from before, and roll back by restoring it.
 - **Rotating a secret:** add a version, then roll a new revision of each service that reads it (`gcloud run services update <service> --update-labels=rotated=$(date +%s)`).
 - **The AAD key is pinned, never rotated this way.** The server reads the version `secrets_aad_key_version` names, not `latest`. Every secret stored in Postgres is bound to it: a new version is a key change that needs every stored secret re-encrypted, and a version added by mistake must not reach the server.
   - **Upgrading from a module copy before this variable:** set it to the version your server reads now. `gcloud secrets versions list $N-secrets-aad-key` shows it; normally `1`.

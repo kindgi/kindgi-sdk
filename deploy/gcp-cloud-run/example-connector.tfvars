@@ -63,3 +63,9 @@ pack_bucket_object_prefixes = { "acme-app-corpus" = ["acme/derived/"] }
 pack_run_invokers = [
   { project = "acme-app-dev", location = "northamerica-northeast2", service = "acme-search" },
 ]
+
+# Console sign-in with the API token (off by default since runtime 0.1.5).
+# More sign-in settings: README, "7. Turn on sign-in".
+server_env = {
+  KINDGI_CONSOLE_TOKEN_SIGN_IN = "on"
+}

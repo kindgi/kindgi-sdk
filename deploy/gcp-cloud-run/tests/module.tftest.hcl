@@ -254,3 +254,157 @@ run "trusted_proxies_refuses_a_word" {
   }
   expect_failures = [var.trusted_proxies]
 }
+
+# Sign-in on the server: off unless the operator turns it on (runtime 0.1.5
+# defaults console token sign-in off outside `kindgi dev`).
+run "sign_in_is_off_by_default" {
+  command = plan
+  assert {
+    condition = length([
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.name
+      if contains(["KINDGI_PUBLIC_URL", "KINDGI_CONSOLE_TOKEN_SIGN_IN", "KINDGI_AUTH_SECRET"], e.name)
+    ]) == 0
+    error_message = "By default the module sets no public URL and turns no sign-in on."
+  }
+  assert {
+    condition     = length(google_secret_manager_secret_iam_member.server_reads_its_secrets) == 0
+    error_message = "Without server_secret_env, the server gets no grant on the operator's secrets."
+  }
+}
+
+run "sign_in_settings_reach_the_server" {
+  command = plan
+  variables {
+    public_url = "https://kindgi.acme.example"
+    server_env = {
+      KINDGI_CONSOLE_TOKEN_SIGN_IN = "on"
+      KINDGI_AUTH_EMAIL_FROM       = "Kindgi <kindgi@acme.example>"
+    }
+    server_secret_env = {
+      KINDGI_AUTH_SECRET         = { secret = "kindgi-dev-auth-secret", version = "1" }
+      KINDGI_AUTH_EMAIL_SMTP_URL = { secret = "acme-smtp-url", version = "latest", project = "acme-shared" }
+    }
+  }
+  assert {
+    condition = one([
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.value
+      if e.name == "KINDGI_PUBLIC_URL"
+    ]) == "https://kindgi.acme.example"
+    error_message = "public_url becomes KINDGI_PUBLIC_URL."
+  }
+  assert {
+    condition = one([
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.value
+      if e.name == "KINDGI_CONSOLE_TOKEN_SIGN_IN"
+    ]) == "on"
+    error_message = "A server_env value reaches the server as given."
+  }
+  assert {
+    condition = one([
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : "${e.value_source[0].secret_key_ref[0].secret}@${e.value_source[0].secret_key_ref[0].version}"
+      if e.name == "KINDGI_AUTH_SECRET"
+    ]) == "kindgi-dev-auth-secret@1"
+    error_message = "A server_secret_env entry is a Secret Manager reference at its version."
+  }
+  assert {
+    condition = one([
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.value_source[0].secret_key_ref[0].secret
+      if e.name == "KINDGI_AUTH_EMAIL_SMTP_URL"
+    ]) == "projects/acme-shared/secrets/acme-smtp-url"
+    error_message = "A secret in another project is referenced by its full name."
+  }
+  assert {
+    condition     = keys(google_secret_manager_secret_iam_member.server_reads_its_secrets) == ["KINDGI_AUTH_SECRET"]
+    error_message = "The server is granted the same-project secret only; another project's is granted there."
+  }
+}
+
+run "a_name_the_module_sets_is_refused" {
+  command = plan
+  variables {
+    server_env = { KINDGI_TRUSTED_PROXIES = "2" }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "kindgi_dev_is_refused" {
+  command = plan
+  variables {
+    server_env = { KINDGI_DEV = "1" }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "the_public_url_goes_in_its_variable" {
+  command = plan
+  variables {
+    server_env = { KINDGI_PUBLIC_URL = "https://kindgi.acme.example" }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "a_name_in_both_maps_is_refused" {
+  command = plan
+  variables {
+    server_env        = { KINDGI_AUTH_EMAIL_FROM = "Kindgi <kindgi@acme.example>" }
+    server_secret_env = { KINDGI_AUTH_EMAIL_FROM = { secret = "acme-from", version = "1" } }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "a_secret_as_a_plain_value_is_refused" {
+  command = plan
+  variables {
+    server_env = { KINDGI_AUTH_SECRET = "c2VjcmV0" }
+  }
+  expect_failures = [var.server_env]
+}
+
+run "identity_provider_sign_in_needs_public_url" {
+  command = plan
+  variables {
+    server_secret_env = { KINDGI_AUTH_SECRET = { secret = "kindgi-dev-auth-secret", version = "1" } }
+  }
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "public_url_refuses_a_path" {
+  command = plan
+  variables {
+    public_url = "https://kindgi.acme.example/console"
+  }
+  expect_failures = [var.public_url]
+}
+
+# The names server_env can't set are every name the module sets: with each
+# option on, nothing the server gets is missing from the list.
+run "the_refused_names_cover_every_option_secret_signing" {
+  command = plan
+  variables {
+    export_signing       = "secret"
+    cors_origins         = ["https://app.acme.example"]
+    openfga_api_url      = "http://openfga.acme.internal:8080"
+    pack_call_timeout_ms = 300000
+    public_url           = "https://kindgi.acme.example"
+  }
+  assert {
+    condition = alltrue([
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : contains(local.server_module_env, e.name)
+    ])
+    error_message = "A name the module sets on the server is missing from server_module_env."
+  }
+}
+
+run "the_refused_names_cover_every_option_kms_signing" {
+  command = plan
+  variables {
+    export_signing         = "kms"
+    export_signing_kms_key = "projects/acme-app-dev/locations/northamerica-northeast2/keyRings/kindgi/cryptoKeys/exports/cryptoKeyVersions/1"
+  }
+  assert {
+    condition = alltrue([
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : contains(local.server_module_env, e.name)
+    ])
+    error_message = "A name the module sets on the server is missing from server_module_env."
+  }
+}
