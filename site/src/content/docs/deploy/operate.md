@@ -529,7 +529,13 @@ The `Token` line in the log now shows the new token's last four characters, and 
 `KINDGI_API_TOKEN` is one token: switch your CLI and apps to the new one when you restart.
 
 Console sessions signed in with the old token end at the restart, and people
-sign in again.
+sign in again. The startup log counts them:
+
+```text
+  Signed out: 1 console session an earlier token opened
+```
+
+A request with such a session afterwards answers `401`.
 
 ## Rotate the pack service token
 
