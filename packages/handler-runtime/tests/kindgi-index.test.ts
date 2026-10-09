@@ -310,6 +310,17 @@ describe('built-in check ids', () => {
     expect([...RESERVED_CHECK_IDS].sort()).toEqual([...BUILT_IN_CHECK_IDS].sort());
   });
 
+  test("the Python SDK's RESERVED_CHECK_IDS is the same set", async () => {
+    const definePy = await fs.readFile(
+      new URL('../../../sdks/python/src/kindgi/pack/define.py', import.meta.url),
+      'utf8',
+    );
+    const block = /RESERVED_CHECK_IDS = frozenset\(\s*\{([^}]*)\}/.exec(definePy)?.[1];
+    if (block === undefined) throw new Error('RESERVED_CHECK_IDS not found in define.py');
+    const ids = [...block.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+    expect(ids.sort()).toEqual([...BUILT_IN_CHECK_IDS].sort());
+  });
+
   test('a guardrail naming a built-in (a string) indexes: it uses the built-in', async () => {
     const report = await index(guardrailModule({ check: 'must-cite' }));
     expect(report.fileErrors).toEqual([]);
