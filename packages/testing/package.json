@@ -30,11 +30,7 @@
     "clean": "rm -rf dist *.tsbuildinfo"
   },
   "dependencies": {
-    "@kindgi/agents": "workspace:*",
-    "@kindgi/api": "workspace:*",
-    "@kindgi/memory": "workspace:*",
-    "@kindgi/platform": "workspace:*",
-    "@kindgi/runtime": "workspace:*"
+    "@kindgi/api": "workspace:*"
   },
   "devDependencies": {
     "@kindgi/types": "workspace:*",

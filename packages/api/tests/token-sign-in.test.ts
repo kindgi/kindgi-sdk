@@ -8,7 +8,7 @@ import { describe, expect, test } from 'vitest';
 import type { AuditEvent, AuditEventBinding } from '@kindgi/audit-events';
 import type { ApiTokenId, SessionId, TenantId, Timestamp, UserId } from '@kindgi/types';
 
-import { createStubAppBindings } from '@kindgi/testing';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { SESSION_COOKIE_NAME, SESSION_TOKEN_PREFIX, createApp } from '../src/index.js';
 import type {
@@ -189,6 +189,21 @@ describe('POST /v1/auth/token-sign-in', () => {
     expect(((await whoami.json()) as { userId: string }).userId).toBe(alice);
   });
 
+  test('a repeat with the same Idempotency-Key: 409 replay-withheld, no cookie, no second session', async () => {
+    const { app, created } = makeApp();
+    const send = () =>
+      app.request('/v1/auth/token-sign-in', {
+        method: 'POST',
+        headers: { authorization: 'Bearer kgi_person_full', 'idempotency-key': 'sign-in-1' },
+      });
+    expect((await send()).status).toBe(200);
+    const again = await send();
+    expect(again.status).toBe(409);
+    expect(again.headers.get('set-cookie')).toBeNull();
+    expect((await codeOf(again)).code).toBe('idempotency-key-replay-withheld');
+    expect(created).toHaveLength(1);
+  });
+
   test('with no identity providers, the console can still sign out', async () => {
     const { app } = makeApp();
     const res = await signIn(app, 'kgi_person_full');
@@ -309,5 +324,47 @@ describe('GET /v1/auth/sign-in-options: the ways in', () => {
       data: [],
       methods: { identityProviders: false, apiToken: false },
     });
+  });
+});
+
+describe('what token sign-in and sign-out leave in the audit trail', () => {
+  test('a refusal: who tried, and why (never the key)', async () => {
+    const { app, audit } = makeApp();
+    const res = await signIn(app, 'kgi_service');
+    expect(res.status).toBe(403);
+    expect(audit).toHaveLength(1);
+    expect(audit[0]).toMatchObject({
+      kind: 'sign-in-refused',
+      actor: 'service_account:sa-ci',
+      outcome: 'denied',
+      payload: { doc: { method: 'api-token', reason: 'token-sign-in-not-allowed' } },
+    });
+    expect(JSON.stringify(audit)).not.toContain('kgi_service');
+  });
+
+  test('signing out: signed-out, with the session', async () => {
+    const { app, audit } = makeApp();
+    const res = await signIn(app, 'kgi_person_full');
+    const cookie = (res.headers.get('set-cookie') ?? '').split(';')[0] as string;
+    await app.request('/v1/auth/logout', { method: 'POST', headers: { cookie, origin: CONSOLE } });
+    const out = audit.find((e) => e.kind === 'signed-out');
+    expect(out).toMatchObject({ actor: `user:${alice}`, outcome: 'succeeded' });
+    expect((out?.payload as { doc: { sessionId?: string } }).doc.sessionId).toBeDefined();
+  });
+});
+
+describe('cookie sessions need a store that resolves its own tokens', () => {
+  test('without resolveToken, createApp refuses: the session id would be the credential', () => {
+    const { store } = makeStore();
+    const { resolveToken: _gone, ...older } = store;
+    expect(() =>
+      createApp({
+        ...createStubAppBindings(),
+        resolveToken: async () => null,
+        runHandler: {} as RunHandlerBinding,
+        sessionStore: older as SessionStoreBinding,
+        session: { cookie: { allowedOrigins: [CONSOLE] }, tokenSignIn: true },
+      }),
+    ).toThrow(/resolveToken/);
   });
 });

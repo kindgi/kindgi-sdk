@@ -320,6 +320,11 @@ export function installCommand(pm: PackageManager): string {
   return `${pm} install`;
 }
 
+/** How a project runs one of its package.json scripts: `pnpm typecheck`, `npm run typecheck`. */
+export function scriptCommand(pm: PackageManager, script: string): string {
+  return pm === 'npm' || pm === 'bun' ? `${pm} run ${script}` : `${pm} ${script}`;
+}
+
 /**
  * Protocol for depending on a local directory by symlink. npm has no
  * `link:`; its `file:` symlinks directories (npm ≥ 7).

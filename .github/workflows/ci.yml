@@ -56,6 +56,9 @@ jobs:
       - name: References (docs exist in this repository; no internal process notes)
         run: pnpm run check:refs
 
+      - name: No package dependency cycles
+        run: pnpm run check:cycles
+
       - name: README package table
         run: pnpm run check:readme
 

@@ -686,19 +686,36 @@ function derived(
 export interface AgentPublishCapabilities {
   /** Whether memory can search by meaning (embeddings are on). Absent: unknown, no warning. */
   readonly semanticSearch?: boolean;
+  /** Whether agents can remember (`memory.remember`). Absent: unknown, no warning. */
+  readonly remember?: boolean;
 }
 
 /**
  * What a published agent should know about this deployment before its
  * first turn: an intent that searches by meaning on a runtime without
  * embeddings fails its turns (`semantic`) or searches by keyword only
- * (`both`).
+ * (`both`); an agent that remembers on a runtime that can't store what
+ * it remembers gets "not remembered" from every call.
  */
 function publishWarnings(
   agent: Agent,
   capabilities: AgentPublishCapabilities,
 ): { readonly code: string; readonly message: string }[] {
-  if (capabilities.semanticSearch !== false) return [];
+  return [
+    ...(capabilities.semanticSearch === false ? semanticWarnings(agent) : []),
+    ...(capabilities.remember === false && agent.memory?.remember !== undefined
+      ? [
+          {
+            code: 'remember-unavailable',
+            message:
+              'The agent declares memory.remember, and this runtime cannot store agent memories: each remember call answers that nothing was remembered.',
+          },
+        ]
+      : []),
+  ];
+}
+
+function semanticWarnings(agent: Agent): { readonly code: string; readonly message: string }[] {
   return agent.retrieval.flatMap((intent, i) => {
     if (intent.mode === 'semantic') {
       return [

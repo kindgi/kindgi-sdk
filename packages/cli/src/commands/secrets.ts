@@ -22,11 +22,11 @@ import { readFile, stat } from 'node:fs/promises';
 
 import type {
   RotationOutcome,
+  ScopeRef,
   SecretRecord,
   SecretVersionRecord,
   SecretsClient,
 } from '@kindgi/client';
-import type { Scope } from '@kindgi/platform';
 import type { EnvName } from '@kindgi/types';
 
 import type { CommandContext } from '../context.js';
@@ -65,7 +65,7 @@ const SCOPE_OPTION_SPEC = {
 // ---------------------------------------------------------------------
 
 interface ScopeAndEnv {
-  readonly scope: Scope;
+  readonly scope: ScopeRef;
   readonly envName: EnvName;
 }
 
@@ -74,10 +74,9 @@ type ScopeResult =
   | { readonly kind: 'err'; readonly stderr: string };
 
 /**
- * Parse `--scope=<kind>[:id]`. Every value the CLI accepts
- * maps to a `Scope` from `@kindgi/platform`. `tenantId` is
- * synthesized as a placeholder — the server derives the real tenantId
- * from the session bearer; the CLI just needs the discriminant + id.
+ * Parse `--scope=<kind>[:id]` into the kind and its id. There's no
+ * tenant id: the server takes the tenant from the bearer, and the CLI
+ * doesn't know it, so what it prints from its own input names none.
  */
 function parseScopeAndEnv(ctx: CommandContext): ScopeResult {
   const envName = stringFlag(ctx, 'env');
@@ -97,7 +96,6 @@ function parseScopeAndEnv(ctx: CommandContext): ScopeResult {
     };
   }
   const [kind, id] = rawScope.split(':');
-  const tenantId = 'session-tenant' as unknown as Scope extends { tenantId: infer T } ? T : never;
   if (kind === 'tenant') {
     if (id !== undefined && id !== '') {
       return {
@@ -107,7 +105,7 @@ function parseScopeAndEnv(ctx: CommandContext): ScopeResult {
     }
     return {
       kind: 'ok',
-      value: { scope: { kind: 'tenant', tenantId }, envName: envName as unknown as EnvName },
+      value: { scope: { kind: 'tenant' }, envName: envName as unknown as EnvName },
     };
   }
   if (kind === 'org') {
@@ -120,7 +118,7 @@ function parseScopeAndEnv(ctx: CommandContext): ScopeResult {
     return {
       kind: 'ok',
       value: {
-        scope: { kind: 'org', tenantId, orgId: id as never },
+        scope: { kind: 'org', orgId: id },
         envName: envName as unknown as EnvName,
       },
     };
@@ -135,7 +133,7 @@ function parseScopeAndEnv(ctx: CommandContext): ScopeResult {
     return {
       kind: 'ok',
       value: {
-        scope: { kind: 'project', tenantId, projectId: id as never },
+        scope: { kind: 'project', projectId: id },
         envName: envName as unknown as EnvName,
       },
     };
@@ -463,18 +461,19 @@ const setCmd: LeafCommand = {
         }),
       });
 
-      if (outcome.kind === 'version-conflict') {
+      if (outcome.kind !== 'ok') {
         return {
           kind: 'error',
           stderr: `Version conflict: ${name} already exists (version ${outcome.currentVersion}). To store a new version, retry with --write-mode=add-version${stringFlag(ctx, 'if-version') !== undefined ? ` --if-version=${outcome.currentVersion}` : ''}.\n`,
           exitCode: 1,
         };
       }
+      // The server's record: the scope the secret was written to, its tenant included.
       const summary = {
         name,
-        scope: parsed.value.scope,
+        scope: outcome.record.scope,
         envName: parsed.value.envName as unknown as string,
-        versionId: outcome.kind === 'ok' ? outcome.versionId : undefined,
+        versionId: outcome.versionId,
       };
       const rendered = renderJson(summary, ctx.globals.format);
       return {
@@ -796,10 +795,10 @@ export const secretsCommand: Command = {
 // Helpers
 // ---------------------------------------------------------------------
 
-function describeScope(scope: Scope): string {
+function describeScope(scope: ScopeRef): string {
   if (scope.kind === 'tenant') return 'tenant';
-  if (scope.kind === 'org') return `org:${scope.orgId as unknown as string}`;
-  return `project:${scope.projectId as unknown as string}`;
+  if (scope.kind === 'org') return `org:${scope.orgId}`;
+  return `project:${scope.projectId}`;
 }
 
 function sanitizeSecret(rec: SecretRecord): Record<string, unknown> {

@@ -23,7 +23,9 @@ output "sql_connection_name" {
 
 output "image_repository" {
   description = "Where the runtime and pack images go."
-  value       = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.images.repository_id}"
+  value = (local.own_repository
+    ? "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.images[0].repository_id}"
+  : "${var.image_repository.location}-docker.pkg.dev/${var.image_repository.project}/${var.image_repository.repository}")
 }
 
 output "secrets_to_fill" {
