@@ -14,7 +14,7 @@ import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/a
 import type { KernelRunRecord, RunAgentRef, RunBinding } from '@kindgi/runtime';
 import type { ConversationId, ProjectId, RunId, TenantId, Timestamp, UserId } from '@kindgi/types';
 
-import { createStubAppBindings } from '@kindgi/testing';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type { JudgmentRegistryBinding, RunHandlerBinding, TokenResolver } from '../src/index.js';
@@ -450,6 +450,52 @@ describe("the context captured on a turn's first judgment", () => {
       approved: false,
       rationale: 'not now',
     });
+  });
+
+  test('the env values its tools were sent are kept, by tool id (and only env-shaped records)', async () => {
+    const run = row({
+      output: {
+        matches: [{ id: 'c1' }],
+        appended: [
+          { sequence: 2, role: 'user' },
+          {
+            sequence: 3,
+            role: 'tool',
+            content: { found: 1 },
+            toolCall: { toolId: 'acme.lookup', invocationId: 'call-1' },
+          },
+          {
+            sequence: 4,
+            role: 'tool',
+            content: { found: 2 },
+            toolCall: { toolId: 'acme.score', invocationId: 'call-2' },
+          },
+        ],
+      },
+    });
+    const recorded = (key: string, value: unknown) => ({
+      kind: 'value.recorded',
+      nodeId: 'dispatch-tools',
+      payload: { scope: 'loop/dispatch-tools', key, value },
+    });
+    const h = harness([run], {
+      messages,
+      journal: [
+        ...journal,
+        recorded('tool-call:call-1:acme.lookup:env', { ORDERS_REGION: 'us' }),
+        // Not env values: the record's value isn't strings only.
+        recorded('tool-call:call-2:acme.score:env', { WEIGHT: 3 }),
+        // Another tool's key form, or another call: not this turn's.
+        recorded('tool-call:call-9:acme.lookup:env', { ORDERS_REGION: 'eu' }),
+      ],
+    });
+    const res = await h.call('POST', '/v1/judgments', {
+      runId: run.runId,
+      item: { key: 'c1' },
+      verdict: 'yes',
+    });
+    const got = await h.call('GET', `/v1/judgments/${res.body.id}`);
+    expect(got.body.run.context.toolEnv).toEqual({ 'acme.lookup': { ORDERS_REGION: 'us' } });
   });
 
   test('a turn that never waited at the gate has no decision kept', async () => {

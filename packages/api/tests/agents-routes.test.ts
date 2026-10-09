@@ -9,10 +9,11 @@ import type { AgentRegistry } from '@kindgi/agents';
 import { createAgentRegistry, defineAgent } from '@kindgi/agents';
 import type { Cursor, ProjectId, TenantId } from '@kindgi/types';
 
-import { createStubAppBindings } from '@kindgi/testing';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type { AgentRegistryBinding, RunHandlerBinding, TokenResolver } from '../src/index.js';
+import { inMemoryMemory } from './support/in-memory-memory.js';
 
 /**
  * Agents route tests.
@@ -547,5 +548,67 @@ describe('API — agents scope filter', () => {
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: { code: string } };
     expect(body.error.code).toBe('scope-invalid');
+  });
+});
+
+describe('API — publishing an agent that searches memory by meaning', () => {
+  function appWithMemory(semanticSearch: boolean | undefined) {
+    const registry = createAgentRegistry();
+    const memory = inMemoryMemory().binding;
+    return createApp({
+      ...createStubAppBindings(),
+      resolveToken,
+      runHandler,
+      agentRegistry: bindingFromRegistry(registry),
+      memory: { ...memory, ...(semanticSearch !== undefined && { semanticSearch }) },
+    });
+  }
+
+  async function publish(app: ReturnType<typeof appWithMemory>, body: unknown) {
+    const res = await app.request('/v1/agents', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    return { status: res.status, body: (await res.json()) as Record<string, any> };
+  }
+
+  const searching = {
+    ...agentSpec({ id: 'acme.searching' }),
+    retrieval: [
+      { types: ['acme.note'], scope: 'tenant' as const, mode: 'semantic' as const },
+      { types: ['acme.note'], scope: 'same-user' as const, mode: 'both' as const },
+      { types: ['acme.note'], scope: 'tenant' as const, mode: 'keyword' as const },
+    ],
+  };
+
+  test('without embeddings, each such intent is warned about at publish', async () => {
+    const res = await publish(appWithMemory(false), searching);
+    expect(res.status).toBe(201);
+    expect(res.body.warnings).toHaveLength(2);
+    expect(res.body.warnings[0]).toMatchObject({ code: 'semantic-unavailable' });
+    expect(res.body.warnings[0].message).toContain('Retrieval intent 0');
+    expect(res.body.warnings[1].message).toContain('Retrieval intent 1');
+    expect(res.body.warnings[1].message).toContain('keyword');
+  });
+
+  test('with embeddings, or when the deployment does not say, no warnings', async () => {
+    expect((await publish(appWithMemory(true), searching)).body.warnings).toBeUndefined();
+    expect((await publish(appWithMemory(undefined), searching)).body.warnings).toBeUndefined();
+  });
+
+  test("an agent's memory policy is kept and read back", async () => {
+    const app = appWithMemory(true);
+    const published = await publish(app, {
+      ...agentSpec({ id: 'acme.policies' }),
+      memory: { instructionTypes: ['acme.policy'] },
+    });
+    expect(published.status).toBe(201);
+    const res = await app.request('/v1/agents/acme.policies/versions/1.0.0', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(((await res.json()) as { memory?: unknown }).memory).toEqual({
+      instructionTypes: ['acme.policy'],
+    });
   });
 });
