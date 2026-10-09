@@ -15,7 +15,7 @@ heading into its version.
   (Scala: `check`) refuses it, saying to rename the check; the indexer reports
   the file. `Guardrail.RESERVED_CHECK_IDS` lists them, and a test holds it
   equal to `@kindgi/guardrails`' built-in checks, as the TypeScript and Python
-  pack SDKs do. (#PR)
+  pack SDKs do. (#461)
 - `kindgi-pack`, `kindgi-pack-scala`: **the Java pack service writes log
   records**, the same as the TypeScript and Python services' and the
   runtime's: one per call (`tool acme.lookup ok 12ms`) with the call's ids and
