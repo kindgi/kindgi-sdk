@@ -220,7 +220,17 @@ export interface SecretSetInput {
 }
 
 export type SecretSetOutcome =
-  | { readonly kind: 'ok'; readonly record: SecretRecord; readonly versionId: number }
+  | {
+      readonly kind: 'ok';
+      readonly record: SecretRecord;
+      readonly versionId: number;
+      /**
+       * Setting a revoked secret again deleted its revoked values for good,
+       * ending the backend's recovery window early (AWS Secrets Manager:
+       * `SecretProviderPutOutput.revokedValuesPurged`). Absent otherwise.
+       */
+      readonly revokedValuesPurged?: true;
+    }
   | { readonly kind: 'already-exists'; readonly record: SecretRecord }
   | { readonly kind: 'version-conflict'; readonly currentVersion: number }
   | { readonly kind: 'error'; readonly code: string; readonly message: string };
