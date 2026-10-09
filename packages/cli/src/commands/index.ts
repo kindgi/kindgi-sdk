@@ -27,6 +27,7 @@ import { initCommand } from './init.js';
 import { judgeClassesCommand } from './judge-classes.js';
 import { judgmentsCommand } from './judgments.js';
 import { keyCommand } from './key.js';
+import { licenseCommand } from './license.js';
 import { mcpCommand, mcpLaunchCommand } from './mcp.js';
 import { memoryCommand } from './memory.js';
 import { observationsCommand } from './observations.js';
@@ -62,6 +63,7 @@ export const ROOT_COMMANDS: readonly Command[] = [
   secretsCommand,
   ssoCommand,
   keyCommand,
+  licenseCommand,
   mcpCommand,
   mcpLaunchCommand,
   projectsCommand,

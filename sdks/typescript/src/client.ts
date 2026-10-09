@@ -32,6 +32,7 @@ import {
 } from './resources/improvement-passes.js';
 import { type JudgeClassesClient, makeJudgeClassesClient } from './resources/judge-classes.js';
 import { type JudgmentsClient, makeJudgmentsClient } from './resources/judgments.js';
+import { type LicenseClient, makeLicenseClient } from './resources/license.js';
 import { type McpClient, makeMcpClient } from './resources/mcp.js';
 import { type MemoryClient, makeMemoryClient } from './resources/memory.js';
 import { type ObservationsClient, makeObservationsClient } from './resources/observations.js';
@@ -124,6 +125,7 @@ export interface KindgiClient {
   readonly signingKeys: SigningKeysClient;
   /** The keys this deployment signs its exports with (audit bundles, provenance, compliance evidence). */
   readonly exportSigningKeys: ExportSigningKeysClient;
+  readonly license: LicenseClient;
   readonly tokens: TokensClient;
   /** Non-human principals with their own grants; they act through API keys. */
   readonly serviceAccounts: ServiceAccountsClient;
@@ -195,6 +197,7 @@ export function createClient(options: ClientOptions): KindgiClient {
     orgs: makeOrgsClient(transport),
     signingKeys: makeSigningKeysClient(transport),
     exportSigningKeys: makeExportSigningKeysClient(transport),
+    license: makeLicenseClient(transport),
     tokens: makeTokensClient(transport),
     serviceAccounts: makeServiceAccountsClient(transport),
     mcp: makeMcpClient(transport),

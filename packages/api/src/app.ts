@@ -114,6 +114,7 @@ import { identityRouter } from './routes/identity.js';
 import { improvementPassesRouter, mountImproveRoute } from './routes/improvement-passes.js';
 import { judgedSuitesRouter } from './routes/judged-suites.js';
 import { judgeClassesRouter, judgmentsRouter } from './routes/judgments.js';
+import { type LicenseStatusBinding, licenseRouter } from './routes/license.js';
 import { mcpRouter } from './routes/mcp.js';
 import { memoryErasuresRouter } from './routes/memory-erasures.js';
 import { memoryRouter } from './routes/memory.js';
@@ -475,6 +476,13 @@ export interface CreateAppInput {
    * binding.
    */
   readonly exportSigning?: ExportSigningBinding;
+  /**
+   * Optional. Where the deployment's license key stands, worked out on
+   * each read: `GET /v1/license`, which the console reads to warn from 30
+   * days before the key expires. Without it the route isn't mounted
+   * (404), as on a deployment that doesn't report it.
+   */
+  readonly license?: LicenseStatusBinding;
   /**
    * @deprecated Use `exportSigning`. Still read, as its Ed25519 keys
    * (`exportSignerFromSigningKeyBinding`), when `exportSigning` isn't given.
@@ -1309,6 +1317,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     v1.route('/improvement-passes', improvementPassesRouter(input.improvementPasses, authorizer));
   }
   v1.route('/export-signing-keys', exportSigningKeysRouter(exportSigning));
+  if (input.license !== undefined) v1.route('/license', licenseRouter(input.license));
   v1.route(
     '/provenance',
     provenanceRouter(

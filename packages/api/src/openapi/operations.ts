@@ -3530,6 +3530,21 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
   {
     method: 'get',
+    honoPath: '/v1/license',
+    openapiPath: '/v1/license',
+    operationId: 'license.get',
+    summary: "Where the deployment's license key stands",
+    description:
+      "Whose key, which use, until when and how many days are left, and from 30 days before it expires how to get the next one, as the runtime's startup banner says it. Never the key itself. `mode: development` when the runtime runs with `KINDGI_DEV` and needs no key. Any authenticated caller may read it. A deployment that doesn't report it answers 404.",
+    tags: ['system'],
+    security: 'bearer',
+    responses: {
+      '200': { description: 'The license status.', schema: ref('LicenseStatus') },
+      ...CommonAuthErrors,
+    },
+  },
+  {
+    method: 'get',
     honoPath: '/v1/export-signing-keys',
     openapiPath: '/v1/export-signing-keys',
     operationId: 'exportSigningKeys.list',

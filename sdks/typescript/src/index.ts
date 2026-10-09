@@ -324,6 +324,7 @@ export type {
   ExportSigningKey,
   ExportSigningKeysClient,
 } from './resources/export-signing-keys.js';
+export type { LicenseClient, LicenseStatus } from './resources/license.js';
 export { SIGNED_EXPORT_ALGORITHMS, verifySignedExport } from './verify-export.js';
 export type {
   SignedExportEnvelope,

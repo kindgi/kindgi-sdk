@@ -263,6 +263,24 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_LICENSE_KEY_REF',
+    description:
+      'Where this deployment keeps its license key, as `kindgi license renew --key` names it (`gcp:projects/<p>/secrets/<name>`, `azure:https://<vault>.vault.azure.net/secrets/<name>`, `aws:<region>:<name>`, `env-file:<path>#<NAME>`). Only the expiry warnings read it, to print the exact renew command; the deployment modules set it. Not the key: the key is `KINDGI_LICENSE_KEY`.',
+    example: 'gcp:projects/acme-prod/secrets/kindgi-license-key',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_LICENSE_RENEWER_REF',
+    description:
+      "Where this deployment keeps its renewer's key, as `kindgi license renew --renewer` names it. Only the expiry warnings read it, to print the exact renew command; the deployment modules set it.",
+    example: 'gcp:projects/acme-prod/secrets/kindgi-license-renewer',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_ENV',
     description:
       'The env this runtime serves. The secrets and env values a tool declares by name (`needsSpec.secrets`, `needsSpec.env`) resolve under this env name. Unset: `local` in development mode (secrets from the `.env` and `.env.local` files, env values from `/v1/env`); otherwise a tool that declares either fails its calls, naming this variable.',

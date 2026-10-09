@@ -42,6 +42,9 @@ import { type DockerRunner, docker } from '../dev/runtime-container.js';
 import { DEFAULT_RUNTIME_IMAGE, registryOf } from '../dev/runtime-image.js';
 import { checkDocker, checkImageAccess, credentialHelperHint } from '../dev/runtime-registry.js';
 import { extractKindgiError } from '../errors.js';
+import { LICENSE_GRACE_DAYS, renewAdvice, standingOf } from '../license/expiry.js';
+import { checkLicenseKey } from '../license/license-key.js';
+import { secretStoreFor } from '../license/stores.js';
 import { renderJson } from '../output.js';
 import {
   type PackageManager,
@@ -88,6 +91,7 @@ export type DoctorCheckId =
   | 'runtime'
   | 'provider'
   | 'console-sign-in'
+  | 'license'
   | 'erasures';
 
 export interface DoctorCheck {
@@ -135,6 +139,10 @@ export interface DoctorSeam {
   /** The image the registry check pulls. Default: the one `kindgi dev` runs. */
   readonly image?: string;
   readonly presets?: () => Promise<Readonly<Record<string, ProviderPreset>>>;
+  /** Milliseconds since the epoch, for the license key's dates. Default: now. */
+  readonly now?: () => number;
+  /** The license signing keys trusted (tests). Default: those a released runtime trusts. */
+  readonly licensePublicKeys?: Readonly<Record<string, string>>;
 }
 
 const TITLES: Readonly<Record<DoctorCheckId, string>> = {
@@ -153,6 +161,7 @@ const TITLES: Readonly<Record<DoctorCheckId, string>> = {
   runtime: 'Runtime',
   provider: 'Provider',
   'console-sign-in': 'Console sign-in',
+  license: 'License key',
   erasures: 'Erasures',
 };
 
@@ -209,6 +218,7 @@ export async function runDoctor(ctx: CommandContext, dir: string): Promise<Docto
       : skip('registry', 'Not checked: it needs Docker running.'),
   );
   checks.push(await consoleSignInCheck(ctx));
+  checks.push(await licenseKeyCheck(ctx.env, dir, seam));
 
   if (config === undefined || language === undefined) {
     checks.push({
@@ -304,6 +314,87 @@ const skip = (id: DoctorCheckId, message: string, fix?: string): DoctorCheck => 
   message,
   ...(fix !== undefined && { fix }),
 });
+
+// ---------- the license key ----------
+
+/**
+ * The license key a runtime started here would use: `KINDGI_LICENSE_KEY`,
+ * or the one in this folder's `kindgi.env`. Checked offline, as the runtime
+ * checks it; from 30 days before it expires, the exact way to the next one.
+ * No key is fine: `kindgi dev` needs none.
+ */
+async function licenseKeyCheck(
+  env: Readonly<Record<string, string | undefined>>,
+  dir: string,
+  seam: DoctorSeam,
+): Promise<DoctorCheck> {
+  const fromEnv = env.KINDGI_LICENSE_KEY?.trim();
+  const envFile = join(dir, 'kindgi.env');
+  const key =
+    fromEnv !== undefined && fromEnv !== ''
+      ? fromEnv
+      : await secretStoreFor(`env-file:${envFile}#KINDGI_LICENSE_KEY`)
+          .read()
+          .catch(() => undefined);
+  if (key === undefined) {
+    return skip(
+      'license',
+      'No license key here (KINDGI_LICENSE_KEY, or kindgi.env in this folder): kindgi dev needs none. A runtime outside development reads KINDGI_LICENSE_KEY.',
+    );
+  }
+  const where = fromEnv !== undefined && fromEnv !== '' ? 'KINDGI_LICENSE_KEY' : envFile;
+  const renew =
+    where === 'KINDGI_LICENSE_KEY'
+      ? 'kindgi license renew --key <where KINDGI_LICENSE_KEY is kept> --renewer <its renewer key>'
+      : 'kindgi license renew --env-file kindgi.env --renewer <its renewer key>';
+  const checked =
+    seam.licensePublicKeys !== undefined
+      ? checkLicenseKey(key, seam.licensePublicKeys)
+      : checkLicenseKey(key);
+  if (checked.kind === 'err') {
+    return checked.reason === 'unknown-key'
+      ? warn(
+          'license',
+          `The key in ${where} is signed with a key this CLI doesn't know yet.`,
+          'Update the Kindgi CLI, then run kindgi doctor again.',
+        )
+      : fail(
+          'license',
+          `The value in ${where} isn't a Kindgi license key (${checked.reason}).`,
+          'Paste the whole key, starting kgi_lk_: from access.kindgi.com, or the one Kindgi sent you.',
+        );
+  }
+  const { claims } = checked;
+  const what = `${claims.name}'s ${claims.use} key`;
+  const standing = standingOf(claims, (seam.now ?? Date.now)());
+  const day = (d: Date) => d.toISOString().slice(0, 10);
+  const advice = renewAdvice(claims, renew);
+  switch (standing.kind) {
+    case 'valid':
+      return pass(
+        'license',
+        `${what}, until ${day(claims.expiresAt)} (${standing.daysLeft} days).`,
+      );
+    case 'expiring':
+      return warn(
+        'license',
+        `${what} expires in ${standing.daysLeft} days (${day(claims.expiresAt)}).`,
+        advice,
+      );
+    case 'grace':
+      return warn(
+        'license',
+        `${what} expired on ${day(claims.expiresAt)}: the runtime starts with it until ${day(standing.lastStart)}.`,
+        advice,
+      );
+    case 'expired':
+      return fail(
+        'license',
+        `${what} expired on ${day(claims.expiresAt)}, more than ${LICENSE_GRACE_DAYS} days ago: the runtime won't start with it.`,
+        advice,
+      );
+  }
+}
 
 // ---------- tools ----------
 
