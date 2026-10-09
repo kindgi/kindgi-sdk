@@ -152,7 +152,18 @@ My package hasn't arrived yet. Where is it? ['kb-301 1 yes, 0 no', 'kb-303 0 yes
 the clients) keeps the runs started in that segment or below it:
 
 ```sh
-kindgi eval-suites from-judgments acme.article-picks-acme --suite-version=1.0.0 --project=<project-id> --agent=acme-ops.article-picker --segment=company:acme
+kindgi eval-suites from-judgments acme.rank-acme-segment --suite-version=1.0.0 --project=<project-id> \
+  --agent=acme.rank.scorer --segment=company:acme --description="acme company only"
+```
+
+```json
+{
+  "suiteId": "acme.rank-acme-segment",
+  "version": "1.0.0",
+  "kind": "judged",
+  "caseCount": 20,
+  "truncated": false
+}
 ```
 
 A judged run keeps the segment path it was started with. Runs judged before

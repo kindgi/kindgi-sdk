@@ -28,12 +28,42 @@ Before you start, you need:
 ## Draft one
 
 ```sh
-kindgi proposals draft --agent=acme-ops.reply-drafter --from-version=1.0.0 --tenant \
-  --block=acme.reply-style --values='{"maxSentences":2,"refundLimit":50}' \
-  --hypothesis="Shorter replies: reviewers marked the long ones wrong"
+kindgi proposals draft --agent=acme.rank.scorer --from-version=1.0.0 --tenant \
+  --block=acme.rank.weights --values='{"recency":0.2,"fit":0.8}' \
+  --hypothesis="Fit matters more than recency for acme rankings."
 ```
 
-It prints the proposal, with its `id` and the status `draft`.
+It prints the proposal, with its `id` and the status `draft`:
+
+```json
+{
+  "id": "3bca94f1-61a4-48b5-a3d7-f3664e466613",
+  "agentId": "acme.rank.scorer",
+  "fromVersion": "1.0.0",
+  "scope": {
+    "kind": "tenant"
+  },
+  "tier": "settings-block",
+  "change": {
+    "blockId": "acme.rank.weights",
+    "content": {
+      "values": {
+        "fit": 0.8,
+        "recency": 0.2
+      }
+    },
+    "fromVersion": "1.0.0"
+  },
+  "hypothesis": "Fit matters more than recency for acme rankings.",
+  "drafter": {
+    "by": "user:62e1ffe2-30f4-4dff-948e-ae774107a7db",
+    "kind": "person"
+  },
+  "status": "draft",
+  "createdAt": "2026-10-09T13:24:23.787Z",
+  "updatedAt": "2026-10-09T13:24:23.787Z"
+}
+```
 
 - **What it changes:** `--block` names a block the version pins. `--values`
   gives a settings block's new values; `--template` gives a prompt block's new
@@ -53,7 +83,7 @@ Drafting needs `publish` on the agent.
 ## Evaluate it
 
 ```sh
-kindgi proposals evaluate <proposal-id> --test-set=acme.reply-cases --wait
+kindgi proposals evaluate <proposal-id> --test-set=acme.rank-prompt-52080 --wait
 ```
 
 The first evaluation publishes the block version and derives the agent
@@ -71,11 +101,39 @@ The proposal is `evaluating`, then:
 - `evaluation-failed`: the comparison failed or was cancelled.
 
 `--wait` waits until then (at most 30 minutes) and prints the proposal.
+Here the candidate scored the same as the recorded outputs on the test set's
+20 cases (`delta` 0), so it's `not-better`:
+
+```json
+{
+  "id": "3bca94f1-61a4-48b5-a3d7-f3664e466613",
+  …
+  "status": "not-better",
+  "candidate": {
+    "pinsDigest": "sha256:3425842179e45dc5a491306e59ba29f7c634a9f8cdf43e6b9af6809f153b3fa7",
+    "agentVersion": "1.0.2",
+    "blockVersion": "1.0.2"
+  },
+  "evaluation": {
+    "suiteId": "acme.rank-prompt-52080",
+    "evalRunId": "aefcafd1-53df-480e-b01d-05ae55724507",
+    "objective": "weightedYesShare",
+    "startedAt": "2026-10-09T13:24:24.401Z",
+    "runStatus": "completed",
+    "baseline": 0.3333333333333333,
+    "candidate": 0.3333333333333333,
+    "delta": 0,
+    "cases": 20,
+    "better": false
+  },
+  …
+}
+```
 
 ## Request it
 
 ```sh
-kindgi proposals request <proposal-id> --reason="Shorter replies, checked on acme.reply-cases"
+kindgi proposals request <proposal-id> --reason="Live check: promote by hand."
 ```
 
 This promotes the candidate for the proposal's scope, through the scope's
@@ -91,14 +149,51 @@ is then:
 - `refused`: the gate refused it, listing every check.
 
 A request is allowed once the proposal was evaluated, `not-better` included:
-the gate decides. A proposal a [pass](../improve-an-agent/) wrote, rather than
+the gate decides. The proposal above was `not-better`, and the tenant's gate
+let it through:
+
+```json
+{
+  "id": "3bca94f1-61a4-48b5-a3d7-f3664e466613",
+  …
+  "status": "promoted",
+  …
+  "promotion": {
+    "id": "47319459-4131-4ef6-85c6-64afe0514900",
+    "status": "promoted",
+    "liveNow": true
+  },
+  …
+}
+```
+
+A proposal a [pass](../improve-an-agent/) wrote, rather than
 a person, always waits for a reviewer, even where the scope's policy asks for
 no approval. Requesting needs `promote` on the agent.
 
 ## Roll it back, or withdraw it
 
 ```sh
-kindgi proposals rollback <proposal-id> --reason="Refunds were held too often"
+kindgi proposals rollback <proposal-id> --reason="Live check: put it back."
+```
+
+```json
+{
+  "id": "3bca94f1-61a4-48b5-a3d7-f3664e466613",
+  …
+  "status": "rolled-back",
+  …
+  "rolledBack": {
+    "at": "2026-10-09T13:24:29.234Z",
+    "by": "user:62e1ffe2-30f4-4dff-948e-ae774107a7db",
+    "reason": "Live check: put it back.",
+    "promotionId": "d19efc3c-d08a-44f8-8daa-8e2bdaedc1d8"
+  },
+  …
+}
+```
+
+```sh
 kindgi proposals withdraw <proposal-id> --reason="Superseded by a better draft"
 ```
 
@@ -112,7 +207,7 @@ kindgi proposals withdraw <proposal-id> --reason="Superseded by a better draft"
 ## Find them
 
 ```sh
-kindgi proposals list --agent=acme-ops.reply-drafter --table
+kindgi proposals list --agent=acme.rank.scorer --table
 kindgi proposals get <proposal-id>
 ```
 

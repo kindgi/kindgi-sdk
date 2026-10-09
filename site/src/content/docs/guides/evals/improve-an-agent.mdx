@@ -44,7 +44,7 @@ pass is refused, saying so.
 ## Start a pass
 
 ```sh
-kindgi proposals improve --agent=acme-ops.reply-drafter --tenant --test-set=acme.reply-cases --wait
+kindgi proposals improve --agent=acme.rank.scorer --tenant --test-set=acme.rank-prompt-52080 --max-candidates=4 --wait
 ```
 
 - **The version** is the one serving the scope, unless `--from-version` names
@@ -66,11 +66,56 @@ minutes) and prints it:
 
 - **`proposed`**, with the proposal it wrote, which a reviewer decides
   (`kindgi proposals request <proposal-id>`, then the approval);
-- **`nothing-found`**, with why and the best candidate's numbers on the
-  hold-out part;
+- **`nothing-found`**, with why: no candidate beat the current version by
+  more than the noise (with the best one's numbers on the hold-out part), or
+  the best one is a change an existing proposal already holds;
 - **`failed`**, with the reason.
 
-A pass is `running`, then `completed`, `failed` or `cancelled`.
+A pass is `running`, then `completed`, `failed` or `cancelled`. Here a pass
+tried four candidates. On the search part, setting `fit` to 0 scored best,
+but an earlier proposal already held that change, so the pass wrote none
+(the cost is 0 on `dev-echo`, which costs nothing):
+
+```json
+{
+  "id": "46209449-8d69-42aa-8cdd-78a514d9c848",
+  …
+  "budget": {
+    "maxCostUsd": 5,
+    "maxCandidates": 4
+  },
+  "requestedBy": "user:62e1ffe2-30f4-4dff-948e-ae774107a7db",
+  "status": "completed",
+  "candidatesEvaluated": 4,
+  "costUsd": "0",
+  "outcome": {
+    "kind": "nothing-found",
+    "reason": "The best candidate is the change of proposal 19b0f480-146a-4545-bd6b-37742b592dfe, which is evaluated."
+  },
+  "comparisons": [
+    {
+      "role": "reference",
+      "part": "search",
+      "evalRunId": "6c4d6ce7-6838-4eb1-b2ec-d7992ed86278",
+      "score": 0.5714285714285714
+    },
+    {
+      "role": "candidate",
+      "part": "search",
+      "blockId": "acme.rank.weights",
+      "changed": {
+        "fit": 0
+      },
+      "evalRunId": "7a0ba425-57dc-43aa-83ce-0e37b9d5b9f4",
+      "score": 1
+    },
+    …
+  ],
+  …
+}
+```
+
+`kindgi proposals passes get <pass-id>` reads the same pass back later.
 
 ### It learns from trusted judgments
 
@@ -109,7 +154,45 @@ writes is compared only if it stays within what the agent already has:
   drafter was shown is refused, and cut from the hypothesis it keeps.
 
 A refused template shows in the pass's `comparisons` with its issues
-(`refused`), and each drafted one with its `hypothesis`.
+(`refused`), and each drafted one with its `hypothesis`. Here a local model
+drafted a template reading a variable the agent doesn't have (the drafts are
+that model's words; yours will differ):
+
+```sh
+kindgi proposals passes get <pass-id>
+```
+
+```json
+{
+  "id": "7d56260c-0b5a-43ef-9c56-164c59bd76f7",
+  …
+  "model": {
+    "model": "qwen2.5:7b",
+    "providerId": "ollama-qwen"
+  },
+  …
+  "comparisons": [
+    …
+    {
+      "role": "candidate",
+      "part": "search",
+      "blockId": "acme.rank.prompt",
+      "changed": {
+        "template": "Rank the candidates from most to least preferred. Consider the following weights for each pair: {{score}}. Report the ranking."
+      },
+      "hypothesis": "This template emphasizes ranking from most to least preferred and uses {{score}} to include specific weights, aiming to provide more context for accurate ranking.",
+      "refused": [
+        {
+          "path": "/template",
+          "message": "it reads \"score\", which the agent doesn't have (a declared parameter, a variable the current template reads, or a settings block the version pins)"
+        }
+      ],
+      "failed": "The drafted template was refused: it reads \"score\", which the agent doesn't have (a declared parameter, a variable the current template reads, or a settings block the version pins)."
+    }
+  ],
+  …
+}
+```
 
 A pass's drafts and hypotheses live on in the pass, the proposal and the
 published block version, which erasing a person's words doesn't reach. That's
