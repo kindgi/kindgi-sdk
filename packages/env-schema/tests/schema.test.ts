@@ -230,6 +230,17 @@ describe('envVarsForTarget — the compliance classifier (T250)', () => {
   });
 });
 
+describe('envVarsForTarget — logging', () => {
+  test('the server has the three KINDGI_LOG_* variables, optional, in the logging group', () => {
+    const vars = envVarsForTarget({ component: 'server' }).filter((v) => v.group === 'logging');
+    expect(vars.map((v) => [v.name, v.required, v.allowedValues])).toEqual([
+      ['KINDGI_LOG_LEVEL', false, ['error', 'warn', 'info', 'debug', 'trace']],
+      ['KINDGI_LOG_LEVELS', false, undefined],
+      ['KINDGI_LOG_FORMAT', false, ['auto', 'json', 'pretty']],
+    ]);
+  });
+});
+
 describe('envVarsForTarget — the pack service', () => {
   const PACK_SERVICE_VARS = [
     'KINDGI_PACK_SERVICE_TOKEN',

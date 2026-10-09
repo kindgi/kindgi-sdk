@@ -148,7 +148,7 @@ from kindgi import CheckResult, RunTrace, guardrail
 
 
 class Config(BaseModel):
-    min_length: int = Field(1, alias="minLength", ge=0)
+    min_length: int = Field(default=1, alias="minLength", ge=0)
 
 
 @guardrail(id="acme.ledger.response-not-empty", on_violation="halt", severity="error")
@@ -289,10 +289,18 @@ never reads `.kindgirc.json`. It's the same lookup as the TypeScript SDK's
 - A request body is a model from `kindgi.client.models`, a mapping, or its
   fields as keywords (snake_case or the wire's camelCase); answers are models.
 - Path parameters are positional; query and header parameters keyword-only.
-- An operation that takes an `Idempotency-Key` gets one when you pass none, so
-  a retry never runs it twice. Calls that are safe to repeat are retried on a
-  connection error, 429, 502, 503 or 504 (`max_retries=2`, honouring
-  `Retry-After`).
+- An operation that takes an `Idempotency-Key` gets one when you pass none.
+  Retries (`max_retries=2`, honouring `Retry-After`):
+  - **A GET** is retried after a connection error or timeout, or a 429, 502,
+    503 or 504.
+  - **Any other call** is retried only when nothing can have run: a failure to
+    connect (or a connect or pool timeout), or a 429 or 503.
+  - **Once a call was sent,** a timeout, a dropped connection or a proxy's 502
+    or 504 is raised at once. The call may still be running on the server, and
+    sending it again could run it twice.
+  - **A waited `runs.start` that times out** says so, and that the run may
+    still be going. Start a run that can take longer than `timeout` (60 s by
+    default) with `options={"wait": False}`, and follow it.
 - Errors are typed: `NotFoundError`, `ConflictError`, `InvalidRequestError`,
   `GuardrailViolationError`, `AuthError`, `RateLimitedError`, `ServerError`,
   `NetworkError` — all `KindgiApiError`, with `.status`, `.server_code`,

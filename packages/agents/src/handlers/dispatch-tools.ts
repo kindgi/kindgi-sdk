@@ -28,6 +28,13 @@ import {
   toolRetriesSoFar,
 } from './tool-errors.js';
 import { TOOL_GATE_RECORD_PREFIX, computeToolCallWaitToken, hashToolArgs } from './tool-hitl.js';
+
+/**
+ * The `NodeContext.record` key of a tool call's own decisions, before
+ * `<call id>:<tool id>:<key>`: what the call's `ToolContext.record`
+ * journals (the runtime keeps the call's resolved env under `env`).
+ */
+export const TOOL_CALL_RECORD_PREFIX = 'tool-call:';
 import { addStepToolNodes } from './turn-provenance.js';
 
 /**
@@ -386,7 +393,7 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
         continue;
       }
 
-      const dispatched = await dispatchOne(ctx, tool, call, kctx.runId as unknown as string);
+      const dispatched = await dispatchOne(ctx, tool, call, kctx);
       if (dispatched.kind === 'err') {
         await emitTurnEvent(ctx.bindings.onEvent, {
           kind: 'tool.failed',
@@ -578,7 +585,7 @@ async function dispatchOne(
   ctx: TurnContext,
   tool: Tool,
   call: ModelToolCall,
-  runId: string,
+  kctx: NodeContext,
 ): Promise<
   | {
       readonly kind: 'ok';
@@ -599,6 +606,11 @@ async function dispatchOne(
       };
     }
 > {
+  const runId = kctx.runId as unknown as string;
+  // The call's durable decisions (its resolved env): this step's own
+  // record, keyed by the call and the tool. Call ids are unique only by
+  // provider convention, so the tool id keeps two tools apart.
+  const recordPrefix = `${TOOL_CALL_RECORD_PREFIX}${call.id}:${tool.id as unknown as string}:`;
   const toolCtx: ToolContext = {
     tenantId: ctx.input.tenantId,
     runId,
@@ -613,6 +625,7 @@ async function dispatchOne(
     ...(ctx.bindings.resolveSecret !== undefined && { resolveSecret: ctx.bindings.resolveSecret }),
     // The pinned settings blocks' values, by block id.
     ...(ctx.blocks !== undefined && { settings: ctx.blocks.settings }),
+    record: (key, decide) => kctx.record(`${recordPrefix}${key}`, decide),
   };
   const result = await invokeTool(tool, call.arguments, toolCtx);
   if (result.kind === 'err') {

@@ -313,7 +313,7 @@ const addCmd: LeafCommand = {
     }
     const language =
       settings.config !== undefined ? packLanguage(settings.config as KindgiConfig) : 'node';
-    const runner = await detectBinRunner(packDir, language);
+    const runner = await detectBinRunner(packDir, language, undefined, ctx.env);
     servers[serverName] = buildMcpServerEntry(preset, secretName, envName, scope, runner);
     const next: McpJson = { ...mcpJson, mcpServers: servers };
     const path = await writeMcpJson(packDir, next);

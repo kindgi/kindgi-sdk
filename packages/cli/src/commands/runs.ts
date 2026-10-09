@@ -188,7 +188,7 @@ const start: LeafCommand = {
   kind: 'leaf',
   name: 'start',
   description:
-    'Start a run for an agent or flow. Waits until it finishes or waits on an approval; if the wait is stopped (Ctrl+C), the run goes on and its id is printed. With --no-wait it prints as soon as the run exists (follow it with `runs get` / `runs stream`). --dry-run runs only read-only tools.',
+    'Start a run for an agent or flow. Waits until it finishes or waits on an approval; if the wait is stopped (Ctrl+C), the run goes on and its id is printed. A run that fails is still printed, its error goes to stderr (`Error [<code>]: …`), and the command exits 1. With --no-wait it prints as soon as the run exists (follow it with `runs get` / `runs stream`). --dry-run runs only read-only tools.',
   usage:
     'kindgi runs start (--agent=<agent-id> [--agent-version=<v>] | --flow=<flow-id> [--flow-version=<v>]) --input=<json-or-@file> [--project=<project-id>] [--segment=<key:value>]… [--no-wait] [--dry-run] [--idempotency-key=<key>]',
   optionSpec: {
@@ -296,9 +296,36 @@ const start: LeafCommand = {
       const run =
         ctx.options['no-wait'] === true ? started : await followUntilSettled(ctx, started);
       const rendered = renderJson(run, ctx.globals.format);
-      return { stdout: rendered.stdout, stderr: renderTurnWarnings(run.output) };
+      const warnings = renderTurnWarnings(run.output);
+      if (run.status !== 'failed') return { stdout: rendered.stdout, stderr: warnings };
+      // A run that failed still prints, so its id and failure are at hand;
+      // the exit code says it failed, for scripts.
+      return {
+        stdout: rendered.stdout,
+        stderr: ctx.globals.format === 'quiet' ? '' : `${warnings}${await runFailedLine(run)}`,
+        exitCode: 1,
+      };
     }),
 };
+
+/**
+ * The stderr line for a run that ended `failed`: the run's `failure`. A
+ * runtime from before it has only `failureMessage`, decoded the same way
+ * the API decodes it: an agent turn's failure as its typed error
+ * (`parseFailureMessage`), any other in the run's own words.
+ */
+async function runFailedLine(run: Run): Promise<string> {
+  if (run.failure !== undefined) return `Error [${run.failure.code}]: ${run.failure.message}\n`;
+  // Loaded only for an older runtime's failed run: it brings in the whole agent loop.
+  const { parseFailureMessage } = await import('@kindgi/agents');
+  const error = parseFailureMessage(run.failureMessage);
+  if (error !== undefined) return `Error [${error.code}]: ${error.message}\n`;
+  const message =
+    run.failureMessage !== undefined && run.failureMessage !== ''
+      ? run.failureMessage
+      : `Run ${run.id} failed`;
+  return `Error [run-failed]: ${message}\n`;
+}
 
 /**
  * Follow a started run until it settles. Ctrl+C stops the wait, not the
@@ -326,11 +353,22 @@ async function followUntilSettled(ctx: CommandContext, started: Run): Promise<Ru
 function renderTurnWarnings(output: unknown): string {
   const warnings = (output as { readonly warnings?: unknown } | null | undefined)?.warnings;
   if (!Array.isArray(warnings)) return '';
-  return warnings
-    .map((w) => (w as { readonly message?: unknown }).message)
-    .filter((m): m is string => typeof m === 'string')
-    .map((m) => `⚠ ${m}\n`)
-    .join('');
+  const codes = new Set(warnings.map((w) => (w as { readonly code?: unknown }).code));
+  return (
+    warnings
+      // dev-echo's own warning says more than "a fallback provider answered".
+      .filter(
+        (w) =>
+          !(
+            (w as { readonly code?: unknown }).code === 'fallback-provider' &&
+            codes.has('dev-echo-not-a-model')
+          ),
+      )
+      .map((w) => (w as { readonly message?: unknown }).message)
+      .filter((m): m is string => typeof m === 'string')
+      .map((m) => `⚠ ${m}\n`)
+      .join('')
+  );
 }
 
 const resume: LeafCommand = {

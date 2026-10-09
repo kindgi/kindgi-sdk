@@ -18,6 +18,10 @@ import { type EvalRunsClient, makeEvalRunsClient } from './resources/eval-runs.j
 import { type EvalSuitesClient, makeEvalSuitesClient } from './resources/eval-suites.js';
 import { type EventTriggersClient, makeEventTriggersClient } from './resources/event-triggers.js';
 import { type EventsClient, makeEventsClient } from './resources/events.js';
+import {
+  type ExportSigningKeysClient,
+  makeExportSigningKeysClient,
+} from './resources/export-signing-keys.js';
 import { type FlowsClient, makeFlowsClient } from './resources/flows.js';
 import { type GatePoliciesClient, makeGatePoliciesClient } from './resources/gate-policies.js';
 import { type GuardrailsClient, makeGuardrailsClient } from './resources/guardrails.js';
@@ -42,6 +46,10 @@ import { type RetentionClient, makeRetentionClient } from './resources/retention
 import { type RunsClient, makeRunsClient } from './resources/runs.js';
 import { type SchedulesClient, makeSchedulesClient } from './resources/schedules.js';
 import { type SecretsClient, makeSecretsClient } from './resources/secrets.js';
+import {
+  type ServiceAccountsClient,
+  makeServiceAccountsClient,
+} from './resources/service-accounts.js';
 import { type SigningKeysClient, makeSigningKeysClient } from './resources/signing-keys.js';
 import { type SupervisorClient, makeSupervisorClient } from './resources/supervisor.js';
 import { type TeamsClient, makeTeamsClient } from './resources/teams.js';
@@ -114,7 +122,11 @@ export interface KindgiClient {
   readonly teams: TeamsClient;
   readonly orgs: OrgsClient;
   readonly signingKeys: SigningKeysClient;
+  /** The keys this deployment signs its exports with (audit bundles, provenance, compliance evidence). */
+  readonly exportSigningKeys: ExportSigningKeysClient;
   readonly tokens: TokensClient;
+  /** Non-human principals with their own grants; they act through API keys. */
+  readonly serviceAccounts: ServiceAccountsClient;
   // Interop
   readonly mcp: McpClient;
   readonly events: EventsClient;
@@ -182,7 +194,9 @@ export function createClient(options: ClientOptions): KindgiClient {
     teams: makeTeamsClient(transport),
     orgs: makeOrgsClient(transport),
     signingKeys: makeSigningKeysClient(transport),
+    exportSigningKeys: makeExportSigningKeysClient(transport),
     tokens: makeTokensClient(transport),
+    serviceAccounts: makeServiceAccountsClient(transport),
     mcp: makeMcpClient(transport),
     events: makeEventsClient(transport),
     eventTriggers: makeEventTriggersClient(transport),

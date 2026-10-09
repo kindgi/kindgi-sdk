@@ -112,7 +112,8 @@ export type {
   TurnStartedEvent,
 } from './streaming.js';
 export { AUTO_INJECTED_VARS, renderInstructions } from './prompt.js';
-export { formatRetrievedForPrompt, runRetrievals } from './retrieval.js';
+export { formatRetrievedForPrompt, runMemoryReaders, runRetrievals } from './retrieval.js';
+export type { RetrievalRun } from './retrieval.js';
 export type { RetrievalBindings } from './retrieval.js';
 export type {
   MissingParameterError,

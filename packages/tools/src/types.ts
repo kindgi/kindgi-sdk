@@ -136,6 +136,34 @@ export interface ToolContext {
    * passes its own.
    */
   readonly secrets?: Readonly<Record<string, string>>;
+  /**
+   * The env values this tool declares in `needsSpec.env`, by name,
+   * resolved by the runtime for this call: the call's project's value,
+   * else its org's, else the tenant's, in the env the runtime serves
+   * (`KINDGI_ENV`). A name no scope sets gets its schema's `default`.
+   * Every declared name is present: one with neither a value nor a
+   * default, or whose value doesn't match its schema, fails the call
+   * before the handler runs. The runtime records the values with the
+   * call (`record`), so the call re-run after a wait or a retry sees the
+   * same ones. Not for credentials: env values are shown with the run
+   * (use `secrets`).
+   * Absent when the tool declares none, and from an older runtime — a
+   * unit test passes its own.
+   */
+  readonly env?: Readonly<Record<string, string>>;
+  /**
+   * Decide once for this call, durably: the step that runs the tool's
+   * `NodeContext.record`, under a key for this call. The first call for
+   * `key` runs `decide`, journals its result, then returns it; when the
+   * step runs again (resumed after a wait, or retried), it returns the
+   * journaled result and `decide` doesn't run. A throw or `undefined`
+   * isn't journaled. The result is kept as JSON.
+   *
+   * The runtime keeps a call's resolved env here, so a re-run sees the
+   * values the call first saw. Set by the dispatch site (an agent turn's
+   * tool dispatch, a flow's tool step); absent outside a run.
+   */
+  readonly record?: <T>(key: string, decide: () => T | Promise<T>) => Promise<T>;
 }
 
 /**
@@ -196,6 +224,13 @@ export type NetworkPolicy =
  * and over the wire) values in `env` / `secrets` / `config` are JSON
  * Schemas. An authoring tool that accepts Zod converts with
  * `z.toJSONSchema()` before the manifest is built.
+ *
+ * `env` and `secrets` are resolved per call (`ctx.env`, `ctx.secrets`).
+ * Their values are strings, as in a process environment; each schema
+ * checks the string (`enum`, `pattern`, `minLength`…) and nothing is
+ * coerced. An `env` name whose schema has a `default` is optional; every
+ * other declared name is required. `config` is reserved: no runtime
+ * resolves it yet.
  *
  * `capabilities` names capability-router features (e.g. `'embedding'`);
  * `bindings` names deployment-plugged binding keys (e.g. `'blob'`).

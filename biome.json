@@ -16,6 +16,7 @@
       "**/generated/**",
       "**/routeTree.gen.ts",
       "packages/api/openapi.json",
+      "sdks/python-cli/src/kindgi_cli/_cli/**",
       "scripts/forbidden-names.json",
       "pnpm-lock.yaml",
       "**/.astro/**",
@@ -114,7 +115,8 @@
         "**/tailwind.config.ts",
         "**/tailwind.config.mjs",
         "**/kindgi.config.ts",
-        "**/astro.config.mjs"
+        "**/astro.config.mjs",
+        "**/ec.config.mjs"
       ],
       "linter": {
         "rules": {

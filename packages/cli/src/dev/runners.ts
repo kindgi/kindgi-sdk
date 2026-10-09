@@ -73,6 +73,8 @@ export interface StartApiServerOptions {
   readonly packService: { readonly url: string; readonly token: string };
   /** `KINDGI_PUBLIC_TOKEN_SIGNING_KEY_PATH`: the developer's key file, if set. Otherwise the runtime makes one. */
   readonly publicRunTokenKeyPath?: string;
+  /** `KINDGI_EXPORT_SIGNING_KEY_PATH`: the developer's export key file, if set. Otherwise the runtime makes one. */
+  readonly exportSigningKeyPath?: string;
   /** `KINDGI_CORS_ORIGINS`: the browser app's origins, allowed on the run progress routes. */
   readonly corsOrigins?: readonly string[];
   /** The runtime image (`--runtime-image`). */

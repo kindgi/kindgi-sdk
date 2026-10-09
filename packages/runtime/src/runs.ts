@@ -69,6 +69,12 @@ export interface KernelRunRecord {
   readonly segments?: readonly ScopeSegment[];
   /** Set on a run a trigger started (`RunTriggerRef`). */
   readonly trigger?: RunTriggerRef;
+  /**
+   * The W3C trace id of the request that started the run
+   * (`RunFlowInput.traceId`). Absent for a run no request started, and on
+   * runs from before runs recorded it.
+   */
+  readonly traceId?: string | null;
 }
 
 /**

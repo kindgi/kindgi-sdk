@@ -16,6 +16,7 @@ import { doctorCommand } from './doctor.js';
 import { envCommand } from './env.js';
 import { evalRunsCommand } from './eval-runs.js';
 import { evalSuitesCommand } from './eval-suites.js';
+import { exportsCommand } from './exports.js';
 import { feedbackCommand } from './feedback.js';
 import { flowsCommand } from './flows.js';
 import { gatePoliciesCommand } from './gate-policies.js';
@@ -64,6 +65,7 @@ export const ROOT_COMMANDS: readonly Command[] = [
   memoryCommand,
   proposalsCommand,
   provenanceCommand,
+  exportsCommand,
   artifactsCommand,
   flowsCommand,
   schedulesCommand,

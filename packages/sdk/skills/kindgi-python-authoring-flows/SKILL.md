@@ -16,7 +16,7 @@ description: >
   kindgi-python-authoring-agents.
 type: core
 library: "kindgi (Python)"
-version: "0.1.1"
+version: "0.1.2"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -27,9 +27,11 @@ sources:
 
 # Authoring Kindgi flows in Python
 
-> **Running `kindgi`:** a Python pack has no Node project, so the
-> `kindgi` CLI is the one on `PATH`. Python commands run in the pack's
-> environment: `uv run …` (or `.venv/bin/python …`).
+> **Running `kindgi`:** the CLI is `kindgi-cli` from PyPI, pinned in the
+> pack's dev group, so every `kindgi <command>` below runs as
+> `uv run kindgi <command>` (Poetry: `poetry run kindgi <command>`). Python
+> commands run in the pack's environment the same way: `uv run …` (or
+> `.venv/bin/python …`).
 
 A **flow** is a versioned, durable graph of steps: tools (your code) and
 agents (a model's judgment), joined by edges that can carry conditions.
