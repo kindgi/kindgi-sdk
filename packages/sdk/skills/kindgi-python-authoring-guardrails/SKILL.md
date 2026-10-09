@@ -127,9 +127,8 @@ def no_fabricated_quotes(config: Config, trace: RunTrace) -> CheckResult:
   `forbidden-substring`): a pack can't replace a built-in, and the
   decorator raises `DefinitionError`. Name yours
   `<pack>.checks.<name>`. A Python pack can't use a built-in check yet,
-  since `@guardrail` always decorates a check function. To use one,
-  register a guardrail that names it through the API
-  (`POST /v1/guardrails`), and list its id in the agent's `guardrails`.
+  since `@guardrail` always decorates a check function: write the rule
+  as your own check.
 - `sandbox=`, `limits=`, `network=` are recorded in the index.
 
 ## Testing

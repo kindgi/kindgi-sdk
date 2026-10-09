@@ -33,10 +33,10 @@ Put it on an agent by its id, as with any guardrail
 `halt`, an answer containing "guaranteed" stops the turn
 ([A halted turn](../halt-or-record/#a-halted-turn)).
 
-A Python pack can't name a built-in yet: `@guardrail` always decorates a
-check function. To use one from Python, register a guardrail that names it
-through the API (`POST /v1/guardrails`), and list its id in the agent's
-`guardrails`.
+A Python, Java or Scala pack can't name a built-in yet: a guardrail there is
+always defined with its own check (Python's `@guardrail` decorates a check
+function). Write the rule as your own check; the table below says what each
+built-in checks.
 
 ## The built-in checks
 
