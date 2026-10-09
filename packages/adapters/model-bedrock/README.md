@@ -50,6 +50,10 @@ Each of these has a test:
 
 `POST <endpoint>/model/<model id>/converse`, through the runtime's `fetch` (`AdapterFactoryInput.fetch`), which refuses the hosts its deployment forbids. Bedrock's request id (`x-amzn-requestid`) is the result's `providerRequestId`.
 
+## Nova's chain of thought
+
+When tools are in play, Amazon Nova writes its reasoning into the answer: `<thinking>…</thinking>` before the reply. A Kindgi answer carries no reasoning (the other vendors keep it apart, and a result has no slot for reasoning text). So for a Nova model, one leading `<thinking>` block is taken out of the answer, and the result carries the warning `reasoning-text-removed` (`NOVA_THINKING_REMOVED`), which the model-call record keeps. Only an exact, closed, leading block is touched: one later in the text, or an unclosed one, is left as it came. Other vendors' models are never changed.
+
 ## Cost
 
 `costUsd` is `tokenCostUsd` over the model's registered rates: prompt and completion, cache reads and writes at the model's `cachedPromptMultiplier` / `promptCacheCreationMultiplier` (the prompt rate when absent), and the long-context tier when registered. Bedrock's prices differ by model, region and tier, so register the rates of yours. Costs are estimates from published prices; AWS's invoice is authoritative.
@@ -59,6 +63,7 @@ Each of these has a test:
 - **`bedrockAdapterEntry`**: the `AdapterFactoryEntry` a runtime registers, with `bedrockAdapterFactory` and `bedrockCheckConfig`.
 - `readBedrockConfig(input)`: a registration read and checked, or every problem with it.
 - `bedrockRuntimeEndpoint(region)`: a region's own `bedrock-runtime` endpoint.
+- `isNovaModel(name)`, `withoutLeadingThinking(result)` and `NOVA_THINKING_REMOVED`: the Nova rule above.
 - `BEDROCK_ADAPTER_ID`, `BEDROCK_AUTHS`, and the `BedrockConfig` and `BedrockAuth` types.
 
 ## License

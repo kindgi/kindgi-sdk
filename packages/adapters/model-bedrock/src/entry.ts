@@ -33,6 +33,7 @@ import {
 } from '@kindgi/capabilities';
 
 import { BEDROCK_ADAPTER_ID, readBedrockConfig } from './config.js';
+import { isNovaModel, withoutLeadingThinking } from './nova-thinking.js';
 
 /**
  * What the provider is built with in `api-key` mode, so it sends a bearer token: never sent,
@@ -64,7 +65,7 @@ export const bedrockAdapterFactory: AdapterFactory = (input) => {
   const credentials = input.identities?.aws;
   const resolveApiKey = input.resolveApiKey;
 
-  return createAiSdkModelProvider({
+  const provider = createAiSdkModelProvider({
     metadata,
     ...(input.fetch !== undefined && { fetch: input.fetch }),
     languageModel: (name, fetch) =>
@@ -84,6 +85,14 @@ export const bedrockAdapterFactory: AdapterFactory = (input) => {
       })(name),
     cost: (model, usage) => tokenCostUsd(model, usage),
   });
+  // Nova's chain of thought, written into its answer, is taken out (`nova-thinking.ts`).
+  return {
+    ...provider,
+    invoke: async (call) => {
+      const result = await provider.invoke(call);
+      return isNovaModel(call.model) ? withoutLeadingThinking(result) : result;
+    },
+  };
 };
 
 /** The entry a runtime registers: the factory, and its static check. */

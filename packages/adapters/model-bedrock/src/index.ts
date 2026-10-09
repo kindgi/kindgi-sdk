@@ -10,3 +10,4 @@ export {
   readBedrockConfig,
 } from './config.js';
 export { bedrockAdapterEntry, bedrockAdapterFactory, bedrockCheckConfig } from './entry.js';
+export { NOVA_THINKING_REMOVED, isNovaModel, withoutLeadingThinking } from './nova-thinking.js';

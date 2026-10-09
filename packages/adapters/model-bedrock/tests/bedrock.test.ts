@@ -13,7 +13,12 @@ import type { AdapterFactoryInput, ProviderMetadata } from '@kindgi/capabilities
 import { attemptsOf } from '@kindgi/capabilities/attempts';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
-import { bedrockAdapterFactory, bedrockCheckConfig, bedrockRuntimeEndpoint } from '../src/index.js';
+import {
+  NOVA_THINKING_REMOVED,
+  bedrockAdapterFactory,
+  bedrockCheckConfig,
+  bedrockRuntimeEndpoint,
+} from '../src/index.js';
 
 const NOVA = 'us.amazon.nova-pro-v1:0';
 const metadata = (region = 'us-east-2') =>
@@ -275,5 +280,70 @@ describe('the factory refuses', () => {
     expect(() => build({}, { identities: { aws: identity() } }, 'global')).toThrow(
       '@kindgi/adapter-model-bedrock: provider "bedrock-acme": metadata.region must be the AWS region Bedrock runs in',
     );
+  });
+});
+
+describe("Nova's chain of thought, written into its answer", () => {
+  /** A Converse answer whose text is `text` (and a tool call, when given). */
+  const answer = (text: string, toolUse?: object) => ({
+    ...CONVERSE_BODY,
+    output: {
+      message: { role: 'assistant', content: [{ text }, ...(toolUse ? [{ toolUse }] : [])] },
+    },
+    stopReason: toolUse ? 'tool_use' : 'end_turn',
+  });
+  const nova = (text: string, toolUse?: object) =>
+    build(
+      {},
+      { fetch: capturingFetch([], 200, answer(text, toolUse)), identities: { aws: identity() } },
+    );
+
+  test('a leading <thinking> block: taken out of the answer, with a warning', async () => {
+    const r = await nova('<thinking> The tool says shipped. </thinking>\n\n"Hello, Ada!"').invoke(
+      ask(),
+    );
+    expect(r.message.content).toBe('"Hello, Ada!"');
+    expect(r.warnings).toContainEqual({
+      code: NOVA_THINKING_REMOVED,
+      message: expect.stringContaining('wrote its reasoning into the answer'),
+    });
+  });
+
+  test('a tool-use turn whose text is only the block: no text, the tool call kept', async () => {
+    const r = await nova('<thinking>Look up the order.</thinking>', {
+      toolUseId: 't1',
+      name: 'acme__lookup_order',
+      input: { orderId: 'A-1042' },
+    }).invoke({
+      ...ask(),
+      tools: [{ name: 'acme.lookup_order', description: 'd', inputSchema: { type: 'object' } }],
+    });
+    expect(r.message.content).toBe('');
+    expect(r.message.toolCalls?.map((c) => c.name)).toEqual(['acme.lookup_order']);
+  });
+
+  test.each([
+    ['absent', 'Shipped.'],
+    ['mid-text', 'Shipped. <thinking>a note</thinking> Done.'],
+    ['unclosed', '<thinking>still thinking… Shipped.'],
+  ])('%s: the answer as it came, no warning', async (_, text) => {
+    const r = await nova(text).invoke(ask());
+    expect(r.message.content).toBe(text);
+    expect(r.warnings?.some((w) => w.code === NOVA_THINKING_REMOVED) ?? false).toBe(false);
+  });
+
+  test('another vendor on Bedrock: left alone', async () => {
+    const llama = 'us.meta.llama4-maverick-17b-instruct-v1:0';
+    const provider = bedrockAdapterFactory({
+      metadata: {
+        ...metadata(),
+        models: [{ ...metadata().models[0], name: llama }],
+      } as unknown as ProviderMetadata,
+      config: {},
+      fetch: capturingFetch([], 200, answer('<thinking>x</thinking> Shipped.')),
+      identities: { aws: identity() },
+    });
+    const r = await provider.invoke({ ...ask(), model: llama });
+    expect(r.message.content).toBe('<thinking>x</thinking> Shipped.');
   });
 });
