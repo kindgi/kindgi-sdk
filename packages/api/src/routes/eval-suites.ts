@@ -16,6 +16,7 @@ import {
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
+import { projectMismatch } from './project-mismatch.js';
 import { parseScopeParams } from './scope-params.js';
 
 /**
@@ -337,6 +338,9 @@ export function evalSuitesRouter(
           requestId,
         ),
       );
+    }
+    if (outcome.kind === 'project-mismatch') {
+      return projectMismatch(c, 'eval-suite', outcome.suiteId, outcome.projectId);
     }
     if (outcome.kind === 'project-not-found') {
       // Caller supplied a `projectId` that does not resolve within

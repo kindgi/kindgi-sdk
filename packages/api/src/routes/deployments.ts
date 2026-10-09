@@ -586,7 +586,7 @@ export function deploymentsRouter(
               await bindings.toolRegistry?.unregister({ tenantId, toolId, version });
             });
           } else if (outcome.kind !== 'already-registered') {
-            throw new PublishRefused('tool', `${tool.id}@${tool.version}`, outcome.kind);
+            throw new PublishRefused('tool', `${tool.id}@${tool.version}`, outcome);
           }
         }
       }
@@ -611,7 +611,7 @@ export function deploymentsRouter(
               await bindings.guardrailRegistry?.unregister({ tenantId, guardrailId });
             });
           } else if (outcome.kind !== 'already-registered') {
-            throw new PublishRefused('guardrail', guardrail.id, outcome.kind);
+            throw new PublishRefused('guardrail', guardrail.id, outcome);
           }
         }
       }
@@ -651,6 +651,13 @@ export function deploymentsRouter(
       // A primitive refused with a typed outcome is the caller's to fix:
       // that outcome's own status and code. Anything thrown is a 500.
       if (cause instanceof PublishRefused) {
+        if (cause.projectId !== undefined) {
+          c.get('log').info(`${cause.message}: deploy refused`, {
+            primitive: cause.primitive,
+            id: cause.id,
+            ownerProjectId: cause.projectId as unknown as string,
+          });
+        }
         c.status(statusFor(cause.code) as never);
         return c.json(
           toWireError(
@@ -1527,7 +1534,7 @@ async function registerAgents(input: {
       const outcome = await agents.publish({ tenantId, projectId, agent, enqueueTuples });
       if (outcome.kind === 'ok') written(outcome.agentId, outcome.version);
       else if (outcome.kind !== 'already-registered') {
-        throw new PublishRefused('agent', `${agent.id}@${agent.version}`, outcome.kind);
+        throw new PublishRefused('agent', `${agent.id}@${agent.version}`, outcome);
       }
     }
     return input.defined.map(deployedPrimitive);
@@ -1591,7 +1598,7 @@ async function registerFlows(input: {
       const outcome = await flows.publish({ tenantId, projectId, flow, enqueueTuples });
       if (outcome.kind === 'ok') written(outcome.flowId, outcome.version as unknown as string);
       else if (outcome.kind !== 'already-registered') {
-        throw new PublishRefused('flow', `${flow.id}@${flow.version}`, outcome.kind);
+        throw new PublishRefused('flow', `${flow.id}@${flow.version}`, outcome);
       }
     }
     return input.defined.map(deployedPrimitive);
