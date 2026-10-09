@@ -150,9 +150,13 @@ acme-kc   oidc  Acme Keycloak  acme.test
 
 - **`get <id>`** shows one, with its sign-in URLs.
 - **`update <id>`** changes a field in place (`--name`, `--domains`, a new
-  `--client-secret-ref` …). The URLs IT has don't change.
-- **`remove <id>`** takes it out of sign-in at once. Its old links answer
-  "That sign-in option is gone".
+  `--client-secret-ref` …). The URLs IT has don't change. Changing which
+  identity provider is behind it (a new issuer or client, or new SAML
+  metadata or certificates) signs its people out; they sign in again as
+  usual. Renaming it or changing its domains doesn't.
+- **`remove <id>`** takes it out of sign-in at once, and ends the sessions
+  people opened through it. Its old links answer "That sign-in option is
+  gone".
 
 ## Your identity provider
 

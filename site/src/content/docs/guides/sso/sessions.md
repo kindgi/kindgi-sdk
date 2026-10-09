@@ -25,9 +25,18 @@ is refused with `400 cookie-session-not-refreshable`, "A browser session
 
 ## Signing out
 
-Signing out ends the session at once, on the runtime too: a request with it
-afterwards gets `401 auth-revoked`. Removing a person ends their sessions,
-and they can't sign in again.
+Signing out asks first, then ends the session at once, on the runtime too: a
+request with it afterwards gets `401 auth-revoked`.
+
+Sessions also end when what they came from goes:
+
+- **An admin signs a person out everywhere**
+  (`POST /v1/identity/users/<id>/revoke-sessions`), or removes them, who then
+  can't sign in again either.
+- **Revoking an API key** ends the console sessions that key opened.
+- **Removing an identity provider,** or changing which one is behind it,
+  ends the sessions people opened through it
+  ([Set up SSO](../#change-it-list-it-remove-it)).
 
 ## Requests from other sites
 
@@ -35,7 +44,9 @@ A request signed in by the session cookie that changes something (any
 method but `GET`, `HEAD` and `OPTIONS`) must say where it comes from, in its
 `Origin` header, and come from the console's own address. One without an
 `Origin`, or from anywhere else, is refused with `403 csrf-origin-mismatch`,
-so another site can't act through your session.
+so another site can't act through your session. A runtime without
+`KINDGI_PUBLIC_URL` accepts such a request only from an `https` origin, or
+`http` on `localhost`.
 
 ## Sessions and API tokens
 
