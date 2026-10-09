@@ -351,6 +351,19 @@ describe('errors and retries', () => {
     expect(r.attempts).toBe(2);
   });
 
+  test("the fetch it's given carries every attempt, counted; the global fetch none", async () => {
+    const own = vi.fn(async () => new Response('{}'));
+    const r = await createAiSdkModelProvider({
+      metadata: METADATA,
+      languageModel: fakeModel([{ status: 503 }, ANSWER], []),
+      cost: () => 0,
+      fetch: own as unknown as typeof globalThis.fetch,
+    }).invoke(ask);
+    expect(r.attempts).toBe(2);
+    expect(own).toHaveBeenCalledTimes(2);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
   test('a dropped connection (fetch failed) is retried as network', async () => {
     let calls = 0;
     vi.mocked(globalThis.fetch).mockImplementation(async () => {

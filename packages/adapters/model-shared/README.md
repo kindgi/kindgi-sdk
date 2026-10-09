@@ -40,7 +40,8 @@ Today's engine for sending the requests is the [AI SDK](https://ai-sdk.dev)'s pr
 - `languageModel(name, fetch)`: the engine's model for a model name, sending with the `fetch` it's given (each HTTP attempt is counted through it);
 - `providerOptions?(model)`: provider options on every call (Azure: `{ azure: { store: false } }`);
 - `cost(model, usage)`: the adapter's cost formula;
-- `attempts?`: HTTP attempts in all on a retryable failure (default 3).
+- `attempts?`: HTTP attempts in all on a retryable failure (default 3);
+- `fetch?`: the fetch each attempt goes through, for an endpoint the registration chose: the runtime's (`AdapterFactoryInput.fetch`, which refuses the hosts its deployment forbids). Default: the global `fetch`.
 
 ## Pins
 

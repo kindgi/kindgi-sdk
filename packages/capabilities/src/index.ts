@@ -10,6 +10,10 @@ export type {
   AdapterFactoryEntry,
   AdapterFactoryInput,
   AdapterFactoryRegistry,
+  AdapterIdentities,
+  AwsCredentialClient,
+  AwsCredentials,
+  AzureTokenClient,
   PrepareEvent,
 } from './adapter-factory.js';
 export { CAPABILITY_SCHEMA_URI, defineCapability } from './define.js';

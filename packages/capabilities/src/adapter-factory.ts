@@ -157,7 +157,47 @@ export interface AdapterFactoryInput {
    * server's own host). Absent: the global `fetch`.
    */
   readonly fetch?: typeof fetch;
+  /**
+   * The runtime's own cloud identities, for a registration that signs in as
+   * the server rather than with a key (Azure OpenAI `auth: entra`; Bedrock
+   * `auth: aws-identity`). The runtime fills each from settings that name it
+   * explicitly (`KINDGI_AZURE_CLIENT_ID`, `KINDGI_AWS_IDENTITY`), never from
+   * whatever ambient credentials the environment holds. Absent: the runtime
+   * has none; an adapter that needs one refuses, naming the setting.
+   */
+  readonly identities?: AdapterIdentities;
 }
+
+/** The runtime's cloud identities an adapter may sign in with (`AdapterFactoryInput.identities`). */
+export interface AdapterIdentities {
+  readonly azure?: AzureTokenClient;
+  readonly aws?: AwsCredentialClient;
+}
+
+/**
+ * An Entra (Azure AD) token source. An `@azure/identity` `TokenCredential`
+ * satisfies it; adapters depend on this shape, not on that library.
+ */
+export interface AzureTokenClient {
+  getToken(
+    scopes: string | string[],
+    options?: { readonly abortSignal?: AbortSignal },
+  ): Promise<{ readonly token: string } | null>;
+}
+
+/** Short-lived AWS credentials, as an AWS SDK credential provider resolves them. */
+export interface AwsCredentials {
+  readonly accessKeyId: string;
+  readonly secretAccessKey: string;
+  readonly sessionToken?: string;
+  readonly expiration?: Date;
+}
+
+/**
+ * An AWS credential provider that refreshes: call it for every request (it
+ * caches and renews itself), never keep what it returns.
+ */
+export type AwsCredentialClient = () => Promise<AwsCredentials>;
 
 /** An adapter's connection settings: flat, non-secret values. */
 export type AdapterConfig = Readonly<Record<string, string | number | boolean>>;

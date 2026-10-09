@@ -53,6 +53,12 @@ export interface AiSdkModelProviderOptions {
   readonly cost: (model: ModelInfo, usage: UsageCounters) => number;
   /** HTTP attempts in all on a retryable failure (408, 409, 429, 5xx, network). Default 3. */
   readonly attempts?: number;
+  /**
+   * The fetch each HTTP attempt goes through, counted. For an endpoint the registration
+   * chose, the runtime's (`AdapterFactoryInput.fetch`, which refuses the hosts its deployment
+   * forbids). Default: the global `fetch`.
+   */
+  readonly fetch?: typeof globalThis.fetch;
 }
 
 const wireName = (name: string) => name.replace(/\./g, '__');
@@ -61,7 +67,7 @@ const ourName = (name: string) => name.replace(/__/g, '.');
 export function createAiSdkModelProvider(options: AiSdkModelProviderOptions): ModelProvider {
   const { metadata } = options;
   const models = new Map(metadata.models.map((m) => [m.name, m] as const));
-  const counter = createAttemptCounter();
+  const counter = createAttemptCounter(options.fetch);
   const built = new Map<string, LanguageModelV4>();
   const lm = (name: string) => {
     let model = built.get(name);
