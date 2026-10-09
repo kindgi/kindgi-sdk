@@ -13,10 +13,10 @@ It's built on [`@kindgi/adapter-model-shared`](../model-shared/): the retries, t
 | Key | What |
 |---|---|
 | `resourceName` | The Azure OpenAI resource, as in `<name>.openai.azure.com`. |
-| `baseURL` | Instead of `resourceName`: a custom endpoint (`https://…/openai/v1`), such as a custom domain. |
+| `baseURL` | Instead of `resourceName`: a custom endpoint, https, with no credentials, query or fragment. On an Azure OpenAI host (another cloud's, say) it ends in `/openai/v1`; a gateway's is any path, with `auth: api-key`. |
 | `deployments` | Required. The deployment serving each registered model: `"model=deployment,…"`, e.g. `"gpt-6.1-sol=gpt-6-1-sol,gpt-6-luna=luna-prod"`. Azure deployment names are yours to choose (often the model's own name, as `gpt-6.1-sol`), so every model in `metadata.models` needs one. |
-| `api` | `responses` (default) or `chat-completions`. |
-| `auth` | `api-key` (default): the resource's key, through `secret_ref`. `entra`: the runtime's Azure identity; no `secret_ref`. |
+| `api` | `responses` (default) or `chat-completions`. Tools with GPT-6 need `responses`: Azure refuses them on Chat Completions while the model reasons. |
+| `auth` | `api-key` (default): the resource's key, through `secret_ref`. `entra`: the runtime's Azure identity; no `secret_ref`; an Azure OpenAI host only (below). |
 
 ```json
 {
@@ -47,19 +47,31 @@ It's built on [`@kindgi/adapter-model-shared`](../model-shared/): the retries, t
 - a `resourceName` that isn't one DNS label, or a `baseURL` that isn't https;
 - an unknown `api`, `auth` or `adapter_config` key;
 - `api-key` without `secret_ref`, or `entra` with one;
-- a malformed `deployments` entry, a model the registration doesn't list, a deployment name Azure wouldn't take, or a model with no deployment.
+- `entra` on a host that isn't Azure OpenAI's, naming the host;
+- a `baseURL` with credentials, a query or a fragment, or an Azure OpenAI host's `baseURL` without `/openai/v1`;
+- a malformed `deployments` entry, a model named twice or not listed, a deployment name Azure wouldn't take, or a model with no deployment.
 
 ## How it signs in
 
 Each of these has a test:
-- **`auth: entra`:** a bearer token from the runtime's Azure identity (`AdapterFactoryInput.identities.azure`) for the `https://cognitiveservices.azure.com/.default` scope, fetched for every request (the identity caches and renews it). No `api-key` header is sent. A runtime with no Azure identity refuses the registration, naming `KINDGI_AZURE_CLIENT_ID`. The identity needs the **Cognitive Services OpenAI User** role on the resource.
+- **`auth: entra`:** a bearer token from the runtime's Azure identity (`AdapterFactoryInput.identities.azure`), fetched for every request (the identity caches and renews it), within 10 seconds. No `api-key` header is sent. A runtime with no Azure identity refuses the registration, naming `KINDGI_AZURE_CLIENT_ID`. The identity needs the **Cognitive Services OpenAI User** role on the resource.
+  - **Only an Azure OpenAI host gets the token**, because whoever receives it could use it against every Azure OpenAI resource the runtime's identity has a role on. Another host is refused at registration (and by the factory), naming it:
+
+    | Cloud | Hosts | Scope |
+    |---|---|---|
+    | Azure | `*.openai.azure.com`, `*.cognitiveservices.azure.com`, `*.services.ai.azure.com` | `https://cognitiveservices.azure.com/.default` |
+    | Azure Government | `*.openai.azure.us`, `*.cognitiveservices.azure.us` | `https://cognitiveservices.azure.us/.default` |
+
+    Microsoft lists each cloud's endpoints on [Compare Azure Government and global Azure](https://learn.microsoft.com/en-us/azure/azure-government/compare-azure-government-global-azure). Azure Government needs the runtime's identity to be in Azure Government too.
 - **`auth: api-key`:** the key `secret_ref` names, read for every request and sent as `api-key`, so a rotated key takes effect on the next call.
+- **A failed sign-in** (the identity gives no token, the key can't be read or is empty) ends the call as an `auth` error at once, never retried.
 - **Never the environment:** `AZURE_API_KEY` and `AZURE_RESOURCE_NAME` are never read. The provider is always given its endpoint and its credential.
 
 ## What it sends
 
 - **Responses** (the default): `POST …/openai/v1/responses?api-version=v1`, with the deployment as `model` and `store: false`, so Azure keeps no conversation state for it: Kindgi's journal is the record.
 - **Chat Completions:** `POST …/openai/v1/chat/completions`, with the deployment as `model`.
+- **Whether a model reasons** is the registration's to say (`thinking`, or `sampling: false`), never guessed from the deployment's name. A reasoning model keeps its encrypted reasoning between tool turns on Responses, and gets `max_completion_tokens` on Chat Completions.
 - Every attempt goes through the runtime's `fetch` (`AdapterFactoryInput.fetch`), which refuses the hosts its deployment forbids.
 
 ## Cost
@@ -70,7 +82,8 @@ Each of these has a test:
 
 - **`azureOpenAIAdapterEntry`**: the `AdapterFactoryEntry` a runtime registers, with `azureOpenAIAdapterFactory` and `azureOpenAICheckConfig`.
 - `readAzureOpenAIConfig(input)`: a registration read and checked, or every problem with it.
-- `AZURE_OPENAI_ADAPTER_ID`, `AZURE_OPENAI_APIS`, `AZURE_OPENAI_AUTHS`, `AZURE_OPENAI_SCOPE`, and the `AzureOpenAIConfig`, `AzureOpenAIApi` and `AzureOpenAIAuth` types.
+- `AZURE_OPENAI_CLOUDS` and `azureCloudOf(hostname)`: the hosts Entra may go to, by cloud, with each scope.
+- `AZURE_OPENAI_ADAPTER_ID`, `AZURE_OPENAI_APIS`, `AZURE_OPENAI_AUTHS`, `AZURE_OPENAI_SCOPE` (the public cloud's), `IDENTITY_TIMEOUT_MS`, and the `AzureOpenAIConfig`, `AzureOpenAIApi` and `AzureOpenAIAuth` types.
 
 ## License
 

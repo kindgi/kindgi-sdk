@@ -4,7 +4,7 @@
 /**
  * Today's engine: Kindgi's `ModelProvider` over an AI SDK provider model (provider spec V4),
  * called at the spec level (`doGenerate`), never the `ai` package, its agent loop or Vercel's
- * gateway (T292, from the T354 evaluation). This module is the only place in the package that
+ * gateway. This module is the only place in the package that
  * knows the AI SDK: an adapter hands in its model (`languageModel`), its provider options and
  * its cost formula, and gets a plain `ModelProvider` back. It does, the same way for each:
  *   - our retries (`../retries.ts`), counted per HTTP attempt (`@kindgi/capabilities/attempts`);
@@ -59,6 +59,13 @@ export interface AiSdkModelProviderOptions {
    * forbids). Default: the global `fetch`.
    */
   readonly fetch?: typeof globalThis.fetch;
+  /**
+   * Run before each HTTP attempt, inside the retries: where an adapter checks its sign-in (the
+   * runtime's identity) itself, when its library would report a failure as a plain error. A
+   * `ModelProviderError` thrown here (or anywhere in the adapter's own code) ends the call as it
+   * is, never retried.
+   */
+  readonly beforeAttempt?: () => Promise<void>;
 }
 
 const wireName = (name: string) => name.replace(/\./g, '__');
@@ -122,12 +129,20 @@ export function createAiSdkModelProvider(options: AiSdkModelProviderOptions): Mo
         ...(extra !== undefined && { providerOptions: extra }),
       };
       const counted = await counter.count(() =>
-        withRetries(() => lm(input.model).doGenerate(call), {
-          attempts: options.attempts ?? 3,
-          ...(input.abortSignal !== undefined && { signal: input.abortSignal }),
-          describe: describeFailure,
-          toError: modelProviderError,
-        }),
+        withRetries(
+          async () => {
+            await options.beforeAttempt?.();
+            return lm(input.model).doGenerate(call);
+          },
+          {
+            attempts: options.attempts ?? 3,
+            ...(input.abortSignal !== undefined && { signal: input.abortSignal }),
+            describe: describeFailure,
+            // An adapter's own typed error (its sign-in failed) is the answer as it is.
+            toError: (failure, error) =>
+              error instanceof ModelProviderError ? error : modelProviderError(failure, error),
+          },
+        ),
       );
       const result = counted.value;
 
@@ -168,7 +183,7 @@ export function createAiSdkModelProvider(options: AiSdkModelProviderOptions): Mo
         result.response?.id;
       return {
         message: { role: 'assistant', content: text, ...(toolCalls.length > 0 && { toolCalls }) },
-        finishReason: toolCalls.length > 0 ? 'tool-use' : finishReason(result.finishReason.unified),
+        finishReason: toolCalls.length > 0 ? 'tool-use' : finishReason(result.finishReason),
         usage,
         costUsd: options.cost(model, usage),
         durationMs: Date.now() - startedAt,
@@ -190,8 +205,14 @@ function portableReasoning(lowest: string): NonNullable<LanguageModelV4CallOptio
   return lowest as NonNullable<LanguageModelV4CallOptions['reasoning']>;
 }
 
-function finishReason(unified: string): ModelCallResult['finishReason'] {
-  switch (unified) {
+/** The model's own reason when the library has no unified one for it: out of context is `length`. */
+const CONTEXT_WINDOW_STOP = /context_window|context_length/i;
+
+function finishReason(reason: {
+  readonly unified: string;
+  readonly raw?: string | undefined;
+}): ModelCallResult['finishReason'] {
+  switch (reason.unified) {
     case 'stop':
       return 'stop';
     case 'length':
@@ -201,7 +222,7 @@ function finishReason(unified: string): ModelCallResult['finishReason'] {
     case 'tool-calls':
       return 'tool-use';
     default:
-      return 'error';
+      return reason.raw !== undefined && CONTEXT_WINDOW_STOP.test(reason.raw) ? 'length' : 'error';
   }
 }
 
@@ -355,6 +376,13 @@ function toPrompt(
 
 /** An AI SDK failure as the retry policy and the typed error need it. */
 function describeFailure(error: unknown): RetryableFailure {
+  if (error instanceof ModelProviderError) {
+    return {
+      ...(error.status !== undefined && { status: error.status }),
+      words: error.message,
+      retryable: false,
+    };
+  }
   if (!APICallError.isInstance(error)) {
     // No response at all: a dropped connection, DNS, TLS.
     return { words: (error as Error)?.message ?? String(error), retryable: true };
