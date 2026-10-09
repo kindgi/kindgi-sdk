@@ -45,7 +45,9 @@ events as they happen, and receives signed webhooks when they finish.
 - **The SDKs:** TypeScript and Python clients for the API.
 - **The console:** in your browser, at `/console/` on any runtime, and the
   runtime's own address leads there (with `kindgi dev`,
-  `http://127.0.0.1:4000/console/`; `kindgi console` opens it). Each run has one page: what
+  `http://127.0.0.1:4000/console/`; `kindgi console` opens it, in Chrome or
+  Firefox: Safari can't keep the local sign-in over http yet,
+  see [Known limitations](../../deploy/operate/#known-limitations-in-015)). Each run has one page: what
   the agent was asked, the tools it called and their results, its answer, the
   model and the cost; its journal, one sentence per step; and where the answer
   came from. It also has approvals to approve or reject, conversations, and

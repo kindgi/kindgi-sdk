@@ -44,6 +44,10 @@ run "defaults_keep_kms_and_the_own_repository" {
     condition     = length(google_artifact_registry_repository_iam_member.run_agent_pulls_images) == 0
     error_message = "The module's own repository needs no cross-project pull grant."
   }
+  assert {
+    condition     = length(google_cloud_run_v2_service_iam_member.pack_invokes) == 0
+    error_message = "Without pack_run_invokers, the pack may invoke no other service."
+  }
 }
 
 run "secrets_backend_none_has_no_kms" {
@@ -139,4 +143,114 @@ run "an_existing_repository_in_another_project" {
     condition     = google_artifact_registry_repository_iam_member.run_agent_pulls_images[0].member == "serviceAccount:service-123456789012@serverless-robot-prod.iam.gserviceaccount.com"
     error_message = "The pull grant names this project's Cloud Run service agent."
   }
+}
+
+run "the_pack_invokes_the_named_services" {
+  # Applied against the mock, so the pack's service account email is
+  # known. Without KMS: the key's prevent_destroy would stop the teardown.
+  command = apply
+
+  variables {
+    secrets_backend         = "none"
+    secrets_aad_key_version = null
+    pack_run_invokers = [
+      { project = "acme-app-dev", location = "northamerica-northeast2", service = "acme-search" },
+      { project = "acme-shared", location = "us-central1", service = "acme-ocr" },
+    ]
+  }
+
+  assert {
+    condition     = length(google_cloud_run_v2_service_iam_member.pack_invokes) == 2
+    error_message = "One invoker grant per named service."
+  }
+  assert {
+    condition = alltrue([
+      for g in google_cloud_run_v2_service_iam_member.pack_invokes :
+      g.role == "roles/run.invoker" && g.member == "serviceAccount:${google_service_account.pack.email}"
+    ])
+    error_message = "Each grant gives the pack's service account roles/run.invoker."
+  }
+  assert {
+    condition = (
+      google_cloud_run_v2_service_iam_member.pack_invokes["acme-shared/us-central1/acme-ocr"].project == "acme-shared" &&
+      google_cloud_run_v2_service_iam_member.pack_invokes["acme-shared/us-central1/acme-ocr"].location == "us-central1" &&
+      google_cloud_run_v2_service_iam_member.pack_invokes["acme-shared/us-central1/acme-ocr"].name == "acme-ocr"
+    )
+    error_message = "A service in another project is granted in that project and region."
+  }
+}
+
+run "a_service_url_is_refused" {
+  command = plan
+
+  variables {
+    pack_run_invokers = [
+      { project = "acme-app-dev", location = "northamerica-northeast2", service = "https://acme-search-abc123-pd.a.run.app" },
+    ]
+  }
+
+  expect_failures = [var.pack_run_invokers]
+}
+
+run "a_service_named_twice_is_refused" {
+  command = plan
+
+  variables {
+    pack_run_invokers = [
+      { project = "acme-app-dev", location = "northamerica-northeast2", service = "acme-search" },
+      { project = "acme-app-dev", location = "northamerica-northeast2", service = "acme-search" },
+    ]
+  }
+
+  expect_failures = [var.pack_run_invokers]
+}
+
+# Cloud Run's front end appends the client to X-Forwarded-For, and the
+# container's peer is its own proxy (measured live, 2026-10-08): one trusted
+# hop by default, so rate limits and audit records see the client.
+run "trusts_one_proxy_by_default" {
+  command = plan
+  assert {
+    condition = one([
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.value
+      if e.name == "KINDGI_TRUSTED_PROXIES"
+    ]) == "1"
+    error_message = "The server trusts one hop: Cloud Run's front end."
+  }
+}
+
+run "trusted_proxies_takes_ranges" {
+  command = plan
+  variables {
+    trusted_proxies = "10.0.0.0/8, 2001:db8::/32"
+  }
+  assert {
+    condition = one([
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.value
+      if e.name == "KINDGI_TRUSTED_PROXIES"
+    ]) == "10.0.0.0/8, 2001:db8::/32"
+    error_message = "IP/CIDR ranges pass through as given."
+  }
+}
+
+run "empty_trusted_proxies_leaves_it_unset" {
+  command = plan
+  variables {
+    trusted_proxies = ""
+  }
+  assert {
+    condition = length([
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.name
+      if e.name == "KINDGI_TRUSTED_PROXIES"
+    ]) == 0
+    error_message = "An empty trusted_proxies sets no KINDGI_TRUSTED_PROXIES."
+  }
+}
+
+run "trusted_proxies_refuses_a_word" {
+  command = plan
+  variables {
+    trusted_proxies = "all"
+  }
+  expect_failures = [var.trusted_proxies]
 }

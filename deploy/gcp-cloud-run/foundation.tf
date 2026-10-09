@@ -147,6 +147,17 @@ resource "google_storage_bucket_iam_member" "pack_reads" {
   }
 }
 
+# The Cloud Run services the pack's code calls (C-PK-6): additive, one
+# member per service; nothing else of the service changes.
+resource "google_cloud_run_v2_service_iam_member" "pack_invokes" {
+  for_each = { for s in var.pack_run_invokers : "${s.project}/${s.location}/${s.service}" => s }
+  project  = each.value.project
+  location = each.value.location
+  name     = each.value.service
+  role     = "roles/run.invoker"
+  member   = "serviceAccount:${google_service_account.pack.email}"
+}
+
 # ---- images -------------------------------------------------------------------
 # One repository for the runtime image (mirrored from Quay, see the
 # README) and the pack images `kindgi build` pushes: the module's own, or

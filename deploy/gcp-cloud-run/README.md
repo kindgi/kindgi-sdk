@@ -126,7 +126,7 @@ With `database_private_network` set, the URL is `postgres://kindgi:<password>@<p
 
 **Without a KMS key (`secrets_backend = "none"`).** By default (`"postgres"`), secrets set through Kindgi's API are envelope-encrypted in its database under a Cloud KMS key this module creates. With `"none"`:
 - **Not created:** the KMS key ring, the key and its grants, and the `<prefix>-secrets-aad-key` secret. `secrets_aad_key_version` isn't needed.
-- **The server stores no secrets of its own.** `/v1/secrets` isn't served, and nothing can be stored through Kindgi's API.
+- **The server stores no secrets of its own.** `/v1/secrets` isn't served (it answers 404 `route-not-found`), and nothing can be stored through Kindgi's API. The boot record has no KMS probe line.
 - **Who it fits:** a deployment whose pack secrets all come by reference (`pack_secret_env`) and whose model uses the service's own identity, Gemini on Vertex AI (`vertex_ai = true`). A provider that needs an API key stored in Kindgi doesn't fit it.
 - **Changing an existing deployment from `"postgres"`:** the key's `prevent_destroy` stops the plan. That's on purpose: secrets stored under the key would become unreadable. Move them out first, then take the key out of state, as in "Taking it down".
 
@@ -137,20 +137,41 @@ kindgi env plan --env=dev > pack-env.json      # exits 1 if a required name has 
 jq '{pack_env: .env, pack_secret_env: .secret_env}' pack-env.json > dev.pack-env.auto.tfvars.json
 ```
 
+**A Cloud Run service the pack's code calls (`pack_run_invokers`).** When a tool calls one of your app's IAM-protected Cloud Run services, list it as `{ project, location, service }`, with the service's name, not its URL. The pack's service account gets `roles/run.invoker` on it. The grant is added beside the service's other members, and nothing else of the service changes.
+- **The token:** the pack's code fetches a Google ID token for the service's URL from the metadata server and sends it as `Authorization: Bearer`. In Node that's google-auth-library's `getIdTokenClient(url)`; in Python, `google.oauth2.id_token.fetch_id_token`.
+- **The ingress:** the call leaves through the pack's own egress. In `direct` that's Cloud Run's internet egress; in `connector`, the connector carries private ranges only. A service with ingress `all` takes the call, with IAM as the guard. A service with internal ingress refuses it, with a 404 (Google's "Page not found" page, not a 403): Cloud Run counts a call from another service as internal only when the caller sends all its traffic through a VPC, and the pack doesn't in either shape.
+
 ## 5. The services
 
 ```sh
 terraform apply -var-file=dev.tfvars
 ```
 
-The server's boot lines name what it reached:
+The server's boot lines name what it reached. On Cloud Run the runtime logs JSON, so they're the `lines` of one record, `Kindgi runtime ready`:
+
+```sh
+gcloud logging read 'resource.labels.service_name="'$N'-server" AND jsonPayload.message="Kindgi runtime ready"' \
+  --limit=1 --format=json | jq -r '.[0].jsonPayload.lines[]'
+```
 
 ```
-KMS probe OK (gcp-cloud-kms): …
 Background work: tenant <seed tenant id>
 Pack service: https://<pack service> — <pack id> (artifact …), protocol 2, 3 tools, 1 check
 Pack service auth: a Google ID token per call (KINDGI_PACK_SERVICE_AUTH)
 ```
+
+With the KMS key (`secrets_backend = "postgres"`), the key's check is its own record, logged just before:
+
+```sh
+gcloud logging read 'resource.labels.service_name="'$N'-server" AND textPayload:"KMS probe"' \
+  --limit=1 --format='value(textPayload)'
+```
+
+```
+KMS probe OK (gcp-cloud-kms): gcp-cloud-kms v1 (encrypt/decrypt round trip, key version 1) (170ms)
+```
+
+**On the first apply** the pack service line can read `⚠ Pack service at https://… isn't answering (pack-service-unauthorized: The platform in front of the pack service refused the call: …)`. The server's invoker grant on the pack service is seconds old then, and IAM is still propagating it. Calls work once it has, without a restart (in our run, the first tool call, 3½ minutes after the warning, worked). If tool calls still fail after that, check that the server's service account has `roles/run.invoker` on the pack service.
 
 The runtime's KMS key needs `roles/cloudkms.cryptoKeyEncrypterDecrypter`. A runtime before 0.1.3 also needs `roles/cloudkms.viewer`, because its boot probe reads the key; from 0.1.3 the probe is an encrypt/decrypt round trip. The module grants both.
 
@@ -172,10 +193,11 @@ Then `kindgi health`, `kindgi tools list` and a run, with `--url "$URL" --token 
 
 ## Testing the module
 
-`terraform init -backend=false && terraform test` runs `tests/module.tftest.hcl` with a mock Google provider. No credentials are used and no cloud calls are made. It plans the module with each option and checks what it would create: the default secrets backend and repository, `secrets_backend = "none"`, the AAD key's pin, and an existing repository in the same project and in another.
+`terraform init -backend=false && terraform test` runs `tests/module.tftest.hcl` with a mock Google provider. No credentials are used and no cloud calls are made. It plans the module with each option and checks what it would create: the default secrets backend and repository, `secrets_backend = "none"`, the AAD key's pin, an existing repository in the same project and in another, and the pack's invoker grants.
 
 ## Operating it
 
+- **Client addresses:** the server trusts one proxy, Cloud Run's front end, which appends the caller to `X-Forwarded-For` (`trusted_proxies = "1"`, `KINDGI_TRUSTED_PROXIES`), so rate limits and audit records see the caller. With an external Application Load Balancer in front, set `"2"`: it appends the client and then its own address ([Google: the X-Forwarded-For header](https://docs.cloud.google.com/load-balancing/docs/https#x-forwarded-for_header)).
 - **One server instance** (`server_max_instances = 1`) until several replicas are verified. Migrations run at boot and need a direct database connection (the socket or a private IP, not a transaction pooler).
 - **Upgrades roll forward:** migrations only go forward, so an older runtime can break on a database a newer one migrated. Deploy a new runtime revision at 100% traffic, keep a database backup from before, and roll back by restoring it.
 - **Rotating a secret:** add a version, then roll a new revision of each service that reads it (`gcloud run services update <service> --update-labels=rotated=$(date +%s)`).
