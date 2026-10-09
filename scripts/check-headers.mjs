@@ -33,7 +33,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-const SOURCE = /\.(ts|tsx|mts|cts|js|mjs|cjs|py|java)$/;
+const SOURCE = /\.(ts|tsx|mts|cts|js|mjs|cjs|py|java|scala)$/;
 const DECLARATION = /\.d\.(ts|mts|cts)$/;
 const SKIP_DIRS = ['website/'];
 const PERMISSIVE = 'Apache-2.0';

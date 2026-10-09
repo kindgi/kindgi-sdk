@@ -1,0 +1,75 @@
+# {{PACK_NAME}}
+
+A sample Kindgi pack in Scala — scaffolded by `kindgi init --template=scala`.
+
+Two tools (`echo`, `greet`), one guardrail (`response-not-empty`), one agent
+that uses both tools and the guardrail, and one flow that runs the echo tool.
+
+Java and Scala support is in preview: tested and supported, but the API may
+still change in 0.1.6 without the usual deprecation period.
+
+## Layout
+
+```
+{{PACK_NAME}}/
+├── kindgi.config.json                         # the pack's id and version ("language": "scala"), the CLI it pins
+├── build.sbt                                  # kindgi-pack-scala, Scala 3.3, Java 17
+├── src/main/scala/{{SCALA_PACKAGE_PATH}}/
+│   ├── tools/Echo.scala                       # Tool[Input, Output] — case classes in, case classes out
+│   ├── tools/Greet.scala                      # a parameter's default is the schema's default
+│   ├── guardrails/ResponseNotEmpty.scala      # Guardrail[Config] — a zero-LLM check over the run
+│   ├── agents/EchoAgent.scala                 # Agent — data
+│   └── flows/EchoFlow.scala                   # Flow — data
+└── src/test/scala/{{SCALA_PACKAGE_PATH}}/ToolsSuite.scala   # the tools, called directly
+```
+
+A file's tools, guardrails, agents and flows are the `val`s of an object named
+like the file (`Greet.scala` holds `object Greet`).
+
+## Run
+
+You need a JDK 17 or later (`JAVA_HOME`) and sbt.
+
+```sh
+sbt test
+./kindgiw dev    # the CLI the pack pins: boots Kindgi locally, compiles and runs this pack, recompiling on save
+```
+
+Then, from another terminal:
+
+```sh
+./kindgiw runs start --agent={{PACK_ID}}.echo-agent --input='{"userMessage":"hi"}'
+```
+
+`kindgi dev` compiles through sbt's server (`sbt --client`), so a save compiles
+in about a second once it's warm. It starts that server when none is running
+and stops it when it stops; a server you already run (your IDE's) is used and
+left running. It uses `JAVA_HOME`'s JDK (or `dev.javaHome` in
+`kindgi.config.json`) and the `sbt` on your `PATH` (or `dev.sbt`, e.g.
+`["sbt", "-mem", "2048"]`). `SBT_OPTS` in your shell reaches sbt only, never
+the pack.
+
+## Use a real model
+
+`kindgi dev` gives a new pack `dev-echo`, a fallback provider that isn't a
+model: it calls the first tool and replies "Tool responded: …", after a
+warning line that says so. It answers only while no other provider fits. To
+use a real model, set one LLM provider's key and register its preset, with
+`kindgi dev` running, from another terminal. For Claude:
+
+```sh
+./kindgiw secrets set ANTHROPIC_API_KEY --env=local --scope=tenant   # no-echo prompt; writes .env.local
+./kindgiw providers register --preset=anthropic                      # Opus 5.5, Sonnet 5.5, Haiku 4.5
+```
+
+Claude takes over from dev-echo on the next turn; nothing to restart.
+OpenAI (`OPENAI_API_KEY`, `--preset=openai`), Gemini (`GEMINI_API_KEY`,
+`--preset=gemini-api`), Groq (`GROQ_API_KEY`, `--preset=groq`) and
+OpenRouter (`OPENROUTER_API_KEY`, `--preset=openrouter`) work the same way;
+`kindgi providers presets` lists the presets.
+
+## Build
+
+`kindgi build --env=<name>` makes the pack's image: sbt compiles it in a
+pinned sbt + JDK 17 image, the index is built in the image, and the pack
+service runs on a JRE 17 as its entrypoint.

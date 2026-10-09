@@ -36,7 +36,9 @@ thing at a time, and wait until they say they've done it.
   - a TypeScript project: `pnpm exec kindgi` if `pnpm --version` works,
     else `npx --no kindgi`;
   - a Python project: `uv run kindgi` (the project's dev dependencies bring
-    the CLI).
+    the CLI);
+  - a Java or Scala project: `./kindgiw` (the CLI version the project pins in
+    `kindgi.config.json`; `kindgiw.cmd` on Windows).
 
 ## Step 0: check the machine
 
@@ -81,8 +83,9 @@ running and no model key yet:
 }
 ```
 
-The checks come in this order: `node`, `npm`, `python`, `uv`, `docker`,
-`registry`, `console-sign-in`, `project`, `dependencies`, `model-key`,
+The checks come in this order: `node`, `npm`, `python`, `uv`, `java`,
+`maven`, `sbt`, `docker`, `registry`, `console-sign-in`, `project`,
+`dependencies`, `model-key`,
 `runtime`, `provider`.
 
 - **`fail`:** run its `fix`, as written: it names the CLI to use in that
@@ -125,7 +128,10 @@ runtime: skip this step.
 1. Ask the person for a name for their project, or use `my-agents`. Use
    TypeScript if doctor's `node` check passes and the person has no
    preference; Python if they ask for it, or if there's no Node (doctor's
-   `python` and `uv` say whether it's ready).
+   `python` and `uv` say whether it's ready); Java if they ask for it
+   (doctor's `java` says whether there's a JDK 17 or later; Maven comes with
+   the project); Scala if they ask for it (a JDK 17 or later too, and
+   doctor's `sbt` says whether sbt is installed).
 2. Create it and install its dependencies:
 
    ```sh
@@ -142,10 +148,25 @@ runtime: skip this step.
    uv sync          # brings the CLI too: from now on, uv run kindgi …
    ```
 
+   ```sh
+   # Java (preview)
+   npx --yes @kindgi/cli@0.1 init my-agents --template=java   # from now on: ./kindgiw …
+   cd my-agents
+   ./mvnw -q test
+   ```
+
+   ```sh
+   # Scala (preview)
+   npx --yes @kindgi/cli@0.1 init my-agents --template=scala   # from now on: ./kindgiw …
+   cd my-agents
+   sbt -batch test
+   ```
+
 3. Run doctor again from the project's folder; `project` and
    `dependencies` should pass.
 
-`init` also gives you Kindgi's skills, in `.claude/skills/`. Read them: they
+`init` also gives you Kindgi's skills, in `.claude/skills/`, for the
+project's language (a Java or Scala project gets its own). Read them: they
 are how you write tools and agents for this project.
 
 ## Step 3: start Kindgi

@@ -70,6 +70,11 @@ class IndexerTest {
 
     Map<String, Object> flow = ((List<Map<String, Object>>) index.get("flows")).get(0);
     assertThat(flow.get("nodes")).isEqualTo(List.of(Map.of("id", "greet", "kind", "tool", "ref", "acme.greet")));
+    // An edge's condition and policy, as written.
+    assertThat(flow.get("edges")).isEqualTo(List.of(
+        Map.of("id", "e1", "from", "$start", "to", "greet", "policy", Map.of("retry", Map.of("maxAttempts", 2))),
+        Map.of("id", "e2", "from", "greet", "to", "$end",
+            "when", Map.of("op", "exists", "value", Map.of("path", "nodeOutputs.greet.message")))));
     assertThat(flow).containsEntry("kernelPayloadVersion", 1);
   }
 
@@ -110,6 +115,40 @@ class IndexerTest {
         .filter(e -> String.valueOf(e.get("filePath")).endsWith("Boom.java")).findFirst().orElseThrow();
     assertThat((Map<String, Object>) boom.get("cause")).containsEntry("name", "java.lang.IllegalStateException")
         .containsEntry("message", "no database").containsKey("stack");
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void aScalaPackIndexesItsObjectsVals() throws Exception {
+    Map<String, Object> report = value(index("scala"));
+    Map<String, String> errors = ((List<Map<String, Object>>) report.get("fileErrors")).stream()
+        .collect(Collectors.toMap(
+            e -> String.valueOf(e.get("filePath")).replaceAll(".*/", ""),
+            e -> e.get("code") + ": " + e.get("message")));
+    // A class with no object, and a companion with no primitives, are helpers; a test is no source.
+    assertThat(errors).containsOnlyKeys("Lazy.scala", "Ghost.scala");
+    assertThat(errors.get("Lazy.scala")).isEqualTo("no-primitives: File src/main/scala/com/kindgi/pack/testpacks/scalalike/"
+        + "tools/Lazy.scala: object Lazy defines tool as a def or a lazy val, which the indexer can't read without running"
+        + " it; make it a val");
+    assertThat(errors.get("Ghost.scala")).isEqualTo("file-import-failed: Failed to load src/main/scala/com/kindgi/pack/"
+        + "testpacks/scalalike/tools/Ghost.scala: object Ghost (class com.kindgi.pack.testpacks.scalalike.tools.Ghost$)"
+        + " isn't on the classpath. A Scala file's tools, guardrails, agents and flows are vals of an object named like"
+        + " the file (compile the pack first)");
+
+    String text = Files.readString(out.resolve("scala.json"), StandardCharsets.UTF_8);
+    Map<String, Object> index = (Map<String, Object>) Json.parse(text.getBytes(StandardCharsets.UTF_8));
+    List<Map<String, Object>> tools = (List<Map<String, Object>>) index.get("tools");
+    // Built through the Scala layer's package, the tool is still defined in the object.
+    assertThat(tools).singleElement().satisfies(t -> assertThat(t)
+        .containsEntry("id", "acme.scala-greet")
+        .containsEntry("modulePath", "src/main/scala/com/kindgi/pack/testpacks/scalalike/tools/Greet.scala"));
+
+    // The service finds it where the index says.
+    String path = (String) tools.get(0).get("modulePath");
+    assertThat(PackService.classOf(path)).isEqualTo("com.kindgi.pack.testpacks.scalalike.tools.Greet$");
+    assertThat(PackService.missingModules(index, IndexerTest.class.getClassLoader())).isEmpty();
+    assertThat(Indexer.primitivesOf(Class.forName(PackService.classOf(path))))
+        .singleElement().isInstanceOf(Tool.class);
   }
 
   @Test

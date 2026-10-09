@@ -9,12 +9,12 @@
   <parent>
     <groupId>com.kindgi</groupId>
     <artifactId>kindgi-java-parent</artifactId>
-    <version>0.1.4-rc.4</version>
+    <version>0.1.4</version>
   </parent>
 
   <artifactId>kindgi-client</artifactId>
   <name>Kindgi Java client</name>
-  <description>Java client for the Kindgi™ API: agents, runs, approvals, evals and the rest, with typed models, typed errors, paging, streaming and retries.</description>
+  <description>Java client for the Kindgi™ API: agents, runs, approvals, evals and the rest, with typed models, typed errors, paging, streaming and retries. In preview: tested and supported, but the API may still change in 0.1.6 without the usual deprecation period.</description>
 
   <properties>
     <!-- The API document the client is generated from (packages/api in this repository). -->
@@ -22,6 +22,18 @@
     <!-- Where the client's own Jackson lives in its jar (shaded: no conflict with an app's Jackson). -->
     <kindgi.shaded>com.kindgi.client.internal.shaded</kindgi.shaded>
   </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>tools.jackson</groupId>
+        <artifactId>jackson-bom</artifactId>
+        <version>${jackson.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
 
   <dependencies>
     <dependency>
@@ -84,6 +96,28 @@
             <configuration>
               <openapi>${kindgi.openapi}</openapi>
               <target>client</target>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <!--
+          What an app compiles against besides the client's own jar (its dependencies as the published
+          POM lists them: the shaded Jackson isn't one). The docs' sample check reads it.
+        -->
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-dependency-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>samples-classpath</id>
+            <phase>package</phase>
+            <goals>
+              <goal>build-classpath</goal>
+            </goals>
+            <configuration>
+              <includeScope>runtime</includeScope>
+              <excludeGroupIds>tools.jackson.core,com.fasterxml.jackson.core</excludeGroupIds>
+              <outputFile>${project.build.directory}/samples-classpath.txt</outputFile>
             </configuration>
           </execution>
         </executions>

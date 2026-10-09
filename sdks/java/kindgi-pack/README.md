@@ -4,8 +4,9 @@ Write a Kindgi™ pack's tools and guardrail checks in Java: define them next to
 your app's code, index the pack, and serve them to the Kindgi runtime over the
 pack protocol. Agents and flows are data, in the same pack.
 
-**Status:** preview, not on Maven Central yet. Build it from this repository
-(`./mvnw install` in `sdks/java`). Needs Java 17 or later.
+**Status:** preview. Java and Scala support is tested and supported, but its
+API may still change in 0.1.6 without the usual deprecation period. On Maven Central;
+needs Java 17 or later. Its version is the Kindgi release's (the CLI's).
 
 ```xml
 <dependency>
@@ -75,11 +76,18 @@ Maven project:
 - `discovery` (optional) says where the primitives are. The defaults are
   `src/main/java/**/tools/**/*.java`, `…/guardrails/…`, `…/agents/…` and
   `…/flows/…`.
+- `language` is `java`, or `scala` for a Scala pack
+  ([`kindgi-pack-scala`](../../scala)): its defaults are under
+  `src/main/scala/` with `*.scala` files. A file's extension says how to read
+  it, so a pack may mix the two.
 
 The indexer loads the class of each discovered file and collects the tools,
 guardrails, agents and flows its static fields hold. It takes only those the
 class (or a class nested in it) defined. A tool that `Bot.java` re-exports from
 `Greet` is indexed once, from `Greet.java`.
+
+A Scala file's primitives are the vals of its object (`Greet.scala` →
+`object Greet`, the class `Greet$`); see the Scala layer's README.
 
 A file under `tools/` must define tools, one under `guardrails/` guardrails,
 and so on. A helper there is a package-private class, a record, an enum or an
@@ -128,6 +136,12 @@ for issue: a differential test runs every value of its corpus through both
 keywords tool schemas use, and the indexer refuses a schema with any other
 keyword (`if`, `prefixItems`, a remote `$ref`, …).
 
+A JVM language's own types (Scala's `Option`, `Seq`, a case class's defaults)
+come from its layer: it implements `com.kindgi.pack.spi.SchemaTypeAdapter` and
+declares it in `META-INF/services/com.kindgi.pack.spi.SchemaTypeAdapter`. The
+deriver asks every adapter on the classpath before its own rules: for a type's
+schema, for the type an optional wrapper wraps, and for a property's default.
+
 ## Guardrails, agents and flows
 
 ```java
@@ -164,7 +178,25 @@ public static final Flow FLOW = Flow.define("acme.record")
 ```
 
 An agent or a flow takes any other field of its schema with
-`set(field, value)`.
+`set(field, value)`. A node or an edge with more than `toolNode`, `agentNode`
+or `edge(id, from, to)` say is a map, as the flow schema describes it: a node
+with an `inputMapping`, an edge with a condition (`when`) or a `policy`. A
+`Tool`, `Agent` or `Flow` in a node's map becomes its id.
+
+```java
+.node(Map.of("id", "billing", "kind", "tool", "ref", LookupInvoice.TOOL,
+    "inputMapping", Map.of("customerId", Map.of("path", "runInput.customerId"))))
+.edge(Map.of("id", "e2", "from", "classify", "to", "billing",
+    "when", Map.of("op", "eq", "left", Map.of("path", "nodeOutputs.classify.output.category"),
+        "right", Map.of("literal", "billing"))))
+```
+
+Unit-test a check with `evaluate`, which runs it with the config as given
+(an async check is awaited):
+
+```java
+assertFalse(Checks.RESPONSE_NOT_EMPTY.evaluate(new MinLength(1), new RunTrace(Map.of("output", ""))).passed());
+```
 
 The service checks a check's config against its schema as sent, before the
 check runs. A config that doesn't fit is answered `input-validation-failed`,
@@ -175,9 +207,9 @@ config type.
 
 A handler gets a `ToolContext`: `tenantId()`, `runId()`, `requestId()`,
 `projectId()`, `orgId()`, the call's `env()`, `secrets()` and `config()`,
-and the `settings()` blocks its agent pins. Printing the context, or its
-`secrets()`, shows the secrets' names, never their values, and the context's
-JSON leaves them out.
+the `settings()` blocks its agent pins, and `log()`, a logger bound to the
+call (below). Printing the context, or its `secrets()`, shows the secrets'
+names, never their values, and the context's JSON leaves them out.
 
 At its deadline (`kindgi-timeout-ms`, 120 s by default), or when the caller
 goes away, the call is answered `deadline-exceeded` or `cancelled`. The
@@ -185,6 +217,28 @@ handler's `ctx.cancellation()` fires and its thread is interrupted, so a
 blocking wait ends at once. A loop checks `ctx.cancellation().isCancelled()`
 or calls `throwIfCancelled()`. A handler that runs on past its answer is
 logged when it finishes (`handler-finished-late`).
+
+Work the handler starts elsewhere (an HTTP request, a job) stops with
+`ctx.cancellation().onCancel(action)`. The action runs once: when the call is
+cancelled, or at once if it already was.
+
+### Answering later
+
+A handler built on futures returns a `CompletionStage` through
+`asyncHandler`; a guardrail's check does the same through `asyncCheck`:
+
+```java
+public static final Tool<Input, Output> TOOL = Tool.define("acme.quote")
+    .input(Input.class)
+    .output(Output.class)
+    .mutating(false)
+    .asyncHandler((input, ctx) -> rates.fetch(input.currency()).thenApply(Output::new));
+```
+
+The service awaits it. A failed future fails the call with its own exception,
+not a wrapper. At the deadline, or when the caller goes away, a
+`CompletableFuture` the handler returned is cancelled. Cancelling a future
+doesn't stop the work behind it: stop that with `onCancel`, above.
 
 Unit-test a handler directly:
 
@@ -217,16 +271,41 @@ one line for tools to read.
 
 The service runs the process contract every pack service does: `PORT`,
 `KINDGI_PACK_SERVICE_TOKEN`, `KINDGI_PACK_SERVICE_MAX_CONCURRENCY` (32),
-`KINDGI_PACK_ENV_CHECK` (`strict` or `warn`), and the `listening`,
-`boot-failed` and `call` lines on stderr. SIGTERM drains in-flight calls for
-up to 8 seconds and exits 0. It passes the same conformance suite as the
-TypeScript and Python services (`packages/pack-conformance`).
+`KINDGI_PACK_ENV_CHECK` (`strict` or `warn`), and log records on stderr.
+SIGTERM drains in-flight calls for up to 8 seconds and exits 0. It passes the
+same conformance suite as the TypeScript and Python services
+(`packages/pack-conformance`).
 
-**Logging:** the service writes those events as plain JSON lines, one per
-line on stderr. The TypeScript and Python services' `@kindgi/log` records
-(levels and redaction set by `KINDGI_LOG_*`) and the handler's `ctx.log`
-aren't in the Java service yet. Until then, a handler logs with your app's
-own logger.
+**Logging:** the service writes the same log records as the TypeScript and
+Python services and the runtime, one JSON object per line on stderr,
+subsystem `pack`:
+
+- one per call, at `info` (`warn` when the call fails): `tool acme.lookup ok
+  12ms`, with the call's `tenantId`, `runId`, `requestId` and `toolId`, and
+  the caller's `traceId` with a span of the call's own;
+- the lifecycle (`listening` with its port, `boot-failed`, `config-invalid`,
+  `draining`, `stopped`), whatever the levels.
+
+`KINDGI_LOG_LEVEL` (`info`), `KINDGI_LOG_LEVELS` (`pack=debug`, say) and
+`KINDGI_LOG_FORMAT` (`auto`, `json` or `pretty`; `auto` is JSON unless the
+process has a terminal) set them. A bad setting stops the service with a
+`config-invalid` record.
+
+A handler logs beneath its call with `ctx.log()`. Its records (subsystem
+`pack.tool`) carry the call's ids and trace:
+
+```java
+ctx.log().info("looked up order", Map.of("orderId", order.id()));
+ctx.log().warn("retrying the lookup", e);
+```
+
+Pass values as fields, never pasted into the message. Keys that look secret
+(`apiKey`, `password`, `token`, …) and known secret shapes (Kindgi tokens,
+`Bearer …`, a URL's password) are redacted, but pass a secret's name, never
+its value. A record is written as an object of its components; any other
+object as its `toString()`. `ToolContext.forTest()`'s logger writes nothing;
+`ToolContext.forTest(log)` takes yours. The logger is `com.kindgi.log`, in
+this artifact.
 
 **Start it through the launcher** (`kindgi-pack-java`, a POSIX shell script).
 The token authenticates the service's callers. Your code runs in the same JVM
@@ -254,6 +333,16 @@ version wins). Your Jackson annotations, modules and custom deserializers
 apply to tool inputs as they do everywhere else in the app. `kindgi-client`
 is the other way around: it shades its Jackson so the API client never meets
 yours.
+
+Modules are found as `ObjectMapper.findAndRegisterModules()` finds them: every
+module a jar on the classpath declares in
+`META-INF/services/com.fasterxml.jackson.databind.Module` (Scala's, Kotlin's,
+Guava's, your own). They apply to tool inputs, tool outputs, a check's
+attributes and the schemas derived from your types. A module that renames
+properties renames them in the schema too. A module your app only registers
+in code, on its own `ObjectMapper`, isn't seen: declare it in
+`META-INF/services`. The protocol's own messages and the pack index use a
+separate mapper your modules never change.
 
 ## Build from source
 

@@ -4,6 +4,10 @@
 package com.kindgi.pack;
 
 import com.fasterxml.jackson.databind.JsonMappingException;
+import com.kindgi.log.LogLevel;
+import com.kindgi.log.LogOptions;
+import com.kindgi.log.Logger;
+import com.kindgi.log.TraceContext;
 import com.kindgi.pack.internal.Defaults;
 import com.kindgi.pack.internal.HttpServer;
 import com.kindgi.pack.internal.Json;
@@ -24,7 +28,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.Consumer;
 import org.jspecify.annotations.Nullable;
 
 /**
@@ -45,6 +48,10 @@ import org.jspecify.annotations.Nullable;
  * kindgi-timeout-ms}) or the caller disconnects, the answer is {@code deadline-exceeded} or {@code
  * cancelled}, the handler's {@link Cancellation} fires and its thread is interrupted. What handlers
  * print goes to the process's own stdout and stderr, never into a response.
+ *
+ * <p>Each call writes one record (subsystem {@code pack}, {@link PackLogs}) with the call's ids and
+ * the caller's trace, and a handler's {@link ToolContext#log()} writes beneath it ({@code
+ * pack.tool}).
  */
 final class PackService implements HttpServer.Handler {
   static final int PROTOCOL = 2;
@@ -70,7 +77,7 @@ final class PackService implements HttpServer.Handler {
   private final long maxBodyBytes;
   private final String envCheck;
   private final List<String> missingEnv;
-  private final Consumer<Map<String, Object>> log;
+  private final Logger log;
   /** Every version of a tool the pack holds, side by side, in index order. */
   private final Map<String, List<ToolEntry>> tools = new LinkedHashMap<>();
   private final Map<String, CheckEntry> checks = new LinkedHashMap<>();
@@ -86,7 +93,7 @@ final class PackService implements HttpServer.Handler {
       int maxConcurrency,
       String envCheck,
       Map<String, String> environ,
-      Consumer<Map<String, Object>> log) {
+      Logger log) {
     this.index = index;
     this.token = token.getBytes(StandardCharsets.UTF_8);
     this.maxConcurrency = maxConcurrency;
@@ -107,6 +114,15 @@ final class PackService implements HttpServer.Handler {
       }
     }
     this.missingEnv = List.copyOf(missing);
+    if (!missing.isEmpty()) {
+      Map<String, Object> fields = new LinkedHashMap<>();
+      fields.put("event", "missing-env");
+      fields.put("kind", "missing-env");
+      fields.put("check", envCheck);
+      fields.put("names", missingEnv);
+      log.warn("The pack's env.required " + (missing.size() == 1 ? "name has" : "names have") + " no value: "
+          + String.join(", ", missing), fields);
+    }
     AtomicInteger n = new AtomicInteger();
     this.calls = Executors.newCachedThreadPool(r -> {
       Thread t = new Thread(r, "kindgi-pack-call-" + n.incrementAndGet());
@@ -119,10 +135,12 @@ final class PackService implements HttpServer.Handler {
   // Boot
   // ---------------------------------------------------------------------------------------------
 
-  /** {@code src/main/java/com/acme/tools/Greet.java} → its class name; {@code null} for any other path. */
+  /**
+   * {@code src/main/java/com/acme/tools/Greet.java} → its class name ({@code …Greet$}, the object,
+   * for a Scala file); {@code null} for any other path.
+   */
   static @Nullable String classOf(String modulePath) {
-    if (!modulePath.startsWith(Indexer.SOURCE_ROOT) || !modulePath.endsWith(".java")
-        || modulePath.contains("..") || modulePath.contains("\\")) {
+    if (modulePath.contains("..") || modulePath.contains("\\")) {
       return null;
     }
     return Indexer.className(modulePath);
@@ -425,9 +443,15 @@ final class PackService implements HttpServer.Handler {
     String target = request.tool() ? "tool" : "check";
     long timeoutMs = timeout(ex.header("kindgi-timeout-ms"));
     Cancellation cancellation = new Cancellation();
-    Call call = new Call(ex, target, request.id(), started);
+    // The call's ids and trace, on its record and on the handler's `ctx.log()`.
+    Map<String, Object> bindings = new LinkedHashMap<>(callIds(request.tool() ? request.ctx() : Map.of()));
+    bindings.putAll(callTrace(ex.header("traceparent")));
+    bindings.put("target", target);
+    bindings.put(request.tool() ? "toolId" : "checkId", request.id());
+    Logger callLog = log.child(bindings);
+    Call call = new Call(ex, target, request.id(), started, callLog);
     calls.execute(() -> call.run(() -> request.tool()
-        ? runTool(request, cancellation)
+        ? runTool(request, cancellation, callLog.child(Map.of("subsystem", "pack." + target)))
         : runCheck(request)));
     HttpServer.Wait wait = ex.await(call.outcome::isDone, started + timeoutMs * 1_000_000L);
     Map<String, Object> outcome;
@@ -440,13 +464,17 @@ final class PackService implements HttpServer.Handler {
       outcome = error(reason, request.id() + (reason.equals("deadline-exceeded") ? " passed its deadline" : " was cancelled"),
           Map.of(request.tool() ? "toolId" : "checkId", request.id()));
     }
-    Map<String, Object> line = new LinkedHashMap<>();
-    line.put("kind", "call");
-    line.put("target", target);
-    line.put("id", request.id());
-    line.put("durationMs", (System.nanoTime() - started) / 1_000_000L);
-    line.put("outcome", "error".equals(outcome.get("kind")) ? outcome.get("code") : "ok");
-    log.accept(line);
+    long durationMs = (System.nanoTime() - started) / 1_000_000L;
+    String result = "error".equals(outcome.get("kind")) ? String.valueOf(outcome.get("code")) : "ok";
+    Map<String, Object> fields = new LinkedHashMap<>();
+    fields.put("event", "call");
+    fields.put("kind", "call");
+    fields.put("id", request.id());
+    fields.put("outcome", result);
+    fields.put("durationMs", durationMs);
+    callLog.log(result.equals("ok") ? LogLevel.INFO : LogLevel.WARN,
+        target + " " + request.id() + " " + result + " " + durationMs + "ms", fields,
+        LogOptions.inMessage("target", "id", "outcome", "durationMs"));
     return wait == HttpServer.Wait.DISCONNECTED ? null : outcome;
   }
 
@@ -465,14 +493,16 @@ final class PackService implements HttpServer.Handler {
     private final String target;
     private final String id;
     private final long started;
+    private final Logger callLog;
     private volatile @Nullable Thread thread;
     private volatile boolean abandoned;
 
-    Call(HttpServer.Exchange ex, String target, String id, long started) {
+    Call(HttpServer.Exchange ex, String target, String id, long started, Logger callLog) {
       this.ex = ex;
       this.target = target;
       this.id = id;
       this.started = started;
+      this.callLog = callLog;
     }
 
     interface Body {
@@ -494,12 +524,12 @@ final class PackService implements HttpServer.Handler {
         Thread.interrupted();
         ex.wake();
         if (abandoned && !honoured && !cancelledOutcome()) {
-          Map<String, Object> line = new LinkedHashMap<>();
-          line.put("kind", "handler-finished-late");
-          line.put("target", target);
-          line.put("id", id);
-          line.put("afterMs", (System.nanoTime() - started) / 1_000_000L);
-          log.accept(line);
+          long afterMs = (System.nanoTime() - started) / 1_000_000L;
+          Map<String, Object> fields = new LinkedHashMap<>();
+          fields.put("event", "handler-finished-late");
+          fields.put("kind", "handler-finished-late");
+          fields.put("afterMs", afterMs);
+          callLog.warn(target + " " + id + " finished " + afterMs + " ms after its call ended", fields);
         }
       }
     }
@@ -524,7 +554,8 @@ final class PackService implements HttpServer.Handler {
   // ---------------------------------------------------------------------------------------------
 
   @SuppressWarnings({"unchecked", "rawtypes"})
-  private Map<String, Object> runTool(Requests.Call request, Cancellation cancellation) throws InterruptedException {
+  private Map<String, Object> runTool(Requests.Call request, Cancellation cancellation, Logger toolLog)
+      throws InterruptedException {
     String toolId = request.id();
     Map<String, Object> ids = Map.of("toolId", toolId);
     List<ToolEntry> versions = tools.getOrDefault(toolId, List.of());
@@ -568,7 +599,7 @@ final class PackService implements HttpServer.Handler {
       return error("input-validation-failed", "Tool \"" + toolId + "\" input failed validation",
           with(ids, "issues", List.of(bindingIssue(e))));
     }
-    ToolContext ctx = Requests.context(request.ctx(), cancellation);
+    ToolContext ctx = Requests.context(request.ctx(), cancellation, toolLog);
     Object result;
     try {
       result = ((ToolHandler) entry.tool().handler()).handle(argument, ctx);
@@ -584,7 +615,7 @@ final class PackService implements HttpServer.Handler {
     }
     Object output;
     try {
-      output = Json.plain(result);
+      output = Json.unbind(result);
       Json.requireFinite(output);
     } catch (IllegalArgumentException e) {
       return error("output-validation-failed",
@@ -670,7 +701,7 @@ final class PackService implements HttpServer.Handler {
     if (result.attributes() != null) {
       Object attributes;
       try {
-        attributes = Json.plain(result.attributes());
+        attributes = Json.unbind(result.attributes());
         Json.requireFinite(attributes);
       } catch (IllegalArgumentException e) {
         return error("output-validation-failed",
@@ -749,6 +780,34 @@ final class PackService implements HttpServer.Handler {
   private static Map<String, Object> with(Map<String, Object> ids, String key, Object value) {
     Map<String, Object> out = new LinkedHashMap<>(ids);
     out.put(key, value);
+    return out;
+  }
+
+  /** The ids a call's records carry, from its context. */
+  static Map<String, Object> callIds(Map<String, Object> ctx) {
+    Map<String, Object> ids = new LinkedHashMap<>();
+    for (String key : List.of("tenantId", "projectId", "orgId", "runId", "requestId")) {
+      if (ctx.get(key) instanceof String && !((String) ctx.get(key)).isEmpty()) {
+        ids.put(key, ctx.get(key));
+      }
+    }
+    return ids;
+  }
+
+  /**
+   * The call's trace: the caller's trace id, and a span of this call's own whose parent is the
+   * caller's. None when the caller sent no {@code traceparent} (an older runtime): a fresh trace
+   * would join nothing.
+   */
+  static Map<String, Object> callTrace(@Nullable String header) {
+    TraceContext caller = TraceContext.parse(header);
+    if (caller == null) {
+      return Map.of();
+    }
+    TraceContext span = caller.child();
+    Map<String, Object> out = new LinkedHashMap<>();
+    out.put("traceId", span.traceId());
+    out.put("spanId", span.spanId());
     return out;
   }
 

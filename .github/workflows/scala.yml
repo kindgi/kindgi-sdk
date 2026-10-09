@@ -1,0 +1,92 @@
+name: Scala SDK
+
+# The Scala layer (sdks/scala, kindgi-pack-scala) on Java 17, tested on Scala 2.13 and 3.3, then the
+# pack conformance suite on its fixture pack (packages/pack-conformance/fixtures/scala-pack), built
+# with each. It runs when the layer, kindgi-pack (which it builds on), the fixture or the suite
+# change. Not a required check yet. What would go to Maven Central is staged unsigned and checked as
+# the release checks it (scripts/check-jars.mjs).
+on:
+  push:
+    branches: [main]
+    paths:
+      - "sdks/scala/**"
+      - "sdks/java/pom.xml"
+      - "sdks/java/kindgi-pack/**"
+      - "packages/pack-conformance/**"
+      - "packages/specs/schemas/**"
+      - ".github/workflows/scala.yml"
+      # What goes to Maven Central, checked here.
+      - "scripts/check-jars.mjs"
+      - "scripts/lib/zip.mjs"
+      - "scripts/lib/pom-xml.mjs"
+      - "scripts/text-scan.mjs"
+      - "scripts/forbidden-names.json"
+  pull_request:
+    # `ready_for_review` fires when a draft is marked ready; the job's `if:` skips drafts.
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - "sdks/scala/**"
+      - "sdks/java/pom.xml"
+      - "sdks/java/kindgi-pack/**"
+      - "packages/pack-conformance/**"
+      - "packages/specs/schemas/**"
+      - ".github/workflows/scala.yml"
+      # What goes to Maven Central, checked here.
+      - "scripts/check-jars.mjs"
+      - "scripts/lib/zip.mjs"
+      - "scripts/lib/pom-xml.mjs"
+      - "scripts/text-scan.mjs"
+      - "scripts/forbidden-names.json"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # The suite's Scala target fails, rather than skips, when the fixture isn't built.
+  KINDGI_CONFORMANCE_SCALA: "1"
+
+jobs:
+  scala:
+    name: Scala SDK (2.13, 3.3)
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: sbt
+      - uses: sbt/setup-sbt@v1
+      # The layer depends on kindgi-pack, which isn't on Maven Central yet: the local repository.
+      - name: kindgi-pack, into the local Maven repository
+        working-directory: sdks/java
+        run: ./mvnw -B -ntp -pl kindgi-pack -am install -DskipTests
+      # publishLocal builds the Scaladoc too, so a doc comment Scaladoc can't read fails here.
+      # `publish` stages what would go to Maven Central, unsigned, in target/sona-staging.
+      - name: Test and publish the layer locally (Scala 2.13 and 3.3)
+        working-directory: sdks/scala
+        run: sbt -batch +test +publishLocal +publish
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: pnpm
+      - name: What would go to Maven Central (check-jars)
+        run: node scripts/check-jars.mjs sdks/scala/target/sona-staging
+      - run: pnpm install --frozen-lockfile
+      - name: Build the suite's dependencies
+        run: pnpm --filter "@kindgi/pack-conformance^..." run build
+      - name: Conformance, the fixture on Scala 3.3
+        run: |
+          (cd packages/pack-conformance/fixtures/scala-pack && sbt -batch writeClasspath)
+          pnpm --filter @kindgi/pack-conformance exec vitest run tests/scala.test.ts
+      - name: Conformance, the fixture on Scala 2.13
+        run: |
+          (cd packages/pack-conformance/fixtures/scala-pack && sbt -batch "++2.13.18!" writeClasspath)
+          pnpm --filter @kindgi/pack-conformance exec vitest run tests/scala.test.ts

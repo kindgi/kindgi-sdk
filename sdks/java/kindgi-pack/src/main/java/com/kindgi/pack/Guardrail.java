@@ -50,7 +50,7 @@ public final class Guardrail<C> {
    * @return a builder (its config is any JSON object until {@code config} says otherwise)
    */
   public static Builder<Map<String, Object>> define(String id) {
-    return new Builder<>(id, StackWalker.getInstance(StackWalker.Option.RETAIN_CLASS_REFERENCE).getCallerClass());
+    return new Builder<>(id, Callers.definer());
   }
 
   /** @return the guardrail's id */
@@ -77,6 +77,24 @@ public final class Guardrail<C> {
 
   Class<?> definedIn() {
     return definedIn;
+  }
+
+  /**
+   * Runs the check, for a unit test: with the config as given (no schema check, no defaults filled
+   * in) and the run. A check given with {@code asyncCheck} is awaited.
+   *
+   * <pre>{@code
+   * CheckResult result = Checks.RESPONSE_NOT_EMPTY.evaluate(new MinLength(1), new RunTrace(Map.of("output", "")));
+   * assertFalse(result.passed());
+   * }</pre>
+   *
+   * @param config the config
+   * @param trace the run ({@code new RunTrace(Map.of("output", …, "toolCalls", List.of(…)))})
+   * @return the verdict
+   * @throws Exception what the check throws
+   */
+  public CheckResult evaluate(C config, RunTrace trace) throws Exception {
+    return check.check(config, trace);
   }
 
   /**
@@ -210,6 +228,15 @@ public final class Guardrail<C> {
     public Builder<C> set(String field, Object value) {
       entry.put(field, value);
       return this;
+    }
+
+    /**
+     * @param check the check, answering later; the service awaits it
+     * @return the guardrail
+     */
+    public Guardrail<C> asyncCheck(AsyncCheckHandler<C> check) {
+      Objects.requireNonNull(check, "check");
+      return check((config, trace) -> Awaiting.await(check.check(config, trace), null));
     }
 
     /**

@@ -4,6 +4,7 @@
 package com.kindgi.pack;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
+import com.kindgi.log.Logger;
 import java.util.AbstractMap;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -14,7 +15,7 @@ import org.jspecify.annotations.Nullable;
 
 /**
  * A tool call's context, as the runtime sends it (pack protocol v2's call context), plus its
- * {@link #cancellation()}.
+ * {@link #cancellation()} and its {@link #log()}.
  *
  * @param tenantId the tenant the call runs for
  * @param runId the run the call belongs to
@@ -27,6 +28,10 @@ import org.jspecify.annotations.Nullable;
  * @param config resolved configuration for the call
  * @param settings the settings blocks the calling agent version pins, by block id
  * @param cancellation fires when the call passes its deadline or its caller goes away
+ * @param log a logger bound to this call: its records carry the run's ids and the caller's trace id
+ *     ({@code ctx.log().info("looked up order", Map.of("orderId", orderId))}). The pack service sets
+ *     it; {@link #forTest()}'s writes nothing. A secret's value is never a field (the logger redacts
+ *     secret-looking keys and shapes, but don't rely on it). Never in the context's JSON.
  */
 public record ToolContext(
     String tenantId,
@@ -38,7 +43,8 @@ public record ToolContext(
     @JsonIgnore Map<String, Object> secrets,
     Map<String, Object> config,
     Map<String, Map<String, Object>> settings,
-    Cancellation cancellation) {
+    Cancellation cancellation,
+    @JsonIgnore Logger log) {
   /** Copies the maps, unmodifiable. */
   public ToolContext {
     Objects.requireNonNull(tenantId, "tenantId");
@@ -48,15 +54,28 @@ public record ToolContext(
     config = Collections.unmodifiableMap(new LinkedHashMap<>(config));
     settings = Collections.unmodifiableMap(new LinkedHashMap<>(settings));
     Objects.requireNonNull(cancellation, "cancellation");
+    Objects.requireNonNull(log, "log");
   }
 
   /**
    * A context for a unit test of a handler.
    *
-   * @return a context with a test tenant and run, and nothing else
+   * @return a context with a test tenant and run, a logger that writes nothing, and nothing else
    */
   public static ToolContext forTest() {
-    return new ToolContext("t-test", "run-test", null, null, null, Map.of(), Map.of(), Map.of(), Map.of(), new Cancellation());
+    return new ToolContext("t-test", "run-test", null, null, null, Map.of(), Map.of(), Map.of(), Map.of(),
+        new Cancellation(), Logger.noop());
+  }
+
+  /**
+   * A context for a unit test of a handler that logs.
+   *
+   * @param log the logger the handler's {@link #log()} writes to
+   * @return a context with a test tenant and run, the logger, and nothing else
+   */
+  public static ToolContext forTest(Logger log) {
+    return new ToolContext("t-test", "run-test", null, null, null, Map.of(), Map.of(), Map.of(), Map.of(),
+        new Cancellation(), log);
   }
 
   /** @return the secrets, without their values (a context may be logged) */
