@@ -3,7 +3,7 @@
 
 import type { Context, MiddlewareHandler } from 'hono';
 
-import type { CursorContext, CursorSealer } from '../cursor-seal.js';
+import { type CursorContext, type CursorSealer, filtersOf } from '../cursor-seal.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { AppEnv } from '../types.js';
 
@@ -32,10 +32,7 @@ export function sealedCursors(sealer: CursorSealer): MiddlewareHandler<AppEnv> {
           toWireError(
             {
               code: 'bad-input',
-              message:
-                opened.reason === 'expired'
-                  ? '`cursor` has expired: start again without it'
-                  : "`cursor` isn't from this list, for these filters and this caller: start again without it",
+              message: REFUSED[opened.reason],
             },
             c.get('requestId'),
           ),
@@ -52,16 +49,21 @@ export function sealedCursors(sealer: CursorSealer): MiddlewareHandler<AppEnv> {
   };
 }
 
+/** Why a sealed cursor is refused, as the caller reads it: each says to start again. */
+const REFUSED = {
+  expired: '`cursor` has expired: start again without it',
+  foreign:
+    "`cursor` isn't from this list, for these filters and this caller: start again without it",
+  'unknown-key':
+    "`cursor` was sealed with a key this runtime doesn't have (a restart without a pagination key, or a rotated key): start again without it",
+} as const;
+
 /** The request's tenant, caller, list and filters; `undefined` before anyone is known. */
 function cursorContext(c: Context<AppEnv>): CursorContext | undefined {
   const tenantId = c.get('tenantId');
   const actor = c.get('principal')?.actor;
   if (tenantId === undefined || actor === undefined) return undefined;
-  const filters = [...new URL(c.req.url).searchParams.entries()]
-    .filter(([name]) => name !== 'cursor' && name !== 'limit')
-    .map(([name, value]) => `${name}=${value}`)
-    .sort()
-    .join('&');
+  const filters = filtersOf(new URL(c.req.url).searchParams.entries());
   return {
     tenantId: tenantId as unknown as string,
     principal: `${actor.kind}:${actor.id}`,

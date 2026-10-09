@@ -593,6 +593,7 @@ export type {
 export {
   CURSOR_TTL_MS,
   createAeadCursorSealer,
+  filtersOf,
   type CursorContext,
   type CursorKey,
   type CursorSealer,

@@ -31,7 +31,10 @@ export interface CursorContext {
   readonly principal: string;
   /** The list: the request's path. */
   readonly list: string;
-  /** The list's filters: its query parameters other than `cursor` and `limit`, sorted. */
+  /**
+   * The list's filters: its query parameters other than `cursor` and
+   * `limit`, as sorted `[name, value]` pairs (`filtersOf`).
+   */
   readonly filters: string;
 }
 
@@ -40,8 +43,12 @@ export type OpenedCursor =
   | { readonly kind: 'sealed'; readonly cursor: string }
   /** Not a sealed cursor: a position a client sent as is, which a list still takes. */
   | { readonly kind: 'plain' }
-  /** Sealed, but not for this context (or by an unknown key), tampered with, or expired. */
-  | { readonly kind: 'refused'; readonly reason: 'expired' | 'foreign' };
+  /**
+   * Sealed, but: by a key this runtime doesn't have (`unknown-key`: after a
+   * restart with a key made at boot, or a key rotated out), not for this
+   * context or tampered with (`foreign`), or `expired`.
+   */
+  | { readonly kind: 'refused'; readonly reason: 'expired' | 'foreign' | 'unknown-key' };
 
 export interface CursorSealer {
   seal(cursor: string, context: CursorContext): string;
@@ -55,6 +62,15 @@ const PREFIX = 'k1.';
 const KID = /^[A-Za-z0-9_-]{1,32}$/;
 const NONCE_BYTES = 12;
 const TAG_BYTES = 16;
+
+/** A list's filters as a context's `filters`: its query pairs other than `cursor` and `limit`, sorted, as JSON. */
+export function filtersOf(params: Iterable<readonly [string, string]>): string {
+  const pairs = [...params]
+    .filter(([name]) => name !== 'cursor' && name !== 'limit')
+    .map(([name, value]) => [name, value] as const)
+    .sort((a, b) => (a[0] === b[0] ? (a[1] < b[1] ? -1 : 1) : a[0] < b[0] ? -1 : 1));
+  return JSON.stringify(pairs);
+}
 
 /** A sealer over `keys`: the first seals, every one opens. */
 export function createAeadCursorSealer(options: {
@@ -89,6 +105,9 @@ export function createAeadCursorSealer(options: {
     },
     open(raw, context) {
       if (!raw.startsWith(PREFIX)) return { kind: 'plain' };
+      // The key id is in the clear: naming an unknown one tells nothing more.
+      const kid = raw.slice(PREFIX.length).split('.')[0] ?? '';
+      if (KID.test(kid) && !byKid.has(kid)) return { kind: 'refused', reason: 'unknown-key' };
       const issued = decrypt(byKid, raw.slice(PREFIX.length), context);
       if (issued === undefined) return { kind: 'refused', reason: 'foreign' };
       const age = now() - issued.t;

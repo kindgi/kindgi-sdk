@@ -633,6 +633,42 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_PAGINATION_KEY_PATH',
+    description:
+      "Absolute path to the 32-byte key (mode 0600) every list's page cursors are sealed with, so a cursor never shows the row it points after; the same on every instance. Unset (and no `KINDGI_PAGINATION_KEY`): a key made at boot and kept nowhere, so a cursor handed out before a restart answers 400 after it, and more than one instance behind one address needs the key set. Rotate it yearly (each cursor is sealed with a random nonce): the new key here, the old one in `KINDGI_PAGINATION_PREVIOUS_KEY_PATH` for at least a day. Its own key: never the erasure ledger's or the secrets AAD key. This or `KINDGI_PAGINATION_KEY`, not both.",
+    example: '/etc/kindgi/pagination.key',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_PAGINATION_KEY',
+    description:
+      'The page-cursor key itself, base64: for platforms that give secrets as environment variables (Cloud Run with Secret Manager). See `KINDGI_PAGINATION_KEY_PATH`; this or that, not both.',
+    example: '',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_PAGINATION_PREVIOUS_KEY_PATH',
+    description:
+      "While the page-cursor key rotates, the key before it (a 32-byte file, mode 0600): it still opens the cursors it sealed. Keep it at least a day (a cursor's life) after rotating, then remove it. Needs `KINDGI_PAGINATION_KEY(_PATH)`, and must differ from it. This or `KINDGI_PAGINATION_PREVIOUS_KEY`, not both.",
+    example: '/etc/kindgi/pagination.previous.key',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_PAGINATION_PREVIOUS_KEY',
+    description:
+      'The previous page-cursor key itself, base64. See `KINDGI_PAGINATION_PREVIOUS_KEY_PATH`; this or that, not both.',
+    example: '',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_COMPLIANCE_CLASSIFIER',
     description:
       "Turns on the audit trail's compliance features: `shipped` uses the classifier the runtime ships; or give the absolute path of your own classifier JSON. When set, the server serves `/v1/compliance/*` (audit events as compliance evidence, and their signed export) and **purges audit events by kind, as the classifier says**. With `shipped`: authorization decisions after 90 days (denials after 365), run outcomes and guardrail violations after 730 days; secret changes and approval decisions are kept (legal hold), and so are kinds the classifier doesn't list. Unset (the default): no `/v1/compliance/*`, and no audit event is ever purged.",

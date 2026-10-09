@@ -7,7 +7,12 @@ import { randomBytes } from 'node:crypto';
 
 import { describe, expect, test } from 'vitest';
 
-import { CURSOR_TTL_MS, type CursorContext, createAeadCursorSealer } from '../src/index.js';
+import {
+  CURSOR_TTL_MS,
+  type CursorContext,
+  createAeadCursorSealer,
+  filtersOf,
+} from '../src/index.js';
 
 const key = (kid: string) => ({ kid, key: new Uint8Array(randomBytes(32)) });
 const CONTEXT: CursorContext = {
@@ -46,7 +51,7 @@ describe('a sealed cursor', () => {
     });
   });
 
-  test('tampered with, or sealed with a key this runtime lacks: refused', () => {
+  test('tampered with: refused as foreign; sealed with a key this runtime lacks: unknown-key', () => {
     const sealer = createAeadCursorSealer({ keys: [key('k1')] });
     const sealed = sealer.seal(POSITION, CONTEXT);
     const [p, kid, nonce, body] = sealed.split('.') as [string, string, string, string];
@@ -60,8 +65,9 @@ describe('a sealed cursor', () => {
     ]) {
       expect(sealer.open(bad, CONTEXT)).toEqual({ kind: 'refused', reason: 'foreign' });
     }
+    // A restart with a key made at boot, or a key rotated out: the kid says so.
     const elsewhere = createAeadCursorSealer({ keys: [key('k9')] });
-    expect(elsewhere.open(sealed, CONTEXT)).toEqual({ kind: 'refused', reason: 'foreign' });
+    expect(elsewhere.open(sealed, CONTEXT)).toEqual({ kind: 'refused', reason: 'unknown-key' });
   });
 
   test('expires after a day (and one from the future is stale too)', () => {
@@ -88,6 +94,28 @@ describe('a sealed cursor', () => {
     const sealer = createAeadCursorSealer({ keys: [key('k1')] });
     expect(sealer.open(POSITION, CONTEXT)).toEqual({ kind: 'plain' });
     expect(sealer.open('2026-10-09T01:02:03.004Z', CONTEXT)).toEqual({ kind: 'plain' });
+  });
+
+  test('filters bind as pairs: a value holding `&` and `=` is not two filters', () => {
+    expect(filtersOf([['a', '1&b=2']])).not.toBe(
+      filtersOf([
+        ['a', '1'],
+        ['b', '2'],
+      ]),
+    );
+    expect(
+      filtersOf([
+        ['b', '2'],
+        ['a', '1'],
+        ['limit', '5'],
+        ['cursor', 'x'],
+      ]),
+    ).toBe(
+      JSON.stringify([
+        ['a', '1'],
+        ['b', '2'],
+      ]),
+    );
   });
 
   test('its keys are checked when it is made', () => {

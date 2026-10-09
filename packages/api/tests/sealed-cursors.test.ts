@@ -81,6 +81,23 @@ describe('sealed page cursors', () => {
     expect(cursors).toHaveLength(1);
   });
 
+  test('one sealed with a key this runtime lacks says so (a restart, a rotation)', async () => {
+    const { get, cursors } = harness();
+    const other = createAeadCursorSealer({
+      keys: [{ kid: 'gone', key: new Uint8Array(32).fill(9) }],
+    });
+    const sealed = other.seal(POSITION, {
+      tenantId,
+      principal: 'user:user-1',
+      list: '/v1/agents',
+      filters: '[]',
+    });
+    const res = await get(`/v1/agents?cursor=${encodeURIComponent(sealed)}`);
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toContain("a key this runtime doesn't have");
+    expect(cursors).toEqual([]);
+  });
+
   test('one tampered with is refused; a plain one still passes, as it is', async () => {
     const { get, cursors } = harness();
     const sealed = (await get('/v1/agents')).body.nextCursor as string;
