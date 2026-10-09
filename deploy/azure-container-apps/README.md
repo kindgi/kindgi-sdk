@@ -235,6 +235,27 @@ server_secret_env = {
 - **Rotating the key:** with `key_rotation_days` (default 90) Key Vault adds a key version on schedule. New secrets use it; old ones keep unwrapping with theirs.
 - **Hardening:** the vault and registry are reached over their public endpoints, guarded by Entra RBAC. To close those, add private endpoints (the registry needs the Premium tier) and network rules.
 
+## Renewing the license key
+
+The license key expires, and the server warns from 30 days before (the startup banner, the console and `kindgi doctor`, each with the exact command). The server never calls Kindgi; renewing is something you run, here or from your own scheduler.
+
+**Once, to enroll the deployment:** where you're signed in to Azure with access to the vault (`key_vault_admins`):
+
+```sh
+$(terraform output -raw license_enroll_command)   # fill in --for first
+```
+
+- It makes the renewer key, writes it to the vault as `license-renewer` (`license_renewer_secret`), never prints it, and prints one line to add on access.kindgi.com (for a production key, send it to Kindgi instead).
+- **By hand, or from CI or cron:** `$(terraform output -raw license_renew_command)`. It asks access.kindgi.com for this deployment's key and checks the answer offline. It adds a version of `license-key` only when the key changed.
+- **Or let the module run it:** set `license_renewal_schedule` (a cron in UTC, such as `"17 6 * * *"`) and apply. Enroll first: the services apply grants the job its roles on `license-renewer`, which exists once you've enrolled.
+  - The job is a Container Apps job on the runtime image, running the same `kindgi license renew` on that schedule.
+  - It has an identity of its own, `<name_prefix>-license-renewer`. That identity reads `license-key` and `license-renewer`, and holds a custom role, `<name_prefix>-license-key-writer-…`, that can only set `license-key`, never delete it or read other secrets.
+  - The server gets no access to the renewer key.
+  - Its runs: `az containerapp job execution list -n <name_prefix>-license-renew -g <rg> -o table`.
+  - **Two alerts come with it:** a failed run, and a key within 7 days of expiring (the run's own line, `⚠ It expires in N days`). They go to the action groups in `alert_action_groups`; with none, they fire in Azure Monitor only.
+- **When a new key is used:** the server reads `license-key` without a version, so it gets the new key as for any rotated secret (see "Rotating a secret" above, and [Microsoft: Key Vault secret URI and secret rotation](https://learn.microsoft.com/en-us/azure/container-apps/manage-secrets#key-vault-secret-uri-and-secret-rotation)). Until then it runs on the key it started with. A running server never stops over its key.
+- **Stopping:** unset `license_renewal_schedule`, or stop the renewer on access.kindgi.com.
+
 ## Taking it down
 
 ```sh

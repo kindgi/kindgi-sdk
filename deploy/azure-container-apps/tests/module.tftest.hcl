@@ -447,3 +447,130 @@ run "sign_in_with_providers_needs_public_url" {
   }
   expect_failures = [azurerm_container_app.server]
 }
+
+# Renewing the license key: off by default. The server still gets where the
+# two keys are, so its 30-day warning prints the exact command.
+run "license_renewal_is_off_by_default" {
+  command = plan
+  assert {
+    condition     = length(azurerm_container_app_job.license_renewal) == 0 && length(azurerm_user_assigned_identity.license_renewer) == 0 && length(azurerm_role_definition.license_key_writer) == 0 && length(azurerm_role_assignment.license_renewer_reads) == 0 && length(azurerm_monitor_metric_alert.license_renewal_failed) == 0 && length(azurerm_monitor_scheduled_query_rules_alert_v2.license_key_expiring) == 0
+    error_message = "No schedule: no job, no renewer identity, no grants, no alerts."
+  }
+  assert {
+    condition     = local.server_env.KINDGI_LICENSE_KEY_REF == "azure:https://kindgi-ab12.vault.azure.net/secrets/license-key" && local.server_env.KINDGI_LICENSE_RENEWER_REF == "azure:https://kindgi-ab12.vault.azure.net/secrets/license-renewer"
+    error_message = "The server knows where the license key and the renewer key are."
+  }
+  assert {
+    condition     = output.license_renew_command == "kindgi license renew --key azure:https://kindgi-ab12.vault.azure.net/secrets/license-key --renewer azure:https://kindgi-ab12.vault.azure.net/secrets/license-renewer" && strcontains(output.license_enroll_command, "kindgi license enroll --for <") && endswith(output.license_enroll_command, "--renewer azure:https://kindgi-ab12.vault.azure.net/secrets/license-renewer")
+    error_message = "The outputs give the enroll and renew commands with the refs filled in."
+  }
+}
+
+# On a schedule: the runtime image runs `kindgi license renew` as an identity
+# of its own, which reads the two secrets and may only set the license key.
+run "license_renewal_on_a_schedule" {
+  command = plan
+  variables {
+    license_renewal_schedule = "17 6 * * *"
+  }
+  # Its own identity, told apart from the server's.
+  override_resource {
+    target          = azurerm_user_assigned_identity.license_renewer
+    override_during = plan
+    values = {
+      id           = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/acme-kindgi-dev/providers/Microsoft.ManagedIdentity/userAssignedIdentities/kindgi-license-renewer"
+      principal_id = "55555555-5555-5555-5555-555555555555"
+      client_id    = "66666666-6666-6666-6666-666666666666"
+    }
+  }
+  assert {
+    condition     = azurerm_container_app_job.license_renewal[0].schedule_trigger_config[0].cron_expression == "17 6 * * *" && azurerm_container_app_job.license_renewal[0].template[0].container[0].image == var.server_image
+    error_message = "The job runs the server's image on the schedule."
+  }
+  assert {
+    condition     = azurerm_container_app_job.license_renewal[0].template[0].container[0].command == tolist(["kindgi"]) && azurerm_container_app_job.license_renewal[0].template[0].container[0].args == tolist(["license", "renew", "--key", "azure:https://kindgi-ab12.vault.azure.net/secrets/license-key", "--renewer", "azure:https://kindgi-ab12.vault.azure.net/secrets/license-renewer"])
+    error_message = "It runs kindgi license renew with the two refs."
+  }
+  assert {
+    condition     = one([for e in azurerm_container_app_job.license_renewal[0].template[0].container[0].env : e.value if e.name == "KINDGI_AZURE_CLIENT_ID"]) == "66666666-6666-6666-6666-666666666666" && toset(azurerm_container_app_job.license_renewal[0].identity[0].identity_ids) == toset(["/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/acme-kindgi-dev/providers/Microsoft.ManagedIdentity/userAssignedIdentities/kindgi-license-renewer"]) && alltrue([for a in values(azurerm_role_assignment.license_renewer_reads) : a.principal_id == "55555555-5555-5555-5555-555555555555"]) && azurerm_role_assignment.license_renewer_writes_key[0].principal_id == "55555555-5555-5555-5555-555555555555"
+    error_message = "It signs in to Key Vault as its own identity, and the grants are that identity's."
+  }
+  assert {
+    condition     = toset([for k, a in azurerm_role_assignment.license_renewer_reads : a.scope]) == toset(["/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/acme-kindgi-dev/providers/Microsoft.KeyVault/vaults/kindgi-ab12/secrets/license-key", "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/acme-kindgi-dev/providers/Microsoft.KeyVault/vaults/kindgi-ab12/secrets/license-renewer"]) && alltrue([for a in values(azurerm_role_assignment.license_renewer_reads) : a.role_definition_name == "Key Vault Secrets User"])
+    error_message = "It reads the license key and the renewer key, on those two secrets only."
+  }
+  assert {
+    condition     = azurerm_role_definition.license_key_writer[0].permissions[0].data_actions == toset(["Microsoft.KeyVault/vaults/secrets/setSecret/action"]) && (azurerm_role_definition.license_key_writer[0].permissions[0].actions == null || length(coalesce(azurerm_role_definition.license_key_writer[0].permissions[0].actions, [])) == 0) && azurerm_role_assignment.license_renewer_writes_key[0].scope == "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/acme-kindgi-dev/providers/Microsoft.KeyVault/vaults/kindgi-ab12/secrets/license-key"
+    error_message = "It may set the license key and nothing else: no delete, no other secret."
+  }
+  assert {
+    condition     = !contains([for k, a in azurerm_role_assignment.server_reads : a.scope], "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/acme-kindgi-dev/providers/Microsoft.KeyVault/vaults/kindgi-ab12/secrets/license-renewer")
+    error_message = "The server never reads the renewer key."
+  }
+}
+
+run "license_renewer_secret_of_your_own_name" {
+  command = plan
+  variables {
+    license_renewal_schedule = "0 3 * * 1"
+    license_renewer_secret   = "kindgi-renewer"
+  }
+  assert {
+    condition     = local.server_env.KINDGI_LICENSE_RENEWER_REF == "azure:https://kindgi-ab12.vault.azure.net/secrets/kindgi-renewer" && contains(keys(azurerm_role_assignment.license_renewer_reads), "renewer") && azurerm_role_assignment.license_renewer_reads["renewer"].scope == "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/acme-kindgi-dev/providers/Microsoft.KeyVault/vaults/kindgi-ab12/secrets/kindgi-renewer"
+    error_message = "license_renewer_secret names the renewer key's secret everywhere."
+  }
+}
+
+run "refuses_a_schedule_that_isnt_cron" {
+  command = plan
+  variables {
+    license_renewal_schedule = "daily"
+  }
+  expect_failures = [var.license_renewal_schedule]
+}
+
+run "refuses_a_renewer_secret_the_module_uses" {
+  command = plan
+  variables {
+    license_renewer_secret = "license-key"
+  }
+  expect_failures = [azurerm_container_app.server]
+}
+
+run "refuses_the_license_refs_in_server_env" {
+  command = plan
+  variables {
+    server_env = { KINDGI_LICENSE_RENEWER_REF = "azure:https://elsewhere.vault.azure.net/secrets/x" }
+  }
+  expect_failures = [azurerm_container_app.server]
+}
+
+# The job's two alerts: a failed execution, and the run line saying the key
+# expires within a week. With action groups, both go there.
+run "license_renewal_alerts" {
+  command = plan
+  variables {
+    license_renewal_schedule = "17 6 * * *"
+    alert_action_groups      = ["/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/acme-ops/providers/microsoft.insights/actionGroups/oncall"]
+  }
+  assert {
+    condition     = azurerm_monitor_metric_alert.license_renewal_failed[0].criteria[0].metric_namespace == "Microsoft.App/jobs" && azurerm_monitor_metric_alert.license_renewal_failed[0].criteria[0].metric_name == "Executions" && azurerm_monitor_metric_alert.license_renewal_failed[0].criteria[0].dimension[0].name == "state" && azurerm_monitor_metric_alert.license_renewal_failed[0].criteria[0].dimension[0].values == tolist(["Failed"])
+    error_message = "A failed execution of the job alerts."
+  }
+  assert {
+    condition     = strcontains(azurerm_monitor_scheduled_query_rules_alert_v2.license_key_expiring[0].criteria[0].query, "== \"kindgi-license-renew\"") && strcontains(azurerm_monitor_scheduled_query_rules_alert_v2.license_key_expiring[0].criteria[0].query, "It expires in (-[0-9]+|[0-6]) days") && azurerm_monitor_scheduled_query_rules_alert_v2.license_key_expiring[0].scopes == tolist([azurerm_log_analytics_workspace.kindgi.id])
+    error_message = "The job's run line saying the key expires within a week alerts, from the environment's workspace."
+  }
+  assert {
+    condition     = toset([for a in azurerm_monitor_metric_alert.license_renewal_failed[0].action : a.action_group_id]) == toset(var.alert_action_groups) && toset(azurerm_monitor_scheduled_query_rules_alert_v2.license_key_expiring[0].action[0].action_groups) == toset(var.alert_action_groups)
+    error_message = "Both go to the action groups."
+  }
+}
+
+run "refuses_an_action_group_that_isnt_an_id" {
+  command = plan
+  variables {
+    alert_action_groups = ["oncall"]
+  }
+  expect_failures = [var.alert_action_groups]
+}
