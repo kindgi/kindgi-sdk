@@ -241,6 +241,85 @@ describe('kindgi init — a machine without pnpm (T280)', () => {
   });
 });
 
+describe("kindgi init — the README's commands are the Next steps' (T279)", () => {
+  const NO_PNPM = {
+    pnpmVersion: async () => {
+      throw new Error('spawn pnpm ENOENT');
+    },
+    packageManagerRuns: async (pm: string) => pm !== 'pnpm',
+  };
+  const cases = [
+    {
+      name: 'minimal, with pnpm',
+      argv: [] as string[],
+      env: {},
+      seam: undefined,
+      runner: 'pnpm exec kindgi',
+    },
+    { name: 'minimal, without pnpm', argv: [], env: {}, seam: NO_PNPM, runner: 'npx --no kindgi' },
+    {
+      name: 'sample, with pnpm',
+      argv: ['--template=sample'],
+      env: {},
+      seam: undefined,
+      runner: 'pnpm exec kindgi',
+    },
+    {
+      name: 'sample, without pnpm',
+      argv: ['--template=sample'],
+      env: {},
+      seam: NO_PNPM,
+      runner: 'npx --no kindgi',
+    },
+    // No npm project to hold the CLI: the published CLI, within its minor.
+    {
+      name: 'python, the npm CLI',
+      argv: ['--template=python'],
+      env: {},
+      seam: undefined,
+      runner: 'npx --yes @kindgi/cli@',
+    },
+    {
+      name: 'python, the PyPI CLI',
+      argv: ['--template=python'],
+      env: { KINDGI_CLI_INSTALL: 'pypi' },
+      seam: undefined,
+      runner: 'uv run kindgi',
+    },
+  ] as const;
+
+  test.each(cases)('$name', async ({ argv, env, seam, runner }) => {
+    const out = await runCli(
+      baseInputs({
+        argv: ['init', 'my-pack', ...argv],
+        env,
+        ...(seam !== undefined && { initSeam: seam }),
+      }),
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    const { nextSteps } = JSON.parse(out.stdout) as { nextSteps: readonly string[] };
+    const readme = await readFile(join(cwd, 'my-pack', 'README.md'), 'utf8');
+    const lines = readme.split('\n');
+    // Each Next step but `cd` is a line of the README, as a command.
+    for (const step of nextSteps.filter((s) => !s.startsWith('cd '))) {
+      const command = step.split('  #')[0]!.trim();
+      expect(
+        lines.some((l) => l === command || l.startsWith(`${command} `)),
+        `README lacks "${command}"`,
+      ).toBe(true);
+    }
+    // The runner the dev step uses runs every `kindgi` command the README shows.
+    const dev = nextSteps.find((s) => / dev\b/.test(s) && !s.startsWith('cd '))!;
+    const used = dev.split(' dev')[0]!;
+    expect(used.startsWith(runner), dev).toBe(true);
+    expect(lines.filter((l) => l.startsWith(`${used} `)).length).toBeGreaterThanOrEqual(3);
+    if (used !== 'kindgi') expect(readme).not.toMatch(/^kindgi /m);
+    expect(readme).not.toContain('{{');
+    expect(readme).not.toContain('not yet published');
+    if (seam === NO_PNPM) expect(readme).not.toMatch(/^pnpm /m);
+  });
+});
+
 describe('kindgi init — the pack pins the pnpm that installs it', () => {
   const manifest = async (dir: string): Promise<{ readonly packageManager?: string }> =>
     JSON.parse(await readFile(join(dir, 'package.json'), 'utf8')) as { packageManager?: string };

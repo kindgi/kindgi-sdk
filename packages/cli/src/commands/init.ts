@@ -24,8 +24,10 @@ import { runInitJavaAugment } from '../init/java-augment.js';
 import { detectInitMode } from '../init/mode-detect.js';
 import { runInitPythonAugment } from '../init/python-augment.js';
 import {
+  type RunnerPlaceholders,
   type Substitutions,
   collectTemplateFiles,
+  fillRunnerPlaceholders,
   javaPackageOf,
   substitute,
   templateTarget,
@@ -40,6 +42,7 @@ import {
   installCommand,
   isPackageVersion,
   readPnpmVersion,
+  scriptCommand,
   usablePackageManager,
 } from '../package-manager.js';
 import { resolveSdkPackageRoot } from '../sdk-package.js';
@@ -335,11 +338,19 @@ async function runInitFresh(
   const specs = resolvedSpecs.specs;
   if (specs.source !== 'workspace') await rewriteTemplateDependencySpecs(args.targetDir, specs);
 
+  // The README's commands are the Next steps' own: the same install and
+  // the same `kindgi` runner, for the manager that installs it here.
+  const runner = {
+    INSTALL: installCommand(packageManager),
+    TYPECHECK: scriptCommand(packageManager, 'typecheck'),
+    KINDGI: binDisplay(packageManager, 'kindgi'),
+  };
+  await fillReadmeRunner(args.targetDir, runner);
   const displayPath = relative(ctx.cwd, args.targetDir) || '.';
   const nextSteps = [
     `cd ${displayPath}`,
-    installCommand(packageManager),
-    `${binDisplay(packageManager, 'kindgi', ['dev'])}  # runs the Kindgi runtime (Docker) + hot-reloads this pack`,
+    runner.INSTALL,
+    `${runner.KINDGI} dev  # runs the Kindgi runtime (Docker) + hot-reloads this pack`,
   ];
 
   const stderr = [
@@ -448,10 +459,14 @@ async function runInitPython(
           '',
         ].join('\n')
       : '';
+  // How the pack runs its `kindgi`: `uv run kindgi` with the PyPI CLI in
+  // its dev group, else the `kindgi` on PATH. The README says the same.
+  const kindgi = binDisplay(pypi ? 'uv' : 'path', 'kindgi');
   const filesWritten = await scaffoldTemplate({
     templateDir,
     targetDir: args.targetDir,
     substitutions: {
+      KINDGI: kindgi,
       PACK_NAME: args.packName,
       PACK_ID: args.packName,
       PACK_VERSION: DEFAULT_PACK_VERSION,
@@ -476,7 +491,7 @@ async function runInitPython(
     `cd ${displayPath}`,
     `uv sync  # .venv with kindgi${pypi ? ' and the kindgi CLI' : ''}`,
     'uv run pytest',
-    `${binDisplay(pypi ? 'uv' : 'path', 'kindgi', ['dev'])}  # boots Kindgi locally + runs this pack with its .venv, reloading on save`,
+    `${kindgi} dev  # boots Kindgi locally + runs this pack with its .venv, reloading on save`,
   ];
   const stderr = [
     `✓ Python pack scaffolded at ${args.targetDir}/`,
@@ -615,6 +630,13 @@ function resolveFreshArgs(ctx: CommandContext, packName: string, targetDir: stri
       linkLocal,
     },
   };
+}
+
+/** Fill the README's runner placeholders, once the package manager is known. */
+async function fillReadmeRunner(targetDir: string, runner: RunnerPlaceholders): Promise<void> {
+  const path = join(targetDir, 'README.md');
+  if (!existsSync(path)) return;
+  await writeFile(path, fillRunnerPlaceholders(await readFile(path, 'utf8'), runner), 'utf8');
 }
 
 async function scaffoldTemplate(inputs: {

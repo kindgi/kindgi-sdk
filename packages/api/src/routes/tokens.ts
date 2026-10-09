@@ -10,6 +10,7 @@ import { callerPrincipal, callerRef, isTenantAdmin, principalToWire } from '../c
 
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { withholdFromReplay } from '../middleware/idempotency.js';
 import {
   API_TOKEN_ROLES,
   type ApiTokenRecord,
@@ -71,6 +72,8 @@ export function tokensRouter(admin: TokenAdmin, authorizer?: Authorizer): Hono<A
     if (!('token' in minted)) {
       return fail(c, { code: minted.kind, message: minted.message }, requestId);
     }
+    // The key's secret is shown once: an Idempotency-Key repeat doesn't get it.
+    withholdFromReplay(c);
     c.status(201);
     return c.json({ ...toWire(minted.record), token: minted.token });
   });

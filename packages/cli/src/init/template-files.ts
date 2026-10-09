@@ -32,6 +32,29 @@ export interface Substitutions {
   readonly KINDGI_JAVA_VERSION?: string;
   /** The java template's pinned CLI (`"cli"` in kindgi.config.json, which kindgiw runs). */
   readonly KINDGI_CLI_VERSION?: string;
+  /**
+   * The commands a README shows, as `kindgi init`'s Next steps print them:
+   * the install (`pnpm install`), the typecheck script, and how the project
+   * runs its `kindgi` (`pnpm exec kindgi`, `npx --no kindgi`, `uv run
+   * kindgi`). Left as placeholders when absent, for a second pass
+   * (`fillRunnerPlaceholders`) once the package manager is known.
+   */
+  readonly INSTALL?: string;
+  readonly TYPECHECK?: string;
+  readonly KINDGI?: string;
+}
+
+/** The README placeholders filled from the project's runner. */
+export type RunnerPlaceholders = Required<Pick<Substitutions, 'INSTALL' | 'TYPECHECK' | 'KINDGI'>>;
+
+/** Fill the runner placeholders a first pass left (`substitute` without them). */
+export function fillRunnerPlaceholders(raw: string, runner: Partial<RunnerPlaceholders>): string {
+  let out = raw;
+  for (const key of ['INSTALL', 'TYPECHECK', 'KINDGI'] as const) {
+    const value = runner[key];
+    if (value !== undefined) out = out.replaceAll(`{{${key}}}`, value);
+  }
+  return out;
 }
 
 /** Java's reserved words, which a package segment can't be. */
@@ -98,7 +121,7 @@ export function templateTarget(rel: string, packagePath?: string): string {
 }
 
 export function substitute(raw: string, subs: Substitutions): string {
-  return raw
+  const filled = raw
     .replaceAll('{{PACK_NAME}}', subs.PACK_NAME)
     .replaceAll('{{PACK_ID}}', subs.PACK_ID)
     .replaceAll('{{PACK_VERSION}}', subs.PACK_VERSION)
@@ -110,4 +133,5 @@ export function substitute(raw: string, subs: Substitutions): string {
     .replaceAll('{{JAVA_PACKAGE}}', subs.JAVA_PACKAGE ?? '')
     .replaceAll('{{KINDGI_JAVA_VERSION}}', subs.KINDGI_JAVA_VERSION ?? '')
     .replaceAll('{{KINDGI_CLI_VERSION}}', subs.KINDGI_CLI_VERSION ?? '');
+  return fillRunnerPlaceholders(filled, subs);
 }

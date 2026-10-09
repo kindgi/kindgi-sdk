@@ -18,8 +18,8 @@ import { describe, expect, test } from 'vitest';
 
 import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
 import { type TenantHierarchyBinding, makeInMemoryProjectBinding } from '@kindgi/platform';
-import { createStubAppBindings } from '@kindgi/testing';
 import type { TenantId, Timestamp, UserId } from '@kindgi/types';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type { IdentityDirectoryBinding, RunHandlerBinding, UserRecord } from '../src/index.js';

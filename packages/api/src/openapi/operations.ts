@@ -86,7 +86,7 @@ const IdempotencyKeyParam: ParameterSpec = {
   in: 'header',
   required: false,
   description:
-    "Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer.",
+    "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5).",
   schema: { type: 'string', minLength: 1 },
 };
 
@@ -1564,6 +1564,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Token minted.', schema: ref('MintTokenResult') },
       ...CommonMutationErrors,
+      '409': ErrorResponse(
+        "Idempotency-Key reused with a different body (`idempotency-key-body-mismatch`), or a retry of a request that succeeded: its answer carried a secret, which isn't kept (`idempotency-key-replay-withheld`, with its `status` and `at`).",
+      ),
       '403': ErrorResponse(
         "Not a tenant admin where one is needed, or a capability the caller does not hold (`permission-denied`); an `admin` key for a principal that isn't a tenant admin (`role-exceeds-principal`); a key limited to a project minting for another (`key-project-mismatch`).",
       ),
@@ -1782,6 +1785,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Token minted.', schema: ref('MintPublicRunTokenResult') },
       ...CommonMutationErrors,
+      '409': ErrorResponse(
+        "Idempotency-Key reused with a different body (`idempotency-key-body-mismatch`), or a retry of a request that succeeded: its answer carried a secret, which isn't kept (`idempotency-key-replay-withheld`, with its `status` and `at`).",
+      ),
       '400': ErrorResponse('Malformed body, or `expiresInSeconds` above the deployment maximum.'),
       '403': ErrorResponse('The caller may not read one of the runs (`permission-denied`).'),
       '404': ErrorResponse('A run does not exist under this tenant (`run-not-found`).'),
@@ -4826,7 +4832,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'auth.signInOptions',
     summary: 'How a person can sign in',
     description:
-      "Public: nobody is signed in yet. With `email`, the identity providers for that email's domain (from the one tenant that claims it); without, an empty list: sign-in is email first, so nothing is offered before an email. `methods` says which ways in the deployment allows: identity providers, and/or an API token (`POST /v1/auth/token-sign-in`); both `false` when nobody can sign in to the console. Always mounted. The answer depends only on the domain: two people at the same domain get the same answer, whether or not either has an account. Rate-limited per client (`429 rate-limit-exceeded`, with `Retry-After`).",
+      'Public: nobody is signed in yet. With `email`, the ways in for that email\'s domain: the identity providers of the one tenant the domain is verified for (an unverified domain offers none), then any the deployment offers everyone it has added (`owner: deployment`, "Continue with Google"); without, an empty list: sign-in is email first, so nothing is offered before an email. `methods` says which ways in the deployment allows: identity providers, an API token (`POST /v1/auth/token-sign-in`), and an emailed sign-in link (`emailLink`, with a captcha site key when it needs one); `identityProviders` and `apiToken` both `false` when nobody can sign in to the console. Always mounted. The answer depends only on the domain: two people at the same domain get the same answer, whether or not either has an account. Rate-limited per client (`429 rate-limit-exceeded`, with `Retry-After`).',
     tags: ['auth'],
     security: 'public',
     parameters: [
@@ -4865,6 +4871,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '403': ErrorResponse(
         "Not allowed here (`token-sign-in-off`), or not this key (`token-sign-in-not-allowed`): a service account's, or a narrowed one.",
+      ),
+      '409': ErrorResponse(
+        "A retry with the Idempotency-Key of a sign-in that succeeded: its session was in the cookie, which isn't kept (`idempotency-key-replay-withheld`). Sign in again without the key.",
       ),
     },
   },
@@ -5074,6 +5083,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'New session token.', schema: ref('RefreshResult') },
       ...CommonMutationErrors,
+      '409': ErrorResponse(
+        "Idempotency-Key reused with a different body (`idempotency-key-body-mismatch`), or a retry of a request that succeeded: its answer carried a secret, which isn't kept (`idempotency-key-replay-withheld`, with its `status` and `at`).",
+      ),
       '400': ErrorResponse(
         'Caller presented a bearer token (refresh is session-only), or a browser session (cookie).',
       ),
@@ -6478,7 +6490,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'env.put',
     summary: 'Upsert an env entry',
     description:
-      'Requires the `env:write` capability. Every write bumps `revision`; optional `ifRevision` guards against concurrent updates (409 `env-write-conflict`).',
+      "Requires the `env:write` capability. Every write bumps `revision`; optional `ifRevision` guards against concurrent updates (409 `env-write-conflict`). Env values aren't secret: they're recorded with each run that uses them. A credential goes in `/v1/secrets`.",
     tags: ['env'],
     security: 'bearer',
     parameters: [
@@ -7228,12 +7240,15 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'webhookEndpoints.generateSecret',
     summary: 'Generate a webhook signing secret',
     description:
-      'Returns a new strong secret (`whsec_` + base64 of 32 random bytes). Nothing is stored: put it in your secrets, then register the endpoint with its name.',
+      'Returns a new strong secret (`whsec_` + base64 of 32 random bytes). Nothing is stored: put it in your secrets, then register the endpoint with its name. Sent with an `Idempotency-Key`, a retry gets `409 idempotency-key-replay-withheld`, not the secret again.',
     tags: ['webhook-endpoints'],
     security: 'bearer',
     responses: {
       '200': { description: 'A new secret.', schema: ref('GeneratedWebhookSecret') },
       ...CommonAuthErrors,
+      '409': ErrorResponse(
+        "A retry with the Idempotency-Key of a request that succeeded: the secret isn't kept (`idempotency-key-replay-withheld`).",
+      ),
     },
   },
   {

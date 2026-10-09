@@ -9,10 +9,11 @@ import {
   loadZodConverterSync,
   toJSONSchemaSync,
 } from '@kindgi/schema';
-import { pickVersion } from '@kindgi/tools';
+import { BUILT_IN_TOOL_PREFIX, pickVersion } from '@kindgi/tools';
 import type { Result, Semver } from '@kindgi/types';
 
 import type { InvalidAgentError } from './errors.js';
+import { MAX_REMEMBER_DAYS, REMEMBER_TOOL_ID } from './remember.js';
 import type {
   Agent,
   AgentId,
@@ -22,6 +23,8 @@ import type {
   ConversationPolicy,
   PromptParameter,
   PromptRef,
+  RememberPolicy,
+  RememberScope,
   RetrievalIntent,
   ToolRef,
   TurnBudget,
@@ -55,7 +58,7 @@ export function defineAgent(spec: DefineAgentSpec): Result<Agent, InvalidAgentEr
     ...validateBlockRefs(spec),
     ...validateArrays(spec),
     ...validateRetrieval(spec),
-    ...validateMemoryPolicy(spec.memory),
+    ...validateMemoryPolicy(spec),
     ...validatePromptParameters(spec.parameters),
     ...validateBudget(spec.budget),
     ...validateConversationPolicy(spec.conversationPolicy),
@@ -372,6 +375,11 @@ function validateToolRef(ref: unknown, i: number): Issue[] {
   const obj = ref as Record<string, unknown>;
   if (typeof obj.id !== 'string' || obj.id.trim().length === 0) {
     out.push({ path: `/tools/${i}/id`, message: 'tool id must be a non-empty string' });
+  } else if (obj.id.startsWith(BUILT_IN_TOOL_PREFIX)) {
+    out.push({
+      path: `/tools/${i}/id`,
+      message: `"${obj.id}" is a tool built into Kindgi (the "${BUILT_IN_TOOL_PREFIX}" prefix): an agent gets it from its declaration (memory.remember for ${REMEMBER_TOOL_ID}), not from tools`,
+    });
   }
   if (typeof obj.version !== 'string' || obj.version.trim().length === 0) {
     out.push({
@@ -430,24 +438,60 @@ const RETRIEVAL_MODES: readonly NonNullable<RetrievalIntent['mode']>[] = [
   'both',
 ];
 
-function validateMemoryPolicy(memory: AgentMemoryPolicy | undefined): Issue[] {
+const REMEMBER_SCOPES: readonly RememberScope[] = [
+  'same-user',
+  'same-conversation',
+  'same-project',
+  'tenant',
+];
+
+function validateMemoryPolicy(spec: DefineAgentSpec): Issue[] {
+  const memory = spec.memory;
   if (memory === undefined) return [];
   if (memory === null || typeof memory !== 'object' || Array.isArray(memory)) {
     return [{ path: '/memory', message: 'memory must be an object' }];
   }
+  const out: Issue[] = [];
   const types = memory.instructionTypes;
-  if (
-    types !== undefined &&
-    (!Array.isArray(types) || types.some((t) => typeof t !== 'string' || t.trim().length === 0))
-  ) {
-    return [
-      {
-        path: '/memory/instructionTypes',
-        message: 'instructionTypes must be a list of fact type names',
-      },
-    ];
+  if (types !== undefined && !isTypeList(types)) {
+    out.push({
+      path: '/memory/instructionTypes',
+      message: 'instructionTypes must be a list of fact type names',
+    });
   }
-  return [];
+  if (memory.remember !== undefined) out.push(...validateRemember(memory.remember));
+  return out;
+}
+
+function validateRemember(remember: RememberPolicy): Issue[] {
+  if (remember === null || typeof remember !== 'object' || Array.isArray(remember)) {
+    return [{ path: '/memory/remember', message: 'remember must be an object' }];
+  }
+  const out: Issue[] = [];
+  if (!isTypeList(remember.types) || remember.types.length === 0) {
+    out.push({
+      path: '/memory/remember/types',
+      message: 'remember.types must list at least one fact type name',
+    });
+  }
+  if (!REMEMBER_SCOPES.includes(remember.scope)) {
+    out.push({
+      path: '/memory/remember/scope',
+      message: `remember.scope must be one of: ${REMEMBER_SCOPES.join(', ')}`,
+    });
+  }
+  const days = remember.keepDays;
+  if (days !== undefined && (!Number.isInteger(days) || days < 1 || days > MAX_REMEMBER_DAYS)) {
+    out.push({
+      path: '/memory/remember/keepDays',
+      message: `remember.keepDays must be a whole number of days from 1 to ${MAX_REMEMBER_DAYS}`,
+    });
+  }
+  return out;
+}
+
+function isTypeList(types: unknown): types is readonly string[] {
+  return Array.isArray(types) && types.every((t) => typeof t === 'string' && t.trim().length > 0);
 }
 
 const VALID_PARAM_TYPES = new Set(['string', 'number', 'boolean', 'date']);
@@ -695,6 +739,9 @@ function buildAgent(spec: DefineAgentSpec, output: AgentOutputSpec | undefined):
       memory: {
         ...(spec.memory.instructionTypes !== undefined && {
           instructionTypes: [...spec.memory.instructionTypes],
+        }),
+        ...(spec.memory.remember !== undefined && {
+          remember: { ...spec.memory.remember, types: [...spec.memory.remember.types] },
         }),
       },
     }),
