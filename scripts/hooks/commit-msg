@@ -10,4 +10,11 @@
 
 set -eu
 
+# Without Node (a GUI client's PATH, say), the message isn't checked here, and says so; the
+# PR text check still reads every commit.
+if ! command -v node > /dev/null 2>&1; then
+  echo "commit-msg: node isn't on PATH, so this message isn't checked here (the PR text check still reads it)." >&2
+  exit 0
+fi
+
 exec node "$(dirname "$0")/../check-pr-text.mjs" --message "$1"

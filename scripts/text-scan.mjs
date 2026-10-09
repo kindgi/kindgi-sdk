@@ -49,8 +49,9 @@ export const MARKERS = [
 export const ID_MARKERS = [
   // `T12:00` is a time.
   [/\bT[0-9]{2,4}[a-z]?\b(?!:[0-9])/, 'internal tracking id'],
-  // One digit, or a letter and one or two: `A-1042` (an order id in a sample) isn't one.
-  [/\b[A-Z]-(?:[0-9]|[A-Z][0-9]{1,2})[a-z]?\b/, 'internal step id'],
+  // One digit, or a letter and one or two: `A-1042` (an order id in a sample) isn't one, nor is
+  // a regex's character class (`[A-Z0-9_]`, `[A-F0-9]`: after `[`, or followed by `-`).
+  [/(?<!\[)\b[A-Z]-(?:[0-9]|[A-Z][0-9]{1,2})[a-z]?\b(?!-)/, 'internal step id'],
   // A dotted version (`protocol 2.5.0`) is a real term; the pack protocol's `protocol 2` is allowed.
   [/\bprotocol [0-9]+\b(?![.][0-9])/i, 'internal process rule'],
   [/\bwave [0-9]+\b/i, 'internal release batch'],

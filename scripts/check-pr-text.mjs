@@ -24,7 +24,9 @@
  * `--message <path>` checks one commit message instead: the `commit-msg`
  * hook's, before the commit exists, when rewording it is still easy. Its
  * comment lines (`#`, or `core.commentChar`) and anything below git's
- * scissors line are left out, as git leaves them out of the commit.
+ * scissors line are left out, as git's default cleanup leaves them out of
+ * the commit; a `#` line that `-m` or `-F` keeps (cleanup `whitespace`)
+ * isn't checked here, and the PR text check reads it in the commit.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -143,7 +145,8 @@ function checkMessage(raw, options) {
       [
         `${NAME}: the commit message has ${problems.length} problem(s):`,
         ...problems.map((p) => `  - ${p}`),
-        'A pull request\'s commits are public: reword the message (see CONTRIBUTING, "Public text").',
+        'A pull request\'s commits are public: reword the message (see CONTRIBUTING, "Public text"). The staged changes are kept: commit again with the new wording.',
+        'A revert of a commit whose subject has one: say what it reverts in words (`git revert --edit`, or `git commit` to finish a revert in progress).',
       ].join('\n'),
     );
     process.exit(1);

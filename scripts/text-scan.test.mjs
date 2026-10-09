@@ -153,6 +153,9 @@ describe("internal tracking references, in a pull request's text", () => {
       'pack protocol 2.5.0, and the log line says protocol 2',
       'Protocol 2, the pack protocol',
       'per the W3C and the w3c validator',
+      'env names match /^E[A-Z0-9_]+$/',
+      'a digest is [A-F0-9]{64}',
+      'a key is [.A-Z0-9]+',
       'ECDSA over P-256, SHA-1, UTF-8, ISO-8859-1',
       'a wave of retries',
     ]) {

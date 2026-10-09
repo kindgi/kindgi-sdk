@@ -10,7 +10,7 @@
 
 import assert from 'node:assert/strict';
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { after, describe, test } from 'node:test';
@@ -25,10 +25,10 @@ execFileSync('git', ['init', '--quiet', root]);
 /** An internal reference, assembled from parts so the repository's own checks don't flag this file. */
 const ref = (...parts) => parts.join('');
 
-const run = (message) => {
+const run = (message, env = process.env) => {
   const file = join(root, 'COMMIT_EDITMSG');
   writeFileSync(file, message);
-  return spawnSync(HOOK, [file], { cwd: root, encoding: 'utf8' });
+  return spawnSync(HOOK, [file], { cwd: root, encoding: 'utf8', env });
 };
 
 describe('scripts/hooks/commit-msg', () => {
@@ -41,6 +41,24 @@ describe('scripts/hooks/commit-msg', () => {
     const result = run(`fix: the retry waits\n\nas agreed (${ref('protocol ', 16)})\n`);
     assert.equal(result.status, 1);
     assert.match(result.stderr, /the commit message, line 3: internal process rule/);
+  });
+
+  test('a revert of a commit with one is refused, with a hint to reword it', () => {
+    const result = run(`Revert "fix: the retry (${ref('T', 292)})"\n\nThis reverts commit abc.\n`);
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, /the commit message, line 1: internal tracking id/);
+    assert.match(
+      result.stderr,
+      /A revert of a commit whose subject has one: say what it reverts in words/,
+    );
+  });
+
+  test("without node on PATH, the message isn't checked here, and the hook says so", () => {
+    const empty = join(root, 'no-node-bin');
+    mkdirSync(empty, { recursive: true });
+    const result = run(`fix: one (${ref('T', 292)})\n`, { ...process.env, PATH: empty });
+    assert.equal(result.status, 0);
+    assert.match(result.stderr, /node isn't on PATH, so this message isn't checked here/);
   });
 
   test("it reads git's comment character", () => {
