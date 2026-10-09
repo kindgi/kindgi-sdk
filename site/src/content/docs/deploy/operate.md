@@ -221,7 +221,9 @@ and what's different after:
 - **Signing in to the console with an API token is now off by default,
   except in `kindgi dev`.** If people sign in to your console by pasting an
   API token, set `KINDGI_CONSOLE_TOKEN_SIGN_IN=on` on the runtime when you
-  upgrade, or set up sign-in with your organization's identity provider
+  upgrade (on Cloud Run, in the module's `server_env`:
+  [Turn on sign-in](../cloud-run/#7-turn-on-sign-in)), or set up sign-in
+  with your organization's identity provider
   ([Turn on sign-in](../sign-in/)). Otherwise the console's sign-in page
   offers no way in, and the runtime's startup output says so too. API tokens
   keep working for the API, the CLI and the SDKs either way.

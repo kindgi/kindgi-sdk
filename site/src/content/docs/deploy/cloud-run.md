@@ -423,6 +423,72 @@ In the verification run: every run completed; a new instance of the runtime
 was ready in about 7 seconds (8 with its first migrations), the pack's
 service in about 5.
 
+## 7. Turn on sign-in
+
+Nobody can sign in to the console until you turn sign-in on; the API, the
+CLI and the SDKs take API tokens either way. Until then the startup lines
+say so:
+
+```text
+⚠ Console sign-in: nobody can sign in to the console. KINDGI_CONSOLE_TOKEN_SIGN_IN=on allows an API token; KINDGI_AUTH_SECRET_PATH turns on sign-in with identity providers.
+```
+
+The runtime's own settings go in two variables, as the pack's do:
+`server_env` for plain values, and `server_secret_env` for Secret Manager
+secrets, read with the runtime's identity. You create each secret, and the
+runtime gets read access to exactly those (a secret in another project is
+granted there). The plan refuses a name the module sets itself (its own
+variables cover those, such as `public_url` below), `KINDGI_DEV`, and a
+secret given as a plain value: a name with `SECRET` in it, or the SMTP URL.
+
+**With an API token,** which the console's sign-in page then takes:
+
+```hcl
+server_env = {
+  KINDGI_CONSOLE_TOKEN_SIGN_IN = "on"
+}
+```
+
+**With an emailed link,** you need the runtime's sign-in secret, an SMTP
+server and `public_url`:
+
+```sh
+# The sign-in secret: 32 bytes, base64.
+openssl rand 32 | base64 | gcloud secrets create $N-auth-secret --data-file=-
+# The SMTP URL, password included: paste it; it never goes in a file.
+read -rs SMTP_URL && printf '%s' "$SMTP_URL" | gcloud secrets create $N-smtp-url --data-file=- && unset SMTP_URL
+```
+
+```hcl
+public_url = "https://kindgi-dev-server-abc123-pd.a.run.app" # terraform output -raw server_url
+server_env = {
+  KINDGI_CONSOLE_TOKEN_SIGN_IN = "on"
+  KINDGI_AUTH_EMAIL_FROM       = "kindgi@acme.example"
+}
+server_secret_env = {
+  KINDGI_AUTH_SECRET         = { secret = "kindgi-dev-auth-secret", version = "1" }
+  KINDGI_AUTH_EMAIL_SMTP_URL = { secret = "kindgi-dev-smtp-url", version = "1" }
+}
+```
+
+Pin each secret to a version, as here, rather than `latest`: a new version
+then reaches the runtime only when you change `version`.
+
+- **`public_url`** (`KINDGI_PUBLIC_URL`) is the address people open the
+  console at: `terraform output -raw server_url` after the first apply, so
+  the emailed link comes with a second apply, or your own domain in front.
+  Console sessions are then accepted from that address only. The plan
+  refuses `KINDGI_AUTH_SECRET` without it, because the runtime wouldn't
+  start.
+- **Continue with Google, Microsoft or GitHub, verified domains and
+  Turnstile** go the same way: each provider's client id,
+  `KINDGI_AUTH_VERIFIED_DOMAINS` and the Turnstile site key in `server_env`;
+  each `…_CLIENT_SECRET` and `KINDGI_AUTH_TURNSTILE_SECRET` in
+  `server_secret_env`. The module mounts no files, so use the value forms of
+  the settings, not their `…_PATH` forms.
+
+What each setting does, and the ways in: [Turn on sign-in](../sign-in/).
+
 ## The IAM it sets up
 
 | Who | Role | On |
@@ -432,7 +498,7 @@ service in about 5.
 | | `roles/cloudkms.viewer` | the KMS key; needed only by runtimes before 0.1.3, whose startup check read the key's metadata |
 | | `roles/artifactregistry.reader` | the repository, or yours (`image_repository`) |
 | | `roles/cloudsql.client` | the project, conditioned on Kindgi's instance |
-| | `roles/secretmanager.secretAccessor` | each of its secrets |
+| | `roles/secretmanager.secretAccessor` | each of its secrets, and each one in `server_secret_env` |
 | | `roles/aiplatform.user`, only with `vertex_ai = true` | the project: [Gemini](#use-gemini) |
 | | `roles/cloudkms.signerVerifier` and `roles/cloudkms.publicKeyViewer`, only with `export_signing = "kms"` | the export signing key: [signed exports](../../guides/observability/export-signed-evidence/) |
 | The pack's service account | `roles/secretmanager.secretAccessor` | the pack token and your pack's secrets |
@@ -465,6 +531,10 @@ A new grant can take a minute or two to apply.
 
 ## Operate it
 
+- **To runtime 0.1.5:** add `KINDGI_CONSOLE_TOKEN_SIGN_IN = "on"` to
+  `server_env` first, or nobody can sign in to the console. Up to 0.1.4 its
+  sign-in page took the API token on its own; from 0.1.5 that's off by
+  default ([7. Turn on sign-in](#7-turn-on-sign-in) has the other ways in).
 - **Upgrade:** back up Cloud SQL, copy the new runtime image by digest, set
   `server_image`, and apply. The new revision takes all the traffic.
   Migrations only go forward: never run two runtime versions on one
