@@ -14,11 +14,12 @@ import type {
 } from '../eval-case-binding.js';
 import type { EvalSuiteRegistryBinding } from '../eval-suite-binding.js';
 import { classWeightReader, summarizeJudgments } from '../judged-summary.js';
-import type {
-  JudgedRunListInput,
-  JudgedRunWithJudgments,
-  Judgment,
-  JudgmentRegistryBinding,
+import {
+  type JudgedRunListInput,
+  type JudgedRunWithJudgments,
+  type Judgment,
+  type JudgmentRegistryBinding,
+  isReplayCopy,
 } from '../judgment-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
@@ -250,6 +251,8 @@ async function toCase(
   q: BuildBody['query'],
   weightOf: (judgeClassId: string | undefined) => Promise<number>,
 ): Promise<JudgedEvalCase | undefined> {
+  // A comparison's replay is never a case, whatever the binding lists.
+  if (isReplayCopy(judged.run)) return undefined;
   const kept =
     q.judgeClassIds === undefined
       ? judged.judgments
