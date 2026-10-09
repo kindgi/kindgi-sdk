@@ -430,6 +430,24 @@ describe('API — identity revoke sessions', () => {
     const secondBody = (await second.json()) as { revokedCount: number };
     expect(secondBody.revokedCount).toBe(0);
   });
+
+  test('the directory hears who asked, for its audit trail', async () => {
+    const { app, directory } = makeApp();
+    directory?.setUser(baseUser({ userId: 'u-a' as UserId, tenantId: tenantA }));
+    const asked: unknown[] = [];
+    if (directory === null) throw new Error('no directory');
+    const revokeAll = directory.binding.revokeAllSessions.bind(directory.binding);
+    (directory.binding as { revokeAllSessions: typeof revokeAll }).revokeAllSessions = async (
+      input,
+    ) => {
+      asked.push(input);
+      return revokeAll(input);
+    };
+    // Your own sessions: a member may.
+    const res = await jsonPost(app, '/v1/identity/users/u-a/revoke-sessions', MEMBER_TOKEN);
+    expect(res.status).toBe(200);
+    expect(asked).toEqual([{ tenantId: tenantA, userId: 'u-a', revokedBy: 'user:u-a' }]);
+  });
 });
 
 describe('API — identity whoami', () => {

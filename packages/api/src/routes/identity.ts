@@ -307,7 +307,12 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
 
     let outcome: Awaited<ReturnType<IdentityDirectoryBinding['revokeAllSessions']>>;
     try {
-      outcome = await directory.revokeAllSessions({ tenantId, userId });
+      const revokedBy = callerRef(c);
+      outcome = await directory.revokeAllSessions({
+        tenantId,
+        userId,
+        ...(revokedBy !== undefined && { revokedBy }),
+      });
     } catch (err) {
       c.status(statusFor('identity-revoke-failed') as never);
       return c.json(
