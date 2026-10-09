@@ -12,7 +12,7 @@ description: >
   kindgi-authoring-guardrails.
 type: core
 library: "@kindgi/sdk"
-version: "0.4.4"
+version: "0.4.5"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -160,6 +160,30 @@ export default defined.value;
   retries the turn fails as before, with `toolRetries` on the error. A
   tenant's `tool-errors` policy can lower these (fewer retries, fewer
   kinds), never raise them.
+- **`retrieval`** — what the agent reads from memory before each turn.
+  Empty = no memory. Each intent is
+  `{ types: ['acme.preference'], scope, mode?, limit? }`, with `scope`
+  one of `'same-user'`, `'same-conversation'`, `'same-project'`,
+  `'tenant'` (always within what the run may see), and `mode` absent
+  (newest first), `'keyword'`, `'semantic'` or `'both'`. Retrieved facts
+  reach the model as data in a `<memory>` block, never as instructions.
+  `semantic`/`both` need embeddings on the runtime
+  (`KINDGI_MEMORY_EMBEDDINGS`): without them a `semantic` intent fails
+  the turn (`semantic-unavailable`). `{ source: 'conversations', scope:
+  'same-user' }` recalls this agent's earlier conversations: the people's
+  own words only, unless `roles: ['user', 'agent']` (its own earlier
+  answers come back marked unverified). `same-segment`/`same-project`
+  recall other people's conversations, and publishing warns.
+- **`memory`** — `{ remember: { types, scope, keepDays? } }` gives the
+  turn the built-in tool `kindgi_remember` (name it exactly so in the
+  instructions; built-ins have no dots). The model picks the type, the
+  text, an optional `key` and an expiry; never the scope. A fact wider
+  than one person, or text that reads like an instruction, waits for a
+  person's approval. Remembering is a tool call, so use a model with
+  reliable tool calling. `{ instructionTypes: ['acme.policy'] }` turns a
+  retrieved, verified fact of those types into an instruction
+  ("Policies (verified)"). See
+  https://docs.kindgi.com/v0.1/guides/agents/give-an-agent-memory/.
 
 ## What a turn receives
 

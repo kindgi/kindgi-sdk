@@ -36,7 +36,12 @@ each one by the name in the second column.
 | `artifact` | Deleted artifacts | deleted artifacts, with their files |
 | `api_key` | Revoked API keys | revoked and expired API keys |
 | `service_account` | Removed service accounts | unregistered service accounts |
-| `*` | All deleted records | every domain that has no policy of its own |
+| `memory` | Ended memory facts | every revision of a fact whose life ended (deleted, or past its expiry); a fact under legal hold is never purged |
+| `conversation` | Deleted conversations | unregistered conversations, with their messages and what recall indexed |
+| `*` | All deleted records | every domain that has no policy of its own, except `memory` and `conversation` |
+
+`memory` and `conversation` hold people's words, so their retention is
+opt-in: a `*` policy doesn't reach them, only a policy naming them does.
 
 :::caution[`run` and `*` purge finished runs]
 Runs aren't deleted first: a policy on `run`, or a `*` policy, purges every
