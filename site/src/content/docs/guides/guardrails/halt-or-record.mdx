@@ -113,14 +113,17 @@ them: there's no second attempt, escalation or compensating tool call.
 ## When the check can't run
 
 A guardrail whose check can't run at all (no check by that name is
-registered, or its configuration is invalid) never counts as passed:
+registered, its configuration is invalid, or an `llm-judge` guardrail's judge
+can't be routed to a model) never counts as passed:
 
 - With `halt`, the turn fails with `guardrail-violation`. Its `violations`
   is empty, and `evaluationErrors` names the guardrail and says why:
   `Turn blocked: guardrail 'my-pack.answer-length' couldn't run its check (unknown-check: …)`.
-- With any other action, the turn completes, and the error is recorded in
-  the run's provenance (the guardrail's node, with `evaluated: false`) and in
-  the run journal's `evaluate-guardrails` step, under `errors`.
+- With any other action, the turn completes.
+
+Either way, the error is recorded in the run's provenance (the guardrail's
+node, with `evaluated: false`) and in the run journal's `evaluate-guardrails`
+step, under `errors`.
 
 ## Severity
 
