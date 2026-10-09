@@ -98,3 +98,29 @@ def test_shared_vector_unknown_algorithm_is_refused_naming_it() -> None:
         f'algorithm "ecdsa-p384-sha384" isn\'t one this verifier knows ({known}): '
         "a newer verifier may check it"
     )
+
+
+def test_exports_made_by_kindgi_014_verify_and_an_off_stamp_reports_the_signed_time() -> None:
+    v = _vector("kindgi-0.1.4")
+    trusted = [v["publicKeyPem"]]
+    same = exports.verify_signed_export(v["auditBundle"], trusted_keys=trusted)
+    assert same.valid, same.issues
+    assert same.notes == ()
+    differ = exports.verify_signed_export(v["auditBundleStampsDiffer"], trusted_keys=trusted)
+    assert differ.valid, differ.issues
+    assert differ.notes == (v["note"],)
+    provenance = exports.verify_signed_export(v["provenance"], trusted_keys=trusted)
+    assert provenance.valid, provenance.issues
+    assert provenance.notes == ()
+
+
+def test_the_014_leniency_is_that_formats_alone() -> None:
+    v = _vector("ed25519")
+    moved = {**v["valid"], "exportedAt": "2027-01-01T00:00:00.000Z"}
+    assert not exports.verify_signed_export(moved).valid
+    claimed = exports.verify_signed_export({**moved, "bundleSchemaVersion": 1})
+    assert not claimed.valid
+    assert "isn't the signed one" in " ".join(claimed.issues)
+    old = _vector("kindgi-0.1.4")["auditBundleStampsDiffer"]
+    as_bool = exports.verify_signed_export({**old, "bundleSchemaVersion": True})
+    assert not as_bool.valid

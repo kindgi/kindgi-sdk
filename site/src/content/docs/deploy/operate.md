@@ -46,6 +46,11 @@ curl -s http://localhost:4000/health
 {"ok":true}
 ```
 
+Point a load balancer's health check at `/ready` (or `/health`), not `/`:
+`/` leads to the console (a `302`), and without the console it answers `200`
+even while the database is down, so a check on `/` would pass a broken
+runtime.
+
 `/health` says the process is up. `/ready` says its database answers too, within two seconds. Neither needs a token:
 
 ```sh
@@ -95,7 +100,7 @@ The runtime prints what it's running with when it starts (`docker logs kindgi-se
   ⚠ The license key expires in 29 days (2026-11-02). Renew it: contact@kindgi.com.
   Env: production (tool secrets resolve in it)
   Tenant host access: deployed (stdio MCP endpoints refused; KINDGI_TENANT_HOST_ACCESS)
-  Pack service: http://kindgi-pack:8080 — acme-pack (artifact 20261003.1), protocol 2, 3 tools, 1 check
+  Pack service: http://kindgi-pack:8080 — acme-pack (artifact …), protocol 2, 3 tools, 1 check
 ```
 
 - **`Token`:** the last four characters of the API token it accepts.
@@ -362,18 +367,18 @@ Rotate under a new key id. A key id stays bound to its public key, and a revoked
 
    ```sh
    cp .kindgi/build/deploy-envelope.json old-envelope.json
-   pnpm exec kindgi build --local --push --env selfhost --artifact-version 20261003.2
+   pnpm exec kindgi build --local --push --env selfhost
    pnpm exec kindgi deploy --env selfhost --token "$KINDGI_API_TOKEN"
    ```
 
    ```text
      Registering deployment
        ✓ POST /v1/deployments  →  201 Created
-         deploymentId:    2a4677f2-5845-4e05-8630-5f0d01972331
-         artifactVersion: 20261003.2
+         deploymentId:    3c4f4d76-f4a4-4d5f-8339-f05b0497b462
+         artifactVersion: 20261008.193855
    ```
 
-   The artifact version defaults to today's date with `.1`; this example's second release of the day is `.2`.
+   The artifact version defaults to the build time, `YYYYMMDD.HHMMSS` in UTC, so a second build the same day gets its own tag.
 
 3. Revoke the old key:
 

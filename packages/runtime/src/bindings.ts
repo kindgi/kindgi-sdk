@@ -106,7 +106,16 @@ export interface RunBinding {
    * `wait: false` answering `202`, subgraph child dispatch); the run
    * is then executed with `runGraph({ ..., runId })`.
    */
-  startRun(params: StartRunParams): Promise<Result<{ readonly runId: RunId }, StartRunError>>;
+  startRun(params: StartRunParams): Promise<
+    Result<
+      {
+        readonly runId: RunId;
+        /** Set when `params.idempotencyKey` named a run that already exists: nothing new started. */
+        readonly existing?: true;
+      },
+      StartRunError
+    >
+  >;
 
   /**
    * Delete a run + its journal + waitpoints. Retention path;

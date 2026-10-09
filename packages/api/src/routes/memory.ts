@@ -231,7 +231,11 @@ export function memoryRouter(binding: MemoryBinding, access: MemoryAccessDeps = 
       intent: validation.value,
       readers: await memoryReadersFor(c, access),
     });
-    if (outcome.kind === 'embedding-unavailable') return fail(c, 'bad-input', outcome.message);
+    // Search by meaning on a deployment without embeddings: not the
+    // request's fault, and never an empty success.
+    if (outcome.kind === 'embedding-unavailable') {
+      return fail(c, 'semantic-unavailable', outcome.message);
+    }
     if (outcome.kind === 'error') return fail(c, outcome.code, outcome.message);
     return c.json({ results: outcome.results.map(serializeRetrievalHit) });
   });
