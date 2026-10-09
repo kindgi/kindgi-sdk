@@ -362,3 +362,140 @@ describe('kindgi proposals list / get', () => {
     expect(`${out.stdout}${out.stderr}`).toContain('evaluate');
   });
 });
+
+const PASS = {
+  id: 'pass-1',
+  agentId: 'acme.scorer',
+  fromVersion: '1.4.0',
+  scope: { kind: 'segment', projectId: PROJECT, path: [{ key: 'company', value: 'acme' }] },
+  suiteId: 'acme.judged',
+  tiers: ['settings'],
+  objective: 'weightedYesShare',
+  budget: { maxCostUsd: 5, maxCandidates: 30 },
+  requestedBy: 'user:alice',
+  status: 'running',
+  candidatesEvaluated: 0,
+  costUsd: '0.00',
+  createdAt: '2026-10-07T10:00:00.000Z',
+  updatedAt: '2026-10-07T10:00:00.000Z',
+};
+
+describe('kindgi proposals improve', () => {
+  test('starts a pass for a scope, with a budget', async () => {
+    const { calls, rec } = recorder();
+    const out = await run(
+      [
+        'proposals',
+        'improve',
+        '--agent=acme.scorer',
+        `--project=${PROJECT}`,
+        '--segment=company:acme',
+        '--test-set=acme.judged',
+        '--max-cost=2.5',
+        '--max-candidates=12',
+      ],
+      { proposals: { improve: rec('improve', PASS) } },
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([
+      [
+        'improve',
+        {
+          agentId: 'acme.scorer',
+          scope: { kind: 'segment', projectId: PROJECT, path: [{ key: 'company', value: 'acme' }] },
+          suiteId: 'acme.judged',
+          budget: { maxCostUsd: 2.5, maxCandidates: 12 },
+        },
+      ],
+    ]);
+  });
+
+  test('--wait reads the pass until it is no longer running', async () => {
+    const reads = [
+      { ...PASS, candidatesEvaluated: 3 },
+      {
+        ...PASS,
+        status: 'completed',
+        candidatesEvaluated: 7,
+        costUsd: '0.84',
+        outcome: { kind: 'proposed', proposalId: 'prop-9' },
+      },
+    ];
+    const gets: string[] = [];
+    const out = await run(
+      ['proposals', 'improve', '--agent=a', '--tenant', '--test-set=s', '--wait'],
+      {
+        proposals: { improve: async () => PASS },
+        improvementPasses: {
+          get: async (id: string) => {
+            gets.push(id);
+            return reads.shift();
+          },
+        },
+      },
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(gets).toEqual(['pass-1', 'pass-1']);
+    expect(JSON.parse(out.stdout)).toMatchObject({
+      outcome: { kind: 'proposed', proposalId: 'prop-9' },
+    });
+  }, 10_000);
+
+  test('a budget that is not a positive number is refused before any call', async () => {
+    const { calls, rec } = recorder();
+    for (const flag of ['--max-cost=0', '--max-cost=cheap', '--max-candidates=1.5']) {
+      const out = await run(
+        ['proposals', 'improve', '--agent=a', '--tenant', '--test-set=s', flag],
+        { proposals: { improve: rec('improve') } },
+      );
+      expect(out.exitCode, flag).toBe(2); // a usage error
+    }
+    expect(calls).toEqual([]);
+  });
+});
+
+describe('kindgi proposals passes', () => {
+  test('list as a table: candidates, cost, and what each found', async () => {
+    const { calls, rec } = recorder();
+    const page = {
+      data: [
+        {
+          ...PASS,
+          status: 'completed',
+          candidatesEvaluated: 7,
+          costUsd: '0.84',
+          outcome: { kind: 'proposed', proposalId: 'prop-9' },
+        },
+        {
+          ...PASS,
+          id: 'pass-2',
+          status: 'completed',
+          outcome: { kind: 'nothing-found', reason: 'no candidate beat the noise' },
+        },
+        { ...PASS, id: 'pass-3' },
+      ],
+      hasMore: false,
+    };
+    const out = await run(['proposals', 'passes', 'list', '--agent=acme.scorer', '--table'], {
+      improvementPasses: { list: rec('list', page) },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['list', { agentId: 'acme.scorer' }]]);
+    expect(out.stdout).toContain('proposed prop-9');
+    expect(out.stdout).toContain('nothing better');
+    expect(out.stdout).toContain('$0.84');
+    expect(out.stdout).toContain('$0.00');
+    expect(out.stdout).toContain('running');
+  });
+
+  test('get and cancel name the pass', async () => {
+    const { calls, rec } = recorder();
+    const client = { improvementPasses: { get: rec('get', PASS), cancel: rec('cancel', PASS) } };
+    await run(['proposals', 'passes', 'get', 'pass-1'], client);
+    await run(['proposals', 'passes', 'cancel', 'pass-1', '--idempotency-key=k'], client);
+    expect(calls).toEqual([
+      ['get', 'pass-1'],
+      ['cancel', 'pass-1', { idempotencyKey: 'k' }],
+    ]);
+  });
+});
