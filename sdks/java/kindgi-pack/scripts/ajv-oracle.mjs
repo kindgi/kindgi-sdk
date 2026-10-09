@@ -6,7 +6,7 @@
 // schema and value of the corpus (src/test/resources/ajv/corpus.json, plus
 // the derived schemas in src/test/resources/derive/golden.json) through
 // Ajv, configured as the TypeScript pack service configures it (Ajv 2020,
-// strict, allErrors, ajv-formats), and writes Ajv's verdicts and issues to
+// strict, allErrors, allowUnionTypes, ajv-formats), and writes Ajv's verdicts and issues to
 // src/test/resources/ajv/oracle.json. The Java test (AjvOracleTest) requires
 // the same verdicts and the same issues.
 //

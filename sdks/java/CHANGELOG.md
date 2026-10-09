@@ -7,10 +7,10 @@ heading into its version.
 
 ## Unreleased
 
-- `kindgi-pack`: **a union of types validates** (`"type": ["string", "number"]`, what
-  Zod writes for a union of scalars in a TypeScript tool's schema). It used to be
-  refused as unsupported, matching the TypeScript pack service's old strict mode;
-  both take it now.
+- `kindgi-pack`, `kindgi-pack-scala`: **a union of types validates**
+  (`"type": ["string", "number"]`, what Zod writes for a union of scalars in a
+  TypeScript tool's schema). It used to be refused as unsupported, matching the
+  TypeScript pack service's old strict mode; both take it now. (#477)
 - `kindgi-pack`, `kindgi-pack-scala`: **a guardrail can't ship its check under
   a built-in check's id** (`must-cite`, `never-call-tool`, `max-tool-calls`,
   `output-matches`, `tool-order`, `required-substring`,
