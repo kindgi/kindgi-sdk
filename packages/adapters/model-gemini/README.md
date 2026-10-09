@@ -23,6 +23,7 @@ One non-streaming `models.generateContent` call per `invoke`:
 - **Thinking parts** (`thought: true`) are left out of the message text. Thinking tokens count as completion tokens, since they bill as output.
 - **Structured output.** `structuredOutput` becomes `responseMimeType: 'application/json'` plus `responseJsonSchema`.
 - `temperature`, `maxOutputTokens` (the call's, else the model's `ModelInfo.maxOutputTokens`) and `abortSignal` are passed through.
+- **Retries.** A call that fails with a transient status (408, 429, 500, 502, 503, 504) is retried: three attempts in all, backing off from a second, with jitter. The `@google/genai` client retries only when it's told to, and the adapter tells it. A failed connection isn't retried. The result's `attempts` counts every attempt; a call that still fails throws the last error, and `attemptsOf(error)` (`@kindgi/capabilities/attempts`) counts them. An injected `client` keeps its own settings.
 - **`finishReason`:**
   - a response with function calls → `tool-use`;
   - `STOP` or unspecified → `stop`;
@@ -54,6 +55,7 @@ One non-streaming `models.generateContent` call per `invoke`:
   - `metadata.region` as the location (`unspecified` means `global`);
   - an optional `secret_ref` holding a service-account key.
 - **`vertexTarget(input)`**: the project and location a registration names, as the factory reads them.
+- **`geminiAdapterEntry`**: the `AdapterFactoryEntry` a runtime registers, `geminiAdapterFactory` plus **`geminiCheckConfig(input)`**. The check reports what the factory would throw on (`adapter_config.api`, `secret_ref` on the Developer API, `adapter_config.project`, `metadata.region`) with the factory's own messages, without building anything.
 - **Cost helpers**: `computeCostUsd(usage, rates)`, `toFrameworkUsage(usageMetadata)`, `GeminiCostRates`, `GeminiModelInfo`, `DEFAULT_CACHED_PROMPT_MULTIPLIER`.
 - **Translation helpers**: `toGeminiRequest(messages)`, `toGeminiFunctions(tools)`, `fromGeminiResponse(response)`, `mapFinishReason(reason)`, `checkFunctionName(name)`.
 

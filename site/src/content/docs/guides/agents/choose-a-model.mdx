@@ -58,18 +58,20 @@ turn's model.
 2. A **fallback** provider, such as `dev-echo`, is considered only when no other
    model qualifies.
 3. It ranks what's left: the agent's preferred provider and model first, then
-   the weights in its capability's `prefer`, then alphabetically by provider id
-   and model name.
+   the weights in its capability's `prefer`, then by provider id, with each
+   provider's **default model** before its others, then by model name.
 
-The last step decides more often than you might expect. With the whole
-Anthropic preset registered, a `tool-use` agent with no preference gets
-`claude-haiku-4-5` (first alphabetically), and an agent that needs
-`structured-output` gets `claude-opus-5-5`, the most expensive. Prefer or
-require the model you mean.
+The last step decides more often than you might expect. Each preset names a
+mid-priced default (`claude-sonnet-5-5` for `anthropic`), so with one preset
+registered, an agent with no preference gets its default. A provider registered without a `defaultModel` falls back
+to its first model by name, which can be its dearest. Prefer or require the
+model you mean.
 
 Anthropic retires `claude-haiku-4-5` on or after **2026-10-15**; from then, a
-turn routed to it fails. Before then, register only the models you mean
-(`--models=claude-sonnet-5-5`), or prefer or require one.
+turn routed to it fails. Its replacement is `claude-haiku-5-5`. An agent that
+prefers or requires Haiku 4.5 needs a new version naming another model, and
+an Anthropic provider registered before 0.1.4 has no default: register it
+again (see [Connect Anthropic](../../models/anthropic/#if-you-registered-it-before-014)).
 
 ## Prefer a provider or a model
 

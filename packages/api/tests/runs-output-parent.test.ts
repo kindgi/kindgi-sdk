@@ -14,7 +14,8 @@ import { describe, expect, test } from 'vitest';
 import type { KernelRunRecord, ListRunsInput, RunBinding } from '@kindgi/runtime';
 import type { NodeId, ProjectId, RunId, TenantId, Timestamp } from '@kindgi/types';
 
-import { createStubAppBindings } from '@kindgi/testing';
+import { turnFailureMessage } from '@kindgi/agents';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type {
@@ -241,4 +242,68 @@ describe('run-handler error codes', () => {
       expect(res.status).toBe(422);
     },
   );
+});
+
+describe('GET /v1/runs/:runId: why a failed run failed', () => {
+  const routing = turnFailureMessage({
+    code: 'capability-routing-failed',
+    message: 'No registered provider satisfies the capability declaration',
+    cause: { code: 'capability-unsatisfiable', message: 'none', reasons: [] },
+  });
+
+  test("an agent turn's failure: its own code, message and cause; failureMessage as recorded", async () => {
+    const failed = row({ status: 'failed', failureMessage: routing });
+    const res = await call(harness([failed]), `/v1/runs/${failed.runId}`);
+    expect(res.status).toBe(200);
+    expect(res.body.failure).toEqual({
+      code: 'capability-routing-failed',
+      message: 'No registered provider satisfies the capability declaration',
+      cause: { code: 'capability-unsatisfiable', message: 'none', reasons: [] },
+    });
+    expect(res.body.failureMessage).toBe(routing);
+  });
+
+  test('several joined: the first turn error; plain words: run-failed; none: run-failed, naming the run', async () => {
+    const budget = turnFailureMessage({
+      code: 'budget-exceeded',
+      message: 'Agent turn steps budget exceeded (limit 1, observed 1)',
+      kind: 'steps',
+      limit: 1,
+      observed: 1,
+    });
+    const joined = row({ status: 'failed', failureMessage: `${budget}; ${routing}` });
+    const plain = row({
+      status: 'failed',
+      failureMessage: 'Interrupted: every attempt to resume it failed.',
+    });
+    const bare = row({ status: 'failed' });
+    const h = harness([joined, plain, bare]);
+    expect((await call(h, `/v1/runs/${joined.runId}`)).body.failure).toEqual({
+      code: 'budget-exceeded',
+      message: 'Agent turn steps budget exceeded (limit 1, observed 1)',
+    });
+    expect((await call(h, `/v1/runs/${plain.runId}`)).body.failure).toEqual({
+      code: 'run-failed',
+      message: 'Interrupted: every attempt to resume it failed.',
+    });
+    expect((await call(h, `/v1/runs/${bare.runId}`)).body.failure).toEqual({
+      code: 'run-failed',
+      message: `Run ${bare.runId} failed`,
+    });
+  });
+
+  test('only a failed run has one, in lists too', async () => {
+    const done = row({ status: 'completed' });
+    const cancelled = row({ status: 'cancelled', failureMessage: 'cancelled by user:alice' });
+    const failed = row({ status: 'failed', failureMessage: routing });
+    const h = harness([done, cancelled, failed]);
+    expect((await call(h, `/v1/runs/${done.runId}`)).body).not.toHaveProperty('failure');
+    expect((await call(h, `/v1/runs/${cancelled.runId}`)).body).not.toHaveProperty('failure');
+    const list = (await call(h, '/v1/runs')).body.data as Record<string, unknown>[];
+    expect(list.map((r) => (r.failure as { code?: string } | undefined)?.code)).toEqual([
+      undefined,
+      undefined,
+      'capability-routing-failed',
+    ]);
+  });
 });

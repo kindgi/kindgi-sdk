@@ -86,6 +86,16 @@ export function cliPages() {
     '',
     ...describeGlobalFlags().map(flagLine),
     '',
+    '## Exit codes',
+    '',
+    '- `0`: the command succeeded.',
+    '- `1`: the API refused the call, or what the command ran failed: a failed run',
+    '  (`kindgi runs start`), a failing check (`kindgi doctor`).',
+    '- `2`: a usage error: an unknown command, subcommand or flag, a missing argument',
+    "  or flag, or a value a flag can't take. The error says which.",
+    '- `130`: you stopped it with Ctrl+C while it waited (`kindgi runs start`, a',
+    '  starting `kindgi dev`).',
+    '',
   ];
   return [
     { slug: 'reference/cli/index', content: overview.join('\n') },
