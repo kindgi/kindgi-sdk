@@ -133,7 +133,7 @@
     },
     {
       "name": "auth",
-      "description": "OAuth 2.0 / OIDC identity providers + session lifecycle. Layers browser-based auth on top of the static bearer-token surface: bearer tokens continue to work byte-shape-identical; session tokens use the `kgi_sk_*` prefix so the same middleware routes both flavors. Providers are caller-plugged via `IdentityProviderBinding` (no baked-in list). Sessions persist via `SessionStoreBinding`. Code exchange is caller-supplied via `exchangeCode`. PKCE (S256) is mandatory. `clientSecretRef` is a REFERENCE — the plaintext secret never crosses the wire."
+      "description": "OIDC and SAML identity providers + session lifecycle. Layers browser-based auth on top of the static bearer-token surface: bearer tokens continue to work byte-shape-identical; session tokens use the `kgi_sk_*` prefix so the same middleware routes both flavors. Providers are caller-plugged via `IdentityProviderBinding` (no baked-in list); sign-in runs in the deployment, which reads them. Sessions persist via `SessionStoreBinding`. `clientSecretRef` is a REFERENCE — the plaintext secret never crosses the wire."
     },
     {
       "name": "identity",
@@ -12852,11 +12852,10 @@
       "IdentityProviderKind": {
         "type": "string",
         "enum": [
-          "oauth2",
           "oidc",
           "saml"
         ],
-        "description": "`oidc`: an OpenID Connect identity provider people sign in with (Okta, Entra ID, Google, Keycloak…); its endpoints come from its discovery document. `saml`: a SAML 2.0 identity provider people sign in with. `oauth2`: a plain OAuth 2.0 provider that isn't OpenID Connect (e.g. GitHub), with its endpoints given; pick `oidc` for any provider that speaks OpenID Connect."
+        "description": "`oidc`: an OpenID Connect identity provider people sign in with (Okta, Entra ID, Google, Keycloak…); its endpoints come from its discovery document. `saml`: a SAML 2.0 identity provider people sign in with."
       },
       "ClaimMappingScopesSpec": {
         "description": "Claim path + optional delimiter for extracting Kindgi OAuth scopes from provider claims. When absent, scopes come from the token response `scope` field instead.",
@@ -12905,7 +12904,7 @@
         }
       },
       "IdentityProviderSignIn": {
-        "description": "What to give the identity provider so it can send people back: set by the deployment on what it returns, ignored on registration. OIDC / OAuth 2.0: `redirectUri`. SAML: `spEntityId`, `acsUrl`, `spMetadataUrl`.",
+        "description": "What to give the identity provider so it can send people back: set by the deployment on what it returns, ignored on registration. OIDC: `redirectUri`. SAML: `spEntityId`, `acsUrl`, `spMetadataUrl`.",
         "oneOf": [
           {
             "type": "object",
@@ -13029,14 +13028,6 @@
             "type": "string",
             "format": "uri"
           },
-          "allowedRedirectUris": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "minLength": 1
-            },
-            "description": "OAuth 2.1 BCP redirect-URI allowlist. Exact-string match required at /v1/auth/login. Absent/empty means no redirect-URI allowlist check (pass-through)."
-          },
           "claimMapping": {
             "$ref": "#/components/schemas/ClaimMappingSpec"
           }
@@ -13143,96 +13134,6 @@
           }
         }
       },
-      "OAuth2IdentityProviderConfig": {
-        "description": "A plain OAuth 2.0 provider that isn't OpenID Connect (e.g. GitHub), run by this API's own OAuth flow (`/v1/auth/login` + callback). For a provider that speaks OpenID Connect, use `oidc`.",
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "providerId",
-          "kind",
-          "clientId",
-          "clientSecretRef",
-          "authorizationEndpoint",
-          "tokenEndpoint",
-          "scopes"
-        ],
-        "properties": {
-          "providerId": {
-            "type": "string",
-            "minLength": 1
-          },
-          "displayName": {
-            "type": "string",
-            "minLength": 1,
-            "description": "The name a sign-in page shows (\"Sign in with …\"). Default: `providerId`."
-          },
-          "domains": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "minLength": 1
-            },
-            "description": "The email domains whose people sign in with this provider (lowercase, e.g. `acme.com`): how an email-first sign-in page finds it."
-          },
-          "join": {
-            "type": "string",
-            "enum": [
-              "invite",
-              "domain"
-            ],
-            "description": "Who may sign in the first time: `invite` (default) only people a tenant admin added; `domain` also anyone from one of `domains`, once the deployment has verified them."
-          },
-          "signIn": {
-            "$ref": "#/components/schemas/IdentityProviderSignIn"
-          },
-          "metadata": {
-            "type": "object",
-            "additionalProperties": true
-          },
-          "kind": {
-            "type": "string",
-            "const": "oauth2"
-          },
-          "clientId": {
-            "type": "string",
-            "minLength": 1
-          },
-          "clientSecretRef": {
-            "type": "string",
-            "minLength": 1,
-            "description": "Opaque reference resolved server-side. Never a plaintext secret."
-          },
-          "authorizationEndpoint": {
-            "type": "string",
-            "format": "uri"
-          },
-          "tokenEndpoint": {
-            "type": "string",
-            "format": "uri"
-          },
-          "userinfoEndpoint": {
-            "type": "string",
-            "format": "uri"
-          },
-          "scopes": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "allowedRedirectUris": {
-            "type": "array",
-            "items": {
-              "type": "string",
-              "minLength": 1
-            },
-            "description": "OAuth 2.1 BCP redirect-URI allowlist. Exact-string match required at /v1/auth/login. Absent/empty means no redirect-URI allowlist check (pass-through)."
-          },
-          "claimMapping": {
-            "$ref": "#/components/schemas/ClaimMappingSpec"
-          }
-        }
-      },
       "IdentityProviderConfig": {
         "description": "An identity provider registered on a tenant, one shape per `kind` (narrow on `kind` before reading kind-specific fields). Secrets are always REFERENCES resolved server-side (`clientSecretRef`, `spSigningKeyRef`, `spDecryptionKeyRef`); a plaintext secret never crosses the wire, and a `clientSecret` field is refused.",
         "oneOf": [
@@ -13241,39 +13142,31 @@
           },
           {
             "$ref": "#/components/schemas/SamlIdentityProviderConfig"
-          },
-          {
-            "$ref": "#/components/schemas/OAuth2IdentityProviderConfig"
           }
         ],
         "discriminator": {
           "propertyName": "kind",
           "mapping": {
             "oidc": "#/components/schemas/OidcIdentityProviderConfig",
-            "saml": "#/components/schemas/SamlIdentityProviderConfig",
-            "oauth2": "#/components/schemas/OAuth2IdentityProviderConfig"
+            "saml": "#/components/schemas/SamlIdentityProviderConfig"
           }
         }
       },
       "RegisterIdentityProviderBody": {
-        "description": "The identity provider to register, one shape per `kind`: `oidc`, `saml` or `oauth2`. Secrets by reference only (`clientSecretRef`, `spSigningKeyRef`, `spDecryptionKeyRef`); a `clientSecret` field is refused.",
+        "description": "The identity provider to register, one shape per `kind`: `oidc` or `saml`. Secrets by reference only (`clientSecretRef`, `spSigningKeyRef`, `spDecryptionKeyRef`); a `clientSecret` field is refused.",
         "oneOf": [
           {
             "$ref": "#/components/schemas/OidcIdentityProviderConfig"
           },
           {
             "$ref": "#/components/schemas/SamlIdentityProviderConfig"
-          },
-          {
-            "$ref": "#/components/schemas/OAuth2IdentityProviderConfig"
           }
         ],
         "discriminator": {
           "propertyName": "kind",
           "mapping": {
             "oidc": "#/components/schemas/OidcIdentityProviderConfig",
-            "saml": "#/components/schemas/SamlIdentityProviderConfig",
-            "oauth2": "#/components/schemas/OAuth2IdentityProviderConfig"
+            "saml": "#/components/schemas/SamlIdentityProviderConfig"
           }
         }
       },
@@ -13285,17 +13178,13 @@
           },
           {
             "$ref": "#/components/schemas/SamlIdentityProviderConfig"
-          },
-          {
-            "$ref": "#/components/schemas/OAuth2IdentityProviderConfig"
           }
         ],
         "discriminator": {
           "propertyName": "kind",
           "mapping": {
             "oidc": "#/components/schemas/OidcIdentityProviderConfig",
-            "saml": "#/components/schemas/SamlIdentityProviderConfig",
-            "oauth2": "#/components/schemas/OAuth2IdentityProviderConfig"
+            "saml": "#/components/schemas/SamlIdentityProviderConfig"
           }
         }
       },
@@ -13565,20 +13454,6 @@
             ],
             "format": "uri"
           },
-          "allowedRedirectUris": {
-            "oneOf": [
-              {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "minLength": 1
-                }
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
           "claimMapping": {
             "oneOf": [
               {
@@ -13713,88 +13588,6 @@
           "registered": {
             "type": "boolean",
             "description": "Whether a provider is registered under this `providerId` now."
-          }
-        }
-      },
-      "LoginBody": {
-        "description": "Optional body for `POST /v1/auth/login/:providerId`. `redirectUri` overrides `metadata.defaultRedirectUri` on the provider config; at least one MUST be supplied.",
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "redirectUri": {
-            "type": "string",
-            "format": "uri"
-          }
-        }
-      },
-      "AuthorizationResponse": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "authorizationUrl",
-          "state",
-          "codeChallenge",
-          "codeChallengeMethod"
-        ],
-        "properties": {
-          "authorizationUrl": {
-            "type": "string",
-            "format": "uri",
-            "description": "URL the caller redirects the user-agent to. Includes `client_id`, `redirect_uri`, `scope`, `state`, `code_challenge`, `code_challenge_method=S256`."
-          },
-          "state": {
-            "type": "string",
-            "minLength": 1
-          },
-          "codeChallenge": {
-            "type": "string",
-            "minLength": 1
-          },
-          "codeChallengeMethod": {
-            "type": "string",
-            "enum": [
-              "S256"
-            ]
-          }
-        }
-      },
-      "CallbackBody": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "code",
-          "state"
-        ],
-        "properties": {
-          "code": {
-            "type": "string",
-            "minLength": 1
-          },
-          "state": {
-            "type": "string",
-            "minLength": 1
-          }
-        }
-      },
-      "CallbackResult": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "sessionToken",
-          "sessionId",
-          "expiresAt"
-        ],
-        "properties": {
-          "sessionToken": {
-            "type": "string",
-            "description": "Opaque session token (`kgi_sk_…`), shown once: the server keeps only a hash of it. Never parse it. Send as `Authorization: Bearer <sessionToken>` on subsequent requests. The underlying provider access-token never leaves the server."
-          },
-          "sessionId": {
-            "type": "string"
-          },
-          "expiresAt": {
-            "type": "string",
-            "format": "date-time"
           }
         }
       },
@@ -34986,7 +34779,7 @@
             }
           }
         },
-        "description": "Returns the tenant's identity providers (OIDC, SAML, OAuth 2.0), each with `signIn` when the deployment sets it. Secrets appear only as REFERENCES (`clientSecretRef`, `spSigningKeyRef`…); a plaintext secret is never on the wire.",
+        "description": "Returns the tenant's identity providers (OIDC, SAML), each with `signIn` when the deployment sets it. Secrets appear only as REFERENCES (`clientSecretRef`, `spSigningKeyRef`…); a plaintext secret is never on the wire.",
         "security": [
           {
             "bearerAuth": []
@@ -34995,7 +34788,7 @@
       },
       "post": {
         "operationId": "auth.providers.register",
-        "summary": "Register an identity provider (OIDC, SAML or OAuth 2.0)",
+        "summary": "Register an identity provider (OIDC or SAML)",
         "tags": [
           "auth"
         ],
@@ -35041,7 +34834,7 @@
             }
           },
           "422": {
-            "description": "The deployment could not use the configuration (`identity-provider-invalid`).",
+            "description": "The deployment could not use the configuration, or `kind` is `oauth2`, a plain OAuth 2.0 provider, which sign-in does not use (`identity-provider-invalid`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -35061,7 +34854,7 @@
             }
           }
         },
-        "description": "Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered`; change it with `PATCH /v1/auth/providers/{providerId}`, which keeps its sign-in URLs. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`. The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.",
+        "description": "Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered`; change it with `PATCH /v1/auth/providers/{providerId}`, which keeps its sign-in URLs. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`, as is `allowedRedirectUris`, which nothing would enforce (sign-in runs in the deployment, at its own callback URL). The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -35549,178 +35342,6 @@
             "bearerAuth": []
           }
         ]
-      }
-    },
-    "/v1/auth/login/{providerId}": {
-      "post": {
-        "operationId": "auth.login",
-        "summary": "Initiate OAuth/OIDC login",
-        "tags": [
-          "auth"
-        ],
-        "responses": {
-          "200": {
-            "description": "Authorization URL + PKCE parameters.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/AuthorizationResponse"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Malformed request body.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing / malformed / expired / revoked bearer token.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No identity provider registered with that id under this tenant.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error (unmapped domain code or framework crash).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          }
-        },
-        "description": "Framework generates `state` + PKCE `code_verifier` (S256 challenge). Caller redirects the user-agent to `authorizationUrl`. Provider redirects back to `redirectUri` with `code` + `state`; caller POSTs those to `/v1/auth/callback/:providerId` to complete the flow. When the provider config populated `allowedRedirectUris`, the effective redirect_uri MUST be an exact match — otherwise `400 redirect-uri-not-allowed`.",
-        "parameters": [
-          {
-            "name": "providerId",
-            "in": "path",
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "required": true
-          },
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "required": false,
-            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
-          }
-        ],
-        "requestBody": {
-          "required": false,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/LoginBody"
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ]
-      }
-    },
-    "/v1/auth/callback/{providerId}": {
-      "post": {
-        "operationId": "auth.callback",
-        "summary": "Complete an OAuth/OIDC callback",
-        "tags": [
-          "auth"
-        ],
-        "responses": {
-          "201": {
-            "description": "Session created.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/CallbackResult"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Malformed body or `state` unknown/expired/consumed.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Code exchange with the provider failed.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          }
-        },
-        "description": "Public — the caller has not yet obtained a session token. Verifies `state`, exchanges `code` for provider tokens via the deployment's `exchangeCode`, fetches userinfo, and persists a session via `SessionStoreBinding`. Returns an opaque `kgi_sk_*` session token the caller uses on subsequent requests. The underlying provider access-token never leaves the server. When the provider config populated `allowedRedirectUris`, the stored redirect_uri is re-checked against the current allowlist — a mismatch (allowlist tightened between login and callback) returns `400 redirect-uri-mismatch`.",
-        "parameters": [
-          {
-            "name": "providerId",
-            "in": "path",
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "required": true
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CallbackBody"
-              }
-            }
-          }
-        },
-        "security": []
       }
     },
     "/v1/auth/refresh": {

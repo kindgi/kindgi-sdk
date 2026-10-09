@@ -122,9 +122,6 @@ function makeApp(store: SessionStoreBinding) {
     runHandler: noopRunHandler,
     sessionStore: store,
     identityProvider: noProviders,
-    exchangeCode: async () => {
-      throw new Error('not used');
-    },
   });
 }
 

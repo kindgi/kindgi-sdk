@@ -32,7 +32,6 @@ export type {
   IdentityProviderUnregisterOutcome,
   IdentityProviderUpdateInput,
   IdentityProviderUpdateOutcome,
-  OAuth2ProviderConfig,
   OidcProviderConfig,
   ProviderConfig,
   ProviderConfigBase,
@@ -41,8 +40,6 @@ export type {
   SamlProviderConfig,
   SignInOption,
   SignInOptionsInput,
-  ExchangeCodeFn,
-  ExchangeCodeInput,
   ExchangeCodeOutcome,
   RefreshTokenFn,
   RefreshTokenInput,
@@ -82,12 +79,6 @@ export type {
   UserCollectionPage,
   UserRecord,
 } from './identity-directory-binding.js';
-export { createInMemoryOauthStateStore } from './state-store-binding.js';
-export type {
-  OauthStateEntry,
-  OauthStateStore,
-  OauthStateTakeInput,
-} from './state-store-binding.js';
 export {
   createInMemoryIdempotencyStore,
   idempotencyMiddleware,

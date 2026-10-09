@@ -123,8 +123,8 @@ export interface TokenResolution {
 }
 
 /**
- * Session-token prefix. Framework-issued opaque tokens minted by
- * `POST /v1/auth/callback/:providerId` carry this prefix so the auth
+ * Session-token prefix. Framework-issued opaque session tokens (a
+ * sign-in's, a refresh's) carry this prefix so the auth
  * middleware can route them to the session store instead of the caller-
  * plugged `TokenResolver`. Distinct prefix means a static bearer token
  * and a session token can coexist byte-shape-identical on the wire.

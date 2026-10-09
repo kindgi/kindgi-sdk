@@ -567,10 +567,6 @@ OPERATIONS: dict[str, Operation] = {
         "json",
         True,
     ),
-    "auth.login": Operation("auth.login", "POST", "/v1/auth/login/{providerId}", "json", True),
-    "auth.callback": Operation(
-        "auth.callback", "POST", "/v1/auth/callback/{providerId}", "json", False
-    ),
     "auth.refresh": Operation("auth.refresh", "POST", "/v1/auth/refresh", "json", True),
     "auth.logout": Operation("auth.logout", "POST", "/v1/auth/logout", "json", True),
     "identity.users.list": Operation(
@@ -5236,7 +5232,7 @@ class AuthProvidersResource:
     def list(self, /, *, timeout: float | None = None) -> _models.IdentityProviderCollectionPage:
         """List identity providers configured for the tenant. `GET /v1/auth/providers`
 
-        Returns the tenant's identity providers (OIDC, SAML, OAuth 2.0), each with `signIn` when the deployment sets it. Secrets appear only as REFERENCES (`clientSecretRef`, `spSigningKeyRef`…); a plaintext secret is never on the wire.
+        Returns the tenant's identity providers (OIDC, SAML), each with `signIn` when the deployment sets it. Secrets appear only as REFERENCES (`clientSecretRef`, `spSigningKeyRef`…); a plaintext secret is never on the wire.
         """
         return self._client._request(
             _OPERATIONS["auth.providers.list"],
@@ -5256,9 +5252,9 @@ class AuthProvidersResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.RegisterIdentityProviderResult:
-        """Register an identity provider (OIDC, SAML or OAuth 2.0). `POST /v1/auth/providers`
+        """Register an identity provider (OIDC or SAML). `POST /v1/auth/providers`
 
-        Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered`; change it with `PATCH /v1/auth/providers/{providerId}`, which keeps its sign-in URLs. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`. The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.
+        Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered`; change it with `PATCH /v1/auth/providers/{providerId}`, which keeps its sign-in URLs. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`, as is `allowedRedirectUris`, which nothing would enforce (sign-in runs in the deployment, at its own callback URL). The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.
         """
         return self._client._request(
             _OPERATIONS["auth.providers.register"],
@@ -5315,7 +5311,7 @@ class AuthProvidersResource:
         provider_id: str | UUID,
         /,
         *,
-        kind: Literal["oauth2", "oidc", "saml"] | None = None,
+        kind: Literal["oidc", "saml"] | None = None,
         timeout: float | None = None,
     ) -> _models.IdentityProviderSignInUrls:
         """What to give the identity provider, before or after registering. `GET /v1/auth/providers/{providerId}/sign-in`
@@ -5384,53 +5380,6 @@ class AuthResource:
             query={},
             headers={},
             response=_models.TokenSignInResult,
-            timeout=timeout,
-        )
-
-    def login(
-        self,
-        provider_id: str | UUID,
-        body: _models.LoginBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.AuthorizationResponse:
-        """Initiate OAuth/OIDC login. `POST /v1/auth/login/{providerId}`
-
-        Framework generates `state` + PKCE `code_verifier` (S256 challenge). Caller redirects the user-agent to `authorizationUrl`. Provider redirects back to `redirectUri` with `code` + `state`; caller POSTs those to `/v1/auth/callback/:providerId` to complete the flow. When the provider config populated `allowedRedirectUris`, the effective redirect_uri MUST be an exact match — otherwise `400 redirect-uri-not-allowed`.
-        """
-        return self._client._request(
-            _OPERATIONS["auth.login"],
-            path={"providerId": provider_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.LoginBody, body, fields),
-            response=_models.AuthorizationResponse,
-            timeout=timeout,
-        )
-
-    def callback(
-        self,
-        provider_id: str | UUID,
-        body: _models.CallbackBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.CallbackResult:
-        """Complete an OAuth/OIDC callback. `POST /v1/auth/callback/{providerId}`
-
-        Public — the caller has not yet obtained a session token. Verifies `state`, exchanges `code` for provider tokens via the deployment's `exchangeCode`, fetches userinfo, and persists a session via `SessionStoreBinding`. Returns an opaque `kgi_sk_*` session token the caller uses on subsequent requests. The underlying provider access-token never leaves the server. When the provider config populated `allowedRedirectUris`, the stored redirect_uri is re-checked against the current allowlist — a mismatch (allowlist tightened between login and callback) returns `400 redirect-uri-mismatch`.
-        """
-        return self._client._request(
-            _OPERATIONS["auth.callback"],
-            path={"providerId": provider_id},
-            query={},
-            headers={},
-            body=_body(_models.CallbackBody, body, fields),
-            response=_models.CallbackResult,
             timeout=timeout,
         )
 
@@ -11968,7 +11917,7 @@ class AsyncAuthProvidersResource:
     ) -> _models.IdentityProviderCollectionPage:
         """List identity providers configured for the tenant. `GET /v1/auth/providers`
 
-        Returns the tenant's identity providers (OIDC, SAML, OAuth 2.0), each with `signIn` when the deployment sets it. Secrets appear only as REFERENCES (`clientSecretRef`, `spSigningKeyRef`…); a plaintext secret is never on the wire.
+        Returns the tenant's identity providers (OIDC, SAML), each with `signIn` when the deployment sets it. Secrets appear only as REFERENCES (`clientSecretRef`, `spSigningKeyRef`…); a plaintext secret is never on the wire.
         """
         return await self._client._request(
             _OPERATIONS["auth.providers.list"],
@@ -11988,9 +11937,9 @@ class AsyncAuthProvidersResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.RegisterIdentityProviderResult:
-        """Register an identity provider (OIDC, SAML or OAuth 2.0). `POST /v1/auth/providers`
+        """Register an identity provider (OIDC or SAML). `POST /v1/auth/providers`
 
-        Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered`; change it with `PATCH /v1/auth/providers/{providerId}`, which keeps its sign-in URLs. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`. The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.
+        Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered`; change it with `PATCH /v1/auth/providers/{providerId}`, which keeps its sign-in URLs. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`, as is `allowedRedirectUris`, which nothing would enforce (sign-in runs in the deployment, at its own callback URL). The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.
         """
         return await self._client._request(
             _OPERATIONS["auth.providers.register"],
@@ -12047,7 +11996,7 @@ class AsyncAuthProvidersResource:
         provider_id: str | UUID,
         /,
         *,
-        kind: Literal["oauth2", "oidc", "saml"] | None = None,
+        kind: Literal["oidc", "saml"] | None = None,
         timeout: float | None = None,
     ) -> _models.IdentityProviderSignInUrls:
         """What to give the identity provider, before or after registering. `GET /v1/auth/providers/{providerId}/sign-in`
@@ -12116,53 +12065,6 @@ class AsyncAuthResource:
             query={},
             headers={},
             response=_models.TokenSignInResult,
-            timeout=timeout,
-        )
-
-    async def login(
-        self,
-        provider_id: str | UUID,
-        body: _models.LoginBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.AuthorizationResponse:
-        """Initiate OAuth/OIDC login. `POST /v1/auth/login/{providerId}`
-
-        Framework generates `state` + PKCE `code_verifier` (S256 challenge). Caller redirects the user-agent to `authorizationUrl`. Provider redirects back to `redirectUri` with `code` + `state`; caller POSTs those to `/v1/auth/callback/:providerId` to complete the flow. When the provider config populated `allowedRedirectUris`, the effective redirect_uri MUST be an exact match — otherwise `400 redirect-uri-not-allowed`.
-        """
-        return await self._client._request(
-            _OPERATIONS["auth.login"],
-            path={"providerId": provider_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.LoginBody, body, fields),
-            response=_models.AuthorizationResponse,
-            timeout=timeout,
-        )
-
-    async def callback(
-        self,
-        provider_id: str | UUID,
-        body: _models.CallbackBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.CallbackResult:
-        """Complete an OAuth/OIDC callback. `POST /v1/auth/callback/{providerId}`
-
-        Public — the caller has not yet obtained a session token. Verifies `state`, exchanges `code` for provider tokens via the deployment's `exchangeCode`, fetches userinfo, and persists a session via `SessionStoreBinding`. Returns an opaque `kgi_sk_*` session token the caller uses on subsequent requests. The underlying provider access-token never leaves the server. When the provider config populated `allowedRedirectUris`, the stored redirect_uri is re-checked against the current allowlist — a mismatch (allowlist tightened between login and callback) returns `400 redirect-uri-mismatch`.
-        """
-        return await self._client._request(
-            _OPERATIONS["auth.callback"],
-            path={"providerId": provider_id},
-            query={},
-            headers={},
-            body=_body(_models.CallbackBody, body, fields),
-            response=_models.CallbackResult,
             timeout=timeout,
         )
 
