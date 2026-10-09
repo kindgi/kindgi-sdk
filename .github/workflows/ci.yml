@@ -100,6 +100,17 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@v5
+      # Java 17, before pnpm install: setup-java's two cache keys (the Maven
+      # repository's and the Maven wrapper's) each hash a glob from the repo
+      # root, and with node_modules installed each walked it for 6 to 9
+      # minutes, as setup-uv's default glob did (below). The Maven key hashes
+      # the Java SDK's poms only.
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+          cache-dependency-path: sdks/java/**/pom.xml
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v5
         with:
@@ -123,12 +134,8 @@ jobs:
       # compiles its fixture pack against the module's classes. Under CI that
       # target fails rather than skip when they're missing. Installed, so the
       # CLI's real Java pack build (tests/java-pack-code.test.ts) finds
-      # kindgi-pack in the local Maven repository too.
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "17"
-          cache: maven
+      # kindgi-pack in the local Maven repository too. (Java is set up before
+      # pnpm install, above.)
       - name: Java pack service (for the pack conformance suite and the CLI's Java builds)
         working-directory: sdks/java
         run: ./mvnw -B -ntp -pl kindgi-pack -am install -DskipTests
@@ -160,13 +167,9 @@ jobs:
       # and search index, from the workspace built above.
       - name: Docs site
         run: pnpm run docs:build
-      # The Java SDK, for the docs' Java samples: they compile against it. It's
-      # installed too, so the Scala layer and the Scala samples resolve kindgi-pack.
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "17"
-          cache: maven
+      # The Java SDK, for the docs' Java samples: they compile against it (on the
+      # Java 17 set up above). It's installed too, so the Scala layer and the
+      # Scala samples resolve kindgi-pack.
       - name: The Java SDK (for the docs' Java and Scala samples)
         working-directory: sdks/java
         run: ./mvnw -B -ntp install -DskipTests
