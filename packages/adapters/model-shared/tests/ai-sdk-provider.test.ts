@@ -424,6 +424,26 @@ describe('errors and retries', () => {
     expect(attemptsOf(err)).toBe(1);
   });
 
+  test('explain: the adapter’s sentence after the message, the kind, status and attempts kept', async () => {
+    const explain = vi.fn((e: ModelProviderError) =>
+      e.status === 403 ? 'Check the policy.' : undefined,
+    );
+    const err = await provider([{ status: 403, body: '{"message":"denied"}' }], [], { explain })
+      .invoke(ask)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ModelProviderError);
+    expect(err).toMatchObject({
+      kind: 'auth',
+      status: 403,
+      message: '403 {"message":"denied"} Check the policy.',
+    });
+    expect(attemptsOf(err)).toBe(1);
+    const other = await provider([{ status: 400 }], [], { explain })
+      .invoke(ask)
+      .catch((e: unknown) => e);
+    expect((other as Error).message).toBe('400 {"message":"nope"}');
+  });
+
   test('an abort during the backoff stops the retries', async () => {
     const controller = new AbortController();
     const p = provider([{ status: 503, headers: { 'retry-after-ms': '60000' } }]);

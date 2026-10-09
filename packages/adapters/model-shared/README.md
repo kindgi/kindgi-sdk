@@ -44,7 +44,8 @@ Today's engine for sending the requests is the [AI SDK](https://ai-sdk.dev)'s pr
 - `cost(model, usage)`: the adapter's cost formula;
 - `attempts?`: HTTP attempts in all on a retryable failure (default 3);
 - `fetch?`: the fetch each attempt goes through, for an endpoint the registration chose: the runtime's (`AdapterFactoryInput.fetch`, which refuses the hosts its deployment forbids). Default: the global `fetch`;
-- `beforeAttempt?()`: run before each HTTP attempt, inside the retries. An adapter checks its sign-in here when its library would report a failure as a plain error (Bedrock's), and throws a `ModelProviderError`.
+- `beforeAttempt?()`: run before each HTTP attempt, inside the retries. An adapter checks its sign-in here when its library would report a failure as a plain error (Bedrock's), and throws a `ModelProviderError`;
+- `explain?(error)`: a sentence after a failed call's message, where the vendor's words don't say what to check (Bedrock's 403). The kind, status and attempts stay as they are.
 
 ## Pins
 
