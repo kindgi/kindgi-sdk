@@ -117,6 +117,13 @@ export function readAzureOpenAIConfig(
         "adapter_config.auth = entra signs in as the runtime's Azure identity: remove secret_ref.",
     });
   }
+  if (auth === 'entra' && input.identities?.azure === false) {
+    problems.push({
+      path: at('auth'),
+      message:
+        "adapter_config.auth = entra needs the runtime's Azure identity (its managed identity; KINDGI_AZURE_CLIENT_ID names a user-assigned one), and this runtime has none.",
+    });
+  }
 
   const deployments = readDeployments(config.deployments, input.metadata, problems);
 

@@ -1,7 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-export { adapterConfigError, createAdapterFactoryRegistry } from './adapter-factory.js';
+export {
+  adapterConfigError,
+  createAdapterFactoryRegistry,
+  identitiesPresent,
+} from './adapter-factory.js';
 export type {
   AdapterConfig,
   AdapterConfigCheckInput,
@@ -10,7 +14,9 @@ export type {
   AdapterFactoryEntry,
   AdapterFactoryInput,
   AdapterFactoryRegistry,
+  AdapterFactoryRegistryOptions,
   AdapterIdentities,
+  AdapterIdentitiesPresent,
   AwsCredentialClient,
   AwsCredentials,
   AzureTokenClient,

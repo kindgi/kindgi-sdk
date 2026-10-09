@@ -115,6 +115,30 @@ describe('checkConfig', () => {
     expect(problems.find((p) => p.path === path)?.message).toContain(words);
   });
 
+  test('Entra on a runtime that has no Azure identity: refused when it registers, naming the setting', () => {
+    const entra = { ...GOOD, auth: 'entra' };
+    const on = (azure: boolean) =>
+      azureOpenAICheckConfig({
+        metadata: METADATA,
+        config: entra,
+        hasSecretRef: false,
+        identities: { azure, aws: false },
+      });
+    expect(on(true)).toEqual([]);
+    expect(on(false)).toEqual([
+      { path: '/adapter_config/auth', message: expect.stringContaining('KINDGI_AZURE_CLIENT_ID') },
+    ]);
+    // A key needs no identity.
+    expect(
+      azureOpenAICheckConfig({
+        metadata: METADATA,
+        config: GOOD,
+        hasSecretRef: true,
+        identities: { azure: false, aws: false },
+      }),
+    ).toEqual([]);
+  });
+
   test('a key needs secret_ref; Entra must not have one', () => {
     expect(check(GOOD, false)).toEqual([
       {
@@ -284,8 +308,10 @@ describe('what the provider sends', () => {
 });
 
 describe('the factory refuses', () => {
-  test("Entra without the runtime's Azure identity, naming the setting", () => {
-    expect(() => build({ ...GOOD, auth: 'entra' }, {})).toThrow(/KINDGI_AZURE_CLIENT_ID/);
+  test("Entra without the runtime's Azure identity: the check's own words", () => {
+    expect(() => build({ ...GOOD, auth: 'entra' }, {})).toThrow(
+      '@kindgi/adapter-model-azure-openai: provider "azure-acme": adapter_config.auth = entra needs the runtime\'s Azure identity',
+    );
   });
 
   test('a registration checkConfig refuses, with its first problem', () => {
