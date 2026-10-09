@@ -322,6 +322,7 @@
           "eval-suite-not-found": 404,
           "eval-suite-already-registered": 409,
           "eval-run-not-found": 404,
+          "eval-run-not-rescorable": 409,
           "judgment-not-found": 404,
           "judge-class-not-found": 404,
           "judge-class-name-taken": 409,
@@ -11979,6 +11980,10 @@
           },
           "sample": {
             "$ref": "#/components/schemas/EvalSample"
+          },
+          "rescoreOf": {
+            "type": "string",
+            "description": "Rescore that comparison eval run instead of replaying: its replays' outputs are scored again, with the judgments recorded on them since (a changed answer judged on the replay itself). Nothing runs, and the run rescored stays as it was. Set by `POST /v1/eval-runs/{runId}/rescore`."
           }
         }
       },
@@ -12045,6 +12050,11 @@
           "spread": {
             "type": "number",
             "description": "With more than one repetition: the candidate's max − min across them."
+          },
+          "freshWeight": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Of `weight`, the part judged on the candidate's replays themselves (a rescore, after people judged a changed answer there). Absent when none. Not on `weightedPrecisionAtK`."
           }
         }
       },
@@ -12298,6 +12308,15 @@
             "minimum": 1,
             "description": "Cases an erasure cleared (a person's words were erased): left out of the run and the metrics. Absent: none."
           },
+          "rescoreOf": {
+            "type": "string",
+            "description": "A rescore: the comparison eval run whose replays it scored again."
+          },
+          "notRescored": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "A rescore: cases whose replays couldn't be read again (a retention purge, say), kept at their earlier scores. Absent: none."
+          },
           "stopped": {
             "type": "integer",
             "minimum": 0,
@@ -12448,6 +12467,28 @@
                     "type": "number"
                   }
                 }
+              },
+              "fresh": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "yesWeight",
+                  "totalWeight",
+                  "items"
+                ],
+                "description": "The part of these sums judged on this output itself (a replay judged after it ran). Absent when none was.",
+                "properties": {
+                  "yesWeight": {
+                    "type": "number"
+                  },
+                  "totalWeight": {
+                    "type": "number"
+                  },
+                  "items": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
               }
             }
           },
@@ -12492,6 +12533,28 @@
                     },
                     "totalWeight": {
                       "type": "number"
+                    }
+                  }
+                },
+                "fresh": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "yesWeight",
+                    "totalWeight",
+                    "items"
+                  ],
+                  "description": "The part of these sums judged on this output itself (a replay judged after it ran). Absent when none was.",
+                  "properties": {
+                    "yesWeight": {
+                      "type": "number"
+                    },
+                    "totalWeight": {
+                      "type": "number"
+                    },
+                    "items": {
+                      "type": "integer",
+                      "minimum": 1
                     }
                   }
                 }
@@ -12566,6 +12629,23 @@
                     },
                     "rank": {
                       "type": "integer"
+                    },
+                    "judged": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "required": [
+                        "yesWeight",
+                        "totalWeight"
+                      ],
+                      "description": "What people said about this item on the replay itself, once they judged it there.",
+                      "properties": {
+                        "yesWeight": {
+                          "type": "number"
+                        },
+                        "totalWeight": {
+                          "type": "number"
+                        }
+                      }
                     }
                   }
                 }
@@ -12652,6 +12732,13 @@
                 "type": "string"
               }
             }
+          },
+          "rescored": {
+            "type": "boolean",
+            "enum": [
+              false
+            ],
+            "description": "Set in a rescore when this case's replays can't be read again: its scores are the run rescored's."
           }
         }
       },
@@ -12835,6 +12922,17 @@
           }
         },
         "description": "Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `judged` suite (a test set), the run is a comparison: `agentRef` or `flowRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't (a flow stops at a write the replay refuses); `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how. With `flowRef`, `versions` runs the flow with some of its agents or tools at other versions; an id the flow doesn't use, or a version that isn't published, is refused (`400 validation-failed`, each under `details.issues`)."
+      },
+      "RescoreEvalRunBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Body of `POST /v1/eval-runs/{runId}/rescore`: optional.",
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "description": "The run's project, needed only from a runtime that doesn't record it on the run."
+          }
+        }
       },
       "StartEvalRunResult": {
         "type": "object",
@@ -34893,6 +34991,95 @@
             "description": "EvalRunId — opaque branded UUID."
           }
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/eval-runs/{runId}/rescore": {
+      "post": {
+        "operationId": "evalRuns.rescore",
+        "summary": "Rescore a comparison eval run",
+        "tags": [
+          "eval-runs"
+        ],
+        "responses": {
+          "201": {
+            "description": "The rescore started.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StartEvalRunResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`bad-input`: `projectId` is required (this runtime doesn't record the run's project), or isn't a project here. `dispatcher-input-invalid`: this runtime can't rescore (it doesn't read replays and their judgments again).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No eval run with that id under this tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "`eval-run-not-rescorable`: only a completed comparison of a test set can be rescored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Starts a new comparison eval run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the judgments recorded on them since (a changed answer judged on the replay itself; `changes.new` lists the items to judge). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's suite and `write` on its project.",
+        "parameters": [
+          {
+            "name": "runId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "EvalRunId — opaque branded UUID."
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RescoreEvalRunBody"
+              }
+            }
+          }
+        },
         "security": [
           {
             "bearerAuth": []

@@ -13,6 +13,7 @@ import type {
   JudgedItemSummary,
 } from '../eval-case-binding.js';
 import type { EvalSuiteRegistryBinding } from '../eval-suite-binding.js';
+import { classWeightReader, summarizeJudgments } from '../judged-summary.js';
 import type {
   JudgedRunListInput,
   JudgedRunWithJudgments,
@@ -213,23 +214,6 @@ interface BuildBody {
   readonly query: JudgedSuiteQuery;
 }
 
-/** Each class's weight, read once (an unclassified judgment counts 1; a missing class too). */
-function classWeights(
-  judgments: JudgmentRegistryBinding,
-  tenantId: TenantId,
-): (judgeClassId: string | undefined) => Promise<number> {
-  const weights = new Map<string, number>();
-  return async (judgeClassId) => {
-    if (judgeClassId === undefined) return 1;
-    const known = weights.get(judgeClassId);
-    if (known !== undefined) return known;
-    const k = await judgments.getClass({ tenantId, judgeClassId, includeUnregistered: true });
-    const w = k?.weight ?? 1;
-    weights.set(judgeClassId, w);
-    return w;
-  };
-}
-
 function judgedRunFilter(
   tenantId: TenantId,
   body: Pick<BuildBody, 'projectId' | 'query'>,
@@ -245,7 +229,7 @@ async function buildCases(
   body: Pick<BuildBody, 'projectId' | 'query'>,
 ): Promise<{ readonly cases: JudgedEvalCase[]; readonly truncated: boolean }> {
   const list = judgments.listJudgedRuns as NonNullable<JudgmentRegistryBinding['listJudgedRuns']>;
-  const weightOf = classWeights(judgments, tenantId);
+  const weightOf = classWeightReader(judgments, tenantId);
   const filter = judgedRunFilter(tenantId, body);
   const cases: JudgedEvalCase[] = [];
   let cursor: Cursor | undefined;
@@ -276,7 +260,7 @@ async function toCase(
   const byKey = new Map<string, Judgment[]>();
   for (const j of kept) byKey.set(j.item.key, [...(byKey.get(j.item.key) ?? []), j]);
   const items: JudgedItemSummary[] = [];
-  for (const [key, list] of byKey) items.push(await summarize(key, list, weightOf));
+  for (const [key, list] of byKey) items.push(await summarizeJudgments(key, list, weightOf));
   items.sort((a, b) => (a.rank ?? Number.MAX_SAFE_INTEGER) - (b.rank ?? Number.MAX_SAFE_INTEGER));
   const run = judged.run;
   return {
@@ -286,54 +270,6 @@ async function toCase(
     ...(run.context !== undefined && { context: run.context }),
     output: run.output,
     items,
-  };
-}
-
-async function summarize(
-  key: string,
-  judgments: readonly Judgment[],
-  weightOf: (judgeClassId: string | undefined) => Promise<number>,
-): Promise<JudgedItemSummary> {
-  let yes = 0;
-  let no = 0;
-  let yesWeight = 0;
-  let totalWeight = 0;
-  // What judges a class was restricted to asserted, as it was when each judgment was recorded.
-  const restricted = { yesWeight: 0, totalWeight: 0 };
-  for (const j of judgments) {
-    const w = await weightOf(j.judgeClassId);
-    totalWeight += w;
-    if (j.restricted === true) restricted.totalWeight += w;
-    if (j.verdict === 'yes') {
-      yes += 1;
-      yesWeight += w;
-      if (j.restricted === true) restricted.yesWeight += w;
-    } else {
-      no += 1;
-    }
-  }
-  const first = judgments[0];
-  return {
-    key,
-    ...(first?.item.pointer !== undefined && { pointer: first.item.pointer }),
-    ...(first?.item.rank !== undefined && { rank: first.item.rank }),
-    yes,
-    no,
-    yesWeight,
-    totalWeight,
-    restricted,
-    reasons: judgments.flatMap((j) =>
-      j.reason !== undefined
-        ? [
-            {
-              verdict: j.verdict,
-              reason: j.reason,
-              ...(j.judgeClassId !== undefined && { judgeClassId: j.judgeClassId }),
-              ...(j.restricted === true && { restricted: true as const }),
-            },
-          ]
-        : [],
-    ),
   };
 }
 

@@ -17,8 +17,9 @@ import type {
   JudgedDispatcherOptions,
   JudgedEvalCase,
 } from '../src/index.js';
-import { DEFAULT_COMPARISON, createJudgedDispatcher } from '../src/index.js';
+import { DEFAULT_COMPARISON, RESCORE_UNSUPPORTED, createJudgedDispatcher } from '../src/index.js';
 import { inMemoryCaseStore } from './support/in-memory-cases.js';
+import { inMemoryJudgments } from './support/in-memory-judgments.js';
 import { validateAgainst } from './support/openapi-schema.js';
 
 const tenantId = 't-1' as TenantId;
@@ -626,5 +627,176 @@ describe('a comparison of a flow version', () => {
     expect(stoppedAll.summary.metrics.weightedYesShare).toMatchObject({ candidate: null, n: 0 });
     const erroredAll = await compareFlow(() => ({ error: 'flow-not-found: no such version' }));
     expect(erroredAll.summary).toMatchObject({ status: 'failed', stopped: 0, errors: 2 });
+  });
+});
+
+describe('a rescore: the replays scored again, with what people judged on them since', () => {
+  /**
+   * A first comparison (eval-1), then a rescore of it (eval-2), with
+   * `judge` recording judgments on the first comparison's replays in
+   * between. `gone` lists replay runs that can't be read again.
+   */
+  async function rescoreAfter(
+    judge: (j: ReturnType<typeof inMemoryJudgments>) => Promise<void>,
+    options: { classWeights?: 'restricted-only'; gone?: readonly string[] } = {},
+  ) {
+    const comparison: EvalComparison = {
+      ...DEFAULT_COMPARISON,
+      ...(options.classWeights !== undefined && { classWeights: options.classWeights }),
+    };
+    const first = await compare({ comparison });
+    const judgments = inMemoryJudgments();
+    await judge(judgments);
+    const cases = inMemoryCaseStore();
+    await cases.putCases({
+      tenantId,
+      suiteId: 'acme.set',
+      version: '1.0.0',
+      cases: [caseA, caseB],
+    });
+    const outputs: Record<string, unknown> = {
+      'run-a': answers['case-a']?.output,
+      'run-b': answers['case-b']?.output,
+    };
+    const invoked: unknown[] = [];
+    const ctx: DispatchContext = {
+      tenantId,
+      runId: 'eval-2' as RunId,
+      suite: {
+        id: 'acme.set',
+        tenantId,
+        version: '1.0.0',
+        kind: 'judged',
+        spec: { source: 'judgments', projectId: 'p-judged', caseCount: 2 },
+      },
+      target: { agentId: 'acme.agent' as never, version: '2.0.0' as never },
+      dryRun: false,
+      abortSignal: new AbortController().signal,
+      projectId: 'p-run' as ProjectId,
+      comparison: { ...comparison, rescoreOf: 'eval-1' },
+      subject: {
+        invoke: async (input) => {
+          invoked.push(input);
+          return { error: 'a rescore never replays' };
+        },
+      },
+      onProgress: () => undefined,
+    };
+    const dispatcher = createJudgedDispatcher({
+      cases,
+      judgments,
+      evalRuns: {
+        get: async () => ({
+          runId: 'eval-1' as RunId,
+          tenantId,
+          suiteId: 'acme.set',
+          suiteVersion: '1.0.0',
+          kind: 'judged',
+          status: 'completed',
+          dryRun: false,
+          startedAt: '2026-10-09T00:00:00.000Z' as never,
+          result: { summary: first.summary, perCase: first.perCase },
+        }),
+      },
+      runs: {
+        getRun: async (_t, runId) =>
+          options.gone?.includes(runId as unknown as string) === true
+            ? null
+            : { output: outputs[runId as unknown as string] },
+      },
+    });
+    const out = await dispatcher.dispatch(ctx);
+    const result = out.result as { summary: JudgedComparisonSummary; perCase: JudgedCaseResult[] };
+    return { first, ...result, invoked, error: out.error };
+  }
+
+  const judgeAnswer =
+    (verdict: 'yes' | 'no', extra: object = {}) =>
+    async (j: ReturnType<typeof inMemoryJudgments>) => {
+      await j.record({
+        tenantId,
+        projectId: 'p-run' as ProjectId,
+        runId: 'run-b',
+        run: {
+          subject: { kind: 'agent', id: 'acme.agent', version: '2.0.0' },
+          input: 'find b',
+          output: answers['case-b']?.output,
+        },
+        item: { key: 'answer', pointer: '/appended/3/content' },
+        verdict,
+        assertedBy: { kind: 'user', id: 'lead' },
+        ...extra,
+      });
+    };
+
+  test("a changed answer, judged on its replay, counts: no replay runs, and the evidence says it's fresh", async () => {
+    const r = await rescoreAfter(judgeAnswer('yes'));
+    expect(r.invoked).toEqual([]);
+    expect(r.error).toBeUndefined();
+    // Before: case-b's changed answer was a new item, with no evidence.
+    const before = r.first.perCase.find((c) => c.caseId === 'case-b');
+    expect(before?.candidate[0]?.judgedItems).toBe(0);
+    const after = r.perCase.find((c) => c.caseId === 'case-b');
+    expect(after?.candidate[0]).toMatchObject({
+      judgedItems: 1,
+      yesWeight: 1,
+      totalWeight: 1,
+      fresh: { yesWeight: 1, totalWeight: 1, items: 1 },
+    });
+    expect(after?.changes?.new).toEqual([
+      { key: 'answer', pointer: '/appended/3/content', judged: { yesWeight: 1, totalWeight: 1 } },
+    ]);
+    expect(r.summary).toMatchObject({ rescoreOf: 'eval-1', cases: 2 });
+    expect(r.summary.metrics.weightedYesShare.freshWeight).toBe(1);
+    expect(r.summary.metrics.weightedYesShare.candidate).not.toBe(
+      r.first.summary.metrics.weightedYesShare.candidate,
+    );
+    expect(r.summary.metrics.weightedPrecisionAtK).not.toHaveProperty('freshWeight');
+    expect(wireErrors(r)).toEqual([]);
+  });
+
+  test('with nothing judged since, a rescore scores as the run it rescores', async () => {
+    const r = await rescoreAfter(async () => undefined);
+    expect(r.summary.metrics).toEqual(r.first.summary.metrics);
+    expect(r.perCase.map((c) => c.candidate)).toEqual(r.first.perCase.map((c) => c.candidate));
+  });
+
+  test('restricted-only: a fresh judgment counts only if its class was restricted', async () => {
+    const unrestricted = await rescoreAfter(judgeAnswer('yes'), {
+      classWeights: 'restricted-only',
+    });
+    expect(
+      unrestricted.perCase.find((c) => c.caseId === 'case-b')?.candidate[0]?.fresh,
+    ).toBeUndefined();
+    const restricted = await rescoreAfter(judgeAnswer('yes', { restricted: true }), {
+      classWeights: 'restricted-only',
+    });
+    expect(restricted.perCase.find((c) => c.caseId === 'case-b')?.candidate[0]?.fresh).toEqual({
+      yesWeight: 1,
+      totalWeight: 1,
+      items: 1,
+    });
+  });
+
+  test("a case whose replay can't be read again keeps its scores, and is counted", async () => {
+    const r = await rescoreAfter(judgeAnswer('yes'), { gone: ['run-b'] });
+    const b = r.perCase.find((c) => c.caseId === 'case-b');
+    expect(b?.rescored).toBe(false);
+    expect(b?.candidate).toEqual(r.first.perCase.find((c) => c.caseId === 'case-b')?.candidate);
+    expect(r.summary.notRescored).toBe(1);
+    expect(wireErrors(r)).toEqual([]);
+  });
+
+  test("a runtime that can't read replays and their judgments again refuses a rescore", () => {
+    const plain = createJudgedDispatcher({ cases: inMemoryCaseStore() });
+    const suite = { spec: { caseCount: 1 } } as unknown as EvalSuite;
+    const target = { agentId: 'acme.agent', version: '2.0.0' } as never;
+    expect(plain.validate?.(suite, target, { ...DEFAULT_COMPARISON, rescoreOf: 'eval-1' })).toEqual(
+      {
+        kind: 'err',
+        message: RESCORE_UNSUPPORTED,
+      },
+    );
+    expect(plain.validate?.(suite, target, DEFAULT_COMPARISON)).toEqual({ kind: 'ok' });
   });
 });

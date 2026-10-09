@@ -556,15 +556,27 @@ export type {
   EvalSubjectInvoker,
   InProcessEvalRunBindingOptions,
 } from './eval-run-dispatcher.js';
-export { DEFAULT_COMPARISON, createJudgedDispatcher } from './judged-dispatcher.js';
+export {
+  DEFAULT_COMPARISON,
+  RESCORE_UNSUPPORTED,
+  createJudgedDispatcher,
+} from './judged-dispatcher.js';
 export type {
   ComparisonBaselineSummary,
   ComparisonMetric,
   JudgedCaseResult,
   JudgedComparisonSummary,
   JudgedDispatcherOptions,
+  ReplayRunReader,
 } from './judged-dispatcher.js';
-export { itemChanges, matchJudged, outputItems, scoreItems, valueAt } from './judged-items.js';
+export {
+  itemChanges,
+  matchJudged,
+  outputItems,
+  scoreItems,
+  valueAt,
+  withFresh,
+} from './judged-items.js';
 export type {
   ItemChanges,
   ItemJudgments,

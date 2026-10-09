@@ -5012,6 +5012,30 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'post',
+    honoPath: '/v1/eval-runs/:runId/rescore',
+    openapiPath: '/v1/eval-runs/{runId}/rescore',
+    operationId: 'evalRuns.rescore',
+    summary: 'Rescore a comparison eval run',
+    description:
+      "Starts a new comparison eval run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the judgments recorded on them since (a changed answer judged on the replay itself; `changes.new` lists the items to judge). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's suite and `write` on its project.",
+    tags: ['eval-runs'],
+    security: 'bearer',
+    parameters: [EvalRunIdPathParam],
+    requestBody: { required: false, schema: ref('RescoreEvalRunBody') },
+    responses: {
+      '201': { description: 'The rescore started.', schema: ref('StartEvalRunResult') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse(
+        "`bad-input`: `projectId` is required (this runtime doesn't record the run's project), or isn't a project here. `dispatcher-input-invalid`: this runtime can't rescore (it doesn't read replays and their judgments again).",
+      ),
+      '404': ErrorResponse('No eval run with that id under this tenant.'),
+      '409': ErrorResponse(
+        '`eval-run-not-rescorable`: only a completed comparison of a test set can be rescored.',
+      ),
+    },
+  },
+  {
     method: 'get',
     honoPath: '/v1/eval-runs/:runId/events',
     openapiPath: '/v1/eval-runs/{runId}/events',

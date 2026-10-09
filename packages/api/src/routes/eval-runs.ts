@@ -16,10 +16,11 @@ import {
   type EvalRun,
   type EvalRunBinding,
   type EvalRunFilter,
+  type EvalRunStartOutcome,
   type EvalRunStatus,
   type FlowRef,
 } from '../eval-run-binding.js';
-import { VERSIONS_NEED_A_FLOW } from '../judged-dispatcher.js';
+import { DEFAULT_COMPARISON, VERSIONS_NEED_A_FLOW } from '../judged-dispatcher.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
 import { deniedBy } from './denied.js';
@@ -197,71 +198,80 @@ function startRouter(
       }),
       ...(parsed.value.comparison !== undefined && { comparison: parsed.value.comparison }),
     });
-    if (outcome.kind === 'suite-not-found') {
-      c.status(statusFor('eval-suite-not-found') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'eval-suite-not-found',
-            message: `No eval suite registered with id "${outcome.suiteId}"`,
-            suiteId: outcome.suiteId,
-          },
-          requestId,
-        ),
-      );
-    }
-    if (outcome.kind === 'dispatcher-not-registered') {
-      c.status(statusFor('dispatcher-not-registered') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'dispatcher-not-registered',
-            message: `No eval-run dispatcher registered for kind "${outcome.evalKind}". This kind is registry-only today.`,
-            evalKind: outcome.evalKind,
-          },
-          requestId,
-        ),
-      );
-    }
-    if (outcome.kind === 'dispatcher-input-invalid') {
-      c.status(statusFor('dispatcher-input-invalid') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'dispatcher-input-invalid',
-            message: outcome.message,
-          },
-          requestId,
-        ),
-      );
-    }
-    if (outcome.kind === 'project-not-found') {
-      // Caller supplied a `projectId` that does not resolve within
-      // this tenant. Distinct signal from `dispatcher-input-invalid`
-      // so the client can prompt for a valid project rather than
-      // assume a dispatcher wiring problem. Answered as `400 bad-input`,
-      // like the eval-suites route; the caller learns from the message
-      // which field was invalid.
-      c.status(statusFor('bad-input') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'bad-input',
-            message: `\`projectId\` "${outcome.projectId as unknown as string}" does not resolve to a project in this tenant`,
-          },
-          requestId,
-        ),
-      );
-    }
-
-    c.status(201);
-    return c.json({
-      runId: outcome.runId as unknown as string,
-      ...(outcome.dryRunPreview !== undefined && { dryRunPreview: outcome.dryRunPreview }),
-    });
+    return startAnswer(c, requestId, outcome);
   });
 
   return r;
+}
+
+/** A started eval run's answer: 201 with its id, or why it didn't start. */
+function startAnswer(
+  c: Context<AppEnv>,
+  requestId: string,
+  outcome: EvalRunStartOutcome,
+): Response {
+  if (outcome.kind === 'suite-not-found') {
+    c.status(statusFor('eval-suite-not-found') as never);
+    return c.json(
+      toWireError(
+        {
+          code: 'eval-suite-not-found',
+          message: `No eval suite registered with id "${outcome.suiteId}"`,
+          suiteId: outcome.suiteId,
+        },
+        requestId,
+      ),
+    );
+  }
+  if (outcome.kind === 'dispatcher-not-registered') {
+    c.status(statusFor('dispatcher-not-registered') as never);
+    return c.json(
+      toWireError(
+        {
+          code: 'dispatcher-not-registered',
+          message: `No eval-run dispatcher registered for kind "${outcome.evalKind}". This kind is registry-only today.`,
+          evalKind: outcome.evalKind,
+        },
+        requestId,
+      ),
+    );
+  }
+  if (outcome.kind === 'dispatcher-input-invalid') {
+    c.status(statusFor('dispatcher-input-invalid') as never);
+    return c.json(
+      toWireError(
+        {
+          code: 'dispatcher-input-invalid',
+          message: outcome.message,
+        },
+        requestId,
+      ),
+    );
+  }
+  if (outcome.kind === 'project-not-found') {
+    // Caller supplied a `projectId` that does not resolve within
+    // this tenant. Distinct signal from `dispatcher-input-invalid`
+    // so the client can prompt for a valid project rather than
+    // assume a dispatcher wiring problem. Answered as `400 bad-input`,
+    // like the eval-suites route; the caller learns from the message
+    // which field was invalid.
+    c.status(statusFor('bad-input') as never);
+    return c.json(
+      toWireError(
+        {
+          code: 'bad-input',
+          message: `\`projectId\` "${outcome.projectId as unknown as string}" does not resolve to a project in this tenant`,
+        },
+        requestId,
+      ),
+    );
+  }
+
+  c.status(201);
+  return c.json({
+    runId: outcome.runId as unknown as string,
+    ...(outcome.dryRunPreview !== undefined && { dryRunPreview: outcome.dryRunPreview }),
+  });
 }
 
 // ---------- /v1/eval-runs/* (readback + cancel + SSE) ----------
@@ -370,6 +380,76 @@ function readbackRouter(binding: EvalRunBinding, authorizer?: Authorizer): Hono<
       );
     }
     return c.json(serializeEvalRun(run));
+  });
+
+  // ---------- POST /:runId/rescore ----------
+  // A new comparison eval run of the same test set version, candidate and
+  // settings that replays nothing: it scores the run's replays again, with
+  // what people judged on them since. The run rescored stays as it was.
+  r.post('/:runId/rescore', async (c) => {
+    const refused = await onRunSuite(c, 'admin');
+    if (refused !== undefined) return refused;
+    const requestId = c.get('requestId');
+    const tenantId = c.get('tenantId') as TenantId;
+    const runId = c.req.param('runId') as RunId;
+    const run = await binding.get({ tenantId, runId });
+    if (run === null) {
+      c.status(statusFor('eval-run-not-found') as never);
+      return c.json(
+        toWireError(
+          { code: 'eval-run-not-found', message: `No eval run with id ${runId}`, runId },
+          requestId,
+        ),
+      );
+    }
+    if (run.kind !== 'judged' || run.status !== 'completed') {
+      c.status(statusFor('eval-run-not-rescorable') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'eval-run-not-rescorable',
+            message: `Eval run ${runId} can't be rescored: only a completed comparison of a test set can (this one is a ${run.kind} run, ${run.status}).`,
+            runId,
+          },
+          requestId,
+        ),
+      );
+    }
+    const body = (await c.req.json().catch(() => ({}))) as { projectId?: unknown } | null;
+    const projectId =
+      run.projectId ??
+      (typeof body?.projectId === 'string' && body.projectId.length > 0
+        ? (body.projectId as ProjectId)
+        : undefined);
+    if (projectId === undefined) {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'bad-input',
+            message:
+              "`projectId` is required: this runtime doesn't record the project the run belongs to.",
+          },
+          requestId,
+        ),
+      );
+    }
+    const denied = await deniedBy(authorizer, c, 'write', ref('project', projectId as string));
+    if (denied !== undefined) return denied;
+    const outcome = await binding.start({
+      tenantId,
+      projectId,
+      suiteId: run.suiteId,
+      suiteVersion: run.suiteVersion,
+      ...(run.agentRef !== undefined && { agentRef: run.agentRef }),
+      ...(run.flowRef !== undefined && { flowRef: run.flowRef }),
+      // A comparison started without settings ran the defaults.
+      comparison: {
+        ...(run.comparison ?? DEFAULT_COMPARISON),
+        rescoreOf: run.runId as unknown as string,
+      },
+    });
+    return startAnswer(c, requestId, outcome);
   });
 
   // ---------- POST /:runId/cancel ----------

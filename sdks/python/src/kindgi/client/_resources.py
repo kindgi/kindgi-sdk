@@ -536,6 +536,9 @@ OPERATIONS: dict[str, Operation] = {
     "evalRuns.cancel": Operation(
         "evalRuns.cancel", "POST", "/v1/eval-runs/{runId}/cancel", "json", False
     ),
+    "evalRuns.rescore": Operation(
+        "evalRuns.rescore", "POST", "/v1/eval-runs/{runId}/rescore", "json", False
+    ),
     "evalRuns.events": Operation(
         "evalRuns.events", "GET", "/v1/eval-runs/{runId}/events", "empty", False
     ),
@@ -5203,6 +5206,29 @@ class EvalRunsResource:
             query={},
             headers={},
             response=_models.EvalRun,
+            timeout=timeout,
+        )
+
+    def rescore(
+        self,
+        run_id: str | UUID,
+        body: _models.RescoreEvalRunBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.StartEvalRunResult:
+        """Rescore a comparison eval run. `POST /v1/eval-runs/{runId}/rescore`
+
+        Starts a new comparison eval run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the judgments recorded on them since (a changed answer judged on the replay itself; `changes.new` lists the items to judge). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's suite and `write` on its project.
+        """
+        return self._client._request(
+            _OPERATIONS["evalRuns.rescore"],
+            path={"runId": run_id},
+            query={},
+            headers={},
+            body=_body(_models.RescoreEvalRunBody, body, fields),
+            response=_models.StartEvalRunResult,
             timeout=timeout,
         )
 
@@ -11933,6 +11959,29 @@ class AsyncEvalRunsResource:
             query={},
             headers={},
             response=_models.EvalRun,
+            timeout=timeout,
+        )
+
+    async def rescore(
+        self,
+        run_id: str | UUID,
+        body: _models.RescoreEvalRunBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.StartEvalRunResult:
+        """Rescore a comparison eval run. `POST /v1/eval-runs/{runId}/rescore`
+
+        Starts a new comparison eval run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the judgments recorded on them since (a changed answer judged on the replay itself; `changes.new` lists the items to judge). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's suite and `write` on its project.
+        """
+        return await self._client._request(
+            _OPERATIONS["evalRuns.rescore"],
+            path={"runId": run_id},
+            query={},
+            headers={},
+            body=_body(_models.RescoreEvalRunBody, body, fields),
+            response=_models.StartEvalRunResult,
             timeout=timeout,
         )
 
