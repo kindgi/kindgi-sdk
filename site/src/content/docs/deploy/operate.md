@@ -323,8 +323,7 @@ The `Token` line in the log now shows the new token's last four characters, and 
 `KINDGI_API_TOKEN` is one token: switch your CLI and apps to the new one when you restart.
 
 Console sessions signed in with the old token end at the restart, and people
-sign in again. With `KINDGI_SEED_USER_ID` set, the token's user stays the
-same across the change, and so do its sessions (`kindgi dev` sets it).
+sign in again.
 
 ## Rotate the pack service token
 
