@@ -112,13 +112,17 @@ const directory: IdentityDirectoryBinding = {
   revokeAllSessions: async ({ userId }) => ({ userId, revokedCount: 0 }),
 };
 
-/** With `admins`, an authorizer: `admin` on the tenant for those users only. */
-function makeApp(admins?: readonly UserId[]) {
+/**
+ * With `admins`, an authorizer: `admin` on the tenant for those users only.
+ * `'unreachable'`: an authorizer whose store can't answer (every check throws).
+ */
+function makeApp(admins?: readonly UserId[] | 'unreachable') {
   const authzCheckBinding: AuthzCheckBinding = {
     check: async (principal, action, resource) => {
+      if (admins === 'unreachable') throw new Error('connect ECONNREFUSED 127.0.0.1:8080');
       const allowed =
         !(action === 'admin' && resource.type === 'tenant') ||
-        (admins ?? []).includes(principal.actor.id as UserId);
+        ((admins as readonly UserId[] | undefined) ?? []).includes(principal.actor.id as UserId);
       return {
         allowed,
         reason: allowed ? 'test: granted' : 'test: not a tenant admin',
@@ -193,6 +197,17 @@ describe('with authorization off (the scopes decide)', () => {
     expect((await whoami(app, bearer('kgi_ann_member'))).tenantAdmin).toBe(false);
     expect((await whoami(app, bearer('kgi_ann_project'))).tenantAdmin).toBe(false);
     expect((await whoami(app, bearer('kgi_bo_full'))).tenantAdmin).toBe(false);
+  });
+});
+
+describe("an authorization store that can't answer", () => {
+  test('whoami still answers, without tenantAdmin (a console then reads scopes)', async () => {
+    const app = makeApp('unreachable');
+    const res = await app.request('/v1/identity/whoami', { headers: bearer('kgi_ann_admin') });
+    expect(res.status).toBe(200);
+    const me = (await res.json()) as Record<string, unknown>;
+    expect(me.scopes).toEqual(['tenant-admin']);
+    expect(me).not.toHaveProperty('tenantAdmin');
   });
 });
 
