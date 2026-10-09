@@ -352,6 +352,13 @@ and what's different after:
   the others.** In 0.1.4, one could leave a new project unreadable by its
   creator (`403`) until an operator replayed the outbox. 0.1.5 also carries
   the fixes in runtime 0.1.4.1 and 0.1.4.2 (below).
+- **An agent, flow, tool or test set stays in the project it was first
+  published into.** Publishing a version of one under another project is
+  refused with a `409` (`agent-project-mismatch`, `flow-…`, `tool-…`,
+  `eval-suite-project-mismatch`), even for an admin of both, and nothing is
+  written; 0.1.4 accepted it. A deploy that includes one is refused whole,
+  even when it's unchanged. The refusal carries the id, not the other project
+  ([Organize work by org and project](../../guides/projects/organize-by-org-and-project/)).
 - **Run OpenFGA v1.22.0.** Published OpenFGA advisories affect v1.9.0
   ([An OpenFGA you already run](../authorization/#an-openfga-you-already-run)).
 - **Expired rows are deleted every hour:** idempotency answers, sessions and
