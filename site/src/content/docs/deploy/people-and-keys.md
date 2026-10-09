@@ -39,9 +39,18 @@ companies different tenants, not different projects of one tenant.
 kindgi people add --name="Sam Rivera" --email=sam@acme.example
 ```
 
-It prints the new person, with their `id`, and says on stderr what being
-added gives them: they read the tenant's settings, and need a project role to
-work on its agents and runs. An email another person already has is refused
+It prints the new person, and says on stderr what being added gives them:
+
+```text
+{
+  "userId": "002ee784-0b05-47fb-918e-34d192be94c1",
+  "displayName": "Sam Rivera",
+  "email": "sam@acme.example"
+}
+Added to the tenant: they can read its settings. Give them a project role to work on its agents and runs, then their first key: kindgi tokens create --for=user:002ee784-0b05-47fb-918e-34d192be94c1
+```
+
+An email another person already has is refused
 (`409 identity-user-email-taken`).
 
 Then give them a role on a project. A tenant admin, or an admin of that
@@ -80,7 +89,15 @@ kindgi people ungrant <user-id> --tenant-admin
 The grant holds from their next request. `kindgi people grants <user-id>
 --table` lists what someone holds: tenant admin, tenant member, project and
 team roles, and a reviewer role, as granted directly (what a team or an org
-gives isn't expanded). Taking it away is refused in two cases:
+gives isn't expanded). Sam, just added, holds only the tenant membership:
+
+```text
+WHERE   ROLE
+──────  ───────────────────────────
+tenant  member (reads its settings)
+```
+
+Taking tenant admin away is refused in two cases:
 
 - `409 last-tenant-admin`: they're the only one. Make someone else a tenant
   admin first.
@@ -109,6 +126,42 @@ expire.
 - **`--project=<project-id>`** limits the key to one project. A request that
   names another project is refused (`403 key-project-mismatch`).
 
+A tenant admin made Sam's first key:
+
+```sh
+kindgi tokens create --for=user:<user-id> --label=laptop --expires=30d
+```
+
+```text
+{
+  "meta": {
+    "id": "16979e65-a65d-46aa-a348-1b64d1c7d41f",
+    "principal": {
+      "kind": "user",
+      "id": "002ee784-0b05-47fb-918e-34d192be94c1"
+    },
+    "role": "member",
+    "capabilities": [],
+    "label": "laptop",
+    "createdBy": "user:11111111-3333-4333-8444-000000000402",
+    "createdAt": "2026-10-09T12:20:34.217Z",
+    "expiresAt": "2026-11-08T12:20:34.178Z"
+  },
+  "secret": "kgi_ak_…"
+}
+⚠ The secret of key 16979e65-a65d-46aa-a348-1b64d1c7d41f is shown once, above: store it now.
+```
+
+```sh
+kindgi tokens list --table
+```
+
+```text
+ID                                    FOR                                        ROLE    PROJECT  LABEL   CREATED                   EXPIRES                   REVOKED  LAST USED
+────────────────────────────────────  ─────────────────────────────────────────  ──────  ───────  ──────  ────────────────────────  ────────────────────────  ───────  ─────────
+16979e65-a65d-46aa-a348-1b64d1c7d41f  user:002ee784-0b05-47fb-918e-34d192be94c1  member           laptop  2026-10-09T12:20:34.217Z  2026-11-08T12:20:34.178Z
+```
+
 `kindgi tokens list` lists your keys; a tenant admin sees everyone's
 (`--for=user:<id>` for one person's). Someone else's key reads as `404`.
 `kindgi tokens revoke <token-id>` refuses the key from its next request on,
@@ -121,6 +174,28 @@ and only the grants you give it.
 
 ```sh
 kindgi service-accounts create acme-ci --description="Deploys from CI" --project=<project-id>:editor
+```
+
+```text
+{
+  "serviceAccountId": "04da5350-4207-4563-a4f9-c3c3463f33cf",
+  "name": "acme-ci",
+  "description": "Deploys from CI",
+  "grants": [
+    {
+      "kind": "project",
+      "projectId": "211244ea-cdac-45e5-be8c-30a3e0bc42f7",
+      "role": "editor"
+    }
+  ],
+  "createdBy": "user:11111111-3333-4333-8444-000000000402",
+  "createdAt": "2026-10-09T12:20:35.334Z"
+}
+```
+
+Then make it a key:
+
+```sh
 kindgi tokens create --for=sa:<service-account-id> --label=ci --expires=90d
 ```
 
@@ -152,6 +227,23 @@ A person's record and sessions are for a tenant admin, or that person.
 kindgi people remove <user-id>
 ```
 
+```text
+{
+  "user": {
+    "userId": "002ee784-0b05-47fb-918e-34d192be94c1",
+    "tenantId": "0b9f4c1e-4444-4a2b-8c3d-000000000402",
+    "primaryEmail": "sam@acme.example",
+    "displayName": "Sam Rivera",
+    "createdAt": "2026-10-09T12:20:33.577Z",
+    "unregisteredAt": "2026-10-09T12:20:36.482Z"
+  },
+  "keysRevoked": 1,
+  "sessionsRevoked": 0,
+  "grantsRemoved": 1
+}
+Removed Sam Rivera: 1 key(s) and 0 session(s) revoked, 1 role(s) and membership(s) taken away.
+```
+
 In one step, before it answers, their API keys are revoked (the next request
 with one gets `401`), their sessions end, and every grant and membership is
 taken away. Their record stays, so runs, approvals and the audit trail still
@@ -171,6 +263,8 @@ It's refused for yourself and for the seed user
   Copy button.
 - **People** (tenant admins): **Add a person**, each person's roles in words,
   making or unmaking a tenant admin, a key for them, and removing them.
+
+  ![The People page: the seed user and one person added by email, each with their active keys and when they were added, and an Add a person button.](../../../assets/people/people.png)
 - **Service accounts** (tenant admins): create one with its grants, change
   them, make it a key, unregister it.
 

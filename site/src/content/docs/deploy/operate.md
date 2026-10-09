@@ -437,7 +437,11 @@ WARN  [authz.outbox] drain: FGA refused a batch; trying its tuples one by one te
 ```
 
 It's expected: the runtime then applies the batch's changes one at a time,
-and a change that's already there counts as applied.
+and a change that's already there counts as applied. From 0.1.5, with
+OpenFGA v1.22.0, the warning doesn't appear: the runtime asks OpenFGA to
+ignore changes already in place, and v1.22.0 does, so it takes the batch
+whole. With an older OpenFGA that doesn't, the runtime still applies them
+one at a time, and logs it at `info`.
 
 ### From 0.1.3 to 0.1.4
 
