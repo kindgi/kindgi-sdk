@@ -24,6 +24,11 @@ describe('kindOf', () => {
       'content-filter',
     ],
     [{ status: 422, words: '{"message":"bad field"}' }, 'invalid-request'],
+    // A vendor timing out isn't a context that's too long (Bedrock's ModelTimeoutException).
+    [{ status: 408, words: 'The request took too long to process' }, 'unavailable'],
+    [{ status: 413, words: '{"message":"Prompt is too long"}' }, 'context-too-long'],
+    // The words decide only for 400, 413 and 422.
+    [{ status: 404, words: '{"message":"no model exceeds this name"}' }, 'invalid-request'],
   ] as const)('%j → %s', (failure, kind) => {
     expect(kindOf(failure)).toBe(kind);
   });
