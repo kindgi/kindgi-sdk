@@ -14,6 +14,7 @@ import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
 import { parseScopeParams } from './scope-params.js';
+import { isRegistryVersionsCursor } from './versions-cursor.js';
 
 /**
  * Data blocks: versioned prompts and settings that agent versions pin
@@ -112,7 +113,7 @@ export function blocksRouter(binding: BlockRegistryBinding, authorizer?: Authori
     const tenantId = c.get('tenantId') as TenantId;
     const blockId = c.req.param('blockId');
     const cursor = c.req.query('cursor');
-    if (cursor !== undefined && cursor.length > 0 && !isVersionsCursor(cursor)) {
+    if (cursor !== undefined && cursor.length > 0 && !isRegistryVersionsCursor(cursor)) {
       c.status(statusFor('bad-input') as never);
       return c.json(
         toWireError({ code: 'bad-input', message: '`cursor` is malformed' }, c.get('requestId')),
@@ -339,28 +340,4 @@ function serializeBlock(b: BlockRecord): Record<string, unknown> {
     publishedAt: b.publishedAt,
     ...(b.unregisteredAt !== undefined && { unregisteredAt: b.unregisteredAt }),
   };
-}
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
-/**
- * A versions cursor as the block registry binding issues it
- * (`BlockListVersionsInput.cursor`): url-safe base64 of `{ p, i }` (a time,
- * a uuid) or of a bare time. A cursor that's neither is refused here, so a
- * client paging until done never starts over from the first page.
- */
-function isVersionsCursor(raw: string): boolean {
-  const decoded = Buffer.from(raw, 'base64url').toString('utf8');
-  if (!decoded.startsWith('{')) return Number.isFinite(Date.parse(decoded));
-  try {
-    const parsed = JSON.parse(decoded) as { p?: unknown; i?: unknown };
-    return (
-      typeof parsed.p === 'string' &&
-      Number.isFinite(Date.parse(parsed.p)) &&
-      typeof parsed.i === 'string' &&
-      UUID_RE.test(parsed.i)
-    );
-  } catch {
-    return false;
-  }
 }

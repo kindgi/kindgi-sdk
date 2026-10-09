@@ -14,6 +14,7 @@ import type { ToolRegistryBinding } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
 import { parseScopeParams } from './scope-params.js';
+import { isRegistryVersionsCursor } from './versions-cursor.js';
 
 /**
  * Tools resource routes.
@@ -194,6 +195,12 @@ export function toolsRouter(
     // tombstoned. Absent / `false` / any other string → active-only
     // (the default).
     const includeTombstoned = c.req.query('includeTombstoned') === 'true';
+    if (cursorRaw !== undefined && cursorRaw.length > 0 && !isRegistryVersionsCursor(cursorRaw)) {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError({ code: 'bad-input', message: '`cursor` is malformed' }, requestId),
+      );
+    }
 
     // Confirm the id exists at all. Retired tools (all versions
     // tombstoned) still have a head row → 200 with a page listing the

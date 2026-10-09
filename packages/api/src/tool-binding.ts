@@ -148,6 +148,12 @@ export interface ToolListVersionsInput {
   readonly tenantId: TenantId;
   readonly toolId: ToolId;
   readonly limit: number;
+  /**
+   * A prior page's `nextCursor`, which the route checks before asking the
+   * binding: url-safe base64 of `{ "p": <the last version's publish time as
+   * stored>, "i": <its row id> }`, or (a cursor from before) of a bare ISO
+   * time. Anything else is `400 bad-input`.
+   */
   readonly cursor?: Cursor;
   /**
    * `false` (default) → return only active versions. `true` → return
