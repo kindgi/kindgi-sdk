@@ -42,7 +42,7 @@ It's built on [`@kindgi/adapter-model-shared`](../model-shared/): the retries, t
 ## How it signs in
 
 Each of these has a test:
-- **`auth: aws-identity`:** SigV4, with credentials from the runtime's AWS identity (`AdapterFactoryInput.identities.aws`), asked for every request. The identity refreshes them itself, so short-lived role credentials renew. A runtime with no AWS identity refuses the registration, naming `KINDGI_AWS_IDENTITY`. The identity needs `bedrock:InvokeModel` on the models (and their inference profiles).
+- **`auth: aws-identity`:** SigV4, with credentials from the runtime's AWS identity (`AdapterFactoryInput.identities.aws`), asked for every request. The identity refreshes them itself, so short-lived role credentials renew. A runtime with no AWS identity refuses the registration when it registers, naming `KINDGI_AWS_IDENTITY`. The identity needs `bedrock:InvokeModel` on the models (and their inference profiles).
 - **`auth: api-key`:** the key `secret_ref` names, read for every request and sent as the bearer token, so a rotated key takes effect on the next call. No AWS credentials are looked for.
 - **Never the environment:** `AWS_BEARER_TOKEN_BEDROCK`, `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN`, `AWS_REGION`, `AWS_ENDPOINT_URL_BEDROCK_RUNTIME` and `AWS_ENDPOINT_URL` are never read. The provider is always given its region, its endpoint and its credentials.
 

@@ -106,6 +106,13 @@ export function readBedrockConfig(
         "adapter_config.auth = aws-identity (the default) signs in as the runtime's AWS identity: remove secret_ref, or set auth = api-key for a Bedrock API key.",
     });
   }
+  if (auth === 'aws-identity' && input.identities?.aws === false) {
+    problems.push({
+      path: at('auth'),
+      message:
+        "adapter_config.auth = aws-identity (the default) needs the runtime's AWS identity (KINDGI_AWS_IDENTITY says where it comes from), and this runtime has none. Or set auth = api-key for a Bedrock API key.",
+    });
+  }
 
   if (problems.length > 0) return { kind: 'err', problems };
   return {

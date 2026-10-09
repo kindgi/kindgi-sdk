@@ -29,6 +29,7 @@ import {
   type AdapterFactoryEntry,
   type AwsCredentialClient,
   adapterConfigError,
+  identitiesPresent,
 } from '@kindgi/capabilities';
 
 import { BEDROCK_ADAPTER_ID, readBedrockConfig } from './config.js';
@@ -53,6 +54,7 @@ export const bedrockAdapterFactory: AdapterFactory = (input) => {
     metadata,
     ...(input.config !== undefined && { config: input.config }),
     hasSecretRef: input.resolveApiKey !== undefined,
+    identities: identitiesPresent(input.identities),
   });
   if (read.kind === 'err') {
     throw adapterConfigError(BEDROCK_ADAPTER_ID, metadata.id, read.problems[0] as never);
@@ -60,13 +62,6 @@ export const bedrockAdapterFactory: AdapterFactory = (input) => {
   const { region, baseURL, auth } = read.config;
 
   const credentials = input.identities?.aws;
-  if (auth === 'aws-identity' && credentials === undefined) {
-    throw adapterConfigError(BEDROCK_ADAPTER_ID, metadata.id, {
-      path: '/adapter_config/auth',
-      message:
-        "adapter_config.auth = aws-identity needs the runtime's AWS identity (KINDGI_AWS_IDENTITY says where it comes from), and this runtime has none.",
-    });
-  }
   const resolveApiKey = input.resolveApiKey;
 
   return createAiSdkModelProvider({

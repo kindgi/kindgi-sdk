@@ -84,6 +84,22 @@ describe('checkConfig', () => {
     expect(problems.find((p) => p.path === path)?.message).toContain(words);
   });
 
+  test("the runtime's identity on a runtime that has none: refused when it registers, naming the setting", () => {
+    const on = (aws: boolean, config: Record<string, string> = {}, secret = false) =>
+      bedrockCheckConfig({
+        metadata: metadata(),
+        config,
+        hasSecretRef: secret,
+        identities: { azure: false, aws },
+      });
+    expect(on(true)).toEqual([]);
+    expect(on(false)).toEqual([
+      { path: '/adapter_config/auth', message: expect.stringContaining('KINDGI_AWS_IDENTITY') },
+    ]);
+    // A Bedrock API key needs no identity.
+    expect(on(false, { auth: 'api-key' }, true)).toEqual([]);
+  });
+
   test("each partition's own endpoint", () => {
     expect(bedrockRuntimeEndpoint('us-east-2')).toBe(
       'https://bedrock-runtime.us-east-2.amazonaws.com',
@@ -249,8 +265,10 @@ describe('what the provider sends', () => {
 });
 
 describe('the factory refuses', () => {
-  test("the runtime's identity when the runtime has none, naming the setting", () => {
-    expect(() => build({}, {})).toThrow(/KINDGI_AWS_IDENTITY/);
+  test("the runtime's identity when the runtime has none: the check's own words", () => {
+    expect(() => build({}, {})).toThrow(
+      '@kindgi/adapter-model-bedrock: provider "bedrock-acme": adapter_config.auth = aws-identity (the default) needs the runtime\'s AWS identity',
+    );
   });
 
   test('a registration checkConfig refuses, with its first problem', () => {
