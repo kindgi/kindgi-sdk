@@ -147,13 +147,9 @@
 
   <dependencyManagement>
     <dependencies>
-      <dependency>
-        <groupId>tools.jackson</groupId>
-        <artifactId>jackson-bom</artifactId>
-        <version>${jackson.version}</version>
-        <type>pom</type>
-        <scope>import</scope>
-      </dependency>
+      <!-- Jackson 3's BOM is imported by the modules that use Jackson 3 (kindgi-client and codegen),
+           never here: a parent's managed versions reach every artifact's consumers that honour them
+           (sbt does), and kindgi-pack and kindgi-models are on Jackson 2. -->
       <dependency>
         <groupId>org.junit</groupId>
         <artifactId>junit-bom</artifactId>
