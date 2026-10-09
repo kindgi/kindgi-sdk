@@ -194,6 +194,60 @@ pnpm exec kindgi runs get <run id> --url http://localhost:4000 --token "$KINDGI_
   }
 ```
 
+A backup taken before an [erasure](../../guides/agents/erase-a-persons-data/)
+brings back what it cleared: replay the erasures next
+([Erasures and backups](#erasures-and-backups)).
+
+## Erasures and backups
+
+An erasure keeps no identifier of whom it erased, only a keyed hash in the
+erasure ledger, so a replay after a restore can find them again. Give the
+runtime the ledger's key:
+
+- **`KINDGI_ERASURE_LEDGER_KEY_PATH`:** the absolute path of a file holding
+  32 random bytes (`openssl rand 32`), mode `0600`;
+- **or `KINDGI_ERASURE_LEDGER_KEY`:** the same 32 bytes, base64, where secrets
+  come as environment variables.
+
+Use the same key on every replica, whatever the secrets backend, and keep it
+the same across a restore: losing it means losing replay. Without it,
+erasures still run, but each answers with an `erasure-unmatchable` warning,
+and a replay can't find whom it erased.
+
+Three places say whether erasures can be replayed:
+- **the startup log's `Erasures` line;**
+- **`/ready`'s `erasures`:** `replayable` or `unreplayable`;
+- **`kindgi doctor`'s `erasures` check:** it never fails, since a runtime
+  without the key is fine for development.
+
+Then:
+
+1. **Export the ledger off-box, regularly:** a restore rolls it back with
+   everything else.
+
+   ```sh
+   kindgi memory erasures export --out=erasures-$(date +%F).json
+   ```
+
+2. **After a restore, replay the latest export** before the runtime serves
+   anyone. It erases again whoever the restored database holds:
+
+   ```sh
+   kindgi memory erasures replay erasures-<date>.json
+   ```
+
+   Its answer lists the erasures it `replayed`, the ones it `restored` to the
+   ledger, and any it couldn't match (`unmatched`).
+
+Two more things keep erasures complete:
+
+- **End users' ids are opaque:** give `participantId` an id your app uses
+  for the person, never an email or a name. Ids stay on records an erasure
+  keeps.
+- **Postgres can keep a cleared row's old version on disk** until it's
+  vacuumed. Where that matters, run `VACUUM` (and `REINDEX` for indexes) on
+  the database after erasures.
+
 ## Upgrade the runtime
 
 1. [Back up Postgres.](#back-up-postgres)

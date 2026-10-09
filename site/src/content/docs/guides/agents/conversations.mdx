@@ -286,6 +286,22 @@ Over HTTP, these are `POST /v1/conversations`, `GET /v1/conversations`,
 `GET /v1/conversations/{id}`, `POST /v1/conversations/{id}/close` and
 `GET /v1/conversations/{id}/messages`.
 
+## Remove a conversation
+
+```sh
+kindgi conversations unregister <conversation-id>
+```
+
+From then on, no read, list or [recall](../give-an-agent-memory/#recall-earlier-conversations)
+returns it, and it takes no more turns. Its messages stay in the database
+until a retention policy on `conversation` purges them
+([Keep and purge deleted data](../../../deploy/retention/)). In your app:
+`conversations.unregister`; over HTTP,
+`POST /v1/conversations/{id}/unregister`.
+
+To clear a person's words now, from every conversation and run that held
+them, [erase their data](../erase-a-persons-data/).
+
 ## A conversation keeps its agent version
 
 A conversation is pinned to the agent version it was opened with, and its
