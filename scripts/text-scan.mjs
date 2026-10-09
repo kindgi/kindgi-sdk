@@ -7,7 +7,8 @@
  * and commit messages (`check-pr-text.mjs`):
  *
  * - **internal process markers** (`MARKERS`): development-phase ids,
- *   hand-off notes, scratch paths, internal labels;
+ *   hand-off notes, scratch paths, internal labels; a pull request's own
+ *   text also leaves out internal tracking references (`ID_MARKERS`);
  * - **forbidden names**: kept here only as salted hashes
  *   (`forbidden-names.json`), so the repository checks for a name without
  *   naming it. Text is split into tokens, runs of `[a-z0-9_]` lower-cased;
@@ -34,6 +35,48 @@ export const MARKERS = [
   [/\bMVP\b/, 'internal milestone label'],
   [/\bTBD\b/, 'unresolved placeholder'],
 ];
+
+/**
+ * Internal tracking references, for a pull request's own text
+ * (`check-pr-text.mjs`, and the `commit-msg` hook): a ticket id (`T123`),
+ * a step or check id (`M-2`, `L-A5`), a process rule's number, a release
+ * batch's name. They mean nothing outside the team, and a pull request's
+ * commits are public, though the squash commit leaves them out. Files
+ * aren't checked for these (yet). A real term that looks like one goes in
+ * `ALLOWED_TERMS`.
+ */
+export const ID_MARKERS = [
+  // `T12:00` is a time.
+  [/\bT[0-9]{2,4}[a-z]?\b(?!:[0-9])/, 'internal tracking id'],
+  // One digit, or a letter and one or two: `A-1042` (an order id in a sample) isn't one.
+  [/\b[A-Z]-(?:[0-9]|[A-Z][0-9]{1,2})[a-z]?\b/, 'internal step id'],
+  // Two digits or more: the pack protocol's version (`protocol 2`, `2.5.0`) is a real term.
+  [/\bprotocol [0-9]{2,}\b/i, 'internal process rule'],
+  [/\bwave [0-9]+\b/i, 'internal release batch'],
+  [/\bpin[ -]batch(?:es)?\b/i, 'internal release batch'],
+];
+
+/**
+ * Real terms that look like internal references (`ID_MARKERS`), each with
+ * why it's real: they're blanked out of a line before it's checked. Empty
+ * for now: tried on every commit message on main, the rules hit only real
+ * internal references.
+ *
+ * @type {readonly { term: string, why: string }[]}
+ */
+export const ALLOWED_TERMS = [];
+
+/** `line` with each allowed term, as a whole word, blanked out. */
+function withoutAllowed(line, allowed) {
+  let out = line;
+  for (const term of allowed) {
+    const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    out = out.replace(new RegExp(`(?<![A-Za-z0-9_])${escaped}(?![A-Za-z0-9_])`, 'g'), (hit) =>
+      ' '.repeat(hit.length),
+    );
+  }
+  return out;
+}
 
 /** What a name hit is reported as: never the name. */
 export const NAME_HIT = 'a name the repository doesn\'t use (see CONTRIBUTING, "Public text")';
@@ -85,14 +128,17 @@ export function nameHits(line, names = NAMES) {
 /**
  * The problems in `text`, one per line and kind: `{ line, what, excerpt }`.
  * A marker's excerpt is the line; a name's is undefined, so a report
- * never repeats the name.
+ * never repeats the name. `allowed` terms are blanked out before the
+ * markers are tried.
  */
-export function scanText(text, { names = NAMES, markers = MARKERS } = {}) {
+export function scanText(text, { names = NAMES, markers = MARKERS, allowed = [] } = {}) {
   const problems = [];
   text.split('\n').forEach((raw, i) => {
     const line = raw.replace(/\r$/, '');
+    const checked = withoutAllowed(line, allowed);
     for (const [re, what] of markers) {
-      if (re.test(line)) problems.push({ line: i + 1, what, excerpt: line.trim().slice(0, 120) });
+      if (re.test(checked))
+        problems.push({ line: i + 1, what, excerpt: line.trim().slice(0, 120) });
     }
     if (nameHits(line, names) > 0) problems.push({ line: i + 1, what: NAME_HIT });
   });

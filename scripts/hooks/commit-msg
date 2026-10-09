@@ -1,0 +1,13 @@
+#!/bin/sh
+# SPDX-License-Identifier: Apache-2.0
+#
+# Commit-msg: the message leaves out what a pull request's text leaves out
+# (scripts/check-pr-text.mjs --message): a pull request's commits are
+# public. Caught here, before the commit exists, rewording is easy; once
+# pushed, it means rewriting the branch.
+#
+# See CONTRIBUTING.md ("Public text").
+
+set -eu
+
+exec node "$(dirname "$0")/../check-pr-text.mjs" --message "$1"
