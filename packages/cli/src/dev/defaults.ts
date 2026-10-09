@@ -70,6 +70,7 @@ import {
   startRuntimeContainer,
 } from './runtime-container.js';
 import {
+  RUNTIME_EXPORT_SIGNING_KEY,
   RUNTIME_GOOGLE_CREDENTIALS,
   RUNTIME_PACK_DIR,
   RUNTIME_PUBLIC_TOKEN_KEY,
@@ -272,8 +273,8 @@ export async function publishIndexReal(stagedPath: string, indexPath: string): P
  * The Kindgi runtime, as a container: pull the image if needed, write
  * `runtime.env`, start it with the pack directory mounted, and wait until
  * it serves. The runtime makes or loads its own public run token key;
- * the developer's key file, if set, and their Google credentials are
- * mounted read-only.
+ * the developer's key file, if set, and the Google credentials
+ * `KINDGI_DEV_GOOGLE_CREDENTIALS` names, if any, are mounted read-only.
  */
 export async function startApiServerContainerReal(
   opts: StartApiServerOptions,
@@ -283,7 +284,7 @@ export async function startApiServerContainerReal(
   const image = await ensureRuntimeImage(opts.runtimeImage, progress);
   if (image.kind === 'error') throw new Error(image.message);
 
-  const googleCredentials = googleCredentialsPath(opts.hostEnv);
+  const googleCredentials = opts.googleCredentialsPath;
   const env = buildRuntimeEnv({
     ...(network === 'host-network'
       ? { apiPort: opts.port, apiHost: '127.0.0.1' }
@@ -300,6 +301,9 @@ export async function startApiServerContainerReal(
     corsOrigins: opts.corsOrigins ?? [],
     ...(opts.publicRunTokenKeyPath !== undefined && {
       publicTokenKeyPath: RUNTIME_PUBLIC_TOKEN_KEY,
+    }),
+    ...(opts.exportSigningKeyPath !== undefined && {
+      exportSigningKeyPath: RUNTIME_EXPORT_SIGNING_KEY,
     }),
     ...(googleCredentials !== undefined && { googleCredentialsPath: RUNTIME_GOOGLE_CREDENTIALS }),
     shellReferences: await shellReferencesOf({
@@ -320,6 +324,9 @@ export async function startApiServerContainerReal(
     ...(googleCredentials !== undefined && { googleCredentials }),
     ...(opts.publicRunTokenKeyPath !== undefined && {
       publicTokenKey: opts.publicRunTokenKeyPath,
+    }),
+    ...(opts.exportSigningKeyPath !== undefined && {
+      exportSigningKey: opts.exportSigningKeyPath,
     }),
     onLog: opts.onLog ?? (() => undefined),
     ...(opts.signal !== undefined && { signal: opts.signal }),
@@ -363,7 +370,7 @@ export async function attachToRuntimeReal(
   const url = new URL(opts.runtimeUrl);
   const baseUrl = url.origin;
   const port = Number(url.port || (url.protocol === 'https:' ? 443 : 80));
-  const googleCredentials = googleCredentialsPath(opts.hostEnv);
+  const googleCredentials = opts.googleCredentialsPath;
   const envFile = runtimeEnvPath(opts.packDir);
   await writeRuntimeEnv(
     envFile,
@@ -381,6 +388,9 @@ export async function attachToRuntimeReal(
       corsOrigins: opts.corsOrigins ?? [],
       ...(opts.publicRunTokenKeyPath !== undefined && {
         publicTokenKeyPath: opts.publicRunTokenKeyPath,
+      }),
+      ...(opts.exportSigningKeyPath !== undefined && {
+        exportSigningKeyPath: opts.exportSigningKeyPath,
       }),
       ...(googleCredentials !== undefined && { googleCredentialsPath: googleCredentials }),
       shellReferences: await shellReferencesOf({
@@ -453,22 +463,6 @@ export function databaseUrlFrom(url: string, network: RuntimeNetwork): string {
     parsed.hostname = 'host.docker.internal';
   }
   return parsed.toString();
-}
-
-/**
- * The developer's Google Application Default Credentials, mounted
- * read-only (Kindgi keeps no key files of its own): `GOOGLE_APPLICATION_CREDENTIALS`
- * if set, else the file `gcloud auth application-default login` writes.
- */
-export function googleCredentialsPath(
-  hostEnv: Readonly<Record<string, string | undefined>>,
-): string | undefined {
-  const explicit = hostEnv.GOOGLE_APPLICATION_CREDENTIALS;
-  if (explicit !== undefined && explicit !== '' && existsSync(explicit)) return explicit;
-  const home = hostEnv.HOME;
-  if (home === undefined || home === '') return undefined;
-  const adc = join(home, '.config', 'gcloud', 'application_default_credentials.json');
-  return existsSync(adc) ? adc : undefined;
 }
 
 /**

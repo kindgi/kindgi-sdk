@@ -8,7 +8,7 @@ import { describe, expect, test } from 'vitest';
 import { FEATURES } from '@kindgi/capabilities';
 import type { Cursor, TenantId } from '@kindgi/types';
 
-import { createStubAppBindings } from '@kindgi/testing';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type {
@@ -169,6 +169,28 @@ describe('API — capabilities list', () => {
     // Second page should not repeat first page.
     const firstIds = new Set(firstBody.data.map((d) => d.id));
     for (const d of secondBody.data) expect(firstIds.has(d.id)).toBe(false);
+  });
+});
+
+describe('API — the providers with each feature', () => {
+  test("a descriptor's providers reach the wire; absent stays absent", async () => {
+    const { app } = makeApp([
+      {
+        id: 'feature:vision',
+        feature: 'vision',
+        description: 'Reads images in its input.',
+        providers: [{ providerId: 'acme-openai', models: ['gpt-acme'] }],
+      },
+      { id: 'feature:batch', feature: 'batch', description: 'Batch.' },
+    ]);
+    const res = await app.request('/v1/capabilities', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    const body = (await res.json()) as { data: Record<string, unknown>[] };
+    expect(body.data.find((d) => d.id === 'feature:vision')?.providers).toEqual([
+      { providerId: 'acme-openai', models: ['gpt-acme'] },
+    ]);
+    expect(body.data.find((d) => d.id === 'feature:batch')).not.toHaveProperty('providers');
   });
 });
 

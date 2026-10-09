@@ -1,21 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { describe, expect, test } from 'vitest';
 
-import {
-  attachToRuntimeReal,
-  databaseUrlFrom,
-  googleCredentialsPath,
-} from '../src/dev/defaults.js';
+import { attachToRuntimeReal, databaseUrlFrom } from '../src/dev/defaults.js';
 import {
   type RuntimeContainerOptions,
   RuntimeStartStopped,
   describeStartupStop,
+  dockerFailureDetail,
   pauseUnlessStopped,
   runtimeContainerName,
   runtimeRunArgs,
@@ -59,6 +56,7 @@ describe('runtimeRunArgs', () => {
       network: 'host-network',
       googleCredentials: '/home/dev/.config/gcloud/application_default_credentials.json',
       publicTokenKey: '/home/dev/keys/public-token.pem',
+      exportSigningKey: '/home/dev/keys/export-signing.pem',
     });
     expect(args).toContain('--network');
     expect(args[args.indexOf('--network') + 1]).toBe('host');
@@ -72,6 +70,7 @@ describe('runtimeRunArgs', () => {
     expect(args).toContain(
       '/home/dev/keys/public-token.pem:/run/kindgi/public-token-signing.pem:ro',
     );
+    expect(args).toContain('/home/dev/keys/export-signing.pem:/run/kindgi/export-signing.pem:ro');
   });
 
   test('one container per pack directory', () => {
@@ -98,33 +97,6 @@ describe('databaseUrlFrom', () => {
     expect(databaseUrlFrom('postgres://kindgi:pw@127.0.0.1:55432/kindgi', 'host-network')).toBe(
       'postgres://kindgi:pw@127.0.0.1:55432/kindgi',
     );
-  });
-});
-
-describe('googleCredentialsPath', () => {
-  test('GOOGLE_APPLICATION_CREDENTIALS when it exists, else the gcloud ADC file, else none', async () => {
-    const home = await mkdtemp(join(tmpdir(), 'kindgi-home-'));
-    try {
-      expect(googleCredentialsPath({ HOME: home })).toBeUndefined();
-      const adcDir = join(home, '.config', 'gcloud');
-      await import('node:fs/promises').then((fs) => fs.mkdir(adcDir, { recursive: true }));
-      const adc = join(adcDir, 'application_default_credentials.json');
-      await writeFile(adc, '{}');
-      expect(googleCredentialsPath({ HOME: home })).toBe(adc);
-      const explicit = join(home, 'sa.json');
-      await writeFile(explicit, '{}');
-      expect(googleCredentialsPath({ HOME: home, GOOGLE_APPLICATION_CREDENTIALS: explicit })).toBe(
-        explicit,
-      );
-      expect(
-        googleCredentialsPath({
-          HOME: home,
-          GOOGLE_APPLICATION_CREDENTIALS: join(home, 'gone.json'),
-        }),
-      ).toBe(adc);
-    } finally {
-      await rm(home, { recursive: true, force: true });
-    }
   });
 });
 
@@ -202,5 +174,62 @@ describe('describeStartupStop', () => {
       ),
     ).toBe(true);
     expect(text.endsWith('line 20')).toBe(true);
+  });
+});
+
+describe("dockerFailureDetail: why docker failed, without a pull's progress (T230)", () => {
+  const DIGEST = 'sha256:0f73770b2d1a00fa47492a86b194f70b4f3e855f5c5ef5680993b742453792a9';
+  const IMAGE = `quay.io/kindgi/runtime@${DIGEST}`;
+  // The shape of rc.0's amd64 proof: the error, then the pull's progress went on.
+  const pulling = [
+    `Unable to find image '${IMAGE}' locally`,
+    `${IMAGE}: Pulling from kindgi/runtime`,
+    'e3649207a629: Pulling fs layer',
+    'a1b2c3d4e5f6: Pulling fs layer',
+    `docker: cannot overwrite digest ${DIGEST}`,
+    'a1b2c3d4e5f6: Waiting',
+    'e3649207a629: Downloading',
+    'e3649207a629: Verifying Checksum',
+    'e3649207a629: Download complete',
+    'e3649207a629: Extracting',
+    'e3649207a629: Pull complete',
+    'a1b2c3d4e5f6: Already exists',
+    `Digest: ${DIGEST}`,
+    `Status: Downloaded newer image for ${IMAGE}`,
+    '',
+    "Run 'docker run --help' for more information",
+  ].join('\n');
+
+  test("the error a pull's progress buried", () => {
+    expect(dockerFailureDetail(pulling)).toBe(`docker: cannot overwrite digest ${DIGEST}`);
+  });
+
+  test('an auth error, and a daemon error, keep their lines', () => {
+    const auth = [
+      `Unable to find image '${IMAGE}' locally`,
+      'docker: Error response from daemon: unauthorized: access to the requested resource is not authorized.',
+      "Run 'docker run --help' for more information",
+    ].join('\n');
+    expect(dockerFailureDetail(auth)).toBe(
+      'docker: Error response from daemon: unauthorized: access to the requested resource is not authorized.',
+    );
+    const disk = `${IMAGE}: Pulling from kindgi/runtime\ne3649207a629: Extracting\nfailed to register layer: write /usr/lib/x: no space left on device`;
+    expect(dockerFailureDetail(disk)).toBe(
+      'failed to register layer: write /usr/lib/x: no space left on device',
+    );
+  });
+
+  test('progress redrawn in place (\\r) counts as progress; the last 5 other lines are kept', () => {
+    const redrawn = 'e3649207a629: Downloading\re3649207a629: Download complete\nboom';
+    expect(dockerFailureDetail(redrawn)).toBe('boom');
+    const many = ['one', 'two', 'three', 'four', 'five', 'six', 'e3649207a629: Pull complete'].join(
+      '\n',
+    );
+    expect(dockerFailureDetail(many)).toBe('two\nthree\nfour\nfive\nsix');
+  });
+
+  test('all progress and nothing else: the plain tail, so the message is never empty', () => {
+    const onlyProgress = 'e3649207a629: Pull complete\nDigest: sha256:abc';
+    expect(dockerFailureDetail(onlyProgress)).toBe(onlyProgress);
   });
 });

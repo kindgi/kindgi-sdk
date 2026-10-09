@@ -73,6 +73,33 @@ describe('root-level flags and help', () => {
     expect(out.stderr).toContain('Unknown command: bogus');
   });
 
+  test('an unknown subcommand exits 2, naming it and the nearest one, with the group help on stderr', async () => {
+    const out = await runCli(baseInputs({ argv: ['agents', 'register', '--spec=@agent.json'] }));
+    expect(out.exitCode).toBe(2);
+    expect(out.stdout).toBe('');
+    expect(out.stderr).toMatch(
+      /^Unknown subcommand "register" for kindgi agents\. Did you mean "publish"\?\n\n/,
+    );
+    expect(out.stderr).toContain('Usage: kindgi agents <subcommand>');
+  });
+
+  test('a typo of a subcommand: the nearest one; nothing near: no hint', async () => {
+    const typo = await runCli(baseInputs({ argv: ['runs', 'lsit'] }));
+    expect(typo.exitCode).toBe(2);
+    expect(typo.stderr).toContain(
+      'Unknown subcommand "lsit" for kindgi runs. Did you mean "list"?',
+    );
+    const far = await runCli(baseInputs({ argv: ['runs', 'zzzzzz'] }));
+    expect(far.exitCode).toBe(2);
+    expect(far.stderr.split('\n')[0]).toBe('Unknown subcommand "zzzzzz" for kindgi runs.');
+  });
+
+  test('a group with only a flag still prints its help', async () => {
+    const out = await runCli(baseInputs({ argv: ['runs', '--help'] }));
+    expect(out.exitCode).toBe(0);
+    expect(out.stdout).toContain('Usage: kindgi runs <subcommand>');
+  });
+
   test('group command without leaf prints group help', async () => {
     const out = await runCli(baseInputs({ argv: ['runs'] }));
     expect(out.exitCode).toBe(0);
@@ -314,10 +341,6 @@ describe('not-implemented-in-preview SDK errors', () => {
     [['observations', 'list'], "doesn't record supervisor observations yet"],
     [['proposals', 'list'], "doesn't draft or apply supervisor fix proposals yet"],
     [['proposals', 'get', 'p-1'], "doesn't draft or apply supervisor fix proposals yet"],
-    [['artifacts', 'list'], "doesn't serve `/v1/artifacts` yet"],
-    [['artifacts', 'download', 'blob-1'], 'no artifacts to list, upload, download or delete'],
-    [['capabilities', 'list'], "doesn't serve `/v1/capabilities` yet"],
-    [['capabilities', 'get', 'tool-use'], 'kindgi providers list --feature=<feature>'],
   ])("%j says why: the group's reason covers each of its commands", async (argv, reason) => {
     const out = await runCli(
       baseInputs({
@@ -328,37 +351,6 @@ describe('not-implemented-in-preview SDK errors', () => {
     expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain(`Command 'kindgi ${argv.slice(0, 2).join(' ')}' is not available`);
     expect(out.stderr).toContain(reason);
-  });
-
-  test("tokens create and revoke say the runtime doesn't serve them, and call nothing", async () => {
-    for (const argv of [
-      ['tokens', 'create'],
-      ['tokens', 'revoke', 'tok-1'],
-    ]) {
-      let called = false;
-      const out = await runCli(
-        baseInputs({
-          argv: [...argv, '--url=https://x', '--token=t'],
-          clientFactory: () =>
-            ({
-              tokens: {
-                create: async () => {
-                  called = true;
-                },
-                revoke: async () => {
-                  called = true;
-                },
-              },
-            }) as never,
-        }),
-      );
-      expect(out.exitCode).toBe(2);
-      expect(out.stderr).toContain(
-        `Command 'kindgi ${argv.slice(0, 2).join(' ')}' is not available`,
-      );
-      expect(out.stderr).toContain("the Kindgi runtime doesn't serve `/v1/tokens` yet");
-      expect(called).toBe(false);
-    }
   });
 });
 
@@ -504,6 +496,21 @@ describe('kindgi runs start', () => {
     );
   });
 
+  test("a run that carries `failure` (0.1.5 runtimes): its code and message, not the raw message's", async () => {
+    const out = await startThenRead(['--agent=pack.agent'], {
+      status: 'failed',
+      failureMessage: routing,
+      failure: {
+        code: 'budget-exceeded',
+        message: 'Agent turn steps budget exceeded (limit 1, observed 1)',
+      },
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toBe(
+      'Error [budget-exceeded]: Agent turn steps budget exceeded (limit 1, observed 1)\n',
+    );
+  });
+
   test("failures joined with '; ': the first turn error", async () => {
     const out = await startThenRead(['--agent=pack.agent'], {
       status: 'failed',
@@ -628,7 +635,7 @@ describe('kindgi runs start', () => {
 describe('missing required arguments', () => {
   test('kindgi runs get without run-id fails', async () => {
     const out = await runCli(baseInputs({ argv: ['runs', 'get', '--url=https://x', '--token=t'] }));
-    expect(out.exitCode).toBe(1);
+    expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain('Missing required argument: run-id');
   });
 
@@ -638,7 +645,7 @@ describe('missing required arguments', () => {
         argv: ['runs', 'start', '--input={"x":1}', '--url=https://x', '--token=t'],
       }),
     );
-    expect(out.exitCode).toBe(1);
+    expect(out.exitCode).toBe(2);
     expect(out.stderr.toLowerCase()).toContain('--agent');
   });
 
@@ -656,7 +663,7 @@ describe('missing required arguments', () => {
         ],
       }),
     );
-    expect(out.exitCode).toBe(1);
+    expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain('mutually exclusive');
   });
 });
@@ -824,13 +831,13 @@ describe('auth login', () => {
 
   test('rejects login without --url', async () => {
     const out = await runCli(baseInputs({ argv: ['auth', 'login', '--token=abc'] }));
-    expect(out.exitCode).toBe(1);
+    expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain('Missing --url');
   });
 
   test('rejects login without --token', async () => {
     const out = await runCli(baseInputs({ argv: ['auth', 'login', '--url=https://x'] }));
-    expect(out.exitCode).toBe(1);
+    expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain('Missing --token');
   });
 });

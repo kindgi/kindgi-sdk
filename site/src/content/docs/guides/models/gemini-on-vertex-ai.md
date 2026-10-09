@@ -15,11 +15,36 @@ credentials, and Vertex AI runs and bills them in a project you name.
 gcloud auth application-default login
 ```
 
-That writes your Application Default Credentials. `kindgi dev` hands them to
-the runtime it starts, read-only: the file `GOOGLE_APPLICATION_CREDENTIALS`
-names, if it's set, else the one this command writes
+That writes your Application Default Credentials
 (`~/.config/gcloud/application_default_credentials.json`). The account needs
 access to Vertex AI in the project.
+
+`kindgi dev` gives the runtime Google credentials only when you say which, with
+`KINDGI_DEV_GOOGLE_CREDENTIALS` in the pack's `.env` (or `.env.local`, for a
+path that's only yours), or in the shell:
+
+```sh
+# .env
+KINDGI_DEV_GOOGLE_CREDENTIALS=adc
+```
+
+`adc` is the login above. An absolute path names another credentials file, such
+as a service-account key, and `off` (the default) gives none. `kindgi dev`
+mounts the file read-only, and names it and whose it is when it starts:
+
+```text
+✓ Google credentials: /Users/you/.config/gcloud/application_default_credentials.json (your gcloud application-default login, a user account), mounted read-only for Vertex AI
+```
+
+Without the setting, a `gemini` provider has no credentials and its calls
+fail. `kindgi dev` says so when it starts, and `kindgi doctor` says the same:
+
+```text
+⚠ Provider gemini (Vertex AI) has no Google credentials: set KINDGI_DEV_GOOGLE_CREDENTIALS=adc (or a credentials file), in the pack's .env or the shell, and restart kindgi dev.
+```
+
+A `GOOGLE_APPLICATION_CREDENTIALS` in your shell isn't used unless you name it:
+`KINDGI_DEV_GOOGLE_CREDENTIALS=$GOOGLE_APPLICATION_CREDENTIALS`.
 
 ## 2. Register the preset
 
@@ -53,7 +78,7 @@ instead: `{ preset: 'gemini', project: '<gcp-project>' }` in
 {
   "providerId": "gemini"
 }
-✓ Registered gemini: gemini-3.8-flash
+✓ Registered gemini: gemini-3.8-flash (default)
 ```
 
 ## What it registers
@@ -68,7 +93,7 @@ Gemini 3.8 Flash (it isn't served from `us-central1`). Both models list
 
 | Model | Context window | Per 1K input / output tokens |
 | --- | --- | --- |
-| `gemini-3.8-flash` | 1,048,576 | $0.00075 / $0.00375 |
+| `gemini-3.8-flash` (default) | 1,048,576 | $0.00075 / $0.00375 |
 | `gemini-3.5-flash-lite` | 1,048,576 | $0.0003 / $0.0025 |
 
 - **Gemini 3.8 Flash thinks before it answers,** and Vertex AI bills the

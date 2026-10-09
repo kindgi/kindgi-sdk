@@ -48,6 +48,17 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // A deployment refuses tenant configuration that reaches its host
   // (KINDGI_TENANT_HOST_ACCESS): a stdio MCP endpoint.
   'host-access-denied': 403,
+  // A request signed in by the session cookie, from an origin the
+  // deployment doesn't allow (or with no Origin): cross-site request
+  // forgery protection for browser sessions.
+  'csrf-origin-mismatch': 403,
+  // `POST /v1/auth/token-sign-in` on a deployment that doesn't allow
+  // signing in to the console with an API token.
+  'token-sign-in-off': 403,
+  // `POST /v1/auth/token-sign-in` with a key that can't open a console
+  // session: a service account's, or a narrowed one (a `member` role or one
+  // project), which a session would widen to the person's full grants.
+  'token-sign-in-not-allowed': 403,
   // 404
   'not-found': 404,
   'run-not-found': 404,
@@ -59,9 +70,13 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'flow-not-found': 404,
   // 409 — conflict
   'already-terminal': 409,
+  'fact-changed': 409,
+  'legal-hold': 409,
   'run-already-terminal': 409,
   'run-lease-lost': 409,
   'idempotency-key-body-mismatch': 409,
+  'idempotency-key-in-flight': 409,
+  'idempotency-key-replay-withheld': 409,
   'hitl-required': 409,
   'duplicate-node-id': 409,
   'duplicate-edge-id': 409,
@@ -75,6 +90,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'tool-gone': 410,
   'tool-already-registered': 409,
   'guardrail-already-registered': 409,
+  'guardrail-config-invalid': 422,
   'flow-already-registered': 409,
   'conversation-closed': 409,
   'invalid-agent': 400,
@@ -105,6 +121,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // belongs to an approval (decided through the approvals routes, which
   // check the reviewer and record the decision) or to the runtime itself.
   'run-resume-not-supported': 422,
+  /** Memory was asked to search by meaning, and no embedding model is configured. */
+  'semantic-unavailable': 422,
   // 429 — rate limit. No route in this package emits it; a rate limiter
   // in front of the routes can.
   'rate-limit-exceeded': 429,
@@ -158,6 +176,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'provider-not-found': 404,
   'provider-already-registered': 409,
   'invalid-provider': 400,
+  'provider-config-invalid': 422,
   // Admin plane — cost readback.
   'cost-record-not-found': 404,
   // Admin plane — adapters.
@@ -200,12 +219,39 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'gate-policy-scope-unpinned': 409,
   'gate-policy-needs-pin': 409,
   'gate-policy-descendant-unpinned': 409,
+  // API keys: whom a key acts for, and what it may do.
+  /** Mint: the person or service account named doesn't exist. */
+  'principal-not-found': 404,
+  /** Mint: an `admin` key for a principal that isn't a tenant admin. */
+  'role-exceeds-principal': 403,
+  /** A key limited to one project, on a request that names another. */
+  'key-project-mismatch': 403,
+  'service-account-not-found': 404,
+  /** An active service account of the tenant already has the name. */
+  'service-account-name-taken': 409,
+  /** A grant for an unregistered service account. */
+  'service-account-unregistered': 409,
+  /** Adding a person with an email another person of the tenant has. */
+  'identity-user-email-taken': 409,
+  /** Removing tenant admin from the only person who holds it: the tenant would have none. */
+  'last-tenant-admin': 409,
+  /** Removing tenant admin from the seed user, whom the runtime re-grants it at every boot. */
+  'seed-user-admin': 409,
+  /** Unregistering yourself, or the deployment's seed user (`details.reason`). */
+  'identity-user-unregister-refused': 409,
+  /** A grant or a key for a person who was unregistered. */
+  'identity-user-unregistered': 409,
+  /** A person's grants on a runtime without an authorization store. */
+  'person-grants-unsupported': 501,
   /** Unregister: the version is live in a scope; move that pin first. */
   'agent-version-live': 409,
+  /** An artifact upload over the runtime's cap (`KINDGI_ARTIFACT_MAX_BYTES`). */
+  'artifact-too-large': 413,
   'run-not-finished': 409,
   'item-not-found': 400,
   // The judgment binding can't list judged runs, so no test sets from judgments.
   'test-sets-not-supported': 501,
+  'memory-operation-unsupported': 501,
   // Authorization is enforced, but a membership change can't be kept in step with it.
   'authz-membership-unsupported': 501,
   'eval-run-already-terminal': 409,
@@ -231,12 +277,22 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'session-inactive': 401,
   'identity-provider-not-found': 404,
   'identity-provider-already-registered': 409,
+  // The deployment couldn't use a provider's configuration (its issuer's
+  // discovery failed, its SAML metadata didn't parse, a host it may not
+  // reach): 422 with what went wrong.
+  'identity-provider-invalid': 422,
   'oauth-state-invalid': 400,
   'oauth-code-exchange-failed': 422,
   'oauth-refresh-failed': 422,
   'oauth-refresh-not-supported': 422,
   'invalid-provider-config': 400,
   'auth-not-session-token': 400,
+  // `POST /v1/auth/refresh` with a browser session (cookie): refused, so a
+  // fresh session token never reaches page scripts.
+  'cookie-session-not-refreshable': 400,
+  // `POST /v1/auth/token-sign-in` signed in by a session (a cookie or a
+  // session token) rather than an API token: there's nothing to exchange.
+  'token-sign-in-needs-an-api-token': 400,
   // OAuth redirect URIs + refresh.
   'redirect-uri-not-allowed': 400,
   'redirect-uri-mismatch': 400,
@@ -302,6 +358,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'trigger-register-failed': 500,
   'trigger-update-failed': 500,
   'trigger-lifecycle-failed': 500,
+  /** The deployment's trigger registry can't do this yet (fire history, run-now, a new owner). */
+  'trigger-operation-unsupported': 501,
   'webhook-signature-invalid': 401,
   'webhook-inactive': 410,
   'webhook-secret-missing': 500,

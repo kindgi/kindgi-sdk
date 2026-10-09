@@ -110,6 +110,45 @@ resource "google_secret_manager_secret_iam_member" "server_reads" {
   member    = "serviceAccount:${google_service_account.server.email}"
 }
 
+# ---- export signing (opt-in: var.export_signing) ----------------------------
+
+# "secret": the key in Secret Manager. Its own container, created only
+# when asked for, so a deployment that doesn't sign exports needs no
+# secret version.
+resource "google_secret_manager_secret" "export_signing_key" {
+  count     = var.export_signing == "secret" ? 1 : 0
+  secret_id = "${var.name_prefix}-export-signing-key" # Ed25519 PKCS#8 PEM, base64: KINDGI_EXPORT_SIGNING_KEY
+
+  replication {
+    user_managed {
+      replicas {
+        location = var.region
+      }
+    }
+  }
+  depends_on = [google_project_service.apis]
+}
+
+resource "google_secret_manager_secret_iam_member" "server_reads_export_key" {
+  count     = length(google_secret_manager_secret.export_signing_key)
+  secret_id = google_secret_manager_secret.export_signing_key[count.index].id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.server.email}"
+}
+
+# "kms": the server signs with the key version (asymmetricSign) and reads
+# its public key at boot. IAM is on the version's crypto key.
+locals {
+  export_signing_crypto_key = try(regex("^(.*)/cryptoKeyVersions/[0-9]+$", var.export_signing_kms_key)[0], "")
+}
+
+resource "google_kms_crypto_key_iam_member" "server_signs_exports" {
+  for_each      = var.export_signing == "kms" ? toset(["roles/cloudkms.signerVerifier", "roles/cloudkms.publicKeyViewer"]) : toset([])
+  crypto_key_id = local.export_signing_crypto_key
+  role          = each.value
+  member        = "serviceAccount:${google_service_account.server.email}"
+}
+
 resource "google_secret_manager_secret_iam_member" "pack_reads_token" {
   for_each  = google_secret_manager_secret.shared
   secret_id = each.value.id

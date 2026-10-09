@@ -1,5 +1,172 @@
 # @kindgi/agents
 
+## 0.1.4
+
+### Patch Changes
+
+- c313224: **An agent version is pinned when it's published.** `POST /v1/agents` resolves each of the agent's tool ranges once, to the highest active version the range allows (`pickVersion`). It stores the result on the version as `pins` (`{tools, prompts, settings}`: tool id → exact version) with `pinsDigest` (`sha256:<hex>` of the pins' canonical JSON). Every run of that version uses exactly those tool versions. A new tool version reaches the agent only through a new agent version, and two runs of one agent version always run the same tools.
+  
+  - **A range that matches no published version refuses the publish:** `400 validation-failed`, with one issue per tool (`/tools/<i>/version`, "publish the tool first").
+  - **Pins are set by the runtime, never authored.** `defineAgent` doesn't take them, and a publish body's `pins` is ignored.
+  - **`GET /v1/agents/:id/versions/:version` returns `pins` and `pinsDigest`**, as do both clients. Python adds `pins_digest()` in `kindgi.client`, which gives the same string as `pinsDigest()` in `@kindgi/agents`.
+  - **Unchanged:** a version published before pins, or by a runtime without a tool registry, has no pins and resolves its ranges per run. `agentsRouter` takes the tool binding as an optional third argument, and `createApp` passes its `toolRegistry`.
+- 024a47f: **An agent's prompt and settings can come from data blocks, pinned when the agent version is published.**
+  
+  - **References:**
+    - `instructions` is the system prompt, or a prompt block by range: `{ prompt: 'acme.intake-prompt', version: '^1.0.0' }`. Its template and declared parameters are used instead.
+    - `settings: [{ id, version }]` lists settings blocks.
+    - `modelSettings: { id, version }` names a model-settings block (`MODEL_SETTINGS_SCHEMA`: `temperature`, `maxOutputTokens`).
+  - **Pinned at publish:** `POST /v1/agents` and deploys resolve each reference by `pickVersion` into `pins.prompts` / `pins.settings`, alongside the tools.
+  - **Refusals:** a reference that matches no published version, names a block of the other kind, names model settings that aren't, or runs on a runtime with no block registry refuses the publish (`400 validation-failed`).
+  - **At run time:** a turn loads each block at its pinned version. A resumed turn uses the versions its `setup` journaled (`blockVersions`).
+    - The prompt block renders as the instructions.
+    - Settings values reach tools as `ToolContext.settings['<id>']` and templates as `settings["<id>"]`.
+    - Model settings go into the model call.
+    - A block that can't load fails the turn (`block-unresolvable`).
+    - `InvokeAgentBindings` takes an optional `blockReader`.
+  - **Changed elsewhere:** the agent spec, the pack index, both indexers (TS and Python: `Agent(instructions={...}, settings=[...], model_settings={...})`), and both clients.
+  - **Pack protocol 2.4.0:** `callContext` gets optional `settings`, so pack code reads them: `ctx.settings['acme.weights']` in TS, `ctx.settings["acme.weights"]` in Python. Older pack services still answer calls that carry it: a TS one passes it to the handler, a Python one drops it.
+  - **`settings` is now a reserved template name.**
+- 0359caf: **Data blocks: a settings schema holds for every later version, and a repeated derive returns the version that has it.**
+  
+  - **A settings version that gives no `schema` keeps the latest version's.** The runtime stores it on the new version, so it's checked on every later version, not just the next one. A version that gives a schema replaces it, and is checked against that schema only. `{}` drops the check on purpose. Before, one edit that didn't restate the schema dropped it for good.
+  - **`POST /v1/agents/{agentId}/versions` with a swap an active version already holds** returns that version unchanged (`200`), instead of numbering a duplicate. That covers the same swap derived again, or a deploy that registered it.
+  - **Errors:**
+    - Publishing an agent that can't be pinned says "uses tool or data-block versions it can't pin" (it said "tool versions", even for a block issue).
+    - A template's unresolved settings block is named in full: `settings.acme.reply-style`, not `settings.acme.reply`.
+- e97958c: Conversation lists leave a comparison's replay conversations out, as run lists leave out replay runs. `GET /v1/conversations` takes `replays=exclude|include|only` (default `exclude`); a replay conversation is one whose `metadata` has `replayOf`. `ListConversationsPageInput.replays` passes it to the binding (absent: include, for internal callers).
+  
+  The TypeScript client's `conversations.list` and the Python client take `replays`. `kindgi conversations list` now lists, with `--status`, `--replays`, `--limit` and `--cursor` (the other `conversations` commands stay unwired).
+- a0652ac: **Data blocks: versioned prompts and settings an agent version will pin.** A block is published like a tool: immutable versions, soft unregister and reinstate. It belongs to one project.
+  
+  - **Kinds:**
+    - `prompt`: a Liquid template with declared parameters, rendered as an agent's instructions are.
+    - `settings`: a JSON object, optionally with a JSON Schema. Its values must satisfy it, and so must a later version's.
+  - **`@kindgi/api` adds `/v1/blocks`:** list (latest of each; `kind`, `name`, `projectId` filters), get, versions (`includeTombstoned`), a version, publish, unregister and reinstate. It's mounted when `createApp` gets a `blockRegistry` (`BlockRegistryBinding`).
+  - **Authorization goes through the block's project:** `read` to read, `write` to publish, unregister or reinstate. A block the caller can't read answers 404.
+  - **Refusals:**
+    - a block's kind never changes;
+    - a block's versions stay in its first version's project (`409 block-project-mismatch`);
+    - a taken version is `409 block-already-registered`.
+  - **`@kindgi/agents` adds** `validateBlock()`, `settingsSchemaIssues()` and the block types.
+  - **Clients:** `@kindgi/client` adds `client.blocks`, and the Python client has the same resource.
+  - **`@kindgi/cli` adds** `kindgi blocks list | show | versions | publish | unregister | reinstate`. `publish` takes `--prompt=@<file>`, `--settings=<json>|@<file>` with `--schema`, or a full definition as JSON.
+- fa6680c: **A deploy pins its agents and never keeps a version's old pins.** `POST /v1/deployments` pins each agent as `POST /v1/agents` does. A deploy registers an agent under the version its definition names. When that version is already registered with other pins or content (versions never change), the deploy registers the next free version in its line instead (`1.4.0` → `1.4.1`, `1.4.0-rc.1` → `1.4.0-rc.2`). A deploy never refuses a routine deploy over this.
+  
+  - **Why a new version:**
+    - `pins-changed`: a tool the agent uses has a new version in range.
+    - `unpinned`: the version was published before pins existed.
+    - `version-taken`: the number is registered with another definition.
+  - **Redeploys are idempotent.** A redeploy finds the version an earlier deploy registered for the same definition and pins.
+  - **The record:**
+    - The registered version records `derivedFrom: {version, reason}`.
+    - The deployment's `contents.agents` names each agent's registered `version`. Where it differs from the definition's, it also gives `authoredVersion`, `reason`, `newVersion` and `pinChanges`.
+  - **`kindgi deploy` prints one line per such agent:** `agent acme.matcher: registered new version 1.4.1 (1.4.0's pins changed: tool acme.score 1.0.0 → 1.1.0); set version: '1.4.1' in acme.matcher to match`.
+  - **A range that matches no published version refuses the deploy:** `400 validation-failed`, with one issue per tool (`/agents/<i>/tools/<j>/version`), and the deploy's tools are rolled back.
+  - **New exports:**
+    - `@kindgi/agents`: `pinChanges()` and the `AgentDerivation` and `PinChange` types.
+    - `@kindgi/tools`: `nextVersion()`.
+- f999acd: **dev-echo says it isn't a model, and there are presets for more LLM provider keys.**
+  
+  - **dev-echo's text answers start with one line:** "⚠ dev-echo isn't a real model: it only repeats what it's given. Add an LLM provider key (Anthropic, OpenAI, Gemini, Groq, OpenRouter…) to get real answers." So a developer can't mistake it for a model wherever the answer shows, their own app included. An answer that is JSON (what a typed-output agent parses) stays bare, as does one asked for with `structuredOutput`.
+  - **Every dev-echo result carries a warning, `dev-echo-not-a-model`,** with the commands that add a model. `ModelCallResult.warnings` (new, optional) lets any provider warn about its answers. An agent turn collects them into its result's `warnings`, a resumed turn too, and `kindgi runs start` prints them on stderr. dev-echo's own warning stands in for the `fallback-provider` one there.
+  - **New presets for key-based LLM providers:**
+    - `openai` (`OPENAI_API_KEY`), `groq` (`GROQ_API_KEY`) and `openrouter` (`OPENROUTER_API_KEY`, many vendors' models with one key), on the OpenAI-compatible adapter;
+    - `gemini-api` (`GEMINI_API_KEY`), Gemini with a Google AI Studio key.
+  
+    A preset can now fix adapter settings itself (`adapterConfigValues`, such as the `baseURL`).
+  - **`@kindgi/adapter-model-gemini` takes a Gemini Developer API key** (`apiKey`, or `adapter_config.api: "developer"` with the key as `secret_ref`), next to Vertex AI. Vertex stays the default and the `gemini` preset, the route for a regulated deployment.
+  - **`kindgi doctor`** looks for every preset's key, and its fixes offer any one of them: the key to set, and the preset to register.
+  - **The init templates** ask for "an LLM provider key" (Anthropic, OpenAI, Gemini, Groq or OpenRouter), not Claude's alone.
+- 26b2a23: **A flow version is pinned when it's published, as an agent version is.** `POST /v1/flows` pins each tool the flow runs to its latest active version: tool nodes, fanout branches, and nodes in loop bodies. It also pins each agent the flow runs at no named version (an agent node without `config.version`). The result is stored on the version as `pins` (`{tools, agents}`) with `pinsDigest`, and every run of that flow version uses those versions. A new tool or agent version reaches the flow only through a new flow version. An agent node with its own `config.version` keeps it.
+  
+  - **Refusals:** a tool or agent with no published version refuses the publish (`400 validation-failed`, naming each).
+  - **Deploys** pin flows after agents and follow the same rule as agents, from one shared code path. When pins change, the deploy registers the next free version with `derivedFrom`, and a redeploy is idempotent. So one tool change cascades through an agent into a flow within a single deploy, each derived once. The deployment's `contents.flows` names each flow's registered version (`DeployedVersion`), and `kindgi deploy` prints one line per renumbered flow.
+  - **Unchanged:** a flow version published before pins binds the latest versions per run, as before.
+  - **New exports:**
+    - `@kindgi/flow`: `FlowPins`, `flowPinsDigest()` and `flowRefs()`.
+    - `@kindgi/types`: `VersionDerivation`.
+    - `@kindgi/agents`: `PinChange.kind` adds `agent`, and `pinChanges()` takes any pin set. `withVersions(flow, { tools?, agents? })` (`@kindgi/flow`) runs a flow version with some blocks at other exact versions through the same pins: what a comparison or replay runs, with `pinsDigest` recomputed.
+- 2040daf: Live versions and promotions. An agent version can be made live for a scope: the tenant, an org, a project, or a segment path inside a project (an ordered list of `key:value` steps, coarse to fine, such as company then role). A run that doesn't name its version uses the live version of the most specific scope that has one, else the latest registered version, and records how its version was chosen.
+  
+  `@kindgi/api` adds `GET /v1/agents/{agentId}/live` (the version a run would use for a project and segment path, and why), `GET /v1/agents/{agentId}/live-versions` (every pin), `POST /v1/agents/{agentId}/promotions`, `GET /v1/agents/{agentId}/promotions[/{promotionId}]` (the history), and `POST /v1/agents/{agentId}/live/rollback` and `/live/unpin`. They're mounted when `createApp` gets `agentReleases` (`AgentReleaseBindings`: a `LiveVersionBinding` and a `PromotionBinding`). Promoting, rolling back and unpinning need the new `promote` action on the agent (`@kindgi/authz`). `POST /v1/runs` takes `segments`; a run carries them (`segments`, a child run has its parent's), and a run's `agent` carries `via` (`explicit`, `conversation`, `live` or `latest`) and, for a live version, `liveScope`. `@kindgi/types` adds `LiveScope`, `ScopeSegment` and `AgentVersionVia`; `@kindgi/runtime`'s `RunAgentRef` and `@kindgi/agents`' `InvokeAgentInput` carry `via` and `liveScope`, and `InvokeAgentInput` the turn's `segments`; `RunFlowInput`, `StartRunParams` and `KernelRunRecord` carry the run's `segments`, so a flow's agent steps resolve with them after a resume too. `@kindgi/compliance` and `@kindgi/specs` list the evidence kinds `agent-promotion`, `agent-rollback`, `agent-live-unpinned` and `agent-live-pin-inactive` (a live version that was unregistered: runs use the scope above).
+  
+  `@kindgi/client` adds `client.agents.live` (`resolve`, `list`, `rollback`, `unpin`), `client.agents.promotions` (`create`, `list`, `get`) and `segments` on `runs.start`; an array query value now repeats its key; `agent-version-not-found` and `promotion-not-found` read as not-found, `nothing-to-roll-back` and `not-pinned` as conflicts, `scope-invalid` as an invalid request. The Python client has the same resources and errors. `@kindgi/cli` adds `kindgi agents live | live-versions | promote | rollback | unpin` and `kindgi agents promotions list | get`, and wires `kindgi agents list | get | versions | unregister`; `kindgi runs start` takes `--project` and `--segment=key:value` (repeated); `get` and `unregister` take the version as an argument (`kindgi agents unregister <agent-id> <version>`). A command's repeatable flag (`--segment=company:acme --segment=role:counsel`) keeps every value.
+- d0ebeb6: Replay turns: an agent turn can re-run a past run for an eval run without doing anything the past run didn't do.
+  
+  - `@kindgi/agents`:
+    - `InvokeAgentInput.replay` (`{ of, evalRunId }`) marks a turn as a replay. It is kept on the turn's run and in its run snapshot (new nullable `agent_run_snapshots.replay` column), so a resumed turn stays a replay.
+    - The new optional `InvokeAgentBindings.replay` (`ReplayBinding`) decides each tool call:
+      - `live`: the tool runs;
+      - `recorded`: the past run's result is used;
+      - `refused`: the model gets the given result.
+    - Whatever the binding says, only a tool declared read-only (`mutating: false`, no writing effect, see `isReadOnlyTool`) with no approval to wait for runs. A replay with no binding refuses every call.
+    - Each decision is journaled, and `AgentTurnResult.replay` lists them. A refused call shows what the turn would have done.
+    - `retrievals` can supply the past run's retrieved facts. `sessionApproval` gives the past run's decision at the session approval gate, which the replay follows (a recorded rejection fails the turn with `hitl-rejected`). Without a recorded decision the gate is skipped, and the result says so.
+    - `tool.completed` events carry `replay: 'live' | 'recorded' | 'refused'`.
+  - `@kindgi/runtime`: `RunReplayRef`; `replay` on `runGraph` and `startRun`; `replayOf` and `evalRunId` on `KernelRunRecord`; `replays` and `evalRunId` on `ListRunsInput`.
+  - `@kindgi/capabilities`: `ModelUsageRecord.replay` tags a replay's model calls with the past run and the eval run.
+  - `@kindgi/api`:
+    - A run carries `replayOf` and `evalRunId`.
+    - `GET /v1/runs` leaves replay runs out unless `replays=include|only`; `evalRunId` lists one eval run's replays.
+    - A judged agent turn's captured `context` also keeps `sessionApproval`, the decision at its session approval gate.
+  - `@kindgi/client`: `runs.list({ replays, evalRunId })`; the Python client too.
+  - `@kindgi/cli`: `kindgi runs list --replays=<exclude|include|only> --eval-run=<id>`.
+- dc5cfb1: **A decision whose run couldn't go on says so.**
+  
+  - **`POST /v1/approvals/{id}/complete`** now reports how the inline resume went, in a new `resume` field: `{ kind: 'ok' }`, or `{ kind: 'failed', code, message }` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone. The decision stands either way. Before, a failed resume was dropped silently.
+  - **`@kindgi/agents` exports `turnFailureMessage(error)`** (and `parseFailureMessage`). It writes a turn's error as a run's failure message, the form `parseFailureMessage` reads back. A runtime that ends a run from outside its turn uses it, so the run reads as that typed error.
+- a5560d7: A resumed agent turn runs the tool versions it started with. `setup` journals the version each tool reference resolved to (`toolVersions`), and a turn resumed after a pause (an approval) resolves exactly those, instead of its version ranges again: a tool version published while the turn waited no longer runs mid-turn. A version that's gone fails the turn with `tool-version-unresolvable` ("this turn started with version …") rather than running another. A turn whose journal predates `toolVersions` resolves its ranges, as before.
+- 62608e3: **Unregister stops a version being chosen, not the pins that hold it.**
+  
+  - **Retired tool versions.** `createToolRegistry().register(tool, { retired: true })` keeps an unregistered tool version for the published agent and flow versions that pin it.
+    - Only its exact version (`getVersion`, `hasVersion`) reaches it.
+    - `resolve` (a range), `get` (latest), `list`, `versions`, `has` and `ids` skip it.
+  - **A pinned turn reaches it.** A turn resolves a pinned tool by its exact version, so a published agent version pinned to a retired tool version keeps running it. A range never picks one.
+  - **`getVersion` reads unregistered versions.** `AgentRegistryBinding.getVersion` and `FlowRegistryBinding.getVersion` return them too (`AgentVersionRecord`, `FlowVersionRecord`, with `unregisteredAt`). `GET /v1/agents/:id/versions/:version` and `GET /v1/flows/:id/versions/:version` return `unregisteredAt`.
+  - **Who reads what:** a resumed run, provenance, and a flow version that pins an agent version read unregistered versions. A new run that names one is refused by the runtime.
+- 376d9e4: **A turn that fails because a pinned tool version is gone says so once.** The `tool-version-unresolvable` message no longer repeats the registry's own "Tool "…" has no version "…" registered" after its explanation. It reads: `Tool "acme.lookup": this turn started with version 1.0.0, which is no longer registered; it doesn't run another version mid-turn.` The same goes for a version an agent version pins. When the tool has no version registered at all, the message still adds that.
+- Updated dependencies [68da079]
+- Updated dependencies [1c0252c]
+- Updated dependencies [1c0252c]
+- Updated dependencies [b9d3c01]
+- Updated dependencies [7b63137]
+- Updated dependencies [024a47f]
+- Updated dependencies [2b34f78]
+- Updated dependencies [fa6680c]
+- Updated dependencies [fac7472]
+- Updated dependencies [f999acd]
+- Updated dependencies [bd3ce67]
+- Updated dependencies [26b2a23]
+- Updated dependencies [b8ff156]
+- Updated dependencies [e58e35c]
+- Updated dependencies [d9cee7c]
+- Updated dependencies [dde7fdb]
+- Updated dependencies [2040daf]
+- Updated dependencies [8b28a25]
+- Updated dependencies [e17b230]
+- Updated dependencies [2923703]
+- Updated dependencies [bfeabfd]
+- Updated dependencies [d0ebeb6]
+- Updated dependencies [9801f64]
+- Updated dependencies [e2ba026]
+- Updated dependencies [62608e3]
+- Updated dependencies [ae417f7]
+  - @kindgi/guardrails@0.1.4
+  - @kindgi/capabilities@0.1.4
+  - @kindgi/tools@0.1.4
+  - @kindgi/authz@0.1.4
+  - @kindgi/types@0.1.4
+  - @kindgi/compliance@0.1.4
+  - @kindgi/flow@0.1.4
+  - @kindgi/runtime@0.1.4
+  - @kindgi/policy-contract@0.1.4
+  - @kindgi/provenance@0.1.4
+  - @kindgi/schema@0.1.4
+  - @kindgi/handler@0.1.4
+  - @kindgi/embedding@0.1.4
+  - @kindgi/memory@0.1.4
+
 ## 0.1.4-rc.5
 
 ### Patch Changes
