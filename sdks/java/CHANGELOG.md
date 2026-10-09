@@ -16,7 +16,7 @@ heading into its version.
   under a naming strategy, and `@JsonIgnoreProperties` bypassed by
   case-insensitive binding. An app's newer Jackson still wins; Spring Boot
   3.4 and later manage 2.18 or newer. kindgi-models keeps its optional
-  jackson-annotations at 2.15, and kindgi-client's Jackson stays shaded. (#PR)
+  jackson-annotations at 2.15, and kindgi-client's Jackson stays shaded. (#446)
 - `kindgi-pack`, `kindgi-pack-scala`: **the Java pack service writes log
   records**, the same as the TypeScript and Python services' and the
   runtime's: one per call (`tool acme.lookup ok 12ms`) with the call's ids and
