@@ -14,7 +14,7 @@ It's built on [`@kindgi/adapter-model-shared`](../model-shared/): the retries, t
 |---|---|
 | `resourceName` | The Azure OpenAI resource, as in `<name>.openai.azure.com`. |
 | `baseURL` | Instead of `resourceName`: a custom endpoint (`https://…/openai/v1`), such as a custom domain. |
-| `deployments` | Required. The deployment serving each registered model: `"model=deployment,…"`, e.g. `"gpt-6.1-sol=gpt-6-1-sol,gpt-6-luna=luna-prod"`. Azure deployment names are yours to choose and can't hold a dot, so every model in `metadata.models` needs one. |
+| `deployments` | Required. The deployment serving each registered model: `"model=deployment,…"`, e.g. `"gpt-6.1-sol=gpt-6-1-sol,gpt-6-luna=luna-prod"`. Azure deployment names are yours to choose (often the model's own name, as `gpt-6.1-sol`), so every model in `metadata.models` needs one. |
 | `api` | `responses` (default) or `chat-completions`. |
 | `auth` | `api-key` (default): the resource's key, through `secret_ref`. `entra`: the runtime's Azure identity; no `secret_ref`. |
 
