@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import { type GuardrailConfigProblem, guardrailConfigProblems } from './config-problems.js';
 import type { CheckFunction, CheckRegistry, RegisteredCheck } from './types.js';
 
 /**
@@ -9,7 +10,9 @@ import type { CheckFunction, CheckRegistry, RegisteredCheck } from './types.js';
  * `judge.ts` for LLM-judge evaluation.
  *
  * Adding a new built-in check: implement the function, add it to
- * `BUILT_IN_CHECKS`, document its `config` schema in the JSDoc block.
+ * `BUILT_IN_CHECKS` with its config's JSON Schema (which also refuses a
+ * config it doesn't know: a misspelt setting is never silently ignored),
+ * and document it in the JSDoc block.
  */
 
 /**
@@ -201,14 +204,115 @@ const forbiddenSubstring: CheckFunction = async (config, trace) => {
   };
 };
 
+const nonEmptyStrings = {
+  type: 'array',
+  minItems: 1,
+  items: { type: 'string', minLength: 1 },
+} as const;
+const object = (
+  properties: Record<string, unknown>,
+  required: readonly string[] = [],
+): Readonly<Record<string, unknown>> => ({
+  type: 'object',
+  properties,
+  ...(required.length > 0 && { required }),
+  additionalProperties: false,
+});
+
+/** Each built-in's config, as JSON Schema: what registration and evaluation check it against. */
+const CONFIG_SCHEMAS: Readonly<Record<string, Readonly<Record<string, unknown>>>> = {
+  'must-cite': object({
+    minCitations: { type: 'integer', minimum: 1 },
+    sourcePattern: { type: 'string', minLength: 1 },
+  }),
+  'never-call-tool': object(
+    {
+      tools: {
+        type: 'array',
+        minItems: 1,
+        items: {
+          anyOf: [
+            { type: 'string', minLength: 1 },
+            {
+              type: 'object',
+              properties: { id: { type: 'string', minLength: 1 }, version: { type: 'string' } },
+              required: ['id'],
+            },
+          ],
+        },
+      },
+    },
+    ['tools'],
+  ),
+  'max-tool-calls': object({ max: { type: 'integer', minimum: 0 } }),
+  'output-matches': object(
+    {
+      pattern: { type: 'string', minLength: 1 },
+      flags: { type: 'string', pattern: '^[dgimsuyv]*$' },
+      negate: { type: 'boolean' },
+    },
+    ['pattern'],
+  ),
+  'tool-order': object({ sequence: nonEmptyStrings }, ['sequence']),
+  'required-substring': object({ patterns: nonEmptyStrings, caseSensitive: { type: 'boolean' } }, [
+    'patterns',
+  ]),
+  'forbidden-substring': object({ patterns: nonEmptyStrings, caseSensitive: { type: 'boolean' } }, [
+    'patterns',
+  ]),
+};
+
+/** The settings that are regular expressions, by check: each must compile. */
+const REGEX_SETTINGS: Readonly<Record<string, readonly [pattern: string, flags?: string]>> = {
+  'must-cite': ['sourcePattern'],
+  'output-matches': ['pattern', 'flags'],
+};
+
+/** Every way `config` doesn't fit built-in `id`: its schema's problems, then a regex that won't compile. */
+function builtInConfigProblems(id: string, config: unknown): readonly GuardrailConfigProblem[] {
+  const schema = CONFIG_SCHEMAS[id] as Readonly<Record<string, unknown>>;
+  const problems = guardrailConfigProblems({ configSchema: schema, config });
+  if (problems.length > 0) return problems;
+  const regex = REGEX_SETTINGS[id];
+  if (regex === undefined) return [];
+  const [patternKey, flagsKey] = regex;
+  const settings = (config ?? {}) as Record<string, unknown>;
+  const pattern = settings[patternKey];
+  if (typeof pattern !== 'string') return [];
+  const flags = flagsKey !== undefined ? settings[flagsKey] : undefined;
+  try {
+    new RegExp(pattern, typeof flags === 'string' ? flags : '');
+    return [];
+  } catch (error) {
+    return [
+      {
+        path: `/config/${patternKey}`,
+        message: `config.${patternKey} isn't a regular expression that compiles: ${(error as Error).message}.`,
+      },
+    ];
+  }
+}
+
+function builtIn(id: string, evaluate: CheckFunction): RegisteredCheck {
+  const configProblems = (config: unknown) => builtInConfigProblems(id, config);
+  return {
+    id,
+    kind: 'zero-llm',
+    evaluate,
+    configSchema: CONFIG_SCHEMAS[id] as Readonly<Record<string, unknown>>,
+    configProblems,
+    validateConfig: (config) => configProblems(config)[0]?.message,
+  };
+}
+
 const BUILT_IN_CHECKS: readonly RegisteredCheck[] = [
-  { id: 'must-cite', kind: 'zero-llm', evaluate: mustCite },
-  { id: 'never-call-tool', kind: 'zero-llm', evaluate: neverCallTool },
-  { id: 'max-tool-calls', kind: 'zero-llm', evaluate: maxToolCalls },
-  { id: 'output-matches', kind: 'zero-llm', evaluate: outputMatches },
-  { id: 'tool-order', kind: 'zero-llm', evaluate: toolOrder },
-  { id: 'required-substring', kind: 'zero-llm', evaluate: requiredSubstring },
-  { id: 'forbidden-substring', kind: 'zero-llm', evaluate: forbiddenSubstring },
+  builtIn('must-cite', mustCite),
+  builtIn('never-call-tool', neverCallTool),
+  builtIn('max-tool-calls', maxToolCalls),
+  builtIn('output-matches', outputMatches),
+  builtIn('tool-order', toolOrder),
+  builtIn('required-substring', requiredSubstring),
+  builtIn('forbidden-substring', forbiddenSubstring),
 ];
 
 /**

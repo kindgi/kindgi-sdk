@@ -955,6 +955,92 @@ describe('POST /v1/deployments — happy path', () => {
     });
   });
 
+  test("an index guardrail carrying fields this runtime doesn't know (a newer CLI) deploys: they are dropped, not refused", async () => {
+    const fixture = buildSignedDeploy({
+      index: {
+        v: 1,
+        packId: 'acme.aperture',
+        packVersion: '1.0.0',
+        artifactVersion: '20260920.1',
+        publishedAt: '2026-09-20T14:32:07.104Z',
+        tools: [],
+        guardrails: [
+          {
+            id: 'acme.cites',
+            kind: 'zero-llm',
+            action: { 'on-violation': 'halt' },
+            checkModulePath: 'guardrails/cites.mjs',
+            checkId: 'must-cite',
+            config: { minCitations: 1 },
+            checkBuiltIn: true,
+            someLaterField: { anything: 1 },
+          },
+        ],
+        agents: [],
+        flows: [],
+      },
+    });
+    const { app, guardrailRegistry } = makeApp({ fixture });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status, await res.clone().text()).toBe(201);
+    const guardrail = (await guardrailRegistry.get({
+      tenantId,
+      guardrailId: 'acme.cites' as never,
+    })) as unknown as Record<string, unknown>;
+    expect(guardrail).toMatchObject({ check: 'must-cite', config: { minCitations: 1 } });
+    expect(guardrail.checkBuiltIn).toBeUndefined();
+    expect(guardrail.someLaterField).toBeUndefined();
+  });
+
+  test("an index guardrail naming a built-in with a config the built-in refuses: 400, the config's problem named", async () => {
+    const fixture = buildSignedDeploy({
+      index: {
+        v: 1,
+        packId: 'acme.aperture',
+        packVersion: '1.0.0',
+        artifactVersion: '20260920.1',
+        publishedAt: '2026-09-20T14:32:07.104Z',
+        tools: [],
+        guardrails: [
+          {
+            id: 'acme.no-refunds',
+            kind: 'zero-llm',
+            action: { 'on-violation': 'halt' },
+            checkModulePath: 'guardrails/no-refunds.mjs',
+            checkId: 'never-call-tool',
+            config: { tools: 'acme.refund' },
+          },
+        ],
+        agents: [],
+        flows: [],
+      },
+    });
+    const { app } = makeApp({ fixture });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      error: { code: string; details?: { issues?: unknown[] } };
+    };
+    expect(body.error.code).toBe('deployment-validation-failed');
+    expect(body.error.details?.issues).toEqual([
+      {
+        primitive: 'guardrail',
+        index: 0,
+        id: 'acme.no-refunds',
+        path: '/config/tools',
+        message: 'config.tools must be array.',
+      },
+    ]);
+  });
+
   test("an index that declares the pack's process env deploys; the env is signed content, not a primitive", async () => {
     const fixture = buildSignedDeploy({
       index: {

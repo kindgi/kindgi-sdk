@@ -439,6 +439,34 @@ describe("API — guardrails register: the config against its check's configSche
     ).toEqual([]);
   });
 
+  test("a built-in check's config is checked against the built-in's schema, whatever the runtime passes", async () => {
+    // The runtime's check knows nothing of built-ins (it answers []); the route checks them itself.
+    const { app, binding } = makeApp({ checkGuardrailConfig });
+    const typo = await post(app, {
+      id: 'acme.no-refunds',
+      check: 'never-call-tool',
+      config: { tools: 'acme.refund' },
+    });
+    expect(typo.status).toBe(422);
+    const body = (await typo.json()) as {
+      error: { code: string; message: string; details: { issues: unknown[] } };
+    };
+    expect(body.error.code).toBe('guardrail-config-invalid');
+    expect(body.error.message).toBe(
+      'Guardrail "acme.no-refunds" doesn\'t fit check "never-call-tool": config.tools must be array.',
+    );
+    expect(body.error.details.issues).toEqual([
+      { path: '/config/tools', message: 'config.tools must be array.' },
+    ]);
+    expect((await binding.list({ tenantId, limit: 10 })).data).toEqual([]);
+    const fits = await post(app, {
+      id: 'acme.no-refunds',
+      check: 'never-call-tool',
+      config: { tools: ['acme.refund'] },
+    });
+    expect(fits.status).toBe(201);
+  });
+
   test('a config that fits → 201', async () => {
     const { app } = makeApp({ checkGuardrailConfig });
     const res = await post(app, {
@@ -450,8 +478,12 @@ describe("API — guardrails register: the config against its check's configSche
   });
 
   test('a check with nothing to check against → 201', async () => {
+    // A pack check the runtime has no schema for (a built-in, like the default body's
+    // `must-cite`, has its own: see the built-in test above).
     const { app } = makeApp({ checkGuardrailConfig });
-    expect((await post(app, { config: { anything: true } })).status).toBe(201);
+    expect(
+      (await post(app, { check: 'my-pack.checks.other', config: { anything: true } })).status,
+    ).toBe(201);
   });
 
   test('without the hook: no check, 201 as before', async () => {
