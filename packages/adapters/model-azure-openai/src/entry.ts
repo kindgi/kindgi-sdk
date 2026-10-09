@@ -25,6 +25,7 @@ import {
   type AdapterFactoryEntry,
   type AzureTokenClient,
   adapterConfigError,
+  identitiesPresent,
 } from '@kindgi/capabilities';
 
 import { AZURE_OPENAI_ADAPTER_ID, readAzureOpenAIConfig } from './config.js';
@@ -46,20 +47,13 @@ export const azureOpenAIAdapterFactory: AdapterFactory = (input) => {
     metadata,
     ...(input.config !== undefined && { config: input.config }),
     hasSecretRef: input.resolveApiKey !== undefined,
+    identities: identitiesPresent(input.identities),
   });
   if (read.kind === 'err') {
     throw adapterConfigError(AZURE_OPENAI_ADAPTER_ID, metadata.id, read.problems[0] as never);
   }
   const { endpoint, api, auth, deployments } = read.config;
-
   const tokens = input.identities?.azure;
-  if (auth === 'entra' && tokens === undefined) {
-    throw adapterConfigError(AZURE_OPENAI_ADAPTER_ID, metadata.id, {
-      path: '/adapter_config/auth',
-      message:
-        "auth = entra needs the runtime's Azure identity (its managed identity; KINDGI_AZURE_CLIENT_ID names a user-assigned one), and this runtime has none.",
-    });
-  }
   const resolveApiKey = input.resolveApiKey;
 
   return createAiSdkModelProvider({

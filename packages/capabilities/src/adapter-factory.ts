@@ -69,6 +69,21 @@ export interface AdapterConfigCheckInput {
   readonly config?: AdapterConfig;
   /** Whether the registration names a secret (`secret_ref`). Its value is never read here. */
   readonly hasSecretRef: boolean;
+  /**
+   * Which of its own cloud identities the runtime has (`AdapterFactoryInput.identities`), so a
+   * registration that signs in as one the runtime lacks is refused when it registers, not
+   * when it's first used. A registry made with `identities` fills it. Absent: not known, and
+   * the factory refuses instead.
+   */
+  readonly identities?: AdapterIdentitiesPresent;
+}
+
+/** Which of `AdapterIdentities` a runtime has: `true` for each it can sign in as. */
+export type AdapterIdentitiesPresent = { readonly [K in keyof AdapterIdentities]-?: boolean };
+
+/** `identities`, as the check input names them: which are there. */
+export function identitiesPresent(identities: AdapterIdentities | undefined): AdapterIdentitiesPresent {
+  return { azure: identities?.azure !== undefined, aws: identities?.aws !== undefined };
 }
 
 /**
@@ -211,6 +226,18 @@ export interface AdapterFactoryRegistry {
   list(): readonly AdapterFactoryEntry[];
 }
 
+/** How a runtime makes its `AdapterFactoryRegistry`. */
+export interface AdapterFactoryRegistryOptions {
+  /**
+   * The runtime's own cloud identities. Each entry's factory gets them as
+   * `AdapterFactoryInput.identities` (unless its input names its own), and
+   * its `checkConfig` learns which are there (`AdapterConfigCheckInput.identities`),
+   * so the two agree: a registration needing one the runtime lacks is refused
+   * when it registers.
+   */
+  readonly identities?: AdapterIdentities;
+}
+
 /**
  * Create an in-memory `AdapterFactoryRegistry`. Global
  * (deployment-scoped) — every tenant reads from the same map because
@@ -223,8 +250,10 @@ export interface AdapterFactoryRegistry {
  */
 export function createAdapterFactoryRegistry(
   seed: readonly AdapterFactoryEntry[] = [],
+  options: AdapterFactoryRegistryOptions = {},
 ): AdapterFactoryRegistry {
   const entries = new Map<string, AdapterFactoryEntry>();
+  const { identities } = options;
 
   function register(entry: AdapterFactoryEntry): void {
     if (entries.has(entry.adapterId)) {
@@ -232,7 +261,7 @@ export function createAdapterFactoryRegistry(
         `AdapterFactoryRegistry: "${entry.adapterId}" is already registered. Duplicate adapter registration at boot indicates a wiring bug.`,
       );
     }
-    entries.set(entry.adapterId, entry);
+    entries.set(entry.adapterId, identities === undefined ? entry : withIdentities(entry, identities));
   }
 
   for (const entry of seed) register(entry);
@@ -248,5 +277,21 @@ export function createAdapterFactoryRegistry(
     list(): readonly AdapterFactoryEntry[] {
       return [...entries.values()];
     },
+  };
+}
+
+/** An entry whose factory and check know the runtime's identities. */
+function withIdentities(
+  entry: AdapterFactoryEntry,
+  identities: AdapterIdentities,
+): AdapterFactoryEntry {
+  const present = identitiesPresent(identities);
+  const { checkConfig } = entry;
+  return {
+    ...entry,
+    factory: (input) => entry.factory({ ...input, identities: input.identities ?? identities }),
+    ...(checkConfig !== undefined && {
+      checkConfig: (input) => checkConfig({ ...input, identities: input.identities ?? present }),
+    }),
   };
 }
