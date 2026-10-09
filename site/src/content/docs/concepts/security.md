@@ -42,6 +42,11 @@ Tokens are compared in constant time. A wrong or missing token gets `401`:
 
 To rotate the token, restart the runtime with a new value.
 
+With [authorization](../../deploy/authorization/) on, people and service
+accounts have API keys of their own (`kgi_ak_…`), each acting with its
+holder's grants and no more; revoking one refuses it from its next request
+([People, API keys and service accounts](../../deploy/people-and-keys/)).
+
 ## Signing in to the console
 
 People sign in to the console with their email first; the sign-in page then

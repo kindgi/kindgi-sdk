@@ -1,0 +1,93 @@
+---
+title: Run on a schedule
+description: Run an agent or a flow at set times, as you, and see each time it ran, or why it didn't.
+sidebar:
+  order: 2.5
+---
+
+A **schedule** starts a run of an agent or a flow at the times a cron
+expression gives. Its runs act as whoever made the schedule, checked again
+at every run. They land in the schedule's project, and each names the
+schedule that started it.
+
+## Create one
+
+```sh
+kindgi schedules create --agent=acme.order-desk --cron="0 7 * * 1-5" --timezone=America/Toronto \
+  --input='{"userMessage":"List the orders still open from yesterday."}' --label="weekday digest"
+```
+
+It prints the schedule, with its `id`. `kindgi schedules get <schedule-id>
+--upcoming=3` adds the next three times it runs.
+
+- **What it runs:** `--agent` runs the agent's live version (else its
+  latest), and `--agent-version` pins one. `--flow` needs `--flow-version`.
+- **Its input:** an agent's is `{"userMessage": "…"}`, the message each run
+  sends; a schedule without one is refused when you create it. A flow takes
+  its own input (`{}` if you give none). `--input=@digest.json` reads a file.
+- **When:** `--cron` takes a cron expression (`0 7 * * 1-5` is 07:00 on
+  weekdays) or a shorthand such as `@daily`, in `--timezone` (an IANA name;
+  UTC by default). The shortest interval is a minute, except under
+  `kindgi dev`.
+- **Where:** `--project=<project-id>`; the tenant's Default project if you
+  leave it out.
+
+From your app, the clients have the same calls on `schedules`: `register`,
+`list`, `get`, `update`, `pause`, `resume`, `runNow`, `fires`,
+`takeOwnership` and `unregister` (`run_now` and `take_ownership` in
+Python).
+
+## Each time it fires
+
+Each time the schedule comes due is a **fire**. A fire starts one run with
+the schedule's input, and the run's `trigger` names the schedule, the fire
+and the time it was for. With several runtime instances on one database,
+each time still fires once.
+
+- **The previous run is still going** (working, or waiting for an approval):
+  with `--overlap=skip`, the default, the fire is `skipped-overlap`.
+  `--overlap=allow` starts another run.
+- **The runtime was down** when one or more times came due: with
+  `--catch-up=latest`, the default, it fires once when it's back, for the
+  latest of them, and says how many it stood in for (`missedCount`).
+  `--catch-up=skip` fires none of them. A time is missed when the fire would
+  start more than `--starting-deadline` seconds late (600 by default).
+- **Its owner may no longer run it** (they lost their role on the project,
+  say): the fire is `refused`, with why. Whoever holds `admin` on the
+  project can make themselves its owner:
+  `kindgi schedules take-ownership <schedule-id>`.
+- **The person a run would act for is being erased:** the fire is
+  `skipped-erasure`, and no run starts for them until the erasure completes.
+
+After 5 fires in a row that were refused or failed, the schedule pauses
+itself, with the reason in its `statusReason`. Skipped fires don't count.
+`kindgi schedules resume <schedule-id>` clears it.
+
+## See what it did
+
+```sh
+kindgi schedules fires <schedule-id> --table
+```
+
+The history is newest first, kept for 30 days. Each row has when the fire
+happened (`FIRED`), the time it was for (`FOR`, or `run-now` for one you
+started by hand), its `OUTCOME`, the `RUN` it started, and a `NOTE`: why it
+was skipped, refused or failed, or how many missed times it stood in for.
+Without `--table`, the same fires come as JSON. The outcomes are `started`,
+`skipped-overlap`, `skipped-erasure`, `refused`, `failed`, and `pending`
+while a fire is starting.
+
+`kindgi runs list --trigger=<schedule-id>` lists the runs it started.
+
+Each fire also logs one `[schedules]` record, with its outcome and run
+([Logs](../../../deploy/logs/)).
+
+## Run it now, pause it, change it
+
+- `kindgi schedules run-now <schedule-id>` runs it once now, outside its
+  schedule. Its next time doesn't move, and a run still going doesn't stop it.
+- `kindgi schedules pause <schedule-id>` stops it; `resume` starts it again
+  from its next time, without running the ones it missed while paused.
+- `kindgi schedules update <schedule-id>` changes when it runs, what it runs,
+  its input or its policies, with the same flags as `create`.
+- `kindgi schedules unregister <schedule-id>` removes it.

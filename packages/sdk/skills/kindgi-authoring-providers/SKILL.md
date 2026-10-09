@@ -23,7 +23,7 @@ description: >
   kindgi-getting-started.
 type: core
 library: "@kindgi/sdk"
-version: "0.9.9"
+version: "0.9.10"
 sdk_version: "0.0.0"
 pack_languages: [node, python]
 sources:
@@ -131,8 +131,9 @@ credential on argv.
 kindgi providers register --preset=anthropic                          # Opus 5.5, Sonnet 5.5 (default), Haiku 5.5, Haiku 4.5
 kindgi providers register --preset=anthropic --models=claude-sonnet-5-5  # just one
 ```
-Don't pin `claude-haiku-4-5`: Anthropic retires it on or after 2026-10-15,
-and a turn routed to it then fails; `claude-haiku-5-5` replaces it. Each
+Before pinning a Claude model, check its status on Anthropic's model
+deprecations page (https://platform.claude.com/docs/en/about-claude/model-deprecations): a turn routed to a retired model fails. Prefer the
+preset's default. Each
 preset names a default model (`metadata.defaultModel`, marked `(default)`
 when it registers), which an agent with no preference gets. A preset
 registered before 0.1.4 has none: unregister it and register it again.

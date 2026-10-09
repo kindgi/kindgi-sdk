@@ -44,7 +44,9 @@ kindgi runs start --flow=acme.reserve-order --input='{"orderId":"A-300"}' --no-w
 
 `--agent-version=<version>` (or `--flow-version`) runs that version instead of
 the latest, and `--project=<project-id>` runs in that project instead of the
-Default one (`kindgi projects list` lists the projects with their ids):
+agent's or flow's own, which is Default for what `kindgi deploy` registers
+(`kindgi projects list` lists the projects with their ids). With
+authorization on, naming a project needs `write` on it:
 
 ```sh
 kindgi runs start --agent=acme.order-desk --agent-version=0.1.0 --project=<project-id> --input='{"userMessage":"Where is order A-1002?"}'
