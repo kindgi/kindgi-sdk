@@ -96,10 +96,11 @@ some models, register only those (`--models`).
 The Claude 5.5 models take no `temperature`, and they think before they
 answer: see [Temperature and thinking](../#temperature-and-thinking).
 
-Anthropic retires `claude-haiku-4-5` on or after **2026-10-15**; from then, a
-turn routed to it fails. Its replacement is `claude-haiku-5-5`, which costs a
-tenth as much for a prompt up to 100,000 tokens, with five times the context. An agent that prefers or requires
-Haiku 4.5 needs a new version naming another model.
+Anthropic lists each model's status, and any retirement date, on its
+[model deprecations](https://platform.claude.com/docs/en/about-claude/model-deprecations) page. A turn routed to a retired model fails, so
+an agent that prefers or requires one needs a new version naming another
+model. `claude-haiku-5-5` costs a tenth as much as `claude-haiku-4-5` for a
+prompt up to 100,000 tokens, with five times the context.
 
 ## If you registered it before 0.1.4
 
