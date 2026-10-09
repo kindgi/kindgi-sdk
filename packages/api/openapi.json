@@ -13381,6 +13381,14 @@
                 "type": "boolean",
                 "description": "Sign-in to the console with an API token (`POST /v1/auth/token-sign-in`)."
               },
+              "sessionCookie": {
+                "type": "string",
+                "enum": [
+                  "secure",
+                  "plain"
+                ],
+                "description": "The browser session cookie's kind: `secure` (`Secure` and `__Host-`, kept by browsers only over https, and by some on http://localhost), or `plain` (development on a loopback address only, so every browser keeps it there). A sign-in page can check the browser keeps that kind before offering sign-in. Absent from older servers, and where there are no browser sessions: treat as `secure`."
+              },
               "emailLink": {
                 "type": "object",
                 "additionalProperties": false,

@@ -10,6 +10,7 @@ export type {
 } from './app.js';
 export type { AppEnv } from './types.js';
 export {
+  PLAIN_SESSION_COOKIE_NAME,
   SESSION_COOKIE_NAME,
   SESSION_TOKEN_PREFIX,
   encodeSessionToken,

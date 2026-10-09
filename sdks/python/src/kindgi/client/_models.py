@@ -7012,6 +7012,12 @@ class Methods(BaseModel):
     """
     Sign-in to the console with an API token (`POST /v1/auth/token-sign-in`).
     """
+    session_cookie: Annotated[Literal["secure", "plain"] | None, Field(alias="sessionCookie")] = (
+        None
+    )
+    """
+    The browser session cookie's kind: `secure` (`Secure` and `__Host-`, kept by browsers only over https, and by some on http://localhost), or `plain` (development on a loopback address only, so every browser keeps it there). A sign-in page can check the browser keeps that kind before offering sign-in. Absent from older servers, and where there are no browser sessions: treat as `secure`.
+    """
     email_link: Annotated[EmailLink | None, Field(alias="emailLink")] = None
     """
     Present when the deployment emails sign-in links: a sign-in page offers "Email me a sign-in link". With `captchaSiteKey`, the request needs a Cloudflare Turnstile token (`x-captcha-response`).
