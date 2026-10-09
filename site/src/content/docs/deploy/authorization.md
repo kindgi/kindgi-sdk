@@ -36,7 +36,10 @@ you need: you'd run OpenFGA for little else. `kindgi dev` runs without it.
 
 ## Run OpenFGA next to the runtime
 
-The runtime works with OpenFGA v1.9.0. OpenFGA keeps its data in Postgres:
+Run OpenFGA v1.22.0. The runtime also works with v1.9.0, but published
+OpenFGA security advisories affect that version
+([OpenFGA: security advisories](https://github.com/openfga/openfga/security/advisories)).
+OpenFGA keeps its data in Postgres:
 give it its own database on the runtime's server. These commands continue
 [Self-host Kindgi](../self-host/) (the `kindgi` network and the `kindgi-db`
 container):
@@ -44,12 +47,12 @@ container):
 ```sh
 docker exec kindgi-db psql -U kindgi -c 'CREATE DATABASE openfga'
 
-docker run --rm --network kindgi openfga/openfga:v1.9.0 migrate \
+docker run --rm --network kindgi openfga/openfga:v1.22.0 migrate \
   --datastore-engine postgres \
   --datastore-uri "postgres://kindgi:$DB_PASSWORD@kindgi-db:5432/openfga?sslmode=disable"
 
 docker run -d --name kindgi-openfga --network kindgi --restart unless-stopped \
-  openfga/openfga:v1.9.0 run \
+  openfga/openfga:v1.22.0 run \
   --datastore-engine postgres \
   --datastore-uri "postgres://kindgi:$DB_PASSWORD@kindgi-db:5432/openfga?sslmode=disable"
 ```
@@ -62,7 +65,30 @@ Keep OpenFGA on the private network, with no published port: the runtime
 calls it without credentials. Back up its `openfga` database with the
 runtime's ([Back up Postgres](../operate/#back-up-postgres)).
 
-Then point the runtime at it, in `kindgi.env`, and
+### An OpenFGA you already run
+
+To move an OpenFGA from v1.9.0 to v1.22.0, run the new version's `migrate`
+against its database, then restart OpenFGA on the new version:
+
+```sh
+docker run --rm --network kindgi openfga/openfga:v1.22.0 migrate \
+  --datastore-engine postgres \
+  --datastore-uri "postgres://kindgi:$DB_PASSWORD@kindgi-db:5432/openfga?sslmode=disable"
+docker stop kindgi-openfga && docker rm kindgi-openfga
+```
+
+and start it with the `run` command above. On Postgres it's one migration,
+which builds an index without locking the table. In our upgrade, the model,
+every tuple and every permission answer came through unchanged, and v1.9.0
+still ran on the migrated database, so going back needs no schema step.
+
+If you set `OPENFGA_DATASTORE_MAX_IDLE_CONNS`: from v1.11, Postgres's idle
+connections are set with `OPENFGA_DATASTORE_MIN_IDLE_CONNS` instead
+([OpenFGA: configuration](https://openfga.dev/docs/getting-started/setup-openfga/configuration)).
+
+### Point the runtime at it
+
+Set its address in `kindgi.env`, and
 [restart](../operate/#restart-the-runtime):
 
 ```sh
