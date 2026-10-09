@@ -10,7 +10,9 @@
  *   (`kindgi.env`), the rest kept as it is;
  * - `gcp:projects/<project>/secrets/<name>` and
  *   `azure:https://<vault>.vault.azure.net/secrets/<name>`: a cloud secret
- *   manager (`cloud.ts`).
+ *   manager (`cloud.ts`);
+ * - `aws:<region>:<secret name>` or `aws:<the secret's ARN>`: AWS Secrets
+ *   Manager (`aws.ts`).
  *
  * A write replaces the file atomically (a temporary file beside it, then a
  * rename) and keeps its mode; a new file is created `0600`. Nothing here
@@ -22,6 +24,7 @@ import { randomBytes } from 'node:crypto';
 import { chmod, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 
+import { awsSecretStore } from './aws.js';
 import { type CloudDeps, azureSecretStore, gcpSecretStore } from './cloud.js';
 
 export interface SecretStore {
@@ -63,6 +66,7 @@ const SCHEMES: Readonly<
   'env-file': (rest, { cwd }) => envFileStoreFor(rest, cwd),
   gcp: (rest, { cloud }) => gcpSecretStore(rest, cloud),
   azure: (rest, { cloud }) => azureSecretStore(rest, cloud),
+  aws: (rest, { cloud }) => awsSecretStore(rest, cloud),
 };
 
 /** The store a reference names. Throws `SecretRefError`, saying what a reference looks like. */
@@ -78,7 +82,7 @@ export function secretStoreFor(
   const store = Object.hasOwn(SCHEMES, scheme) ? SCHEMES[scheme]?.(rest, context) : undefined;
   if (store !== undefined) return store;
   throw new SecretRefError(
-    `"${ref}" isn't a place to keep a secret. Use file:<path>, env-file:<path>#<NAME> (for example env-file:kindgi.env#KINDGI_LICENSE_KEY), gcp:projects/<project>/secrets/<name>, or azure:https://<vault>.vault.azure.net/secrets/<name>.`,
+    `"${ref}" isn't a place to keep a secret. Use file:<path>, env-file:<path>#<NAME> (for example env-file:kindgi.env#KINDGI_LICENSE_KEY), gcp:projects/<project>/secrets/<name>, azure:https://<vault>.vault.azure.net/secrets/<name>, or aws:<region>:<secret name> (or aws:<the secret's ARN>).`,
   );
 }
 

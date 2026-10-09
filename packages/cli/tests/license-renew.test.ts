@@ -259,7 +259,7 @@ describe('where a secret is kept', () => {
       expect(() => secretStoreFor(ref), ref).toThrow(SecretRefError);
     }
     expect(() => secretStoreFor('kindgi.env')).toThrow(
-      'Use file:<path>, env-file:<path>#<NAME> (for example env-file:kindgi.env#KINDGI_LICENSE_KEY), gcp:projects/<project>/secrets/<name>, or azure:https://<vault>.vault.azure.net/secrets/<name>.',
+      `Use file:<path>, env-file:<path>#<NAME> (for example env-file:kindgi.env#KINDGI_LICENSE_KEY), gcp:projects/<project>/secrets/<name>, azure:https://<vault>.vault.azure.net/secrets/<name>, or aws:<region>:<secret name> (or aws:<the secret's ARN>).`,
     );
   });
 });
