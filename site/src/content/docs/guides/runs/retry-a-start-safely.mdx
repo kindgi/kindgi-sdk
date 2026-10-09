@@ -12,14 +12,6 @@ dropped connection, say. Send each start with an **idempotency key**. A start
 repeated with the same key, once the first request has answered, returns the
 run the first one started instead of starting a second one.
 
-:::caution[Don't retry a start that may still be running]
-A repeat that arrives while the first request is still running isn't
-recognized yet, and can start the run a second time; 0.1.5 fixes this. That's
-the case after a client's timeout on a waited start. Start a run that can take
-long in the background (`wait: false`, whose answer carries the run's id at
-once) and [follow it](../follow-a-run/), instead of retrying its start.
-:::
-
 ```sh
 kindgi runs start --flow=acme.review-order --input='{"orderId":"A-100"}' --idempotency-key=order-A-100-review
 ```
@@ -101,10 +93,36 @@ Idempotency-Key was reused with a different request body. Use a fresh key or the
 - A request with a key Kindgi has seen gets the first request's response
   again: the same run, as it was returned then. Call `get` for its current
   state.
+- A repeat sent while the first request is still running doesn't run
+  again. It's refused with a conflict, `idempotency-key-in-flight`, and
+  `Retry-After: 5`:
+
+  ```json
+  {"code":"idempotency-key-in-flight","message":"A request with this Idempotency-Key is still running. Retry after it answers (Retry-After), and you'll get its answer."}
+  ```
+
+  Retry after the first one answers, and you get its answer: the same run.
+  The clients don't retry it on their own. A request that stops without
+  answering (its runtime crashed, say) frees its key within 30 seconds.
 - The key must come with the same request. The same key with a different
   body (another input, other options) is refused with a conflict, and nothing
-  starts.
-- Keys are kept for 24 hours, per tenant.
+  starts, also while the first is still running.
+- Only an answer that succeeded is kept. A start that was refused (a flow
+  that isn't registered yet, `404 flow-not-found`) isn't, so once you've
+  fixed the cause, the same start with the same key runs.
+- Keys are kept for 24 hours, per tenant and per caller: the same key from
+  someone else (another person, another API key) is their own request, and
+  never gets your response.
+- A response that carries a secret (a new API key, a session token or a
+  console session, a generated webhook signing secret) isn't kept. A retry
+  with its key is refused with a conflict, `idempotency-key-replay-withheld`,
+  saying when the first one succeeded. It never gets the secret again, and
+  nothing is made twice.
+
+A waited start answers only when its run completes, fails or waits for
+something, so a repeat gets `idempotency-key-in-flight` until then. Start a run that
+can take long in the background (`wait: false`, whose answer carries the
+run's id at once) and [follow it](../follow-a-run/) instead.
 
 Pick a key that names the work, not the attempt: `review-A-200` for "review
 order A-200", the same on every retry. A new key per attempt defeats it.

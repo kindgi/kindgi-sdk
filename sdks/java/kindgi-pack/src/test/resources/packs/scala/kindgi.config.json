@@ -1,0 +1,4 @@
+{
+  "language": "scala",
+  "pack": { "id": "acme", "version": "1.0.0" }
+}

@@ -397,57 +397,112 @@ export interface Supervisor {
 }
 
 /**
- * Wire shape — matches `@kindgi/api/openapi.json#FixProposalStatus`:
- * `draft → dry-running → dry-run-passed|failed → proposed-for-review →
- * approved|rejected → applied|rolled-back | withdrawn`, with a
- * transient `dry-running` state while the dry run executes.
+ * Where an improvement proposal stands — `@kindgi/api/openapi.json#FixProposalStatus`.
+ * Derived by the server from the proposal's comparison and promotion.
  */
 export type FixProposalStatus =
   | 'draft'
-  | 'dry-running'
-  | 'dry-run-passed'
-  | 'dry-run-failed'
-  | 'proposed-for-review'
-  | 'approved'
+  | 'evaluating'
+  | 'evaluated'
+  | 'not-better'
+  | 'evaluation-failed'
+  | 'in-review'
+  | 'promoted'
+  | 'refused'
   | 'rejected'
-  | 'applied'
+  | 'expired'
+  | 'superseded'
   | 'rolled-back'
   | 'withdrawn';
 
+/** What a proposal changes: a settings block (new values) or a prompt block (a new template). */
+export type ProposalTier = 'settings-block' | 'prompt-block';
+
+/** New content for a block: `{ values }` (settings) or `{ template }` (prompt). */
+export type ProposalContent =
+  | { readonly values: Readonly<Record<string, unknown>> }
+  | { readonly template: string };
+
+/** The metric that says whether a candidate is better. */
+export type ProposalObjective = 'weightedYesShare' | 'weightedPrecisionAtK';
+
 /**
- * Wire shape — matches `@kindgi/api/openapi.json#FixProposal`. The row
- * carries no review outcome, dry-run result or materialized run:
- * decisions live in the linked HITL approval (`reviewApprovalId`),
- * dry-run results are returned as `DryRunProposalResult` by the dry-run
- * route, and the applied agent version is `appliedVersion`.
+ * An improvement proposal — `@kindgi/api/openapi.json#FixProposal`: a
+ * change to one data block an agent version pins, for one live scope,
+ * taken through the same comparison, gate and promotion as any version.
  */
 export interface FixProposal {
   readonly id: FixProposalId;
-  readonly tenantId: import('@kindgi/types').TenantId;
-  readonly supervisorId: SupervisorId;
   readonly agentId: import('@kindgi/types').AgentId;
-  readonly agentVersion: string;
-  readonly tier: 'prompt' | 'retrieval' | 'tool-config';
-  /** Polymorphic change payload — shape depends on `tier`. */
-  readonly change: Readonly<Record<string, unknown>>;
-  readonly patternRefs: readonly Readonly<Record<string, unknown>>[];
-  /** Short human-readable why-this-change note. */
+  /** The agent version the change applies to. */
+  readonly fromVersion: string;
+  /** The live scope it's for. */
+  readonly scope: import('./generated/api.js').LiveScope;
+  readonly tier: ProposalTier;
+  readonly change: {
+    readonly blockId: string;
+    /** The block version `fromVersion` pins. */
+    readonly fromVersion: string;
+    readonly content: ProposalContent;
+  };
+  /** What the change should improve, and why. */
   readonly hypothesis: string;
-  /** Proposer-rule identifier that produced this proposal. */
-  readonly proposerRuleId: string;
+  readonly evidence?: { readonly judgmentIds?: readonly string[] };
+  readonly drafter:
+    | { readonly kind: 'person'; readonly by: string }
+    | {
+        readonly kind: 'settings-optimizer' | 'prompt-drafter';
+        readonly version: string;
+        readonly model?: { readonly providerId: string; readonly model: string };
+      };
   readonly status: FixProposalStatus;
-  /** sha256(tier + agentId + agentVersion + canonical(change)) — dedup key. */
-  readonly fingerprint: string;
-  readonly resolutionReason?: string;
-  /** Linked HITL approval id once the proposal reaches `proposed-for-review`. */
-  readonly reviewApprovalId?: ApprovalId;
-  /** Semver of the new agent version once applied. */
-  readonly appliedVersion?: string;
-  readonly appliedAt?: import('@kindgi/types').Timestamp;
-  readonly rolledBackAt?: import('@kindgi/types').Timestamp;
+  /** The versions evaluating it published; they serve no scope until promoted. */
+  readonly candidate?: {
+    readonly agentVersion: string;
+    readonly blockVersion: string;
+    readonly pinsDigest: string;
+  };
+  /** Its comparison, and what it found on the objective metric. */
+  readonly evaluation?: {
+    readonly evalRunId: string;
+    readonly suiteId: string;
+    readonly objective: ProposalObjective;
+    readonly startedAt: import('@kindgi/types').Timestamp;
+    readonly runStatus?: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+    readonly baseline?: number | null;
+    readonly candidate?: number | null;
+    readonly delta?: number | null;
+    readonly spread?: number;
+    readonly cases?: number;
+    readonly better?: boolean;
+  };
+  /** The promotion its request made. */
+  readonly promotion?: {
+    readonly id: string;
+    readonly status:
+      | 'promoted'
+      | 'pending-approval'
+      | 'refused'
+      | 'superseded'
+      | 'rejected'
+      | 'expired';
+    readonly approvalId?: string;
+    /** For a promoted proposal: whether its version still serves the scope. */
+    readonly liveNow?: boolean;
+  };
+  readonly rolledBack?: {
+    readonly at: import('@kindgi/types').Timestamp;
+    readonly promotionId: string;
+    readonly by: string;
+    readonly reason?: string;
+  };
+  readonly withdrawn?: {
+    readonly at: import('@kindgi/types').Timestamp;
+    readonly by: string;
+    readonly reason: string;
+  };
   readonly createdAt: import('@kindgi/types').Timestamp;
   readonly updatedAt: import('@kindgi/types').Timestamp;
-  readonly resolvedAt?: import('@kindgi/types').Timestamp;
 }
 
 /**
@@ -476,12 +531,7 @@ export interface ProposalDryRunScore {
   readonly judgeRationale?: string;
 }
 
-/**
- * Wire shape — matches `@kindgi/api/openapi.json#PassCriterion`.
- * `min-pass-rate` requires the candidate pass rate to hit a floor;
- * `strict-improvement` requires the candidate to beat a baseline by at
- * least `minDelta`.
- */
+/** @deprecated Removed in 0.1.5 with the dry-run, submit-review and apply routes (proposals now change data blocks: `client.proposals`); removed at 0.2. */
 export type DryRunCriterion =
   | { readonly kind: 'min-pass-rate'; readonly minPassRate: number }
   | {
@@ -490,20 +540,14 @@ export type DryRunCriterion =
       readonly minDelta: number;
     };
 
-/**
- * Wire shape — matches `@kindgi/api/openapi.json#DryRunProposalResult`.
- * Returned by `POST /v1/proposals/{id}/dry-run`.
- */
+/** @deprecated Removed in 0.1.5 with the dry-run, submit-review and apply routes (proposals now change data blocks: `client.proposals`); removed at 0.2. */
 export interface DryRunProposalResult {
   readonly proposal: FixProposal;
   /** True when the candidate met the criterion (proposal moved to `dry-run-passed`). */
   readonly passed: boolean;
 }
 
-/**
- * Wire shape — matches `@kindgi/api/openapi.json#SubmitReviewProposalResult`.
- * Returned by `POST /v1/proposals/{id}/submit-review`.
- */
+/** @deprecated Removed in 0.1.5 with the dry-run, submit-review and apply routes (proposals now change data blocks: `client.proposals`); removed at 0.2. */
 export interface SubmitReviewProposalResult {
   readonly proposal: FixProposal;
   readonly approvalId: ApprovalId;
@@ -511,20 +555,14 @@ export interface SubmitReviewProposalResult {
   readonly metaFix: boolean;
 }
 
-/**
- * Wire shape — matches `@kindgi/api/openapi.json#ApplyProposalResult`.
- * Returned by `POST /v1/proposals/{id}/apply`.
- */
+/** @deprecated Removed in 0.1.5 with the dry-run, submit-review and apply routes (proposals now change data blocks: `client.proposals`); removed at 0.2. */
 export interface ApplyProposalResult {
   readonly proposalId: FixProposalId;
   readonly appliedVersion: string;
   readonly appliedAt: import('@kindgi/types').Timestamp;
 }
 
-/**
- * Wire shape — matches `@kindgi/api/openapi.json#RollbackProposalResult`.
- * Returned by `POST /v1/proposals/{id}/rollback`.
- */
+/** @deprecated Removed in 0.1.5 with the dry-run, submit-review and apply routes (proposals now change data blocks: `client.proposals`); removed at 0.2. */
 export interface RollbackProposalResult {
   readonly proposalId: FixProposalId;
   readonly rolledBackAt: import('@kindgi/types').Timestamp;
@@ -994,6 +1032,8 @@ export interface Conversation {
   readonly turnCount: number;
   readonly openedAt: import('@kindgi/types').Timestamp;
   readonly closedAt?: import('@kindgi/types').Timestamp;
+  /** Set on the answer to `unregister`: reads no longer return it. */
+  readonly unregisteredAt?: import('@kindgi/types').Timestamp;
   readonly lastMessageAt?: import('@kindgi/types').Timestamp;
   readonly metadata?: Readonly<Record<string, unknown>>;
 }
@@ -1234,6 +1274,86 @@ export interface RetrievalResult {
   readonly score?: number;
 }
 
+// -- Memory erasures ------------------------------------------
+
+/**
+ * Whose words to erase: one fact, a person (an app's end user
+ * `participant`, or an `external` subject facts name), or one
+ * conversation. Erasing a Kindgi user isn't offered. Matches
+ * `@kindgi/api/openapi.json#MemoryErasureSelector`.
+ */
+export type MemoryErasureSelector =
+  | { readonly factId: string }
+  | {
+      readonly subject: {
+        readonly kind: 'participant' | 'external';
+        readonly id: string;
+      };
+    }
+  | { readonly conversationId: string };
+
+export type MemoryErasureStatus = 'pending' | 'running' | 'waiting-on-run' | 'completed' | 'failed';
+
+/** An erasure and how far it got. Matches `@kindgi/api/openapi.json#MemoryErasure`. */
+export interface MemoryErasure {
+  readonly id: string;
+  readonly selectorKind: 'fact' | 'participant' | 'external' | 'conversation';
+  /** Only while it runs: a completed or failed erasure keeps no identifier. */
+  readonly selector?: MemoryErasureSelector;
+  readonly status: MemoryErasureStatus;
+  /** `settle`: the person's unfinished runs end, or it waits for them, before anything is cleared. */
+  readonly phase: 'seed' | 'expand' | 'settle' | 'erase' | 'done';
+  readonly requestedBy: string;
+  /** A replay after a backup restore can find this person again. */
+  readonly matchable: boolean;
+  /** What each store cleared or deleted, by store. */
+  readonly counts: Readonly<Record<string, number>>;
+  readonly attempts: number;
+  /** The last failure's code, or `not-yet:<reason>` while it waits. Never content. */
+  readonly lastError?: string;
+  /**
+   * The run it waits (or waited) for, and until when: a turn of the
+   * person's in a flow that serves other people (`waiting-on-run`).
+   */
+  readonly waitingOn?: { readonly runId: string; readonly until?: string };
+  /** A tenant admin said not to wait. */
+  readonly forced?: true;
+  /** Runs of the person's kept appearing: it went on to erase after its last round. */
+  readonly settleRoundsCapped?: true;
+  readonly createdAt: string;
+  readonly startedAt?: string;
+  readonly completedAt?: string;
+  readonly replayedAt?: string;
+}
+
+/** `POST /v1/memory/erasures`'s answer: the erasure, and what to know about it. */
+export interface MemoryErasureCreated extends MemoryErasure {
+  /** `erasure-unmatchable`: no erasure ledger key (`KINDGI_ERASURE_LEDGER_KEY`), so a replay after a restore can't find this person. */
+  readonly warnings?: readonly { readonly code: 'erasure-unmatchable'; readonly message: string }[];
+}
+
+/** One ledger row, as exported off-box and given back to a replay. Content-free. */
+export interface MemoryErasureLedgerEntry {
+  readonly id: string;
+  readonly selectorKind: MemoryErasure['selectorKind'];
+  readonly selectorHmac?: string;
+  readonly keyId?: string;
+  readonly requestedBy: string;
+  readonly status: MemoryErasureStatus;
+  readonly createdAt: string;
+  readonly completedAt?: string;
+}
+
+export interface ReplayMemoryErasuresResult {
+  /** Found in the tenant again: run again. */
+  readonly replayed: readonly string[];
+  /** Put back in the ledger; nothing in the tenant matches. */
+  readonly restored: readonly string[];
+  readonly unmatched: readonly {
+    readonly id: string;
+    readonly reason: 'no-keyed-hash' | 'unknown-key';
+  }[];
+}
 // ============================================================
 // Provenance shapes — read + export + verify.
 // ============================================================
@@ -1757,7 +1877,8 @@ export type PolicyStatus = 'draft' | 'active' | 'archived';
 
 /**
  * A tombstoning domain a `retention` policy can cover; `*` is the
- * tenant-wide default. Wire enum — matches
+ * tenant-wide default, except for `memory` and `conversation`, which
+ * only a policy naming them covers. Wire enum — matches
  * `@kindgi/api/openapi.json#RetentionDomain`.
  */
 export type RetentionDomain =
@@ -1776,6 +1897,8 @@ export type RetentionDomain =
   | 'judgment'
   | 'judge_class'
   | 'provider'
+  | 'memory'
+  | 'conversation'
   | 'api_key'
   | 'service_account'
   | '*';

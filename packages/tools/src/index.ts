@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 export {
+  BUILT_IN_TOOL_PREFIX,
   defineTool,
   defineToolAsync,
   validateToolManifest,

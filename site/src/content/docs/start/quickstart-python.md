@@ -79,7 +79,7 @@ Open it in your browser (the port is `4000`, or the next free one; the
 runtime's own address, `http://127.0.0.1:4000/`, leads there too), or run
 `uv run kindgi console`, which opens it for you. On the sign-in page, click
 **Sign in as seeded user**. `kindgi dev --open` opens the console as soon as
-Kindgi is up.
+Kindgi is up. Open the console in Chrome or Firefox. Safari can't keep the local sign-in over http yet ([Known limitations](../../deploy/operate/#known-limitations-in-015)).
 
 ## 3. Run the agent and the flow
 

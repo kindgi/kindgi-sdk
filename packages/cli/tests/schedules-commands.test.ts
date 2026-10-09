@@ -131,6 +131,102 @@ describe('kindgi schedules', () => {
     expect(missing.out.stderr).toContain('--cron=<expression> is required');
   });
 
+  test('create an improve schedule for a segment; its scope comes from --project and --segment', async () => {
+    const { out, calls } = await schedules([
+      'create',
+      '--cron=0 * * * *',
+      '--improve=acme.scorer',
+      '--project=p-1',
+      '--segment=company:acme',
+      '--input={"threshold":{"judgments":10},"monthlyCapUsd":50}',
+    ]);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([
+      [
+        'register',
+        {
+          improve: {
+            agentId: 'acme.scorer',
+            scope: { kind: 'segment', projectId: 'p-1', path: [{ key: 'company', value: 'acme' }] },
+          },
+          config: {
+            cronExpression: '0 * * * *',
+            input: { threshold: { judgments: 10 }, monthlyCapUsd: 50 },
+          },
+          projectId: 'p-1',
+        },
+      ],
+    ]);
+    const project = await schedules([
+      'create',
+      '--cron=0 * * * *',
+      '--improve=acme.scorer',
+      '--project=p-1',
+    ]);
+    expect(project.calls[0]?.[1]).toMatchObject({
+      improve: { agentId: 'acme.scorer', scope: { kind: 'project', projectId: 'p-1' } },
+    });
+    for (const [argv, message] of [
+      [['--improve=acme.scorer'], '--improve needs its scope'],
+      [
+        ['--improve=acme.scorer', '--agent=acme.digest', '--project=p-1'],
+        'not with --agent or --flow',
+      ],
+      [['--improve=acme.scorer', '--segment=company:acme'], '--improve needs its scope'],
+    ] as const) {
+      const bad = await schedules(['create', '--cron=0 * * * *', ...argv]);
+      expect(bad.out.exitCode).not.toBe(0);
+      expect(bad.out.stderr).toContain(message);
+    }
+  });
+
+  test('an improve schedule in the table, and a fire that started a pass', async () => {
+    const improving = {
+      ...SCHEDULE,
+      agentId: undefined,
+      improve: { agentId: 'acme.scorer', scope: { kind: 'project', projectId: 'p-1' } },
+    };
+    const out = await runCli({
+      argv: ['schedules', 'list', '--table', '--url=https://x', '--token=t'],
+      env: {},
+      cwd,
+      home,
+      clientFactory: () =>
+        ({ schedules: { list: async () => ({ data: [improving], hasMore: false }) } }) as never,
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stdout).toContain('improve acme.scorer (project p-1)');
+    const passId = '33333333-3333-4333-8333-333333333333';
+    const fires = await runCli({
+      argv: ['schedules', 'fires', ID, '--table', '--url=https://x', '--token=t'],
+      env: {},
+      cwd,
+      home,
+      clientFactory: () =>
+        ({
+          schedules: {
+            fires: async () => ({
+              data: [
+                { ...FIRE, runId: undefined, missedCount: undefined, passId },
+                {
+                  ...FIRE,
+                  fireId: 'f-2',
+                  runId: undefined,
+                  missedCount: undefined,
+                  outcome: 'skipped',
+                  detail: '4 of 5 trusted "no" judgments',
+                },
+              ],
+              hasMore: false,
+            }),
+          },
+        }) as never,
+    });
+    expect(fires.exitCode, fires.stderr).toBe(0);
+    expect(fires.stdout).toContain(`pass ${passId}`);
+    expect(fires.stdout).toMatch(/skipped\s+4 of 5 trusted "no" judgments/);
+  });
+
   test('list as a table, with what each schedule runs', async () => {
     const { out, calls } = await schedules(['list', '--status=active', '--table']);
     expect(out.exitCode, out.stderr).toBe(0);

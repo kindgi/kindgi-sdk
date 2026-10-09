@@ -318,6 +318,168 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_AUTH_VERIFIED_DOMAINS',
+    description:
+      "Comma-separated `domain:tenant` pairs (the tenant by id, or by a unique slug): email domains whose sign-in routes to that tenant's identity providers. A runtime that serves one tenant routes that tenant's domains without this. One that serves several routes a domain only once it's listed here: otherwise a tenant could list another company's domain and catch its people. An unlisted domain's people can still use their provider's own sign-in link (`kindgi sso providers test` prints it). A malformed entry, or a tenant this runtime doesn't serve, stops the runtime at start.",
+    example: 'acme.com:3f8e2c1a-0b7d-4e9a-9c5f-2d1e6b8a7c40',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_AUTH_GOOGLE_CLIENT_ID',
+    description:
+      "Turns on \"Continue with Google\": the client id of the deployment's own Google app (an OAuth client (Web application)). People who've been added to a workspace sign in with their Google account, by its verified email. The app allows the redirect URI `<KINDGI_PUBLIC_URL>/auth/kindgi/social/callback/google`. Needs sign-in on (`KINDGI_AUTH_SECRET_PATH`) and the app's secret (`KINDGI_AUTH_GOOGLE_CLIENT_SECRET` or `…_SECRET_PATH`).",
+    example: '',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_AUTH_GOOGLE_CLIENT_SECRET',
+    description:
+      "The Google app's client secret, for platforms that give secrets as environment variables. Set this or `KINDGI_AUTH_GOOGLE_CLIENT_SECRET_PATH`, not both.",
+    example: '',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_AUTH_GOOGLE_CLIENT_SECRET_PATH',
+    description:
+      "A file (mode 0600) holding the Google app's client secret. Set this or `KINDGI_AUTH_GOOGLE_CLIENT_SECRET`, not both.",
+    example: '/etc/kindgi/google-client-secret',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_AUTH_MICROSOFT_CLIENT_ID',
+    description:
+      "Turns on \"Continue with Microsoft\": the client id of the deployment's own Microsoft app (an app registration (multitenant, with the ID-token optional claims `email` and `xms_edov`)). People who've been added to a workspace sign in with their Microsoft account, by its verified email. The app allows the redirect URI `<KINDGI_PUBLIC_URL>/auth/kindgi/social/callback/microsoft`. Needs sign-in on (`KINDGI_AUTH_SECRET_PATH`) and the app's secret (`KINDGI_AUTH_MICROSOFT_CLIENT_SECRET` or `…_SECRET_PATH`).",
+    example: '',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_AUTH_MICROSOFT_CLIENT_SECRET',
+    description:
+      "The Microsoft app's client secret, for platforms that give secrets as environment variables. Set this or `KINDGI_AUTH_MICROSOFT_CLIENT_SECRET_PATH`, not both.",
+    example: '',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_AUTH_MICROSOFT_CLIENT_SECRET_PATH',
+    description:
+      "A file (mode 0600) holding the Microsoft app's client secret. Set this or `KINDGI_AUTH_MICROSOFT_CLIENT_SECRET`, not both.",
+    example: '/etc/kindgi/microsoft-client-secret',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_AUTH_GITHUB_CLIENT_ID',
+    description:
+      "Turns on \"Continue with GitHub\": the client id of the deployment's own GitHub app (an OAuth App). People who've been added to a workspace sign in with their GitHub account, by its verified email. The app allows the redirect URI `<KINDGI_PUBLIC_URL>/auth/kindgi/social/callback/github`. Needs sign-in on (`KINDGI_AUTH_SECRET_PATH`) and the app's secret (`KINDGI_AUTH_GITHUB_CLIENT_SECRET` or `…_SECRET_PATH`).",
+    example: '',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_AUTH_GITHUB_CLIENT_SECRET',
+    description:
+      "The GitHub app's client secret, for platforms that give secrets as environment variables. Set this or `KINDGI_AUTH_GITHUB_CLIENT_SECRET_PATH`, not both.",
+    example: '',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_AUTH_GITHUB_CLIENT_SECRET_PATH',
+    description:
+      "A file (mode 0600) holding the GitHub app's client secret. Set this or `KINDGI_AUTH_GITHUB_CLIENT_SECRET`, not both.",
+    example: '/etc/kindgi/github-client-secret',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_AUTH_EMAIL_SMTP_URL',
+    description:
+      "Turns on the emailed sign-in link: people who've been added to a workspace can ask for a one-time link (ten minutes) by email. The SMTP server to send it through, with its credentials: `smtps://user:password@smtp.example.com:465`. Any provider works (Resend, Postmark, Amazon SES, your own relay). Needs sign-in on (`KINDGI_AUTH_SECRET_PATH`) and `KINDGI_AUTH_EMAIL_FROM`. Set this or `KINDGI_AUTH_EMAIL_SMTP_URL_PATH`, not both.",
+    example: '',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_AUTH_EMAIL_SMTP_URL_PATH',
+    description:
+      'A file (mode 0600) holding the SMTP URL with its credentials. Set this or `KINDGI_AUTH_EMAIL_SMTP_URL`, not both.',
+    example: '/etc/kindgi/smtp-url',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_AUTH_EMAIL_FROM',
+    description:
+      "The emailed sign-in link's From address, on a domain your SMTP provider may send for (SPF and DKIM set up): `Kindgi <sign-in@acme.com>`.",
+    example: 'Kindgi <sign-in@acme.com>',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_AUTH_EMAIL_LINK_DAILY_CAP',
+    description:
+      "The emailed sign-in link's backstop: at most this many links a day to one address from one client network (IPv4 /24, IPv6 /64). Default 20. Before it: one a minute and 3 per 15 minutes to an address, except for the browser that already got a link for it, so someone else's requests can't keep its person out. At a limit the request answers as usual, and nothing is sent.",
+    example: '20',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_AUTH_TURNSTILE_SECRET',
+    description:
+      "A Cloudflare Turnstile secret key: asking for an emailed link then needs the widget's token, checked with Cloudflare. Required when the runtime serves several tenants. Without it (one tenant), the link is still sent only to people who can sign in, within the per-address limits (see `KINDGI_AUTH_EMAIL_LINK_DAILY_CAP`), and requests are rate-limited per client. Set this or `KINDGI_AUTH_TURNSTILE_SECRET_PATH`, not both, with `KINDGI_AUTH_TURNSTILE_SITE_KEY`.",
+    example: '',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_AUTH_TURNSTILE_SECRET_PATH',
+    description:
+      'A file (mode 0600) holding the Turnstile secret key. Set this or `KINDGI_AUTH_TURNSTILE_SECRET`, not both.',
+    example: '/etc/kindgi/turnstile-secret',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_AUTH_TURNSTILE_SITE_KEY',
+    description:
+      'The Turnstile site key the sign-in page shows the widget with (public). Set with the secret.',
+    example: '',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_TRUSTED_PROXIES',
+    description:
+      "Which proxies in front of the runtime to trust for the client's address, which rate limits and audit records use. Unset: the connection's peer, and `X-Forwarded-For` is ignored (anyone can send it). A hop count (`1` behind one proxy such as a cloud load balancer or ingress, `2` behind two) or comma-separated IPs/CIDR ranges of your proxies: the client is the first `X-Forwarded-For` hop, from the right, that isn't one of them; never the leftmost on its own. Behind a proxy without this, every client counts as the proxy, so rate limits are shared by everyone.",
+    example: '1',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_SESSION_TTL_MS',
     description:
       "A browser session's absolute lifetime, in milliseconds: the person signs in again after it. Default 43200000 (12 hours); at least 60000.",
@@ -438,8 +600,35 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_RETENTION_SWEEP_INTERVAL_MS',
     description:
-      "How often the server purges deleted rows on its own, in milliseconds: in every tenant it serves, it purges for good the tombstones past their retention policy's grace, as `POST /v1/retention/sweep` does, holds (`graceSeconds: -1`) kept, and logs what it purged. Unset (the default): nothing purges on its own; sweep with `POST /v1/retention/sweep` or the console. At least 60000, or the server refuses to start.",
+      "How often the server purges deleted rows on its own, in milliseconds: in every tenant it serves, it purges for good the tombstones past their retention policy's grace, as `POST /v1/retention/sweep` does, holds (`graceSeconds: -1`) kept, and logs what it purged. Memory facts and conversations purge only under a policy naming their domain (`memory`, `conversation`), never under a `*` policy. Unset (the default): nothing purges on its own; sweep with `POST /v1/retention/sweep` or the console. At least 60000, or the server refuses to start.",
     example: '3600000',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_ERASURE_SHARED_WAIT_MS',
+    description:
+      "How long an erasure waits for a turn of the person's that sits in a flow serving other people (cancelling it now could end their work), in milliseconds. The erasure shows `waiting-on-run`, naming the run, until then; at the deadline it cancels the run and goes on, and a tenant admin can stop the wait sooner (`kindgi memory erasures resume <id> --force`). Default 604800000 (7 days).",
+    example: '604800000',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_ERASURE_LEDGER_KEY_PATH',
+    description:
+      "Absolute path to the erasure ledger's 32-byte key file (mode 0600), the same on every replica, whatever the secrets backend. The ledger keeps a keyed hash of whom each erasure erased, so after a backup restore `kindgi memory erasures replay` finds them again. Unset (and no `KINDGI_ERASURE_LEDGER_KEY`): erasures still run, but can't be replayed after a restore. Losing the key means losing replay. This or `KINDGI_ERASURE_LEDGER_KEY`, not both.",
+    example: '/etc/kindgi/erasure-ledger.key',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_ERASURE_LEDGER_KEY',
+    description:
+      "The erasure ledger's 32-byte key itself, base64: for platforms that give secrets as environment variables (Cloud Run with Secret Manager), where a key file's mode can't be 0600. See `KINDGI_ERASURE_LEDGER_KEY_PATH`; this or that, not both.",
+    example: '',
     required: false,
     appliesTo: appliesToServer,
     group: 'core',

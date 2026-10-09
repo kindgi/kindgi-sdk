@@ -229,6 +229,41 @@ describe('a replay turn decides each tool call', () => {
     expect(replayReport(d.ctx)?.tools[0]?.source).toBe('live');
   });
 
+  test('recomputed: a tool that reads from nowhere runs, marked recomputed (no divergence)', async () => {
+    const d = await dispatch({
+      tool: lookupTool({ mutating: false }),
+      binding: { decideTool: async () => ({ kind: 'recomputed' }) },
+    });
+    expect(d.ran).toBe(1);
+    expect(completed(d)[0]).toMatchObject({ replay: 'live' });
+    expect(replayReport(d.ctx)?.tools[0]).toMatchObject({ source: 'live', recomputed: true });
+  });
+
+  test.each([
+    ['reads', 'reads'],
+    ['reaches the network', 'network'],
+  ])(
+    'recomputed for a tool that %s: runs as live (its re-run can see other data)',
+    async (_name, kind) => {
+      const d = await dispatch({
+        tool: lookupTool({ mutating: false, effects: [{ kind }] }),
+        binding: { decideTool: async () => ({ kind: 'recomputed' }) },
+      });
+      expect(d.ran).toBe(1);
+      expect(replayReport(d.ctx)?.tools[0]?.source).toBe('live');
+      expect(replayReport(d.ctx)?.tools[0]?.recomputed).toBeUndefined();
+    },
+  );
+
+  test('recomputed for a tool that changes things: refused, like live', async () => {
+    const d = await dispatch({
+      tool: lookupTool({ mutating: true }),
+      binding: { decideTool: async () => ({ kind: 'recomputed' }) },
+    });
+    expect(d.ran).toBe(0);
+    expect(replayReport(d.ctx)?.tools[0]?.source).toBe('refused');
+  });
+
   test("live with the past run's env: the tool reads it, the decision keeps it, the report doesn't show it", async () => {
     let seenEnv: unknown;
     const tool = {

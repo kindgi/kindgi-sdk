@@ -100,7 +100,8 @@ The transport makes one attempt per call and does not retry. Mutating calls acce
 | `conversations` | `/v1/conversations` | — |
 | `memory` | `/v1/memory` | `logs.append`, `logs.list`, `logs.verify` |
 | `provenance` | `/v1/provenance` | `verify` |
-| `supervisor` | `/v1/proposals` | `define`, `get`, `list`, `versions`, `delete`, `proposals.reflectReview` |
+| `proposals` | `/v1/proposals` | — |
+| `supervisor` | — | `define`, `get`, `list`, `versions`, `delete`, and every `proposals.*` method (removed in 0.1.5: use `client.proposals`) |
 | `observations` | `/v1/observations` | `recordRun`, `patterns` |
 | `approvals` | `/v1/approvals` | `batch`, `assign`, `completeToken`, `reviewers.updateRole`, `audit.get`, `audit.list`, `audit.verify` |
 | `tenant` | `/v1/tenant` | — |
