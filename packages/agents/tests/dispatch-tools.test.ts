@@ -19,6 +19,7 @@ import { testNodeContext } from './node-context.js';
 async function contextSeen(
   input: Record<string, unknown>,
   args: Record<string, unknown> = { q: 'x' },
+  records: Map<string, unknown> = new Map(),
 ): Promise<ToolContext | undefined> {
   let seen: ToolContext | undefined;
   const defined = defineTool<Record<string, unknown>, { ok: boolean }>({
@@ -85,7 +86,7 @@ async function contextSeen(
       provider: { id: 'p', model: 'm' },
       nextMessages: [],
     },
-    testNodeContext({ runId: 'run-42' as RunId }),
+    testNodeContext({ runId: 'run-42' as RunId }, records),
   );
   return seen;
 }
@@ -111,5 +112,29 @@ describe('dispatch-tools — the context a tool receives', () => {
     const seen = await contextSeen({ projectId: 'project-1' });
     expect(seen?.projectId).toBe('project-1');
     expect(seen).not.toHaveProperty('orgId');
+  });
+});
+
+describe("dispatch-tools — a call's durable decisions (ctx.record)", () => {
+  test("journals under the call and the tool, in the step's own record", async () => {
+    const records = new Map<string, unknown>();
+    const seen = await contextSeen({ projectId: 'project-1' }, { q: 'x' }, records);
+    const env = await seen?.record?.('env', () => ({ ACME_REGION: 'eu' }));
+    expect(env).toEqual({ ACME_REGION: 'eu' });
+    expect([...records.keys()]).toEqual(['tool-call:call-7:pack.probe:env']);
+  });
+
+  test('when the step runs again, the call reads its decision back', async () => {
+    const records = new Map<string, unknown>();
+    const first = await contextSeen({ projectId: 'project-1' }, { q: 'x' }, records);
+    await first?.record?.('env', () => ({ ACME_REGION: 'eu' }));
+    const again = await contextSeen({ projectId: 'project-1' }, { q: 'x' }, records);
+    let decided = false;
+    const env = await again?.record?.('env', () => {
+      decided = true;
+      return { ACME_REGION: 'us' };
+    });
+    expect(env).toEqual({ ACME_REGION: 'eu' });
+    expect(decided).toBe(false);
   });
 });

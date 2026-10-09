@@ -31,7 +31,13 @@ export interface ComplianceEvidenceGenerator {
     options: RecordFromRunOptions,
   ): Promise<Result<{ readonly evidenceId: ComplianceEvidenceId }, ComplianceError>>;
 
-  exportSigned(
+  /**
+   * @deprecated `@kindgi/api` builds and signs a compliance export
+   * itself (`collectEvidence`, then the app's export signing key), so
+   * nothing calls this. Kept optional so an implementation that still
+   * has it compiles; it goes in a later release.
+   */
+  exportSigned?(
     tenantId: TenantId,
     filter: EvidenceFilter,
     signingKeyId: SigningKeyId,

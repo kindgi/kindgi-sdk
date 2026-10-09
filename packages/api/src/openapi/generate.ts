@@ -49,6 +49,8 @@ const DEFAULT_SERVERS: readonly OpenApiServer[] = [
 const TAG_DESCRIPTIONS: Readonly<Record<string, string>> = {
   system: 'Health + spec discovery.',
   runs: 'Run lifecycle (start, list, get, cancel, resume, journal, stream).',
+  'export-signing-keys':
+    'The public keys this deployment signs its exports with (audit bundles, provenance, compliance evidence): what a verifier pins.',
   'signing-keys':
     'The deployment trust list: the public keys whose signatures `POST /v1/deployments` accepts. Revoked keys stay readable for audit.',
   tokens:
@@ -69,7 +71,7 @@ const TAG_DESCRIPTIONS: Readonly<Record<string, string>> = {
   proposals:
     'Supervisor fix-proposal lifecycle (draft, dry-run, submit-review, apply, rollback, withdraw — caller-plugged binding wraps the supervisor).',
   provenance:
-    'Causal DAG readback + signed exports (list, get, export — signing is caller-plugged via `SigningKeyBinding`).',
+    "Causal DAG readback + signed exports (list, get, export), signed with the deployment's export key.",
   artifacts:
     'Blob storage (list metadata, multipart upload, streaming download, HEAD, delete). Caller-plugged via `BlobStorageBinding` (from `@kindgi/blob-binding`).',
   capabilities:
@@ -100,7 +102,7 @@ const TAG_DESCRIPTIONS: Readonly<Record<string, string>> = {
   deployments:
     'Signed pack deployments (register, list, get). The single wire surface that lands a signed OCI image + index.json into the platform. Register runs a six-step atomic transaction: Ed25519 signature verify over the canonical `{imageDigest, artifactVersion, indexHash, tenantId, publishedAt}` envelope, tenant-scoped trust-list check via `SigningKeyRegistryBinding`, image pullability + `/app/index.json` sha256 match via `ImageRegistryBinding`, per-primitive manifest validation, registry upserts (tools + guardrails + agents + flows), append-only deployment ledger row via `DeploymentBinding`. All-or-nothing rollback on any failure; digest-based idempotency (redeploying the same image returns the existing record). Records are immutable — rollback = re-register the previous digest.',
   compliance:
-    'Compliance-evidence readback + signed exports (list, get, export). Reads are a classification lens over `AuditEventBinding`; only classifier-marked `exportable` kinds appear on the wire. Signed export is caller-plugged via `SigningKeyBinding` — deployments without a signing key get `404 signing-not-configured`. Bundle envelope matches `provenance.export` + audit-bundle byte-for-byte so verifiers reuse one `verifyEd25519` wrapper across all three surfaces. Redaction happens when evidence is generated, not at the export boundary — records are stored already redacted.',
+    'Compliance-evidence readback + signed exports (list, get, export). Reads are a classification lens over `AuditEventBinding`; only classifier-marked `exportable` kinds appear on the wire. A signed export is signed with the export signing key of the deployment (`exportSigning`); a deployment without one answers `404 signing-not-configured`. It is the same envelope as the audit-bundle and provenance exports, so one verifier reads all three. Redaction happens when evidence is generated, not at the export boundary — records are stored already redacted.',
   audit:
     'PDP decision audit stream (list). Every route-level authz `check()` emits one `AuditEvent` (kind `authz-decision`) via the `AuditEventBinding`; this route pages through them, tenant-scoped, with `?actorSubject=` / `?onBehalfOf=` / `?action=` / `?resource=` / `?outcome=` / `?runId=` / `?from=` / `?to=` filters. Admin@tenant only. This view is a filtered projection of the tenant audit events.',
   orgs: 'Multi-tenant hierarchy — Org CRUD (list, create, get, patch, delete). Optional structural subdivision within a tenant; small tenants ignore Orgs entirely. Caller-plugged via `OrgBinding` from `@kindgi/platform`.',
@@ -111,6 +113,8 @@ const TAG_DESCRIPTIONS: Readonly<Record<string, string>> = {
   tenant:
     'Sovereignty boundary readback + tenant-scoped config (get tenant; list + upsert entries routed to the env / secrets bindings). There is no `/v1/tenants` collection — the caller\'s tenant is implicit from the bearer token. `PATCH /config` routes writes to `SecretBinding` when `sensitive: true` OR `kind: "secret"`; else to `EnvBinding`. `GET /config` merges both bindings at tenant scope; secret values are ALWAYS redacted here. The `/config` sub-routes mount when at least one of `envBinding` / `secretsBinding` is wired. Prefer `/v1/env/*` + `/v1/secrets/*` for new callers.',
   env: 'Non-sensitive per-env values (`/v1/env/*`). Every route requires `envName` + `scopeKind` (+ `scopeId` for org / project); `value` is present on every read path (env is non-sensitive by definition). Writes require the `env:write` capability. Caller-plugged via `EnvBinding` (`@kindgi/env-inmemory` is an in-memory implementation for development and tests).',
+  schedules:
+    "Run an agent or a flow on a schedule: a cron expression in a timezone. Each occurrence is one fire, which starts one run as the schedule's owner (re-checked at every fire), through the same path as `POST /v1/runs`; a run a schedule started names it (`Run.trigger`). After a gap, `catchUp` runs once for the latest missed occurrence (or skips them), never once per missed one; `overlap` skips an occurrence while the previous run is still going. `GET …/fires` is the schedule's history; `run-now` fires it outside the schedule. Mounted when the deployment fires schedules.",
   'webhook-endpoints':
     'Outbound webhooks: endpoints the platform sends signed events to (`run.finished` when a top-level run completes, fails or is cancelled), their delivery log, redelivery and a test event. Signed in the Standard Webhooks format with a secret the endpoint references by name (`secretRef`); delivered at least once, so receivers deduplicate on `webhook-id`. Event bodies are under `webhooks`. Not to be confused with `/v1/webhooks`, which are inbound triggers. Caller-plugged via `WebhookEndpointBinding`.',
   secrets:

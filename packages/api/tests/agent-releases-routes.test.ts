@@ -8,8 +8,8 @@ import { describe, expect, test } from 'vitest';
 
 import { createAgentRegistry, defineAgent } from '@kindgi/agents';
 import { ref } from '@kindgi/authz';
-import { createStubAppBindings } from '@kindgi/testing';
 import type { Cursor, LiveScope, Semver, TenantId, Timestamp, UserId } from '@kindgi/types';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type {

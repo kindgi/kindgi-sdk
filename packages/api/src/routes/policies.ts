@@ -17,8 +17,10 @@ import {
   validatePolicySpec,
 } from '@kindgi/policy-contract';
 import { statusFor, toWireError } from '../errors.js';
+import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
+import { tenantResourceAccess } from './tenant-access.js';
 
 /**
  * Policies resource routes — part of the admin control plane. Full
@@ -41,8 +43,12 @@ import { clampLimit } from './pagination.js';
  * `model-routing`, adapter-allowlist checks, retention sweeps) read
  * policies from this store and apply them at their own boundary.
  */
-export function policiesRouter(binding: PolicyRegistryBinding): Hono<AppEnv> {
+export function policiesRouter(
+  binding: PolicyRegistryBinding,
+  authorizer?: Authorizer,
+): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+  r.use('*', tenantResourceAccess(authorizer));
 
   // ---------- GET / (list, cursor-paginated) ----------
   r.get('/', async (c) => {

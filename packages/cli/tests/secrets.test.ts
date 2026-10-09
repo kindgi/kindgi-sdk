@@ -116,6 +116,9 @@ afterEach(async () => {
   await rm(packDir, { recursive: true, force: true });
 });
 
+// The tenant the fake server answers with: the bearer's, which the CLI never sends.
+const SERVER_TENANT = '8f34192d-53bb-4fc2-bfb8-9094157b2404';
+
 // ---------- scope + env validation ----------
 
 describe('kindgi secrets — scope + env flag validation', () => {
@@ -199,7 +202,7 @@ describe('kindgi secrets get', () => {
         get: async (args: unknown) => {
           fixtures.state.getCalls.push(args);
           return {
-            scope: { kind: 'tenant', tenantId: 'session-tenant' },
+            scope: { kind: 'tenant', tenantId: SERVER_TENANT },
             envName: 'staging',
             name: 'stripe.key',
             currentVersion: 5,
@@ -263,7 +266,7 @@ describe('kindgi secrets set — TTY prompt', () => {
             kind: 'ok',
             record: {
               name: 'stripe.key',
-              scope: { kind: 'tenant', tenantId: 'session-tenant' },
+              scope: { kind: 'tenant', tenantId: SERVER_TENANT },
               envName: 'staging',
               currentVersion: 1,
               createdAt: '2026-09-22T00:00:00Z',
@@ -365,7 +368,7 @@ describe('kindgi secrets set — --from-stdin', () => {
             kind: 'ok',
             record: {
               name: 'stripe.key',
-              scope: { kind: 'tenant', tenantId: 'session-tenant' },
+              scope: { kind: 'tenant', tenantId: SERVER_TENANT },
               envName: 'staging',
               currentVersion: 1,
               createdAt: '2026-09-22T00:00:00Z',
@@ -433,7 +436,7 @@ describe('kindgi secrets set — --from-file mode check', () => {
           kind: 'ok',
           record: {
             name: 'x',
-            scope: { kind: 'tenant', tenantId: 'session-tenant' },
+            scope: { kind: 'tenant', tenantId: SERVER_TENANT },
             envName: 'staging',
             currentVersion: 1,
             createdAt: '2026-09-22T00:00:00Z',
@@ -642,7 +645,7 @@ describe('kindgi secrets pull', () => {
         list: async () => ({
           data: [
             {
-              scope: { kind: 'tenant', tenantId: 'session-tenant' },
+              scope: { kind: 'tenant', tenantId: SERVER_TENANT },
               envName: 'staging',
               name: 'stripe.key',
               currentVersion: 3,
@@ -673,5 +676,120 @@ describe('kindgi secrets pull', () => {
     expect(manifest.secrets[0]?.currentVersion).toBe(3);
     // Confirm no `value` field ever crossed into the manifest.
     expect(fixtures.state.files.get(manifestPath)).not.toContain('"value"');
+  });
+});
+
+// ---------- what the output says the scope is ----------
+
+describe('kindgi secrets — the scope it prints and sends', () => {
+  const okRecord = (scope: unknown) => ({
+    kind: 'ok',
+    record: {
+      name: 'stripe.key',
+      scope,
+      envName: 'staging',
+      currentVersion: 1,
+      createdAt: '2026-09-22T00:00:00Z',
+      updatedAt: '2026-09-22T00:00:00Z',
+    },
+    versionId: 1,
+  });
+  const run = (fixtures: Fixtures, secrets: FakeSecretsShape, args: readonly string[]) =>
+    runCli({
+      ...baseInputs(fixtures, [
+        'secrets',
+        ...args,
+        '--env=staging',
+        '--url=https://api.example.com',
+        '--token=t',
+      ]),
+      clientFactory: (() => makeFakeClient(secrets)) as never,
+    });
+
+  test('set prints the scope the server wrote to, its tenant included, and sends no tenant', async () => {
+    const fixtures = makeFixtures({ stdinValue: 'sk_live_x' });
+    const out = await run(
+      fixtures,
+      {
+        set: async (args: unknown) => {
+          fixtures.state.setCalls.push(args);
+          return okRecord({ kind: 'tenant', tenantId: SERVER_TENANT });
+        },
+      },
+      ['set', 'stripe.key', '--scope=tenant', '--from-stdin'],
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect((fixtures.state.setCalls[0] as { scope: unknown }).scope).toEqual({ kind: 'tenant' });
+    expect(JSON.parse(out.stdout)).toMatchObject({
+      name: 'stripe.key',
+      scope: { kind: 'tenant', tenantId: SERVER_TENANT },
+      versionId: 1,
+    });
+    expect(`${out.stdout}${out.stderr}`).not.toContain('session-tenant');
+  });
+
+  test('an org or project scope is sent as its kind and id', async () => {
+    for (const [flag, sent] of [
+      ['--scope=org:o1', { kind: 'org', orgId: 'o1' }],
+      ['--scope=project:p1', { kind: 'project', projectId: 'p1' }],
+    ] as const) {
+      const fixtures = makeFixtures({ stdinValue: 'sk_live_x' });
+      const out = await run(
+        fixtures,
+        {
+          set: async (args: unknown) => {
+            fixtures.state.setCalls.push(args);
+            return okRecord({ ...sent, tenantId: SERVER_TENANT });
+          },
+        },
+        ['set', 'stripe.key', flag, '--from-stdin'],
+      );
+      expect(out.exitCode, out.stderr).toBe(0);
+      expect((fixtures.state.setCalls[0] as { scope: unknown }).scope).toEqual(sent);
+      expect(JSON.parse(out.stdout).scope).toEqual({ ...sent, tenantId: SERVER_TENANT });
+    }
+  });
+
+  test('revoke, rotate and pull print the scope they were given, with no tenant', async () => {
+    const fixtures = makeFixtures();
+    const revoked = await run(fixtures, { revoke: async () => ({ revoked: true, hard: false }) }, [
+      'revoke',
+      'stripe.key',
+      '--scope=org:o1',
+    ]);
+    expect(revoked.exitCode, revoked.stderr).toBe(0);
+    expect(JSON.parse(revoked.stdout).scope).toEqual({ kind: 'org', orgId: 'o1' });
+
+    const rotated = await run(
+      fixtures,
+      { rotate: async () => ({ kind: 'ok', newVersionId: 2, oldVersionId: 1 }) },
+      ['rotate', 'stripe.key', '--scope=tenant'],
+    );
+    expect(rotated.exitCode, rotated.stderr).toBe(0);
+    expect(JSON.parse(rotated.stdout).scope).toEqual({ kind: 'tenant' });
+
+    const pulled = await run(fixtures, { list: async () => ({ data: [] }) }, [
+      'pull',
+      '--scope=project:p1',
+      `--path=${packDir}`,
+    ]);
+    expect(pulled.exitCode, pulled.stderr).toBe(0);
+    const manifest = [...fixtures.state.files.values()].map((v) => JSON.parse(v))[0];
+    expect(manifest.scope).toEqual({ kind: 'project', projectId: 'p1' });
+    for (const out of [revoked, rotated, pulled]) {
+      expect(`${out.stdout}${out.stderr}`).not.toContain('session-tenant');
+    }
+  });
+
+  test('a secret that already exists is an error, not "Set"', async () => {
+    const fixtures = makeFixtures({ stdinValue: 'sk_live_x' });
+    const out = await run(
+      fixtures,
+      { set: async () => ({ kind: 'already-exists', currentVersion: 3 }) },
+      ['set', 'stripe.key', '--scope=tenant', '--from-stdin'],
+    );
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('stripe.key already exists (version 3)');
+    expect(out.stderr).not.toContain('Set stripe.key');
   });
 });
