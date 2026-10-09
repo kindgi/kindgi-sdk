@@ -24,7 +24,7 @@ import type {
   SupervisorBinding,
 } from '../supervisor-binding.js';
 import type { AppEnv } from '../types.js';
-import { clampLimit, decodeCursor, encodeCursor } from './pagination.js';
+import { clampLimit, decodeCursor, encodeCursor, isCursorTime } from './pagination.js';
 
 const OBSERVATION_STATUSES: ReadonlySet<ObservationStatus> = new Set([
   'succeeded',
@@ -190,11 +190,11 @@ function pageCursor(
   if (raw === undefined || raw.length === 0) return {};
   const decoded = decodeCursor(raw);
   if (decoded !== null) {
-    return Number.isFinite(Date.parse(decoded.createdAt)) && UUID_RE.test(decoded.id)
+    return isCursorTime(decoded.createdAt) && UUID_RE.test(decoded.id)
       ? { after: { observedAt: decoded.createdAt, id: decoded.id } }
       : 'invalid';
   }
-  return Number.isFinite(Date.parse(raw)) ? { cursor: raw as Cursor } : 'invalid';
+  return isCursorTime(raw) ? { cursor: raw as Cursor } : 'invalid';
 }
 
 function serializeObservation(o: Observation): Record<string, unknown> {

@@ -11,16 +11,18 @@
  * client paging until done would start over.
  */
 
+import { isCursorTime } from './pagination.js';
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function isRegistryVersionsCursor(raw: string): boolean {
   const decoded = Buffer.from(raw, 'base64url').toString('utf8');
-  if (!decoded.startsWith('{')) return Number.isFinite(Date.parse(decoded));
+  if (!decoded.startsWith('{')) return isCursorTime(decoded);
   try {
     const parsed = JSON.parse(decoded) as { p?: unknown; i?: unknown };
     return (
       typeof parsed.p === 'string' &&
-      Number.isFinite(Date.parse(parsed.p)) &&
+      isCursorTime(parsed.p) &&
       typeof parsed.i === 'string' &&
       UUID_RE.test(parsed.i)
     );
