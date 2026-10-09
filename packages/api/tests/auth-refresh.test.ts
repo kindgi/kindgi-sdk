@@ -21,8 +21,9 @@ import type {
 /**
  * `POST /v1/auth/refresh` rotates the session token and nothing else: a
  * new session for the same person, provider, scopes, expiry and metadata,
- * the old one marked rotated. It never calls the provider; provider tokens
- * a session already holds carry over as they are.
+ * the old one marked rotated. It never calls the provider, and a session
+ * holds no provider tokens: a store that still returns some (written by
+ * an earlier release) doesn't get them back.
  */
 
 const tenantId = randomUUID() as TenantId;
@@ -50,8 +51,6 @@ function makeStore() {
         tenantId: input.tenantId,
         userId: input.userId,
         providerId: input.providerId,
-        ...(input.accessToken !== undefined && { accessToken: input.accessToken }),
-        ...(input.refreshToken !== undefined && { refreshToken: input.refreshToken }),
         expiresAt: input.expiresAt,
         scopes: input.scopes,
         ...(input.metadata !== undefined && { metadata: input.metadata }),
@@ -102,15 +101,13 @@ async function refresh(app: ReturnType<typeof makeApp>, token: string) {
 }
 
 describe('POST /v1/auth/refresh', () => {
-  test('a new session like the old one; provider tokens it holds carry over unchanged', async () => {
+  test('a new session like the old one, and the old one rotated', async () => {
     const { store, created, revoked } = makeStore();
     const app = makeApp(store);
     const first = await store.create({
       tenantId,
       userId: 'user-alice' as never,
       providerId: 'acme-sso',
-      accessToken: 'stored-access',
-      refreshToken: 'stored-refresh',
       expiresAt: EXPIRES,
       scopes: ['openid', 'email'],
       metadata: { team: 'ops' },
@@ -130,8 +127,6 @@ describe('POST /v1/auth/refresh', () => {
       tenantId,
       userId: 'user-alice',
       providerId: 'acme-sso',
-      accessToken: 'stored-access',
-      refreshToken: 'stored-refresh',
       expiresAt: EXPIRES,
       scopes: ['openid', 'email'],
       metadata: { team: 'ops' },
@@ -143,15 +138,25 @@ describe('POST /v1/auth/refresh', () => {
     expect((await refresh(app, body.sessionToken)).status).toBe(200);
   });
 
-  test('a session with no provider tokens gets none', async () => {
+  test("provider tokens a store still returns aren't handed to the new session", async () => {
     const { store, created } = makeStore();
-    const app = makeApp(store);
     const first = await store.create({
       tenantId,
       userId: 'user-bob' as never,
       providerId: 'acme-sso',
       expiresAt: EXPIRES,
       scopes: [],
+    });
+    // A store written by an earlier release returns its stored tokens.
+    const get = store.get.bind(store);
+    const app = makeApp({
+      ...store,
+      get: async (input) => {
+        const row = await get(input);
+        return row === null
+          ? null
+          : ({ ...row, accessToken: 'stored-access', refreshToken: 'stored-refresh' } as Session);
+      },
     });
 
     expect((await refresh(app, encodeSessionToken(first.sessionId))).status).toBe(200);
