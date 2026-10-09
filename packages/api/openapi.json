@@ -18446,7 +18446,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "scopeKind",
@@ -19274,7 +19274,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "includeRevoked",
@@ -19627,7 +19627,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "limit",
@@ -19991,7 +19991,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "limit",
@@ -20617,7 +20617,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "scopeKind",
@@ -20936,7 +20936,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "role",
@@ -21398,7 +21398,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "name",
@@ -21669,7 +21669,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           }
         ],
         "security": [
@@ -22418,7 +22418,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "scopeKind",
@@ -22700,7 +22700,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "agentId",
@@ -23552,7 +23552,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "name",
@@ -23823,7 +23823,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           }
         ],
         "security": [
@@ -24172,7 +24172,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "name",
@@ -24454,7 +24454,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "includeTombstoned",
@@ -24813,7 +24813,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "name",
@@ -25182,7 +25182,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "scopeKind",
@@ -25686,7 +25686,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           }
         ],
         "security": [
@@ -25756,7 +25756,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "type",
@@ -26704,7 +26704,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           }
         ],
         "security": [
@@ -27108,7 +27108,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "status",
@@ -27973,7 +27973,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "agentId",
@@ -28229,7 +28229,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "scopeKind",
@@ -28552,7 +28552,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "ownerRunId",
@@ -28983,7 +28983,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "status",
@@ -29116,7 +29116,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "feature",
@@ -29252,7 +29252,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "feature",
@@ -29817,7 +29817,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "runId",
@@ -30244,7 +30244,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "scopeKind",
@@ -30632,7 +30632,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "transport",
@@ -31310,7 +31310,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "runId",
@@ -31799,7 +31799,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "kind",
@@ -32142,7 +32142,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "kind",
@@ -32385,7 +32385,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "includeTombstoned",
@@ -32779,7 +32779,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           }
         ],
         "security": [
@@ -33034,7 +33034,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "kind",
@@ -33316,7 +33316,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           }
         ],
         "security": [
@@ -33603,7 +33603,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           }
         ],
         "security": [
@@ -33890,7 +33890,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "kind",
@@ -34172,7 +34172,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "includeTombstoned",
@@ -34678,7 +34678,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "suiteId",
@@ -35965,7 +35965,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "query",
@@ -36960,7 +36960,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "imageRefPrefix",
@@ -37225,7 +37225,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "runId",
@@ -37587,7 +37587,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "actorSubject",
@@ -37748,7 +37748,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "nameContains",
@@ -38127,7 +38127,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "orgId",
@@ -38523,7 +38523,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           }
         ],
         "security": [
@@ -38942,7 +38942,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "orgId",
@@ -39340,7 +39340,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           }
         ],
         "security": [
@@ -39749,7 +39749,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "kind",
@@ -39962,7 +39962,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "namePrefix",
@@ -40415,7 +40415,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "namePrefix",
@@ -40878,7 +40878,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           }
         ],
         "security": [
@@ -41504,7 +41504,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "status",
@@ -42066,7 +42066,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           }
         ],
         "security": [
@@ -42430,7 +42430,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "status",
@@ -43033,7 +43033,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           },
           {
             "name": "status",
@@ -43647,7 +43647,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           }
         ],
         "security": [
@@ -44043,7 +44043,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Opaque cursor from a prior response. Absent → first page."
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
           }
         ],
         "security": [
