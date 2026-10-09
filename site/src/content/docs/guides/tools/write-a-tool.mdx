@@ -234,6 +234,73 @@ A flow without a declared `output` returns its last step's output. The
     [pack] lookup-order ord_1001 for tenant bb22c936-5111-429a-bfce-09650af85492
 ```
 
+## Log from a tool
+
+`ctx.log` writes a record bound to the call: it carries the run's ids, the
+tool's id and the runtime's trace id, so it can be found beside the run's own
+records ([Logs](../../../deploy/logs/#your-packs-service)). Fields go in as
+an object, never in the message:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// in tools/lookup-order/index.ts, in the handler
+ctx.log?.info('looked up order', { orderId, status: order.status });
+```
+
+The pack service sets `ctx.log`. A context your own code builds may not have
+one, so write `ctx.log?.`.
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# in tools/lookup_order.py, in the handler
+ctx.log.info("looked up order", {"orderId": ref.order_id, "status": order["status"]})
+```
+
+Fields can also be keywords (`order_id=…`). In a test,
+`ToolContext.for_test(…)` logs nothing unless you pass it a logger as `log=`.
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// in src/main/java/acme/tools/LookupOrder.java, in the handler
+ctx.log().info("looked up order", Map.of("orderId", input.orderId()));
+```
+
+`ctx.log().warn("retrying", e)` logs an exception, under `err`. In a
+test, `ToolContext.forTest()` logs nothing; `ToolContext.forTest(log)` takes
+a logger.
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// in src/main/scala/acme/tools/LookupOrder.scala, in the handler
+ctx.log.info("looked up order", "orderId" -> in.orderId)
+```
+
+Fields can also be a map. A case class is logged as an object of its fields,
+so one named like a secret (`apiKey`) is redacted.
+
+</TabItem>
+</Tabs>
+
+Under `kindgi dev`, the record shows as a `[pack]` line. Here from a Java
+pack:
+
+```text
+    [pack] 12:39:41.533 INFO  [pack.tool] looked up order traceId=877833b3f86d26ce95c94bd7b7bea72f spanId=cfe974bcb4284c35 requestId=669b77fc-7ae6-4c48-8002-ebfca944e287 tenantId=cac037c9-c5ff-4f0a-ae85-7a0e5e324bc3 projectId=12a6cc0f-83d8-4739-8223-5f99210c73f0 runId=669b77fc-7ae6-4c48-8002-ebfca944e287 toolId=acme.lookup-order packId=acme artifactVersion=20261009.1 target=tool orderId=o-1001
+```
+
+The record's subsystem is `pack.tool`, and its level is the method's: `info`,
+`warn`, `error`, `debug` or `trace`. Values under secret-looking keys are
+redacted, but don't log a secret. Printing the context itself
+(`console.log(ctx)`, `print(ctx)`) never shows its secrets.
+
 ## When a call fails
 
 Kindgi checks the input before your handler runs. An order id that doesn't

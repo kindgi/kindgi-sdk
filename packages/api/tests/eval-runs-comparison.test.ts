@@ -9,7 +9,7 @@ import { describe, expect, test } from 'vitest';
 
 import type { RunId, TenantId } from '@kindgi/types';
 
-import { createStubAppBindings } from '@kindgi/testing';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import type {
   AgentRegistryBinding,

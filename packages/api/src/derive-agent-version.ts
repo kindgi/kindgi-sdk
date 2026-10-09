@@ -36,6 +36,8 @@ export interface DeriveAgentVersionInput {
   readonly label?: string;
   /** Who derived it (`user:<id>`). */
   readonly by?: string;
+  /** The improvement proposal it's derived for, recorded in `derivedFrom`. */
+  readonly proposalId?: string;
   /** The project, when the store doesn't record one on the version. */
   readonly projectId?: ProjectId;
   /** The authorization tuples for the new version, in the project it lands in. */
@@ -108,6 +110,7 @@ export async function deriveAgentVersion(
       reason: 'edited',
       ...(input.label !== undefined && { label: input.label }),
       ...(input.by !== undefined && { by: input.by }),
+      ...(input.proposalId !== undefined && { proposalId: input.proposalId }),
     },
   });
 }

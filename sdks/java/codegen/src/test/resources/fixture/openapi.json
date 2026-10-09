@@ -1,0 +1,1013 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Generator fixture",
+    "version": "1"
+  },
+  "paths": {
+    "/v1/widgets": {
+      "get": {
+        "operationId": "widgets.list",
+        "summary": "List widgets",
+        "tags": ["widgets"],
+        "security": [],
+        "description": "Cursor-paginated.\n\nA second paragraph that isn't shown.",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Where to start."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/WidgetState"
+            }
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": ["asc", "desc"]
+            }
+          },
+          {
+            "name": "segment",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "description": "One step, `key:value`.",
+            "x-kindgi-segment-path": true
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "archived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WidgetPage"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      },
+      "post": {
+        "operationId": "widgets.create",
+        "summary": "Create a widget",
+        "tags": ["widgets"],
+        "security": [],
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateWidgetBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Widget"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Widget"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/widgets/{widgetId}": {
+      "get": {
+        "operationId": "widgets.get",
+        "summary": "Fetch a widget",
+        "tags": [],
+        "security": [],
+        "parameters": [
+          {
+            "name": "widgetId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "The widgetId."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Widget"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      },
+      "patch": {
+        "operationId": "widgets.update",
+        "summary": "Update a widget",
+        "tags": [],
+        "security": [],
+        "parameters": [
+          {
+            "name": "widgetId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "The widgetId."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchWidgetBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Widget"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      },
+      "delete": {
+        "operationId": "widgets.delete",
+        "summary": "Delete a widget",
+        "tags": [],
+        "security": [],
+        "parameters": [
+          {
+            "name": "widgetId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "The widgetId."
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Gone"
+          }
+        }
+      },
+      "head": {
+        "operationId": "widgets.head",
+        "summary": "Is it there",
+        "tags": [],
+        "security": [],
+        "parameters": [
+          {
+            "name": "widgetId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "The widgetId."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "There"
+          }
+        }
+      }
+    },
+    "/v1/widgets/{widgetId}/events": {
+      "get": {
+        "operationId": "widgets.events.stream",
+        "summary": "Follow a widget",
+        "tags": [],
+        "security": [],
+        "parameters": [
+          {
+            "name": "widgetId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "The widgetId."
+          },
+          {
+            "name": "Last-Event-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/WidgetEvent"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/v1/widgets/{widgetId}/blob": {
+      "get": {
+        "operationId": "widgets.blob.download",
+        "summary": "Download its bytes",
+        "tags": [],
+        "security": [],
+        "parameters": [
+          {
+            "name": "widgetId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "The widgetId."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      },
+      "post": {
+        "operationId": "widgets.blob.upload",
+        "summary": "Upload its bytes",
+        "tags": [],
+        "security": [],
+        "parameters": [
+          {
+            "name": "widgetId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "The widgetId."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/UploadBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Widget"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/v1/widgets/{widgetId}/rotate": {
+      "post": {
+        "operationId": "widgets.rotate",
+        "summary": "Rotate a widget",
+        "tags": [],
+        "security": [],
+        "parameters": [
+          {
+            "name": "widgetId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "The widgetId."
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Done",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RotateDone"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Queued",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RotateQueued"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/settings/{domain}": {
+      "put": {
+        "operationId": "settings.put",
+        "summary": "Set the settings",
+        "tags": [],
+        "security": [],
+        "parameters": [
+          {
+            "name": "domain",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": ["runs", "memory"]
+            }
+          },
+          {
+            "name": "X-Supervisor-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["mode"],
+                "properties": {
+                  "mode": {
+                    "type": "string",
+                    "enum": ["strict", "lenient"]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["applied"],
+                  "properties": {
+                    "applied": {
+                      "type": "boolean"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Widget": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "A widget.",
+        "required": ["id", "name", "state", "label", "kind", "shape"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Its `name`."
+          },
+          "state": {
+            "$ref": "#/components/schemas/WidgetState"
+          },
+          "label": {
+            "type": ["string", "null"],
+            "description": "Required, but may be null."
+          },
+          "note": {
+            "type": ["string", "null"],
+            "maxLength": 500
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "tags": {
+            "type": "array",
+            "uniqueItems": true,
+            "maxItems": 8,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "labels": {
+            "type": "object",
+            "maxProperties": 4,
+            "propertyNames": {
+              "pattern": "^[a-z]+$"
+            },
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 32
+            }
+          },
+          "size": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "width": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "height": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              }
+            }
+          },
+          "kind": {
+            "type": "string",
+            "const": "widget"
+          },
+          "shape": {
+            "$ref": "#/components/schemas/Shape"
+          },
+          "content": {
+            "$ref": "#/components/schemas/Content"
+          },
+          "instructions": {
+            "oneOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "$ref": "#/components/schemas/PromptRef"
+              }
+            ]
+          },
+          "baseline": {
+            "$ref": "#/components/schemas/Baseline"
+          },
+          "score": {
+            "oneOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "stamp": {
+            "oneOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "restricted": {
+            "type": "boolean",
+            "enum": [true]
+          },
+          "extra": {
+            "description": "Any JSON."
+          },
+          "wait": {
+            "type": "boolean",
+            "default": false
+          },
+          "default": {
+            "type": "string"
+          },
+          "owner": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Owner"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "flow": {
+            "$ref": "#/components/schemas/Flow"
+          },
+          "nodes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Node"
+            }
+          }
+        }
+      },
+      "WidgetState": {
+        "type": "string",
+        "enum": ["draft", "live", "archived", "run.finished"],
+        "description": "Where a widget is."
+      },
+      "Shape": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Circle"
+          },
+          {
+            "$ref": "#/components/schemas/Square"
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["kind", "x"],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": ["dot", "point"]
+              },
+              "x": {
+                "type": "number"
+              }
+            }
+          }
+        ],
+        "discriminator": {
+          "propertyName": "kind"
+        }
+      },
+      "Circle": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "radius"],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "circle"
+          },
+          "radius": {
+            "type": "number",
+            "minimum": 0
+          }
+        }
+      },
+      "Square": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "side"],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "square"
+          },
+          "side": {
+            "type": "number"
+          }
+        }
+      },
+      "Content": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["text"],
+            "properties": {
+              "text": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["values"],
+            "properties": {
+              "values": {
+                "type": "object",
+                "additionalProperties": true
+              }
+            }
+          }
+        ]
+      },
+      "PromptRef": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "blockId"],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "prompt"
+          },
+          "blockId": {
+            "type": "string"
+          }
+        }
+      },
+      "Baseline": {
+        "oneOf": [
+          {
+            "type": "string",
+            "enum": ["recorded"]
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["agentId", "version"],
+            "properties": {
+              "agentId": {
+                "type": "string"
+              },
+              "version": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["live"],
+            "properties": {
+              "live": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "projectId": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "WidgetPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["data", "hasMore"],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Widget"
+            }
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "nextCursor": {
+            "type": "string"
+          }
+        }
+      },
+      "WidgetCore": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "state": {
+            "$ref": "#/components/schemas/WidgetState"
+          }
+        }
+      },
+      "CreateWidgetBody": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/WidgetCore"
+          },
+          {
+            "type": "object",
+            "required": ["shape"],
+            "properties": {
+              "shape": {
+                "$ref": "#/components/schemas/Shape"
+              }
+            }
+          }
+        ]
+      },
+      "PatchWidgetBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "note": {
+            "type": ["string", "null"],
+            "description": "`null` clears it."
+          },
+          "owner": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Owner"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "Owner": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[a-z]"
+          }
+        }
+      },
+      "WidgetEvent": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/CreatedEvent"
+          },
+          {
+            "$ref": "#/components/schemas/DeletedEvent"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "type",
+          "mapping": {
+            "widget.created": "#/components/schemas/CreatedEvent",
+            "widget.deleted": "#/components/schemas/DeletedEvent"
+          }
+        }
+      },
+      "CreatedEvent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "widget"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "widget.created"
+          },
+          "widget": {
+            "$ref": "#/components/schemas/Widget"
+          }
+        }
+      },
+      "DeletedEvent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["type", "widgetId"],
+        "properties": {
+          "type": {
+            "type": "string",
+            "const": "widget.deleted"
+          },
+          "widgetId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "UploadBody": {
+        "type": "object",
+        "required": ["file"],
+        "properties": {
+          "file": {
+            "type": "string",
+            "format": "binary"
+          },
+          "name": {
+            "type": "string"
+          },
+          "ownerId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "RotateDone": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["rotatedAt"],
+        "properties": {
+          "rotatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "RotateQueued": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["jobId"],
+        "properties": {
+          "jobId": {
+            "type": "string"
+          }
+        }
+      },
+      "Flow": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": ["id"],
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        }
+      },
+      "Node": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id"],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "children": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Node"
+            }
+          }
+        }
+      },
+      "ScopeSegment": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "value"],
+        "properties": {
+          "key": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+          },
+          "value": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          }
+        }
+      }
+    }
+  }
+}

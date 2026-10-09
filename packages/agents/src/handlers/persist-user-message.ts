@@ -8,6 +8,7 @@ import type { ConversationMessage } from '../types.js';
 
 import type { TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
+import { recallOf } from './history.js';
 import { addInputNode } from './turn-provenance.js';
 
 /**
@@ -44,6 +45,7 @@ export function buildPersistUserMessageHandler(ctx: TurnContext): NodeHandler {
       role: 'user',
       content: ctx.input.userMessage,
       ...(ctx.input.participantId !== undefined && { actor: ctx.input.participantId }),
+      recall: recallOf(ctx),
     });
     if (persisted.kind === 'err') throwAgentTurnFailure(persisted.error);
 
