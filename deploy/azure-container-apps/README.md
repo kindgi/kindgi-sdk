@@ -212,14 +212,14 @@ server_env = {
 }
 server_secret_env = {
   KINDGI_AUTH_SECRET         = { secret = "auth-secret", version = "<the version put printed>" }
-  KINDGI_AUTH_EMAIL_SMTP_URL = { secret = "smtp-url", version = "latest" }
+  KINDGI_AUTH_EMAIL_SMTP_URL = { secret = "smtp-url", version = "<the version put printed>" }
 }
 ```
 
 - **`public_url`** (`KINDGI_PUBLIC_URL`) is the URL people open the console at: `terraform output -raw server_url` after the services apply, or your own domain in front. The emailed link therefore comes with a second apply.
   - Console sessions are then accepted from that origin only, so open the console there.
   - The plan refuses `KINDGI_AUTH_SECRET` without it, because the server wouldn't start.
-- **Pin the sign-in secret to its version,** as you do the AAD key. A new version would sign everyone out. `latest` suits the SMTP URL, which you may rotate.
+- **Pin each secret to a version**, as above, rather than `latest`: a new version then reaches the server only when you change `version` here, not whenever Container Apps picks it up.
 - **Continue with Google, Microsoft or GitHub, verified domains, and Turnstile** go the same way:
   - in `server_env`: each provider's client id, `KINDGI_AUTH_VERIFIED_DOMAINS` (`acme.com:<tenant id>`) and the Turnstile site key;
   - in `server_secret_env`: each `…_CLIENT_SECRET` and `KINDGI_AUTH_TURNSTILE_SECRET`.
