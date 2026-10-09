@@ -46,7 +46,7 @@ const legacy = conversation();
 const Q = randomUUID();
 const inQ = conversation(Q);
 
-function harness(grants: readonly string[]) {
+function harness(grants: readonly string[], { authzOn = true }: { authzOn?: boolean } = {}) {
   const asked: string[] = [];
   const decide = (action: Action, r: ResourceRef): Decision => {
     asked.push(`${action} ${r.type}:${r.id}`);
@@ -91,13 +91,15 @@ function harness(grants: readonly string[]) {
     conversationBinding: conversations,
     resolveToken,
     runHandler: {} as RunHandlerBinding,
-    authz: {
-      fgaApiUrl: 'http://fga.invalid',
-      authzCheckBinding: {
-        check: async (_p, action, r) => decide(action, r),
-        checkBatch: async (_p, action, rs) => rs.map((r) => decide(action, r)),
-      } satisfies AuthzCheckBinding,
-    },
+    ...(authzOn && {
+      authz: {
+        fgaApiUrl: 'http://fga.invalid',
+        authzCheckBinding: {
+          check: async (_p, action, r) => decide(action, r),
+          checkBatch: async (_p, action, rs) => rs.map((r) => decide(action, r)),
+        } satisfies AuthzCheckBinding,
+      },
+    }),
   });
   const call = (method: string, path: string, body?: unknown) =>
     app.request(path, {
@@ -196,6 +198,13 @@ describe('unregistering one needs write on its project (or agent)', () => {
       200,
     );
     expect(allowed.reached).toEqual([`unregister ${legacy.id}`]);
+  });
+
+  test('with authorization off, as before: through, unchecked', async () => {
+    const { call, asked, reached } = harness([], { authzOn: false });
+    expect((await call('POST', `/v1/conversations/${inP.id}/unregister`)).status).toBe(200);
+    expect(asked).toEqual([]);
+    expect(reached).toEqual([`unregister ${inP.id}`]);
   });
 
   test('an unknown one answers 404 before any check, as reading one does', async () => {
