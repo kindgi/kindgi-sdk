@@ -33,7 +33,9 @@ Sessions also end when what they came from goes:
 - **An admin signs a person out everywhere**
   (`POST /v1/identity/users/<id>/revoke-sessions`), or removes them, who then
   can't sign in again either.
-- **Revoking an API key** ends the console sessions that key opened.
+- **Revoking an API key** ends the console sessions that key opened, and
+  changing the runtime's own token (`KINDGI_API_TOKEN`) ends the ones the
+  old token opened, unless `KINDGI_SEED_USER_ID` keeps its user the same.
 - **Removing an identity provider,** or changing which one is behind it,
   ends the sessions people opened through it
   ([Set up SSO](../#change-it-list-it-remove-it)).
