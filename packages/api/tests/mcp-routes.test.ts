@@ -7,7 +7,7 @@ import { describe, expect, test } from 'vitest';
 
 import { type Cursor, type EnvName, type TenantId, makeEnvName } from '@kindgi/types';
 
-import { createStubAppBindings } from '@kindgi/testing';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { type TenantHostAccess, createApp } from '../src/index.js';
 import type {
