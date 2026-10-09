@@ -7,20 +7,23 @@
  * pause, usage and cost).
  *
  * How it signs in, pinned (each has a test):
+ *   - Before each attempt (`beforeAttempt`), with the call's abort signal; the attempt's
+ *     request reads what it got (`attemptPrepared()`), so calls at once never share one.
  *   - `auth: entra`: a bearer token from the runtime's own Azure identity
- *     (`AdapterFactoryInput.identities.azure`), fetched for every request (bounded), for the
+ *     (`AdapterFactoryInput.identities.azure`), asked for every attempt (bounded), for the
  *     endpoint's cloud's scope; no `api-key` header. Only an Azure OpenAI host gets it
  *     (`AZURE_OPENAI_CLOUDS`): any other is refused at registration.
- *   - A failed sign-in (no token, no key) is an `auth` error, never retried.
- *   - `auth: api-key`: the key `secret_ref` names, read for every request, so a rotated key
+ *   - `auth: api-key`: the key `secret_ref` names, read for every attempt, so a rotated key
  *     takes effect on the next call.
+ *   - A failed sign-in (no token, no key, a blank one) is an `auth` error, never retried.
+ *   - No request follows a redirect: the credential goes to the endpoint, nowhere else.
  *   - Never `AZURE_API_KEY` or `AZURE_RESOURCE_NAME` from the environment: the provider is
  *     always given its endpoint and its credential.
  */
 
 import { createAzure } from '@ai-sdk/azure';
 import { ModelProviderError, tokenCostUsd } from '@kindgi/adapter-model-shared';
-import { createAiSdkModelProvider } from '@kindgi/adapter-model-shared/ai-sdk';
+import { attemptPrepared, createAiSdkModelProvider } from '@kindgi/adapter-model-shared/ai-sdk';
 import {
   type AdapterConfigCheckInput,
   type AdapterConfigProblem,
@@ -70,26 +73,38 @@ export const azureOpenAIAdapterFactory: AdapterFactory = (input) => {
   return createAiSdkModelProvider({
     metadata,
     ...(input.fetch !== undefined && { fetch: input.fetch }),
+    beforeAttempt: (signal): Promise<SignedIn> =>
+      auth === 'entra'
+        ? entraToken(tokens as AzureTokenClient, scope as string, signal).then((token) => ({
+            token,
+          }))
+        : apiKey(resolveApiKey as () => Promise<string>).then((key) => ({ key })),
     languageModel: (name, fetch) => {
+      const send = withoutRedirects(fetch);
       const azure = createAzure({
         ...endpoint,
         ...(auth === 'entra'
-          ? { tokenProvider: entraToken(tokens as AzureTokenClient, scope as string) }
+          ? { tokenProvider: async () => signedIn().token as string, fetch: send }
           : // An explicit (empty) key keeps the provider from reading AZURE_API_KEY; the real
-            // one is set on every request, so a rotated key takes effect on the next call.
-            { apiKey: '', fetch: withApiKey(fetch, resolveApiKey as () => Promise<string>) }),
-        ...(auth === 'entra' && { fetch }),
+            // one, this attempt's, is set on its request.
+            { apiKey: '', fetch: withApiKey(send) }),
       });
       const deployment = deployments.get(name) as string;
       return api === 'chat-completions' ? azure.chat(deployment) : azure.responses(deployment);
     },
     // Responses keeps nothing on Azure's side: our journal is the record. Whether a model
-    // reasons is the registration's to say, never guessed from the deployment's name (which the
-    // library would read as the model's): Responses reads it under `azure`, Chat under `openai`.
-    providerOptions: (model) =>
-      api === 'responses'
-        ? { azure: { store: false, forceReasoning: reasons(model) } }
-        : { openai: { forceReasoning: reasons(model) } },
+    // reasons is the registration's to say where it says (the deployment's name, which the
+    // library reads as the model's, can say nothing); where it doesn't, the library decides.
+    // Responses reads it under `azure`, Chat under `openai`.
+    providerOptions: (model) => {
+      const forced = reasons(model);
+      const reasoning = forced === undefined ? {} : { forceReasoning: forced };
+      return api === 'responses'
+        ? { azure: { store: false, ...reasoning } }
+        : forced === undefined
+          ? undefined
+          : { openai: reasoning };
+    },
     cost: (model, usage) => tokenCostUsd(model, usage),
   });
 };
@@ -102,70 +117,118 @@ export const azureOpenAIAdapterEntry: AdapterFactoryEntry = {
   checkConfig: azureOpenAICheckConfig,
 };
 
-/** A registered model reasons when it thinks, or takes no sampling (GPT-5 and later, o-series). */
-const reasons = (model: ModelInfo): boolean =>
-  model.thinking !== undefined || model.sampling === false;
+/**
+ * Whether the registration says a model reasons: yes when it thinks or takes no sampling (GPT-5
+ * and later, o-series), no when it takes sampling, said; undefined when it says neither.
+ */
+function reasons(model: ModelInfo): boolean | undefined {
+  if (model.thinking !== undefined || model.sampling === false) return true;
+  return model.sampling === true ? false : undefined;
+}
+
+/** What an attempt signed in with: a token (Entra) or a key. */
+interface SignedIn {
+  readonly token?: string;
+  readonly key?: string;
+}
+
+/** This attempt's sign-in, read by its request. */
+function signedIn(): SignedIn {
+  const signed = attemptPrepared<SignedIn>();
+  if (signed === undefined) {
+    throw new ModelProviderError('auth', undefined, 'The request has no sign-in of its own.');
+  }
+  return signed;
+}
 
 const SIGN_IN_HINT =
   'It signs in as its managed identity (KINDGI_AZURE_CLIENT_ID names a user-assigned one), which needs the Cognitive Services OpenAI User role on the resource.';
 
-/** A bearer for each request, from the runtime's Azure identity: bounded, and `auth` when it fails. */
-function entraToken(tokens: AzureTokenClient, scope: string): () => Promise<string> {
-  return async () => {
-    let token: string | undefined;
-    try {
-      token = (await withTimeout(tokens.getToken(scope), IDENTITY_TIMEOUT_MS))?.token;
-    } catch (error) {
-      throw new ModelProviderError(
-        'auth',
-        undefined,
-        `The runtime's Azure identity gave no token for ${scope}: ${messageOf(error)}. ${SIGN_IN_HINT}`,
-        { cause: error },
-      );
-    }
-    if (token === undefined || token === '') {
-      throw new ModelProviderError(
-        'auth',
-        undefined,
-        `The runtime's Azure identity returned no token for ${scope}. ${SIGN_IN_HINT}`,
-      );
-    }
-    return token;
-  };
+/**
+ * A bearer for an attempt, from the runtime's Azure identity: bounded, stopped with the call,
+ * and `auth` when it fails.
+ */
+async function entraToken(
+  tokens: AzureTokenClient,
+  scope: string,
+  signal: AbortSignal | undefined,
+): Promise<string> {
+  let token: string | undefined;
+  try {
+    const asked =
+      signal !== undefined
+        ? tokens.getToken(scope, { abortSignal: signal })
+        : tokens.getToken(scope);
+    token = (await bounded(asked, IDENTITY_TIMEOUT_MS, signal))?.token;
+  } catch (error) {
+    // (A call stopped meanwhile ends with its own reason: the retries check the signal first.)
+    throw new ModelProviderError(
+      'auth',
+      undefined,
+      `The runtime's Azure identity gave no token for ${scope}: ${messageOf(error)}. ${SIGN_IN_HINT}`,
+      { cause: error },
+    );
+  }
+  if (token === undefined || token === '') {
+    throw new ModelProviderError(
+      'auth',
+      undefined,
+      `The runtime's Azure identity returned no token for ${scope}. ${SIGN_IN_HINT}`,
+    );
+  }
+  return token;
 }
 
-/** The `api-key` header set on every request from the current key; `auth` when there's none. */
-function withApiKey(
-  fetch: typeof globalThis.fetch,
-  resolveApiKey: () => Promise<string>,
-): typeof globalThis.fetch {
+/** The current key `secret_ref` names, for an attempt; `auth` when there's none. */
+async function apiKey(resolveApiKey: () => Promise<string>): Promise<string> {
+  let key: string;
+  try {
+    key = await resolveApiKey();
+  } catch (error) {
+    throw new ModelProviderError(
+      'auth',
+      undefined,
+      `The key secret_ref names couldn't be read: ${messageOf(error)}.`,
+      { cause: error },
+    );
+  }
+  // Whitespace around a key (a stored file's newline) is never the key's.
+  const trimmed = key.trim();
+  if (trimmed === '') {
+    throw new ModelProviderError('auth', undefined, 'The key secret_ref names is empty.');
+  }
+  return trimmed;
+}
+
+/** The `api-key` header on the request, from this attempt's key. */
+function withApiKey(fetch: typeof globalThis.fetch): typeof globalThis.fetch {
   return async (url, init) => {
-    let key: string;
-    try {
-      key = await resolveApiKey();
-    } catch (error) {
-      throw new ModelProviderError(
-        'auth',
-        undefined,
-        `The key secret_ref names couldn't be read: ${messageOf(error)}.`,
-        { cause: error },
-      );
-    }
-    if (key === '') {
-      throw new ModelProviderError('auth', undefined, 'The key secret_ref names is empty.');
-    }
     const headers = new Headers(init?.headers);
-    headers.set('api-key', key);
+    headers.set('api-key', signedIn().key as string);
     return fetch(url, { ...init, headers });
   };
 }
 
-function withTimeout<T>(promise: PromiseLike<T>, ms: number): Promise<T> {
+/** No request follows a redirect, so its credential reaches the endpoint and nothing else. */
+function withoutRedirects(fetch: typeof globalThis.fetch): typeof globalThis.fetch {
+  return (url, init) => fetch(url, { ...init, redirect: 'error' });
+}
+
+/** The promise, or a failure after `ms`, or the signal's reason when the call stops first. */
+function bounded<T>(promise: PromiseLike<T>, ms: number, signal?: AbortSignal): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_, reject) => {
+  let onAbort: (() => void) | undefined;
+  const stop = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new Error(`no answer in ${ms / 1000} s`)), ms);
+    if (signal !== undefined) {
+      onAbort = () => reject(signal.reason);
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
   });
-  return Promise.race([Promise.resolve(promise), timeout]).finally(() => clearTimeout(timer));
+  return Promise.race([Promise.resolve(promise), stop]).finally(() => {
+    clearTimeout(timer);
+    if (onAbort !== undefined) signal?.removeEventListener('abort', onAbort);
+  });
 }
 
 const messageOf = (error: unknown): string =>

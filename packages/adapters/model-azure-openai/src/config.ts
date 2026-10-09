@@ -228,6 +228,13 @@ function readBaseURL(
         "adapter_config.baseURL can't hold a query or a fragment: a key goes in secret_ref, and the API version is the adapter's.",
     });
   }
+  if (/\/\/+$/.test(url.pathname)) {
+    problems.push({
+      path,
+      message:
+        "adapter_config.baseURL can't end in more than one /: the adapter adds the API's path.",
+    });
+  }
   const cloud = azureCloudOf(url.hostname);
   if (cloud !== undefined && url.pathname.replace(/\/+$/, '') !== V1_PATH) {
     problems.push({
