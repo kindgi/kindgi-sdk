@@ -67,3 +67,12 @@ as a `defineCheck({ id: 'must-cite', … })`, is refused when you build it
 (`reserved-check-id`; in Python, `DefinitionError`). Give your check a name of
 its own, such as `my-pack.checks.must-cite`, or, to use the built-in, name it
 and drop your implementation.
+
+A pack built with a CLI from before 0.1.5 wasn't checked for this, and a
+current CLI marks a guardrail that only names a built-in. So from runtime
+0.1.6, a guardrail that names a built-in, comes with its pack's code, and
+lacks that mark gets one warning in the runtime's log each time the runtime
+loads the guardrail. The built-in runs either way. If the guardrail only names
+the built-in, rebuild the pack with a current CLI and the warning goes. If its
+module is your own check, rename that check as above: the built-in has been
+running in its place.

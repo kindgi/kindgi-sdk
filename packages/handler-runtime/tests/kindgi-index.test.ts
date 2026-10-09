@@ -325,7 +325,12 @@ describe('built-in check ids', () => {
     const report = await index(guardrailModule({ check: 'must-cite' }));
     expect(report.fileErrors).toEqual([]);
     const parsed = await readValidIndex(report.outputPath);
-    expect(parsed.guardrails[0]).toMatchObject({ id: 'acme.grounded', checkId: 'must-cite' });
+    // Marked: it only names the built-in (a runtime warns about an unmarked one, an older CLI's).
+    expect(parsed.guardrails[0]).toMatchObject({
+      id: 'acme.grounded',
+      checkId: 'must-cite',
+      checkBuiltIn: true,
+    });
   });
 
   test.each([
@@ -365,9 +370,11 @@ describe('built-in check ids', () => {
     expect(report.fileErrors).toEqual([]);
   });
 
-  test("an implementation under the pack's own id is fine", async () => {
+  test("an implementation under the pack's own id is fine, and unmarked", async () => {
     const report = await index(guardrailModule({ check: { id: 'acme.checks.cites', evaluate } }));
     expect(report.fileErrors).toEqual([]);
+    const parsed = await readValidIndex(report.outputPath);
+    expect(parsed.guardrails[0].checkBuiltIn).toBeUndefined();
   });
 });
 

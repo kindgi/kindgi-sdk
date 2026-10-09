@@ -280,6 +280,11 @@ export interface IndexedGuardrail {
   readonly scope?: Readonly<Record<string, unknown>>;
   readonly checkModulePath: string;
   readonly checkId?: string;
+  /**
+   * The guardrail names a built-in check (`checkId`) without shipping a check of its own:
+   * `checkModulePath` is only its file. A runtime warns about one without it (an older CLI's).
+   */
+  readonly checkBuiltIn?: true;
   readonly configSchema?: Readonly<Record<string, unknown>>;
   /** The guardrail's `config`: what its check is configured with. */
   readonly config?: Readonly<Record<string, unknown>>;
@@ -1614,6 +1619,9 @@ function buildGuardrail(
     }),
     checkModulePath: normalizeModulePath(relPath),
     ...(checkId !== undefined && { checkId }),
+    // Naming a built-in is all it can do: shipping a check of its own under a built-in's id is
+    // refused before this (`reserved-check-id`).
+    ...(RESERVED_CHECK_IDS.includes(checkId ?? rec.id) && { checkBuiltIn: true as const }),
     ...(configSchema !== undefined && { configSchema }),
     ...(isObject(rec.config) && { config: rec.config as Readonly<Record<string, unknown>> }),
     ...(typeof rec.sandbox === 'string' && { sandbox: rec.sandbox }),
