@@ -3,7 +3,7 @@
 "@kindgi/cli": patch
 ---
 
-Time inputs follow the API's `date-time` format: an ISO 8601 time with a zone (Postgres `timestamptz` text is also accepted). Anything else gets `400 bad-input`. That includes a date without a time or zone, which was read in the server's zone, and anything else `Date.parse` used to take, such as `"Oct 9"` or `"1"`, which reached the store unchecked. One rule now covers every time the API reads, list cursors included:
+Time inputs follow the API's `date-time` format: RFC 3339 times, e.g. `2026-10-09T14:00:00+02:00` or `2026-10-09T12:00:00Z` (Postgres `timestamptz` text is also accepted). Anything else gets `400 bad-input`. That includes a date without a time or zone, which was read in the server's zone, and anything else `Date.parse` used to take, such as `"Oct 9"` or `"1"`, which reached the store unchecked. One rule now covers every time the API reads, list cursors included:
 - cost and eval-run `from`/`to` (eval runs checked none before);
 - compliance evidence `from`/`to`, in the query and in the export filter;
 - authz audit `from`/`to`;
