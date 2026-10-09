@@ -265,6 +265,10 @@ export interface CreateAppInput {
    *   - `/v1/compliance/*` is mounted as a view filtered to
    *     classifier-marked exportable kinds (needs
    *     `complianceClassifier` too).
+   *   - Every secret and env write through `/v1/secrets` and `/v1/env` is
+   *     recorded at the route (`secret-set`, `secret-rotated`,
+   *     `secret-revoked`, `env-set`, `env-deleted`, …): the caller as
+   *     `actor`, the request as `correlationId`, never a value.
    * Absent = no durable audit trail; every subsystem's audit
    * writes become no-ops.
    *
@@ -1504,7 +1508,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // store — an in-memory reference is used when the caller doesn't
   // plug in a durable one.
   if (input.envBinding !== undefined) {
-    v1.route('/env', envRouter(input.envBinding, authorizer));
+    v1.route('/env', envRouter(input.envBinding, authorizer, input.auditEvents));
   }
   // Audit query surface. Admin-only PEP applied inside the router
   // (self-contained; no plumbing here).
@@ -1518,6 +1522,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         secretsBinding: input.secretsBinding,
         rotationStatusStore: input.rotationStatusStore ?? createInMemoryRotationStatusStore(),
         ...(authorizer !== undefined && { authorizer }),
+        ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
       }),
     );
   }
