@@ -37,6 +37,7 @@ const METADATA = {
       name: 'gpt-6-luna',
       contextWindow: 400_000,
       features: ['tool-use'],
+      sampling: true,
       cost: { promptUsdPer1kTokens: 0.0004, completionUsdPer1kTokens: 0.0016 },
     },
   ],
@@ -139,6 +140,17 @@ describe('checkConfig', () => {
       { baseURL: 'https://gw.acme.example/v1#here', deployments: DEPLOYMENTS },
       '/adapter_config/baseURL',
       "can't hold a query or a fragment",
+    ],
+    // The library takes one trailing slash off, not two: `…/v1//responses`.
+    [
+      { baseURL: 'https://acme-res.openai.azure.com/openai/v1//', deployments: DEPLOYMENTS },
+      '/adapter_config/baseURL',
+      "can't end in more than one /",
+    ],
+    [
+      { baseURL: 'https://gw.acme.example/v1//', deployments: DEPLOYMENTS },
+      '/adapter_config/baseURL',
+      "can't end in more than one /",
     ],
   ] as const)('%j → %s', (config, path, words) => {
     const problems = check(config as Record<string, string>);
@@ -396,9 +408,10 @@ function answering(
   }) as typeof fetch;
 }
 
-describe('whether a model reasons is the registration’s, never the deployment name’s', () => {
+describe('whether a model reasons is the registration’s where it says, never the deployment name’s', () => {
   // gpt-6.1-sol reasons (sampling false) on a deployment whose name says nothing; gpt-6-luna
-  // doesn't, on a deployment whose name the library would take for a reasoning model's.
+  // doesn't (sampling true), on a deployment whose name the library would take for a reasoning
+  // model's.
   const NAMES = { ...GOOD, deployments: 'gpt-6.1-sol=sol-prod, gpt-6-luna=gpt-6-luna-x' };
   const sentFor = async (api: string, model: string, body: unknown) => {
     const sent: Sent[] = [];
@@ -424,6 +437,25 @@ describe('whether a model reasons is the registration’s, never the deployment 
     const luna = await sentFor('chat-completions', 'gpt-6-luna', CHAT_BODY);
     expect(luna).toMatchObject({ model: 'gpt-6-luna-x', max_tokens: 500 });
     expect(luna.max_completion_tokens).toBeUndefined();
+  });
+
+  test('a registration that says neither (no thinking, no sampling): the library decides', async () => {
+    const [sol, luna] = METADATA.models;
+    const { sampling: _sampling, ...silent } = luna as unknown as Record<string, unknown>;
+    const metadata = { ...METADATA, models: [sol, silent] } as unknown as ProviderMetadata;
+    const sentTo = async (deployment: string) => {
+      const sent: Sent[] = [];
+      await azureOpenAIAdapterFactory({
+        metadata,
+        config: { ...GOOD, deployments: `gpt-6.1-sol=sol-prod, gpt-6-luna=${deployment}` },
+        fetch: capturingFetch(sent),
+        resolveApiKey: async () => 'k',
+      }).invoke(ask('gpt-6-luna'));
+      return sent[0]?.body as Record<string, unknown>;
+    };
+    // From the deployment's name, as the library reads it: a GPT-6 name reasons, another not.
+    expect((await sentTo('gpt-6-luna-x')).include).toEqual(['reasoning.encrypted_content']);
+    expect((await sentTo('luna-prod')).include).toBeUndefined();
   });
 });
 
@@ -509,12 +541,19 @@ describe('a failed sign-in is auth, once, never retried', () => {
     }
   });
 
-  test('the key can’t be read, or is empty: auth, no request sent', async () => {
+  test('the key can’t be read, or is empty or blank: auth, no request sent', async () => {
     for (const resolveApiKey of [
       async () => {
         throw new Error('secret store unreachable');
       },
+      // A store that's down: the library would take this cause for a dropped connection.
+      async () => {
+        throw new Error('connect ECONNREFUSED 127.0.0.1:5432', {
+          cause: Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' }),
+        });
+      },
       async () => '',
+      async () => ' \n',
     ]) {
       const sent: Sent[] = [];
       const read = vi.fn(resolveApiKey);
@@ -525,6 +564,83 @@ describe('a failed sign-in is auth, once, never retried', () => {
       expect(read).toHaveBeenCalledTimes(1);
       expect(sent).toEqual([]);
     }
+  });
+});
+
+describe('each attempt signs in for itself', () => {
+  test('the call’s signal reaches the identity; an abort while it’s asked ends the call at once, its reason', async () => {
+    // No timer fires here: only the abort can end the wait for an identity that never answers.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const controller = new AbortController();
+      const getToken = vi.fn(() => new Promise<never>(() => {}));
+      const pending = build(
+        { ...GOOD, auth: 'entra' },
+        { fetch: capturingFetch([]), identities: { azure: { getToken } } },
+      )
+        .invoke({ ...ask(), abortSignal: controller.signal })
+        .catch((e: unknown) => e);
+      while (getToken.mock.calls.length === 0) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+      expect(getToken).toHaveBeenCalledWith(AZURE_OPENAI_SCOPE, {
+        abortSignal: controller.signal,
+      });
+      const reason = new Error('turn stopped');
+      controller.abort(reason);
+      expect(await pending).toBe(reason);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('calls at once each send the key their own attempt read', async () => {
+    const sent: Sent[] = [];
+    // The first call's key comes back last.
+    const keys = [
+      { key: 'key-a', after: 20 },
+      { key: 'key-b', after: 0 },
+    ];
+    const resolveApiKey = async () => {
+      const { key, after } = keys.shift() as (typeof keys)[number];
+      await new Promise((resolve) => setTimeout(resolve, after));
+      return key;
+    };
+    const provider = build(GOOD, { fetch: capturingFetch(sent), resolveApiKey });
+    await Promise.all([provider.invoke(ask('gpt-6.1-sol')), provider.invoke(ask('gpt-6-luna'))]);
+    expect(sent.map((s) => [s.body.model, s.headers.get('api-key')]).sort()).toEqual([
+      ['gpt-6-1-sol', 'key-a'],
+      ['luna-prod', 'key-b'],
+    ]);
+  });
+
+  test('a key with whitespace around it is sent without', async () => {
+    const sent: Sent[] = [];
+    await build(GOOD, {
+      fetch: capturingFetch(sent),
+      resolveApiKey: async () => 'key-one\n',
+    }).invoke(ask());
+    expect(sent[0]?.headers.get('api-key')).toBe('key-one');
+  });
+
+  test.each([
+    ['api-key', GOOD, { resolveApiKey: async () => 'k' }],
+    [
+      'entra',
+      { ...GOOD, auth: 'entra' },
+      { identities: { azure: { getToken: async () => ({ token: 't' }) } } },
+    ],
+  ] as const)('%s: no request follows a redirect', async (_auth, config, extra) => {
+    const redirects: RequestInit['redirect'][] = [];
+    const fetch = capturingFetch([]);
+    await build(config, {
+      ...extra,
+      fetch: (async (input: string | URL | Request, init?: RequestInit) => {
+        redirects.push(init?.redirect);
+        return fetch(input, init);
+      }) as typeof globalThis.fetch,
+    }).invoke(ask());
+    expect(redirects).toEqual(['error']);
   });
 });
 

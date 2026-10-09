@@ -48,13 +48,13 @@ It's built on [`@kindgi/adapter-model-shared`](../model-shared/): the retries, t
 - an unknown `api`, `auth` or `adapter_config` key;
 - `api-key` without `secret_ref`, or `entra` with one;
 - `entra` on a host that isn't Azure OpenAI's, naming the host;
-- a `baseURL` with credentials, a query or a fragment, or an Azure OpenAI host's `baseURL` without `/openai/v1`;
+- a `baseURL` with credentials, a query or a fragment, ending in more than one `/`, or an Azure OpenAI host's `baseURL` without `/openai/v1`;
 - a malformed `deployments` entry, a model named twice or not listed, a deployment name Azure wouldn't take, or a model with no deployment.
 
 ## How it signs in
 
-Each of these has a test:
-- **`auth: entra`:** a bearer token from the runtime's Azure identity (`AdapterFactoryInput.identities.azure`), fetched for every request (the identity caches and renews it), within 10 seconds. No `api-key` header is sent. A runtime with no Azure identity refuses the registration, naming `KINDGI_AZURE_CLIENT_ID`. The identity needs the **Cognitive Services OpenAI User** role on the resource.
+Each of these has a test. It signs in before each attempt, with the call's abort signal, and the attempt's request carries what that sign-in got, so calls running at once never share a credential.
+- **`auth: entra`:** a bearer token from the runtime's Azure identity (`AdapterFactoryInput.identities.azure`), asked for every attempt (the identity caches and renews it), within 10 seconds; a call stopped meanwhile ends at once, with its own reason. No `api-key` header is sent. A runtime with no Azure identity refuses the registration, naming `KINDGI_AZURE_CLIENT_ID`. The identity needs the **Cognitive Services OpenAI User** role on the resource.
   - **Only an Azure OpenAI host gets the token**, because whoever receives it could use it against every Azure OpenAI resource the runtime's identity has a role on. Another host is refused at registration (and by the factory), naming it:
 
     | Cloud | Hosts | Scope |
@@ -63,15 +63,16 @@ Each of these has a test:
     | Azure Government | `*.openai.azure.us`, `*.cognitiveservices.azure.us` | `https://cognitiveservices.azure.us/.default` |
 
     Microsoft lists each cloud's endpoints on [Compare Azure Government and global Azure](https://learn.microsoft.com/en-us/azure/azure-government/compare-azure-government-global-azure). Azure Government needs the runtime's identity to be in Azure Government too.
-- **`auth: api-key`:** the key `secret_ref` names, read for every request and sent as `api-key`, so a rotated key takes effect on the next call.
-- **A failed sign-in** (the identity gives no token, the key can't be read or is empty) ends the call as an `auth` error at once, never retried.
+- **`auth: api-key`:** the key `secret_ref` names, read for every attempt and sent as `api-key` (whitespace around it dropped), so a rotated key takes effect on the next call.
+- **A failed sign-in** (the identity gives no token, the key can't be read, even with the secret store down, or is empty or blank) ends the call as an `auth` error at once, never retried.
+- **No request follows a redirect** (`redirect: 'error'`): the credential reaches the endpoint and nothing else.
 - **Never the environment:** `AZURE_API_KEY` and `AZURE_RESOURCE_NAME` are never read. The provider is always given its endpoint and its credential.
 
 ## What it sends
 
 - **Responses** (the default): `POST …/openai/v1/responses?api-version=v1`, with the deployment as `model` and `store: false`, so Azure keeps no conversation state for it: Kindgi's journal is the record.
 - **Chat Completions:** `POST …/openai/v1/chat/completions`, with the deployment as `model`.
-- **Whether a model reasons** is the registration's to say (`thinking`, or `sampling: false`), never guessed from the deployment's name. A reasoning model keeps its encrypted reasoning between tool turns on Responses, and gets `max_completion_tokens` on Chat Completions.
+- **Whether a model reasons** is the registration's to say: one registered with `thinking` or `sampling: false` reasons, one with `sampling: true` doesn't, whatever its deployment is called. A reasoning model keeps its encrypted reasoning between tool turns on Responses, and gets `max_completion_tokens` on Chat Completions. When the registration says neither, the AI SDK decides from the deployment's name, so register one or the other when the name doesn't say.
 - Every attempt goes through the runtime's `fetch` (`AdapterFactoryInput.fetch`), which refuses the hosts its deployment forbids.
 
 ## Cost

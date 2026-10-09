@@ -14,7 +14,16 @@
  *   - usage onto our counters, sampling a model refuses dropped with a warning, `traceparent`
  *     sent only when the call has one.
  */
-import { APICallError } from '@ai-sdk/provider';
+import { AsyncLocalStorage } from 'node:async_hooks';
+
+import {
+  AISDKError,
+  APICallError,
+  EmptyResponseBodyError,
+  InvalidResponseDataError,
+  JSONParseError,
+  TypeValidationError,
+} from '@ai-sdk/provider';
 import type {
   LanguageModelV4,
   LanguageModelV4CallOptions,
@@ -60,18 +69,31 @@ export interface AiSdkModelProviderOptions {
    */
   readonly fetch?: typeof globalThis.fetch;
   /**
-   * Run before each HTTP attempt, inside the retries: where an adapter checks its sign-in (the
-   * runtime's identity) itself, when its library would report a failure as a plain error. A
-   * `ModelProviderError` thrown here (or anywhere in the adapter's own code) ends the call as it
-   * is, never retried.
+   * Run before each HTTP attempt, inside the retries, with the call's abort signal: where an
+   * adapter signs in (the runtime's identity, a key) itself, so a failure is typed by the adapter
+   * rather than by its library. What it returns is this attempt's own (`attemptPrepared()`), for
+   * the adapter's code the library calls during the attempt. A `ModelProviderError` thrown here
+   * (or anywhere in the adapter's own code) ends the call as it is, never retried.
    */
-  readonly beforeAttempt?: () => Promise<void>;
+  readonly beforeAttempt?: (signal: AbortSignal | undefined) => Promise<unknown>;
   /**
    * A sentence for a failed call's message, where the vendor's own words don't say what to
    * check (Bedrock's 403: the IAM policy, or the account's access to the model). Undefined:
    * the message as it is.
    */
   readonly explain?: (error: ModelProviderError) => string | undefined;
+}
+
+/** Each attempt's `beforeAttempt` result, for the code the library calls during that attempt. */
+const attemptScope = new AsyncLocalStorage<{ readonly prepared: unknown }>();
+
+/**
+ * What this attempt's `beforeAttempt` returned, read from code the library calls during the
+ * attempt (a credential provider, a fetch wrapper); undefined outside one. Per attempt, so calls
+ * running at once never see each other's.
+ */
+export function attemptPrepared<T>(): T | undefined {
+  return attemptScope.getStore()?.prepared as T | undefined;
 }
 
 const wireName = (name: string) => name.replace(/\./g, '__');
@@ -108,7 +130,7 @@ export function createAiSdkModelProvider(options: AiSdkModelProviderOptions): Mo
       const maxOutputTokens = input.maxOutputTokens ?? model.maxOutputTokens;
       const extra = options.providerOptions?.(model);
       const call: LanguageModelV4CallOptions = {
-        prompt: toPrompt(input.messages, input.model, toolIds),
+        prompt: toPrompt(input.messages, { provider: metadata.id, model: input.model }, toolIds),
         ...(maxOutputTokens !== undefined && { maxOutputTokens }),
         ...(sampling.temperature !== undefined && { temperature: sampling.temperature }),
         ...(input.tools !== undefined &&
@@ -137,19 +159,22 @@ export function createAiSdkModelProvider(options: AiSdkModelProviderOptions): Mo
       const counted = await counter.count(() =>
         withRetries(
           async () => {
-            await options.beforeAttempt?.();
-            return lm(input.model).doGenerate(call);
+            const prepared = await options.beforeAttempt?.(input.abortSignal);
+            return attemptScope.run({ prepared }, () => lm(input.model).doGenerate(call));
           },
           {
             attempts: options.attempts ?? 3,
             ...(input.abortSignal !== undefined && { signal: input.abortSignal }),
             describe: describeFailure,
-            // An adapter's own typed error (its sign-in failed) is the answer as it is.
-            toError: (failure, error) =>
-              explained(
-                error instanceof ModelProviderError ? error : modelProviderError(failure, error),
-                options.explain,
-              ),
+            // An adapter's own typed error (its sign-in failed) is the answer as it is; an error
+            // that's neither the vendor's answer nor the network (a bug) propagates as it is.
+            toError: (failure, error) => {
+              const own = adapterError(error);
+              if (own === undefined && failure.unrecognized === true) {
+                return error instanceof Error ? error : new Error(String(error));
+              }
+              return explained(own ?? modelProviderError(failure, error), options.explain);
+            },
           },
         ),
       );
@@ -167,7 +192,10 @@ export function createAiSdkModelProvider(options: AiSdkModelProviderOptions): Mo
       }
       if (toolCalls.length > 0) {
         const first = toolCalls[0] as ModelToolCall;
-        toolCalls[0] = { ...first, signature: encodeCarry(input.model, result.content) };
+        toolCalls[0] = {
+          ...first,
+          signature: encodeCarry({ provider: metadata.id, model: input.model }, result.content),
+        };
       }
       const text = result.content.flatMap((p) => (p.type === 'text' ? [p.text] : [])).join('');
       const usage = toUsage(result.usage);
@@ -261,10 +289,12 @@ function parseJson(raw: string): Record<string, unknown> {
 
 /**
  * The opaque state a provider returns with an answer (reasoning parts with their signatures or
- * encrypted content, tool calls' thought signatures), in order, carried in the first tool call's
- * `signature` and sent back as `providerOptions` on the next call to the same model.
+ * encrypted content, text parts' ids, tool calls' thought signatures), in order, carried in the
+ * first tool call's `signature` and sent back as `providerOptions` on the next call to the same
+ * provider's same model. Only there: two providers can serve a model of the same name.
  */
 interface Carry {
+  readonly provider: string;
   readonly model: string;
   readonly parts: readonly (
     | {
@@ -272,12 +302,18 @@ interface Carry {
         readonly text: string;
         readonly meta?: SharedV4ProviderMetadata;
       }
-    | { readonly type: 'text'; readonly meta?: SharedV4ProviderMetadata }
+    | { readonly type: 'text'; readonly text: string; readonly meta?: SharedV4ProviderMetadata }
     | { readonly type: 'tool-call'; readonly id: string; readonly meta?: SharedV4ProviderMetadata }
   )[];
 }
 
-function encodeCarry(model: string, content: readonly LanguageModelV4Content[]): string {
+/** Whose answer a carry is: the provider's id and the model's name. */
+interface CarryOwner {
+  readonly provider: string;
+  readonly model: string;
+}
+
+function encodeCarry(owner: CarryOwner, content: readonly LanguageModelV4Content[]): string {
   const parts: Carry['parts'][number][] = [];
   for (const p of content) {
     if (p.type === 'reasoning')
@@ -287,7 +323,11 @@ function encodeCarry(model: string, content: readonly LanguageModelV4Content[]):
         ...(p.providerMetadata && { meta: p.providerMetadata }),
       });
     else if (p.type === 'text')
-      parts.push({ type: 'text', ...(p.providerMetadata && { meta: p.providerMetadata }) });
+      parts.push({
+        type: 'text',
+        text: p.text,
+        ...(p.providerMetadata && { meta: p.providerMetadata }),
+      });
     else if (p.type === 'tool-call' && p.providerExecuted !== true)
       parts.push({
         type: 'tool-call',
@@ -295,17 +335,17 @@ function encodeCarry(model: string, content: readonly LanguageModelV4Content[]):
         ...(p.providerMetadata && { meta: p.providerMetadata }),
       });
   }
-  const carry: Carry = { model, parts };
+  const carry: Carry = { provider: owner.provider, model: owner.model, parts };
   return `aisdk1.${Buffer.from(JSON.stringify(carry)).toString('base64url')}`;
 }
 
-function decodeCarry(signature: string | undefined, model: string): Carry | undefined {
+function decodeCarry(signature: string | undefined, owner: CarryOwner): Carry | undefined {
   if (signature === undefined || !signature.startsWith('aisdk1.')) return undefined;
   try {
     const carry = JSON.parse(
       Buffer.from(signature.slice(7), 'base64url').toString('utf8'),
     ) as Carry;
-    return carry.model === model ? carry : undefined;
+    return carry.provider === owner.provider && carry.model === owner.model ? carry : undefined;
   } catch {
     return undefined;
   }
@@ -314,7 +354,7 @@ function decodeCarry(signature: string | undefined, model: string): Carry | unde
 /** Our message trail as the spec's prompt; a carried answer is rebuilt part by part. */
 function toPrompt(
   messages: readonly ModelMessage[],
-  model: string,
+  owner: CarryOwner,
   toolIds: readonly string[],
 ): LanguageModelV4Prompt {
   const prompt: LanguageModelV4Message[] = [];
@@ -327,10 +367,20 @@ function toPrompt(
     } else if (m.role === 'assistant') {
       const calls = m.toolCalls ?? [];
       for (const c of calls) toolNames.set(c.id, wireName(c.name));
-      const carry = decodeCarry(calls[0]?.signature, model);
+      const carry = decodeCarry(calls[0]?.signature, owner);
       const content: Extract<LanguageModelV4Message, { role: 'assistant' }>['content'] = [];
       if (carry !== undefined) {
         const byId = new Map(calls.map((c) => [c.id, c] as const));
+        // The answer's text as the model gave it, part by part with each part's own state, while
+        // the trail still says the same; once it doesn't (a caller trimmed or redacted it), the
+        // trail's text alone, where the first part was, without state that was about other words.
+        const texts = carry.parts.flatMap((p) => (p.type === 'text' ? [p.text] : []));
+        const faithful = texts.join('') === m.content;
+        let textPlaced = false;
+        const placeText = () => {
+          if (!textPlaced && m.content.length > 0) content.push({ type: 'text', text: m.content });
+          textPlaced = true;
+        };
         for (const p of carry.parts) {
           if (p.type === 'reasoning')
             content.push({
@@ -338,13 +388,16 @@ function toPrompt(
               text: p.text,
               ...(p.meta && { providerOptions: p.meta }),
             });
-          else if (p.type === 'text' && m.content.length > 0)
-            content.push({
-              type: 'text',
-              text: m.content,
-              ...(p.meta && { providerOptions: p.meta }),
-            });
+          else if (p.type === 'text' && faithful) {
+            if (p.text.length > 0 || p.meta !== undefined)
+              content.push({
+                type: 'text',
+                text: p.text,
+                ...(p.meta && { providerOptions: p.meta }),
+              });
+          } else if (p.type === 'text') placeText();
           else if (p.type === 'tool-call') {
+            if (!faithful) placeText();
             const c = byId.get(p.id);
             if (c !== undefined)
               content.push({
@@ -395,23 +448,97 @@ function explained(
   });
 }
 
+/**
+ * The adapter's own typed error, as thrown, or as the library re-wrapped it: the AI SDK turns an
+ * error from a fetch wrapper whose cause carries a network code (`ECONNREFUSED` while a key is
+ * read, say) into a retryable "Cannot connect to API", with the adapter's error as its cause.
+ */
+function adapterError(error: unknown): ModelProviderError | undefined {
+  if (error instanceof ModelProviderError) return error;
+  if (APICallError.isInstance(error) && error.cause instanceof ModelProviderError) {
+    return error.cause;
+  }
+  return undefined;
+}
+
+/**
+ * The codes of a failed connection, as Node (`ECONNRESET`), undici (`UND_ERR_SOCKET`) and Bun
+ * (`ConnectionRefused`) set them on an error or its causes: the AI SDK's list, plus DNS.
+ */
+const TRANSPORT_CODES = new Set([
+  'ECONNRESET',
+  'ECONNREFUSED',
+  'ECONNABORTED',
+  'ETIMEDOUT',
+  'EPIPE',
+  'ENOTFOUND',
+  'EAI_AGAIN',
+  'ENETUNREACH',
+  'EHOSTUNREACH',
+  'UND_ERR_SOCKET',
+  'UND_ERR_HEADERS_TIMEOUT',
+  'UND_ERR_BODY_TIMEOUT',
+  'UND_ERR_CONNECT_TIMEOUT',
+  'ConnectionRefused',
+  'ConnectionClosed',
+  'FailedToOpenSocket',
+]);
+
+/** A failed connection: `fetch failed`, or a transport code on the error or one of its causes. */
+function isTransport(error: unknown): boolean {
+  const seen = new Set<unknown>();
+  for (let e = error; e instanceof Error && !seen.has(e); e = e.cause) {
+    seen.add(e);
+    const code = (e as { code?: unknown }).code;
+    if (typeof code === 'string' && TRANSPORT_CODES.has(code)) return true;
+    if (e instanceof TypeError && /^(fetch failed|failed to fetch)$/i.test(e.message)) return true;
+  }
+  return false;
+}
+
+/** An answer the library couldn't read: a malformed 200, an empty body, a shape it doesn't know. */
+function isUnreadableAnswer(error: unknown): boolean {
+  return (
+    InvalidResponseDataError.isInstance(error) ||
+    JSONParseError.isInstance(error) ||
+    TypeValidationError.isInstance(error) ||
+    EmptyResponseBodyError.isInstance(error)
+  );
+}
+
+/** A failure as the retry policy needs it, and whether it's one we know (a bug isn't). */
+interface DescribedFailure extends RetryableFailure {
+  readonly unrecognized?: true;
+}
+
 /** An AI SDK failure as the retry policy and the typed error need it. */
-function describeFailure(error: unknown): RetryableFailure {
-  if (error instanceof ModelProviderError) {
+function describeFailure(error: unknown): DescribedFailure {
+  const words = error instanceof Error ? error.message : String(error);
+  const own = adapterError(error);
+  if (own !== undefined) {
     return {
-      ...(error.status !== undefined && { status: error.status }),
-      words: error.message,
+      ...(own.status !== undefined && { status: own.status }),
+      words: own.message,
       retryable: false,
     };
   }
-  if (!APICallError.isInstance(error)) {
-    // No response at all: a dropped connection, DNS, TLS.
-    return { words: (error as Error)?.message ?? String(error), retryable: true };
+  if (APICallError.isInstance(error)) {
+    return {
+      ...(error.statusCode !== undefined && { status: error.statusCode }),
+      words: error.responseBody?.trim() || error.message,
+      retryable: error.isRetryable,
+      ...(error.responseHeaders !== undefined && { headers: error.responseHeaders }),
+    };
   }
-  return {
-    ...(error.statusCode !== undefined && { status: error.statusCode }),
-    words: error.responseBody?.trim() || error.message,
-    retryable: error.isRetryable,
-    ...(error.responseHeaders !== undefined && { headers: error.responseHeaders }),
-  };
+  // No response at all: a dropped connection, DNS, TLS.
+  if (isTransport(error)) return { words, retryable: true };
+  // The vendor answered, and we couldn't read it. Once more, in case it was a bad gateway's
+  // page; not again, since each answer may be billed.
+  if (isUnreadableAnswer(error)) {
+    return { kind: 'unavailable', words, retryable: true, maxAttempts: 2 };
+  }
+  // The request couldn't be built or sent as asked (a prompt or setting the provider refuses
+  // before any HTTP): the caller's request, not retried.
+  if (AISDKError.isInstance(error)) return { kind: 'invalid-request', words, retryable: false };
+  return { words, retryable: false, unrecognized: true };
 }
