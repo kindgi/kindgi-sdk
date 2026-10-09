@@ -173,7 +173,10 @@ In a Java or Scala pack's `kindgi.config.json`, the same keys:
   for `gemini`; `resourceName` and `deployments` for `azure-openai`; `region`
   for `bedrock`), `secret` (the key's name, in place of the preset's) and
   `maxOutputTokens`, spelled the same in `pyproject.toml` and
-  `kindgi.config.json`;
+  `kindgi.config.json`. Its own settings are required and another preset's
+  are refused. `deployments` is a map of model to deployment
+  (`{ "gpt-6.1-sol": "gpt-6-1-sol" }`, a `[tool.kindgi.providers.deployments]`
+  table in `pyproject.toml`), not the `--deployments` flag's `model=deployment,…`;
   a `spec` entry is a `--spec` body. A
   key is always a secret's name (`secret_ref`); a credential in
   `adapter_config` is refused.
