@@ -240,9 +240,10 @@ export type NetworkPolicy =
  * `env` and `secrets` are resolved per call (`ctx.env`, `ctx.secrets`).
  * Their values are strings, as in a process environment; each schema
  * checks the string (`enum`, `pattern`, `minLength`…) and nothing is
- * coerced. An `env` name whose schema has a `default` is optional; every
- * other declared name is required. `config` is reserved: no runtime
- * resolves it yet.
+ * coerced. An `env` name whose schema has a `default` is optional; a
+ * `secrets` name whose schema says it accepts `null` (`type: ['string',
+ * 'null']`) is optional (runtime 0.1.6 or later); every other declared name
+ * is required. `config` is reserved: no runtime resolves it yet.
  *
  * `capabilities` names capability-router features (e.g. `'embedding'`);
  * `bindings` names deployment-plugged binding keys (e.g. `'blob'`).

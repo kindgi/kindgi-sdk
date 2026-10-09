@@ -24,7 +24,8 @@ import org.jspecify.annotations.Nullable;
  * @param orgId the project's org, when it has one
  * @param env resolved environment values for the call
  * @param secrets resolved secrets for the call, by name (the tool's declared secrets); an optional one
- *     (its schema accepts null) is absent when the env doesn't have it (runtime 0.1.6 or later); printing
+ *     (its schema accepts null) is absent when the env doesn't have it, or has it empty (runtime 0.1.6 or
+ *     later); printing
  *     them, or the context, shows their names, never their values, and the context's JSON leaves them out
  * @param config resolved configuration for the call
  * @param settings the settings blocks the calling agent version pins, by block id
