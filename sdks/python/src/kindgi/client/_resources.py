@@ -624,6 +624,9 @@ OPERATIONS: dict[str, Operation] = {
     "compliance.evidence.export": Operation(
         "compliance.evidence.export", "POST", "/v1/compliance/evidence/export", "json", True
     ),
+    "audit.signIns.list": Operation(
+        "audit.signIns.list", "GET", "/v1/audit/sign-ins", "json", False
+    ),
     "audit.authz.list": Operation("audit.authz.list", "GET", "/v1/audit/authz", "json", False),
     "orgs.list": Operation("orgs.list", "GET", "/v1/orgs", "json", False),
     "orgs.create": Operation("orgs.create", "POST", "/v1/orgs", "json", True),
@@ -5868,6 +5871,56 @@ class ComplianceResource:
         self.evidence = ComplianceEvidenceResource(client)
 
 
+class AuditSignInsResource:
+    """`client.audit.sign_ins` — the `audit.signIns` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        user_id: str | UUID | None = None,
+        kind: Literal[
+            "signed-in",
+            "signed-out",
+            "sign-in-refused",
+            "sign-in-link-sent",
+            "sign-in-link-capped",
+            "sessions-revoked",
+            "sessions-ended",
+        ]
+        | None = None,
+        from_: str | None = None,
+        to: str | None = None,
+        order: Literal["asc", "desc"] | None = None,
+        timeout: float | None = None,
+    ) -> _models.AuditSignInsListResponse:
+        """List sign-in audit events. `GET /v1/audit/sign-ins`
+
+        The tenant's sign-in history: who signed in and out, how (`method`), when and from where (`clientAddress`), what was refused and why, and emailed links sent or capped. `?userId=` narrows to one person's own sign-ins and sign-outs. Oldest first; `?order=desc` for newest first. A tenant admin's to read (403 `permission-denied` otherwise). Only mounted when `CreateAppInput.auditEvents` is wired.
+        """
+        return self._client._request(
+            _OPERATIONS["audit.signIns.list"],
+            path={},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "userId": user_id,
+                "kind": kind,
+                "from": from_,
+                "to": to,
+                "order": order,
+            },
+            headers={},
+            response=_models.AuditSignInsListResponse,
+            timeout=timeout,
+        )
+
+
 class AuditAuthzResource:
     """`client.audit.authz` — the `audit.authz` operations."""
 
@@ -5922,6 +5975,7 @@ class AuditResource:
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
+        self.sign_ins = AuditSignInsResource(client)
         self.authz = AuditAuthzResource(client)
 
 
@@ -12602,6 +12656,56 @@ class AsyncComplianceResource:
         self.evidence = AsyncComplianceEvidenceResource(client)
 
 
+class AsyncAuditSignInsResource:
+    """`client.audit.sign_ins` — the `audit.signIns` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        user_id: str | UUID | None = None,
+        kind: Literal[
+            "signed-in",
+            "signed-out",
+            "sign-in-refused",
+            "sign-in-link-sent",
+            "sign-in-link-capped",
+            "sessions-revoked",
+            "sessions-ended",
+        ]
+        | None = None,
+        from_: str | None = None,
+        to: str | None = None,
+        order: Literal["asc", "desc"] | None = None,
+        timeout: float | None = None,
+    ) -> _models.AuditSignInsListResponse:
+        """List sign-in audit events. `GET /v1/audit/sign-ins`
+
+        The tenant's sign-in history: who signed in and out, how (`method`), when and from where (`clientAddress`), what was refused and why, and emailed links sent or capped. `?userId=` narrows to one person's own sign-ins and sign-outs. Oldest first; `?order=desc` for newest first. A tenant admin's to read (403 `permission-denied` otherwise). Only mounted when `CreateAppInput.auditEvents` is wired.
+        """
+        return await self._client._request(
+            _OPERATIONS["audit.signIns.list"],
+            path={},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "userId": user_id,
+                "kind": kind,
+                "from": from_,
+                "to": to,
+                "order": order,
+            },
+            headers={},
+            response=_models.AuditSignInsListResponse,
+            timeout=timeout,
+        )
+
+
 class AsyncAuditAuthzResource:
     """`client.audit.authz` — the `audit.authz` operations."""
 
@@ -12656,6 +12760,7 @@ class AsyncAuditResource:
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
+        self.sign_ins = AsyncAuditSignInsResource(client)
         self.authz = AsyncAuditAuthzResource(client)
 
 

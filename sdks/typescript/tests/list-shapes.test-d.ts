@@ -50,6 +50,9 @@ describe('every list call answers with data, hasMore and nextCursor', () => {
   test('audit.authz.list', () => {
     expectTypeOf<Answer<KindgiClient['audit']['authz']['list']>>().toMatchTypeOf<WirePage>();
   });
+  test('audit.signIns.list', () => {
+    expectTypeOf<Answer<KindgiClient['audit']['signIns']['list']>>().toMatchTypeOf<WirePage>();
+  });
   test('auth.providers.list', () => {
     expectTypeOf<Answer<KindgiClient['auth']['providers']['list']>>().toMatchTypeOf<WirePage>();
   });

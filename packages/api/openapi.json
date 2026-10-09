@@ -13416,6 +13416,62 @@
           }
         }
       },
+      "SignInEvent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "timestamp",
+          "kind",
+          "outcome"
+        ],
+        "description": "One sign-in audit event, flattened: who signed in or out, how, from where, and what was refused.",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "signed-in",
+              "signed-out",
+              "sign-in-refused",
+              "sign-in-link-sent",
+              "sign-in-link-capped",
+              "sessions-revoked",
+              "sessions-ended"
+            ],
+            "description": "`signed-in` / `signed-out`; `sign-in-refused` (with `reason`); `sign-in-link-sent` / `sign-in-link-capped` (an emailed link, for `userId`; `reason` is the limit that held); `sessions-revoked` (\"sign out everywhere\", or removing a person); `sessions-ended` (a changed boot token)."
+          },
+          "outcome": {
+            "type": "string",
+            "description": "`succeeded` or `denied`."
+          },
+          "userId": {
+            "type": "string",
+            "description": "The person: who signed in or out, or whom a link was for. Absent on a refusal."
+          },
+          "method": {
+            "type": "string",
+            "description": "How: `api-token`, `email-link`, `google`, `microsoft`, `github`, or a workspace identity provider's id."
+          },
+          "clientAddress": {
+            "type": "string",
+            "description": "The client's address, as the runtime trusts it."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Why a sign-in was refused, or which limit held."
+          },
+          "sessionId": {
+            "type": "string"
+          }
+        }
+      },
       "RegisterIdentityProviderResult": {
         "type": "object",
         "additionalProperties": false,
@@ -37438,6 +37494,164 @@
             }
           }
         },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/audit/sign-ins": {
+      "get": {
+        "operationId": "audit.signIns.list",
+        "summary": "List sign-in audit events",
+        "tags": [
+          "audit"
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of sign-in audit events.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "data",
+                    "hasMore"
+                  ],
+                  "properties": {
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/SignInEvent"
+                      }
+                    },
+                    "hasMore": {
+                      "type": "boolean"
+                    },
+                    "nextCursor": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed cursor, `kind`, `from`, `to`, or `order`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "The tenant's sign-in history: who signed in and out, how (`method`), when and from where (`clientAddress`), what was refused and why, and emailed links sent or capped. `?userId=` narrows to one person's own sign-ins and sign-outs. Oldest first; `?order=desc` for newest first. A tenant admin's to read (403 `permission-denied` otherwise). Only mounted when `CreateAppInput.auditEvents` is wired.",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "description": "1..100. Default 25."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Opaque cursor from a prior response. Absent → first page."
+          },
+          {
+            "name": "userId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "One person's own sign-ins and sign-outs."
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "signed-in",
+                "signed-out",
+                "sign-in-refused",
+                "sign-in-link-sent",
+                "sign-in-link-capped",
+                "sessions-revoked",
+                "sessions-ended"
+              ]
+            },
+            "required": false,
+            "description": "One kind of event."
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "description": "Inclusive lower bound on `timestamp`."
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "description": "Inclusive upper bound on `timestamp`."
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ]
+            },
+            "required": false,
+            "description": "`asc` (the default): oldest first. `desc`: newest first. `nextCursor` continues in the same order."
+          }
+        ],
         "security": [
           {
             "bearerAuth": []

@@ -30,6 +30,7 @@ import type { AuditEvent, AuditEventBinding } from '@kindgi/audit-events';
 import { ref } from '@kindgi/authz';
 import type { TenantId } from '@kindgi/types';
 
+import { isTenantAdmin } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
@@ -56,6 +57,37 @@ interface WireAuthzDecision {
   readonly correlationId?: string;
   readonly runId?: string;
   readonly latencyMs?: number;
+}
+
+/**
+ * The sign-in kinds `/v1/audit/sign-ins` lists: who signed in and out, how,
+ * from where, and what was refused (a deployment writes each kind it has).
+ */
+export const SIGN_IN_EVENT_KINDS = [
+  'signed-in',
+  'signed-out',
+  'sign-in-refused',
+  'sign-in-link-sent',
+  'sign-in-link-capped',
+  'sessions-revoked',
+  'sessions-ended',
+] as const;
+type SignInEventKind = (typeof SIGN_IN_EVENT_KINDS)[number];
+
+/** Wire projection for `/v1/audit/sign-ins`: the event, flattened. */
+interface WireSignInEvent {
+  readonly id: string;
+  readonly timestamp: string;
+  readonly kind: SignInEventKind;
+  readonly outcome: string;
+  /** The person: the actor (`user:<id>`), or the person a link was for. */
+  readonly userId?: string;
+  /** How: `api-token`, `email-link`, `google`, `microsoft`, `github`, or a workspace provider's id. */
+  readonly method?: string;
+  readonly clientAddress?: string;
+  /** Why a sign-in was refused, or which limit held. */
+  readonly reason?: string;
+  readonly sessionId?: string;
 }
 
 export function auditRouter(binding: AuditEventBinding, authorizer?: Authorizer): Hono<AppEnv> {
@@ -190,7 +222,107 @@ export function auditRouter(binding: AuditEventBinding, authorizer?: Authorizer)
     });
   });
 
+  // ---------- GET /sign-ins ----------
+  // Who signed in, when, how and from where (and what was refused): a
+  // tenant admin's to read, with or without authorization on.
+  r.get('/sign-ins', async (c) => {
+    const requestId = c.get('requestId');
+    if (!(await isTenantAdmin(c, authorizer))) {
+      c.status(statusFor('permission-denied') as never);
+      return c.json(
+        toWireError(
+          { code: 'permission-denied', message: 'Only a tenant admin reads the sign-in history' },
+          requestId,
+        ),
+      );
+    }
+    const tenantId = c.get('tenantId') as TenantId;
+    const limit = clampLimit(c.req.query('limit'));
+    const cursor = c.req.query('cursor');
+    const userId = c.req.query('userId');
+    const kind = c.req.query('kind');
+    const from = c.req.query('from');
+    const to = c.req.query('to');
+    const orderRaw = c.req.query('order');
+    const bad = (message: string) => {
+      c.status(statusFor('bad-input') as never);
+      return c.json(toWireError({ code: 'bad-input', message }, requestId));
+    };
+    if (orderRaw !== undefined && orderRaw !== 'asc' && orderRaw !== 'desc') {
+      return bad('`order` must be "asc" or "desc"');
+    }
+    if (kind !== undefined && !(SIGN_IN_EVENT_KINDS as readonly string[]).includes(kind)) {
+      return bad(`\`kind\` must be one of: ${SIGN_IN_EVENT_KINDS.join(', ')}`);
+    }
+    if (from !== undefined && Number.isNaN(new Date(from).getTime())) {
+      return bad('`from` must be an ISO timestamp');
+    }
+    if (to !== undefined && Number.isNaN(new Date(to).getTime())) {
+      return bad('`to` must be an ISO timestamp');
+    }
+    const page = await binding.query({
+      tenantId,
+      filter: {
+        ...(kind !== undefined ? { kind } : { kinds: SIGN_IN_EVENT_KINDS }),
+        // A person's own sign-ins and sign-outs: the events they're the actor of.
+        ...(userId !== undefined && userId.length > 0 && { actor: `user:${userId}` }),
+        ...(from !== undefined && from.length > 0 && { from }),
+        ...(to !== undefined && to.length > 0 && { to }),
+      },
+      ...(cursor !== undefined && cursor.length > 0 && { cursor }),
+      ...(orderRaw !== undefined && { order: orderRaw }),
+      limit,
+    });
+    if (page.kind === 'err') {
+      if (page.error.code === 'invalid-cursor') {
+        return bad(`Malformed cursor: ${page.error.message}`);
+      }
+      c.status(statusFor('persistence-error') as never);
+      return c.json(
+        toWireError(
+          { code: 'persistence-error', message: `Audit query failed: ${page.error.message}` },
+          requestId,
+        ),
+      );
+    }
+    // A binding that predates `kinds` still can't return other kinds here.
+    return c.json({
+      data: page.value.data
+        .filter((event) => (SIGN_IN_EVENT_KINDS as readonly string[]).includes(event.kind))
+        .map(signInToWire),
+      hasMore: page.value.nextCursor !== undefined,
+      ...(page.value.nextCursor !== undefined && { nextCursor: page.value.nextCursor }),
+    });
+  });
+
   return r;
+}
+
+function signInToWire(event: AuditEvent): WireSignInEvent {
+  const doc = extractDoc(event.payload) ?? {};
+  const str = (value: unknown) => (typeof value === 'string' && value !== '' ? value : undefined);
+  // `user:system` is an anonymous request (a refusal, a link anyone may ask
+  // for): the person, if any, is the one the event is about (`personId`).
+  const actor =
+    event.actor.startsWith('user:') && event.actor !== 'user:system'
+      ? event.actor.slice(5)
+      : undefined;
+  const userId = actor ?? str(doc.personId);
+  const method = str(doc.method) ?? str(doc.providerId);
+  const clientAddress = str(doc.clientAddress);
+  const reason = str(doc.reason) ?? str(doc.limit);
+  const sessionId = str(doc.sessionId);
+  return {
+    id: event.id,
+    timestamp: event.timestamp as unknown as string,
+    kind: event.kind as SignInEventKind,
+    outcome: event.outcome ?? 'succeeded',
+    ...(userId !== undefined && { userId }),
+    ...(method !== undefined && { method }),
+    ...(clientAddress !== undefined && { clientAddress }),
+    ...(reason !== undefined && { reason }),
+    ...(sessionId !== undefined && { sessionId }),
+  };
 }
 
 function extractDoc(
