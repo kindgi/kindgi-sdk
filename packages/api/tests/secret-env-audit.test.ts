@@ -10,23 +10,24 @@
  * backend answered; never the value, nor anything derived from one.
  */
 
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 import { describe, expect, test } from 'vitest';
 
 import type { AuditEvent, AuditEventBinding } from '@kindgi/audit-events';
 import { createInMemoryAuditEventBinding } from '@kindgi/audit-events-inmemory';
-import type { ProjectId, TenantId, UserId } from '@kindgi/types';
+import type { ApiTokenId, ProjectId, TenantId, UserId } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
-import type { EnvBinding, RunHandlerBinding, SecretsBinding, TokenResolver } from '../src/index.js';
+import type { EnvBinding, RunHandlerBinding, SecretBinding, TokenResolver } from '../src/index.js';
 
 const tenantId = randomUUID() as TenantId;
 const projectId = randomUUID() as ProjectId;
 const ALICE = 'token-alice';
 const BARE = 'token-bare';
+const KEY = 'token-key';
 const CAPS = [
   'secrets:write',
   'secrets:rotate',
@@ -37,6 +38,8 @@ const CAPS = [
 const resolveToken: TokenResolver = async (t) => {
   if (t === ALICE) return { tenantId, userId: 'alice' as UserId, capabilities: CAPS };
   if (t === BARE) return { tenantId, capabilities: CAPS };
+  // An API key with no principal acts as its own service account.
+  if (t === KEY) return { tenantId, tokenId: 'key-1' as ApiTokenId, capabilities: CAPS };
   return null;
 };
 
@@ -65,7 +68,7 @@ function harness(
     rotate: async () =>
       answers.rotate ?? { kind: 'ok', value: { kind: 'ok', newVersionId: 3, oldVersionId: 2 } },
     revoke: async () => answers.revoke ?? { kind: 'ok', value: { revoked: true, hard: false } },
-  } as unknown as SecretsBinding;
+  } as unknown as SecretBinding;
   const envBinding = {
     set: async () =>
       answers.envSet ?? {
@@ -161,12 +164,29 @@ describe('secret writes are recorded at the route', () => {
     expect(docOf(event)).toMatchObject({ errorCode: 'secret-write-conflict' });
   });
 
-  test("a caller with no person or service account is named by its credential's hash, never the token", async () => {
+  test("a caller with no person, service account or key is named by its credential's hash, never the token", async () => {
     const { call, recorded } = harness();
     expect(await call('POST', '/v1/secrets', setBody(), BARE)).toBe(201);
     const events = await recorded();
-    expect(events[0]?.actor).toMatch(/^(service_account:|token:[0-9a-f]{16}$)/);
+    const hash = createHash('sha256').update(`Bearer ${BARE}`).digest('hex').slice(0, 16);
+    expect(events[0]?.actor).toBe(`token:${hash}`);
     expect(JSON.stringify(events)).not.toContain(BARE);
+  });
+
+  test('an API key with no principal is its own service account', async () => {
+    const { call, recorded } = harness();
+    expect(await call('POST', '/v1/secrets', setBody(), KEY)).toBe(201);
+    expect((await recorded())[0]?.actor).toBe('service_account:key-1');
+  });
+
+  test('a tenant-scoped write has no project', async () => {
+    const { call, recorded } = harness();
+    const body = { ...setBody(), scope: { kind: 'tenant', tenantId } };
+    expect(await call('POST', '/v1/secrets', body)).toBe(201);
+    const [event] = await recorded();
+    expect(event?.tenantId).toBe(tenantId);
+    expect(event).not.toHaveProperty('projectId');
+    expect(docOf(event)).toMatchObject({ scope: { kind: 'tenant' } });
   });
 
   test('a rotation: secret-rotated with both versions; never the new value', async () => {
