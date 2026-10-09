@@ -33,6 +33,7 @@ Today's engine for sending the requests is the [AI SDK](https://ai-sdk.dev)'s pr
 - **`ModelProviderError`** (`kind`, `status`) and `ModelProviderErrorKind`;
 - `kindOf(failure)` and `modelProviderError(failure, cause)`: a failed response as a typed error;
 - `withRetries(send, policy)`, `backoffMs(headers, attempt)`, `RetryPolicy`, `RetryableFailure`: the retry policy, library-free.
+- **`tokenCostUsd(model, usage, options?)`**: a call's cost from the model's registered rates. It covers prompt and completion, cache reads and writes as multiples of the prompt rate, the long-context tier and the data-residency uplift. The arithmetic is the same as the OpenAI-compatible and Anthropic adapters' own (a test holds them equal on the bundled presets). What a missing cache multiplier means is the adapter's to say: `cacheReadMultiplier` / `cacheWriteMultiplier`, default 1.
 
 **`@kindgi/adapter-model-shared/ai-sdk`, where an adapter hands its model in:** `createAiSdkModelProvider(options)` returns a `ModelProvider`. Its `options`:
 - `metadata`: the registration's `ProviderMetadata`;

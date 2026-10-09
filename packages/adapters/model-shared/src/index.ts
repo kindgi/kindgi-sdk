@@ -13,3 +13,4 @@ export {
   modelProviderError,
 } from './errors.js';
 export { backoffMs, type RetryPolicy, type RetryableFailure, withRetries } from './retries.js';
+export { type TokenCostOptions, tokenCostUsd } from './cost.js';

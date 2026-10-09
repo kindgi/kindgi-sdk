@@ -276,6 +276,12 @@ importers:
         specifier: workspace:*
         version: link:../../capabilities
     devDependencies:
+      '@kindgi/adapter-model-anthropic':
+        specifier: workspace:*
+        version: link:../model-anthropic
+      '@kindgi/adapter-model-openai-compat':
+        specifier: workspace:*
+        version: link:../model-openai-compat
       '@types/node':
         specifier: ^22.10.5
         version: 22.20.3

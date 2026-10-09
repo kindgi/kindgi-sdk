@@ -33,6 +33,8 @@
     "@kindgi/capabilities": "workspace:*"
   },
   "devDependencies": {
+    "@kindgi/adapter-model-anthropic": "workspace:*",
+    "@kindgi/adapter-model-openai-compat": "workspace:*",
     "@types/node": "^22.10.5",
     "typescript": "^5.7.3",
     "vitest": "^2.1.8"
