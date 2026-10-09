@@ -58,7 +58,16 @@
         "agent-promotion-refused",
         "agent-rollback",
         "agent-live-unpinned",
-        "agent-live-pin-inactive"
+        "agent-live-pin-inactive",
+        "api-key-minted",
+        "api-key-revoked",
+        "service-account-created",
+        "service-account-granted",
+        "service-account-ungranted",
+        "service-account-unregistered",
+        "person-added",
+        "person-granted",
+        "person-ungranted"
       ]
     },
     "timestamp": {

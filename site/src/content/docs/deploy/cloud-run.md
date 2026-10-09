@@ -11,8 +11,10 @@ end to end on runtime 0.1.1, the first apply takes about ten minutes (most of
 it Cloud SQL), and a tool call from the runtime to your pack takes 42 ms at the
 median (100 ms at p95).
 
-:::note[Private preview]
-The runtime image is in private preview: request access at contact@kindgi.com
+:::note[Access to the runtime image]
+Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub for the
+runtime image's pull credentials, and log in once with `kindgi auth registry`
+(see [Install](../../start/install/#access-to-the-runtime-image)). Questions or trouble: contact@kindgi.com.
 :::
 
 ## What you'll have
@@ -132,8 +134,8 @@ built for:
 ```sh
 REPO=$(terraform output -raw image_repository)
 gcloud auth configure-docker "${REPO%%/*}"
-docker buildx imagetools create --tag "$REPO/runtime:0.1.3" \
-  quay.io/kindgi/runtime:0.1.3@sha256:<the release's digest>
+docker buildx imagetools create --tag "$REPO/runtime:0.1.4" \
+  quay.io/kindgi/runtime:0.1.4@sha256:<the release's digest>
 ```
 
 The copy keeps the release's digest. (A plain `docker pull`, `tag` and `push`
@@ -179,6 +181,8 @@ openssl rand -hex 32 | tr -d '\n' | gcloud secrets versions add $N-pack-service-
 printf 'kgi_bt_%s' "$(openssl rand -hex 32)" | gcloud secrets versions add $N-api-token --data-file=-
 openssl rand 32 | base64 | gcloud secrets versions add $N-secrets-aad-key --data-file=-   # version 1
 openssl genpkey -algorithm ed25519 | base64 | gcloud secrets versions add $N-public-token-key --data-file=-
+# Only with export_signing = "secret": the key that signs exports.
+openssl genpkey -algorithm ed25519 | base64 | gcloud secrets versions add $N-export-signing-key --data-file=-
 
 # The license key, pasted, never echoed.
 read -rs LICENSE_KEY && printf '%s' "$LICENSE_KEY" | gcloud secrets versions add $N-license-key --data-file=- && unset LICENSE_KEY
@@ -213,13 +217,33 @@ terraform apply -var-file=prod.tfvars
 ```
 
 The pack's service comes up first (22 seconds), and is ready only when every
-module loaded and every required variable is set. Then the runtime. Its
-startup log names the pack's service it reached, and how it calls it:
+module loaded and every required variable is set. Then the runtime. On Cloud
+Run it logs JSON, so its startup lines are the `lines` of one log record,
+`Kindgi runtime ready`:
+
+```sh
+gcloud logging read 'resource.labels.service_name="'$N'-server" AND jsonPayload.message="Kindgi runtime ready"' \
+  --limit=1 --format=json | jq -r '.[0].jsonPayload.lines[]'
+```
+
+They name the pack's service it reached, and how it calls it:
 
 ```text
-Pack service: https://kindgi-pack-…a.run.app — acme (artifact 20261004.1), protocol 2, 3 tools, 1 check
+Pack service: https://kindgi-pack-…a.run.app — acme (artifact …), protocol 2, 3 tools, 1 check
 Pack service auth: a Google ID token per call (KINDGI_PACK_SERVICE_AUTH)
 ```
+
+**On the first apply,** the pack service line can read instead:
+
+```text
+⚠ Pack service at https://… isn't answering (pack-service-unauthorized: The platform in front of the pack service refused the call: check the identity token (KINDGI_PACK_SERVICE_AUTH) and that the server may invoke the service). The server is up; pack tools and checks fail until it answers.
+```
+
+The runtime's permission to call the pack's service is seconds old then, and
+Google Cloud is still applying it. It clears without a restart: in our run,
+the first tool call, 3½ minutes after the warning, worked. If tool calls still
+fail after that, check that the runtime's service account has
+`roles/run.invoker` on the pack's service.
 
 ### How the runtime calls your pack's service
 
@@ -249,7 +273,7 @@ pnpm exec kindgi deploy --env prod --endpoint "$(terraform output -raw server_ur
 
 ```text
 ✓ POST /v1/deployments  →  201 Created
-  artifactVersion: 20261004.1
+  artifactVersion: …
   primitives:      3 tools, 1 guardrail, 1 agent, 2 flows
 Deploy complete.
 ```
@@ -283,6 +307,7 @@ service in about 5.
 | | `roles/cloudsql.client` | the project, conditioned on Kindgi's instance |
 | | `roles/secretmanager.secretAccessor` | each of its secrets |
 | | `roles/aiplatform.user`, only with `vertex_ai = true` | the project: [Gemini](#use-gemini) |
+| | `roles/cloudkms.signerVerifier` and `roles/cloudkms.publicKeyViewer`, only with `export_signing = "kms"` | the export signing key: [signed exports](../../guides/observability/export-signed-evidence/) |
 | The pack's service account | `roles/secretmanager.secretAccessor` | the pack token and your pack's secrets |
 | | what your tools need | your own resources |
 
@@ -298,7 +323,7 @@ pnpm exec kindgi providers register --preset=gemini --project=<project> --models
 ```
 
 ```text
-✓ Registered gemini: gemini-3.8-flash
+✓ Registered gemini: gemini-3.8-flash (default)
 ```
 
 Without the role, every model call fails (this one was captured with

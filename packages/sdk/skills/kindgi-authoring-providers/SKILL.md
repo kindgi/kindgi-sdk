@@ -5,8 +5,9 @@ description: >
   can actually call a real model. Covers four paths — hosted via
   Anthropic native adapter, Gemini on Vertex AI (Google Application
   Default Credentials, no API key), hosted via the OpenAI-compat adapter
-  (works with OpenAI + Groq + Together + Fireworks + OpenRouter +
-  Ollama + vLLM + any other OpenAI-compatible endpoint), and local
+  (works with OpenAI, Groq, self-hosted vLLM and Ollama, and any other
+  OpenAI-compatible endpoint, a hosted gateway such as OpenRouter
+  included), and local
   via the in-process ONNX adapter — plus the credential flow (in
   `kindgi dev` the key lives in the project's env files — `.env`, then
   `.env.local` — added by hand or with `kindgi secrets set`'s no-echo
@@ -22,7 +23,7 @@ description: >
   kindgi-getting-started.
 type: core
 library: "@kindgi/sdk"
-version: "0.9.6"
+version: "0.9.9"
 sdk_version: "0.0.0"
 pack_languages: [node, python]
 sources:
@@ -127,11 +128,18 @@ credential on argv.
 
 **Step 2 — register it, from the preset:**
 ```sh
-kindgi providers register --preset=anthropic                          # Opus 5.5, Sonnet 5.5, Haiku 4.5
+kindgi providers register --preset=anthropic                          # Opus 5.5, Sonnet 5.5 (default), Haiku 5.5, Haiku 4.5
 kindgi providers register --preset=anthropic --models=claude-sonnet-5-5  # just one
 ```
 Don't pin `claude-haiku-4-5`: Anthropic retires it on or after 2026-10-15,
-and a turn routed to it then fails.
+and a turn routed to it then fails; `claude-haiku-5-5` replaces it. Each
+preset names a default model (`metadata.defaultModel`, marked `(default)`
+when it registers), which an agent with no preference gets. A preset
+registered before 0.1.4 has none: unregister it and register it again.
+The Claude 5.5 and GPT-6 models take no `temperature` (`"sampling": false`:
+the call goes without it, with a `sampling-unsupported` warning), and a
+model's `thinking` says how it thinks; thinking counts against
+`maxOutputTokens` and bills as output.
 The preset carries the models, context windows, output limits and current
 prices (`kindgi providers presets` lists the presets and when their prices
 were checked); `--max-output-tokens=<n>` sets another output limit. In a pack it refuses until the key is in the pack's env files —
@@ -257,9 +265,9 @@ Works with **any** OpenAI-compatible endpoint. Same adapter, different
 | Groq | `https://api.groq.com/openai/v1` |
 | Together | `https://api.together.xyz/v1` |
 | Fireworks | `https://api.fireworks.ai/inference/v1` |
-| OpenRouter | `https://openrouter.ai/api/v1` |
 | DeepSeek | `https://api.deepseek.com/v1` |
 | LiteLLM proxy | `http://localhost:4000/v1` |
+| OpenRouter (a hosted gateway) | `https://openrouter.ai/api/v1` |
 
 The connection carries the `baseURL` (in `adapter_config`);
 each endpoint is a separate provider row because each has its own API
@@ -547,8 +555,10 @@ tenant policy), then sorts survivors in this order:
    declares `prefer: [{feature: 'thinking', weight: 3}, ...]`, tuples
    with matching model features (or provider attributes) get higher
    scores. Sorted by summed score, descending.
-3. **Deterministic lexical tiebreak.** When scores tie, tuples sort by
-   `(providerId, modelName)` alphabetically — replay-safe and stable.
+3. **Deterministic tiebreak.** When scores tie, tuples sort by provider
+   id, then the provider's `defaultModel` before its other models, then
+   model name — replay-safe and stable. A provider without a
+   `defaultModel` falls back to its first model by name.
 
 **Practical rule:** preferences are soft — they rank, they don't
 exclude. To guarantee which model runs, make it a hard requirement in
@@ -639,7 +649,8 @@ defineAgent({
    be the FULL npm package name of the adapter — `"@kindgi/adapter-model-anthropic"`,
    NOT `"anthropic"`. Adapters are registered with the runtime under
    their full package names, and a short name matches none of them, so
-   the registration fails. The model adapters are
+   registering is refused: the runtime has no adapter by that name
+   (`✗ /adapter_id: …`). The model adapters are
    `@kindgi/adapter-model-anthropic`, `@kindgi/adapter-model-gemini`,
    `@kindgi/adapter-model-openai-compat` and
    `@kindgi/adapter-model-in-process`; `kindgi providers presets` shows
@@ -705,6 +716,21 @@ defineAgent({
    `capabilities.needs` (mistake 2), a `models` / `providers` allow-list
    that names nothing registered, and the tenant's policy. `kindgi
    providers list` shows what is registered.
+
+10. **A setting the adapter can't use.** Registering checks the spec
+    against its adapter (no network call, no key read) and refuses what
+    it can't use: `422 provider-config-invalid`, nothing stored, one line
+    per problem with its JSON-pointer path:
+    ```text
+    Error [invalid-request]: Provider "ollama" doesn't fit adapter @kindgi/adapter-model-openai-compat: adapter_config.api must be one of responses, chat-completions.
+      ✗ /adapter_config/api: adapter_config.api must be one of responses, chat-completions.
+    ```
+    Fix each `✗` line's setting and register again. A key the adapter
+    needs is checked too (`✗ /secret_ref: …`); whether the key works, or
+    the endpoint answers, isn't (the first turn finds out). A
+    registration stored before 0.1.5 wasn't checked: `kindgi doctor`
+    names its problems (`GET /v1/providers/<id>/check`); unregister it
+    and register it again.
 
 ## Verifying end-to-end
 

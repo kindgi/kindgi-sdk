@@ -9,6 +9,7 @@ import { authCommand } from './auth.js';
 import { blocksCommand } from './blocks.js';
 import { buildCommand } from './build.js';
 import { capabilitiesCommand } from './capabilities.js';
+import { consoleCommand } from './console.js';
 import { conversationsCommand } from './conversations.js';
 import { deployCommand } from './deploy.js';
 import { devCommand } from './dev.js';
@@ -16,6 +17,7 @@ import { doctorCommand } from './doctor.js';
 import { envCommand } from './env.js';
 import { evalRunsCommand } from './eval-runs.js';
 import { evalSuitesCommand } from './eval-suites.js';
+import { exportsCommand } from './exports.js';
 import { feedbackCommand } from './feedback.js';
 import { flowsCommand } from './flows.js';
 import { gatePoliciesCommand } from './gate-policies.js';
@@ -28,14 +30,18 @@ import { keyCommand } from './key.js';
 import { mcpCommand, mcpLaunchCommand } from './mcp.js';
 import { memoryCommand } from './memory.js';
 import { observationsCommand } from './observations.js';
+import { peopleCommand } from './people.js';
 import { projectsCommand } from './projects.js';
 import { proposalsCommand } from './proposals.js';
 import { provenanceCommand } from './provenance.js';
 import { providersCommand } from './providers.js';
 import { reviewersCommand } from './reviewers.js';
 import { runsCommand } from './runs.js';
+import { schedulesCommand } from './schedules.js';
 import { secretsCommand } from './secrets.js';
+import { serviceAccountsCommand } from './service-accounts.js';
 import { skillsCommand } from './skills.js';
+import { ssoCommand } from './sso.js';
 import { testCommand } from './test.js';
 import { tokensCommand } from './tokens.js';
 import { toolsCommand } from './tools.js';
@@ -46,11 +52,13 @@ export const ROOT_COMMANDS: readonly Command[] = [
   authCommand,
   initCommand,
   devCommand,
+  consoleCommand,
   buildCommand,
   deployCommand,
   testCommand,
   envCommand,
   secretsCommand,
+  ssoCommand,
   keyCommand,
   mcpCommand,
   mcpLaunchCommand,
@@ -63,8 +71,10 @@ export const ROOT_COMMANDS: readonly Command[] = [
   memoryCommand,
   proposalsCommand,
   provenanceCommand,
+  exportsCommand,
   artifactsCommand,
   flowsCommand,
+  schedulesCommand,
   approvalsCommand,
   reviewersCommand,
   observationsCommand,
@@ -75,6 +85,8 @@ export const ROOT_COMMANDS: readonly Command[] = [
   blocksCommand,
   gatePoliciesCommand,
   tokensCommand,
+  serviceAccountsCommand,
+  peopleCommand,
   capabilitiesCommand,
   providersCommand,
   adaptersCommand,

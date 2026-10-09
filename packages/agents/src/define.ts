@@ -16,6 +16,7 @@ import type { InvalidAgentError } from './errors.js';
 import type {
   Agent,
   AgentId,
+  AgentMemoryPolicy,
   AgentOutputSpec,
   BlockRef,
   ConversationPolicy,
@@ -54,6 +55,7 @@ export function defineAgent(spec: DefineAgentSpec): Result<Agent, InvalidAgentEr
     ...validateBlockRefs(spec),
     ...validateArrays(spec),
     ...validateRetrieval(spec),
+    ...validateMemoryPolicy(spec.memory),
     ...validatePromptParameters(spec.parameters),
     ...validateBudget(spec.budget),
     ...validateConversationPolicy(spec.conversationPolicy),
@@ -171,6 +173,12 @@ export interface DefineAgentSpec {
    * conversation history + user message.
    */
   readonly retrieval: readonly RetrievalIntent[];
+  /**
+   * How the agent uses what it retrieves: `instructionTypes` lists fact
+   * types whose verified facts are policies (in the system message).
+   * Absent: every retrieved fact is data.
+   */
+  readonly memory?: AgentMemoryPolicy;
   /**
    * Guardrail IDs that guard this agent's turns. Each id must
    * resolve among the guardrails bound for the run, or the turn fails
@@ -392,20 +400,54 @@ function validateIntent(intent: RetrievalIntent, i: number): Issue[] {
       message: 'each retrieval intent must declare at least one type',
     });
   }
-  if (
-    intent.scope !== 'same-conversation' &&
-    intent.scope !== 'same-project' &&
-    intent.scope !== 'tenant'
-  ) {
+  if (!RETRIEVAL_SCOPES.includes(intent.scope)) {
     out.push({
       path: `/retrieval/${i}/scope`,
-      message: 'scope must be same-conversation, same-project, or tenant',
+      message: `scope must be one of ${RETRIEVAL_SCOPES.join(', ')}`,
     });
   }
   if (intent.limit !== undefined && (!Number.isInteger(intent.limit) || intent.limit <= 0)) {
     out.push({ path: `/retrieval/${i}/limit`, message: 'limit must be a positive integer' });
   }
+  if (intent.mode !== undefined && !RETRIEVAL_MODES.includes(intent.mode)) {
+    out.push({
+      path: `/retrieval/${i}/mode`,
+      message: `mode must be one of ${RETRIEVAL_MODES.join(', ')} (or absent: the newest facts)`,
+    });
+  }
   return out;
+}
+
+const RETRIEVAL_SCOPES: readonly RetrievalIntent['scope'][] = [
+  'same-conversation',
+  'same-user',
+  'same-project',
+  'tenant',
+];
+const RETRIEVAL_MODES: readonly NonNullable<RetrievalIntent['mode']>[] = [
+  'keyword',
+  'semantic',
+  'both',
+];
+
+function validateMemoryPolicy(memory: AgentMemoryPolicy | undefined): Issue[] {
+  if (memory === undefined) return [];
+  if (memory === null || typeof memory !== 'object' || Array.isArray(memory)) {
+    return [{ path: '/memory', message: 'memory must be an object' }];
+  }
+  const types = memory.instructionTypes;
+  if (
+    types !== undefined &&
+    (!Array.isArray(types) || types.some((t) => typeof t !== 'string' || t.trim().length === 0))
+  ) {
+    return [
+      {
+        path: '/memory/instructionTypes',
+        message: 'instructionTypes must be a list of fact type names',
+      },
+    ];
+  }
+  return [];
 }
 
 const VALID_PARAM_TYPES = new Set(['string', 'number', 'boolean', 'date']);
@@ -649,6 +691,13 @@ function buildAgent(spec: DefineAgentSpec, output: AgentOutputSpec | undefined):
     capabilities: spec.capabilities.map((c) => ({ ...c })),
     tools: [...spec.tools],
     retrieval: spec.retrieval.map((r) => ({ ...r })),
+    ...(spec.memory !== undefined && {
+      memory: {
+        ...(spec.memory.instructionTypes !== undefined && {
+          instructionTypes: [...spec.memory.instructionTypes],
+        }),
+      },
+    }),
     guardrails: [...spec.guardrails],
     ...(spec.parameters !== undefined && {
       parameters: spec.parameters.map((p) => ({ ...p })),
