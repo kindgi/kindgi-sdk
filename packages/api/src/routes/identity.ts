@@ -99,6 +99,10 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
     if (sessionId !== undefined) body.sessionId = sessionId;
     if (providerId !== undefined) body.providerId = providerId;
     body.scopes = scopes;
+    // Whether the caller is a tenant admin, as the admin routes decide it:
+    // what a console shows admin pages by (scopes are what a credential may
+    // do; admin is a role, from the authorizer when there is one).
+    body.tenantAdmin = await isTenantAdmin(c, authorizer);
     if (reviewerRole !== undefined) body.reviewerRole = reviewerRole;
     Object.assign(body, keyFacts(c));
 
