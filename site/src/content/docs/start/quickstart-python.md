@@ -11,8 +11,9 @@ Python: two tools, an agent that calls them, a guardrail and a flow.
 
 **Before you start**, set up what the [Install page](../install/) describes:
 Docker, Python 3.11 and uv, and access to the runtime image. No Node: the CLI
-comes from PyPI. The image is in private preview: request access at contact@kindgi.com,
-then log in once with `kindgi auth registry`.
+comes from PyPI. For the runtime image, sign in at
+[access.kindgi.com](https://access.kindgi.com) with GitHub, copy your pull
+token, then log in once with `kindgi auth registry`.
 
 ## 1. Create the pack
 
@@ -66,6 +67,20 @@ service, and reloads on every save. It writes the API's URL and a token to
 `.kindgirc.json`, so the commands below find the runtime by themselves.
 Leave it running.
 
+The first address its banner prints is the console's, where you can see each
+run: what it was asked, the steps it took and what it answered:
+
+```text
+    Console    http://127.0.0.1:4000/console/   (open in your browser)
+               Sign in: "Sign in as seeded user" on the sign-in page (the dev token, below)
+```
+
+Open it in your browser (the port is `4000`, or the next free one; the
+runtime's own address, `http://127.0.0.1:4000/`, leads there too), or run
+`uv run kindgi console`, which opens it for you. On the sign-in page, click
+**Sign in as seeded user**. `kindgi dev --open` opens the console as soon as
+Kindgi is up.
+
 ## 3. Run the agent and the flow
 
 In a second terminal, in `my-pack`:
@@ -78,15 +93,16 @@ uv run kindgi runs start --flow=my-pack.echo-flow --input='{"message":"Ada"}'
 ```text tutorial=expect
   "status": "completed",
 …
-⚠ Answered by "dev-echo", a fallback provider: no other registered provider satisfies agent "my-pack.echo-agent".
+⚠ dev-echo answered, and it isn't a real model: it only repeats what it's given. …
 …
     "echo": "Ada",
 ```
 
 Without a model, the agent's answer comes from `dev-echo`, a stand-in that
 calls the agent's first tool with `{"message": <your userMessage>}` and
-replies with what it returned (the run carries a `fallback-provider`
-warning). The flow runs the `echo` tool on its input and returns what the
+replies with what it returned, after a first line that says it isn't a real
+model (the run carries the `fallback-provider` and `dev-echo-not-a-model`
+warnings). The flow runs the `echo` tool on its input and returns what the
 tool returned. Either way, your Python tool ran: the runtime called it over
 HTTP in the pack service.
 

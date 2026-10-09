@@ -265,7 +265,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_ENV',
     description:
-      'The env this runtime serves. Secrets a tool declares by name (`needsSpec.secrets`) resolve under this env name. Unset: `local` in development mode (the `.env` and `.env.local` files); otherwise a tool that declares secrets fails its calls, naming this variable.',
+      'The env this runtime serves. The secrets and env values a tool declares by name (`needsSpec.secrets`, `needsSpec.env`) resolve under this env name. Unset: `local` in development mode (secrets from the `.env` and `.env.local` files, env values from `/v1/env`); otherwise a tool that declares either fails its calls, naming this variable.',
     example: 'production',
     required: false,
     appliesTo: appliesToServer,
@@ -285,6 +285,88 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     description:
       "The same key's PEM file, base64 (`base64 < key.pem`): for platforms that give secrets as environment variables (Cloud Run with Secret Manager), where a key file's mode can't be 0600. Set this or `KINDGI_PUBLIC_TOKEN_SIGNING_KEY_PATH`, not both.",
     example: '',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_AUTH_SECRET_PATH',
+    description:
+      'Turns on sign-in with identity providers (OIDC, SAML): absolute path to a 32-byte random key (mode 0600) the browser sign-in flow signs its state with (`openssl rand 32 > auth-secret`). Needs `KINDGI_PUBLIC_URL`: identity providers send people back there. Unset (with `KINDGI_AUTH_SECRET` unset too): sign-in is off, and the API takes only API keys.',
+    example: '/etc/kindgi/auth-secret',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_AUTH_SECRET',
+    description:
+      "The same key, base64 (`base64 < auth-secret`): for platforms that give secrets as environment variables (Cloud Run with Secret Manager), where a key file's mode can't be 0600. Set this or `KINDGI_AUTH_SECRET_PATH`, not both.",
+    example: '',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_AUTH_PRIVATE_IDP_ORIGINS',
+    description:
+      "Comma-separated origins of identity providers on a private network (a self-hosted Keycloak or AD FS behind a VPN, e.g. `https://sso.corp.internal`) that tenants may register. Only public HTTPS identity providers are allowed otherwise: a tenant admin can't point the runtime at the deployment's own network.",
+    example: 'https://sso.corp.internal',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_SESSION_TTL_MS',
+    description:
+      "A browser session's absolute lifetime, in milliseconds: the person signs in again after it. Default 43200000 (12 hours); at least 60000.",
+    example: '43200000',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_SESSION_IDLE_TIMEOUT_MS',
+    description:
+      'How long a browser session may sit idle before it ends, in milliseconds. Default 3600000 (60 minutes); at least 60000, and no longer than `KINDGI_SESSION_TTL_MS`.',
+    example: '3600000',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_CONSOLE_TOKEN_SIGN_IN',
+    description:
+      "Whether a person may sign in to the console with an API token: `on` or `off`. Default `off`, and `on` in local development (`kindgi dev`). The token is exchanged once for a browser session (the same cookie as sign-in with an identity provider) and never kept in the browser. Only a person's full key opens a session, never a service account's or a narrowed key. API tokens work for the API, CLI and SDKs either way. Set `on` to keep signing in to the console by pasting a token when it has no identity provider.",
+    example: 'on',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_EXPORT_SIGNING_KEY_PATH',
+    description:
+      'Absolute path to the private key (PKCS#8 PEM, mode 0600) that signs exports: approval audit bundles, run provenance and compliance evidence. An Ed25519 key signs `ed25519` (`openssl genpkey -algorithm ed25519`); an EC P-256 key signs `ecdsa-p256-sha256`. Use a key for this alone; `GET /v1/export-signing-keys` publishes its public half. Set one of this, `KINDGI_EXPORT_SIGNING_KEY` or `KINDGI_EXPORT_SIGNING_KMS_KEY`. None: in development mode the server signs with a key generated at startup; otherwise exports answer `404 signing-not-configured`.',
+    example: '/etc/kindgi/export-signing.pem',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_EXPORT_SIGNING_KEY',
+    description:
+      "The same key's PEM file, base64 (`base64 < key.pem`): for platforms that give secrets as environment variables, such as Cloud Run with Secret Manager. A production path in its own right.",
+    example: '',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_EXPORT_SIGNING_KMS_KEY',
+    description:
+      "Optional: a Cloud KMS key version that signs exports, so the private key never leaves KMS: `projects/<p>/locations/<l>/keyRings/<r>/cryptoKeys/<k>/cryptoKeyVersions/<n>`. It must be an `EC_SIGN_ED25519` key (it signs `ed25519`) or an `EC_SIGN_P256_SHA256` key (`ecdsa-p256-sha256`), and the server's service account needs `roles/cloudkms.signerVerifier` on it (and `roles/cloudkms.publicKeyViewer`, to read its public key at boot).",
+    example:
+      'projects/acme/locations/global/keyRings/kindgi/cryptoKeys/exports/cryptoKeyVersions/1',
     required: false,
     appliesTo: appliesToServer,
     group: 'core',
@@ -317,6 +399,42 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_MEMORY_EMBEDDINGS',
+    description:
+      "Turns on memory search by meaning, with the embedding provider: `openai-compat`, an embeddings endpoint that speaks OpenAI's `POST /embeddings` (OpenAI, Ollama, vLLM, Hugging Face TEI, LM Studio; set `KINDGI_MEMORY_EMBEDDINGS_URL` and `KINDGI_MEMORY_EMBEDDINGS_MODEL`), or `local:<model>`, a model run inside the server (`bge-small-en-v1.5`, `nomic-embed-text-v1.5` or `mxbai-embed-large-v1`; only for a server run from source on macOS or glibc Linux: the runtime image can't load it, and the server refuses to start there). Facts are embedded when written, and a background job embeds the ones already there; agents' `semantic` and `both` retrieval and `/v1/memory/retrieve` then search by meaning. Unset (the default): keyword search only; a `semantic` intent fails its turn with `semantic-unavailable`, `both` runs its keyword half, and publishing such an agent warns. An endpoint that doesn't answer yet doesn't stop the server: it is retried in the background (its first answer gives the dimensions), search by meaning waits for it (`semantic-unavailable` meanwhile, writes kept without a vector until then), and `/ready` says `memoryEmbeddings: unavailable (retrying)`.",
+    example: 'openai-compat',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_MEMORY_EMBEDDINGS_URL',
+    description:
+      "With `KINDGI_MEMORY_EMBEDDINGS=openai-compat`: the endpoint's base URL, with its `/v1` (`http://localhost:11434/v1` for Ollama, `https://api.openai.com/v1`). Required then.",
+    example: 'http://localhost:11434/v1',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_MEMORY_EMBEDDINGS_MODEL',
+    description:
+      'With `KINDGI_MEMORY_EMBEDDINGS=openai-compat`: the embedding model the endpoint serves (`nomic-embed-text`, `text-embedding-3-small`). Required then. A different model means a new vector space: the background job re-embeds every fact in it.',
+    example: 'nomic-embed-text',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_MEMORY_EMBEDDINGS_API_KEY',
+    description:
+      "With `KINDGI_MEMORY_EMBEDDINGS=openai-compat`: the endpoint's key, mapped into the environment from your secret store; Kindgi never stores it. Optional: Ollama and a local TEI take none.",
+    example: '',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_RETENTION_SWEEP_INTERVAL_MS',
     description:
       "How often the server purges deleted rows on its own, in milliseconds: in every tenant it serves, it purges for good the tombstones past their retention policy's grace, as `POST /v1/retention/sweep` does, holds (`graceSeconds: -1`) kept, and logs what it purged. Unset (the default): nothing purges on its own; sweep with `POST /v1/retention/sweep` or the console. At least 60000, or the server refuses to start.",
@@ -334,8 +452,24 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     appliesTo: appliesToServer,
     group: 'core',
   },
-
-  // ---- logging ----------------------------------------------------
+  {
+    name: 'KINDGI_ARTIFACTS',
+    description:
+      "Where artifacts' files go, which turns on `/v1/artifacts`: `local:<absolute dir>` (a directory on this machine) or `gcs:<bucket>[/<prefix>]` (a Google Cloud Storage bucket, through Application Default Credentials: workload identity on GCP, no keys to store). Metadata is in Postgres; a deleted artifact is purged under the `artifact` retention policy. Unset (the default): no `/v1/artifacts`. `kindgi dev` sets it to the pack's `.kindgi/dev/artifacts`.",
+    example: 'gcs:acme-artifacts/prod',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_ARTIFACT_MAX_BYTES',
+    description:
+      'The most bytes one artifact upload may carry, the whole request body; more is `413 artifact-too-large`. Default 104857600 (100 MB).',
+    example: '104857600',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
   {
     name: 'KINDGI_LOG_LEVEL',
     description:
@@ -368,8 +502,6 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'logging',
     allowedValues: ['auto', 'json', 'pretty'],
   },
-
-  // ---- secrets backend --------------------------------------------
   {
     name: 'KINDGI_SECRETS_BACKEND',
     description:
@@ -426,8 +558,6 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     appliesTo: appliesToPostgresBackend,
     group: 'secrets',
   },
-
-  // ---- GCP vendor -------------------------------------------------
   {
     name: 'KINDGI_SECRETS_GCP_PROJECT_ID',
     description: 'GCP project id owning the KMS keyring + key.',
@@ -460,8 +590,6 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     appliesTo: appliesToPostgresGcp,
     group: 'gcp',
   },
-
-  // ---- local key (libsodium) --------------------------------------
   {
     name: 'KINDGI_SECRETS_LOCAL_KEY_PATH',
     description:
@@ -490,10 +618,6 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'local-key',
     allowedValues: ['single-node'],
   },
-
-  // ---- pack service -----------------------------------------------
-  // The server's side: where the pack service is, and how long a call
-  // may take.
   {
     name: 'KINDGI_PACK_SERVICE_URL',
     description:
@@ -522,7 +646,6 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'pack-service',
     allowedValues: ['token', 'google-id-token'],
   },
-  // Both sides: the shared token.
   {
     name: 'KINDGI_PACK_SERVICE_TOKEN',
     description:
@@ -532,8 +655,6 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     appliesTo: (t) => appliesToPackService(t) || appliesToServerHttpPackTransport(t),
     group: 'pack-service',
   },
-  // The pack service's side. It also listens on `PORT` (default 8080),
-  // the platform convention, which is not a Kindgi variable.
   {
     name: 'KINDGI_PACK_INDEX',
     description:
@@ -562,10 +683,6 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'pack-service',
     allowedValues: ['strict', 'warn'],
   },
-
-  // ---- image registry ---------------------------------------------
-  // How the server reads a deployment's image to verify it (`POST
-  // /v1/deployments`): anonymous unless credentials are set.
   {
     name: 'KINDGI_IMAGE_REGISTRY_HOST',
     description:
@@ -612,8 +729,6 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'image-registry',
     allowedValues: ['static', 'google'],
   },
-
-  // ---- development (`kindgi dev`) ---------------------------------
   {
     name: 'KINDGI_PACK_DIR',
     description:

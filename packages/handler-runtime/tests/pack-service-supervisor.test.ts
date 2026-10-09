@@ -23,6 +23,7 @@ import type {
   PackServiceSupervisorEvent,
   PackServiceSupervisorOptions,
 } from '../src/pack-service/index.js';
+import { serviceEvent } from '../src/pack-service/supervisor.js';
 import { PACK_HEADERS, PACK_PROTOCOL_VERSION } from '../src/protocol.js';
 
 /** vitest has no `import.meta.resolve`; ask Node, from this package (needs the build). */
@@ -97,7 +98,11 @@ async function supervisor(
 function invoke(
   running: Running,
   tool: string,
-  init: { readonly token?: string; readonly signal?: AbortSignal } = {},
+  init: {
+    readonly token?: string;
+    readonly signal?: AbortSignal;
+    readonly traceparent?: string;
+  } = {},
 ): Promise<Response> {
   return fetch(`${running.url}/v1/invoke`, {
     method: 'POST',
@@ -105,6 +110,7 @@ function invoke(
       'content-type': 'application/json',
       [PACK_HEADERS.token]: init.token ?? running.supervisor.token,
       [PACK_HEADERS.runId]: 'run-1',
+      ...(init.traceparent !== undefined && { [PACK_HEADERS.traceparent]: init.traceparent }),
     },
     body: JSON.stringify({
       v: PACK_PROTOCOL_VERSION,
@@ -164,11 +170,35 @@ describe('createPackServiceSupervisor — children', () => {
       expect(names).toContain('DATABASE_URL');
       expect(names).not.toContain('PARENT_SENTINEL');
       // The token authenticates the service's callers; the service takes
-      // it out of the environment before it loads the pack's code.
-      expect(names.filter((n) => n.startsWith('KINDGI_'))).toEqual([]);
+      // it out of the environment before it loads the pack's code. The one
+      // KINDGI_ name left is the supervisor's: the service writes JSON
+      // records for it to read.
+      expect(names).not.toContain('KINDGI_PACK_SERVICE_TOKEN');
+      expect(names.filter((n) => n.startsWith('KINDGI_'))).toEqual(['KINDGI_LOG_FORMAT']);
     } finally {
       Reflect.deleteProperty(process.env, 'PARENT_SENTINEL');
     }
+  });
+
+  test("a call through the front keeps the caller's trace: the child's call record carries it", async () => {
+    const events: PackServiceSupervisorEvent[] = [];
+    const index = await writePack({ 'pid.mjs': PID_TOOL });
+    const running = await supervisor({}, events);
+    expect((await running.supervisor.start(index)).kind).toBe('ok');
+    const traceId = '4bf92f3577b34da6a3ce929d0e0e4736';
+    const res = await invoke(running, 'pid', {
+      traceparent: `00-${traceId}-00f067aa0ba902b7-01`,
+    });
+    expect(res.status).toBe(200);
+    const deadline = Date.now() + 5000;
+    const call = () =>
+      events.find(
+        (e) => e.kind === 'log' && e.event.kind === 'call' && e.event.traceId === traceId,
+      );
+    while (call() === undefined && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    expect(call()).toBeDefined();
   });
 
   test('start again swaps in the new code behind the same address, and the old child stops', async () => {
@@ -369,6 +399,35 @@ describe('createPackServiceSupervisor — the front', () => {
     expect(await info.json()).toMatchObject({ packId: 'local' });
   });
 
+  test("passes the caller's trace context (traceparent) on to the child", async () => {
+    // A stand-in child that answers every call with the traceparent it received.
+    const echo = join(dir, 'echo-child.mjs');
+    await writeFile(
+      echo,
+      `import { createServer } from 'node:http';
+const server = createServer((req, res) => {
+  req.resume();
+  req.on('end', () => {
+    res.setHeader('content-type', 'application/json');
+    res.end(JSON.stringify({ v: ${PACK_PROTOCOL_VERSION}, kind: 'result', output: { traceparent: req.headers.traceparent ?? null } }));
+  });
+});
+server.listen(0, '127.0.0.1', () => {
+  process.stderr.write(JSON.stringify({ kind: 'listening', port: server.address().port }) + '\\n');
+});
+`,
+      'utf8',
+    );
+    const running = await supervisor({}, [], [], { command: [process.execPath, echo] });
+    expect((await running.supervisor.start(join(dir, 'unused.json'))).kind).toBe('ok');
+    const traceparent = '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01';
+    const res = await invoke(running, 'any', { traceparent });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ output: { traceparent } });
+    const none = await invoke(running, 'any');
+    expect(await none.json()).toMatchObject({ output: { traceparent: null } });
+  });
+
   test("a supervisor given the previous one's token and port answers the same caller", async () => {
     const first = await supervisor();
     await first.supervisor.start(await writePack({ 'pid.mjs': PID_TOOL }));
@@ -488,3 +547,51 @@ async function until(condition: () => boolean, timeoutMs = 5000): Promise<void> 
     await new Promise((r) => setTimeout(r, 10));
   }
 }
+
+describe('the service lines the supervisor reads', () => {
+  const record = (fields: Record<string, unknown>) =>
+    JSON.stringify({
+      time: '2026-10-08T00:00:00.000Z',
+      level: 'info',
+      severity: 'INFO',
+      ...fields,
+    });
+
+  test("the service's own records: their event is the kind; `listening` keeps its port", () => {
+    expect(
+      serviceEvent(
+        record({
+          subsystem: 'pack',
+          message: 'Listening on port 9',
+          event: 'listening',
+          kind: 'listening',
+          port: 9,
+        }),
+      ),
+    ).toMatchObject({ kind: 'listening', port: 9 });
+    expect(
+      serviceEvent(
+        record({ subsystem: 'pack', message: 'tool x ok 3ms', event: 'call', outcome: 'ok' }),
+      ),
+    ).toMatchObject({ kind: 'call', outcome: 'ok' });
+  });
+
+  test("an author's ctx.log record is shown, never acted on, whatever its fields", () => {
+    const event = serviceEvent(
+      record({ subsystem: 'pack.tool', message: 'looked up order', event: 'listening', port: 1 }),
+    );
+    expect(event).toMatchObject({ kind: 'record', message: 'looked up order' });
+  });
+
+  test("an older service's bare events still count; the pack's own JSON output is its own", () => {
+    expect(serviceEvent('{"kind":"listening","port":7}')).toEqual({ kind: 'listening', port: 7 });
+    expect(serviceEvent('{"kind":"call","id":"x","outcome":"tool-error"}')).toMatchObject({
+      kind: 'call',
+    });
+    // Before records, any JSON line with a `kind` was swallowed as an event.
+    expect(serviceEvent('{"kind":"refund","amount":3}')).toBeUndefined();
+    expect(serviceEvent('{"orderId":"o-1"}')).toBeUndefined();
+    expect(serviceEvent('plain text')).toBeUndefined();
+    expect(serviceEvent('[1,2]')).toBeUndefined();
+  });
+});

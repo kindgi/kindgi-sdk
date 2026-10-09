@@ -8,6 +8,8 @@ import { createProviderRegistry } from '@kindgi/capabilities';
 import type { AgentId, GuardrailId, RunId, TenantId, Timestamp, ToolId } from '@kindgi/types';
 
 import {
+  JUDGE_THINKING_TOKENS,
+  JUDGE_VERDICT_TOKENS,
   createCheckRegistry,
   defineGuardrail,
   evaluateAll,
@@ -329,6 +331,128 @@ describe('evaluateGuardrail — llm-judge routing', () => {
     expect(outcome.value.result.passed).toBe(false);
     expect(outcome.value.result.reason).toContain('off-topic');
     expect(outcome.value.action).toBe('log-only');
+  });
+});
+
+describe('evaluateGuardrail — a judge on a model that takes no temperature', () => {
+  test("the judge's temperature goes to the provider, whose adapter decides; a sampling warning doesn't stop the verdict", async () => {
+    const registry = createCheckRegistry();
+    registry.register({
+      id: 'judge-t',
+      kind: 'llm-judge',
+      evaluate: async () => ({ passed: true }),
+    });
+    const guardrail: Guardrail = {
+      id: 'inv-j3' as GuardrailId,
+      kind: 'llm-judge',
+      check: 'judge-t',
+      config: { rubric: 'Is the output helpful?', temperature: 0.2 },
+      action: { 'on-violation': 'log-only' },
+      judgeCapabilities: { needs: [{ feature: 'tool-use' }] },
+    };
+    const seen: unknown[] = [];
+    const bindings: EvaluationBindings = {
+      judgeProvider: {
+        metadata: {
+          id: 'acme-llm',
+          region: 'test',
+          models: [
+            {
+              name: 'acme-large',
+              contextWindow: 8000,
+              features: ['tool-use'],
+              sampling: false,
+              cost: { promptUsdPer1kTokens: 0, completionUsdPer1kTokens: 0 },
+            },
+          ],
+        },
+        invoke: async (input) => {
+          seen.push(input.temperature);
+          return {
+            message: { role: 'assistant', content: 'PASS\nOn topic.' },
+            finishReason: 'stop',
+            usage: { promptTokens: 100, completionTokens: 20 },
+            costUsd: 0,
+            durationMs: 50,
+            provider: { id: 'acme-llm', model: 'acme-large' },
+            warnings: [
+              { code: 'sampling-unsupported', message: 'acme-large takes no temperature' },
+            ],
+          };
+        },
+      },
+    };
+    const outcome = await evaluateGuardrail(guardrail, registry, baseTrace(), bindings);
+    if (outcome.kind !== 'ok') throw new Error('expected ok');
+    expect(seen).toEqual([0.2]);
+    expect(outcome.value.result.passed).toBe(true);
+  });
+});
+
+describe('evaluateGuardrail — a judge on a model that thinks', () => {
+  const judgeOn = (thinking: { mode: 'adaptive' | 'always'; lowest: string } | undefined) => {
+    const seen: { thinking?: string; maxOutputTokens?: number }[] = [];
+    const bindings: EvaluationBindings = {
+      judgeProvider: {
+        metadata: {
+          id: 'acme-llm',
+          region: 'test',
+          models: [
+            {
+              name: 'acme-large',
+              contextWindow: 8000,
+              features: ['tool-use'],
+              ...(thinking !== undefined && { thinking }),
+              cost: { promptUsdPer1kTokens: 0, completionUsdPer1kTokens: 0 },
+            },
+          ],
+        },
+        invoke: async (input) => {
+          seen.push({
+            ...(input.thinking !== undefined && { thinking: input.thinking }),
+            ...(input.maxOutputTokens !== undefined && { maxOutputTokens: input.maxOutputTokens }),
+          });
+          // As a thinking model answers: most of its output tokens were thought.
+          return {
+            message: { role: 'assistant', content: 'FAIL\nOff topic.' },
+            finishReason: 'stop',
+            usage: { promptTokens: 120, completionTokens: 340, reasoningTokens: 310 },
+            costUsd: 0,
+            durationMs: 50,
+            provider: { id: 'acme-llm', model: 'acme-large' },
+          };
+        },
+      },
+    };
+    return { seen, bindings };
+  };
+  const guardrail: Guardrail = {
+    id: 'inv-j4' as GuardrailId,
+    kind: 'llm-judge',
+    check: 'judge-k',
+    config: { rubric: 'Is the output on topic?' },
+    action: { 'on-violation': 'log-only' },
+    judgeCapabilities: { needs: [{ feature: 'tool-use' }] },
+  };
+  const registry = createCheckRegistry();
+  registry.register({ id: 'judge-k', kind: 'llm-judge', evaluate: async () => ({ passed: true }) });
+
+  test('asks for the least thinking and leaves room for it: the verdict still parses', async () => {
+    const { seen, bindings } = judgeOn({ mode: 'adaptive', lowest: 'between_tools' });
+    const outcome = await evaluateGuardrail(guardrail, registry, baseTrace(), bindings);
+    if (outcome.kind !== 'ok') throw new Error('expected ok');
+    expect(seen).toEqual([
+      { thinking: 'lowest', maxOutputTokens: JUDGE_VERDICT_TOKENS + JUDGE_THINKING_TOKENS },
+    ]);
+    expect(outcome.value.result.passed).toBe(false);
+    expect(outcome.value.result.reason).toContain('Off topic');
+  });
+
+  test("a model that doesn't think: no hint, and the verdict's own 256", async () => {
+    const { seen, bindings } = judgeOn(undefined);
+    await evaluateGuardrail(guardrail, registry, baseTrace(), bindings);
+    expect(seen).toEqual([{ maxOutputTokens: JUDGE_VERDICT_TOKENS }]);
+    expect(JUDGE_VERDICT_TOKENS).toBe(256);
   });
 });
 

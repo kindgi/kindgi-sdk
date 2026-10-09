@@ -10,11 +10,13 @@ export type {
 } from './app.js';
 export type { AppEnv } from './types.js';
 export {
+  SESSION_COOKIE_NAME,
   SESSION_TOKEN_PREFIX,
   encodeSessionToken,
   MULTI_TENANT_LOOKUP,
 } from './middleware/auth.js';
-export type { TokenResolution, TokenResolver } from './middleware/auth.js';
+export type { SessionCookieOptions, TokenResolution, TokenResolver } from './middleware/auth.js';
+export type { SignInOptionsRateLimit } from './routes/sign-in-options.js';
 export type {
   ClaimMappingScopesSpec,
   ClaimMappingSpec,
@@ -25,9 +27,20 @@ export type {
   IdentityProviderPage,
   IdentityProviderRegisterInput,
   IdentityProviderRegisterOutcome,
+  IdentityProviderSignInUrlsInput,
   IdentityProviderUnregisterInput,
   IdentityProviderUnregisterOutcome,
+  IdentityProviderUpdateInput,
+  IdentityProviderUpdateOutcome,
+  OAuth2ProviderConfig,
+  OidcProviderConfig,
   ProviderConfig,
+  ProviderConfigBase,
+  ProviderSignIn,
+  SamlAttributeMapping,
+  SamlProviderConfig,
+  SignInOption,
+  SignInOptionsInput,
   ExchangeCodeFn,
   ExchangeCodeInput,
   ExchangeCodeOutcome,
@@ -41,6 +54,7 @@ export type {
   SessionGetInput,
   SessionListInput,
   SessionPage,
+  SessionResolveTokenInput,
   SessionRevokeAllForUserInput,
   SessionRevokeAllForUserOutcome,
   SessionRevokeInput,
@@ -50,11 +64,17 @@ export type {
   SessionTouchOutcome,
 } from './session-store-binding.js';
 export type {
+  IdentityCreateUserInput,
+  IdentityCreateUserResult,
   IdentityDirectoryBinding,
+  IdentityFindUserByEmailInput,
   IdentityGetUserInput,
   IdentityListSessionsInput,
   IdentityListUsersInput,
   IdentityRevokeSessionsInput,
+  IdentityUnregisterUserInput,
+  IdentityUnregisterUserRefusal,
+  IdentityUnregisterUserResult,
   RevokeSessionsResult,
   SessionSummary,
   SessionSummaryPage,
@@ -71,7 +91,13 @@ export {
   createInMemoryIdempotencyStore,
   idempotencyMiddleware,
 } from './middleware/idempotency.js';
-export type { IdempotencyStore, StoredIdempotencyEntry } from './middleware/idempotency.js';
+export type {
+  IdempotencyHold,
+  IdempotencyHoldOutcome,
+  IdempotencyHolds,
+  IdempotencyStore,
+  StoredIdempotencyEntry,
+} from './middleware/idempotency.js';
 export { CURRENT_EVENT_BUS_ENVELOPE_VERSION } from './event-bus-binding.js';
 export type {
   EventBusBinding,
@@ -89,9 +115,32 @@ export {
   type TokenListInput,
   type TokenMintInput,
   type TokenMintOutput,
+  type TokenMintRefusal,
+  type TokenPrincipal,
   type TokenRevokeInput,
   type TokenRevokeOutcome,
 } from './token-admin.js';
+export type {
+  ServiceAccount,
+  ServiceAccountBinding,
+  ServiceAccountChange,
+  ServiceAccountCreateInput,
+  ServiceAccountError,
+  ServiceAccountErrorCode,
+  ServiceAccountGrant,
+  ServiceAccountGrantTarget,
+  ServiceAccountListInput,
+  ServiceAccountRef,
+} from './service-account-binding.js';
+export type {
+  PersonGrant,
+  PersonGrantChange,
+  PersonGrantError,
+  PersonGrantErrorCode,
+  PersonGrants,
+  PersonGrantsBinding,
+  PersonRef,
+} from './person-grants-binding.js';
 export type {
   InvokeAgentBindingInput,
   InvokeFlowBindingInput,
@@ -156,7 +205,7 @@ export type {
   AdapterTestInput,
   AdapterTestOutcome,
 } from './adapter-binding.js';
-export { TRIGGER_KINDS } from './trigger-binding.js';
+export { SCHEDULE_DEFAULTS, TRIGGER_KINDS } from './trigger-binding.js';
 export {
   DEFAULT_PUBLIC_RUN_TOKEN_TTL_SECONDS,
   MAX_PUBLIC_RUN_TOKEN_RUNS,
@@ -173,6 +222,8 @@ export type {
   VerifyPublicRunTokenFailure,
   VerifyPublicRunTokenResult,
 } from './public-run-token.js';
+export { runFailure } from './run-failure.js';
+export type { RunFailure } from './run-failure.js';
 export {
   WEBHOOK_DELIVERY_STATUSES,
   WEBHOOK_EVENT_TYPES,
@@ -206,18 +257,25 @@ export type {
   CronTriggerRecord,
   EventTriggerRecord,
   GetTriggerInput,
+  ListTriggerFiresInput,
   ListTriggersInput,
   RegisterCronTriggerInput,
   RegisterEventTriggerInput,
   RegisterTriggerError,
   RegisterTriggerInput,
   RegisterWebhookTriggerInput,
+  ScheduleCatchUp,
+  ScheduleOverlap,
+  TriggerFire,
+  TriggerFirePage,
   TriggerKind,
   TriggerLifecycleError,
   TriggerLifecycleInput,
   TriggerListPage,
+  TriggerOwner,
   TriggerRecord,
   TriggerRegistryBinding,
+  TriggerTarget,
   UpdateCronTriggerInput,
   UpdateEventTriggerInput,
   UpdateTriggerError,
@@ -258,6 +316,7 @@ export type {
 } from './flow-binding.js';
 export type {
   CapabilityDescriptor,
+  CapabilityProvider,
   CapabilityGetInput,
   CapabilityListInput,
   CapabilityPage,
@@ -430,6 +489,7 @@ export { GATE_METRICS } from './gate-policy-binding.js';
 export type { GateApproval, GateCheck, GateInput, GateResult } from './gate.js';
 export { evaluateGate, gateApproval } from './gate.js';
 export type { AgentReleaseGateDeps } from './routes/agent-releases.js';
+export type { GuardrailConfigCheck } from './routes/guardrails.js';
 export { EVAL_KINDS } from './eval-suite-binding.js';
 export type {
   EvalKind,
@@ -548,6 +608,8 @@ export type {
 } from './guardrail-binding.js';
 export type {
   MemoryBinding,
+  MemoryDeleteFactInput,
+  MemoryFactChangeOutcome,
   MemoryFactPage,
   MemoryGetFactInput,
   MemoryListFactsInput,
@@ -557,6 +619,7 @@ export type {
   MemoryRetrieveOutcome,
   MemorySupersedeFactInput,
   MemorySupersedeFactOutcome,
+  MemoryVerifyFactInput,
   MemoryWriteFactInput,
   MemoryWriteFactOutcome,
 } from './memory-binding.js';

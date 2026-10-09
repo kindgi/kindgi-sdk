@@ -105,13 +105,83 @@ the call is made: a key you change is used from the next turn on. A key that
 isn't set fails the turn when the model is called, not when you register:
 
 ```text
-Error [server]: Model call to acme-gateway (llama3.1) failed: provider-runtime-bridge: failed to resolve secret local/ACME_GATEWAY_KEY for tenant d4414be3-755c-4293-9972-dbadf18b2a50: No secret "ACME_GATEWAY_KEY" for env "local" in .env, .env.local at /pack
+Error [model-invocation-failed]: Model call to acme-gateway (llama3.1) failed: provider-runtime-bridge: failed to resolve secret local/ACME_GATEWAY_KEY for tenant 59381e5b-cf14-4cb7-8fb8-89dba8abfa54: No secret "ACME_GATEWAY_KEY" for env "local" in .env, .env.local at /pack
 ```
 
 Copy each model's prices from the vendor's page, divided by 1000: Kindgi's
 prices are per thousand tokens (see
 [Prices are per thousand tokens](../#a-provider-spec)). A turn's
 `totalCostUsd`, and the agent's cost budget, come from them.
+
+## OpenAI's own API
+
+An endpoint on `api.openai.com`, or on one of its data-residency hosts such as
+`eu.api.openai.com`, is called through OpenAI's Responses API: GPT-6 models
+call tools only there. Every other endpoint (Ollama, vLLM, Groq, OpenRouter …)
+gets Chat Completions. `adapter_config.api` chooses for a registration of
+your own: `"responses"` or `"chat-completions"`. The `openai` preset sets
+`"responses"`.
+
+On the Responses API:
+
+- every call sends `store: false`, so OpenAI keeps no conversation state for
+  Kindgi's calls;
+- the agent's instructions go as a `developer` message;
+- a reasoning model's reasoning between tool calls goes back to it with the
+  calls;
+- `extraBody` can't set `model`, `input`, `tools`, `text`, `temperature`,
+  `max_output_tokens`, `stream` or `store`, and
+  `"extraBody.reasoning.effort": "low"` sets a reasoning model's effort.
+
+An OpenAI registration made before 0.1.4 moves to the Responses API when you
+upgrade, with nothing to register again. To keep Chat Completions, set
+`"api": "chat-completions"`: GPT-6.1 Sol and Astra then can't call tools. Its
+`extraBody` fields written for Chat Completions (`reasoning_effort`) either
+stay on that API or move to the Responses names (`extraBody.reasoning.effort`).
+
+Another value of `api` is refused when you register:
+
+```text
+Error [invalid-request]: Provider "ollama" doesn't fit adapter @kindgi/adapter-model-openai-compat: adapter_config.api must be one of responses, chat-completions.
+  ✗ /adapter_config/api: adapter_config.api must be one of responses, chat-completions.
+```
+
+A registration stored before 0.1.5 with another value stays as it is: the
+runtime can't build the provider, so turns go to another registered model,
+or to `dev-echo` with a `fallback-provider` warning. `kindgi doctor` names
+it ([Check a registration](../#check-a-registration)).
+
+## Cached prompts, long prompts and data residency
+
+A model's `cost` can say more than its two base rates, for a vendor that
+bills that way (the `openai` preset fills them in):
+
+- **`cachedPromptMultiplier`**: cached prompt tokens' share of the prompt
+  rate (`0.1` is a tenth);
+- **`promptCacheCreationMultiplier`**: prompt tokens written to the cache, as
+  a multiple of the prompt rate;
+- **`longContext`**: `{ "thresholdTokens", "promptUsdPer1kTokens",
+  "completionUsdPer1kTokens" }`. A call whose input passes the threshold
+  (cached and cache-write tokens counted) bills entirely at these rates, and
+  the multipliers apply to the long prompt rate;
+- **`dataResidencyMultiplier`**: applied to every rate when `baseURL` is a
+  data-residency host such as `eu.api.openai.com`.
+
+```json
+"cost": {
+  "promptUsdPer1kTokens": 0.002, "completionUsdPer1kTokens": 0.01,
+  "cachedPromptMultiplier": 0.05, "promptCacheCreationMultiplier": 1.25,
+  "longContext": { "thresholdTokens": 272000, "promptUsdPer1kTokens": 0.004, "completionUsdPer1kTokens": 0.015 },
+  "dataResidencyMultiplier": 1.1
+}
+```
+
+Each extra rate must be a non-negative number, or an object of them one level
+deep, as `longContext` is. Anything else is refused when you register:
+
+```text
+Error [invalid-request]: provider "ollama" model "llama3.1" cost table's other rates must be non-negative numbers, or objects of them (e.g. longContext: { thresholdTokens, promptUsdPer1kTokens, completionUsdPer1kTokens })
+```
 
 ## More than one model
 

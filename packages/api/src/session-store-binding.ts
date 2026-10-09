@@ -13,15 +13,19 @@ import type { Cursor, SessionId, TenantId, Timestamp, UserId } from '@kindgi/typ
  * `POST /v1/auth/callback/:providerId` exchanges the authorization code
  * for provider tokens, fetches the userinfo, and calls
  * `SessionStoreBinding.create` to persist the resulting session; the
- * route then hands the caller an opaque framework-issued token
- * (`kgi_sk_<sessionId>`) that never leaks the provider access-token or
- * refresh-token to the client.
+ * route then hands the caller an opaque session token (`kgi_sk_…`) that
+ * never leaks the provider access-token or refresh-token to the client.
  *
- * The bearer-auth middleware routes session-token requests through
- * `get(tenantId, sessionId)`; the resolver hot path runs on every
- * authenticated request that carries a session token, so implementations
- * SHOULD keep `get` cheap (e.g. a single indexed lookup by id and
- * expiry, or a cache).
+ * A store that implements `resolveToken` owns the token: `create` mints it
+ * (returned once, as `token`), the store keeps only a hash, and the
+ * bearer-auth middleware hands every `kgi_sk_` token to `resolveToken`.
+ * A store without it gets the older token, `kgi_sk_<sessionId>`, which
+ * the middleware resolves through `get` with `MULTI_TENANT_LOOKUP`;
+ * anyone who can read such a store's session ids can use the sessions.
+ *
+ * The resolver hot path runs on every authenticated request that carries
+ * a session token, so implementations SHOULD keep it cheap (a single
+ * indexed lookup, or a cache).
  */
 export interface SessionStoreBinding {
   create(input: SessionCreateInput): Promise<SessionCreateOutput>;
@@ -30,16 +34,37 @@ export interface SessionStoreBinding {
   revoke(input: SessionRevokeInput): Promise<SessionRevokeOutcome>;
   revokeAllForUser(input: SessionRevokeAllForUserInput): Promise<SessionRevokeAllForUserOutcome>;
   /**
+   * The session a token names, or `null` when it names none: an unknown,
+   * malformed or tampered token, or one in a format this store didn't
+   * mint. The store reads the token's tenant from the token itself and
+   * looks only in that tenant, comparing a hash of the token with what it
+   * stored (in constant time); nothing is read across tenants before the
+   * token is authenticated.
+   *
+   * A revoked, rotated or expired session is still returned (with
+   * `revokedAt`, `rotatedAt`, `expiresAt`): the middleware says which.
+   *
+   * When present, the middleware never calls `get` with
+   * `MULTI_TENANT_LOOKUP`, and `create` must return `token`.
+   */
+  readonly resolveToken?: (input: SessionResolveTokenInput) => Promise<Session | null>;
+  /**
    * Update the session's `lastActiveAt` marker. Called by the auth
    * middleware on each successful authenticated request (throttled, by
    * default to at most once per minute per session, so the write path
    * doesn't hot-spot under load). Absent = the middleware only enforces absolute
    * TTL; inactivity timeout is disabled.
    *
-   * The tenant sentinel `MULTI_TENANT_LOOKUP` is honored the same way
-   * as `get` — the middleware doesn't know the tenant ahead of time.
+   * The middleware passes the session's own tenant. A store without
+   * `resolveToken` must also honor the sentinel `MULTI_TENANT_LOOKUP`,
+   * as `get` does.
    */
   readonly touch?: (input: SessionTouchInput) => Promise<SessionTouchOutcome>;
+}
+
+export interface SessionResolveTokenInput {
+  /** The whole token, as the caller sent it (`kgi_sk_…`). */
+  readonly token: string;
 }
 
 export interface SessionCreateInput {
@@ -47,8 +72,12 @@ export interface SessionCreateInput {
   readonly userId: UserId;
   /** ProviderId of the `IdentityProviderBinding` that authenticated the user. */
   readonly providerId: string;
-  /** Opaque provider access-token — server-side only. */
-  readonly accessToken: string;
+  /**
+   * Opaque provider access-token, server-side only. Absent when the
+   * deployment keeps no identity-provider tokens (a sign-in that only
+   * establishes who the person is).
+   */
+  readonly accessToken?: string;
   /** Opaque provider refresh-token — server-side only, may be absent. */
   readonly refreshToken?: string;
   readonly expiresAt: Timestamp;
@@ -60,6 +89,13 @@ export interface SessionCreateInput {
 export interface SessionCreateOutput {
   readonly sessionId: SessionId;
   readonly expiresAt: Timestamp;
+  /**
+   * The session token the store minted, returned this once (the store
+   * keeps only its hash). Required from a store that implements
+   * `resolveToken`; absent from an older store, whose token is
+   * `kgi_sk_<sessionId>`.
+   */
+  readonly token?: string;
 }
 
 export interface SessionGetInput {
@@ -99,7 +135,8 @@ export interface Session {
   readonly tenantId: TenantId;
   readonly userId: UserId;
   readonly providerId: string;
-  readonly accessToken: string;
+  /** Absent when the deployment keeps no identity-provider tokens. */
+  readonly accessToken?: string;
   readonly refreshToken?: string;
   readonly expiresAt: Timestamp;
   readonly scopes: readonly string[];
