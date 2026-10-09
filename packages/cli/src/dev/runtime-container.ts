@@ -90,6 +90,28 @@ function lastLines(text: string, n = 5): string {
 }
 
 /**
+ * A pull's progress, as `docker pull` and a pulling `docker run` print it
+ * (a layer's status, the image being pulled, its digest and the outcome),
+ * and docker's generic "Run 'docker run --help'" line.
+ */
+const PULL_PROGRESS =
+  /^(?:[0-9a-f]{12}: (?:Pulling fs layer|Waiting|Downloading|Verifying Checksum|Download complete|Extracting|Pull complete|Already exists|Retrying.*)|\S+: Pulling from \S+|Digest: sha256:[0-9a-f]+|Status: .*|Unable to find image '.*' locally|Run 'docker \S+ --help' for more information)\s*$/;
+
+/**
+ * Why a docker command failed, from its stderr: the last lines once a
+ * pull's progress is left out. A pull prints its progress after the error
+ * that stopped it (`cannot overwrite digest`, an auth or disk-full error),
+ * so the plain tail can be all progress.
+ */
+export function dockerFailureDetail(stderr: string, n = 5): string {
+  const lines = stderr
+    .split('\n')
+    .map((line) => line.replace(/^.*\r/, '').trimEnd())
+    .filter((line) => line !== '' && !PULL_PROGRESS.test(line));
+  return lines.length > 0 ? lines.slice(-n).join('\n') : lastLines(stderr, n);
+}
+
+/**
  * How this machine's Docker reaches the host: Docker Desktop (any OS)
  * can't see the host's loopback; a Linux engine can share the host
  * network.
@@ -121,7 +143,7 @@ export async function ensureRuntimeImage(
   onProgress(`Pulling the Kindgi runtime image ${image} (first run only)...`);
   const pulled = await docker(['pull', image]);
   if (pulled.code === 0) return { kind: 'ok' };
-  const detail = lastLines(pulled.stderr);
+  const detail = dockerFailureDetail(pulled.stderr);
   const helper = credentialHelperFailure(pulled.stderr);
   const auth =
     helper !== undefined
@@ -243,7 +265,7 @@ export async function startRuntimeContainer(
   await docker(['rm', '--force', name]);
   const started = await docker(runtimeRunArgs(name, options));
   if (started.code !== 0) {
-    throw new Error(`docker run failed: ${lastLines(started.stderr)}`);
+    throw new Error(`docker run failed: ${dockerFailureDetail(started.stderr)}`);
   }
 
   // The runtime's latest lines, enough for the boot wait and a failure's

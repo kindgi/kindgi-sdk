@@ -146,4 +146,16 @@ describe('runtime.env on disk', () => {
     });
     expect(refs).toEqual({ ACME_HOST: 'api.example.com', ACME_KEY_FROM_SHELL: 'sk-shell' });
   });
+
+  test("a key that refers to itself (KEY=${KEY}, the docker-compose habit) takes the shell's value (T377)", async () => {
+    await writeFile(
+      join(dir, '.env'),
+      'ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}\nPATHX=$PATHX:/extra\n',
+    );
+    const refs = await shellReferencesOf({
+      packDir: dir,
+      shellEnv: { ANTHROPIC_API_KEY: 'sk-ant-shell', PATHX: '/bin', UNRELATED: 'no' },
+    });
+    expect(refs).toEqual({ ANTHROPIC_API_KEY: 'sk-ant-shell', PATHX: '/bin' });
+  });
 });

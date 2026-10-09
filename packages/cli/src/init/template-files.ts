@@ -24,6 +24,29 @@ export interface Substitutions {
   readonly UV_REQUIRED_VERSION?: string;
   /** The python template's dev group, quoted and comma-separated (`kindgi-cli` too, from the PyPI CLI). */
   readonly DEV_DEPENDENCIES?: string;
+  /**
+   * The commands a README shows, as `kindgi init`'s Next steps print them:
+   * the install (`pnpm install`), the typecheck script, and how the project
+   * runs its `kindgi` (`pnpm exec kindgi`, `npx --no kindgi`, `uv run
+   * kindgi`). Left as placeholders when absent, for a second pass
+   * (`fillRunnerPlaceholders`) once the package manager is known.
+   */
+  readonly INSTALL?: string;
+  readonly TYPECHECK?: string;
+  readonly KINDGI?: string;
+}
+
+/** The README placeholders filled from the project's runner. */
+export type RunnerPlaceholders = Required<Pick<Substitutions, 'INSTALL' | 'TYPECHECK' | 'KINDGI'>>;
+
+/** Fill the runner placeholders a first pass left (`substitute` without them). */
+export function fillRunnerPlaceholders(raw: string, runner: Partial<RunnerPlaceholders>): string {
+  let out = raw;
+  for (const key of ['INSTALL', 'TYPECHECK', 'KINDGI'] as const) {
+    const value = runner[key];
+    if (value !== undefined) out = out.replaceAll(`{{${key}}}`, value);
+  }
+  return out;
 }
 
 /** Every file under `root`, as paths relative to it. */
@@ -62,7 +85,7 @@ export function templateTarget(rel: string): string {
 }
 
 export function substitute(raw: string, subs: Substitutions): string {
-  return raw
+  const filled = raw
     .replaceAll('{{PACK_NAME}}', subs.PACK_NAME)
     .replaceAll('{{PACK_ID}}', subs.PACK_ID)
     .replaceAll('{{PACK_VERSION}}', subs.PACK_VERSION)
@@ -70,4 +93,5 @@ export function substitute(raw: string, subs: Substitutions): string {
     .replaceAll('{{KINDGI_PYTHON_SOURCE}}', subs.KINDGI_PYTHON_SOURCE ?? '')
     .replaceAll('{{UV_REQUIRED_VERSION}}', subs.UV_REQUIRED_VERSION ?? '')
     .replaceAll('{{DEV_DEPENDENCIES}}', subs.DEV_DEPENDENCIES ?? '"pytest>=8"');
+  return fillRunnerPlaceholders(filled, subs);
 }
