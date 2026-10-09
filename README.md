@@ -112,6 +112,10 @@ Kindgi API from a Java app: generated from the OpenAPI document at build time, w
 typed models and errors, paging, streaming and retries. It works beside an app's
 own Jackson, Spring Boot 3 and 4 included.
 
+[`kindgi-pack`](./sdks/java/kindgi-pack) (Java 17+, preview) — a pack's tools and
+guardrail checks in Java: records for schemas, the indexer, and a pack service that
+passes the same conformance suite as the TypeScript and Python ones.
+
 ## Specs
 
 [`@kindgi/specs`](./packages/specs) holds the canonical JSON Schemas

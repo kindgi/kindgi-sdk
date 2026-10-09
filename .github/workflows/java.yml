@@ -1,14 +1,16 @@
 name: Java SDK
 
-# The Java SDK (sdks/java): the code generator, kindgi-models and kindgi-client, built and tested
-# on Java 17, then the client inside Spring Boot 3 and 4 apps. It runs when the Java SDK or the API
-# document it's generated from changes. Not a required check yet.
+# The Java SDK (sdks/java): the code generator, kindgi-models, kindgi-client and kindgi-pack, built
+# and tested on Java 17, then the client inside Spring Boot 3 and 4 apps. It runs when the Java SDK,
+# the API document the client is generated from, or the specs kindgi-pack bundles change. Not a
+# required check yet. (The pack conformance suite runs kindgi-pack in ci.yml.)
 on:
   push:
     branches: [main]
     paths:
       - "sdks/java/**"
       - "packages/api/openapi.json"
+      - "packages/specs/schemas/**"
       - ".github/workflows/java.yml"
   pull_request:
     # `ready_for_review` fires when a draft is marked ready; the job's `if:` skips drafts.
@@ -16,6 +18,7 @@ on:
     paths:
       - "sdks/java/**"
       - "packages/api/openapi.json"
+      - "packages/specs/schemas/**"
       - ".github/workflows/java.yml"
   workflow_dispatch:
 
@@ -41,7 +44,7 @@ jobs:
           distribution: temurin
           java-version: "17"
           cache: maven
-      - name: Build and test (generator golden tests, models, client, operation coverage)
+      - name: Build and test (generator golden tests, models, client, operation coverage, pack)
         run: ./mvnw -B -ntp install
       - name: The client in Spring Boot apps (3.2, 3.5, 4.0, 4.1)
         run: |
