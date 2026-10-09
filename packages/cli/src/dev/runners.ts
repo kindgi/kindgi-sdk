@@ -88,8 +88,13 @@ export interface StartApiServerOptions {
    * waits until it serves with this session's dev token.
    */
   readonly runtimeUrl?: string;
-  /** Lines the runtime writes. */
-  readonly onLog?: (line: string) => void;
+  /**
+   * `KINDGI_LOG_LEVEL` and `KINDGI_LOG_LEVELS` for the runtime: what
+   * `kindgi dev` shows, so the runtime writes only that.
+   */
+  readonly logLevels?: Readonly<Record<string, string>>;
+  /** Lines the runtime writes (a container's), with the stream each came on. */
+  readonly onLog?: (line: string, stream: 'stdout' | 'stderr') => void;
   /** Progress while preparing (an image pull). */
   readonly onProgress?: (line: string) => void;
 }
@@ -140,6 +145,11 @@ export interface IndexerRunOptions {
   readonly env?: () => Promise<Readonly<Record<string, string>>>;
   /** Which indexer: the TypeScript one (default), the pack's Python, or its JDK. */
   readonly code?: PackCode;
+  /**
+   * What pack code prints while the indexer (a child) loads it, line by
+   * line as it comes; not the indexer's own result line.
+   */
+  readonly onOutput?: (line: string, stream: 'stdout' | 'stderr') => void;
 }
 
 /** The local pack service `kindgi dev` runs the pack's code in. */

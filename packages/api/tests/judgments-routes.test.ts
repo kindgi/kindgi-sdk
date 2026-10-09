@@ -205,6 +205,22 @@ describe('POST /v1/judgments', () => {
     });
   });
 
+  test('the run copy keeps the segment path the run was started with (none: empty)', async () => {
+    const acme = row({ segments: [{ key: 'company', value: 'acme' }] });
+    const plain = row();
+    const h = harness([acme, plain]);
+    for (const run of [acme, plain]) {
+      const res = await h.call('POST', '/v1/judgments', {
+        runId: run.runId,
+        item: { key: 'c1' },
+        verdict: 'no',
+      });
+      expect(res.status).toBe(201);
+      const got = await h.call('GET', `/v1/judgments/${res.body.id}`);
+      expect(got.body.run.segments).toEqual(run.segments ?? []);
+    }
+  });
+
   test('a run that has not finished: 409 run-not-finished', async () => {
     const run = row({ status: 'running', output: undefined });
     const h = harness([run]);
@@ -217,6 +233,24 @@ describe('POST /v1/judgments', () => {
     });
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe('run-not-finished');
+  });
+
+  test('a run an erasure cleared: 410 run-erased, never run-not-finished (T273 M-5)', async () => {
+    const run = row({
+      status: 'completed',
+      output: null,
+      contentErasedAt: '2026-10-08T00:00:00.000Z',
+    } as never);
+    const h = harness([run]);
+    const classId = await tenantClass(h);
+    const res = await h.call('POST', '/v1/judgments', {
+      runId: run.runId,
+      item: { key: 'c1' },
+      verdict: 'no',
+      judgeClassId: classId,
+    });
+    expect(res.status).toBe(410);
+    expect(res.body.error.code).toBe('run-erased');
   });
 
   test('an unknown run: 404 run-not-found', async () => {
@@ -420,6 +454,35 @@ describe("the context captured on a turn's first judgment", () => {
       history: [messages[0], messages[1]],
       retrieved: [{ source: 'kb', text: 'Acme Corp' }],
     });
+  });
+
+  test('what the turn recalled of earlier conversations is kept too', async () => {
+    const run = turn();
+    const recalled = [
+      {
+        message: { conversationId: 'c-old', sequence: 4, role: 'user', text: 'Order 12 broke' },
+        intent: { source: 'conversations', scope: 'same-user' },
+      },
+    ];
+    const h = harness([run], {
+      messages,
+      journal: [
+        journal[0],
+        {
+          kind: 'step.completed',
+          nodeId: 'run-retrievals',
+          payload: { output: { retrieved: [], recalled } },
+        },
+      ],
+    });
+    const first = await h.call('POST', '/v1/judgments', {
+      runId: run.runId,
+      item: { key: 'c1' },
+      verdict: 'yes',
+    });
+    expect(first.status).toBe(201);
+    const got = await h.call('GET', `/v1/judgments/${first.body.id}`);
+    expect(got.body.run.context).toMatchObject({ retrieved: [], recalled });
   });
 
   test("the decision at the turn's session approval gate is kept", async () => {

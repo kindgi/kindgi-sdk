@@ -74,9 +74,22 @@ import {
   resolveDevGoogleCredentials,
   vertexCredentialsHint,
 } from '../dev/google-credentials.js';
+import {
+  DEFAULT_DEV_LOG_VIEW,
+  type DevLogFlags,
+  type DevLogView,
+  type DevOutput,
+  parseDevLogFlags,
+  resolveDevLogView,
+  runtimeLogLevels,
+  showIndexerLine,
+  showLine,
+  showText,
+  sourceLogEnv,
+} from '../dev/log-view.js';
 import { type PackCode, isJvmPackCode, resolvePackCode } from '../dev/pack-code.js';
 import { devPackEnv, devPackEnvFiles } from '../dev/pack-env.js';
-import { createPackRefresher, describePackEvent } from '../dev/pack-service.js';
+import { createPackRefresher, showPackEvent } from '../dev/pack-service.js';
 import { PORT_SEARCH_SPAN, firstFreePort } from '../dev/port.js';
 import { type DevProject, resolveDevProject } from '../dev/project.js';
 import {
@@ -119,7 +132,7 @@ export const devCommand: LeafCommand = {
   name: 'dev',
   description: 'Run the Kindgi runtime as a container + hot-reload the pack under cwd.',
   usage:
-    'kindgi dev [--port <n>] [--database-url <url>] [--tenant <id>] [--dev-token <token>] [--no-watch] [--open] [--path <dir>] [--reset [--yes]] [--recreate-services] [--runtime-image <ref> | --runtime-url <url>]',
+    'kindgi dev [--port <n>] [--database-url <url>] [--tenant <id>] [--dev-token <token>] [--no-watch] [--open] [--path <dir>] [--reset [--yes]] [--recreate-services] [--runtime-image <ref> | --runtime-url <url>] [--log-level <level>] [--log <subsystem>=<level>]... [--log-format pretty|json] [--quiet]',
   optionSpec: {
     port: {
       type: 'string',
@@ -195,6 +208,24 @@ export const devCommand: LeafCommand = {
       description:
         'Let `docker compose` recreate the bundled Postgres if its definition changed (needs compose). By default an existing container is reused.',
     },
+    // The runtime's and the pack service's records: what's shown, and how.
+    // `--quiet` (a global flag) keeps errors only.
+    'log-level': {
+      type: 'string',
+      description:
+        "The lowest level of the log records shown: error, warn, info, debug or trace. Default: `KINDGI_LOG_LEVEL` (the shell's, then the env files'), else info; with `--quiet`, error.",
+    },
+    log: {
+      type: 'string',
+      multiple: true,
+      description:
+        "A subsystem's own level, `<subsystem>=<level>` (e.g. `--log=http=debug`, `--log=pack=debug`); repeat it, or give a comma list. A dotted child inherits its parent's (`pack` covers `pack.tool`).",
+    },
+    'log-format': {
+      type: 'string',
+      description:
+        'How log records are shown: `pretty` (the default: tagged `[runtime]` / `[pack]`, coloured on a terminal unless `NO_COLOR` is set) or `json` (each record as written, one per line on stdout, for `| jq`; everything else stays on stderr).',
+    },
   },
   run: async (ctx): Promise<CommandResult> => runDev(ctx),
 };
@@ -220,8 +251,29 @@ export const DEFAULT_WATCH_DEBOUNCE_MS = 200;
  * so nothing to intercept.
  */
 function emitProgress(msg: string): void {
+  if (logView.quiet) return;
+  emitProblem(msg);
+}
+
+/** A progress line that's an error: shown under `--quiet` too. */
+function emitProblem(msg: string): void {
   process.stderr.write(`${stoppingLineOpen ? '\n' : ''}  ${msg}\n`);
   stoppingLineOpen = false;
+}
+
+/**
+ * How logs show this session (`dev/log-view.ts`): set from the flags as
+ * `runDev` starts, and again once the env files are read.
+ */
+let logView: DevLogView = DEFAULT_DEV_LOG_VIEW;
+
+/** A source's line as the view shows it: records on stdout with `--log-format=json`. */
+function emitOutput(output: DevOutput | undefined): void {
+  if (output === undefined) return;
+  for (const line of output.lines) {
+    if (output.stream === 'stdout') process.stdout.write(`${line}\n`);
+    else emitProblem(`  ${line}`);
+  }
 }
 
 /**
@@ -257,7 +309,7 @@ async function withHeartbeat<T>(
   const started = Date.now();
   const tick = setInterval(() => {
     const elapsed = Math.round((Date.now() - started) / 1000);
-    process.stderr.write(`  ⋯ ${label} (${elapsed}s elapsed)\n`);
+    emitProgress(`⋯ ${label} (${elapsed}s elapsed)`);
   }, intervalMs);
   try {
     return await work();
@@ -296,12 +348,22 @@ interface ResolvedDevArgs {
   readonly runtimeImage: string;
   /** A runtime the developer runs (`--runtime-url`); no container then. */
   readonly runtimeUrl: string | undefined;
+  /** `--log-level`, `--log`, `--log-format` and `--quiet`. */
+  readonly log: DevLogFlags;
 }
 
 export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   const parsed = resolveDevArgs(ctx);
   if (parsed.kind === 'error') return parsed;
   const args = parsed.args;
+  // How logs show: the flags and the shell's settings now, the env files'
+  // once they're read.
+  const stderrIsTTY = process.stderr.isTTY === true;
+  const earlyView = resolveDevLogView(args.log, { env: ctx.env, files: {}, isTTY: stderrIsTTY });
+  if (earlyView.kind === 'error') {
+    return { kind: 'error', stderr: `kindgi dev: ${earlyView.message}\n`, exitCode: 1 };
+  }
+  logView = earlyView.value;
 
   const runners = pickRunners(ctx);
   if (runners.kind === 'error') return runners;
@@ -324,6 +386,15 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   // secret binding.
   const projectEnv = await loadDevProjectEnv(ctx, args.packDir);
   if (projectEnv.kind === 'error') return projectEnv;
+  const view = resolveDevLogView(args.log, {
+    env: ctx.env,
+    files: projectEnv.runtime,
+    isTTY: stderrIsTTY,
+  });
+  if (view.kind === 'error') {
+    return { kind: 'error', stderr: `kindgi dev: ${view.message}\n`, exitCode: 1 };
+  }
+  logView = view.value;
   // The PyPI CLI (kindgi-cli) has no TypeScript bundler: say so before anything starts.
   if (projectEnv.language === 'node' && cliInstall(ctx.env) === 'pypi') {
     return { kind: 'error', stderr: `kindgi dev: ${PYPI_NO_BUNDLER}\n`, exitCode: 1 };
@@ -521,12 +592,15 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   // The pack's code is bundled and runs in a local pack service. It
   // starts once the pack is bundled and indexed; the api-server gets
   // its transport now.
-  const packEnv = () =>
-    devPackEnv({
+  // The pack service and the indexer write records at the levels shown.
+  const packEnv = async () => ({
+    ...(await devPackEnv({
       packDir: args.packDir,
       ...(projectEnv.localEnvFiles !== undefined && { localEnvFiles: projectEnv.localEnvFiles }),
       hostEnv: ctx.env,
-    });
+    })),
+    ...sourceLogEnv(logView),
+  });
   const code = await resolveDevPackCode(
     dev,
     projectEnv.language,
@@ -547,10 +621,10 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
     packDir: args.packDir,
     code: code.value,
     env: packEnv,
-    onLog: (line: string) => emitProgress(`  [pack] ${line}`),
-    onEvent: (event: Parameters<typeof describePackEvent>[0]) => {
-      const line = describePackEvent(event);
-      if (line !== undefined) emitProgress(line);
+    onLog: (line: string, stream: 'stdout' | 'stderr') =>
+      emitOutput(showText('pack', line, logView, stream)),
+    onEvent: (event: Parameters<typeof showPackEvent>[0]) => {
+      for (const output of showPackEvent(event, logView)) emitOutput(output);
     },
   };
   // The front listens for the whole session; children come and go behind
@@ -589,6 +663,7 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
     packDir: args.packDir,
     env: packEnv,
     code: code.value,
+    onIndexerOutput: (line) => emitOutput(showIndexerLine(line, logView)),
     ...(devOnly !== undefined && {
       onBuild: async (build) => {
         if (build.externals === undefined) return;
@@ -635,7 +710,8 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
         }),
         runtimeImage: args.runtimeImage,
         ...(args.runtimeUrl !== undefined && { runtimeUrl: args.runtimeUrl }),
-        onLog: (line) => emitProgress(`  [runtime] ${line}`),
+        logLevels: runtimeLogLevels(logView),
+        onLog: (line, stream) => emitOutput(showLine('runtime', line, logView, stream)),
         onProgress: emitProgress,
         ...(ctx.stopSignal !== undefined && { signal: ctx.stopSignal }),
       }),
@@ -891,7 +967,7 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
           emitProgress('  (no primitives yet)');
         } else {
           lastWatchReport = undefined;
-          emitProgress(`  ✗ refresh failed [${outcome.code}] ${outcome.message}`);
+          emitProblem(`  ✗ refresh failed [${outcome.code}] ${outcome.message}`);
         }
       })();
       inFlightTicks.add(tick);
@@ -978,7 +1054,11 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   const stdout = ctx.globals.formatRequested ? renderJson(summary, ctx.globals.format).stdout : '';
   return {
     kind: 'ok',
-    rendered: { stdout, stderr: args.watch ? '' : `${bannerLines.join('\n')}\n` },
+    // --quiet: errors only, so no summary.
+    rendered: {
+      stdout,
+      stderr: args.watch || logView.quiet ? '' : `${bannerLines.join('\n')}\n`,
+    },
   };
 }
 
@@ -1235,6 +1315,17 @@ function resolveDevArgs(ctx: CommandContext): DevArgsOutcome {
   const runtimeImage =
     typeof imageFlag === 'string' && imageFlag !== '' ? imageFlag : DEFAULT_RUNTIME_IMAGE;
 
+  // --log-level / --log / --log-format / --quiet — what the logs show, and how.
+  const log = parseDevLogFlags({
+    level: ctx.options['log-level'],
+    log: ctx.options.log,
+    format: ctx.options['log-format'],
+    quiet: ctx.globals.format === 'quiet',
+  });
+  if (log.kind === 'error') {
+    return { kind: 'error', stderr: `kindgi dev: ${log.message}\n`, exitCode: 1 };
+  }
+
   return {
     kind: 'ok',
     args: {
@@ -1251,6 +1342,7 @@ function resolveDevArgs(ctx: CommandContext): DevArgsOutcome {
       recreateServices,
       runtimeImage,
       runtimeUrl,
+      log: log.value,
     },
   };
 }
@@ -1385,9 +1477,10 @@ function emitBootIndex(
   roots: readonly string[],
 ): void {
   if (bootIndex.kind !== 'ok') {
-    // Dev stays up either way; the section says so.
+    // Dev stays up either way; the section says so. No primitives yet isn't an error.
+    const emit = bootIndex.code === 'discovery-empty' ? emitProgress : emitProblem;
     for (const line of renderIndexSection({ bootIndex, bootReport, discoveryRoots: roots })) {
-      emitProgress(line.replace(/^ {2}/, ''));
+      emit(line.replace(/^ {2}/, ''));
     }
     return;
   }
@@ -1396,10 +1489,10 @@ function emitBootIndex(
     `✓ loaded: ${c.tools} tools, ${c.guardrails} guardrails, ${c.agents} agents, ${c.flows} flows`,
   );
   for (const e of bootIndex.fileErrors) {
-    emitProgress(`  ⚠ indexer: ${e.filePath ?? '?'} [${e.code}] ${e.message}`);
+    emitProblem(`  ⚠ indexer: ${e.filePath ?? '?'} [${e.code}] ${e.message}`);
   }
   for (const f of bootReport.failed) {
-    emitProgress(`  ⚠ ${f.kind}: ${f.id} — ${f.message ?? 'unknown reason'}`);
+    emitProblem(`  ⚠ ${f.kind}: ${f.id} — ${f.message ?? 'unknown reason'}`);
   }
 }
 
@@ -1539,14 +1632,14 @@ function emitWatchTick(input: {
     emitProgress(`  ✓ loaded ${registered} primitives (${totals}) in ${elapsedMs}ms`);
     return;
   }
-  emitProgress(
+  emitProblem(
     `  ⚠ loaded ${registered} of ${registered + failed.length} in ${elapsedMs}ms — ${totals}`,
   );
   for (const e of fileErrors) {
-    emitProgress(`    ✗ indexer: ${e.filePath ?? '?'} [${e.code}] ${e.message}`);
+    emitProblem(`    ✗ indexer: ${e.filePath ?? '?'} [${e.code}] ${e.message}`);
   }
   for (const f of failed) {
-    emitProgress(`    ✗ ${f.kind}: ${f.id} — ${f.message ?? 'unknown reason'}`);
+    emitProblem(`    ✗ ${f.kind}: ${f.id} — ${f.message ?? 'unknown reason'}`);
   }
 }
 

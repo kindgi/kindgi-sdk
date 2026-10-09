@@ -279,6 +279,72 @@
         "ok": false,
         "none": null
       }
+    },
+    {
+      "name": "inMessage: the fields the message states, of those the record has, last",
+      "logger": {
+        "level": "info"
+      },
+      "bindings": [
+        {
+          "subsystem": "pack"
+        },
+        {
+          "tenantId": "t-1",
+          "toolId": "acme.lookup"
+        }
+      ],
+      "level": "info",
+      "message": "tool acme.lookup ok 12ms",
+      "fields": {
+        "event": "call",
+        "id": "acme.lookup",
+        "outcome": "ok",
+        "durationMs": 12
+      },
+      "inMessage": ["target", "id", "outcome", "durationMs", "message"],
+      "expected": {
+        "time": "2026-10-08T12:00:00.000Z",
+        "level": "info",
+        "severity": "INFO",
+        "subsystem": "pack",
+        "message": "tool acme.lookup ok 12ms",
+        "tenantId": "t-1",
+        "toolId": "acme.lookup",
+        "event": "call",
+        "id": "acme.lookup",
+        "outcome": "ok",
+        "durationMs": 12,
+        "inMessage": ["id", "outcome", "durationMs"]
+      }
+    },
+    {
+      "name": "a field named inMessage is the event's own: kept under fields",
+      "logger": {
+        "level": "info"
+      },
+      "bindings": [
+        {
+          "subsystem": "pack"
+        }
+      ],
+      "level": "info",
+      "message": "own",
+      "fields": {
+        "inMessage": "mine",
+        "outcome": "ok"
+      },
+      "expected": {
+        "time": "2026-10-08T12:00:00.000Z",
+        "level": "info",
+        "severity": "INFO",
+        "subsystem": "pack",
+        "message": "own",
+        "outcome": "ok",
+        "fields": {
+          "inMessage": "mine"
+        }
+      }
     }
   ]
 }

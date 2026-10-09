@@ -34,6 +34,7 @@ import { createPackServiceSupervisor } from '@kindgi/handler-runtime/pack-servic
 
 import { createDevPackBuilder } from './bundler.js';
 import { createJavaPackBuilder } from './java-builder.js';
+import { lineReader } from './lines.js';
 import {
   type JvmPackCode,
   type PackCode,
@@ -180,6 +181,8 @@ export interface PythonIndexerOptions {
   /** Pins for a reproducible index (`kindgi build`). */
   readonly artifactVersion?: string;
   readonly publishedAt?: string;
+  /** What pack code prints while the indexer loads it (`IndexerRunOptions.onOutput`). */
+  readonly onOutput?: (line: string, stream: 'stdout' | 'stderr') => void;
 }
 
 /**
@@ -202,7 +205,7 @@ export async function runPythonIndexer(opts: PythonIndexerOptions): Promise<Inde
     ...(opts.publishedAt !== undefined ? ['--published-at', opts.publishedAt] : []),
     '--json',
   ];
-  return indexResultOf(outcomeOfChild(await runChild(program, args, opts.env)));
+  return indexResultOf(outcomeOfChild(await runChild(program, args, opts.env, opts.onOutput)));
 }
 
 export interface JavaIndexerOptions {
@@ -261,6 +264,7 @@ async function runIndexerInChild(
   outputPath: string,
   env: () => Promise<Readonly<Record<string, string>>>,
   bundleMap: Readonly<Record<string, string>>,
+  onOutput?: (line: string, stream: 'stdout' | 'stderr') => void,
 ): Promise<IndexerOutcome> {
   const mapPath = devBundleMapPath(packDir);
   await mkdir(dirname(mapPath), { recursive: true });
@@ -279,7 +283,7 @@ async function runIndexerInChild(
     '--bundle-map',
     mapPath,
   ];
-  return outcomeOfChild(await runChild(process.execPath, args, await env()));
+  return outcomeOfChild(await runChild(process.execPath, args, await env(), onOutput));
 }
 
 /** The outcome an indexer child printed as its last stdout line. */
@@ -303,24 +307,55 @@ function outcomeOfChild(run: {
   }
 }
 
+/**
+ * Run an indexer child to the end: its output, and each line of it to
+ * `onOutput` as it comes, except its last stdout line when that's the
+ * indexer's result (held back until the next line shows it isn't).
+ */
 function runChild(
   command: string,
   args: readonly string[],
   env: Readonly<Record<string, string>>,
+  onOutput?: (line: string, stream: 'stdout' | 'stderr') => void,
 ): Promise<{ readonly stdout: string; readonly stderr: string; readonly code: number | null }> {
   return new Promise((resolvePromise) => {
     const child = spawn(command, [...args], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
     let stdout = '';
     let stderr = '';
-    child.stdout.on('data', (chunk: Buffer) => {
-      stdout += chunk.toString('utf8');
+    let held: string | undefined;
+    const outLines = lineReader((line) => {
+      if (held !== undefined) onOutput?.(held, 'stdout');
+      held = line;
     });
-    child.stderr.on('data', (chunk: Buffer) => {
-      stderr += chunk.toString('utf8');
+    const errLines = lineReader((line) => onOutput?.(line, 'stderr'));
+    child.stdout.on('data', (chunk: string) => {
+      stdout += chunk;
+      outLines.push(chunk);
+    });
+    child.stderr.on('data', (chunk: string) => {
+      stderr += chunk;
+      errLines.push(chunk);
     });
     child.once('error', (cause) => resolvePromise({ stdout, stderr: cause.message, code: null }));
-    child.once('close', (code) => resolvePromise({ stdout, stderr, code }));
+    child.once('close', (code) => {
+      outLines.end();
+      errLines.end();
+      if (held !== undefined && !isIndexerResult(held)) onOutput?.(held, 'stdout');
+      resolvePromise({ stdout, stderr, code });
+    });
   });
+}
+
+/** Whether a line is an indexer's one-line result (`{"kind":"ok"|"err",…}`). */
+function isIndexerResult(line: string): boolean {
+  try {
+    const parsed = JSON.parse(line) as { readonly kind?: unknown };
+    return parsed.kind === 'ok' || parsed.kind === 'err';
+  } catch {
+    return false;
+  }
 }
 
 /** Swap the staged index in: the dev index changes in one step (a rename). */
@@ -365,6 +400,8 @@ export async function startApiServerContainerReal(
       exportSigningKeyPath: RUNTIME_EXPORT_SIGNING_KEY,
     }),
     ...(googleCredentials !== undefined && { googleCredentialsPath: RUNTIME_GOOGLE_CREDENTIALS }),
+    // kindgi dev reads the container's output as records and shows them.
+    log: { ...opts.logLevels, KINDGI_LOG_FORMAT: 'json' },
     shellReferences: await shellReferencesOf({
       packDir: opts.packDir,
       ...(opts.localEnvFiles !== undefined && { localEnvFiles: opts.localEnvFiles }),
@@ -452,6 +489,8 @@ export async function attachToRuntimeReal(
         exportSigningKeyPath: opts.exportSigningKeyPath,
       }),
       ...(googleCredentials !== undefined && { googleCredentialsPath: googleCredentials }),
+      // Its output goes to the developer's terminal, which picks the format.
+      ...(opts.logLevels !== undefined && { log: opts.logLevels }),
       shellReferences: await shellReferencesOf({
         packDir: opts.packDir,
         ...(opts.localEnvFiles !== undefined && { localEnvFiles: opts.localEnvFiles }),
@@ -543,6 +582,7 @@ export async function runIndexerReadReal(
       outputPath,
       python: code.python,
       env: options.env !== undefined ? await options.env() : {},
+      ...(options.onOutput !== undefined && { onOutput: options.onOutput }),
     });
   }
   if (isJvmPackCode(code)) {
@@ -555,7 +595,13 @@ export async function runIndexerReadReal(
   }
   return indexResultOf(
     options.env !== undefined
-      ? await runIndexerInChild(packDir, outputPath, options.env, options.bundleMap ?? {})
+      ? await runIndexerInChild(
+          packDir,
+          outputPath,
+          options.env,
+          options.bundleMap ?? {},
+          options.onOutput,
+        )
       : await runIndexerReal({ packDir, outputPath }),
   );
 }
