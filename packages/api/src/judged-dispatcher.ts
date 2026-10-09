@@ -251,9 +251,7 @@ export function createJudgedDispatcher(options: JudgedDispatcherOptions): EvalRu
       const replayable = listed.filter((c) => c.erased !== true);
       const erased = listed.length - replayable.length;
       const stored =
-        comparison.sample === undefined
-          ? replayable
-          : sampleCases(replayable, comparison.sample);
+        comparison.sample === undefined ? replayable : sampleCases(replayable, comparison.sample);
       const all =
         comparison.classWeights === 'restricted-only' ? stored.map(restrictedOnly) : stored;
       if (ctx.dryRun) {
