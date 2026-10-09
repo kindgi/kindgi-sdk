@@ -103,7 +103,8 @@ kindgi runs start --agent=acme.order-desk --project=<project-id> --segment=compa
 A run with `--segment=company:globex` has no live version of its own, so it
 gets the tenant's, 1.0.0. `--tenant`, `--org=<org-id>` and
 `--project=<project-id>` name the other scopes; without `--project`, a run is
-in the Default project (`kindgi projects list` lists the ids).
+in its agent's own project, which is Default for what `kindgi deploy`
+registers (`kindgi projects list` lists the ids).
 
 ## See which version a run would get
 
