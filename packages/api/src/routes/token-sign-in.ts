@@ -23,7 +23,10 @@ import type { AppEnv } from '../types.js';
  * Only a person's **full** key opens a session. A service account's key is
  * for machines, and a narrowed key (a `member` role, or one project) would
  * be widened to the person's full grants by a session: both are refused,
- * 403 `token-sign-in-not-allowed`. The session never outlives the key.
+ * 403 `token-sign-in-not-allowed`. The session never outlives the key: it
+ * ends when the key expires, and, with a store that has `revokeByProvider`,
+ * when the key is revoked (its `providerId` is `api-token:<tokenId>`).
+ * Refusals are audited (`sign-in-refused`), as is each sign-in.
  */
 export type TokenSignInRouteOptions =
   /** The deployment doesn't allow it, or has no browser sessions: 403 `token-sign-in-off`. */
@@ -43,7 +46,38 @@ export function tokenSignInRouter(options: TokenSignInRouteOptions): Hono<AppEnv
 
   r.post('/', async (c) => {
     const requestId = c.get('requestId');
-    const refuse = (code: string, message: string) => {
+    /** An audit event, best effort: a failure is logged, never the answer. */
+    const auditEvents = options.enabled ? options.auditEvents : undefined;
+    const audit = async (event: Omit<AuditEvent, 'id' | 'timestamp'>) => {
+      if (auditEvents === undefined) return;
+      try {
+        const appended = await auditEvents.append([
+          { ...event, id: randomUUID(), timestamp: new Date().toISOString() as Timestamp },
+        ]);
+        if (appended.kind === 'err') {
+          c.get('log').warn(`${event.kind} audit event failed: ${appended.error.message}`);
+        }
+      } catch (cause) {
+        c.get('log').warn(
+          `${event.kind} audit event failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+        );
+      }
+    };
+    const refuse = async (code: string, message: string) => {
+      const userId = c.get('userId');
+      const serviceAccountId = c.get('serviceAccountId');
+      await audit({
+        tenantId: c.get('tenantId'),
+        kind: 'sign-in-refused',
+        actor:
+          serviceAccountId !== undefined
+            ? `service_account:${serviceAccountId}`
+            : userId !== undefined
+              ? `user:${userId}`
+              : 'system',
+        outcome: 'denied',
+        payload: { v: 1, doc: { method: 'api-token', reason: code } },
+      });
       c.status(statusFor(code) as never);
       return c.json(toWireError({ code, message }, requestId));
     };
@@ -96,34 +130,20 @@ export function tokenSignInRouter(options: TokenSignInRouteOptions): Hono<AppEnv
       maxAge: Math.max(0, Math.floor((expires - Date.now()) / 1000)),
     });
 
-    if (options.auditEvents !== undefined) {
-      const event: AuditEvent = {
-        id: randomUUID(),
-        tenantId,
-        kind: 'signed-in',
-        timestamp: new Date().toISOString() as Timestamp,
-        actor: `user:${userId}`,
-        outcome: 'succeeded',
-        payload: {
-          v: 1,
-          doc: {
-            method: 'api-token',
-            sessionId: created.sessionId,
-            ...(tokenId !== undefined && { tokenId }),
-          },
+    await audit({
+      tenantId,
+      kind: 'signed-in',
+      actor: `user:${userId}`,
+      outcome: 'succeeded',
+      payload: {
+        v: 1,
+        doc: {
+          method: 'api-token',
+          sessionId: created.sessionId,
+          ...(tokenId !== undefined && { tokenId }),
         },
-      };
-      try {
-        const appended = await options.auditEvents.append([event]);
-        if (appended.kind === 'err') {
-          c.get('log').warn(`signed-in audit event failed: ${appended.error.message}`);
-        }
-      } catch (cause) {
-        c.get('log').warn(
-          `signed-in audit event failed: ${cause instanceof Error ? cause.message : String(cause)}`,
-        );
-      }
-    }
+      },
+    });
 
     return c.json({ userId, expiresAt: new Date(expires).toISOString() });
   });
