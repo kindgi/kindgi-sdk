@@ -545,6 +545,129 @@
           }
         }
       },
+      "RunWaitingFor": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "approvals",
+          "other"
+        ],
+        "description": "Set on a suspended run by `GET /v1/runs/{runId}` (not the list): what it waits for, its journal's open waits. `approvals`: those still to be decided, linked to the waits. `other`: the rest. Absent from a runtime before Kindgi 0.1.6, or when the journal can't be read; `kindgi runs resume` then works it out itself.",
+        "properties": {
+          "approvals": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RunWaitingApproval"
+            }
+          },
+          "other": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": [
+                "what"
+              ],
+              "description": "`child-run` (`childRunId`, `childStatus`, `timesOutAt`): a child run must finish. `decided-approval` (`approvalId`, `approvalStatus`): decided, the runtime continues. `unattributed` (`tokenId`, `timesOutAt`): a wait no approval is linked to. `no-open-wait`: the journal shows none; the runtime picks the run up again.",
+              "properties": {
+                "what": {
+                  "type": "string",
+                  "enum": [
+                    "child-run",
+                    "decided-approval",
+                    "unattributed",
+                    "no-open-wait"
+                  ]
+                },
+                "childRunId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "childStatus": {
+                  "type": "string"
+                },
+                "approvalId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "approvalStatus": {
+                  "type": "string"
+                },
+                "tokenId": {
+                  "type": "string"
+                },
+                "timesOutAt": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            }
+          }
+        }
+      },
+      "RunWaitingApproval": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "approvalId",
+          "status",
+          "requiredRole",
+          "createdAt",
+          "subjectKind"
+        ],
+        "description": "An approval the run waits for, as a run reader sees it: its identity and state. Its subject's details, description, context and decision stay on `GET /v1/approvals/{approvalId}`, behind the reviewer gate.",
+        "properties": {
+          "approvalId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "description": "Still to be decided: `pending`, `assigned`, `in_review` or `escalated`."
+          },
+          "requiredRole": {
+            "type": "string",
+            "description": "The reviewer role that may decide it, or above."
+          },
+          "title": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "subjectKind": {
+            "type": "string",
+            "description": "What waits: e.g. `tool-call:pending` (a tool call held for review)."
+          },
+          "tool": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "version",
+              "callId"
+            ],
+            "description": "For a tool call held for review: which tool and which call. Never the call's arguments.",
+            "properties": {
+              "id": {
+                "type": "string",
+                "description": "The tool id."
+              },
+              "version": {
+                "type": "string"
+              },
+              "callId": {
+                "type": "string",
+                "description": "The model's id for the call."
+              }
+            }
+          }
+        }
+      },
       "RunTrigger": {
         "type": "object",
         "additionalProperties": false,
@@ -1435,6 +1558,9 @@
           "agent": {
             "$ref": "#/components/schemas/RunAgent"
           },
+          "waitingFor": {
+            "$ref": "#/components/schemas/RunWaitingFor"
+          },
           "trigger": {
             "$ref": "#/components/schemas/RunTrigger"
           },
@@ -1721,6 +1847,9 @@
                 },
                 "agent": {
                   "$ref": "#/components/schemas/RunAgent"
+                },
+                "waitingFor": {
+                  "$ref": "#/components/schemas/RunWaitingFor"
                 },
                 "trigger": {
                   "$ref": "#/components/schemas/RunTrigger"

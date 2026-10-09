@@ -54,6 +54,75 @@ class RunStatus(
     root: Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]
 
 
+class OtherItem(BaseModel):
+    """
+    `child-run` (`childRunId`, `childStatus`, `timesOutAt`): a child run must finish. `decided-approval` (`approvalId`, `approvalStatus`): decided, the runtime continues. `unattributed` (`tokenId`, `timesOutAt`): a wait no approval is linked to. `no-open-wait`: the journal shows none; the runtime picks the run up again.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    what: Literal["child-run", "decided-approval", "unattributed", "no-open-wait"]
+    child_run_id: Annotated[UUID | None, Field(alias="childRunId")] = None
+    child_status: Annotated[str | None, Field(alias="childStatus")] = None
+    approval_id: Annotated[UUID | None, Field(alias="approvalId")] = None
+    approval_status: Annotated[str | None, Field(alias="approvalStatus")] = None
+    token_id: Annotated[str | None, Field(alias="tokenId")] = None
+    times_out_at: Annotated[AwareDatetime | None, Field(alias="timesOutAt")] = None
+
+
+class Tool(BaseModel):
+    """
+    For a tool call held for review: which tool and which call. Never the call's arguments.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    """
+    The tool id.
+    """
+    version: str
+    call_id: Annotated[str, Field(alias="callId")]
+    """
+    The model's id for the call.
+    """
+
+
+class RunWaitingApproval(BaseModel):
+    """
+    An approval the run waits for, as a run reader sees it: its identity and state. Its subject's details, description, context and decision stay on `GET /v1/approvals/{approvalId}`, behind the reviewer gate.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    approval_id: Annotated[UUID, Field(alias="approvalId")]
+    status: str
+    """
+    Still to be decided: `pending`, `assigned`, `in_review` or `escalated`.
+    """
+    required_role: Annotated[str, Field(alias="requiredRole")]
+    """
+    The reviewer role that may decide it, or above.
+    """
+    title: str | None = None
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
+    subject_kind: Annotated[str, Field(alias="subjectKind")]
+    """
+    What waits: e.g. `tool-call:pending` (a tool call held for review).
+    """
+    tool: Tool | None = None
+    """
+    For a tool call held for review: which tool and which call. Never the call's arguments.
+    """
+
+
 class RunTrigger(BaseModel):
     """
     Set on a run a trigger started (a schedule, an event trigger or an inbound webhook): the trigger and the fire that started it. Absent on other runs.
@@ -2674,7 +2743,7 @@ class ToolSpec(RootModel[HttpToolSpec]):
     """
 
 
-class Tool(BaseModel):
+class Tool1(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -2812,7 +2881,7 @@ class ToolCollectionPage(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    data: list[Tool]
+    data: list[Tool1]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     """
     Opaque cursor for the next page. Absent when `hasMore: false`.
@@ -6501,7 +6570,7 @@ class Changes(BaseModel):
     new: list[NewItem]
 
 
-class Tool1(BaseModel):
+class Tool2(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -6559,7 +6628,7 @@ class ComparisonCaseResult(BaseModel):
     """
     The first repetition's items against the judged ones.
     """
-    tools: list[Tool1] | None = None
+    tools: list[Tool2] | None = None
     """
     The first repetition's tool calls, and what happened to each.
     """
@@ -7373,7 +7442,7 @@ class DeploymentPrimitiveCounts(BaseModel):
     flows: Annotated[int, Field(ge=0)]
 
 
-class Tool2(BaseModel):
+class Tool3(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -7458,7 +7527,7 @@ class DeploymentContents(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    tools: list[Tool2]
+    tools: list[Tool3]
     guardrails: list[Guardrail1]
     agents: list[Agent1]
     flows: list[Flow2]
@@ -9553,6 +9622,19 @@ class RunAgent(BaseModel):
     """
 
 
+class RunWaitingFor(BaseModel):
+    """
+    Set on a suspended run by `GET /v1/runs/{runId}` (not the list): what it waits for, its journal's open waits. `approvals`: those still to be decided, linked to the waits. `other`: the rest. Absent from a runtime before Kindgi 0.1.6, or when the journal can't be read; `kindgi runs resume` then works it out itself.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    approvals: list[RunWaitingApproval]
+    other: list[OtherItem]
+
+
 class Promotion(BaseModel):
     """
     One change of a scope's live version, kept for good: what was live before, what is after, who asked and why.
@@ -9662,6 +9744,7 @@ class Run(BaseModel):
     Set on a child run: the node in the parent run that started it.
     """
     agent: RunAgent | None = None
+    waiting_for: Annotated[RunWaitingFor | None, Field(alias="waitingFor")] = None
     trigger: RunTrigger | None = None
     replay_of: Annotated[UUID | None, Field(alias="replayOf")] = None
     """
@@ -9735,6 +9818,7 @@ class Datum(BaseModel):
     Set on a child run: the node in the parent run that started it.
     """
     agent: RunAgent | None = None
+    waiting_for: Annotated[RunWaitingFor | None, Field(alias="waitingFor")] = None
     trigger: RunTrigger | None = None
     replay_of: Annotated[UUID | None, Field(alias="replayOf")] = None
     """
