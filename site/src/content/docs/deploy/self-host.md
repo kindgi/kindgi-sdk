@@ -131,6 +131,12 @@ A Python pack's build also says where its dependencies come from:
     ✓ 22 pack file(s) in the image (the pack root, minus caches, virtualenvs and secrets); dependencies from uv.lock
 ```
 
+The build imports every tool, guardrail and flow module to index it, inside
+the image, so anything a module does when it's imported runs during the
+build too, without your app's files or services. Open files, databases and
+connections lazily, inside the handler. A module that opens a database file
+at import fails the build (`unable to open database file`).
+
 The image is for `linux/amd64` by default. On Apple silicon it runs under emulation; `--platform` picks another.
 
 ## 4. Run your pack's service
