@@ -375,3 +375,36 @@ run "public_url_refuses_a_path" {
   }
   expect_failures = [var.public_url]
 }
+
+# The names server_env can't set are every name the module sets: with each
+# option on, nothing the server gets is missing from the list.
+run "the_refused_names_cover_every_option_secret_signing" {
+  command = plan
+  variables {
+    export_signing       = "secret"
+    cors_origins         = ["https://app.acme.example"]
+    openfga_api_url      = "http://openfga.acme.internal:8080"
+    pack_call_timeout_ms = 300000
+    public_url           = "https://kindgi.acme.example"
+  }
+  assert {
+    condition = alltrue([
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : contains(local.server_module_env, e.name)
+    ])
+    error_message = "A name the module sets on the server is missing from server_module_env."
+  }
+}
+
+run "the_refused_names_cover_every_option_kms_signing" {
+  command = plan
+  variables {
+    export_signing         = "kms"
+    export_signing_kms_key = "projects/acme-app-dev/locations/northamerica-northeast2/keyRings/kindgi/cryptoKeys/exports/cryptoKeyVersions/1"
+  }
+  assert {
+    condition = alltrue([
+      for e in google_cloud_run_v2_service.server.template[0].containers[0].env : contains(local.server_module_env, e.name)
+    ])
+    error_message = "A name the module sets on the server is missing from server_module_env."
+  }
+}

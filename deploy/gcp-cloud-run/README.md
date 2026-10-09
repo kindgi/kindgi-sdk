@@ -230,6 +230,8 @@ server_secret_env = {
 }
 ```
 
+Pin each secret to a version, as above, rather than `latest`: a new version then reaches the server only when you change `version` here.
+
 - **`public_url`** (`KINDGI_PUBLIC_URL`) is the URL people open the console at. On a new deployment that's `terraform output -raw server_url` after the first apply, so the emailed link comes with a second apply. With your own domain in front, it's that domain.
   - Console sessions are then accepted from that origin only, so open the console there.
   - The plan refuses `KINDGI_AUTH_SECRET` without it, because the server wouldn't start.
