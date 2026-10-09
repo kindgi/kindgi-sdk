@@ -70,6 +70,12 @@ terraform apply -var-file=dev.tfvars \
 
 Cloud Run pulls from Artifact Registry. Copy the runtime's **whole multi-platform index** by digest. A `docker pull` / `push` from an arm64 machine would copy only arm64, and Cloud Run needs amd64.
 
+**An existing repository instead of the module's own (`image_repository`).**
+- **Setting it:** `image_repository = { project, location, repository }` uses a repository you already have. The module then creates none.
+- **What it grants:** the server's service account gets `roles/artifactregistry.reader` on it, to read deployed pack images. A repository in another project also grants this project's Cloud Run service agent the same role, so it can pull the images.
+- **Check its cleanup policies first.** A policy that deletes tags or images by age can delete the digest a running revision pins, and the next instance start then fails. Keep Kindgi's images out of such a policy, or use the module's own repository.
+- **Where images go:** `terraform output image_repository` names where they go, in either case.
+
 ```sh
 REPO=$(terraform output -raw image_repository)
 gcloud auth configure-docker <region>-docker.pkg.dev
@@ -163,6 +169,10 @@ kindgi deploy --env dev --endpoint "$URL" --token <api token>
 A deploy that was refused (say, before the key was trusted) is answered the same way when you retry it: the default `Idempotency-Key` is the request body's hash. After fixing the cause, retry with `--idempotency-key <new value>`.
 
 Then `kindgi health`, `kindgi tools list` and a run, with `--url "$URL" --token <api token>`.
+
+## Testing the module
+
+`terraform init -backend=false && terraform test` runs `tests/module.tftest.hcl` with a mock Google provider. No credentials are used and no cloud calls are made. It plans the module with each option and checks what it would create: the default secrets backend and repository, `secrets_backend = "none"`, the AAD key's pin, and an existing repository in the same project and in another.
 
 ## Operating it
 

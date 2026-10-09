@@ -316,3 +316,13 @@ variable "secrets_backend" {
     error_message = "secrets_backend is \"postgres\" or \"none\"."
   }
 }
+
+variable "image_repository" {
+  description = "An existing Artifact Registry repository for the runtime and pack images, instead of the module's own (<name_prefix>): { project, location, repository }. The server's service account gets roles/artifactregistry.reader on it (and, in another project, this project's Cloud Run service agent too, to pull). Check its cleanup policies keep the digests a running revision pins."
+  type = object({
+    project    = string
+    location   = string
+    repository = string
+  })
+  default = null
+}

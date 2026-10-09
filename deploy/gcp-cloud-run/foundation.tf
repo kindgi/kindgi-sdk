@@ -149,11 +149,20 @@ resource "google_storage_bucket_iam_member" "pack_reads" {
 
 # ---- images -------------------------------------------------------------------
 # One repository for the runtime image (mirrored from Quay, see the
-# README) and the pack images `kindgi build` pushes. Cloud Run pulls with
-# its service agent; the server reads deployments' images with its own
-# identity (KINDGI_IMAGE_REGISTRY_AUTH=google).
+# README) and the pack images `kindgi build` pushes: the module's own, or
+# an existing one (var.image_repository). Cloud Run pulls with its service
+# agent; the server reads deployments' images with its own identity
+# (KINDGI_IMAGE_REGISTRY_AUTH=google).
+
+locals {
+  own_repository = var.image_repository == null
+  # An existing repository in another project: this project's Cloud Run
+  # service agent needs to read it too, to pull the images.
+  cross_project_repository = !local.own_repository && try(var.image_repository.project, var.project_id) != var.project_id
+}
 
 resource "google_artifact_registry_repository" "images" {
+  count         = local.own_repository ? 1 : 0
   repository_id = var.name_prefix
   location      = var.region
   format        = "DOCKER"
@@ -161,11 +170,32 @@ resource "google_artifact_registry_repository" "images" {
   depends_on    = [google_project_service.apis]
 }
 
+# A deployment from before image_repository keeps its repository at index 0.
+moved {
+  from = google_artifact_registry_repository.images
+  to   = google_artifact_registry_repository.images[0]
+}
+
 resource "google_artifact_registry_repository_iam_member" "server_reads_images" {
-  repository = google_artifact_registry_repository.images.name
-  location   = var.region
+  project    = local.own_repository ? null : var.image_repository.project
+  repository = local.own_repository ? google_artifact_registry_repository.images[0].name : var.image_repository.repository
+  location   = local.own_repository ? var.region : var.image_repository.location
   role       = "roles/artifactregistry.reader"
   member     = "serviceAccount:${google_service_account.server.email}"
+}
+
+data "google_project" "this" {
+  count      = local.cross_project_repository ? 1 : 0
+  project_id = var.project_id
+}
+
+resource "google_artifact_registry_repository_iam_member" "run_agent_pulls_images" {
+  count      = local.cross_project_repository ? 1 : 0
+  project    = var.image_repository.project
+  repository = var.image_repository.repository
+  location   = var.image_repository.location
+  role       = "roles/artifactregistry.reader"
+  member     = "serviceAccount:service-${data.google_project.this[0].number}@serverless-robot-prod.iam.gserviceaccount.com"
 }
 
 # ---- the key that wraps Kindgi's secrets --------------------------------------

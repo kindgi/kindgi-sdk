@@ -6,7 +6,7 @@
 
 locals {
   sql_connection = google_sql_database_instance.kindgi.connection_name
-  registry_host  = "${var.region}-docker.pkg.dev"
+  registry_host  = "${local.own_repository ? var.region : var.image_repository.location}-docker.pkg.dev"
 }
 
 # ---- the pack service ---------------------------------------------------------
