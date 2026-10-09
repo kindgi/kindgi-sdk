@@ -342,6 +342,14 @@ and what's different after:
   accounts or an emailed link through the deployment's own apps
   ([Turn on sign-in](../sign-in/)).
 
+#### Known limitations in 0.1.5
+
+- **Safari can't sign in to `kindgi dev`'s console.** The console's sign-in
+  is a `Secure` cookie, and Safari doesn't keep one over plain `http`, even at
+  `http://localhost`, where Chrome and Firefox do. Open the local console in
+  Chrome or Firefox. A fix is planned. A deployment's console needs `https`
+  in every browser (above).
+
 ### Runtime 0.1.4.2
 
 Runtime 0.1.4.2 fixes one bug in 0.1.4 and 0.1.4.1, for every deployment:
