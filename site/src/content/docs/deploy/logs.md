@@ -170,8 +170,8 @@ retention to match your data rules.
 
 ## Your pack's service
 
-Your pack's service, TypeScript or Python, writes records in the same schema
-to its standard error, under the subsystem `pack`:
+Your pack's service, in TypeScript, Python, Java or Scala, writes records in
+the same schema to its standard error, under the subsystem `pack`:
 
 - **One per call:** `tool <tool-id> ok <ms>ms` at `info`, or with the error's
   code at `warn` when it fails, carrying the run's ids, the call's
@@ -180,6 +180,14 @@ to its standard error, under the subsystem `pack`:
   `draining` and `stopped`, written whatever the levels say.
 - **What your tools log with `ctx.log`:** under `pack.tool`, with the same
   ids ([Log from a tool](../../guides/tools/write-a-tool/#log-from-a-tool)).
+
+Here a Java pack service's two records for one call made straight to it,
+with a `traceparent`: what the tool logged, then the call:
+
+```json
+{"time":"2026-10-09T12:42:06.392Z","level":"info","severity":"INFO","subsystem":"pack.tool","message":"looked up order","traceId":"4bf92f3577b34da6a3ce929d0e0e4736","spanId":"369de18ba1ec524e","requestId":"call-1","tenantId":"acme-tenant","runId":"run-1","toolId":"acme.lookup-order","packId":"acme","artifactVersion":"20261009.1","target":"tool","orderId":"o-1001"}
+{"time":"2026-10-09T12:42:06.400Z","level":"info","severity":"INFO","subsystem":"pack","message":"tool acme.lookup-order ok 40ms","traceId":"4bf92f3577b34da6a3ce929d0e0e4736","spanId":"369de18ba1ec524e","requestId":"call-1","tenantId":"acme-tenant","runId":"run-1","toolId":"acme.lookup-order","packId":"acme","artifactVersion":"20261009.1","target":"tool","event":"call","kind":"call","id":"acme.lookup-order","outcome":"ok","durationMs":40,"inMessage":["target","id","outcome","durationMs"]}
+```
 
 `KINDGI_LOG_LEVEL`, `KINDGI_LOG_LEVELS` and `KINDGI_LOG_FORMAT` apply to it
 too; there, `auto` means JSON unless its standard error is a terminal. What
