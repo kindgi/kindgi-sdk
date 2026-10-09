@@ -959,6 +959,7 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
             elapsedMs: Date.now() - startedAt,
             counts: outcome.counts,
             fileErrors: outcome.fileErrors,
+            warnings: outcome.warnings ?? [],
             registered: report.registered.length,
             failed: report.failed,
           });
@@ -1491,6 +1492,7 @@ function emitBootIndex(
   for (const e of bootIndex.fileErrors) {
     emitProblem(`  ⚠ indexer: ${e.filePath ?? '?'} [${e.code}] ${e.message}`);
   }
+  for (const w of bootIndex.warnings ?? []) emitProblem(`  ⚠ ${w.message}`);
   for (const f of bootReport.failed) {
     emitProblem(`  ⚠ ${f.kind}: ${f.id} — ${f.message ?? 'unknown reason'}`);
   }
@@ -1619,6 +1621,8 @@ function emitWatchTick(input: {
     readonly message: string;
     readonly filePath?: string;
   }[];
+  /** What the pack should change but that doesn't stop it loading. */
+  readonly warnings?: readonly { readonly message: string }[];
   readonly registered: number;
   readonly failed: readonly {
     readonly kind: string;
@@ -1628,8 +1632,10 @@ function emitWatchTick(input: {
 }): void {
   const { counts, fileErrors, failed, elapsedMs, registered } = input;
   const totals = `${counts.tools} tools, ${counts.guardrails} guardrails, ${counts.agents} agents, ${counts.flows} flows`;
+  const warnings = input.warnings ?? [];
   if (fileErrors.length === 0 && failed.length === 0) {
     emitProgress(`  ✓ loaded ${registered} primitives (${totals}) in ${elapsedMs}ms`);
+    for (const w of warnings) emitProblem(`    ⚠ ${w.message}`);
     return;
   }
   emitProblem(
@@ -1641,6 +1647,7 @@ function emitWatchTick(input: {
   for (const f of failed) {
     emitProblem(`    ✗ ${f.kind}: ${f.id} — ${f.message ?? 'unknown reason'}`);
   }
+  for (const w of warnings) emitProblem(`    ⚠ ${w.message}`);
 }
 
 /**

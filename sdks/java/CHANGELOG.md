@@ -7,6 +7,12 @@ heading into its version.
 
 ## Unreleased
 
+- `kindgi-pack`, `kindgi-pack-scala`: **the indexer warns when a guardrail's
+  check id doesn't start with the pack's id** (`<pack id>.`; the check id is
+  `checkId`, or the guardrail's own id). Packs on one runtime share one space
+  of check names, so the warning says to name it `<pack id>.checks.<name>`.
+  It's a warning only: the pack builds and indexes as before, and
+  `kindgi build` and `kindgi dev` print it.
 - `kindgi-pack`: **on SIGTERM, the service stops taking calls before it writes
   `draining`.** It wrote the record first, so for a moment a supervisor that
   read it and asked `/readyz` at once could still get 200. (#471)

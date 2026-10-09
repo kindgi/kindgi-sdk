@@ -25,6 +25,8 @@ export type {
   IndexEnvelopeVersion,
   IndexerError,
   IndexerErrorCode,
+  IndexerWarning,
+  IndexerWarningCode,
   IndexerReport,
   PrimitiveKind,
   RunIndexerOptions,

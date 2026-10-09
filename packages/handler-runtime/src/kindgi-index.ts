@@ -380,6 +380,19 @@ export type IndexerErrorCode =
   | 'language-mismatch'
   | 'reserved-check-id';
 
+/**
+ * Something the pack should change that doesn't stop the build: the indexer
+ * reports it and the pack builds as it would without it.
+ */
+export type IndexerWarningCode = 'check-id-unprefixed';
+
+export interface IndexerWarning {
+  readonly code: IndexerWarningCode;
+  readonly message: string;
+  readonly filePath?: string;
+  readonly field?: string;
+}
+
 export interface IndexerError {
   readonly code: IndexerErrorCode;
   readonly message: string;
@@ -411,6 +424,8 @@ export interface IndexerReport {
    * build log). Empty on a fully-clean pass.
    */
   readonly fileErrors: readonly IndexerError[];
+  /** What the pack should change but that doesn't stop the build. Empty when there's nothing. */
+  readonly warnings: readonly IndexerWarning[];
 }
 
 export interface RunIndexerOptions {
@@ -558,6 +573,7 @@ export async function runIndexer(
     return undefined;
   };
   const fileErrors: IndexerError[] = [];
+  const warnings: IndexerWarning[] = [];
 
   for (const { relPath, expectedKind } of discovered) {
     const bundle = bundleMap?.[relPath];
@@ -644,6 +660,7 @@ export async function runIndexer(
           fileErrors.push(reserved);
           continue;
         }
+        warnings.push(...unprefixedChecksIn(unwrapped, module_, relPath, config.pack.id));
         const duplicate = duplicateOf('guardrail', built.value.id, undefined, relPath);
         if (duplicate !== undefined) {
           fileErrors.push(duplicate);
@@ -723,6 +740,7 @@ export async function runIndexer(
       },
       outputPath,
       fileErrors,
+      warnings,
     },
   };
 }
@@ -1540,6 +1558,38 @@ function reservedCheckIn(
     };
   }
   return undefined;
+}
+
+/**
+ * The check implementations a guardrail module ships (the guardrail's own
+ * `check`, and any check the module exports) whose id doesn't start with
+ * the pack's id: `<packId>.`. Packs on one runtime share one space of
+ * check names, so a check named for its pack can't collide with another
+ * pack's. A warning, never a refusal: the pack builds as it did.
+ */
+function unprefixedChecksIn(
+  guardrail: unknown,
+  module_: unknown,
+  relPath: string,
+  packId: string,
+): IndexerWarning[] {
+  const candidates: unknown[] = [
+    isObject(guardrail) ? (guardrail as Record<string, unknown>).check : undefined,
+    ...(isObject(module_) ? Object.values(module_ as Record<string, unknown>) : []),
+  ];
+  const ids = new Set<string>();
+  for (const c of candidates) {
+    if (!isObject(c)) continue;
+    const rec = c as Record<string, unknown>;
+    if (typeof rec.id !== 'string' || typeof rec.evaluate !== 'function') continue;
+    if (!rec.id.startsWith(`${packId}.`)) ids.add(rec.id);
+  }
+  return [...ids].map((id) => ({
+    code: 'check-id-unprefixed',
+    message: `${relPath}: check "${id}" doesn't start with this pack's id ("${packId}."). Name it "${packId}.checks.<name>" so it can't collide with another pack's check on the same runtime. The pack builds as it is.`,
+    filePath: relPath,
+    field: 'check',
+  }));
 }
 
 function buildGuardrail(
