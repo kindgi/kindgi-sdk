@@ -123,12 +123,15 @@ jobs:
       # compiles its fixture pack against the module's classes. Under CI that
       # target fails rather than skip when they're missing. Installed, so the
       # CLI's real Java pack build (tests/java-pack-code.test.ts) finds
-      # kindgi-pack in the local Maven repository too.
+      # kindgi-pack in the local Maven repository too. The cache key hashes the
+      # Java SDK's poms only: by now node_modules is installed, and the default
+      # (every pom.xml in the checkout) walked it for about ten minutes a run.
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
           cache: maven
+          cache-dependency-path: sdks/java/**/pom.xml
       - name: Java pack service (for the pack conformance suite and the CLI's Java builds)
         working-directory: sdks/java
         run: ./mvnw -B -ntp -pl kindgi-pack -am install -DskipTests
@@ -160,13 +163,9 @@ jobs:
       # and search index, from the workspace built above.
       - name: Docs site
         run: pnpm run docs:build
-      # The Java SDK, for the docs' Java samples: they compile against it. It's
-      # installed too, so the Scala layer and the Scala samples resolve kindgi-pack.
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "17"
-          cache: maven
+      # The Java SDK, for the docs' Java samples: they compile against it (on the
+      # Java 17 set up above). It's installed too, so the Scala layer and the
+      # Scala samples resolve kindgi-pack.
       - name: The Java SDK (for the docs' Java and Scala samples)
         working-directory: sdks/java
         run: ./mvnw -B -ntp install -DskipTests
