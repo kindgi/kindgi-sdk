@@ -184,6 +184,7 @@ Then `kindgi health`, `kindgi tools list` and a run, with `--url "$URL" --token 
 
 ## Operating it
 
+- **Client addresses:** the server trusts one proxy, Cloud Run's front end, which appends the caller to `X-Forwarded-For` (`trusted_proxies = "1"`, `KINDGI_TRUSTED_PROXIES`), so rate limits and audit records see the caller. With an external Application Load Balancer in front, set `"2"`: it appends the client and then its own address ([Google: the X-Forwarded-For header](https://docs.cloud.google.com/load-balancing/docs/https#x-forwarded-for_header)).
 - **One server instance** (`server_max_instances = 1`) until several replicas are verified. Migrations run at boot and need a direct database connection (the socket or a private IP, not a transaction pooler).
 - **Upgrades roll forward:** migrations only go forward, so an older runtime can break on a database a newer one migrated. Deploy a new runtime revision at 100% traffic, keep a database backup from before, and roll back by restoring it.
 - **Rotating a secret:** add a version, then roll a new revision of each service that reads it (`gcloud run services update <service> --update-labels=rotated=$(date +%s)`).

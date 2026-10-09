@@ -233,6 +233,16 @@ resource "google_cloud_run_v2_service" "server" {
         name  = "KINDGI_ENV"
         value = var.kindgi_env
       }
+      # The client's address, for rate limits and audit records: Cloud Run's
+      # front end appends the client to X-Forwarded-For (measured live), so
+      # one trusted hop by default.
+      dynamic "env" {
+        for_each = var.trusted_proxies == "" ? [] : [var.trusted_proxies]
+        content {
+          name  = "KINDGI_TRUSTED_PROXIES"
+          value = env.value
+        }
+      }
       dynamic "env" {
         for_each = var.pack_call_timeout_ms == null ? [] : [var.pack_call_timeout_ms]
         content {
