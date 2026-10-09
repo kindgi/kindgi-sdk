@@ -377,7 +377,8 @@ export type IndexerErrorCode =
   | 'zod-conversion-failed'
   | 'manifest-validation-failed'
   | 'output-write-failed'
-  | 'language-mismatch';
+  | 'language-mismatch'
+  | 'reserved-check-id';
 
 export interface IndexerError {
   readonly code: IndexerErrorCode;
@@ -636,6 +637,11 @@ export async function runIndexer(
         const built = buildGuardrail(unwrapped, relPath, zodConverter);
         if (built.kind === 'err') {
           fileErrors.push(built.error);
+          continue;
+        }
+        const reserved = reservedCheckIn(unwrapped, module_, relPath);
+        if (reserved !== undefined) {
+          fileErrors.push(reserved);
           continue;
         }
         const duplicate = duplicateOf('guardrail', built.value.id, undefined, relPath);
@@ -1490,6 +1496,50 @@ function buildTool(
     modulePath: normalizeModulePath(relPath),
   };
   return { kind: 'ok', value: tool };
+}
+
+/**
+ * The built-in checks' ids (`BUILT_IN_CHECK_IDS` in `@kindgi/guardrails`; a test holds the two
+ * equal). A guardrail may name one (`check: 'must-cite'`) and the runtime runs the built-in; a
+ * pack may never ship its own check under one, which the runtime would silently replace.
+ */
+export const RESERVED_CHECK_IDS: readonly string[] = [
+  'must-cite',
+  'never-call-tool',
+  'max-tool-calls',
+  'output-matches',
+  'tool-order',
+  'required-substring',
+  'forbidden-substring',
+];
+
+/**
+ * A check implementation (an object with an `id` and an `evaluate` function) under a built-in
+ * id: the guardrail's own `check`, or any check the module exports. Naming a built-in by its id
+ * (a string) is the way to use it, and is fine.
+ */
+function reservedCheckIn(
+  guardrail: unknown,
+  module_: unknown,
+  relPath: string,
+): IndexerError | undefined {
+  const candidates: unknown[] = [
+    isObject(guardrail) ? (guardrail as Record<string, unknown>).check : undefined,
+    ...(isObject(module_) ? Object.values(module_ as Record<string, unknown>) : []),
+  ];
+  for (const c of candidates) {
+    if (!isObject(c)) continue;
+    const rec = c as Record<string, unknown>;
+    if (typeof rec.id !== 'string' || typeof rec.evaluate !== 'function') continue;
+    if (!RESERVED_CHECK_IDS.includes(rec.id)) continue;
+    return {
+      code: 'reserved-check-id',
+      message: `${relPath} ships its own check under "${rec.id}", a built-in check's id: a pack can't replace a built-in. Rename your check (for example "<pack>.checks.${rec.id}"), or, to use the built-in, name it (check: '${rec.id}') and drop your implementation.`,
+      filePath: relPath,
+      field: 'check',
+    };
+  }
+  return undefined;
 }
 
 function buildGuardrail(
