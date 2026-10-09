@@ -11,6 +11,7 @@ import type { Timestamp } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import { encodeSessionToken } from '../middleware/auth.js';
+import { withholdFromReplay } from '../middleware/idempotency.js';
 import type { SessionStoreBinding } from '../session-store-binding.js';
 import type { AppEnv } from '../types.js';
 
@@ -125,6 +126,9 @@ export function tokenSignInRouter(options: TokenSignInRouteOptions): Hono<AppEnv
       }
     }
 
+    // The session is in the cookie, which a stored answer doesn't keep: a
+    // repeat with the same Idempotency-Key is refused, not "signed in".
+    withholdFromReplay(c);
     return c.json({ userId, expiresAt: new Date(expires).toISOString() });
   });
 

@@ -20,6 +20,7 @@ import type {
 } from '../identity-provider-binding.js';
 import { encodeSessionToken } from '../middleware/auth.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { withholdFromReplay } from '../middleware/idempotency.js';
 import type {
   Session,
   SessionCreateOutput,
@@ -507,6 +508,8 @@ export function authRouters(options: AuthRouterOptions): {
     // a full re-auth.
     await sessionStore.revoke({ tenantId, sessionId, reason: 'rotate' });
 
+    // A session token: an Idempotency-Key repeat doesn't get it.
+    withholdFromReplay(c);
     return c.json({
       sessionToken: created.rawToken,
       sessionId: created.session.id,
@@ -620,6 +623,8 @@ export function authRouters(options: AuthRouterOptions): {
         ...(outcome.claims !== undefined && { metadata: outcome.claims }),
       });
 
+      // A session token: an Idempotency-Key repeat doesn't get it.
+      withholdFromReplay(c);
       c.status(201);
       return c.json({
         sessionToken: sessionTokenOf(created),
