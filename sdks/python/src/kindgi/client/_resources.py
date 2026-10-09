@@ -305,6 +305,9 @@ OPERATIONS: dict[str, Operation] = {
     "proposals.evaluate": Operation(
         "proposals.evaluate", "POST", "/v1/proposals/{proposalId}/evaluate", "json", True
     ),
+    "proposals.rescore": Operation(
+        "proposals.rescore", "POST", "/v1/proposals/{proposalId}/rescore", "json", True
+    ),
     "proposals.request": Operation(
         "proposals.request", "POST", "/v1/proposals/{proposalId}/request", "json", True
     ),
@@ -3205,6 +3208,27 @@ class ProposalsResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.EvaluateProposalBody, body, fields),
+            response=_models.FixProposal,
+            timeout=timeout,
+        )
+
+    def rescore(
+        self,
+        proposal_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.FixProposal:
+        """Rescore a proposal's latest evaluation. `POST /v1/proposals/{proposalId}/rescore`
+
+        After people judge a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison eval run scores the same replays again, counting those judgments, as `POST /v1/eval-runs/{runId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the proposal's evaluation, so the proposal is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.
+        """
+        return self._client._request(
+            _OPERATIONS["proposals.rescore"],
+            path={"proposalId": proposal_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
             response=_models.FixProposal,
             timeout=timeout,
         )
@@ -9950,6 +9974,27 @@ class AsyncProposalsResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.EvaluateProposalBody, body, fields),
+            response=_models.FixProposal,
+            timeout=timeout,
+        )
+
+    async def rescore(
+        self,
+        proposal_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.FixProposal:
+        """Rescore a proposal's latest evaluation. `POST /v1/proposals/{proposalId}/rescore`
+
+        After people judge a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison eval run scores the same replays again, counting those judgments, as `POST /v1/eval-runs/{runId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the proposal's evaluation, so the proposal is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.
+        """
+        return await self._client._request(
+            _OPERATIONS["proposals.rescore"],
+            path={"proposalId": proposal_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
             response=_models.FixProposal,
             timeout=timeout,
         )

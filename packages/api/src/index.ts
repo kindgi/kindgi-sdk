@@ -712,6 +712,7 @@ export {
 export type {
   DraftProposalInput,
   EvaluateProposalInput,
+  RescoreProposalInput,
   ProposalFacts,
   ProposalOutcome,
   ProposalService,

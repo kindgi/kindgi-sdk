@@ -9,6 +9,7 @@ import { type Action, ref } from '@kindgi/authz';
 import type { Cursor, FlowId, ProjectId, RunId, Semver, TenantId, Timestamp } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
+import { rescoreRefusal, rescoreStart } from '../eval-rescore.js';
 import {
   type AgentRef,
   EVAL_RUN_STATUSES,
@@ -20,7 +21,7 @@ import {
   type EvalRunStatus,
   type FlowRef,
 } from '../eval-run-binding.js';
-import { DEFAULT_COMPARISON, VERSIONS_NEED_A_FLOW } from '../judged-dispatcher.js';
+import { VERSIONS_NEED_A_FLOW } from '../judged-dispatcher.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
 import { deniedBy } from './denied.js';
@@ -402,17 +403,11 @@ function readbackRouter(binding: EvalRunBinding, authorizer?: Authorizer): Hono<
         ),
       );
     }
-    if (run.kind !== 'judged' || run.status !== 'completed') {
+    const notRescorable = rescoreRefusal(run);
+    if (notRescorable !== undefined) {
       c.status(statusFor('eval-run-not-rescorable') as never);
       return c.json(
-        toWireError(
-          {
-            code: 'eval-run-not-rescorable',
-            message: `Eval run ${runId} can't be rescored: only a completed comparison of a test set can (this one is a ${run.kind} run, ${run.status}).`,
-            runId,
-          },
-          requestId,
-        ),
+        toWireError({ code: 'eval-run-not-rescorable', message: notRescorable, runId }, requestId),
       );
     }
     const body = (await c.req.json().catch(() => ({}))) as { projectId?: unknown } | null;
@@ -436,20 +431,7 @@ function readbackRouter(binding: EvalRunBinding, authorizer?: Authorizer): Hono<
     }
     const denied = await deniedBy(authorizer, c, 'write', ref('project', projectId as string));
     if (denied !== undefined) return denied;
-    const outcome = await binding.start({
-      tenantId,
-      projectId,
-      suiteId: run.suiteId,
-      suiteVersion: run.suiteVersion,
-      ...(run.agentRef !== undefined && { agentRef: run.agentRef }),
-      ...(run.flowRef !== undefined && { flowRef: run.flowRef }),
-      // A comparison started without settings ran the defaults.
-      comparison: {
-        ...(run.comparison ?? DEFAULT_COMPARISON),
-        rescoreOf: run.runId as unknown as string,
-      },
-    });
-    return startAnswer(c, requestId, outcome);
+    return startAnswer(c, requestId, await binding.start(rescoreStart(run, projectId)));
   });
 
   // ---------- POST /:runId/cancel ----------
