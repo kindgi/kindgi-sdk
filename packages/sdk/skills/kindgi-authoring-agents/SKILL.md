@@ -183,7 +183,7 @@ export default defined.value;
   reliable tool calling. `{ instructionTypes: ['acme.policy'] }` turns a
   retrieved, verified fact of those types into an instruction
   ("Policies (verified)"). See
-  https://docs.kindgi.com/guides/agents/give-an-agent-memory/.
+  https://docs.kindgi.com/v0.1/guides/agents/give-an-agent-memory/.
 
 ## What a turn receives
 

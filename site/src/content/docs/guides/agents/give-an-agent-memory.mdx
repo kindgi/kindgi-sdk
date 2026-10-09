@@ -252,6 +252,12 @@ The agent remembers through a tool call, so it needs a model with reliable
 tool calling: some small local models write the call as text instead, and
 nothing is remembered ([Models](../../models/)).
 
+An agent with tool approval gates (`conversationPolicy.hitl.tools`) should
+set `kindgi_remember` to `never_ask` in its `overrides`. Remembering changes
+something, so otherwise every remember waits for a person; the review rule
+above already decides which facts need one
+([Ask before a tool runs](../../approvals/ask-before-a-tool-runs/)).
+
 Here `acme.desk`, whose instructions say to "call kindgi_remember to store it
 before you answer", took a turn on a small local model (a real model's
 wording differs). Its first call left out `type`; the tool's validation said

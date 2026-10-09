@@ -176,7 +176,7 @@ brief_writer = Agent(
   one person, or instruction-like text, waits for a person's approval.
   Use a model with reliable tool calling. `{"instructionTypes":
   ["acme.policy"]}` makes a retrieved, verified fact of those types an
-  instruction. See https://docs.kindgi.com/guides/agents/give-an-agent-memory/.
+  instruction. See https://docs.kindgi.com/v0.1/guides/agents/give-an-agent-memory/.
 
 ## Which model answers
 
