@@ -36,7 +36,7 @@ import { ALLOWED_TERMS, ID_MARKERS, MARKERS, loadNames, scanText } from './text-
 const NAME = 'check-pr-text';
 
 /** What a pull request's own text is checked for. */
-const PR_RULES = {
+export const PR_RULES = {
   markers: [...MARKERS, ...ID_MARKERS],
   allowed: ALLOWED_TERMS.map((t) => t.term),
 };

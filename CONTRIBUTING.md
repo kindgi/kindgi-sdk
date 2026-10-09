@@ -73,7 +73,8 @@ A check on the pull request asks for any of them that's missing.
   `pnpm run check:refs` (CI) checks files; the **PR text** check checks a
   pull request's own text, and runs again when you edit the description.
   A pull request's text also leaves out internal tracking references
-  (ticket and step ids, process rule numbers, release batch names), and
+  (ticket and step ids, process rule numbers, release batch names,
+  working session names), and
   its commits are public too: the commit-msg hook
   (`scripts/hooks/commit-msg`, installed by `pnpm install`) refuses such
   a message before the commit exists, while rewording is still easy. A

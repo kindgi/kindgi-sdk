@@ -40,7 +40,8 @@ export const MARKERS = [
  * Internal tracking references, for a pull request's own text
  * (`check-pr-text.mjs`, and the `commit-msg` hook): a ticket id (`T123`),
  * a step or check id (`M-2`, `L-A5`), a process rule's number, a release
- * batch's name. They mean nothing outside the team, and a pull request's
+ * batch's name, a working session's name (`w3`). They mean nothing
+ * outside the team, and a pull request's
  * commits are public, though the squash commit leaves them out. Files
  * aren't checked for these (yet). A real term that looks like one goes in
  * `ALLOWED_TERMS`.
@@ -50,28 +51,35 @@ export const ID_MARKERS = [
   [/\bT[0-9]{2,4}[a-z]?\b(?!:[0-9])/, 'internal tracking id'],
   // One digit, or a letter and one or two: `A-1042` (an order id in a sample) isn't one.
   [/\b[A-Z]-(?:[0-9]|[A-Z][0-9]{1,2})[a-z]?\b/, 'internal step id'],
-  // Two digits or more: the pack protocol's version (`protocol 2`, `2.5.0`) is a real term.
-  [/\bprotocol [0-9]{2,}\b/i, 'internal process rule'],
+  // A dotted version (`protocol 2.5.0`) is a real term; the pack protocol's `protocol 2` is allowed.
+  [/\bprotocol [0-9]+\b(?![.][0-9])/i, 'internal process rule'],
   [/\bwave [0-9]+\b/i, 'internal release batch'],
   [/\bpin[ -]batch(?:es)?\b/i, 'internal release batch'],
+  // Lower case and whole: `W3C` and `w3c` aren't one.
+  [/\bw[1-9]\b/, 'internal session name'],
 ];
 
 /**
  * Real terms that look like internal references (`ID_MARKERS`), each with
- * why it's real: they're blanked out of a line before it's checked. Empty
- * for now: tried on every commit message on main, the rules hit only real
- * internal references.
+ * why it's real: they're blanked out of a line, as whole words and in any
+ * case, before it's checked. Tried on every commit message on main, the
+ * rules hit only real internal references, and these.
  *
  * @type {readonly { term: string, why: string }[]}
  */
-export const ALLOWED_TERMS = [];
+export const ALLOWED_TERMS = [
+  {
+    term: 'protocol 2',
+    why: "the pack protocol's major version, as the pack service's startup line says it",
+  },
+];
 
-/** `line` with each allowed term, as a whole word, blanked out. */
+/** `line` with each allowed term, as a whole word in any case, blanked out. */
 function withoutAllowed(line, allowed) {
   let out = line;
   for (const term of allowed) {
     const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    out = out.replace(new RegExp(`(?<![A-Za-z0-9_])${escaped}(?![A-Za-z0-9_])`, 'g'), (hit) =>
+    out = out.replace(new RegExp(`(?<![A-Za-z0-9_])${escaped}(?![A-Za-z0-9_])`, 'gi'), (hit) =>
       ' '.repeat(hit.length),
     );
   }

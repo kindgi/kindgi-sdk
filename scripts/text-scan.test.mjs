@@ -15,16 +15,8 @@ import { join } from 'node:path';
 import { after, describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { commitMessageText, prTextProblems, prTexts } from './check-pr-text.mjs';
-import {
-  ID_MARKERS,
-  MARKERS,
-  NAME_HIT,
-  loadNames,
-  nameHits,
-  scanText,
-  tokenize,
-} from './text-scan.mjs';
+import { PR_RULES, commitMessageText, prTextProblems, prTexts } from './check-pr-text.mjs';
+import { NAME_HIT, loadNames, nameHits, scanText, tokenize } from './text-scan.mjs';
 
 const SALT = 'kindgi-names-v1';
 const hash = (text) => createHash('sha256').update(`${SALT}:${text}`).digest('hex');
@@ -135,7 +127,7 @@ describe('check-pr-text', () => {
 });
 
 describe("internal tracking references, in a pull request's text", () => {
-  const pr = { names, markers: [...MARKERS, ...ID_MARKERS] };
+  const pr = { ...PR_RULES, names };
   const whats = (text, options = pr) => scanText(text, options).map((p) => p.what);
 
   test('ticket, step and check ids, process rule numbers, release batches', () => {
@@ -146,6 +138,8 @@ describe("internal tracking references, in a pull request's text", () => {
       'internal step id',
     ]);
     assert.deepEqual(whats(`additive (${ref('protocol ', 16)})`), ['internal process rule']);
+    assert.deepEqual(whats(`asked first (${ref('protocol ', 4)})`), ['internal process rule']);
+    assert.deepEqual(whats(`found by ${ref('w', 3)}, reviewed`), ['internal session name']);
     assert.deepEqual(whats(`0.1.5, ${ref('wave ', 2)}`), ['internal release batch']);
     assert.deepEqual(whats(`after ${ref('pin ', 'batch')} 24`), ['internal release batch']);
   });
@@ -157,6 +151,8 @@ describe("internal tracking references, in a pull request's text", () => {
       'an NVIDIA T4',
       '{"orderId":"A-1042"}',
       'pack protocol 2.5.0, and the log line says protocol 2',
+      'Protocol 2, the pack protocol',
+      'per the W3C and the w3c validator',
       'ECDSA over P-256, SHA-1, UTF-8, ISO-8859-1',
       'a wave of retries',
     ]) {
@@ -170,6 +166,7 @@ describe("internal tracking references, in a pull request's text", () => {
 
   test('an allowed term is blanked out, as a whole word only', () => {
     const allowed = { ...pr, allowed: [ref('X-', 1)] };
+    assert.deepEqual(whats(`the ${ref('x-', 1)} board`, allowed), []);
     assert.deepEqual(whats(`the ${ref('X-', 1)} board`, allowed), []);
     assert.deepEqual(whats(`the ${ref('X-', 1)} and ${ref('Y-', 1)}`, allowed), [
       'internal step id',
