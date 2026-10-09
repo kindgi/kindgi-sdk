@@ -12,5 +12,12 @@ export {
   kindOf,
   modelProviderError,
 } from './errors.js';
-export { backoffMs, type RetryPolicy, type RetryableFailure, withRetries } from './retries.js';
+export {
+  MAX_VENDOR_WAIT_MS,
+  backoffMs,
+  type RetryPolicy,
+  type RetryableFailure,
+  vendorWaitMs,
+  withRetries,
+} from './retries.js';
 export { type TokenCostOptions, tokenCostUsd } from './cost.js';

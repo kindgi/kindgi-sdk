@@ -34,13 +34,25 @@ export class ModelProviderError extends Error {
 
 /** A failed HTTP response, as the library that sent it reports it. */
 export interface FailedResponse {
-  /** Absent: no response at all (a dropped connection, DNS, TLS). */
+  /** Absent: no response at all (a dropped connection, DNS, TLS), or one with no status to read. */
   readonly status?: number;
   /** The response body, or the library's message when there's none. */
   readonly words: string;
+  /**
+   * The kind, when the engine knows it better than a status can say (an answer the library
+   * couldn't read is `unavailable`, though it came with none). Absent: from the status.
+   */
+  readonly kind?: ModelProviderErrorKind;
 }
 
-const CONTEXT_TOO_LONG = /context|too long|maximum.{0,20}tokens|exceeds|token limit/i;
+/**
+ * The vendors' own words for a prompt too long for the model (OpenAI and Azure's
+ * `context_length_exceeded` / "maximum context length", Anthropic's "prompt is too long",
+ * Bedrock's "Input is too long", Gemini's "exceeds the maximum number of tokens"), not any
+ * mention of "context" or "exceeds" (`Invalid value for 'context'` is a bad request).
+ */
+const CONTEXT_TOO_LONG =
+  /context[_ -]?length|context window|maximum context|prompt is too long|input is too long|too many tokens|token limit|exceeds the maximum (number of )?(input )?tokens|input token count/i;
 const CONTENT_FILTER =
   /content.?filter|filtered|content management|safety|responsible ?ai|content_policy|blocked/i;
 
@@ -54,10 +66,13 @@ const WORDED = new Set([400, 413, 422]);
  */
 export function kindOf(failure: FailedResponse): ModelProviderErrorKind {
   const { status, words } = failure;
+  if (failure.kind !== undefined) return failure.kind;
   if (status === undefined) return 'network';
   if (status === 401 || status === 403) return 'auth';
   if (status === 429) return 'rate-limited';
-  if (status === 408 || status >= 500) return 'unavailable';
+  // 408: the vendor timed out; 409: a conflict it says to retry; 424: the model failed
+  // (Bedrock's ModelErrorException). None is the caller's request at fault.
+  if (status === 408 || status === 409 || status === 424 || status >= 500) return 'unavailable';
   if (WORDED.has(status) && CONTEXT_TOO_LONG.test(words)) return 'context-too-long';
   if (WORDED.has(status) && CONTENT_FILTER.test(words)) return 'content-filter';
   return 'invalid-request';
