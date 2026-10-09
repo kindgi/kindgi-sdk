@@ -60,6 +60,21 @@ export interface SessionStoreBinding {
    * as `get` does.
    */
   readonly touch?: (input: SessionTouchInput) => Promise<SessionTouchOutcome>;
+  /**
+   * End every live session one provider opened, in one tenant: the console
+   * sessions an API key opened (`api-token:<tokenId>`, from token sign-in)
+   * when it's revoked; an identity provider's sign-ins when it's removed.
+   * Absent → those sessions run until they expire.
+   */
+  readonly revokeByProvider?: (
+    input: SessionRevokeByProviderInput,
+  ) => Promise<SessionRevokeAllForUserOutcome>;
+}
+
+export interface SessionRevokeByProviderInput {
+  readonly tenantId: TenantId;
+  /** The `providerId` the sessions were created with. */
+  readonly providerId: string;
 }
 
 export interface SessionResolveTokenInput {

@@ -15,8 +15,8 @@ import { describe, expect, test } from 'vitest';
 import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
 import type { BlobMeta, BlobStorageBinding } from '@kindgi/blob-binding';
 import type { RunBinding } from '@kindgi/runtime';
-import { createStubAppBindings } from '@kindgi/testing';
 import type { ArtifactId, ProjectId, RunId, TenantId, Timestamp, UserId } from '@kindgi/types';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type { RunHandlerBinding, TokenResolver } from '../src/index.js';

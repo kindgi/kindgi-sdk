@@ -99,6 +99,19 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
     if (sessionId !== undefined) body.sessionId = sessionId;
     if (providerId !== undefined) body.providerId = providerId;
     body.scopes = scopes;
+    // Whether the caller is a tenant admin, as the admin routes decide it:
+    // what a console shows admin pages by (scopes are what a credential may
+    // do; admin is a role, from the authorizer when there is one). whoami
+    // is how a console starts, so an authorization store that can't answer
+    // leaves the field out (a console then reads `scopes`) instead of
+    // failing the whole answer.
+    try {
+      body.tenantAdmin = await isTenantAdmin(c, authorizer);
+    } catch (cause) {
+      c.get('log').warn(
+        `whoami: couldn't tell whether the caller is a tenant admin, so tenantAdmin is left out: ${cause instanceof Error ? cause.message : String(cause)}`,
+      );
+    }
     if (reviewerRole !== undefined) body.reviewerRole = reviewerRole;
     Object.assign(body, keyFacts(c));
 
@@ -307,7 +320,12 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
 
     let outcome: Awaited<ReturnType<IdentityDirectoryBinding['revokeAllSessions']>>;
     try {
-      outcome = await directory.revokeAllSessions({ tenantId, userId });
+      const revokedBy = callerRef(c);
+      outcome = await directory.revokeAllSessions({
+        tenantId,
+        userId,
+        ...(revokedBy !== undefined && { revokedBy }),
+      });
     } catch (err) {
       c.status(statusFor('identity-revoke-failed') as never);
       return c.json(
