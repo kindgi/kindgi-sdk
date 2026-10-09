@@ -66,6 +66,21 @@ exception. At the deadline, or when the caller goes away, the call is
 answered `deadline-exceeded` or `cancelled`, but a Scala `Future` has no way
 to stop. Stop the work behind it with `ctx.cancellation.onCancel(() => …)`.
 
+### Logging
+
+A handler logs beneath its call with `ctx.log`, whose records carry the
+call's ids and trace. Fields go as pairs or a Scala map:
+
+```scala
+ctx.log.info("looked up order", "orderId" -> order.id)
+ctx.log.warn("retrying the lookup", e)
+```
+
+A case class is written as an object of its fields, so a field that looks
+secret (`apiKey`, `password`, …) is redacted by its name. The records, their
+settings (`KINDGI_LOG_*`) and the redaction are kindgi-pack's: see
+[its README](../java/kindgi-pack/README.md#index-and-serve).
+
 ### Schemas you give
 
 When a type can't say it, `Tool.json` takes the schemas as Scala maps. Its

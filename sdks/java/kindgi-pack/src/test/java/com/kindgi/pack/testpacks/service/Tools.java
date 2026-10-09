@@ -84,5 +84,16 @@ public final class Tools {
         return future;
       });
 
+  /**
+   * Logs through its context: a record with a field, and one that tries to show the context itself
+   * (its secrets must not appear).
+   */
+  public static final Tool<Map<String, Object>, Map<String, Object>> LOGS = Tool.define("acme.logs")
+      .handler((input, ctx) -> {
+        ctx.log().info("looked up order", Map.of("orderId", "o-1"));
+        ctx.log().info("the context is " + ctx, Map.of("ctx", ctx, "seen", ctx.secrets().keySet()));
+        return Map.of("logged", 2);
+      });
+
   private Tools() {}
 }

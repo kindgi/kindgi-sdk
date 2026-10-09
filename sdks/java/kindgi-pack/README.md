@@ -207,9 +207,9 @@ config type.
 
 A handler gets a `ToolContext`: `tenantId()`, `runId()`, `requestId()`,
 `projectId()`, `orgId()`, the call's `env()`, `secrets()` and `config()`,
-and the `settings()` blocks its agent pins. Printing the context, or its
-`secrets()`, shows the secrets' names, never their values, and the context's
-JSON leaves them out.
+the `settings()` blocks its agent pins, and `log()`, a logger bound to the
+call (below). Printing the context, or its `secrets()`, shows the secrets'
+names, never their values, and the context's JSON leaves them out.
 
 At its deadline (`kindgi-timeout-ms`, 120 s by default), or when the caller
 goes away, the call is answered `deadline-exceeded` or `cancelled`. The
@@ -271,16 +271,41 @@ one line for tools to read.
 
 The service runs the process contract every pack service does: `PORT`,
 `KINDGI_PACK_SERVICE_TOKEN`, `KINDGI_PACK_SERVICE_MAX_CONCURRENCY` (32),
-`KINDGI_PACK_ENV_CHECK` (`strict` or `warn`), and the `listening`,
-`boot-failed` and `call` lines on stderr. SIGTERM drains in-flight calls for
-up to 8 seconds and exits 0. It passes the same conformance suite as the
-TypeScript and Python services (`packages/pack-conformance`).
+`KINDGI_PACK_ENV_CHECK` (`strict` or `warn`), and log records on stderr.
+SIGTERM drains in-flight calls for up to 8 seconds and exits 0. It passes the
+same conformance suite as the TypeScript and Python services
+(`packages/pack-conformance`).
 
-**Logging:** the service writes those events as plain JSON lines, one per
-line on stderr. The TypeScript and Python services' `@kindgi/log` records
-(levels and redaction set by `KINDGI_LOG_*`) and the handler's `ctx.log`
-aren't in the Java service yet. Until then, a handler logs with your app's
-own logger.
+**Logging:** the service writes the same log records as the TypeScript and
+Python services and the runtime, one JSON object per line on stderr,
+subsystem `pack`:
+
+- one per call, at `info` (`warn` when the call fails): `tool acme.lookup ok
+  12ms`, with the call's `tenantId`, `runId`, `requestId` and `toolId`, and
+  the caller's `traceId` with a span of the call's own;
+- the lifecycle (`listening` with its port, `boot-failed`, `config-invalid`,
+  `draining`, `stopped`), whatever the levels.
+
+`KINDGI_LOG_LEVEL` (`info`), `KINDGI_LOG_LEVELS` (`pack=debug`, say) and
+`KINDGI_LOG_FORMAT` (`auto`, `json` or `pretty`; `auto` is JSON unless the
+process has a terminal) set them. A bad setting stops the service with a
+`config-invalid` record.
+
+A handler logs beneath its call with `ctx.log()`. Its records (subsystem
+`pack.tool`) carry the call's ids and trace:
+
+```java
+ctx.log().info("looked up order", Map.of("orderId", order.id()));
+ctx.log().warn("retrying the lookup", e);
+```
+
+Pass values as fields, never pasted into the message. Keys that look secret
+(`apiKey`, `password`, `token`, …) and known secret shapes (Kindgi tokens,
+`Bearer …`, a URL's password) are redacted, but pass a secret's name, never
+its value. A record is written as an object of its components; any other
+object as its `toString()`. `ToolContext.forTest()`'s logger writes nothing;
+`ToolContext.forTest(log)` takes yours. The logger is `com.kindgi.log`, in
+this artifact.
 
 **Start it through the launcher** (`kindgi-pack-java`, a POSIX shell script).
 The token authenticates the service's callers. Your code runs in the same JVM

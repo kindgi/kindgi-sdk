@@ -7,6 +7,17 @@ heading into its version.
 
 ## Unreleased
 
+- `kindgi-pack`, `kindgi-pack-scala`: **the Java pack service writes log
+  records**, the same as the TypeScript and Python services' and the
+  runtime's: one per call (`tool acme.lookup ok 12ms`) with the call's ids and
+  the caller's trace, and the lifecycle (`listening`, `boot-failed`, …)
+  whatever the levels. `KINDGI_LOG_LEVEL`, `KINDGI_LOG_LEVELS` and
+  `KINDGI_LOG_FORMAT` set them. A handler logs beneath its call with
+  `ctx.log()` (Scala: `ctx.log.info("looked up order", "orderId" -> id)`), and
+  `ToolContext.forTest(log)` takes a logger for a unit test. `ToolContext`
+  gains the `log` component. The logger, `com.kindgi.log`, redacts
+  secret-looking keys and known secret shapes, and writes exactly the records
+  of `@kindgi/log`'s shared vectors. (#PR)
 - `kindgi-client`: **every 409 is a `ConflictException`.** A 409 whose code the
   client didn't list was a `ServerException`; now it's a conflict, as a 404 is
   a `NotFoundException`. Twenty codes the API documents move, such as
