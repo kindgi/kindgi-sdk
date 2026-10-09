@@ -90,6 +90,13 @@ export interface SignInOption {
   readonly displayName: string;
   /** Where the browser goes to start signing in with this provider. */
   readonly signInUrl: string;
+  /**
+   * Whose it is: a workspace's own identity provider (`tenant`), or one
+   * the deployment offers everyone it has added ("Continue with Google",
+   * `deployment`). A sign-in page shows a workspace's own first. Absent:
+   * `tenant`.
+   */
+  readonly owner?: 'tenant' | 'deployment';
 }
 
 /**

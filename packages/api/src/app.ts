@@ -775,6 +775,15 @@ export interface CreateAppInput {
    */
   readonly signInOptionsRateLimit?: SignInOptionsRateLimit;
   /**
+   * The emailed sign-in link, when the deployment offers it (it serves the
+   * link itself): sign-in options say so, with the captcha's site key.
+   */
+  readonly signInEmailLink?: {
+    readonly captchaSiteKey?: string;
+    /** Whether the link is offered for an email's domain. Absent: every domain. */
+    readonly allowedFor?: (emailDomain: string) => Promise<boolean>;
+  };
+  /**
    * Optional. Signed-deployment ledger — the audit anchor for every
    * `POST /v1/deployments` landing. Caller-plugged per the pattern
    * (e.g. in-memory for tests, a durable store in production). Mount
@@ -1569,6 +1578,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(input.signInOptionsRateLimit !== undefined && {
         rateLimit: input.signInOptionsRateLimit,
       }),
+      ...(input.signInEmailLink !== undefined && { emailLink: input.signInEmailLink }),
     }),
   );
   // Browser sessions need a way out even without identity providers

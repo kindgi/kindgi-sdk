@@ -25,6 +25,17 @@ export interface SignInOptionsRouteOptions {
   readonly identityProvider?: IdentityProviderBinding;
   /** Whether a person may sign in to the console with an API token here. */
   readonly tokenSignIn: boolean;
+  /**
+   * The emailed sign-in link, when the deployment offers it: a sign-in page
+   * shows "Email me a sign-in link", with the Turnstile widget when there's
+   * a site key. `allowedFor`: whether it's offered for an email's domain
+   * (say, not where a workspace signs its people in with its own identity
+   * provider). Absent: for every domain.
+   */
+  readonly emailLink?: {
+    readonly captchaSiteKey?: string;
+    readonly allowedFor?: (emailDomain: string) => Promise<boolean>;
+  };
   readonly rateLimit?: SignInOptionsRateLimit;
 }
 
@@ -102,16 +113,30 @@ export function signInOptionsRouter(options: SignInOptionsRouteOptions): Hono<Ap
       identityProvider?.signInOptions === undefined || emailDomain === undefined
         ? []
         : await identityProvider.signInOptions({ emailDomain });
+    const emailLink = options.emailLink;
+    const linkOffered =
+      emailLink !== undefined &&
+      (emailDomain === undefined ||
+        emailLink.allowedFor === undefined ||
+        (await emailLink.allowedFor(emailDomain)));
     c.header('Cache-Control', 'no-store');
     return c.json({
       data: offered.map((o) => ({
         providerId: o.providerId,
         displayName: o.displayName,
         signInUrl: o.signInUrl,
+        ...(o.owner !== undefined && { owner: o.owner }),
       })),
       methods: {
         identityProviders: identityProvider !== undefined,
         apiToken: options.tokenSignIn,
+        ...(linkOffered && {
+          emailLink: {
+            ...(emailLink.captchaSiteKey !== undefined && {
+              captchaSiteKey: emailLink.captchaSiteKey,
+            }),
+          },
+        }),
       },
     });
   });
