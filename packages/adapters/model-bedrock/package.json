@@ -1,0 +1,49 @@
+{
+  "name": "@kindgi/adapter-model-bedrock",
+  "version": "0.1.4",
+  "description": "Amazon Bedrock ModelProvider for @kindgi/capabilities: Claude, Nova, Llama, Mistral and OpenAI's models on Bedrock's Converse API, by the runtime's AWS identity or a Bedrock API key.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kindgi/kindgi-sdk.git",
+    "directory": "packages/adapters/model-bedrock"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": ["dist", "src", "README.md"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@ai-sdk/amazon-bedrock": "5.0.111",
+    "@kindgi/adapter-model-shared": "workspace:*",
+    "@kindgi/capabilities": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "homepage": "https://github.com/kindgi/kindgi-sdk/tree/main/packages/adapters/model-bedrock#readme",
+  "bugs": {
+    "url": "https://github.com/kindgi/kindgi-sdk/issues"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts"
+}
