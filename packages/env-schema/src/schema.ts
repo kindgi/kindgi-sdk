@@ -326,6 +326,87 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_AUTH_GOOGLE_CLIENT_ID',
+    description:
+      "Turns on \"Continue with Google\": the client id of the deployment's own Google app (an OAuth client (Web application)). People who've been added to a workspace sign in with their Google account, by its verified email. The app allows the redirect URI `<KINDGI_PUBLIC_URL>/auth/kindgi/social/callback/google`. Needs sign-in on (`KINDGI_AUTH_SECRET_PATH`) and the app's secret (`KINDGI_AUTH_GOOGLE_CLIENT_SECRET` or `…_SECRET_PATH`).",
+    example: '',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_AUTH_GOOGLE_CLIENT_SECRET',
+    description:
+      "The Google app's client secret, for platforms that give secrets as environment variables. Set this or `KINDGI_AUTH_GOOGLE_CLIENT_SECRET_PATH`, not both.",
+    example: '',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_AUTH_GOOGLE_CLIENT_SECRET_PATH',
+    description:
+      "A file (mode 0600) holding the Google app's client secret. Set this or `KINDGI_AUTH_GOOGLE_CLIENT_SECRET`, not both.",
+    example: '/etc/kindgi/google-client-secret',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_AUTH_MICROSOFT_CLIENT_ID',
+    description:
+      "Turns on \"Continue with Microsoft\": the client id of the deployment's own Microsoft app (an app registration (multitenant, with the ID-token optional claims `email` and `xms_edov`)). People who've been added to a workspace sign in with their Microsoft account, by its verified email. The app allows the redirect URI `<KINDGI_PUBLIC_URL>/auth/kindgi/social/callback/microsoft`. Needs sign-in on (`KINDGI_AUTH_SECRET_PATH`) and the app's secret (`KINDGI_AUTH_MICROSOFT_CLIENT_SECRET` or `…_SECRET_PATH`).",
+    example: '',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_AUTH_MICROSOFT_CLIENT_SECRET',
+    description:
+      "The Microsoft app's client secret, for platforms that give secrets as environment variables. Set this or `KINDGI_AUTH_MICROSOFT_CLIENT_SECRET_PATH`, not both.",
+    example: '',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_AUTH_MICROSOFT_CLIENT_SECRET_PATH',
+    description:
+      "A file (mode 0600) holding the Microsoft app's client secret. Set this or `KINDGI_AUTH_MICROSOFT_CLIENT_SECRET`, not both.",
+    example: '/etc/kindgi/microsoft-client-secret',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_AUTH_GITHUB_CLIENT_ID',
+    description:
+      "Turns on \"Continue with GitHub\": the client id of the deployment's own GitHub app (an OAuth App). People who've been added to a workspace sign in with their GitHub account, by its verified email. The app allows the redirect URI `<KINDGI_PUBLIC_URL>/auth/kindgi/social/callback/github`. Needs sign-in on (`KINDGI_AUTH_SECRET_PATH`) and the app's secret (`KINDGI_AUTH_GITHUB_CLIENT_SECRET` or `…_SECRET_PATH`).",
+    example: '',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_AUTH_GITHUB_CLIENT_SECRET',
+    description:
+      "The GitHub app's client secret, for platforms that give secrets as environment variables. Set this or `KINDGI_AUTH_GITHUB_CLIENT_SECRET_PATH`, not both.",
+    example: '',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_AUTH_GITHUB_CLIENT_SECRET_PATH',
+    description:
+      "A file (mode 0600) holding the GitHub app's client secret. Set this or `KINDGI_AUTH_GITHUB_CLIENT_SECRET`, not both.",
+    example: '/etc/kindgi/github-client-secret',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_SESSION_TTL_MS',
     description:
       "A browser session's absolute lifetime, in milliseconds: the person signs in again after it. Default 43200000 (12 hours); at least 60000.",
