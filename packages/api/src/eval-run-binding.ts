@@ -174,18 +174,20 @@ export interface EvalComparison {
   /** Which judgments count (absent: `as-recorded`). */
   readonly classWeights?: EvalClassWeights;
   /**
-   * For an agent candidate: settings values its replays run instead of the
-   * version's pinned ones (an improvement pass's search). A comparison
-   * with overrides can't gate a promotion: it didn't run a published version.
+   * For an agent candidate: block content its replays run instead of the
+   * version's pinned content (settings values, a prompt template: an
+   * improvement pass's search). A comparison with overrides can't gate a
+   * promotion: it didn't run a published version.
    */
   readonly overrides?: EvalOverrides;
   /** Only part of the test set's cases (absent: all of them). */
   readonly sample?: EvalSample;
 }
 
-/** Settings values that replace a version's pinned ones, by settings block id. */
+/** Block content that replaces a version's pinned content: settings values and prompt templates, by block id. */
 export interface EvalOverrides {
   readonly settings?: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+  readonly prompts?: Readonly<Record<string, { readonly template: string }>>;
 }
 
 /**

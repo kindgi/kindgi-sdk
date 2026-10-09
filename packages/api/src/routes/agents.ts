@@ -688,6 +688,8 @@ export interface AgentPublishCapabilities {
   readonly semanticSearch?: boolean;
   /** Whether agents can remember (`memory.remember`). Absent: unknown, no warning. */
   readonly remember?: boolean;
+  /** Whether agent turns can recall earlier conversations. Absent: unknown, no warning. */
+  readonly conversationRecall?: boolean;
 }
 
 /**
@@ -712,7 +714,59 @@ function publishWarnings(
           },
         ]
       : []),
+    ...recallWarnings(agent, capabilities),
   ];
+}
+
+/**
+ * Intents over conversations: `same-segment` and `same-project` quote other
+ * people's conversations (always said); on a runtime that can't recall,
+ * every such intent recalls nothing.
+ */
+function recallWarnings(
+  agent: Agent,
+  capabilities: AgentPublishCapabilities,
+): { readonly code: string; readonly message: string }[] {
+  const answers = agent.retrieval.findIndex(
+    (intent) => intent.source === 'conversations' && intent.roles?.includes('agent') === true,
+  );
+  const answersWarning =
+    answers >= 0 && capabilities.conversationRecall !== false
+      ? [
+          {
+            code: 'recall-agent-answers',
+            message: `Retrieval intent ${answers} recalls the agent's own earlier answers: they can carry its earlier mistakes. They are quoted as "earlier answer by the agent, not verified"; recall only the people's own words (the default) to leave them out.`,
+          },
+        ]
+      : [];
+  return [...answersWarning, ...perIntentRecallWarnings(agent, capabilities)];
+}
+
+function perIntentRecallWarnings(
+  agent: Agent,
+  capabilities: AgentPublishCapabilities,
+): { readonly code: string; readonly message: string }[] {
+  return agent.retrieval.flatMap((intent, i) => {
+    if (intent.source !== 'conversations') return [];
+    if (capabilities.conversationRecall === false) {
+      return [
+        {
+          code: 'recall-unavailable',
+          message: `Retrieval intent ${i} recalls earlier conversations, and this runtime can't: it recalls nothing, and each turn's journal says so (no-recall).`,
+        },
+      ];
+    }
+    if (intent.scope === 'same-segment' || intent.scope === 'same-project') {
+      const where = intent.scope === 'same-segment' ? "the run's segment" : "the run's project";
+      return [
+        {
+          code: 'recall-other-people',
+          message: `Retrieval intent ${i} recalls conversations in ${where}, whoever had them: this agent can quote other users' conversations in ${where}. Their messages are marked as another person's, without saying whose.`,
+        },
+      ];
+    }
+    return [];
+  });
 }
 
 function semanticWarnings(agent: Agent): { readonly code: string; readonly message: string }[] {

@@ -488,6 +488,14 @@ const ObservationUntilQueryParam: ParameterSpec = {
   schema: { type: 'string', format: 'date-time' },
 };
 
+const ErasureIdPathParam: ParameterSpec = {
+  name: 'erasureId',
+  in: 'path',
+  required: true,
+  description: 'The erasure (a UUID).',
+  schema: { type: 'string', format: 'uuid' },
+};
+
 const FactIdPathParam: ParameterSpec = {
   name: 'factId',
   in: 'path',
@@ -1291,6 +1299,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'Agent or flow not found; or `projectId` names no project of this tenant (`project-not-found`).',
       ),
       '422': ErrorResponse('Guardrail violation or budget exceeded.'),
+      '409': ErrorResponse(
+        "Idempotency-Key was reused with a different body; or an erasure of the turn's person (its conversation or its `participantId`) is in progress (`erasure-in-progress`): no new turn starts for them until it completes.",
+      ),
       '400': ErrorResponse(
         "Malformed request body, or the body's `projectId` isn't a project id (a UUID).",
       ),
@@ -2893,6 +2904,32 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'post',
+    honoPath: '/v1/conversations/:conversationId/unregister',
+    openapiPath: '/v1/conversations/{conversationId}/unregister',
+    operationId: 'conversations.unregister',
+    summary: 'Unregister a conversation',
+    description:
+      "A tombstone: from now on no read, list or recall of earlier conversations returns it, and no message can be added. The retention sweep removes it after the tenant's grace.",
+    tags: ['conversations'],
+    security: 'bearer',
+    parameters: [ConversationIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '200': {
+        description: 'The conversation, with `unregisteredAt`.',
+        schema: ref('Conversation'),
+      },
+      ...CommonMutationErrors,
+      '400': ErrorResponse('`conversationId` is not a conversation id (a UUID).'),
+      '404': ErrorResponse(
+        'No conversation with that id under this tenant, or it is unregistered already.',
+      ),
+      '501': ErrorResponse(
+        "`conversation-unregister-unsupported`: this runtime can't unregister conversations.",
+      ),
+    },
+  },
+  {
     method: 'get',
     honoPath: '/v1/conversations/:conversationId/messages',
     openapiPath: '/v1/conversations/{conversationId}/messages',
@@ -3002,6 +3039,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'Malformed body, or the fact type requires semantic indexing and no embedding provider is bound.',
       ),
       '403': ErrorResponse("`permission-denied`: the caller may not write in the fact's scope."),
+      '409': ErrorResponse(
+        "Idempotency-Key was reused with a different body; or an erasure of the fact's person (by scope or subject) or conversation is in progress (`erasure-in-progress`): nothing new is stored for them until it completes.",
+      ),
     },
   },
   {
@@ -3098,6 +3138,123 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '501': ErrorResponse(
         "`memory-operation-unsupported`: this runtime's memory can't retrieve by intent.",
       ),
+    },
+  },
+
+  // ---------- memory erasures (a person's words) ----------
+  {
+    method: 'post',
+    honoPath: '/v1/memory/erasures',
+    openapiPath: '/v1/memory/erasures',
+    operationId: 'memory.createErasure',
+    summary: "Erase a person's words",
+    description:
+      "Starts erasing, in the background, one fact (`factId`), a person (`subject`: an app's end user `participant`, or an `external` subject facts name) or one conversation (`conversationId`): their facts, conversations (messages, recall rows), the runs that served them (input, output, journal, snapshots) and the free text they left in provenance; facts written from them go to review. Answers `202` with the erasure; follow it with `GET /v1/memory/erasures/{erasureId}`. A completed erasure keeps no identifier, only a keyed hash for a replay after a backup restore; `warnings` says when this deployment can't keep one (`erasure-unmatchable`: no erasure ledger key, `KINDGI_ERASURE_LEDGER_KEY`). Requires `admin` on the tenant.",
+    tags: ['memory'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('CreateMemoryErasureBody') },
+    responses: {
+      '202': { description: 'Started.', schema: ref('MemoryErasureCreated') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "Not exactly one of `factId`, `subject` or `conversationId`; or a `subject` of kind `user` (erasing a Kindgi user isn't offered).",
+      ),
+      '403': ErrorResponse('Not a tenant admin.'),
+      '409': ErrorResponse(
+        '`legal-hold`: a fact it reaches is under legal hold (`details.factIds`); nothing started.',
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/memory/erasures',
+    openapiPath: '/v1/memory/erasures',
+    operationId: 'memory.listErasures',
+    summary: 'List erasures',
+    description:
+      'Cursor-paginated, newest first: each erasure, how far it got and what it cleared. A completed one shows no selector. Requires `admin` on the tenant.',
+    tags: ['memory'],
+    security: 'bearer',
+    parameters: [LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': { description: 'Page of erasures.', schema: ref('MemoryErasurePage') },
+      ...CommonAuthErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
+      '400': ErrorResponse('`cursor` is not one this list issued.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/memory/erasures/export',
+    openapiPath: '/v1/memory/erasures/export',
+    operationId: 'memory.exportErasures',
+    summary: 'Export the erasure ledger',
+    description:
+      "The whole ledger, oldest first, content-free: each erasure's selector kind, the keyed hash of whom it erased, who asked and when. Keep it off-box: restoring a backup rolls the ledger back too, and `POST /v1/memory/erasures/replay` with it runs the erasures again. Requires `admin` on the tenant.",
+    tags: ['memory'],
+    security: 'bearer',
+    responses: {
+      '200': { description: 'The ledger.', schema: ref('MemoryErasureLedger') },
+      ...CommonAuthErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/memory/erasures/replay',
+    openapiPath: '/v1/memory/erasures/replay',
+    operationId: 'memory.replayErasures',
+    summary: 'Replay erasures after a backup restore',
+    description:
+      "Takes the ledger `GET /v1/memory/erasures/export` gave, puts back the rows the restore lost, and finds each erasure's person (or fact, or conversation) again by its keyed hash: those run again (`replayed`); ones nothing in the tenant matches are only restored (`restored`); ones with no keyed hash, or a key this deployment doesn't hold, are `unmatched`. Requires `admin` on the tenant.",
+    tags: ['memory'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('ReplayMemoryErasuresBody') },
+    responses: {
+      '200': { description: 'What was replayed.', schema: ref('ReplayMemoryErasuresResult') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse('Not `{erasures: [...]}` as the export gave them.'),
+      '403': ErrorResponse('Not a tenant admin.'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/memory/erasures/:erasureId/resume',
+    openapiPath: '/v1/memory/erasures/{erasureId}/resume',
+    operationId: 'memory.resumeErasure',
+    summary: 'Resume an erasure',
+    description:
+      "Tries an unfinished erasure again now. With `force: true`, an erasure `waiting-on-run` (a turn of the person's in a flow that serves other people) stops waiting: the run is cancelled and the erasure goes on; without it, it waits until its deadline (`waitingOn.until`). A finished erasure comes back as it is. Requires `admin` on the tenant.",
+    tags: ['memory'],
+    security: 'bearer',
+    parameters: [ErasureIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: false, schema: ref('ResumeMemoryErasureBody') },
+    responses: {
+      '200': { description: 'The erasure.', schema: ref('MemoryErasure') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse('The body is `{force?: boolean}`.'),
+      '403': ErrorResponse('Not a tenant admin.'),
+      '404': ErrorResponse('No such erasure in this tenant.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/memory/erasures/:erasureId',
+    openapiPath: '/v1/memory/erasures/{erasureId}',
+    operationId: 'memory.getErasure',
+    summary: 'Get an erasure',
+    description:
+      'One erasure: its status (`pending`, `running`, `completed`, `failed`), phase, what each store cleared (`counts`), and `lastError` (a code, or `not-yet:<reason>` while it waits for a run to finish). Requires `admin` on the tenant.',
+    tags: ['memory'],
+    security: 'bearer',
+    parameters: [ErasureIdPathParam],
+    responses: {
+      '200': { description: 'The erasure.', schema: ref('MemoryErasure') },
+      ...CommonAuthErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
+      '404': ErrorResponse('No such erasure in this tenant.'),
     },
   },
 
@@ -3773,6 +3930,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '404': ErrorResponse('`run-not-found`.'),
       '409': ErrorResponse('`run-not-finished`: the run has no output to judge yet.'),
+      '410': ErrorResponse(
+        "`run-erased`: an erasure cleared the run's content (a person's words were removed); there's nothing to judge.",
+      ),
     },
   },
   {
@@ -4558,7 +4718,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'evalSuites.buildFromJudgments',
     summary: 'Build a test set from judgments',
     description:
-      "Publishes a `judged` eval suite version whose cases are copies of judged runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the judged output, and each item's judgments summed up: yes and no counts, the weight behind yes and behind all judgments (an unclassified judgment counts 1), and the reasons. `judgeClassIds` counts only judgments of those classes; `minJudgments` leaves out runs with fewer. Needs `admin` on the project.",
+      "Publishes a `judged` eval suite version whose cases are copies of judged runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the judged output, and each item's judgments summed up: yes and no counts, the weight behind yes and behind all judgments (an unclassified judgment counts 1), and the reasons. `judgeClassIds` counts only judgments of those classes; `minJudgments` leaves out runs with fewer; `segments` keeps only runs started in that segment path or below it. Needs `admin` on the project.",
     tags: ['eval-suites'],
     security: 'bearer',
     parameters: [EvalSuiteIdPathParam, IdempotencyKeyParam],

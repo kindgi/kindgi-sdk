@@ -105,6 +105,8 @@ export type ProposalDrafter =
       readonly kind: 'settings-optimizer' | 'prompt-drafter';
       readonly version: string;
       readonly model?: { readonly providerId: string; readonly model: string };
+      /** The improvement pass that drafted it. */
+      readonly passId?: string;
     };
 
 /** What a proposal rests on. */

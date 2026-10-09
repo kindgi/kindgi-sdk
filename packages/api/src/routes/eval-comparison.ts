@@ -90,25 +90,49 @@ function integerIn(raw: unknown, name: string, max: number): number | string {
     : `\`${name}\` must be an integer from 1 to ${max}`;
 }
 
-/** `overrides: { settings: { blockId: { … } } }`; `undefined` when it names nothing. */
+/** `overrides: { settings?, prompts? }`; `undefined` when it names nothing. */
 function parseOverrides(raw: unknown): EvalOverrides | undefined | string {
   const o = obj(raw);
-  if (o === undefined) return '`overrides` must be an object: { settings: { blockId: { … } } }';
-  const extra = Object.keys(o).filter((key) => key !== 'settings');
-  if (extra.length > 0) return `\`overrides\` takes \`settings\`, not \`${extra[0]}\``;
-  if (o.settings === undefined) return undefined;
-  const settings = obj(o.settings);
-  const blocks = settings === undefined ? [] : Object.entries(settings);
+  if (o === undefined) return '`overrides` must be an object: { settings?, prompts? }';
+  const extra = Object.keys(o).filter((key) => key !== 'settings' && key !== 'prompts');
+  if (extra.length > 0) {
+    return `\`overrides\` takes \`settings\` and \`prompts\`, not \`${extra[0]}\``;
+  }
+  const settings = o.settings === undefined ? {} : obj(o.settings);
+  const prompts = o.prompts === undefined ? {} : obj(o.prompts);
+  const settingsBlocks = settings === undefined ? [] : Object.entries(settings);
+  const promptBlocks = prompts === undefined ? [] : Object.entries(prompts);
   if (
     settings === undefined ||
-    blocks.length > MAX_OVERRIDDEN_BLOCKS ||
-    blocks.some(([id, values]) => id === '' || obj(values) === undefined)
+    settingsBlocks.length > MAX_OVERRIDDEN_BLOCKS ||
+    settingsBlocks.some(([id, values]) => id === '' || obj(values) === undefined)
   ) {
     return `\`overrides.settings\` must be an object of { blockId: { …values } } (at most ${MAX_OVERRIDDEN_BLOCKS} blocks)`;
   }
-  return blocks.length === 0
-    ? undefined
-    : { settings: settings as Readonly<Record<string, Readonly<Record<string, unknown>>>> };
+  if (
+    prompts === undefined ||
+    promptBlocks.length > 1 ||
+    promptBlocks.some(([id, content]) => {
+      const c = obj(content);
+      return (
+        id === '' ||
+        c === undefined ||
+        typeof c.template !== 'string' ||
+        Object.keys(c).length !== 1
+      );
+    })
+  ) {
+    return '`overrides.prompts` must be { blockId: { template } } for the prompt block (one)';
+  }
+  if (settingsBlocks.length === 0 && promptBlocks.length === 0) return undefined;
+  return {
+    ...(settingsBlocks.length > 0 && {
+      settings: settings as Readonly<Record<string, Readonly<Record<string, unknown>>>>,
+    }),
+    ...(promptBlocks.length > 0 && {
+      prompts: prompts as Readonly<Record<string, { readonly template: string }>>,
+    }),
+  };
 }
 
 /** `sample: { part, seed, holdOutShare }`, or an error message. */

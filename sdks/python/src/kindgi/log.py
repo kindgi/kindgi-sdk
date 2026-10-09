@@ -107,6 +107,8 @@ _CORRELATION: tuple[str, ...] = (
 """Correlation fields, in the order a record carries them, after the fixed five."""
 
 _FIXED = frozenset({"time", "level", "severity", "subsystem", "message"})
+# Names a field can't take: the fixed five and `inMessage`, the record's own.
+_RESERVED = frozenset({*_FIXED, "inMessage"})
 
 
 # -- levels -------------------------------------------------------------------------------
@@ -273,6 +275,7 @@ def _build_record(
     merged: Mapping[str, Any],
     threshold: str,
     extra: Sequence[str],
+    in_message: Sequence[str] = (),
 ) -> dict[str, Any]:
     """The record, built exactly as `@kindgi/log` builds it (the shared vectors check it)."""
     out: dict[str, Any] = {
@@ -289,7 +292,7 @@ def _build_record(
     for key, value in merged.items():
         if key in ("subsystem", "err") or key in _CORRELATION:
             continue
-        if key in _FIXED:
+        if key in _RESERVED:
             reserved[key] = value
         else:
             out[key] = (
@@ -305,6 +308,11 @@ def _build_record(
     if "err" in merged:
         with_stack = level == "error" or level_enabled("debug", threshold)
         redacted["err"] = _serialize_error(merged["err"], with_stack)
+    # The fields the message states, of those the record has: a renderer
+    # (the pretty format, `kindgi dev`) leaves them out of the line.
+    stated = [k for k in in_message if k not in _RESERVED and k != "err" and k in redacted]
+    if stated:
+        redacted["inMessage"] = stated
     return redacted
 
 
@@ -329,7 +337,7 @@ _COLOR: Mapping[str, str] = {
 }
 _RESET = "\x1b[0m"
 _DIM = "\x1b[2m"
-_PRETTY_FIXED = frozenset({*_FIXED, "err"})
+_PRETTY_FIXED = frozenset({*_FIXED, "err", "inMessage"})
 
 
 def _pretty(value: Any) -> str:
@@ -361,7 +369,15 @@ def _error_lines(err: Mapping[str, Any]) -> list[str]:
 def format_pretty(
     record: Mapping[str, Any], *, color: bool = False, omit: Sequence[str] = ()
 ) -> str:
-    """`HH:MM:SS.mmm LEVEL [subsystem] message key=value …`, for a person at a terminal."""
+    """`HH:MM:SS.mmm LEVEL [subsystem] message key=value …`, for a person at a terminal.
+
+    The fields the message already states (the record's `inMessage`, and any in
+    `omit`) are left out, so a record read back from JSON renders as it would have
+    at the source.
+    """
+    stated = record.get("inMessage")
+    if isinstance(stated, list):
+        omit = (*omit, *(str(key) for key in cast("list[object]", stated)))
     time = str(record["time"])[11:23]
     level = str(record["level"])
     label = _LEVEL_LABEL[level]
@@ -441,9 +457,10 @@ class Logger:
                 merged=merged,
                 threshold=self._threshold,
                 extra=self._shared.redact,
+                in_message=in_message or (),
             )
             line = (
-                format_pretty(record, color=self._shared.color, omit=in_message or ())
+                format_pretty(record, color=self._shared.color)
                 if self._shared.format == "pretty"
                 else format_json(record)
             )
