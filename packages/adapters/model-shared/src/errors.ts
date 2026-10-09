@@ -44,15 +44,22 @@ const CONTEXT_TOO_LONG = /context|too long|maximum.{0,20}tokens|exceeds|token li
 const CONTENT_FILTER =
   /content.?filter|filtered|content management|safety|responsible ?ai|content_policy|blocked/i;
 
-/** The kind of a failure: by status first, then by the vendor's words for a 4xx. */
+/** The statuses whose body says why a request was refused: the words decide among them. */
+const WORDED = new Set([400, 413, 422]);
+
+/**
+ * The kind of a failure: by status first, then by the vendor's words for a 400, 413 or 422.
+ * A 408 is the vendor timing out (Bedrock's `ModelTimeoutException`: "took too long"), never a
+ * context that's too long.
+ */
 export function kindOf(failure: FailedResponse): ModelProviderErrorKind {
   const { status, words } = failure;
   if (status === undefined) return 'network';
   if (status === 401 || status === 403) return 'auth';
   if (status === 429) return 'rate-limited';
-  if (status >= 500) return 'unavailable';
-  if (CONTEXT_TOO_LONG.test(words)) return 'context-too-long';
-  if (CONTENT_FILTER.test(words)) return 'content-filter';
+  if (status === 408 || status >= 500) return 'unavailable';
+  if (WORDED.has(status) && CONTEXT_TOO_LONG.test(words)) return 'context-too-long';
+  if (WORDED.has(status) && CONTENT_FILTER.test(words)) return 'content-filter';
   return 'invalid-request';
 }
 

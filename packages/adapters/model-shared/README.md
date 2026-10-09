@@ -13,11 +13,13 @@ Today's engine for sending the requests is the [AI SDK](https://ai-sdk.dev)'s pr
 - **Errors are typed.** A failed call throws `ModelProviderError` with a `kind`:
   - `auth`: 401, 403;
   - `rate-limited`: 429;
-  - `unavailable`: 5xx;
-  - `context-too-long` and `content-filter`, read from the vendor's words;
+  - `unavailable`: 408 (the vendor timing out) and 5xx;
+  - `context-too-long` and `content-filter`, read from the vendor's words on a 400, 413 or 422;
   - `invalid-request`;
   - `network`.
   It also has the HTTP `status`. Its message is the vendor's own words after the status (`401 {"message":"…"}`), as other adapters' failed calls read.
+  - An adapter's own `ModelProviderError` (its sign-in failed, say) ends the call as it is, never retried.
+- **A stop the library has no unified reason for** is `error`, except running out of context (Bedrock's `model_context_window_exceeded`), which is `length`.
 - **The reasoning state survives a pause.** A provider's opaque state (reasoning with its signature or encrypted content, a tool call's thought signature) is kept, in order, in the first tool call's `signature`.
   - It goes back on the next call to the same model, so a durable run can stop after a tool call, restart, and resume with no loss.
   - Another model's state is never sent.
@@ -40,7 +42,8 @@ Today's engine for sending the requests is the [AI SDK](https://ai-sdk.dev)'s pr
 - `languageModel(name, fetch)`: the engine's model for a model name, sending with the `fetch` it's given (each HTTP attempt is counted through it);
 - `providerOptions?(model)`: provider options on every call (Azure: `{ azure: { store: false } }`);
 - `cost(model, usage)`: the adapter's cost formula;
-- `attempts?`: HTTP attempts in all on a retryable failure (default 3).
+- `attempts?`: HTTP attempts in all on a retryable failure (default 3);
+- `beforeAttempt?()`: run before each HTTP attempt, inside the retries. An adapter checks its sign-in here when its library would report a failure as a plain error (Bedrock's), and throws a `ModelProviderError`.
 
 ## Pins
 

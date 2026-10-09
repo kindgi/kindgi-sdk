@@ -3,8 +3,7 @@
 
 /**
  * The wrapper against a fake AI SDK model (no network): the model sends each attempt through
- * the `fetch` it's given, as the real providers do, so attempts are counted the same way. The
- * live cases (on Azure, and on the big three for reference) are the T354 spike's.
+ * the `fetch` it's given, as the real providers do, so attempts are counted the same way.
  */
 
 import {
@@ -17,7 +16,7 @@ import type { ModelInfo, ProviderMetadata } from '@kindgi/capabilities';
 import { attemptsOf } from '@kindgi/capabilities/attempts';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
-import { createAiSdkModelProvider } from '../src/ai-sdk/index.js';
+import { type AiSdkModelProviderOptions, createAiSdkModelProvider } from '../src/ai-sdk/index.js';
 import { ModelProviderError } from '../src/index.js';
 
 const MODEL: ModelInfo = {
@@ -35,7 +34,8 @@ const METADATA = { id: 'acme', region: 'unspecified', models: [MODEL, OTHER] } a
 /** One planned answer per HTTP attempt: a status that fails, or content that answers. */
 type Step =
   | { status: number; body?: string; headers?: Record<string, string> }
-  | { content: LanguageModelV4Content[] };
+  | { content: LanguageModelV4Content[]; finish?: { unified: string; raw?: string } }
+  | { throws: unknown };
 
 function fakeModel(plan: Step[], seen: LanguageModelV4CallOptions[]) {
   let i = 0;
@@ -51,6 +51,7 @@ function fakeModel(plan: Step[], seen: LanguageModelV4CallOptions[]) {
         i += 1;
         // Every attempt goes through the fetch it was given (counted).
         await fetch('https://llm.example.invalid/v1/generate', { method: 'POST' });
+        if ('throws' in step) throw step.throws;
         if ('status' in step) {
           throw new APICallError({
             message: `HTTP ${step.status}`,
@@ -68,7 +69,7 @@ function fakeModel(plan: Step[], seen: LanguageModelV4CallOptions[]) {
         }
         return {
           content: step.content,
-          finishReason: {
+          finishReason: step.finish ?? {
             unified: step.content.some((c) => c.type === 'tool-call') ? 'tool-calls' : 'stop',
             raw: 'x',
           },
@@ -91,8 +92,13 @@ function fakeModel(plan: Step[], seen: LanguageModelV4CallOptions[]) {
     }) as unknown as LanguageModelV4;
 }
 
-function provider(plan: Step[], seen: LanguageModelV4CallOptions[] = []) {
+function provider(
+  plan: Step[],
+  seen: LanguageModelV4CallOptions[] = [],
+  extra: Partial<AiSdkModelProviderOptions> = {},
+) {
   return createAiSdkModelProvider({
+    ...extra,
     metadata: METADATA,
     languageModel: fakeModel(plan, seen),
     providerOptions: () => ({ acme: { store: false } }),
@@ -234,6 +240,15 @@ describe('a call', () => {
   });
 });
 
+test('a stop the library has no unified reason for: out of context is length, others error', async () => {
+  const stopped = (raw: string) =>
+    provider([
+      { content: [{ type: 'text', text: 'Part' }], finish: { unified: 'other', raw } },
+    ]).invoke(ask);
+  expect((await stopped('model_context_window_exceeded')).finishReason).toBe('length');
+  expect((await stopped('malformed_model_output')).finishReason).toBe('error');
+});
+
 describe('the reasoning state across a pause (A5)', () => {
   const reasoningAnswer: Step = {
     content: [
@@ -361,6 +376,39 @@ describe('errors and retries', () => {
     // The fake model's own fetch throws on the first attempt, as an SDK's would.
     const r = await provider([ANSWER]).invoke(ask);
     expect(r.attempts).toBe(2);
+  });
+
+  test('beforeAttempt runs before each attempt, inside the retries', async () => {
+    const beforeAttempt = vi.fn(async () => {});
+    const r = await provider([{ status: 503 }, ANSWER], [], { beforeAttempt }).invoke(ask);
+    expect(r.attempts).toBe(2);
+    expect(beforeAttempt).toHaveBeenCalledTimes(2);
+  });
+
+  test('a sign-in that fails in beforeAttempt ends the call as it is: not retried, no HTTP', async () => {
+    const failed = new ModelProviderError(
+      'auth',
+      undefined,
+      "the runtime's identity gave no credentials: the endpoint didn't answer",
+    );
+    const beforeAttempt = vi.fn(async () => {
+      throw failed;
+    });
+    const err = await provider([ANSWER], [], { beforeAttempt })
+      .invoke(ask)
+      .catch((e: unknown) => e);
+    expect(err).toBe(failed);
+    expect(beforeAttempt).toHaveBeenCalledTimes(1);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  test('a ModelProviderError the adapter throws during an attempt passes through, after one attempt', async () => {
+    const failed = new ModelProviderError('auth', undefined, 'no token: the identity refused');
+    const err = await provider([{ throws: failed }, ANSWER])
+      .invoke(ask)
+      .catch((e: unknown) => e);
+    expect(err).toBe(failed);
+    expect(attemptsOf(err)).toBe(1);
   });
 
   test('an abort during the backoff stops the retries', async () => {
