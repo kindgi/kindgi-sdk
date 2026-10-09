@@ -149,6 +149,14 @@ export type SecretProviderPutOutput =
        * stay its own whatever the provider uses.
        */
       readonly providerVersion?: string;
+      /**
+       * This write ended a revoke's provider-side retention early: the
+       * secret was revoked, and setting it again meant deleting the
+       * revoked values for good (AWS Secrets Manager, whose revoke keeps
+       * the whole secret restorable until the name is set again). Absent
+       * on every other write.
+       */
+      readonly revokedValuesPurged?: true;
     }
   | { readonly kind: 'already-exists' }
   | { readonly kind: 'version-conflict'; readonly currentVersion: number };
