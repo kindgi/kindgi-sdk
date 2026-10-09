@@ -623,6 +623,7 @@ function collectMountedRoutes(): HonoRouteRecord[] {
     teamProjectGrantBinding: projectTrio.grants,
     envBinding: noopEnvBinding,
     secretsBinding: noopSecretsBinding,
+    license: { status: () => ({ mode: 'development' }) },
   });
   return (app.routes as unknown as HonoRouteRecord[]).filter((r) => r.method !== 'ALL');
 }

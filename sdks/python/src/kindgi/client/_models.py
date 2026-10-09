@@ -1174,6 +1174,35 @@ class ExportSigningKeyList(BaseModel):
     """
 
 
+class LicenseStatus(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    mode: Literal["development", "licensed"]
+    """
+    `development`: no key needed (`KINDGI_DEV`); the other fields are absent.
+    """
+    name: str | None = None
+    """
+    Whose key: the name the banner prints.
+    """
+    use: Literal["production", "non-production"] | None = None
+    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
+    days_left: Annotated[int | None, Field(alias="daysLeft")] = None
+    """
+    Whole days until it expires; negative once it has.
+    """
+    standing: Literal["valid", "expiring", "grace"] | None = None
+    """
+    `expiring`: 30 days or fewer left. `grace`: expired, and the runtime still starts with it (for 14 days).
+    """
+    renew: str | None = None
+    """
+    How to get the next key, as the banner says it. Present from 30 days before the key expires.
+    """
+
+
 class ExportAuditBundleBody(BaseModel):
     """
     Body for `POST /v1/approvals/{approvalId}/audit-bundle`, optional: no body signs with the active key. `includeMessages` adds the conversation messages of the approval's run.

@@ -290,6 +290,7 @@ OPERATIONS: dict[str, Operation] = {
     ),
     "provenance.list": Operation("provenance.list", "GET", "/v1/provenance", "json", False),
     "provenance.get": Operation("provenance.get", "GET", "/v1/provenance/{runId}", "json", False),
+    "license.get": Operation("license.get", "GET", "/v1/license", "json", False),
     "exportSigningKeys.list": Operation(
         "exportSigningKeys.list", "GET", "/v1/export-signing-keys", "json", False
     ),
@@ -3181,6 +3182,27 @@ class ProvenanceResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.ExportProvenanceBody, body, fields),
             response=_models.ExportProvenanceResult,
+            timeout=timeout,
+        )
+
+
+class LicenseResource:
+    """`client.license` — the `license` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def get(self, /, *, timeout: float | None = None) -> _models.LicenseStatus:
+        """Where the deployment's license key stands. `GET /v1/license`
+
+        Whose key, which use, until when and how many days are left, and from 30 days before it expires how to get the next one, as the runtime's startup banner says it. Never the key itself. `mode: development` when the runtime runs with `KINDGI_DEV` and needs no key. Any authenticated caller may read it. A deployment that doesn't report it answers 404.
+        """
+        return self._client._request(
+            _OPERATIONS["license.get"],
+            path={},
+            query={},
+            headers={},
+            response=_models.LicenseStatus,
             timeout=timeout,
         )
 
@@ -9671,6 +9693,27 @@ class AsyncProvenanceResource:
         )
 
 
+class AsyncLicenseResource:
+    """`client.license` — the `license` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def get(self, /, *, timeout: float | None = None) -> _models.LicenseStatus:
+        """Where the deployment's license key stands. `GET /v1/license`
+
+        Whose key, which use, until when and how many days are left, and from 30 days before it expires how to get the next one, as the runtime's startup banner says it. Never the key itself. `mode: development` when the runtime runs with `KINDGI_DEV` and needs no key. Any authenticated caller may read it. A deployment that doesn't report it answers 404.
+        """
+        return await self._client._request(
+            _OPERATIONS["license.get"],
+            path={},
+            query={},
+            headers={},
+            response=_models.LicenseStatus,
+            timeout=timeout,
+        )
+
+
 class AsyncExportSigningKeysResource:
     """`client.export_signing_keys` — the `exportSigningKeys` operations."""
 
@@ -13808,6 +13851,7 @@ class Resources:
     memory: MemoryResource
     proposals: ProposalsResource
     provenance: ProvenanceResource
+    license: LicenseResource
     export_signing_keys: ExportSigningKeysResource
     artifacts: ArtifactsResource
     observations: ObservationsResource
@@ -13856,6 +13900,7 @@ class Resources:
         self.memory = MemoryResource(client)
         self.proposals = ProposalsResource(client)
         self.provenance = ProvenanceResource(client)
+        self.license = LicenseResource(client)
         self.export_signing_keys = ExportSigningKeysResource(client)
         self.artifacts = ArtifactsResource(client)
         self.observations = ObservationsResource(client)
@@ -13906,6 +13951,7 @@ class AsyncResources:
     memory: AsyncMemoryResource
     proposals: AsyncProposalsResource
     provenance: AsyncProvenanceResource
+    license: AsyncLicenseResource
     export_signing_keys: AsyncExportSigningKeysResource
     artifacts: AsyncArtifactsResource
     observations: AsyncObservationsResource
@@ -13954,6 +14000,7 @@ class AsyncResources:
         self.memory = AsyncMemoryResource(client)
         self.proposals = AsyncProposalsResource(client)
         self.provenance = AsyncProvenanceResource(client)
+        self.license = AsyncLicenseResource(client)
         self.export_signing_keys = AsyncExportSigningKeysResource(client)
         self.artifacts = AsyncArtifactsResource(client)
         self.observations = AsyncObservationsResource(client)

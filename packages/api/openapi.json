@@ -3233,6 +3233,55 @@
           }
         }
       },
+      "LicenseStatus": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "mode"
+        ],
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "development",
+              "licensed"
+            ],
+            "description": "`development`: no key needed (`KINDGI_DEV`); the other fields are absent."
+          },
+          "name": {
+            "type": "string",
+            "description": "Whose key: the name the banner prints."
+          },
+          "use": {
+            "type": "string",
+            "enum": [
+              "production",
+              "non-production"
+            ]
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "daysLeft": {
+            "type": "integer",
+            "description": "Whole days until it expires; negative once it has."
+          },
+          "standing": {
+            "type": "string",
+            "enum": [
+              "valid",
+              "expiring",
+              "grace"
+            ],
+            "description": "`expiring`: 30 days or fewer left. `grace`: expired, and the runtime still starts with it (for 14 days)."
+          },
+          "renew": {
+            "type": "string",
+            "description": "How to get the next key, as the banner says it. Present from 30 days before the key expires."
+          }
+        }
+      },
       "ExportAuditBundleBody": {
         "description": "Body for `POST /v1/approvals/{approvalId}/audit-bundle`, optional: no body signs with the active key. `includeMessages` adds the conversation messages of the approval's run.",
         "type": "object",
@@ -26239,6 +26288,43 @@
             "description": "RunId — opaque branded string (a UUID)."
           }
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/license": {
+      "get": {
+        "operationId": "license.get",
+        "summary": "Where the deployment's license key stands",
+        "tags": [
+          "system"
+        ],
+        "responses": {
+          "200": {
+            "description": "The license status.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LicenseStatus"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Whose key, which use, until when and how many days are left, and from 30 days before it expires how to get the next one, as the runtime's startup banner says it. Never the key itself. `mode: development` when the runtime runs with `KINDGI_DEV` and needs no key. Any authenticated caller may read it. A deployment that doesn't report it answers 404.",
         "security": [
           {
             "bearerAuth": []
