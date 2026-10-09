@@ -42,7 +42,7 @@ export interface AzureOpenAIConfig {
  * Sources (read 2026-10-09): the endpoints by cloud,
  * https://learn.microsoft.com/en-us/azure/azure-government/compare-azure-government-global-azure;
  * Azure Government's scope, https://learn.microsoft.com/en-us/dotnet/api/overview/azure/ai.openai-readme
- * ("Configure client for Azure sovereign cloud"). Microsoft's newer pages name the public
+ * (its Azure Government example). Microsoft's newer pages name the public
  * scope `https://ai.azure.com/.default`; `cognitiveservices.azure.com` is the one proven live
  * (2026-10-09), so it stays until a live run proves the other.
  */
