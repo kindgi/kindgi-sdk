@@ -28,9 +28,14 @@ export interface SignInOptionsRouteOptions {
   /**
    * The emailed sign-in link, when the deployment offers it: a sign-in page
    * shows "Email me a sign-in link", with the Turnstile widget when there's
-   * a site key.
+   * a site key. `allowedFor`: whether it's offered for an email's domain
+   * (say, not where a workspace signs its people in with its own identity
+   * provider). Absent: for every domain.
    */
-  readonly emailLink?: { readonly captchaSiteKey?: string };
+  readonly emailLink?: {
+    readonly captchaSiteKey?: string;
+    readonly allowedFor?: (emailDomain: string) => Promise<boolean>;
+  };
   readonly rateLimit?: SignInOptionsRateLimit;
 }
 
@@ -108,6 +113,12 @@ export function signInOptionsRouter(options: SignInOptionsRouteOptions): Hono<Ap
       identityProvider?.signInOptions === undefined || emailDomain === undefined
         ? []
         : await identityProvider.signInOptions({ emailDomain });
+    const emailLink = options.emailLink;
+    const linkOffered =
+      emailLink !== undefined &&
+      (emailDomain === undefined ||
+        emailLink.allowedFor === undefined ||
+        (await emailLink.allowedFor(emailDomain)));
     c.header('Cache-Control', 'no-store');
     return c.json({
       data: offered.map((o) => ({
@@ -119,10 +130,10 @@ export function signInOptionsRouter(options: SignInOptionsRouteOptions): Hono<Ap
       methods: {
         identityProviders: identityProvider !== undefined,
         apiToken: options.tokenSignIn,
-        ...(options.emailLink !== undefined && {
+        ...(linkOffered && {
           emailLink: {
-            ...(options.emailLink.captchaSiteKey !== undefined && {
-              captchaSiteKey: options.emailLink.captchaSiteKey,
+            ...(emailLink.captchaSiteKey !== undefined && {
+              captchaSiteKey: emailLink.captchaSiteKey,
             }),
           },
         }),

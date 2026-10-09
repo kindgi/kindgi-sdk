@@ -35,7 +35,10 @@ function makeApp(
     withSignInOptions?: boolean;
     rateLimit?: SignInOptionsRateLimit;
     signInOptions?: IdentityProviderBinding['signInOptions'];
-    emailLink?: { captchaSiteKey?: string };
+    emailLink?: {
+      captchaSiteKey?: string;
+      allowedFor?: (emailDomain: string) => Promise<boolean>;
+    };
   } = {},
 ) {
   const calls: SignInOptionsInput[] = [];
@@ -179,6 +182,25 @@ describe('sign-in options', () => {
       ['google', 'deployment'],
     ]);
     expect(body.methods.emailLink).toEqual({ captchaSiteKey: 'site-key' });
+  });
+
+  test('the emailed link can be left out for a domain (a workspace that signs its people in with its own identity provider)', async () => {
+    const asked: string[] = [];
+    const { app } = makeApp({
+      signInOptions: async () => [],
+      emailLink: {
+        captchaSiteKey: 'site-key',
+        allowedFor: async (domain) => {
+          asked.push(domain);
+          return domain !== 'acme.com';
+        },
+      },
+    });
+    const methodsFor = async (email: string) =>
+      ((await (await lookup(app, email)).json()) as { methods: Record<string, unknown> }).methods;
+    expect((await methodsFor('a@acme.com')).emailLink).toBeUndefined();
+    expect((await methodsFor('guest@gmail.com')).emailLink).toEqual({ captchaSiteKey: 'site-key' });
+    expect(asked).toEqual(['acme.com', 'gmail.com']);
   });
 
   test('a spoofed leftmost X-Forwarded-For hop never changes the bucket', async () => {

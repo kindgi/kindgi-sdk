@@ -764,7 +764,11 @@ export interface CreateAppInput {
    * The emailed sign-in link, when the deployment offers it (it serves the
    * link itself): sign-in options say so, with the captcha's site key.
    */
-  readonly signInEmailLink?: { readonly captchaSiteKey?: string };
+  readonly signInEmailLink?: {
+    readonly captchaSiteKey?: string;
+    /** Whether the link is offered for an email's domain. Absent: every domain. */
+    readonly allowedFor?: (emailDomain: string) => Promise<boolean>;
+  };
   /**
    * Optional. Signed-deployment ledger — the audit anchor for every
    * `POST /v1/deployments` landing. Caller-plugged per the pattern
