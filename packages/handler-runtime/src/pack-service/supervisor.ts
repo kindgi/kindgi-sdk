@@ -102,8 +102,16 @@ export type PackServiceSupervisorEvent =
   | { readonly kind: 'exited'; readonly code: number | null; readonly signal: string | null }
   | { readonly kind: 'restarting'; readonly attempt: number }
   | { readonly kind: 'gave-up'; readonly attempts: number }
-  /** One of the service's own JSON log lines (a call, draining, …). */
-  | { readonly kind: 'log'; readonly event: Readonly<Record<string, unknown>> };
+  /**
+   * A record the service wrote (a call, draining, an author's `ctx.log`
+   * line, …), or a bare event from an older service: `event` as
+   * `serviceEvent` reads it, `line` as written.
+   */
+  | {
+      readonly kind: 'log';
+      readonly event: Readonly<Record<string, unknown>>;
+      readonly line: string;
+    };
 
 export interface BootFailure {
   readonly problems: readonly string[];
@@ -271,7 +279,7 @@ export function createPackServiceSupervisor(
         } else if (event.kind === 'boot-failed' || event.kind === 'config-invalid') {
           problems.push(...problemsOf(event));
         } else {
-          emit({ kind: 'log', event });
+          emit({ kind: 'log', event, line });
         }
       });
       child.once('error', (cause) => fail([cause.message]));

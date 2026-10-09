@@ -34,6 +34,13 @@
  *
  * `'*'` is a wildcard — matches any domain that has no specific policy.
  * Useful shape for "unless overridden, everything sits for 90 days".
+ * Except `memory` and `conversation`, which hold people's words: their
+ * retention is opt-in, so only a policy naming them applies.
+ *
+ * `memory`: a fact whose last revision was invalidated (deleted, erased)
+ * or whose current revision expired is purged, every revision, after the
+ * grace; legal hold keeps it. `conversation`: an unregistered conversation
+ * is purged after the grace, with its messages and their recall index.
  */
 export const RETENTION_DOMAINS = [
   'org',
@@ -53,6 +60,8 @@ export const RETENTION_DOMAINS = [
   'judgment',
   'judge_class',
   'provider',
+  'memory',
+  'conversation',
   'api_key',
   'service_account',
   '*',

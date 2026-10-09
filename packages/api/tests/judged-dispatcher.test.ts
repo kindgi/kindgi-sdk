@@ -355,6 +355,45 @@ describe('a comparison eval run', () => {
   });
 });
 
+describe('an erased case (T273 M-5)', () => {
+  const erasedB: JudgedEvalCase = {
+    caseId: 'case-b',
+    subject: caseB.subject,
+    input: null,
+    output: null,
+    items: [],
+    erased: true,
+  };
+
+  test('is left out of the run and the metrics, and counted; the result is still the wire schema', async () => {
+    const { invoked, summary, perCase } = await compare({ cases: [caseA, erasedB] });
+    expect(invoked.map((i) => i.replay?.of)).toEqual(['case-a']);
+    expect(perCase.map((c) => c.caseId)).toEqual(['case-a']);
+    expect(summary).toMatchObject({ cases: 1, erased: 1 });
+    expect(wireErrors({ summary, perCase })).toEqual([]);
+  });
+
+  test('a dry run counts it too; with none erased, no count', async () => {
+    const dry = await compare({ cases: [caseA, erasedB], dryRun: true });
+    expect(dry).toMatchObject({ dryRun: true, cases: 1, erased: 1 });
+    const { summary } = await compare({});
+    expect(summary.erased).toBeUndefined();
+  });
+
+  test('erased after it was listed (the runtime refuses its replay): left out and counted, never an error', async () => {
+    const { invoked, summary, perCase } = await compare({
+      answer: (input) =>
+        (input.replay?.of as unknown as string) === 'case-b'
+          ? { erased: true, durationMs: 3 }
+          : (answers['case-a'] as EvalRunSubjectInvokeOutcome),
+    });
+    expect(invoked.map((i) => i.replay?.of)).toEqual(['case-a', 'case-b']);
+    expect(perCase.map((c) => c.caseId)).toEqual(['case-a']);
+    expect(summary).toMatchObject({ cases: 1, erased: 1, errors: 0, status: 'completed' });
+    expect(wireErrors({ summary, perCase })).toEqual([]);
+  });
+});
+
 describe('classWeights (T200)', () => {
   /** Case A judged by a restricted class on its answer and m2 only; case B by none. */
   const restricted = (yesWeight: number, totalWeight: number) => ({

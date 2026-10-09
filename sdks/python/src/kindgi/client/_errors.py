@@ -155,6 +155,7 @@ _CONFLICT = {
     "judge-class-name-taken", "promotion-superseded", "gate-policy-already-registered",
     "gate-policy-scope-taken", "gate-policy-scope-changed", "gate-policy-scope-unpinned",
     "gate-policy-needs-pin", "gate-policy-descendant-unpinned", "fact-changed", "legal-hold",
+    "erasure-in-progress",
 }  # fmt: skip
 _INVALID = {
     "invalid-request", "validation-failed", "unknown-field", "bad-input", "unresolved-tool",

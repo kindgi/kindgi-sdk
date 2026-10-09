@@ -402,16 +402,49 @@ function validateRetrieval(spec: DefineAgentSpec): Issue[] {
 
 function validateIntent(intent: RetrievalIntent, i: number): Issue[] {
   const out: Issue[] = [];
-  if (!Array.isArray(intent.types) || intent.types.length === 0) {
+  const source = intent.source ?? 'facts';
+  if (source !== 'facts' && source !== 'conversations') {
+    out.push({
+      path: `/retrieval/${i}/source`,
+      message: 'source must be facts or conversations (or absent: facts)',
+    });
+    return out;
+  }
+  if (source === 'facts' && (!Array.isArray(intent.types) || intent.types.length === 0)) {
     out.push({
       path: `/retrieval/${i}/types`,
-      message: 'each retrieval intent must declare at least one type',
+      message: 'each retrieval intent over facts must declare at least one type',
     });
   }
-  if (!RETRIEVAL_SCOPES.includes(intent.scope)) {
+  if (source === 'conversations' && intent.types !== undefined) {
+    out.push({
+      path: `/retrieval/${i}/types`,
+      message: 'an intent over conversations has no types: it recalls messages',
+    });
+  }
+  if (intent.roles !== undefined) {
+    const roles = intent.roles as readonly unknown[];
+    if (source !== 'conversations') {
+      out.push({
+        path: `/retrieval/${i}/roles`,
+        message: 'roles are for an intent over conversations',
+      });
+    } else if (
+      !Array.isArray(roles) ||
+      roles.length === 0 ||
+      roles.some((r) => r !== 'user' && r !== 'agent')
+    ) {
+      out.push({
+        path: `/retrieval/${i}/roles`,
+        message: "roles must list 'user', 'agent' or both (absent: 'user', the people's own words)",
+      });
+    }
+  }
+  const scopes = source === 'facts' ? RETRIEVAL_SCOPES : RECALL_SCOPES;
+  if (!scopes.includes(intent.scope)) {
     out.push({
       path: `/retrieval/${i}/scope`,
-      message: `scope must be one of ${RETRIEVAL_SCOPES.join(', ')}`,
+      message: `scope for ${source} must be one of ${scopes.join(', ')}`,
     });
   }
   if (intent.limit !== undefined && (!Number.isInteger(intent.limit) || intent.limit <= 0)) {
@@ -431,6 +464,12 @@ const RETRIEVAL_SCOPES: readonly RetrievalIntent['scope'][] = [
   'same-user',
   'same-project',
   'tenant',
+];
+const RECALL_SCOPES: readonly RetrievalIntent['scope'][] = [
+  'same-user',
+  'same-conversation',
+  'same-segment',
+  'same-project',
 ];
 const RETRIEVAL_MODES: readonly NonNullable<RetrievalIntent['mode']>[] = [
   'keyword',

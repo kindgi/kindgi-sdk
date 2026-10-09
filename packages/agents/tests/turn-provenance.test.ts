@@ -514,6 +514,7 @@ describe('memory searches', () => {
         attributes: {
           operation: 'search_memory',
           intent: 0,
+          source: 'facts',
           types: ['acme.policy'],
           scope: 'tenant',
           mode: 'both',

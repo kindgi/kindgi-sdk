@@ -82,18 +82,20 @@ running and no model key yet:
 ```
 
 The checks come in this order: `node`, `npm`, `python`, `uv`, `docker`,
-`registry`, `project`, `dependencies`, `model-key`, `runtime`, `provider`.
+`registry`, `console-sign-in`, `project`, `dependencies`, `model-key`,
+`runtime`, `provider`.
 
 - **`fail`:** run its `fix`, as written: it names the CLI to use in that
   folder. When the fix needs the person (start Docker Desktop, sign in, copy
   a key), ask them, then run doctor again.
 - **`warn`:** it works now, but the person should know: tell them its
   `message` and `fix`, and go on. `ok` stays `true` and the exit code `0`.
-  In this release only `provider` warns: when an agent that names no model
-  would get a model the preset no longer lists, or one other than the
+  In this release two checks warn. `provider`: when an agent that names no
+  model would get a model the preset no longer lists, or one other than the
   preset's default; or when the runtime can't build a registered provider
   (each problem is in the check's `details`). When it can build none,
-  `provider` fails instead.
+  `provider` fails instead. `console-sign-in`: when nobody can sign in to the
+  console of the runtime the CLI points at.
 - **`skip`:** not applicable yet. Outside a project, `project` and every
   check after it skip; `runtime` skips while `kindgi dev` isn't running.
 

@@ -54,7 +54,10 @@ async function readHistory(
   };
 }
 
-type JournalParts = Pick<JudgedRunContext, 'retrieved' | 'sessionApproval' | 'toolEnv'>;
+type JournalParts = Pick<
+  JudgedRunContext,
+  'retrieved' | 'recalled' | 'sessionApproval' | 'toolEnv'
+>;
 
 /** A record's value when it's env values: an object whose values are strings. */
 function envValues(value: unknown): Readonly<Record<string, string>> | undefined {
@@ -115,7 +118,7 @@ export function turnCallIds(
   });
 }
 
-/** What the turn's journal says it retrieved, and how its session approval was decided. */
+/** What the turn's journal says it retrieved and recalled, and how its session approval was decided. */
 async function readJournalParts(
   runBinding: RunBinding,
   tenantId: TenantId,
@@ -133,10 +136,13 @@ async function readJournalParts(
       typeof e.nodeId === 'string' &&
       (e.nodeId === RUN_RETRIEVALS_NODE || e.nodeId.endsWith(`/${RUN_RETRIEVALS_NODE}`)),
   );
-  const retrieved = obj(obj(step?.payload)?.output)?.retrieved;
+  const stepOutput = obj(obj(step?.payload)?.output);
+  const retrieved = stepOutput?.retrieved;
+  const recalled = stepOutput?.recalled;
   const sessionApproval = sessionApprovalOf(entries);
   return {
     ...(retrieved !== undefined && { retrieved }),
+    ...(recalled !== undefined && { recalled }),
     ...(sessionApproval !== undefined && { sessionApproval }),
     ...(Object.keys(toolEnv).length > 0 && { toolEnv }),
   };

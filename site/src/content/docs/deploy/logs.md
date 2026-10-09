@@ -64,6 +64,11 @@ the fields:
 {"time":"2026-10-07T17:36:47.001Z","level":"info","severity":"INFO","subsystem":"http","message":"POST /v1/runs 404 57ms","traceId":"4bf92f3577b34da6a3ce929d0e0e4736","spanId":"e61f14baa539a680","requestId":"req-474e92d9-7a0a-4bc0-9307-664ed1cf3184","tenantId":"5c0a7e11-0000-4000-8000-00000000c0de","method":"POST","route":"/v1/runs",…}
 ```
 
+A record whose message states some of its fields lists them in `inMessage`:
+fields the message already states; renderers may omit them. The request line
+above ends with `"inMessage":["method","route","status","durationMs"]`, which
+is how the pretty format and `kindgi dev` know to leave them out.
+
 At boot, the pretty format prints the startup block (see
 [The startup log](../operate/#the-startup-log)). The JSON format prints one
 `boot` record instead, with the same lines in `lines`:

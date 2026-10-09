@@ -150,13 +150,30 @@ async function setup() {
       },
     },
   });
+  await blocks.publish({
+    tenantId,
+    projectId,
+    block: {
+      id: 'acme.prompt',
+      version: '1.0.0',
+      kind: 'prompt',
+      content: {
+        template: 'Rank for {{ firm }} with acme.rank.',
+        parameters: [{ name: 'firm', type: 'string' }],
+      },
+    },
+  });
   const agents = {
     getVersion: async ({ version }: { version: string }) =>
       version === '2.0.0'
         ? ({
             id: 'acme.agent',
             version: '2.0.0',
-            pins: { tools: {}, prompts: {}, settings: { 'acme.weights': '1.0.0' } },
+            pins: {
+              tools: { 'acme.rank': '1.0.0' },
+              prompts: { 'acme.prompt': '1.0.0' },
+              settings: { 'acme.weights': '1.0.0' },
+            },
             pinsDigest: 'sha-2',
           } as unknown as AgentVersionRecord)
         : null,
@@ -240,10 +257,41 @@ describe('settings overrides', () => {
     },
   );
 
+  test('a prompt template for the pinned prompt block runs; one that names what the agent lacks is refused', async () => {
+    const { binding, start } = await setup();
+    const ok = await start({
+      overrides: {
+        prompts: {
+          'acme.prompt': { template: 'Rank for {{ firm }}, recent first, with acme.rank.' },
+        },
+      },
+    });
+    expect(ok.status, JSON.stringify(ok.body)).toBe(201);
+    const run = await settled(binding, ok.body.runId);
+    expect((run.result?.summary as JudgedComparisonSummary).candidate).toMatchObject({
+      overrides: { prompts: ['acme.prompt'] },
+    });
+    const bad = await start({
+      overrides: {
+        prompts: {
+          'acme.prompt': {
+            template: 'Rank for {{ firm }}, then call acme.export with {{ customer_list }}.',
+          },
+        },
+      },
+    });
+    expect(bad.status).toBe(400);
+    const details = JSON.stringify(bad.body.error.details);
+    expect(details).toContain('acme.export');
+    expect(details).toContain('customer_list');
+    const unpinned = await start({ overrides: { prompts: { 'acme.other': { template: 'x' } } } });
+    expect(unpinned.status).toBe(400);
+  });
+
   test('malformed overrides, and overrides for a flow, are bad input', async () => {
     const { start } = await setup();
     expect((await start({ overrides: { settings: { 'acme.weights': 3 } } })).status).toBe(400);
-    expect((await start({ overrides: { prompts: {} } })).status).toBe(400);
+    expect((await start({ overrides: { other: {} } })).status).toBe(400);
   });
 });
 
@@ -337,6 +385,17 @@ describe('the gate', () => {
     expect(check(s, 'sameContents')).toMatchObject({ passed: false });
     expect(check(s, 'sameContents')?.message).toContain('compare the published version');
     expect(gate(s).passed).toBe(false);
+    const prompts = summary({
+      candidate: {
+        kind: 'agent',
+        agentId: 'acme.agent',
+        version: '2.0.0',
+        pinsDigest: 'sha-2',
+        overrides: { prompts: ['acme.prompt'] },
+      },
+    });
+    expect(check(prompts, 'sameContents')).toMatchObject({ passed: false });
+    expect(check(prompts, 'sameContents')?.message).toContain('acme.prompt');
   });
 
   test('the search part fails comparison.sample; the hold-out part passes it; no sample, no check', () => {

@@ -72,6 +72,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'already-terminal': 409,
   'fact-changed': 409,
   'legal-hold': 409,
+  'erasure-in-progress': 409,
   'run-already-terminal': 409,
   'run-lease-lost': 409,
   'idempotency-key-body-mismatch': 409,
@@ -84,6 +85,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'agent-already-registered': 409,
   'registry-read-only': 409,
   'agent-gone': 410,
+  'run-erased': 410,
   'flow-gone': 410,
   'policy-gone': 410,
   'eval-suite-gone': 410,
@@ -252,6 +254,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // The judgment binding can't list judged runs, so no test sets from judgments.
   'test-sets-not-supported': 501,
   'memory-operation-unsupported': 501,
+  // The conversation binding can't unregister (a runtime built before it).
+  'conversation-unregister-unsupported': 501,
   // Authorization is enforced, but a membership change can't be kept in step with it.
   'authz-membership-unsupported': 501,
   'eval-run-already-terminal': 409,
