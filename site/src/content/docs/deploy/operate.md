@@ -413,7 +413,7 @@ and what's different after:
   [its settings](../../guides/guardrails/use-a-built-in-check/#the-built-in-checks).
   To fix one, unregister it (`kindgi guardrails unregister <id>`), then deploy
   your pack, or register it again, with a config that fits: a deploy keeps a
-  guardrail that's already registered as it is. With several runtime
+  guardrail that's already registered as it is. If you run several runtime
   instances, restart them afterwards (below).
 - **The built-in guardrail checks check their config.** A guardrail naming one
   with a config the check doesn't take is refused when it's registered
@@ -518,12 +518,12 @@ and what's different after:
   `http://localhost`, where Chrome and Firefox do. Open the local console in
   Chrome or Firefox. A fix is planned. A deployment's console needs `https`
   in every browser (above).
-- **A guardrail change reaches other runtime instances only when they
-  restart.** Registering, unregistering or deploying a guardrail takes effect
-  at once on the instance that took the request; other instances keep the
-  guardrails they had. After changing a guardrail on a deployment with several
-  instances (a Cloud Run service that has scaled out, for example), restart the
-  other instances. A fix is planned.
+- **Run one runtime instance.** Several aren't supported yet (the Cloud Run
+  module runs one). For one thing, a guardrail change reaches other instances
+  only when they restart: registering, unregistering or deploying a guardrail
+  takes effect at once on the instance that took the request, and other
+  instances keep the guardrails they had. If you run several anyway, restart
+  the others after changing a guardrail. A fix is planned.
 
 ### Runtime 0.1.4.2
 
