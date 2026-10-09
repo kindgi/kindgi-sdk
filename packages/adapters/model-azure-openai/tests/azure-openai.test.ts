@@ -4,8 +4,7 @@
 /**
  * The Azure OpenAI adapter, without Azure: each registration problem `checkConfig` reports, and
  * what the factory's provider sends (captured at the fetch the runtime hands it): the endpoint,
- * the deployment, `store: false`, and how it signs in. The live run is the T354 evaluation's
- * (every case passed on Azure under Entra) and the adapter's own, in LIVE-TESTS.
+ * the deployment, `store: false`, and how it signs in.
  */
 
 import { ModelProviderError } from '@kindgi/adapter-model-shared';
@@ -14,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
 import {
   AZURE_OPENAI_SCOPE,
+  IDENTITY_TIMEOUT_MS,
   azureOpenAIAdapterFactory,
   azureOpenAICheckConfig,
 } from '../src/index.js';
@@ -109,6 +109,37 @@ describe('checkConfig', () => {
       '/adapter_config/deployments',
       'no deployment for gpt-6-luna',
     ],
+    [
+      { ...GOOD, deployments: 'gpt-6.1-sol=,gpt-6-luna=luna' },
+      '/adapter_config/deployments',
+      'each entry is model=deployment',
+    ],
+    [
+      { ...GOOD, deployments: 'gpt-6.1-sol=a,gpt-6.1-sol=b,gpt-6-luna=c' },
+      '/adapter_config/deployments',
+      'names gpt-6.1-sol twice',
+    ],
+    // The portal's endpoint, without the v1 path, would 404.
+    [
+      { baseURL: 'https://acme-res.openai.azure.com/', deployments: DEPLOYMENTS },
+      '/adapter_config/baseURL',
+      'must end in /openai/v1',
+    ],
+    [
+      { baseURL: 'https://user:pw@gw.acme.example/v1', deployments: DEPLOYMENTS },
+      '/adapter_config/baseURL',
+      "can't hold credentials",
+    ],
+    [
+      { baseURL: 'https://gw.acme.example/v1?api-key=k', deployments: DEPLOYMENTS },
+      '/adapter_config/baseURL',
+      "can't hold a query or a fragment",
+    ],
+    [
+      { baseURL: 'https://gw.acme.example/v1#here', deployments: DEPLOYMENTS },
+      '/adapter_config/baseURL',
+      "can't hold a query or a fragment",
+    ],
   ] as const)('%j → %s', (config, path, words) => {
     const problems = check(config as Record<string, string>);
     expect(problems.map((p) => p.path)).toContain(path);
@@ -137,6 +168,37 @@ describe('checkConfig', () => {
         identities: { azure: false, aws: false },
       }),
     ).toEqual([]);
+  });
+
+  test("Entra: the runtime's token goes only to an Azure OpenAI host; any other is refused, named", () => {
+    const entra = (baseURL: string) =>
+      check({ baseURL, deployments: DEPLOYMENTS, auth: 'entra' }, false);
+    for (const host of [
+      'collector.example',
+      // A look-alike: the Azure name as a subdomain of another host.
+      'acme.openai.azure.com.collector.example',
+      'openai.azure.com',
+    ]) {
+      expect(entra(`https://${host}/openai/v1`)).toEqual([
+        {
+          path: '/adapter_config/baseURL',
+          message: expect.stringContaining(
+            `goes only to an Azure OpenAI host (*.openai.azure.com, *.cognitiveservices.azure.com, *.services.ai.azure.com, *.openai.azure.us, *.cognitiveservices.azure.us); ${host} isn't one. A custom endpoint takes auth = api-key.`,
+          ),
+        },
+      ]);
+    }
+    for (const ok of [
+      'https://acme.openai.azure.com/openai/v1',
+      'https://acme.cognitiveservices.azure.com/openai/v1/',
+      'https://acme.services.ai.azure.com/openai/v1',
+      'https://acme.openai.azure.us/openai/v1',
+      'https://acme.cognitiveservices.azure.us/openai/v1',
+    ]) {
+      expect(entra(ok)).toEqual([]);
+    }
+    // A gateway is a key's: any host and path.
+    expect(check({ baseURL: 'https://gw.acme.example/llm', deployments: DEPLOYMENTS })).toEqual([]);
   });
 
   test('a deployment named like its model, dots included, as Azure makes them: taken', () => {
@@ -310,6 +372,259 @@ describe('what the provider sends', () => {
     expect(err).toBeInstanceOf(ModelProviderError);
     expect(err).toMatchObject({ kind: 'auth', status: 401 });
     expect((err as Error).message).toContain('invalid subscription key');
+  });
+});
+
+/** A fetch that answers each request in turn from `answers` (the last one repeats). */
+function answering(
+  sent: Sent[],
+  answers: readonly { status: number; body: unknown; headers?: Record<string, string> }[],
+): typeof fetch {
+  let i = 0;
+  return (async (input: string | URL | Request, init?: RequestInit) => {
+    sent.push({
+      url: String(input),
+      headers: new Headers(init?.headers),
+      body: JSON.parse(String(init?.body ?? '{}')),
+    });
+    const a = answers[Math.min(i, answers.length - 1)] as (typeof answers)[number];
+    i += 1;
+    return new Response(JSON.stringify(a.body), {
+      status: a.status,
+      headers: { 'content-type': 'application/json', ...a.headers },
+    });
+  }) as typeof fetch;
+}
+
+describe('whether a model reasons is the registration’s, never the deployment name’s', () => {
+  // gpt-6.1-sol reasons (sampling false) on a deployment whose name says nothing; gpt-6-luna
+  // doesn't, on a deployment whose name the library would take for a reasoning model's.
+  const NAMES = { ...GOOD, deployments: 'gpt-6.1-sol=sol-prod, gpt-6-luna=gpt-6-luna-x' };
+  const sentFor = async (api: string, model: string, body: unknown) => {
+    const sent: Sent[] = [];
+    const provider = build(
+      { ...NAMES, api },
+      { fetch: capturingFetch(sent, 200, body), resolveApiKey: async () => 'k' },
+    );
+    await provider.invoke({ ...ask(model), maxOutputTokens: 500 });
+    return sent[0]?.body as Record<string, unknown>;
+  };
+
+  test('Responses: a reasoning model keeps its reasoning between turns; another sends none', async () => {
+    const sol = await sentFor('responses', 'gpt-6.1-sol', RESPONSES_BODY);
+    expect(sol.include).toEqual(['reasoning.encrypted_content']);
+    const luna = await sentFor('responses', 'gpt-6-luna', RESPONSES_BODY);
+    expect(luna.include).toBeUndefined();
+  });
+
+  test('Chat Completions: a reasoning model gets max_completion_tokens; another max_tokens', async () => {
+    const sol = await sentFor('chat-completions', 'gpt-6.1-sol', CHAT_BODY);
+    expect(sol).toMatchObject({ model: 'sol-prod', max_completion_tokens: 500 });
+    expect(sol.max_tokens).toBeUndefined();
+    const luna = await sentFor('chat-completions', 'gpt-6-luna', CHAT_BODY);
+    expect(luna).toMatchObject({ model: 'gpt-6-luna-x', max_tokens: 500 });
+    expect(luna.max_completion_tokens).toBeUndefined();
+  });
+});
+
+describe('Entra by cloud', () => {
+  test('Azure Government: the token is for its scope, and the request goes to its host', async () => {
+    const sent: Sent[] = [];
+    const getToken = vi.fn(async () => ({ token: 'gov-token' }));
+    const provider = build(
+      {
+        baseURL: 'https://acme.openai.azure.us/openai/v1',
+        deployments: DEPLOYMENTS,
+        auth: 'entra',
+      },
+      { fetch: capturingFetch(sent), identities: { azure: { getToken } } },
+    );
+    await provider.invoke(ask());
+    expect(getToken).toHaveBeenCalledWith('https://cognitiveservices.azure.us/.default');
+    // A v1 base URL needs no api-version (the library adds one only to an unversioned path).
+    expect(sent[0]?.url).toBe('https://acme.openai.azure.us/openai/v1/responses');
+    expect(sent[0]?.headers.get('authorization')).toBe('Bearer gov-token');
+  });
+
+  test('the factory refuses a host that isn’t Azure’s too, before any token is asked for', () => {
+    const getToken = vi.fn(async () => ({ token: 't' }));
+    expect(() =>
+      build(
+        { baseURL: 'https://collector.example/openai/v1', deployments: DEPLOYMENTS, auth: 'entra' },
+        { fetch: capturingFetch([]), identities: { azure: { getToken } } },
+      ),
+    ).toThrow("collector.example isn't one");
+    expect(getToken).not.toHaveBeenCalled();
+  });
+});
+
+describe('a failed sign-in is auth, once, never retried', () => {
+  const entraWith = (getToken: () => Promise<{ token: string } | null>, sent: Sent[]) =>
+    build(
+      { ...GOOD, auth: 'entra' },
+      { fetch: capturingFetch(sent), identities: { azure: { getToken } } },
+    );
+
+  test('the identity throws: auth, with the hint, no request sent', async () => {
+    const sent: Sent[] = [];
+    const getToken = vi.fn(async () => {
+      throw new Error('no managed identity endpoint');
+    });
+    const err = await entraWith(getToken, sent)
+      .invoke(ask())
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ModelProviderError);
+    expect(err).toMatchObject({ kind: 'auth' });
+    expect((err as Error).message).toContain('no managed identity endpoint');
+    expect((err as Error).message).toContain('KINDGI_AZURE_CLIENT_ID');
+    expect(getToken).toHaveBeenCalledTimes(1);
+    expect(sent).toEqual([]);
+  });
+
+  test('the identity returns nothing: auth', async () => {
+    const err = await entraWith(async () => null, [])
+      .invoke(ask())
+      .catch((e: unknown) => e);
+    expect(err).toMatchObject({ kind: 'auth' });
+    expect((err as Error).message).toContain('returned no token');
+  });
+
+  test('the identity hangs: auth after the bound', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const getToken = vi.fn(() => new Promise<never>(() => {}));
+      const pending = entraWith(getToken, [])
+        .invoke(ask())
+        .catch((e: unknown) => e);
+      // The token is asked for a few awaits in; only then does the bound start.
+      while (getToken.mock.calls.length === 0) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+      await vi.advanceTimersByTimeAsync(IDENTITY_TIMEOUT_MS);
+      const err = await pending;
+      expect(err).toMatchObject({ kind: 'auth' });
+      expect((err as Error).message).toContain('no answer in 10 s');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('the key can’t be read, or is empty: auth, no request sent', async () => {
+    for (const resolveApiKey of [
+      async () => {
+        throw new Error('secret store unreachable');
+      },
+      async () => '',
+    ]) {
+      const sent: Sent[] = [];
+      const read = vi.fn(resolveApiKey);
+      const err = await build(GOOD, { fetch: capturingFetch(sent), resolveApiKey: read })
+        .invoke(ask())
+        .catch((e: unknown) => e);
+      expect(err).toMatchObject({ kind: 'auth' });
+      expect(read).toHaveBeenCalledTimes(1);
+      expect(sent).toEqual([]);
+    }
+  });
+});
+
+describe('more of what it sends', () => {
+  test('with no AZURE_API_KEY in the environment at all, a key still works (never read from there)', async () => {
+    vi.unstubAllEnvs();
+    vi.stubEnv('AZURE_API_KEY', undefined);
+    const sent: Sent[] = [];
+    await build(GOOD, { fetch: capturingFetch(sent), resolveApiKey: async () => 'k' }).invoke(
+      ask(),
+    );
+    expect(sent[0]?.headers.get('api-key')).toBe('k');
+  });
+
+  test('a tool call, then its result on the next call', async () => {
+    const sent: Sent[] = [];
+    const call = {
+      ...RESPONSES_BODY,
+      output: [
+        {
+          type: 'function_call',
+          id: 'fc_1',
+          call_id: 'call_1',
+          name: 'acme__lookup_order',
+          arguments: '{"orderId":"A-1"}',
+          status: 'completed',
+        },
+      ],
+    };
+    const provider = build(GOOD, {
+      fetch: answering(sent, [
+        { status: 200, body: call },
+        { status: 200, body: RESPONSES_BODY },
+      ]),
+      resolveApiKey: async () => 'k',
+    });
+    const tools = [
+      {
+        name: 'acme.lookup_order',
+        description: 'Look up an order.',
+        inputSchema: { type: 'object', properties: { orderId: { type: 'string' } } },
+      },
+    ];
+    const first = await provider.invoke({ ...ask(), tools });
+    expect(first.finishReason).toBe('tool-use');
+    expect(first.message.toolCalls).toEqual([
+      expect.objectContaining({
+        id: 'call_1',
+        name: 'acme.lookup_order',
+        arguments: { orderId: 'A-1' },
+      }),
+    ]);
+    const second = await provider.invoke({
+      ...ask(),
+      tools,
+      messages: [
+        ...ask().messages,
+        first.message,
+        { role: 'tool', toolCallId: 'call_1', content: '{"status":"shipped"}' },
+      ],
+    });
+    expect(second.message.content).toBe('Shipped.');
+    expect(sent[1]?.body.input).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'function_call_output', call_id: 'call_1' }),
+      ]),
+    );
+  });
+
+  test('a 429 with retry-after-ms, then the answer: two attempts', async () => {
+    const sent: Sent[] = [];
+    const r = await build(GOOD, {
+      fetch: answering(sent, [
+        {
+          status: 429,
+          body: { error: { message: 'slow down' } },
+          headers: { 'retry-after-ms': '0' },
+        },
+        { status: 200, body: RESPONSES_BODY },
+      ]),
+      resolveApiKey: async () => 'k',
+    }).invoke(ask());
+    expect(r.attempts).toBe(2);
+    expect(sent).toHaveLength(2);
+  });
+
+  test("a 400 from Azure's content filter is content-filter, one attempt", async () => {
+    const err = await build(GOOD, {
+      fetch: capturingFetch([], 400, {
+        error: {
+          code: 'content_filter',
+          message:
+            'The response was filtered due to the prompt triggering Azure OpenAI content management policy.',
+        },
+      }),
+      resolveApiKey: async () => 'k',
+    })
+      .invoke(ask())
+      .catch((e: unknown) => e);
+    expect(err).toMatchObject({ kind: 'content-filter', status: 400 });
   });
 });
 

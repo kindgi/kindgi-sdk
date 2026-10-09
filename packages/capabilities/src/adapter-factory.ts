@@ -78,8 +78,12 @@ export interface AdapterConfigCheckInput {
   readonly identities?: AdapterIdentitiesPresent;
 }
 
-/** Which of `AdapterIdentities` a runtime has: `true` for each it can sign in as. */
-export type AdapterIdentitiesPresent = { readonly [K in keyof AdapterIdentities]-?: boolean };
+/**
+ * Which of `AdapterIdentities` a runtime has, as a check reads them: `true` for each it can
+ * sign in as, `false` for each it can't. A missing key means the runtime didn't say (an older
+ * one), so a check refuses only on `false`; optional, so a new kind of identity stays additive.
+ */
+export type AdapterIdentitiesPresent = { readonly [K in keyof AdapterIdentities]?: boolean };
 
 /** `identities`, as the check input names them: which are there. */
 export function identitiesPresent(
