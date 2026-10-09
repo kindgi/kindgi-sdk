@@ -78,10 +78,11 @@ export function evalSuitesRouter(
       const action = c.req.method === 'GET' ? 'read' : 'admin';
       const suiteId = c.req.param('suiteId') ?? '';
       // A test set built from judgments under a suite id never registered
-      // (no head row, a tombstoned suite included) has no suite to check
-      // yet: the build checks `admin` on the project it names, the project
-      // the new suite belongs to. Anything else under a suite id, and a
-      // build under an existing one, checks the suite.
+      // (no head row) has no suite to check yet: the build checks `admin`
+      // on the project it names, the project the new suite belongs to. A
+      // tombstoned suite keeps its head row, so it's checked as an existing
+      // one. Anything else under a suite id, and a build under an existing
+      // suite, checks the suite.
       if (
         c.req.method === 'POST' &&
         c.req.path.endsWith('/versions/from-judgments') &&
