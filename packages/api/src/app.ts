@@ -147,7 +147,7 @@ import type { SupervisorBinding } from './supervisor-binding.js';
 import type { TenantHostAccess } from './tenant-host-access.js';
 import type { TokenAdmin } from './token-admin.js';
 import type { ToolRegistryBinding } from './tool-binding.js';
-import type { TriggerRegistryBinding } from './trigger-binding.js';
+import { TRIGGER_KINDS, type TriggerKind, type TriggerRegistryBinding } from './trigger-binding.js';
 import type { AppEnv } from './types.js';
 import type { WebhookEndpointBinding } from './webhook-endpoint-binding.js';
 
@@ -406,6 +406,13 @@ export interface CreateAppInput {
    */
   readonly onGuardrailWrite?: import('./routes/guardrails.js').GuardrailWriteHook;
   /**
+   * Checks a guardrail being registered (`POST /v1/guardrails`) against
+   * the `configSchema` of the check it names; a problem refuses it with
+   * `422 guardrail-config-invalid`. A runtime passes it with the pack
+   * checks' schemas from their deployments. Absent: no check.
+   */
+  readonly checkGuardrailConfig?: import('./routes/guardrails.js').GuardrailConfigCheck;
+  /**
    * Optional. When present, mounts the retention surface
    * (`/v1/retention/scheduled`, `/v1/retention/sweep`,
    * `/v1/retention/sweep/:domain`). Caller-plugged; the Kindgi runtime
@@ -595,6 +602,13 @@ export interface CreateAppInput {
    * want bespoke persistence substitute their own binding.
    */
   readonly triggerRegistry?: TriggerRegistryBinding;
+  /**
+   * The trigger kinds whose admin surface mounts with `triggerRegistry`:
+   * `cron` → `/v1/schedules`, `event` → `/v1/event-triggers`, `webhook` →
+   * `/v1/webhooks`. Absent: all three. A runtime that fires only some kinds
+   * lists those, so nobody registers a trigger that would never fire.
+   */
+  readonly triggerKinds?: readonly TriggerKind[];
   /**
    * Optional. When present, mounts the outbound webhook surface at
    * `/v1/webhook-endpoints/*`: endpoints the platform sends signed
@@ -962,6 +976,18 @@ export interface ScalarDocsConfig {
 const DEFAULT_TOKEN_SIGN_IN_TTL_MS = 12 * 60 * 60 * 1000;
 
 export function createApp(input: CreateAppInput): Hono<AppEnv> {
+  // A cookie session's value is the token the store minted. A store that
+  // can't resolve its own tokens would put the session id there instead,
+  // and the id is no secret (whoami and the audit trail show it).
+  if (
+    input.session?.cookie !== undefined &&
+    input.sessionStore !== undefined &&
+    input.sessionStore.resolveToken === undefined
+  ) {
+    throw new Error(
+      'Cookie sessions need a session store that resolves its own tokens (`resolveToken`): without it, the session id would be the credential.',
+    );
+  }
   const app = new Hono<AppEnv>();
 
   const runBinding = input.kernelBinding.run;
@@ -1162,6 +1188,11 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           ...(input.evalRunBinding !== undefined && { evalRuns: input.evalRunBinding }),
           ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
         },
+        {
+          ...(input.memory?.semanticSearch !== undefined && {
+            semanticSearch: input.memory.semanticSearch,
+          }),
+        },
       ),
     );
   }
@@ -1190,7 +1221,12 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   if (input.guardrailRegistry !== undefined) {
     v1.route(
       '/guardrails',
-      guardrailsRouter(input.guardrailRegistry, authorizer, input.onGuardrailWrite),
+      guardrailsRouter(
+        input.guardrailRegistry,
+        authorizer,
+        input.onGuardrailWrite,
+        input.checkGuardrailConfig,
+      ),
     );
   }
   if (input.retention !== undefined) {
@@ -1299,9 +1335,19 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // external webhook receiver route here (it would need
   // unauthenticated tenant resolution).
   if (input.triggerRegistry !== undefined) {
-    v1.route('/schedules', schedulesRouter(input.triggerRegistry));
-    v1.route('/event-triggers', eventTriggersRouter(input.triggerRegistry, authorizer));
-    v1.route('/webhooks', webhooksRouter(input.triggerRegistry, authorizer));
+    const kinds = new Set<TriggerKind>(input.triggerKinds ?? TRIGGER_KINDS);
+    if (kinds.has('cron')) {
+      v1.route(
+        '/schedules',
+        schedulesRouter(input.triggerRegistry, authorizer, input.projectBinding),
+      );
+    }
+    if (kinds.has('event')) {
+      v1.route('/event-triggers', eventTriggersRouter(input.triggerRegistry, authorizer));
+    }
+    if (kinds.has('webhook')) {
+      v1.route('/webhooks', webhooksRouter(input.triggerRegistry, authorizer));
+    }
   }
   if (input.webhookEndpoints !== undefined) {
     v1.route('/webhook-endpoints', webhookEndpointsRouter(input.webhookEndpoints, authorizer));
@@ -1370,6 +1416,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         input.projectMembershipBinding,
         tenantHierarchyBinding,
         authorizer,
+        input.identityDirectory,
       ),
     );
   }
@@ -1499,6 +1546,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(input.refreshToken !== undefined && { refreshToken: input.refreshToken }),
       stateStore: input.oauthStateStore ?? createInMemoryOauthStateStore(),
       ...(authorizer !== undefined && { authorizer }),
+      ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
     });
     v1.route('/auth', routers.authed);
     // Callback mounts on the parent `app` under /v1/auth/callback so it
@@ -1526,7 +1574,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // Browser sessions need a way out even without identity providers
   // (which bring their own `/auth` routes, logout included).
   if (cookieSessions && input.identityProvider === undefined && input.sessionStore !== undefined) {
-    v1.post('/auth/logout', logoutHandler(input.sessionStore));
+    v1.post('/auth/logout', logoutHandler(input.sessionStore, input.auditEvents));
   }
   // A person signs in to the console with an API token: inside the bearer
   // chain (the token arrives in `Authorization`). Always mounted: without

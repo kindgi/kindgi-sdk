@@ -86,7 +86,7 @@ const IdempotencyKeyParam: ParameterSpec = {
   in: 'header',
   required: false,
   description:
-    'Caller-supplied idempotency key. Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1).',
+    "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5).",
   schema: { type: 'string', minLength: 1 },
 };
 
@@ -188,6 +188,14 @@ const RunEvalRunIdQueryParam: ParameterSpec = {
   description:
     'Only the replay runs of this eval run. Implies replays are included; cannot be combined with `replays=exclude`.',
   schema: { type: 'string', minLength: 1 },
+};
+
+const RunTriggerIdQueryParam: ParameterSpec = {
+  name: 'triggerId',
+  in: 'query',
+  required: false,
+  description: 'Only the runs this trigger started (`Run.trigger.triggerId`).',
+  schema: { type: 'string', format: 'uuid' },
 };
 
 const LiveProjectQueryParam: ParameterSpec = {
@@ -1308,6 +1316,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       RunAgentIdQueryParam,
       RunReplaysQueryParam,
       RunEvalRunIdQueryParam,
+      RunTriggerIdQueryParam,
       RunIncludeQueryParam,
     ],
     responses: {
@@ -1555,6 +1564,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Token minted.', schema: ref('MintTokenResult') },
       ...CommonMutationErrors,
+      '409': ErrorResponse(
+        "Idempotency-Key reused with a different body (`idempotency-key-body-mismatch`), or a retry of a request that succeeded: its answer carried a secret, which isn't kept (`idempotency-key-replay-withheld`, with its `status` and `at`).",
+      ),
       '403': ErrorResponse(
         "Not a tenant admin where one is needed, or a capability the caller does not hold (`permission-denied`); an `admin` key for a principal that isn't a tenant admin (`role-exceeds-principal`); a key limited to a project minting for another (`key-project-mismatch`).",
       ),
@@ -1773,6 +1785,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Token minted.', schema: ref('MintPublicRunTokenResult') },
       ...CommonMutationErrors,
+      '409': ErrorResponse(
+        "Idempotency-Key reused with a different body (`idempotency-key-body-mismatch`), or a retry of a request that succeeded: its answer carried a secret, which isn't kept (`idempotency-key-replay-withheld`, with its `status` and `at`).",
+      ),
       '400': ErrorResponse('Malformed body, or `expiresInSeconds` above the deployment maximum.'),
       '403': ErrorResponse('The caller may not read one of the runs (`permission-denied`).'),
       '404': ErrorResponse('A run does not exist under this tenant (`run-not-found`).'),
@@ -2771,6 +2786,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse(
         "The body's `projectId` names no project of this tenant (`project-not-found`).",
       ),
+      '422': ErrorResponse(
+        "`guardrail-config-invalid`: the guardrail's `config` breaks the `configSchema` of the pack check it names, which the pack service would refuse on every call. `details.issues` lists each problem, `{ path, message }` with `path` a JSON pointer into the guardrail (`/config/maxChars`); the message names the guardrail, the check and the setting. Checked when the check's deployment carries its schema.",
+      ),
     },
   },
   {
@@ -3066,7 +3084,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'memory.retrieve',
     summary: 'Retrieve facts by intent',
     description:
-      'Cross-history retrieval over the facts the caller may see (as for listing). Body is a `RetrieveIntent` shape mirroring the agent-side declarative retrieval. Semantic modes require an embedding provider bound on the deployment.',
+      'Retrieval over the facts the caller may see (as for listing), current revisions only. `mode`: `list` (newest first, no query), `keyword` (full-text), `semantic` (by meaning), or `both` (the two searches fused by rank: reciprocal rank fusion). Searching by meaning needs embeddings on the deployment (`KINDGI_MEMORY_EMBEDDINGS`); without them `semantic` and `both` answer `422 semantic-unavailable`.',
     tags: ['memory'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -3074,11 +3092,12 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Retrieval results.', schema: ref('RetrieveMemoryResult') },
       ...CommonMutationErrors,
-      '400': ErrorResponse(
-        'Malformed intent, or semantic mode requested and no embedding provider is bound.',
+      '400': ErrorResponse('Malformed intent.'),
+      '422': ErrorResponse(
+        '`semantic-unavailable`: `semantic` or `both` asked to search by meaning, and the deployment has no embeddings (`KINDGI_MEMORY_EMBEDDINGS`).',
       ),
       '501': ErrorResponse(
-        "`memory-operation-unsupported`: this runtime's memory can't retrieve by intent yet.",
+        "`memory-operation-unsupported`: this runtime's memory can't retrieve by intent.",
       ),
     },
   },
@@ -3642,7 +3661,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '400': ErrorResponse('Validation failed (see `details.reason`).'),
       '409': ErrorResponse('Provider already registered at that id.'),
       '422': ErrorResponse(
-        "`provider-config-invalid`: the provider's adapter refuses the registration (its `adapter_config`, its metadata, or a missing `secret_ref`); `details.issues` lists each (`path`, a JSON pointer, and `message`), as other validation errors do. Nothing is stored.",
+        "`provider-config-invalid`: a `send_traceparent` that isn't a boolean, or the provider's adapter refuses the registration (its `adapter_config`, its metadata, or a missing `secret_ref`); `details.issues` lists each (`path`, a JSON pointer, and `message`), the registration's own fields first, as other validation errors do. Nothing is stored.",
       ),
     },
   },
@@ -4853,6 +4872,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '403': ErrorResponse(
         "Not allowed here (`token-sign-in-off`), or not this key (`token-sign-in-not-allowed`): a service account's, or a narrowed one.",
       ),
+      '409': ErrorResponse(
+        "A retry with the Idempotency-Key of a sign-in that succeeded: its session was in the cookie, which isn't kept (`idempotency-key-replay-withheld`). Sign in again without the key.",
+      ),
     },
   },
   {
@@ -5061,6 +5083,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'New session token.', schema: ref('RefreshResult') },
       ...CommonMutationErrors,
+      '409': ErrorResponse(
+        "Idempotency-Key reused with a different body (`idempotency-key-body-mismatch`), or a retry of a request that succeeded: its answer carried a secret, which isn't kept (`idempotency-key-replay-withheld`, with its `status` and `at`).",
+      ),
       '400': ErrorResponse(
         'Caller presented a bearer token (refresh is session-only), or a browser session (cookie).',
       ),
@@ -5093,7 +5118,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.users.list',
     summary: 'List users in the tenant',
     description:
-      'Cursor-paginated list of tenant users (sort order is binding-defined). Optional `?query=` is a prefix match on `displayName` — the natural filter shape for a "search users" surface. `primaryEmail` may be redacted per tenant policy.',
+      'Cursor-paginated list of tenant users (sort order is binding-defined), for tenant admins only. Optional `?query=` is a prefix match on `displayName` — the natural filter shape for a "search users" surface. `primaryEmail` may be redacted per tenant policy. Anyone else adds a person to a project by their email or id (`POST /v1/projects/{projectId}/memberships`).',
     tags: ['identity'],
     security: 'bearer',
     parameters: [
@@ -5117,6 +5142,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Page of users.', schema: ref('UserCollectionPage') },
       ...CommonAuthErrors,
+      '403': ErrorResponse('Not a tenant admin.'),
     },
   },
   {
@@ -5146,6 +5172,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/identity/users/{userId}',
     operationId: 'identity.users.get',
     summary: 'Get a user by id',
+    description: 'A tenant admin, or the person themselves.',
     tags: ['identity'],
     security: 'bearer',
     parameters: [
@@ -5154,6 +5181,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'User record.', schema: ref('UserRecord') },
       ...CommonAuthErrors,
+      '403': ErrorResponse("Someone else's record, and not a tenant admin."),
       '404': ErrorResponse('No user with that id under this tenant.'),
     },
   },
@@ -5164,7 +5192,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'identity.users.listSessions',
     summary: 'List active sessions for a user',
     description:
-      'Returns the wire-safe `IdentitySessionSummary` shape — provider access-token + refresh-token never cross the wire, even to admins. Unknown user id returns an empty list (call `GET /v1/identity/users/:userId` first to distinguish "no sessions" from "no user").',
+      'A tenant admin, or the person themselves. Returns the wire-safe `IdentitySessionSummary` shape — provider access-token + refresh-token never cross the wire, even to admins. Unknown user id returns an empty list (call `GET /v1/identity/users/:userId` first to distinguish "no sessions" from "no user").',
     tags: ['identity'],
     security: 'bearer',
     parameters: [
@@ -5173,6 +5201,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Page of sessions.', schema: ref('IdentitySessionCollectionPage') },
       ...CommonAuthErrors,
+      '403': ErrorResponse("Someone else's sessions, and not a tenant admin."),
     },
   },
   {
@@ -6058,12 +6087,13 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.getDefault',
     summary: "Fetch the tenant's Default project",
     description:
-      'Returns the row where `Project.isDefault = true` (exactly one per tenant). Returns 404 `project-not-found` when no Default has been provisioned.',
+      'Returns the row where `Project.isDefault = true` (exactly one per tenant), to a caller who can read it, as `GET /v1/projects/{projectId}` checks. Returns 404 `project-not-found` when no Default has been provisioned.',
     tags: ['projects'],
     security: 'bearer',
     responses: {
       '200': { description: 'Default project.', schema: ref('Project') },
       ...CommonAuthErrors,
+      '403': ErrorResponse("The caller can't read the Default project."),
       '404': ErrorResponse('Tenant has no Default project.'),
     },
   },
@@ -6233,7 +6263,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.memberships.add',
     summary: 'Add a user directly to a project',
     description:
-      'Idempotent on `(projectId, userId)` — re-adding an existing member with a different role does NOT overwrite; use PATCH for role changes.',
+      'Names the person by exactly one of `userId` and `email` (matched as the runtime matches emails when it adds a person); someone who is not a person of this tenant, or was removed from it, is refused with 404 `identity-user-not-found`. Idempotent on `(projectId, userId)` — re-adding an existing member with a different role does NOT overwrite; use PATCH for role changes.',
     tags: ['projects'],
     security: 'bearer',
     parameters: [
@@ -6253,7 +6283,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('AddProjectMembershipResult'),
       },
       ...CommonMutationErrors,
-      '404': ErrorResponse('No project with that id under this tenant.'),
+      '404': ErrorResponse(
+        'No project with that id under this tenant (`project-not-found`), or the person named is not a member of this tenant (`identity-user-not-found`).',
+      ),
     },
   },
   {
@@ -6458,7 +6490,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'env.put',
     summary: 'Upsert an env entry',
     description:
-      'Requires the `env:write` capability. Every write bumps `revision`; optional `ifRevision` guards against concurrent updates (409 `env-write-conflict`).',
+      "Requires the `env:write` capability. Every write bumps `revision`; optional `ifRevision` guards against concurrent updates (409 `env-write-conflict`). Env values aren't secret: they're recorded with each run that uses them. A credential goes in `/v1/secrets`.",
     tags: ['env'],
     security: 'bearer',
     parameters: [
@@ -6811,7 +6843,16 @@ export const OPERATIONS: readonly OperationSpec[] = [
     summary: 'Fetch a cron schedule',
     tags: ['schedules'],
     security: 'bearer',
-    parameters: [TriggerIdPathParam],
+    parameters: [
+      TriggerIdPathParam,
+      {
+        name: 'upcoming',
+        in: 'query',
+        required: false,
+        description: 'Include the next N occurrences (`upcoming`), 1 to 20.',
+        schema: { type: 'integer', minimum: 1, maximum: 20 },
+      },
+    ],
     responses: {
       '200': { description: 'Schedule record.', schema: ref('ScheduleRecord') },
       ...CommonAuthErrors,
@@ -6884,6 +6925,67 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Tombstone outcome.', schema: ref('ScheduleUnregisterResult') },
       ...CommonMutationErrors,
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/schedules/:triggerId/fires',
+    openapiPath: '/v1/schedules/{triggerId}/fires',
+    operationId: 'schedules.fires',
+    summary: "A schedule's fire history",
+    description:
+      'Newest first: each occurrence (and `run-now`) the schedule fired for, and what came of it: the run it started, or why it was skipped, refused or failed.',
+    tags: ['schedules'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': { description: 'Page of fires.', schema: ref('ScheduleFirePage') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No cron trigger with that id.'),
+      '501': ErrorResponse(
+        '`trigger-operation-unsupported`: this deployment keeps no fire history.',
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/schedules/:triggerId/run-now',
+    openapiPath: '/v1/schedules/{triggerId}/run-now',
+    operationId: 'schedules.runNow',
+    summary: 'Run a schedule now',
+    description:
+      "One fire outside the schedule (`manual: true` in its history), starting one run as the schedule's owner. The schedule's next occurrence is unchanged.",
+    tags: ['schedules'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '202': {
+        description: 'The fire; its run starts in the background.',
+        schema: ref('ScheduleFire'),
+      },
+      ...CommonMutationErrors,
+      '404': ErrorResponse('No cron trigger with that id.'),
+      '501': ErrorResponse('`trigger-operation-unsupported`: this deployment has no run-now.'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/schedules/:triggerId/owner',
+    openapiPath: '/v1/schedules/{triggerId}/owner',
+    operationId: 'schedules.takeOwnership',
+    summary: 'Take over a schedule',
+    description:
+      "The caller becomes the schedule's owner, so its runs act as the caller from the next fire. Needs `admin` on the schedule's project and `execute` on what it runs. For a schedule whose owner left or lost access.",
+    tags: ['schedules'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '200': { description: 'The schedule, with its new owner.', schema: ref('ScheduleRecord') },
+      ...CommonMutationErrors,
+      '404': ErrorResponse('No cron trigger with that id.'),
+      '501': ErrorResponse(
+        "`trigger-operation-unsupported`: this deployment can't change a schedule's owner.",
+      ),
     },
   },
 
@@ -7138,12 +7240,15 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'webhookEndpoints.generateSecret',
     summary: 'Generate a webhook signing secret',
     description:
-      'Returns a new strong secret (`whsec_` + base64 of 32 random bytes). Nothing is stored: put it in your secrets, then register the endpoint with its name.',
+      'Returns a new strong secret (`whsec_` + base64 of 32 random bytes). Nothing is stored: put it in your secrets, then register the endpoint with its name. Sent with an `Idempotency-Key`, a retry gets `409 idempotency-key-replay-withheld`, not the secret again.',
     tags: ['webhook-endpoints'],
     security: 'bearer',
     responses: {
       '200': { description: 'A new secret.', schema: ref('GeneratedWebhookSecret') },
       ...CommonAuthErrors,
+      '409': ErrorResponse(
+        "A retry with the Idempotency-Key of a request that succeeded: the secret isn't kept (`idempotency-key-replay-withheld`).",
+      ),
     },
   },
   {

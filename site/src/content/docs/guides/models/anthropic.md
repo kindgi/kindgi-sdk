@@ -101,6 +101,28 @@ turn routed to it fails. Its replacement is `claude-haiku-5-5`, which costs a
 tenth as much for a prompt up to 100,000 tokens, with five times the context. An agent that prefers or requires
 Haiku 4.5 needs a new version naming another model.
 
+## Prompt caching
+
+Kindgi asks Anthropic to cache the parts of a prompt that repeat: the tool
+definitions, the agent's instructions and, during a turn, the conversation so
+far. The turn's next call reads them at a fraction of the input price: 5% on
+Opus 5.5 and Sonnet 5.5, 10% on Haiku. The call that first writes them pays
+125% on what it writes. In a live check, a three-call turn with a
+7,700-token prompt on `claude-sonnet-5-5` came to $0.023 by Kindgi's estimate
+of the turn's cost (`totalCostUsd`), against $0.048 for the same calls
+uncached.
+
+There's nothing to set. A prompt shorter than the model's minimum (from 512
+tokens on the 5.5 models) isn't cached and costs nothing extra. How Anthropic
+keeps cached prompts, for how long, and whether caching is eligible for zero
+data retention: see Anthropic's
+[prompt caching documentation](https://platform.claude.com/docs/en/build-with-claude/prompt-caching) and
+[API and data retention](https://platform.claude.com/docs/en/manage-claude/api-and-data-retention).
+
+A registration from an earlier preset prices cache reads at 10% on every
+model, so it overstates them on Opus 5.5 and Sonnet 5.5. Register the preset
+again to get the 5% rate (see below).
+
 ## If you registered it before 0.1.4
 
 A registration from an earlier release has no default and doesn't list Haiku

@@ -35,10 +35,10 @@ import { clampLimit } from './pagination.js';
  *
  * Six routes:
  *   - `GET  /v1/identity/whoami`                        (self — always mounted)
- *   - `GET  /v1/identity/users`                         (cursor-paginated list)
+ *   - `GET  /v1/identity/users`                         (cursor-paginated list; tenant admins)
  *   - `POST /v1/identity/users`                         (add a person; admin, when the directory can)
- *   - `GET  /v1/identity/users/:userId`                 (get)
- *   - `GET  /v1/identity/users/:userId/sessions`        (active sessions)
+ *   - `GET  /v1/identity/users/:userId`                 (get; a tenant admin, or your own)
+ *   - `GET  /v1/identity/users/:userId/sessions`        (active sessions; a tenant admin, or your own)
  *   - `POST /v1/identity/users/:userId/revoke-sessions` (admin op)
  *   - `GET  /v1/identity/users/:userId/grants`          (admin, or your own)
  *   - `POST /v1/identity/users/:userId/grant|ungrant`   (tenant admin, tenant admins only)
@@ -123,8 +123,13 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
     return r;
   }
 
-  // ---------- GET /users (list) ----------
+  // ---------- GET /users (list; tenant admins) ----------
+  // The people of a tenant, with their emails: a tenant admin's to read.
+  // Anyone else adds a person to a project by their email or id.
   r.get('/users', async (c) => {
+    if (!(await isTenantAdmin(c, authorizer))) {
+      return denied(c, "Only a tenant admin lists the tenant's people");
+    }
     const tenantId = c.get('tenantId') as TenantId;
     const limit = clampLimit(c.req.query('limit'));
     const cursorRaw = c.req.query('cursor');
@@ -188,11 +193,14 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
     });
   }
 
-  // ---------- GET /users/:userId (get) ----------
+  // ---------- GET /users/:userId (get; a tenant admin, or your own) ----------
   r.get('/users/:userId', async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const userId = c.req.param('userId') as UserId;
+    if (!isOwn(c, userId) && !(await isTenantAdmin(c, authorizer))) {
+      return denied(c, "Only a tenant admin reads someone else's record");
+    }
 
     const user = await directory.getUser({ tenantId, userId });
     if (user === null) {
@@ -211,10 +219,13 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
     return c.json(serializeUser(user));
   });
 
-  // ---------- GET /users/:userId/sessions (list active sessions) ----------
+  // ---------- GET /users/:userId/sessions (a tenant admin, or your own) ----------
   r.get('/users/:userId/sessions', async (c) => {
     const tenantId = c.get('tenantId') as TenantId;
     const userId = c.req.param('userId') as UserId;
+    if (!isOwn(c, userId) && !(await isTenantAdmin(c, authorizer))) {
+      return denied(c, "Only a tenant admin reads someone else's sessions");
+    }
 
     const page = await directory.listSessions({ tenantId, userId });
     return c.json({
@@ -290,24 +301,18 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const userId = c.req.param('userId') as UserId;
-    const own =
-      (c.get('userId') as unknown as string | undefined) === (userId as unknown as string);
-    if (!own && !(await isTenantAdmin(c, authorizer))) {
-      c.status(statusFor('permission-denied') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'permission-denied',
-            message: "Only a tenant admin revokes someone else's sessions",
-          },
-          requestId,
-        ),
-      );
+    if (!isOwn(c, userId) && !(await isTenantAdmin(c, authorizer))) {
+      return denied(c, "Only a tenant admin revokes someone else's sessions");
     }
 
     let outcome: Awaited<ReturnType<IdentityDirectoryBinding['revokeAllSessions']>>;
     try {
-      outcome = await directory.revokeAllSessions({ tenantId, userId });
+      const revokedBy = callerRef(c);
+      outcome = await directory.revokeAllSessions({
+        tenantId,
+        userId,
+        ...(revokedBy !== undefined && { revokedBy }),
+      });
     } catch (err) {
       c.status(statusFor('identity-revoke-failed') as never);
       return c.json(
@@ -345,6 +350,10 @@ const unsupported = (c: Context<AppEnv>) => {
   );
 };
 
+/** Whether `userId` is the caller's own. */
+const isOwn = (c: Context<AppEnv>, userId: string) =>
+  (c.get('userId') as unknown as string | undefined) === userId;
+
 const denied = (c: Context<AppEnv>, message: string) => {
   c.status(statusFor('permission-denied') as never);
   return c.json(toWireError({ code: 'permission-denied', message }, c.get('requestId')));
@@ -362,8 +371,7 @@ function mountPersonGrants(
 ): void {
   r.get('/users/:userId/grants', async (c) => {
     const userId = c.req.param('userId');
-    const own = (c.get('userId') as unknown as string | undefined) === userId;
-    if (!own && !(await isTenantAdmin(c, authorizer))) {
+    if (!isOwn(c, userId) && !(await isTenantAdmin(c, authorizer))) {
       return denied(c, "Only a tenant admin reads someone else's grants");
     }
     if (binding === undefined) return unsupported(c);

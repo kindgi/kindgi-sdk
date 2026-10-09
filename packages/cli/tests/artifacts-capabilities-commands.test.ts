@@ -120,7 +120,8 @@ describe('kindgi artifacts', () => {
   test('a bad --tag is refused before any call', async () => {
     await writeFile(join(cwd, 'a.txt'), 'x');
     const { out, calls } = await run(['artifacts', 'upload', 'a.txt', '--tag=nokey']);
-    expect(out.exitCode).toBe(1);
+    // A usage error.
+    expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain('--tag must be key=value');
     expect(calls).toEqual([]);
   });

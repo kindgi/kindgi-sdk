@@ -9,6 +9,7 @@ import type {
 } from '@kindgi/client';
 
 import type { CommandContext } from '../context.js';
+import { UsageError } from '../errors.js';
 import {
   type TableSpec,
   integerFlag,
@@ -35,7 +36,7 @@ function projectGrants(ctx: CommandContext): ServiceAccountGrant[] {
     const projectId = raw.slice(0, colon);
     const role = raw.slice(colon + 1);
     if (colon <= 0 || !(PROJECT_ROLES as readonly string[]).includes(role)) {
-      throw new Error(
+      throw new UsageError(
         `--project must be <project-id>:<role>, the role one of ${PROJECT_ROLES.join(', ')}; got "${raw}"`,
       );
     }
@@ -150,7 +151,7 @@ function targetFlags(ctx: CommandContext): ServiceAccountGrantTarget {
   const tenantMember = ctx.options['tenant-member'] === true;
   const projectId = stringFlag(ctx, 'project');
   if ([tenantAdmin, tenantMember, projectId !== undefined].filter(Boolean).length !== 1) {
-    throw new Error('Give one of --tenant-admin, --tenant-member or --project=<project-id>');
+    throw new UsageError('Give one of --tenant-admin, --tenant-member or --project=<project-id>');
   }
   if (tenantAdmin) return { kind: 'tenant-admin' };
   if (tenantMember) return { kind: 'tenant-member' };
@@ -163,7 +164,7 @@ function grantFlags(ctx: CommandContext): ServiceAccountGrant {
   if (target.kind !== 'project') return target;
   const role = stringFlag(ctx, 'role');
   if (role === undefined || !(PROJECT_ROLES as readonly string[]).includes(role)) {
-    throw new Error(`--role must be one of ${PROJECT_ROLES.join(', ')}`);
+    throw new UsageError(`--role must be one of ${PROJECT_ROLES.join(', ')}`);
   }
   return { ...target, role: role as ProjectRole };
 }

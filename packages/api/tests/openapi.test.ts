@@ -412,6 +412,8 @@ const noopSessionStore: SessionStoreBinding = {
   list: async () => ({ data: [] }),
   revoke: async () => ({ revoked: false }),
   revokeAllForUser: async () => ({ revokedCount: 0 }),
+  // Cookie sessions need a store that resolves its own tokens.
+  resolveToken: async () => null,
 };
 
 const noopIdentityProvider: IdentityProviderBinding = {
