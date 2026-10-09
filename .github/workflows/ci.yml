@@ -100,6 +100,17 @@ jobs:
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     steps:
       - uses: actions/checkout@v5
+      # Java 17, before pnpm install: setup-java's two cache keys (the Maven
+      # repository's and the Maven wrapper's) each hash a glob from the repo
+      # root, and with node_modules installed each walked it for 6 to 9
+      # minutes, as setup-uv's default glob did (below). The Maven key hashes
+      # the Java SDK's poms only.
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: maven
+          cache-dependency-path: sdks/java/**/pom.xml
       - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v5
         with:
@@ -123,15 +134,8 @@ jobs:
       # compiles its fixture pack against the module's classes. Under CI that
       # target fails rather than skip when they're missing. Installed, so the
       # CLI's real Java pack build (tests/java-pack-code.test.ts) finds
-      # kindgi-pack in the local Maven repository too. The cache key hashes the
-      # Java SDK's poms only: by now node_modules is installed, and the default
-      # (every pom.xml in the checkout) walked it for about ten minutes a run.
-      - uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "17"
-          cache: maven
-          cache-dependency-path: sdks/java/**/pom.xml
+      # kindgi-pack in the local Maven repository too. (Java is set up before
+      # pnpm install, above.)
       - name: Java pack service (for the pack conformance suite and the CLI's Java builds)
         working-directory: sdks/java
         run: ./mvnw -B -ntp -pl kindgi-pack -am install -DskipTests
