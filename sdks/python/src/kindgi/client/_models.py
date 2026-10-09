@@ -9248,55 +9248,6 @@ class RunTreeUsage(BaseModel):
     tokens: CostTokenTotals
 
 
-class FinishedRun(BaseModel):
-    """
-    A finished top-level run: its identity and outcome, never its input or output. Field names match `GET /v1/runs/{runId}`.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    id: UUID
-    """
-    RunId.
-    """
-    project_id: Annotated[UUID, Field(alias="projectId")]
-    flow_id: Annotated[str, Field(alias="flowId")]
-    flow_version: Annotated[str, Field(alias="flowVersion")]
-    status: Literal["completed", "failed", "cancelled"]
-    dry_run: Annotated[bool, Field(alias="dryRun")]
-    failure_message: Annotated[str | None, Field(alias="failureMessage")]
-    """
-    Why the run failed or was cancelled; `null` when it completed.
-    """
-    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
-    completed_at: Annotated[AwareDatetime, Field(alias="completedAt")]
-    usage: RunTreeUsage | None = None
-
-
-class Data(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    run: FinishedRun
-
-
-class RunFinishedEvent(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    id: str
-    """
-    Event id, also sent as the `webhook-id` header; the same on every retry.
-    """
-    type: Literal["run.finished"]
-    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
-    data: Data
-
-
 class Data1(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -9428,49 +9379,6 @@ class WebhookTestEvent(BaseModel):
     type: Literal["webhook.test"]
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     data: Data2
-
-
-class WebhookDelivery(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    delivery_id: Annotated[str, Field(alias="deliveryId")]
-    endpoint_id: Annotated[str, Field(alias="endpointId")]
-    event: Annotated[
-        RunFinishedEvent | ImprovementPassFinishedEvent | WebhookTestEvent,
-        Field(discriminator="type"),
-    ]
-    """
-    The JSON body of every webhook request.
-    """
-    status: Literal["pending", "delivered", "failed"]
-    """
-    `pending`: waiting for its next attempt. `delivered`: the endpoint answered 2xx. `failed`: every attempt failed, or the endpoint was unregistered first; redeliver queues it again.
-    """
-    attempts: Annotated[int, Field(ge=0)]
-    next_attempt_at: Annotated[AwareDatetime | None, Field(alias="nextAttemptAt")]
-    last_attempt_at: Annotated[AwareDatetime | None, Field(alias="lastAttemptAt")]
-    last_response_status: Annotated[int | None, Field(alias="lastResponseStatus")]
-    """
-    HTTP status of the last attempt; `null` when it got no response.
-    """
-    last_error: Annotated[str | None, Field(alias="lastError")]
-    """
-    Why the last attempt failed (`timeout`, `connection-refused`, `url-refused`, …).
-    """
-    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
-    delivered_at: Annotated[AwareDatetime | None, Field(alias="deliveredAt")]
-
-
-class WebhookDeliveryCollectionPage(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[WebhookDelivery]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
-    has_more: Annotated[bool, Field(alias="hasMore")]
 
 
 class SystemOpenapiResponse(BaseModel):
@@ -10897,6 +10805,102 @@ class WebhookEndpointCollectionPage(BaseModel):
         populate_by_name=True,
     )
     data: list[WebhookEndpoint]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class FinishedRun(BaseModel):
+    """
+    A finished top-level run: its identity and outcome, never its input or output. Field names match `GET /v1/runs/{runId}`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: UUID
+    """
+    RunId.
+    """
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    flow_id: Annotated[str, Field(alias="flowId")]
+    flow_version: Annotated[str, Field(alias="flowVersion")]
+    status: Literal["completed", "failed", "cancelled"]
+    dry_run: Annotated[bool, Field(alias="dryRun")]
+    failure_message: Annotated[str | None, Field(alias="failureMessage")]
+    """
+    Why the run failed or was cancelled; `null` when it completed.
+    """
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    completed_at: Annotated[AwareDatetime, Field(alias="completedAt")]
+    usage: RunTreeUsage | None = None
+    agent: RunAgent | None = None
+    """
+    On an agent's run: the agent, the version that ran and the conversation, as `GET /v1/runs/{runId}` shows them (an agent run's `flowId` is `agent.turn`). Absent on a flow's run, and from a runtime before Kindgi 0.1.6.
+    """
+
+
+class Data(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    run: FinishedRun
+
+
+class RunFinishedEvent(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    """
+    Event id, also sent as the `webhook-id` header; the same on every retry.
+    """
+    type: Literal["run.finished"]
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    data: Data
+
+
+class WebhookDelivery(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    delivery_id: Annotated[str, Field(alias="deliveryId")]
+    endpoint_id: Annotated[str, Field(alias="endpointId")]
+    event: Annotated[
+        RunFinishedEvent | ImprovementPassFinishedEvent | WebhookTestEvent,
+        Field(discriminator="type"),
+    ]
+    """
+    The JSON body of every webhook request.
+    """
+    status: Literal["pending", "delivered", "failed"]
+    """
+    `pending`: waiting for its next attempt. `delivered`: the endpoint answered 2xx. `failed`: every attempt failed, or the endpoint was unregistered first; redeliver queues it again.
+    """
+    attempts: Annotated[int, Field(ge=0)]
+    next_attempt_at: Annotated[AwareDatetime | None, Field(alias="nextAttemptAt")]
+    last_attempt_at: Annotated[AwareDatetime | None, Field(alias="lastAttemptAt")]
+    last_response_status: Annotated[int | None, Field(alias="lastResponseStatus")]
+    """
+    HTTP status of the last attempt; `null` when it got no response.
+    """
+    last_error: Annotated[str | None, Field(alias="lastError")]
+    """
+    Why the last attempt failed (`timeout`, `connection-refused`, `url-refused`, …).
+    """
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    delivered_at: Annotated[AwareDatetime | None, Field(alias="deliveredAt")]
+
+
+class WebhookDeliveryCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[WebhookDelivery]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     has_more: Annotated[bool, Field(alias="hasMore")]
 
