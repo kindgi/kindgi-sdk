@@ -225,12 +225,13 @@ and what's different after:
   ([Turn on sign-in](../sign-in/)). Otherwise the console's sign-in page
   offers no way in, and the runtime's startup output says so too. API tokens
   keep working for the API, the CLI and the SDKs either way.
-- **Reach the console over `https`, or on `localhost`.** Its sign-in is now a
-  session cookie marked `Secure`, which a browser keeps only from an `https`
-  page or from `localhost`
-  ([MDN: Set-Cookie, `Secure`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Set-Cookie#secure)).
-  Without `KINDGI_PUBLIC_URL`, the runtime also accepts the console's changes
-  only from those
+- **Reach the console over `https`, or at `http://localhost` (or
+  `127.0.0.1`) on the machine running Kindgi.** Every way of signing in now
+  ends in a session cookie marked `Secure`, and a browser doesn't keep one
+  from any other plain-`http` address
+  ([MDN: Set-Cookie, `Secure`](https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Set-Cookie#secure)),
+  so sign-in fails there. Without `KINDGI_PUBLIC_URL`, the runtime also
+  accepts the console's changes only from those addresses
   ([Requests from other sites](../../guides/sso/sessions/#requests-from-other-sites)).
 - **Behind a load balancer or ingress, set `KINDGI_TRUSTED_PROXIES`:** how
   many proxies are in front of the runtime (`1` for one), or their addresses.
