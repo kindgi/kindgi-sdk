@@ -4892,7 +4892,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'auth.signInOptions',
     summary: 'How a person can sign in',
     description:
-      "Public: nobody is signed in yet. With `email`, the identity providers for that email's domain (from the one tenant that claims it); without, the deployment's sign-in buttons when it has exactly one tenant. The answer depends only on the domain: two people at the same domain get the same answer, whether or not either has an account. Rate-limited per client (`429 rate-limit-exceeded`, with `Retry-After`).",
+      "Public: nobody is signed in yet. With `email`, the identity providers for that email's domain (from the one tenant that claims it); without, an empty list: sign-in is email first, so nothing is offered before an email. `methods` says which ways in the deployment allows: identity providers, and/or an API token (`POST /v1/auth/token-sign-in`); both `false` when nobody can sign in to the console. Always mounted. The answer depends only on the domain: two people at the same domain get the same answer, whether or not either has an account. Rate-limited per client (`429 rate-limit-exceeded`, with `Retry-After`).",
     tags: ['auth'],
     security: 'public',
     parameters: [
@@ -4912,12 +4912,36 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
   {
     method: 'post',
+    honoPath: '/v1/auth/token-sign-in',
+    openapiPath: '/v1/auth/token-sign-in',
+    operationId: 'auth.tokenSignIn',
+    summary: 'Sign in to the console with an API token',
+    description:
+      "The API token in `Authorization` is exchanged once for a browser session in the session cookie (HttpOnly; the same as a sign-in with an identity provider), so the browser never keeps the token. Only a person's full key opens a session: a service account's key, or a narrowed one (a `member` role, or one project), is refused `403 token-sign-in-not-allowed`. The session ends after its lifetime, or when the key expires if sooner. `403 token-sign-in-off` when the deployment doesn't allow it (always mounted, so a console gets that answer); `400 token-sign-in-needs-an-api-token` when the request is already signed in by a session.",
+    tags: ['auth'],
+    security: 'bearer',
+    responses: {
+      '200': {
+        description: 'Signed in: the session cookie is set.',
+        schema: ref('TokenSignInResult'),
+      },
+      ...CommonAuthErrors,
+      '400': ErrorResponse(
+        'Signed in by a session, not an API token (`token-sign-in-needs-an-api-token`).',
+      ),
+      '403': ErrorResponse(
+        "Not allowed here (`token-sign-in-off`), or not this key (`token-sign-in-not-allowed`): a service account's, or a narrowed one.",
+      ),
+    },
+  },
+  {
+    method: 'post',
     honoPath: '/v1/auth/providers',
     openapiPath: '/v1/auth/providers',
     operationId: 'auth.providers.register',
     summary: 'Register an identity provider (OIDC, SAML or OAuth 2.0)',
     description:
-      'Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered` — unregister it first, then register again. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`. The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.',
+      'Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered`; change it with `PATCH /v1/auth/providers/{providerId}`, which keeps its sign-in URLs. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`. The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.',
     tags: ['auth'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -4928,6 +4952,95 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('RegisterIdentityProviderResult'),
       },
       ...CommonMutationErrors,
+      '422': ErrorResponse(
+        'The deployment could not use the configuration (`identity-provider-invalid`).',
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/auth/providers/:providerId',
+    openapiPath: '/v1/auth/providers/{providerId}',
+    operationId: 'auth.providers.get',
+    summary: 'Get one identity provider',
+    description:
+      'The provider as stored, with `signIn` when the deployment sets it. Secrets appear only as references.',
+    tags: ['auth'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'providerId',
+        in: 'path',
+        required: true,
+        schema: { type: 'string', minLength: 1 },
+      },
+    ],
+    responses: {
+      '200': { description: 'The provider.', schema: ref('GetIdentityProviderResult') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No identity provider registered with that id under this tenant.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/auth/providers/:providerId/sign-in',
+    openapiPath: '/v1/auth/providers/{providerId}/sign-in',
+    operationId: 'auth.providers.signIn',
+    summary: 'What to give the identity provider, before or after registering',
+    description:
+      "The redirect URI (OIDC) or the ACS URL, entity ID and metadata URL (SAML) a provider under this `providerId` gets: the same before it's registered, after, and after an unregister and a new registration. So an admin sets up the identity provider's side first, then registers with what it gives back. `kind` is required until the provider is registered. Not mounted when the deployment can't say.",
+    tags: ['auth'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'providerId',
+        in: 'path',
+        required: true,
+        schema: { type: 'string', minLength: 1 },
+      },
+      {
+        name: 'kind',
+        in: 'query',
+        required: false,
+        schema: { $ref: '#/components/schemas/IdentityProviderKind' },
+        description: "The provider's kind; default: the registered provider's.",
+      },
+    ],
+    responses: {
+      '200': {
+        description: 'What to give the identity provider.',
+        schema: ref('IdentityProviderSignInUrls'),
+      },
+      ...CommonAuthErrors,
+      '400': ErrorResponse(
+        "`kind` missing for a provider that isn't registered, or a kind this deployment doesn't sign in with (`bad-input`).",
+      ),
+    },
+  },
+  {
+    method: 'patch',
+    honoPath: '/v1/auth/providers/:providerId',
+    openapiPath: '/v1/auth/providers/{providerId}',
+    operationId: 'auth.providers.update',
+    summary: 'Change an identity provider, keeping its sign-in URLs',
+    description:
+      "Merges the changes into the stored provider and checks the result as a registration is (`400 invalid-provider-config`; `422 identity-provider-invalid` when the deployment can't use it). The provider keeps its `signIn`, so nothing changes on the identity provider's side. Not mounted when the deployment can't update providers.",
+    tags: ['auth'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'providerId',
+        in: 'path',
+        required: true,
+        schema: { type: 'string', minLength: 1 },
+      },
+      IdempotencyKeyParam,
+    ],
+    requestBody: { required: true, schema: ref('UpdateIdentityProviderBody') },
+    responses: {
+      '200': { description: 'Updated.', schema: ref('UpdateIdentityProviderResult') },
+      ...CommonMutationErrors,
+      '404': ErrorResponse('No identity provider registered with that id under this tenant.'),
       '422': ErrorResponse(
         'The deployment could not use the configuration (`identity-provider-invalid`).',
       ),

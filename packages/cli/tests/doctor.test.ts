@@ -164,12 +164,15 @@ describe('outside a project', () => {
       'uv',
       'docker',
       'registry',
+      'console-sign-in',
       'project',
       'dependencies',
       'model-key',
       'runtime',
       'provider',
     ]);
+    expect(check('console-sign-in')).toMatchObject({ status: 'skip' });
+    expect(check('console-sign-in')?.message).toContain('no runtime to ask');
     expect(check('node')).toMatchObject({ status: 'pass', message: 'Node 22.12.0.' });
     expect(check('python')).toMatchObject({ status: 'skip' });
     expect(check('python')?.message).toContain('Python 3.12.4 is installed');
@@ -781,4 +784,79 @@ test('MIN_NODE is the CLI package’s engines.node', async () => {
   expect(atLeast('22.12.0', MIN_NODE)).toBe(true);
   expect(atLeast('22.11.9', MIN_NODE)).toBe(false);
   expect(atLeast('v23.0.0', MIN_NODE)).toBe(true);
+});
+
+describe('console sign-in: can anyone sign in to the console of the runtime the CLI points at', () => {
+  const RUNTIME = 'https://kindgi.acme.example';
+  const env = { KINDGI_API_URL: RUNTIME, KINDGI_API_TOKEN: 'kgi_admin' };
+  const answering =
+    (signInOptions: unknown, providers: unknown[] = [], status = 200): typeof fetch =>
+    async (input) => {
+      const url = String(input);
+      if (url === `${RUNTIME}/v1/auth/sign-in-options`) {
+        return new Response(JSON.stringify(signInOptions), { status });
+      }
+      if (url === `${RUNTIME}/v1/auth/providers`) {
+        return new Response(JSON.stringify({ data: providers }), { status: 200 });
+      }
+      return new Response('{}', { status: 404 });
+    };
+
+  test('token sign-in on: pass', async () => {
+    const { check } = await doctor({
+      env,
+      fetchImpl: answering({ data: [], methods: { identityProviders: false, apiToken: true } }),
+    });
+    expect(check('console-sign-in')).toMatchObject({ status: 'pass' });
+  });
+
+  test('token sign-in off and no identity provider: a warning naming the setting, exit 0', async () => {
+    const { out, check } = await doctor({
+      env,
+      fetchImpl: answering({ data: [], methods: { identityProviders: false, apiToken: false } }),
+    });
+    expect(out.exitCode).toBe(0);
+    const found = check('console-sign-in');
+    expect(found?.status).toBe('warn');
+    expect(found?.message).toContain(`Nobody can sign in to the console at ${RUNTIME}`);
+    expect(found?.fix).toContain('KINDGI_CONSOLE_TOKEN_SIGN_IN=on');
+  });
+
+  test('identity providers on but none registered, token sign-in off: a warning', async () => {
+    const { check } = await doctor({
+      env,
+      fetchImpl: answering({ data: [], methods: { identityProviders: true, apiToken: false } }, []),
+    });
+    const found = check('console-sign-in');
+    expect(found?.status).toBe('warn');
+    expect(found?.message).toContain('none is registered');
+    expect(found?.fix).toContain('kindgi sso providers start');
+    expect(found?.fix).toContain('KINDGI_CONSOLE_TOKEN_SIGN_IN=on');
+  });
+
+  test('identity providers on and one registered: pass', async () => {
+    const { check } = await doctor({
+      env,
+      fetchImpl: answering({ data: [], methods: { identityProviders: true, apiToken: false } }, [
+        { providerId: 'acme-okta' },
+      ]),
+    });
+    expect(check('console-sign-in')).toMatchObject({ status: 'pass' });
+  });
+
+  test('a runtime older than 0.1.5: not checked', async () => {
+    const { check } = await doctor({ env, fetchImpl: answering({}, [], 404) });
+    expect(check('console-sign-in')).toMatchObject({ status: 'skip' });
+    expect(check('console-sign-in')?.message).toContain('older than 0.1.5');
+  });
+
+  test('the text output: the warning and its fix', async () => {
+    const { out } = await doctor({
+      env,
+      json: false,
+      fetchImpl: answering({ data: [], methods: { identityProviders: false, apiToken: false } }),
+    });
+    expect(out.stdout).toContain('! Console sign-in: Nobody can sign in to the console');
+    expect(out.stdout).toContain('Fix: Set KINDGI_CONSOLE_TOKEN_SIGN_IN=on on the runtime');
+  });
 });

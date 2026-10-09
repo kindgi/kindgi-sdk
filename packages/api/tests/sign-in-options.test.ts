@@ -86,6 +86,7 @@ describe('sign-in options', () => {
       data: [
         { providerId: 'acme-okta', displayName: 'Acme Okta', signInUrl: '/auth/start/idp_7f3a' },
       ],
+      methods: { identityProviders: true, apiToken: false },
     });
     expect(calls).toEqual([{ emailDomain: 'acme.com' }]);
   });
@@ -101,25 +102,34 @@ describe('sign-in options', () => {
     expect(await known.text()).toBe(await unknown.text());
   });
 
-  test('without an email: the buttons (the binding decides; here, one tenant)', async () => {
+  test('without an email: nothing, and the binding is not asked (email first)', async () => {
     const { app, calls } = makeApp();
     const res = await lookup(app);
     expect(res.status).toBe(200);
-    expect(((await res.json()) as { data: unknown[] }).data).toHaveLength(1);
-    expect(calls).toEqual([{}]);
+    expect(await res.json()).toEqual({
+      data: [],
+      methods: { identityProviders: true, apiToken: false },
+    });
+    expect(calls).toEqual([]);
   });
 
   test('a domain nobody claims answers an empty list, same shape', async () => {
     const { app } = makeApp();
     const res = await lookup(app, 'someone@elsewhere.org');
     expect(res.status).toBe(200);
-    expect(await res.json()).toEqual({ data: [] });
+    expect(await res.json()).toEqual({
+      data: [],
+      methods: { identityProviders: true, apiToken: false },
+    });
   });
 
   test('a binding without signInOptions answers an empty list', async () => {
     const { app } = makeApp({ withSignInOptions: false });
     const res = await lookup(app, 'alice@acme.com');
-    expect(await res.json()).toEqual({ data: [] });
+    expect(await res.json()).toEqual({
+      data: [],
+      methods: { identityProviders: true, apiToken: false },
+    });
   });
 
   test('an email that is no email → 400 bad-input', async () => {

@@ -78,7 +78,8 @@ export type DoctorCheckId =
   | 'dependencies'
   | 'model-key'
   | 'runtime'
-  | 'provider';
+  | 'provider'
+  | 'console-sign-in';
 
 export interface DoctorCheck {
   readonly id: DoctorCheckId;
@@ -139,6 +140,7 @@ const TITLES: Readonly<Record<DoctorCheckId, string>> = {
   'model-key': 'Model key',
   runtime: 'Runtime',
   provider: 'Provider',
+  'console-sign-in': 'Console sign-in',
 };
 
 export const doctorCommand: LeafCommand = {
@@ -186,6 +188,7 @@ export async function runDoctor(ctx: CommandContext, dir: string): Promise<Docto
       ? await registryCheck(run, seam.image ?? DEFAULT_RUNTIME_IMAGE, kindgi)
       : skip('registry', 'Not checked: it needs Docker running.'),
   );
+  checks.push(await consoleSignInCheck(ctx));
 
   if (config === undefined || language === undefined) {
     checks.push({
@@ -634,6 +637,85 @@ async function runtimeCheck(
       check: skip('runtime', `Not running: nothing answers at ${rc.apiUrl}.`, start),
     };
   }
+}
+
+/**
+ * Whether anyone can sign in to the console of the runtime the CLI points
+ * at (`--url`, `KINDGI_API_URL`, `kindgi auth login`). Since 0.1.5,
+ * signing in with an API token is off by default outside `kindgi dev`: a
+ * deployment that relied on it, with no identity provider, has no way in.
+ */
+async function consoleSignInCheck(ctx: CommandContext): Promise<DoctorCheck> {
+  const apiUrl = ctx.config.apiUrl?.replace(/\/+$/, '');
+  if (apiUrl === undefined) {
+    return skip(
+      'console-sign-in',
+      'Not checked: no runtime to ask (set KINDGI_API_URL, or run kindgi auth login).',
+    );
+  }
+  const TOKEN_ON =
+    'Set KINDGI_CONSOLE_TOKEN_SIGN_IN=on on the runtime and restart it, to keep signing in to the console with an API token';
+  let methods: { identityProviders?: unknown; apiToken?: unknown } | undefined;
+  try {
+    const res = await ctx.fetch(`${apiUrl}/v1/auth/sign-in-options`, {
+      method: 'GET',
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) {
+      return skip(
+        'console-sign-in',
+        `Not checked: the runtime at ${apiUrl} doesn't say how people sign in (older than 0.1.5).`,
+      );
+    }
+    methods = ((await res.json()) as { methods?: typeof methods }).methods;
+  } catch {
+    return skip('console-sign-in', `Not checked: nothing answers at ${apiUrl}.`);
+  }
+  if (methods === undefined) {
+    return skip(
+      'console-sign-in',
+      `Not checked: the runtime at ${apiUrl} doesn't say how people sign in (older than 0.1.5).`,
+    );
+  }
+  if (methods.apiToken === true) {
+    return pass(
+      'console-sign-in',
+      methods.identityProviders === true
+        ? 'People can sign in to the console with an API token or an identity provider.'
+        : 'People can sign in to the console with an API token.',
+    );
+  }
+  if (methods.identityProviders !== true) {
+    return warn(
+      'console-sign-in',
+      `Nobody can sign in to the console at ${apiUrl}: signing in with an API token is off (the default outside kindgi dev since 0.1.5), and no identity provider is set up.`,
+      `${TOKEN_ON}; or set up sign-in with your identity provider (KINDGI_AUTH_SECRET_PATH, then kindgi sso providers start).`,
+    );
+  }
+  const token = ctx.config.token;
+  if (token === undefined) {
+    return pass('console-sign-in', 'People sign in to the console with an identity provider.');
+  }
+  try {
+    const res = await ctx.fetch(`${apiUrl}/v1/auth/providers`, {
+      method: 'GET',
+      headers: { authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (res.ok) {
+      const providers = ((await res.json()) as { data?: unknown[] }).data ?? [];
+      if (providers.length === 0) {
+        return warn(
+          'console-sign-in',
+          `Sign-in with an identity provider is on at ${apiUrl}, but none is registered, and signing in with an API token is off: nobody can sign in to the console.`,
+          `Register one (kindgi sso providers start <id> --idp=google|entra|okta|keycloak); or ${TOKEN_ON.charAt(0).toLowerCase()}${TOKEN_ON.slice(1)}.`,
+        );
+      }
+    }
+  } catch {
+    // The providers couldn't be listed: the sign-in options already said it's on.
+  }
+  return pass('console-sign-in', 'People sign in to the console with an identity provider.');
 }
 
 async function providerCheck(

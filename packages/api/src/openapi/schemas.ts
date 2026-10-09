@@ -7022,6 +7022,25 @@ export const RegisterIdentityProviderBodySchema: JsonSchema = {
   },
 };
 
+// Its own schema too, used only as the answer (see `RegisterIdentityProviderBody`).
+export const GetIdentityProviderResultSchema: JsonSchema = {
+  description:
+    'An identity provider as stored, one shape per `kind`, with `signIn` when the deployment sets it. Secrets appear only as references.',
+  oneOf: [
+    { $ref: '#/components/schemas/OidcIdentityProviderConfig' },
+    { $ref: '#/components/schemas/SamlIdentityProviderConfig' },
+    { $ref: '#/components/schemas/OAuth2IdentityProviderConfig' },
+  ],
+  discriminator: {
+    propertyName: 'kind',
+    mapping: {
+      oidc: '#/components/schemas/OidcIdentityProviderConfig',
+      saml: '#/components/schemas/SamlIdentityProviderConfig',
+      oauth2: '#/components/schemas/OAuth2IdentityProviderConfig',
+    },
+  },
+};
+
 export const IdentityProviderCollectionPageSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -7056,6 +7075,38 @@ export const SignInOptionsSchema: JsonSchema = {
   required: ['data'],
   properties: {
     data: { type: 'array', items: { $ref: '#/components/schemas/SignInOption' } },
+    methods: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['identityProviders', 'apiToken'],
+      description:
+        'The ways in this deployment allows, for a sign-in page to show. Absent from older servers.',
+      properties: {
+        identityProviders: {
+          type: 'boolean',
+          description: "Sign-in with an organization's identity provider (email first).",
+        },
+        apiToken: {
+          type: 'boolean',
+          description: 'Sign-in to the console with an API token (`POST /v1/auth/token-sign-in`).',
+        },
+      },
+    },
+  },
+};
+
+export const TokenSignInResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['userId', 'expiresAt'],
+  properties: {
+    userId: { type: 'string', minLength: 1, description: 'The person now signed in.' },
+    expiresAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        "When the session ends at the latest: its lifetime, or the key's expiry if sooner.",
+    },
   },
 };
 
@@ -7080,6 +7131,91 @@ export const UnregisterIdentityProviderResultSchema: JsonSchema = {
   properties: {
     providerId: { type: 'string', minLength: 1 },
     unregistered: { type: 'boolean', const: true },
+  },
+};
+
+const NULLABLE_STRING = { type: ['string', 'null'], minLength: 1 } as const;
+const NULLABLE_URI = { type: ['string', 'null'], format: 'uri' } as const;
+const NULLABLE_STRINGS = {
+  oneOf: [{ type: 'array', items: { type: 'string', minLength: 1 } }, { type: 'null' }],
+} as const;
+
+export const UpdateIdentityProviderBodySchema: JsonSchema = {
+  description:
+    "Changes to a registered identity provider: a field given replaces the stored one, `null` removes an optional one, and anything not given stays. The result must still be a whole provider of its `kind` (the fields `IdentityProviderConfig` requires for it), checked as a registration is. `providerId` and `kind` can't change; `signIn` is the deployment's and is ignored. A new `issuer` drops the endpoints discovered from the old one.",
+  type: 'object',
+  additionalProperties: false,
+  minProperties: 1,
+  properties: {
+    providerId: { type: 'string', minLength: 1, description: 'Must match the path when given.' },
+    kind: { $ref: '#/components/schemas/IdentityProviderKind' },
+    displayName: NULLABLE_STRING,
+    domains: NULLABLE_STRINGS,
+    join: { oneOf: [{ type: 'string', enum: ['invite', 'domain'] }, { type: 'null' }] },
+    metadata: { oneOf: [{ type: 'object', additionalProperties: true }, { type: 'null' }] },
+    issuer: { type: 'string', format: 'uri' },
+    clientId: { type: 'string', minLength: 1 },
+    clientSecretRef: CLIENT_SECRET_REF,
+    scopes: { oneOf: [{ type: 'array', items: { type: 'string' } }, { type: 'null' }] },
+    authorizationEndpoint: NULLABLE_URI,
+    tokenEndpoint: NULLABLE_URI,
+    userinfoEndpoint: NULLABLE_URI,
+    jwksEndpoint: NULLABLE_URI,
+    allowedRedirectUris: NULLABLE_STRINGS,
+    claimMapping: {
+      oneOf: [{ $ref: '#/components/schemas/ClaimMappingSpec' }, { type: 'null' }],
+    },
+    idpMetadataXml: NULLABLE_STRING,
+    idpEntityId: NULLABLE_STRING,
+    idpSsoUrl: NULLABLE_URI,
+    idpCertificates: NULLABLE_STRINGS,
+    spSigningKeyRef: NULLABLE_STRING,
+    spDecryptionKeyRef: NULLABLE_STRING,
+    wantAssertionsSigned: { type: ['boolean', 'null'] },
+    attributeMapping: {
+      oneOf: [
+        {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            userId: { type: 'string', minLength: 1 },
+            email: { type: 'string', minLength: 1 },
+            displayName: { type: 'string', minLength: 1 },
+          },
+        },
+        { type: 'null' },
+      ],
+    },
+  },
+};
+
+export const UpdateIdentityProviderResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['providerId', 'provider'],
+  properties: {
+    providerId: { type: 'string', minLength: 1 },
+    provider: {
+      $ref: '#/components/schemas/IdentityProviderConfig',
+      description: 'The provider as stored now; its `signIn` is unchanged.',
+    },
+  },
+};
+
+export const IdentityProviderSignInUrlsSchema: JsonSchema = {
+  description:
+    "What to give the identity provider so it can send people back, for a provider under this `providerId`: the same before it's registered, after, and after an unregister and a new registration, so the identity provider's side can be set up first. Not secrets: they're in every sign-in's browser redirects.",
+  type: 'object',
+  additionalProperties: false,
+  required: ['providerId', 'kind', 'signIn', 'registered'],
+  properties: {
+    providerId: { type: 'string', minLength: 1 },
+    kind: { $ref: '#/components/schemas/IdentityProviderKind' },
+    signIn: { $ref: '#/components/schemas/IdentityProviderSignIn' },
+    registered: {
+      type: 'boolean',
+      description: 'Whether a provider is registered under this `providerId` now.',
+    },
   },
 };
 
@@ -9920,11 +10056,16 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['OAuth2IdentityProviderConfig', OAuth2IdentityProviderConfigSchema],
   ['IdentityProviderConfig', IdentityProviderConfigSchema],
   ['RegisterIdentityProviderBody', RegisterIdentityProviderBodySchema],
+  ['GetIdentityProviderResult', GetIdentityProviderResultSchema],
   ['IdentityProviderCollectionPage', IdentityProviderCollectionPageSchema],
   ['SignInOption', SignInOptionSchema],
   ['SignInOptions', SignInOptionsSchema],
+  ['TokenSignInResult', TokenSignInResultSchema],
   ['RegisterIdentityProviderResult', RegisterIdentityProviderResultSchema],
   ['UnregisterIdentityProviderResult', UnregisterIdentityProviderResultSchema],
+  ['UpdateIdentityProviderBody', UpdateIdentityProviderBodySchema],
+  ['UpdateIdentityProviderResult', UpdateIdentityProviderResultSchema],
+  ['IdentityProviderSignInUrls', IdentityProviderSignInUrlsSchema],
   ['LoginBody', LoginBodySchema],
   ['AuthorizationResponse', AuthorizationResponseSchema],
   ['CallbackBody', CallbackBodySchema],

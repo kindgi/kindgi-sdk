@@ -6330,13 +6330,6 @@ class StartEvalRunResult(BaseModel):
     dry_run_preview: Annotated[dict[str, Any] | None, Field(alias="dryRunPreview")] = None
 
 
-class IdentityProviderKind(RootModel[Literal["oauth2", "oidc", "saml"]]):
-    root: Literal["oauth2", "oidc", "saml"]
-    """
-    `oidc`: an OpenID Connect identity provider people sign in with (Okta, Entra ID, Google, Keycloak…); its endpoints come from its discovery document. `saml`: a SAML 2.0 identity provider people sign in with. `oauth2`: a plain OAuth 2.0 provider that isn't OpenID Connect (e.g. GitHub), with its endpoints given; pick `oidc` for any provider that speaks OpenID Connect.
-    """
-
-
 class ClaimMappingScopesSpec(BaseModel):
     """
     Claim path + optional delimiter for extracting Kindgi OAuth scopes from provider claims. When absent, scopes come from the token response `scope` field instead.
@@ -6597,6 +6590,20 @@ class RegisterIdentityProviderBody(
     """
 
 
+class GetIdentityProviderResult(
+    RootModel[
+        OidcIdentityProviderConfig | SamlIdentityProviderConfig | OAuth2IdentityProviderConfig
+    ]
+):
+    root: Annotated[
+        OidcIdentityProviderConfig | SamlIdentityProviderConfig | OAuth2IdentityProviderConfig,
+        Field(discriminator="kind"),
+    ]
+    """
+    An identity provider as stored, one shape per `kind`, with `signIn` when the deployment sets it. Secrets appear only as references.
+    """
+
+
 class IdentityProviderCollectionPage(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -6634,12 +6641,50 @@ class SignInOption(BaseModel):
     """
 
 
+class Methods(BaseModel):
+    """
+    The ways in this deployment allows, for a sign-in page to show. Absent from older servers.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    identity_providers: Annotated[bool, Field(alias="identityProviders")]
+    """
+    Sign-in with an organization's identity provider (email first).
+    """
+    api_token: Annotated[bool, Field(alias="apiToken")]
+    """
+    Sign-in to the console with an API token (`POST /v1/auth/token-sign-in`).
+    """
+
+
 class SignInOptions(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
     data: list[SignInOption]
+    methods: Methods | None = None
+    """
+    The ways in this deployment allows, for a sign-in page to show. Absent from older servers.
+    """
+
+
+class TokenSignInResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    user_id: Annotated[str, Field(alias="userId", min_length=1)]
+    """
+    The person now signed in.
+    """
+    expires_at: Annotated[AwareDatetime, Field(alias="expiresAt")]
+    """
+    When the session ends at the latest: its lifetime, or the key's expiry if sooner.
+    """
 
 
 class RegisterIdentityProviderResult(BaseModel):
@@ -6667,6 +6712,103 @@ class UnregisterIdentityProviderResult(BaseModel):
     )
     provider_id: Annotated[str, Field(alias="providerId", min_length=1)]
     unregistered: Literal[True]
+
+
+class AttributeMapping1(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    user_id: Annotated[str | None, Field(alias="userId", min_length=1)] = None
+    email: Annotated[str | None, Field(min_length=1)] = None
+    display_name: Annotated[str | None, Field(alias="displayName", min_length=1)] = None
+
+
+class UpdateIdentityProviderBody(BaseModel):
+    """
+    Changes to a registered identity provider: a field given replaces the stored one, `null` removes an optional one, and anything not given stays. The result must still be a whole provider of its `kind` (the fields `IdentityProviderConfig` requires for it), checked as a registration is. `providerId` and `kind` can't change; `signIn` is the deployment's and is ignored. A new `issuer` drops the endpoints discovered from the old one.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    provider_id: Annotated[str | None, Field(alias="providerId", min_length=1)] = None
+    """
+    Must match the path when given.
+    """
+    kind: Literal["oauth2", "oidc", "saml"] | None = None
+    """
+    `oidc`: an OpenID Connect identity provider people sign in with (Okta, Entra ID, Google, Keycloak…); its endpoints come from its discovery document. `saml`: a SAML 2.0 identity provider people sign in with. `oauth2`: a plain OAuth 2.0 provider that isn't OpenID Connect (e.g. GitHub), with its endpoints given; pick `oidc` for any provider that speaks OpenID Connect.
+    """
+    display_name: Annotated[str | None, Field(alias="displayName", min_length=1)] = None
+    domains: list[Domain] | None = None
+    join: Literal["invite", "domain"] | None = None
+    metadata: dict[str, Any] | None = None
+    issuer: AnyUrl | None = None
+    client_id: Annotated[str | None, Field(alias="clientId", min_length=1)] = None
+    client_secret_ref: Annotated[str | None, Field(alias="clientSecretRef", min_length=1)] = None
+    """
+    Opaque reference resolved server-side. Never a plaintext secret.
+    """
+    scopes: list[str] | None = None
+    authorization_endpoint: Annotated[AnyUrl | None, Field(alias="authorizationEndpoint")] = None
+    token_endpoint: Annotated[AnyUrl | None, Field(alias="tokenEndpoint")] = None
+    userinfo_endpoint: Annotated[AnyUrl | None, Field(alias="userinfoEndpoint")] = None
+    jwks_endpoint: Annotated[AnyUrl | None, Field(alias="jwksEndpoint")] = None
+    allowed_redirect_uris: Annotated[
+        list[AllowedRedirectUri] | None, Field(alias="allowedRedirectUris")
+    ] = None
+    claim_mapping: Annotated[ClaimMappingSpec | None, Field(alias="claimMapping")] = None
+    idp_metadata_xml: Annotated[str | None, Field(alias="idpMetadataXml", min_length=1)] = None
+    idp_entity_id: Annotated[str | None, Field(alias="idpEntityId", min_length=1)] = None
+    idp_sso_url: Annotated[AnyUrl | None, Field(alias="idpSsoUrl")] = None
+    idp_certificates: Annotated[list[IdpCertificate] | None, Field(alias="idpCertificates")] = None
+    sp_signing_key_ref: Annotated[str | None, Field(alias="spSigningKeyRef", min_length=1)] = None
+    sp_decryption_key_ref: Annotated[
+        str | None, Field(alias="spDecryptionKeyRef", min_length=1)
+    ] = None
+    want_assertions_signed: Annotated[bool | None, Field(alias="wantAssertionsSigned")] = None
+    attribute_mapping: Annotated[AttributeMapping1 | None, Field(alias="attributeMapping")] = None
+
+
+class UpdateIdentityProviderResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    provider_id: Annotated[str, Field(alias="providerId", min_length=1)]
+    provider: Annotated[
+        OidcIdentityProviderConfig | SamlIdentityProviderConfig | OAuth2IdentityProviderConfig,
+        Field(discriminator="kind"),
+    ]
+    """
+    The provider as stored now; its `signIn` is unchanged.
+    """
+
+
+class IdentityProviderSignInUrls(BaseModel):
+    """
+    What to give the identity provider so it can send people back, for a provider under this `providerId`: the same before it's registered, after, and after an unregister and a new registration, so the identity provider's side can be set up first. Not secrets: they're in every sign-in's browser redirects.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    provider_id: Annotated[str, Field(alias="providerId", min_length=1)]
+    kind: Literal["oauth2", "oidc", "saml"]
+    """
+    `oidc`: an OpenID Connect identity provider people sign in with (Okta, Entra ID, Google, Keycloak…); its endpoints come from its discovery document. `saml`: a SAML 2.0 identity provider people sign in with. `oauth2`: a plain OAuth 2.0 provider that isn't OpenID Connect (e.g. GitHub), with its endpoints given; pick `oidc` for any provider that speaks OpenID Connect.
+    """
+    sign_in: Annotated[IdentityProviderSignIn1 | IdentityProviderSignIn2, Field(alias="signIn")]
+    """
+    What to give the identity provider so it can send people back: set by the deployment on what it returns, ignored on registration. OIDC / OAuth 2.0: `redirectUri`. SAML: `spEntityId`, `acsUrl`, `spMetadataUrl`.
+    """
+    registered: bool
+    """
+    Whether a provider is registered under this `providerId` now.
+    """
 
 
 class LoginBody(BaseModel):

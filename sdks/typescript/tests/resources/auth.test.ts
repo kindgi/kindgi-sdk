@@ -51,6 +51,59 @@ describe('auth — wire round-trips', () => {
     ]);
   });
 
+  it('providers.{get,signIn,update}: paths, the kind in the query, PATCH with the changes', async () => {
+    const signIn = { redirectUri: 'https://kindgi.acme.example/auth/sso/callback/idp-x' };
+    const stub = recordingFetch([
+      { status: 200, body: JSON.stringify({ ...SAMPLE_PROVIDER_CONFIG, signIn }) },
+      {
+        status: 200,
+        body: JSON.stringify({ providerId: 'acme okta', kind: 'oidc', signIn, registered: false }),
+      },
+      {
+        status: 200,
+        body: JSON.stringify({ providerId: 'google', kind: 'oidc', signIn, registered: true }),
+      },
+      {
+        status: 200,
+        body: JSON.stringify({ providerId: 'google', provider: SAMPLE_PROVIDER_CONFIG }),
+      },
+    ]);
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    expect((await client.auth.providers.get('google')).providerId).toBe('google');
+    const before = await client.auth.providers.signIn('acme okta', { kind: 'oidc' });
+    expect(before).toMatchObject({ signIn, registered: false });
+    await client.auth.providers.signIn('google');
+    await client.auth.providers.update('google', { domains: ['acme.com'], displayName: null });
+    const urls = stub.calls.map((c) => new URL(c.url));
+    expect(stub.calls.map((c) => c.method)).toEqual(['GET', 'GET', 'GET', 'PATCH']);
+    expect(urls[0]?.pathname).toBe('/v1/auth/providers/google');
+    expect(urls[1]?.pathname).toBe('/v1/auth/providers/acme%20okta/sign-in');
+    expect(urls[1]?.searchParams.get('kind')).toBe('oidc');
+    expect(urls[2]?.search).toBe('');
+    expect(urls[3]?.pathname).toBe('/v1/auth/providers/google');
+    expect(JSON.parse(stub.calls[3]?.body ?? '{}')).toEqual({
+      domains: ['acme.com'],
+      displayName: null,
+    });
+  });
+
+  it('tokenSignIn: POST with the client token, the result as sent', async () => {
+    const stub = recordingFetch([
+      {
+        status: 200,
+        body: JSON.stringify({ userId: 'user-alice', expiresAt: '2026-10-08T20:00:00.000Z' }),
+      },
+    ]);
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    expect(await client.auth.tokenSignIn()).toEqual({
+      userId: 'user-alice',
+      expiresAt: '2026-10-08T20:00:00.000Z',
+    });
+    expect(stub.calls[0]?.method).toBe('POST');
+    expect(new URL(stub.calls[0]?.url ?? '').pathname).toBe('/v1/auth/token-sign-in');
+    expect(stub.calls[0]?.headers.authorization).toBe('Bearer t');
+  });
+
   it('signInOptions: the email goes in the query; no email, no query', async () => {
     const option = { providerId: 'acme-okta', displayName: 'Acme Okta', signInUrl: '/auth/x' };
     const stub = recordingFetch([

@@ -153,6 +153,14 @@ export interface SessionCookieOptions {
    * must a request with no `Origin` at all. Bearer requests are unaffected.
    */
   readonly allowedOrigins: readonly string[];
+  /**
+   * Also accept an `Origin` naming the host the request was sent to (its
+   * `Host`, or `X-Forwarded-Host` behind a proxy that sets it): the
+   * console served from the runtime itself, wherever it's reached. For a
+   * deployment that doesn't know its public URL. A cross-site page can't
+   * forge `Origin`, nor add `X-Forwarded-Host` without a CORS preflight.
+   */
+  readonly sameOrigin?: boolean;
 }
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
@@ -333,6 +341,9 @@ export function bearerAuthMiddleware(
     if (resolution.tokenProjectId !== undefined) {
       c.set('tokenProjectId', resolution.tokenProjectId);
     }
+    if (resolution.expiresAt !== undefined && !isSessionToken) {
+      c.set('tokenExpiresAt', resolution.expiresAt);
+    }
     if (resolution.sessionId !== undefined) {
       c.set('sessionId', resolution.sessionId);
     }
@@ -479,6 +490,7 @@ function csrfRefusal(
   if (SAFE_METHODS.has(c.req.method)) return undefined;
   const origin = c.req.header('origin');
   if (origin !== undefined && cookie.allowedOrigins.includes(origin)) return undefined;
+  if (origin !== undefined && cookie.sameOrigin === true && isSameHost(c, origin)) return undefined;
   const body = toWireError(
     {
       code: 'csrf-origin-mismatch',
@@ -490,6 +502,23 @@ function csrfRefusal(
     requestId,
   );
   return c.json(body, statusFor('csrf-origin-mismatch') as never);
+}
+
+/** Whether `origin` names the host this request was sent to. */
+function isSameHost(c: Context, origin: string): boolean {
+  let host: string;
+  try {
+    host = new URL(origin).host;
+  } catch {
+    return false;
+  }
+  // The request's own URL carries its Host (the Node server builds it from it).
+  const sentTo = [
+    new URL(c.req.url).host,
+    c.req.header('host'),
+    c.req.header('x-forwarded-host')?.split(',')[0]?.trim(),
+  ];
+  return sentTo.some((h) => h !== undefined && h !== '' && h.toLowerCase() === host.toLowerCase());
 }
 
 async function findSession(sessionStore: SessionStoreBinding, token: string) {

@@ -30,7 +30,12 @@ import { createStubAppBindings } from '@kindgi/testing';
 import type { TenantId, UserId } from '@kindgi/types';
 
 import { createApp } from '../src/index.js';
-import type { RunHandlerBinding, TokenResolver } from '../src/index.js';
+import type {
+  IdentityProviderBinding,
+  ProviderConfig,
+  RunHandlerBinding,
+  TokenResolver,
+} from '../src/index.js';
 
 const tenantId = randomUUID() as TenantId;
 const TOKEN = 'route-authz-token';
@@ -48,8 +53,14 @@ const unreached = () =>
     },
   ) as never;
 
-/** `granted`: the pairs (`read tenant`) the caller holds; none by default. */
-function harness(granted: readonly string[] = []) {
+/**
+ * `granted`: the pairs (`read tenant`) the caller holds; none by default.
+ * `bindings`: bindings a test reaches past the check (the rest are `unreached`).
+ */
+function harness(
+  granted: readonly string[] = [],
+  bindings: { readonly identityProvider?: IdentityProviderBinding } = {},
+) {
   const asked: string[] = [];
   const decide = (action: Action, resource: ResourceRef): Decision => {
     asked.push(`${action} ${resource.type}`);
@@ -81,7 +92,7 @@ function harness(granted: readonly string[] = []) {
     complianceClassifier: unreached(),
     complianceGenerator: unreached(),
     sessionStore: unreached(),
-    identityProvider: unreached(),
+    identityProvider: bindings.identityProvider ?? unreached(),
     exchangeCode: unreached(),
     authz: {
       fgaApiUrl: 'http://fga.invalid',
@@ -175,10 +186,37 @@ describe('the sign-in provider catalog: any GET needs `read`, any change `admin`
       ...(method !== 'GET' && { body: '{}' }),
     });
 
-  test('a reader gets past the check on GET /v1/auth/providers/p', async () => {
-    const { app, asked } = harness([READ]);
+  const signIn = { redirectUri: 'https://kindgi.acme.example/auth/sso/callback/idp-p' };
+  const provider: ProviderConfig = {
+    providerId: 'p',
+    kind: 'oidc',
+    issuer: 'https://idp.acme.example',
+    clientId: 'client-1',
+    clientSecretRef: 'ACME_SECRET',
+    signIn,
+  };
+  const reachable: IdentityProviderBinding = {
+    list: async () => ({ data: [provider] }),
+    get: async ({ providerId }) => (providerId === 'p' ? provider : null),
+    register: unreached(),
+    unregister: unreached(),
+    signInUrls: async () => signIn,
+    update: unreached(),
+  };
+
+  test('a reader reads one provider: 200, having asked for `read`', async () => {
+    const { app, asked } = harness([READ], { identityProvider: reachable });
     const res = await call(app, 'GET', '/v1/auth/providers/p');
-    expect(res.status).not.toBe(403);
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { providerId: string }).providerId).toBe('p');
+    expect(asked).toEqual([READ]);
+  });
+
+  test("a reader reads a provider's sign-in URLs: 200, having asked for `read`", async () => {
+    const { app, asked } = harness([READ], { identityProvider: reachable });
+    const res = await call(app, 'GET', '/v1/auth/providers/p/sign-in');
+    expect(res.status).toBe(200);
+    expect(((await res.json()) as { signIn: unknown }).signIn).toEqual(signIn);
     expect(asked).toEqual([READ]);
   });
 

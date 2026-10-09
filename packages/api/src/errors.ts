@@ -52,6 +52,13 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // deployment doesn't allow (or with no Origin): cross-site request
   // forgery protection for browser sessions.
   'csrf-origin-mismatch': 403,
+  // `POST /v1/auth/token-sign-in` on a deployment that doesn't allow
+  // signing in to the console with an API token.
+  'token-sign-in-off': 403,
+  // `POST /v1/auth/token-sign-in` with a key that can't open a console
+  // session: a service account's, or a narrowed one (a `member` role or one
+  // project), which a session would widen to the person's full grants.
+  'token-sign-in-not-allowed': 403,
   // 404
   'not-found': 404,
   'run-not-found': 404,
@@ -282,6 +289,9 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // `POST /v1/auth/refresh` with a browser session (cookie): refused, so a
   // fresh session token never reaches page scripts.
   'cookie-session-not-refreshable': 400,
+  // `POST /v1/auth/token-sign-in` signed in by a session (a cookie or a
+  // session token) rather than an API token: there's nothing to exchange.
+  'token-sign-in-needs-an-api-token': 400,
   // OAuth redirect URIs + refresh.
   'redirect-uri-not-allowed': 400,
   'redirect-uri-mismatch': 400,

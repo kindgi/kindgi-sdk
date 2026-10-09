@@ -55,6 +55,7 @@ import type { AgentReleaseBindings } from './live-version-binding.js';
 import type { MCPClientProbeBinding, MCPEndpointRegistryBinding } from './mcp-endpoint-binding.js';
 import type { MemoryBinding } from './memory-binding.js';
 import {
+  SESSION_COOKIE_NAME,
   type SessionCookieOptions,
   type TokenResolver,
   bearerAuthMiddleware,
@@ -93,7 +94,7 @@ import { agentsRouter } from './routes/agents.js';
 import { approvalsRouter } from './routes/approvals.js';
 import { artifactsRouter } from './routes/artifacts.js';
 import { auditRouter } from './routes/audit.js';
-import { authRouters } from './routes/auth.js';
+import { authRouters, logoutHandler } from './routes/auth.js';
 import { blocksRouter } from './routes/blocks.js';
 import { capabilitiesRouter } from './routes/capabilities.js';
 import { complianceRouter } from './routes/compliance.js';
@@ -133,6 +134,7 @@ import { type SignInOptionsRateLimit, signInOptionsRouter } from './routes/sign-
 import { signingKeysRouter } from './routes/signing-keys.js';
 import { teamsRouter } from './routes/teams.js';
 import { tenantRouter } from './routes/tenant.js';
+import { tokenSignInRouter } from './routes/token-sign-in.js';
 import { tokensRouter } from './routes/tokens.js';
 import { toolsRouter } from './routes/tools.js';
 import { webhookEndpointsRouter } from './routes/webhook-endpoints.js';
@@ -953,6 +955,13 @@ export interface SessionConfig {
    * the `Authorization` header.
    */
   readonly cookie?: SessionCookieOptions;
+  /**
+   * Whether a person may sign in to the console with an API token
+   * (`POST /v1/auth/token-sign-in`): a person's full key is exchanged once
+   * for a browser session in `cookie`. Needs `cookie` and a session store.
+   * Absent or `false`: the route answers 403 `token-sign-in-off`.
+   */
+  readonly tokenSignIn?: boolean;
 }
 
 /**
@@ -971,6 +980,9 @@ export interface ScalarDocsConfig {
    */
   readonly theme?: string;
 }
+
+/** A token sign-in's session lifetime when `SessionConfig.ttl` is unset: 12 hours. */
+const DEFAULT_TOKEN_SIGN_IN_TTL_MS = 12 * 60 * 60 * 1000;
 
 export function createApp(input: CreateAppInput): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
@@ -1570,18 +1582,46 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     if (input.exchangeCode !== undefined) app.route('/v1/auth/callback', routers.callback);
   }
   // How a person can sign in, before anyone is: outside the bearer chain
-  // too (mounted ahead of `/v1`, like the callback).
-  if (input.identityProvider !== undefined) {
-    app.route(
-      '/v1/auth/sign-in-options',
-      signInOptionsRouter({
-        identityProvider: input.identityProvider,
-        ...(input.signInOptionsRateLimit !== undefined && {
-          rateLimit: input.signInOptionsRateLimit,
-        }),
+  // too (mounted ahead of `/v1`, like the callback). Always mounted, so the
+  // console and `kindgi doctor` get a definite answer even when there is no
+  // way in at all: the case an operator most needs to hear about.
+  const cookieSessions = input.sessionStore !== undefined && input.session?.cookie !== undefined;
+  const tokenSignIn = cookieSessions && input.session?.tokenSignIn === true;
+  app.route(
+    '/v1/auth/sign-in-options',
+    signInOptionsRouter({
+      ...(input.identityProvider !== undefined && { identityProvider: input.identityProvider }),
+      tokenSignIn,
+      ...(input.signInOptionsRateLimit !== undefined && {
+        rateLimit: input.signInOptionsRateLimit,
       }),
-    );
+    }),
+  );
+  // Browser sessions need a way out even without identity providers
+  // (which bring their own `/auth` routes, logout included).
+  if (cookieSessions && input.identityProvider === undefined && input.sessionStore !== undefined) {
+    v1.post('/auth/logout', logoutHandler(input.sessionStore));
   }
+  // A person signs in to the console with an API token: inside the bearer
+  // chain (the token arrives in `Authorization`). Always mounted: without
+  // browser sessions, or unless the deployment allows it, it refuses with
+  // 403 token-sign-in-off.
+  v1.route(
+    '/auth/token-sign-in',
+    tokenSignInRouter(
+      input.sessionStore !== undefined &&
+        input.session?.cookie !== undefined &&
+        input.session.tokenSignIn === true
+        ? {
+            enabled: true,
+            sessionStore: input.sessionStore,
+            ttlMs: input.session.ttl ?? DEFAULT_TOKEN_SIGN_IN_TTL_MS,
+            cookieName: input.session.cookie.name ?? SESSION_COOKIE_NAME,
+            ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
+          }
+        : { enabled: false },
+    ),
+  );
   app.route('/v1', v1);
 
   // ---------- S3-compat surface (/s3/*, SigV4 auth) ----------
