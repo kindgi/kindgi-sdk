@@ -4,7 +4,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 
 import { Hono } from 'hono';
-import type { Context } from 'hono';
+import type { Context, MiddlewareHandler } from 'hono';
 
 import type { SessionId, TenantId, UserId } from '@kindgi/types';
 
@@ -27,6 +27,7 @@ import type {
 } from '../session-store-binding.js';
 import type { OauthStateStore } from '../state-store-binding.js';
 import type { AppEnv } from '../types.js';
+import { hasCapability } from './env.js';
 import { tenantResourceAccess } from './tenant-access.js';
 
 /**
@@ -68,7 +69,19 @@ export interface AuthRouterOptions {
    * and logging out are the caller's own, and stay unchecked.
    */
   readonly authorizer?: Authorizer;
+  /**
+   * Who may add, change and remove the tenant's providers: `tenant` (the
+   * default) its admins; `operator` only the deployment's own token (the
+   * `kindgi:system` capability), when the operator manages sign-in
+   * (`KINDGI_AUTH_TENANT_PROVIDERS=off`). Reads, and signing in with the
+   * providers already there, are the same either way.
+   */
+  readonly providerChanges?: 'tenant' | 'operator';
 }
+
+/** The answer to a tenant's change to a provider when the operator manages sign-in. */
+export const OPERATOR_MANAGED_MESSAGE =
+  "This deployment's operator manages sign-in (KINDGI_AUTH_TENANT_PROVIDERS=off): identity providers can't be added, changed or removed here, except with the deployment's own token (KINDGI_API_TOKEN).";
 
 const DEFAULT_STATE_TTL_MS = 10 * 60 * 1000;
 
@@ -98,11 +111,35 @@ export function authRouters(options: AuthRouterOptions): {
   authed.use('/providers', providerAccess);
   authed.use('/providers/*', providerAccess);
 
+  // When the operator manages sign-in, a change takes the deployment's own
+  // token; the providers there keep signing people in.
+  const providerChanges = options.providerChanges ?? 'tenant';
+  if (providerChanges === 'operator') {
+    const operatorOnly: MiddlewareHandler<AppEnv> = async (c, next) => {
+      if (c.req.method === 'GET' || c.req.method === 'HEAD' || hasCapability(c, 'kindgi:system')) {
+        return next();
+      }
+      c.status(statusFor('identity-providers-operator-managed') as never);
+      return c.json(
+        toWireError(
+          { code: 'identity-providers-operator-managed', message: OPERATOR_MANAGED_MESSAGE },
+          c.get('requestId'),
+        ),
+      );
+    };
+    authed.use('/providers', operatorOnly);
+    authed.use('/providers/*', operatorOnly);
+  }
+
   // ---------- GET /providers ----------
   authed.get('/providers', async (c) => {
     const tenantId = c.get('tenantId') as TenantId;
     const page = await identityProvider.list({ tenantId });
-    return c.json({ data: page.data.map(serializeProviderConfig), hasMore: false });
+    return c.json({
+      data: page.data.map(serializeProviderConfig),
+      hasMore: false,
+      changes: providerChanges,
+    });
   });
 
   // ---------- POST /providers ----------

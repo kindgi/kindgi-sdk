@@ -740,6 +740,14 @@ export interface CreateAppInput {
    */
   readonly identityProvider?: IdentityProviderBinding;
   /**
+   * Who may add, change and remove the tenant's identity providers:
+   * `tenant` (default) its admins; `operator` only the deployment's own
+   * token (`kindgi:system`), for a deployment whose operator manages
+   * sign-in. Changes answer `403 identity-providers-operator-managed`
+   * otherwise; reads and sign-in are unchanged.
+   */
+  readonly identityProviderChanges?: 'tenant' | 'operator';
+  /**
    * Optional: the deployment's own code exchange. With it (and
    * `identityProvider` + `sessionStore`), `POST /v1/auth/login/:providerId`
    * and `POST /v1/auth/callback/:providerId` mount; a deployment whose
@@ -1534,6 +1542,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(input.refreshToken !== undefined && { refreshToken: input.refreshToken }),
       stateStore: input.oauthStateStore ?? createInMemoryOauthStateStore(),
       ...(authorizer !== undefined && { authorizer }),
+      ...(input.identityProviderChanges !== undefined && {
+        providerChanges: input.identityProviderChanges,
+      }),
     });
     v1.route('/auth', routers.authed);
     // Callback mounts on the parent `app` under /v1/auth/callback so it

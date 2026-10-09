@@ -280,6 +280,9 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // discovery failed, its SAML metadata didn't parse, a host it may not
   // reach): 422 with what went wrong.
   'identity-provider-invalid': 422,
+  // The operator manages sign-in (KINDGI_AUTH_TENANT_PROVIDERS=off): a
+  // change to a provider takes the deployment's own token.
+  'identity-providers-operator-managed': 403,
   'oauth-state-invalid': 400,
   'oauth-code-exchange-failed': 422,
   'oauth-refresh-failed': 422,

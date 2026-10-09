@@ -301,6 +301,11 @@ def test_a_segment_path_is_its_steps_written_in_order() -> None:
         (error(401, "auth-missing"), AuthError, lambda e: e.reason == "unauthenticated"),
         (error(403, "permission-denied"), AuthError, lambda e: e.reason == "forbidden"),
         (
+            error(403, "identity-providers-operator-managed"),
+            AuthError,
+            lambda e: e.reason == "forbidden",
+        ),
+        (
             error(500, "kaboom", requestId="req-1"),
             ServerError,
             lambda e: (e.server_code, e.request_id, e.status) == ("kaboom", "req-1", 500),

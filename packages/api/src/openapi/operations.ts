@@ -1231,6 +1231,11 @@ const CommonMutationErrors: Readonly<Record<string, ResponseSpec>> = {
   '500': ErrorResponse('Server error (unmapped domain code or framework crash).'),
 };
 
+/** A change to the tenant's identity providers: not a tenant admin, or the operator manages sign-in. */
+const ProviderChangeRefused: ResponseSpec = ErrorResponse(
+  "Not a tenant admin (`permission-denied`), or this deployment's operator manages sign-in (`identity-providers-operator-managed`, `KINDGI_AUTH_TENANT_PROVIDERS=off`): only the deployment's own token can change its providers.",
+);
+
 // ---------------- operation registry ----------------
 
 export const OPERATIONS: readonly OperationSpec[] = [
@@ -4808,7 +4813,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'auth.providers.list',
     summary: 'List identity providers configured for the tenant',
     description:
-      "Returns the tenant's identity providers (OIDC, SAML, OAuth 2.0), each with `signIn` when the deployment sets it. Secrets appear only as REFERENCES (`clientSecretRef`, `spSigningKeyRef`…); a plaintext secret is never on the wire.",
+      "Returns the tenant's identity providers (OIDC, SAML, OAuth 2.0), each with `signIn` when the deployment sets it. Secrets appear only as REFERENCES (`clientSecretRef`, `spSigningKeyRef`…); a plaintext secret is never on the wire. `changes` says who may add, change and remove them here: `tenant` (its admins) or `operator` (the deployment's own token only; `KINDGI_AUTH_TENANT_PROVIDERS=off`).",
     tags: ['auth'],
     security: 'bearer',
     responses: {
@@ -4886,6 +4891,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('RegisterIdentityProviderResult'),
       },
       ...CommonMutationErrors,
+      '403': ProviderChangeRefused,
       '422': ErrorResponse(
         'The deployment could not use the configuration (`identity-provider-invalid`).',
       ),
@@ -4974,6 +4980,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Updated.', schema: ref('UpdateIdentityProviderResult') },
       ...CommonMutationErrors,
+      '403': ProviderChangeRefused,
       '404': ErrorResponse('No identity provider registered with that id under this tenant.'),
       '422': ErrorResponse(
         'The deployment could not use the configuration (`identity-provider-invalid`).',
@@ -5003,6 +5010,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('UnregisterIdentityProviderResult'),
       },
       ...CommonMutationErrors,
+      '403': ProviderChangeRefused,
       '404': ErrorResponse('No identity provider registered with that id under this tenant.'),
     },
   },

@@ -168,6 +168,7 @@ _AUTH: Mapping[str, Literal["unauthenticated", "forbidden", "token-expired"]] = 
     "auth-expired": "token-expired",
     "auth-revoked": "unauthenticated",
     "permission-denied": "forbidden",
+    "identity-providers-operator-managed": "forbidden",
 }
 _ID_FIELDS = (
     "agentId", "toolId", "runId", "adapterId", "userId", "providerId", "capabilityId", "tokenId",

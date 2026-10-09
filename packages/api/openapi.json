@@ -377,6 +377,7 @@
           "identity-provider-not-found": 404,
           "identity-provider-already-registered": 409,
           "identity-provider-invalid": 422,
+          "identity-providers-operator-managed": 403,
           "oauth-state-invalid": 400,
           "oauth-code-exchange-failed": 422,
           "oauth-refresh-failed": 422,
@@ -12219,6 +12220,14 @@
           "hasMore": {
             "type": "boolean",
             "description": "Always `false`: the list comes whole. Absent from older servers."
+          },
+          "changes": {
+            "type": "string",
+            "enum": [
+              "tenant",
+              "operator"
+            ],
+            "description": "Who may add, change and remove the providers here: `tenant`, its admins; `operator`, only the deployment's own token, because the operator manages sign-in (`KINDGI_AUTH_TENANT_PROVIDERS=off`). The providers there sign people in either way. Absent from older servers: read it as `tenant`."
           }
         }
       },
@@ -32875,7 +32884,7 @@
             }
           }
         },
-        "description": "Returns the tenant's identity providers (OIDC, SAML, OAuth 2.0), each with `signIn` when the deployment sets it. Secrets appear only as REFERENCES (`clientSecretRef`, `spSigningKeyRef`…); a plaintext secret is never on the wire.",
+        "description": "Returns the tenant's identity providers (OIDC, SAML, OAuth 2.0), each with `signIn` when the deployment sets it. Secrets appear only as REFERENCES (`clientSecretRef`, `spSigningKeyRef`…); a plaintext secret is never on the wire. `changes` says who may add, change and remove them here: `tenant` (its admins) or `operator` (the deployment's own token only; `KINDGI_AUTH_TENANT_PROVIDERS=off`).",
         "security": [
           {
             "bearerAuth": []
@@ -32911,6 +32920,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`), or this deployment's operator manages sign-in (`identity-providers-operator-managed`, `KINDGI_AUTH_TENANT_PROVIDERS=off`): only the deployment's own token can change its providers.",
             "content": {
               "application/json": {
                 "schema": {
@@ -33186,6 +33205,16 @@
               }
             }
           },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`), or this deployment's operator manages sign-in (`identity-providers-operator-managed`, `KINDGI_AUTH_TENANT_PROVIDERS=off`): only the deployment's own token can change its providers.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No identity provider registered with that id under this tenant.",
             "content": {
@@ -33363,6 +33392,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`), or this deployment's operator manages sign-in (`identity-providers-operator-managed`, `KINDGI_AUTH_TENANT_PROVIDERS=off`): only the deployment's own token can change its providers.",
             "content": {
               "application/json": {
                 "schema": {
