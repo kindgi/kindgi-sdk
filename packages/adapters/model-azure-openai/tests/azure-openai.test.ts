@@ -594,6 +594,28 @@ describe('each attempt signs in for itself', () => {
     }
   });
 
+  test('an abort that lands while the identity is being asked, before the wait: its reason, at once', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const controller = new AbortController();
+      const reason = new Error('turn stopped');
+      // The identity's own call stops the turn, then never answers: no event will fire after.
+      const getToken = vi.fn(() => {
+        controller.abort(reason);
+        return new Promise<never>(() => {});
+      });
+      const err = await build(
+        { ...GOOD, auth: 'entra' },
+        { fetch: capturingFetch([]), identities: { azure: { getToken } } },
+      )
+        .invoke({ ...ask(), abortSignal: controller.signal })
+        .catch((e: unknown) => e);
+      expect(err).toBe(reason);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   test('calls at once each send the key their own attempt read', async () => {
     const sent: Sent[] = [];
     // The first call's key comes back last.

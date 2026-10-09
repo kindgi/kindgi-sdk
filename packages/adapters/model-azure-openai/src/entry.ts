@@ -216,6 +216,8 @@ function withoutRedirects(fetch: typeof globalThis.fetch): typeof globalThis.fet
 
 /** The promise, or a failure after `ms`, or the signal's reason when the call stops first. */
 function bounded<T>(promise: PromiseLike<T>, ms: number, signal?: AbortSignal): Promise<T> {
+  // An abort that has already happened fires no event.
+  if (signal?.aborted === true) return Promise.reject(signal.reason);
   let timer: ReturnType<typeof setTimeout> | undefined;
   let onAbort: (() => void) | undefined;
   const stop = new Promise<never>((_, reject) => {

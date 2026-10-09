@@ -8,7 +8,7 @@
 - **A registration** names the resource (`adapter_config.resourceName`, or `baseURL` for a custom endpoint) and the deployment serving each model (`adapter_config.deployments`, `"model=deployment,…"`). Its `checkConfig` refuses a registration the factory couldn't build, naming the setting.
 - **It signs in two ways, before each attempt:**
   - `auth: api-key` (default): the key `secret_ref` names, read for every attempt, so a rotated key takes effect on the next call;
-  - `auth: entra`: the runtime's own Azure identity, a bearer token per attempt, no key. The token goes only to an Azure OpenAI host, in Azure's public cloud or Azure Government (`*.openai.azure.us`, with that cloud's scope); a registration naming any other host with `auth: entra` is refused.
+  - `auth: entra`: the runtime's own Azure identity, a bearer token per attempt, no key. The token goes only to an Azure OpenAI host, in Azure's public cloud or Azure Government (`*.openai.azure.us` and `*.cognitiveservices.azure.us`, with that cloud's scope); a registration naming any other host with `auth: entra` is refused.
   A failed sign-in (no token, no key, a blank one) is an `auth` error, never retried. No request follows a redirect, so the credential reaches the endpoint and nothing else. It never reads `AZURE_API_KEY` or `AZURE_RESOURCE_NAME` from the environment.
 - **Whether a model reasons is the registration's to say:** a model registered with `thinking` or `sampling: false` reasons, one with `sampling: true` doesn't, whatever its deployment is called. When the registration says neither, the AI SDK decides from the deployment's name.
 - **Nothing kept on Azure's side:** Responses calls send `store: false`.
