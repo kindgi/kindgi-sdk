@@ -34,8 +34,13 @@ export interface AzureOpenAIConfig {
 const KEYS = ['resourceName', 'baseURL', 'deployments', 'api', 'auth'] as const;
 /** A single DNS label, as Azure's resource names are. */
 const RESOURCE_NAME = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i;
-/** What Azure takes in a deployment name. */
-const DEPLOYMENT_NAME = /^[A-Za-z0-9_-]{1,64}$/;
+/**
+ * A deployment name as it can sit in this setting and in the request path: Azure sets no
+ * character rule of its own (its ARM reference says only "string"; `gpt-6.1-sol` is a real
+ * one), so only what would break the setting (`,`, `=`) or the path (`/`, whitespace) is refused,
+ * and Azure answers for the rest.
+ */
+const DEPLOYMENT_NAME = /^[^\s,=/]+$/;
 
 const at = (key: string) => `/adapter_config/${key}`;
 
@@ -174,7 +179,7 @@ function readDeployments(
     } else if (!DEPLOYMENT_NAME.test(deployment)) {
       problems.push({
         path,
-        message: `adapter_config.deployments gives ${model} the deployment "${deployment}": Azure deployment names are letters, digits, - and _.`,
+        message: `adapter_config.deployments gives ${model} the deployment "${deployment}": a deployment name can't hold spaces, ",", "=" or "/".`,
       });
     } else map.set(model, deployment);
   }

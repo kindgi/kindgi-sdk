@@ -100,9 +100,9 @@ describe('checkConfig', () => {
       "names gpt-9, which this registration doesn't list",
     ],
     [
-      { ...GOOD, deployments: 'gpt-6.1-sol=gpt-6.1-sol,gpt-6-luna=luna' },
+      { ...GOOD, deployments: 'gpt-6.1-sol=sol prod,gpt-6-luna=luna' },
       '/adapter_config/deployments',
-      'Azure deployment names are letters, digits',
+      "a deployment name can't hold spaces",
     ],
     [
       { ...GOOD, deployments: 'gpt-6.1-sol=gpt-6-1-sol' },
@@ -136,6 +136,12 @@ describe('checkConfig', () => {
         hasSecretRef: true,
         identities: { azure: false, aws: false },
       }),
+    ).toEqual([]);
+  });
+
+  test('a deployment named like its model, dots included, as Azure makes them: taken', () => {
+    expect(
+      check({ ...GOOD, deployments: 'gpt-6.1-sol=gpt-6.1-sol, gpt-6-luna=gpt-6-luna' }),
     ).toEqual([]);
   });
 
