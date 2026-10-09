@@ -213,6 +213,41 @@ When it starts, the runtime brings the database up to date: it applies the migra
 
 Migrations only go forward, and an older runtime isn't guaranteed to work on a database a newer one migrated. To go back, [restore the backup](#restore-into-a-fresh-database) you took before the upgrade, and run the older version on it.
 
+### Runtime 0.1.4.2
+
+Runtime 0.1.4.2 fixes one bug in 0.1.4 and 0.1.4.1, for every deployment:
+when the database drops its connections (a restart, a failover, a network
+blip), the runtime could exit instead of reconnecting. Its log then ends like
+this:
+
+```text
+file:///app/node_modules/.pnpm/postgres@3.4.9/node_modules/postgres/src/connection.js:255
+    const x = socket.write(chunk, fn)
+                     ^
+
+TypeError: Cannot read properties of null (reading 'write')
+    at Immediate.nextWrite (file:///app/node_modules/.pnpm/postgres@3.4.9/node_modules/postgres/src/connection.js:255:22)
+```
+
+On 0.1.4.2, requests that need the database fail while it's down, and the
+runtime keeps running and answers again once it's back. Only the runtime
+changes: the 0.1.4 CLI and SDKs (npm, PyPI) stay as they are. `kindgi dev`
+keeps its pinned 0.1.4 runtime, so if your local database restarts under it,
+restart `kindgi dev`.
+
+Run 0.1.4.2, pulled by its digest, with the same `kindgi.env`. It has no
+migration, and it carries 0.1.4.1's fix ([Runtime 0.1.4.1](#runtime-0141)).
+Keep `--restart unless-stopped` on the runtime's container either way
+([Restart the runtime](#restart-the-runtime)):
+
+```sh
+docker pull quay.io/kindgi/runtime:0.1.4.2@sha256:420826ad9bac0c2fdb021c49517aabebeac1ff7ec236e02af47e90a31f5b825e
+```
+
+On Cloud Run, copy it into your repository the same way as 0.1.4 (see
+[The images into Artifact Registry](../cloud-run/#2-the-images-into-artifact-registry))
+and set `server_image` to its digest.
+
 ### Runtime 0.1.4.1
 
 Runtime 0.1.4.1 fixes one bug in 0.1.4, for deployments with authorization on
