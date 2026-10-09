@@ -66,7 +66,18 @@ function app() {
       },
       body: JSON.stringify(body),
     });
-  return { post, kept, minted: () => minted };
+  /** A credential that names no principal and no session (a deployment's own resolver). */
+  const postWith = (credential: string, key: string) =>
+    hono.request('/v1/things', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'idempotency-key': key,
+        authorization: `Bearer ${credential}`,
+      },
+      body: JSON.stringify({ name: 'acme' }),
+    });
+  return { post, postWith, kept, minted: () => minted };
 }
 
 describe('an Idempotency-Key is the caller’s', () => {
@@ -87,6 +98,17 @@ describe('an Idempotency-Key is the caller’s', () => {
     expect(again.headers.get('X-Idempotent-Replay')).toBe('true');
     expect(await again.json()).toEqual({ id: 'thing-1', by: 'u-alice' });
     expect(a.minted()).toBe(1);
+  });
+
+  test('a credential with no principal or session is its own caller: never a bucket shared with another', async () => {
+    const a = app();
+    await a.postWith('kgi_bt_acme_one', 'k-shared');
+    const other = await a.postWith('kgi_bt_acme_two', 'k-shared');
+    expect(other.headers.get('X-Idempotent-Replay')).toBeNull();
+    expect(((await other.json()) as { id: string }).id).toBe('thing-2');
+    const same = await a.postWith('kgi_bt_acme_one', 'k-shared');
+    expect(same.headers.get('X-Idempotent-Replay')).toBe('true');
+    expect(((await same.json()) as { id: string }).id).toBe('thing-1');
   });
 
   test("another person never gets a secret-bearing answer either: it's their own request", async () => {

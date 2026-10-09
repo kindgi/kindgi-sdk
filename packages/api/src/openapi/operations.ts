@@ -4872,6 +4872,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '403': ErrorResponse(
         "Not allowed here (`token-sign-in-off`), or not this key (`token-sign-in-not-allowed`): a service account's, or a narrowed one.",
       ),
+      '409': ErrorResponse(
+        "A retry with the Idempotency-Key of a sign-in that succeeded: its session was in the cookie, which isn't kept (`idempotency-key-replay-withheld`). Sign in again without the key.",
+      ),
     },
   },
   {
