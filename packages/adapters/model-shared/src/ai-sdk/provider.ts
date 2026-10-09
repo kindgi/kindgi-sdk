@@ -60,6 +60,12 @@ export interface AiSdkModelProviderOptions {
    * is, never retried.
    */
   readonly beforeAttempt?: () => Promise<void>;
+  /**
+   * A sentence for a failed call's message, where the vendor's own words don't say what to
+   * check (Bedrock's 403: the IAM policy, or the account's access to the model). Undefined:
+   * the message as it is.
+   */
+  readonly explain?: (error: ModelProviderError) => string | undefined;
 }
 
 const wireName = (name: string) => name.replace(/\./g, '__');
@@ -134,7 +140,10 @@ export function createAiSdkModelProvider(options: AiSdkModelProviderOptions): Mo
             describe: describeFailure,
             // An adapter's own typed error (its sign-in failed) is the answer as it is.
             toError: (failure, error) =>
-              error instanceof ModelProviderError ? error : modelProviderError(failure, error),
+              explained(
+                error instanceof ModelProviderError ? error : modelProviderError(failure, error),
+                options.explain,
+              ),
           },
         ),
       );
@@ -366,6 +375,18 @@ function toPrompt(
     }
   }
   return prompt;
+}
+
+/** The error with the adapter's sentence after its message, when it has one. */
+function explained(
+  error: ModelProviderError,
+  explain: AiSdkModelProviderOptions['explain'],
+): ModelProviderError {
+  const sentence = explain?.(error);
+  if (sentence === undefined || sentence === '') return error;
+  return new ModelProviderError(error.kind, error.status, `${error.message} ${sentence}`, {
+    cause: error.cause,
+  });
 }
 
 /** An AI SDK failure as the retry policy and the typed error need it. */
