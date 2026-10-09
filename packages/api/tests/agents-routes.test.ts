@@ -9,7 +9,7 @@ import type { AgentRegistry } from '@kindgi/agents';
 import { createAgentRegistry, defineAgent } from '@kindgi/agents';
 import type { Cursor, ProjectId, TenantId } from '@kindgi/types';
 
-import { createStubAppBindings } from '@kindgi/testing';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type { AgentRegistryBinding, RunHandlerBinding, TokenResolver } from '../src/index.js';

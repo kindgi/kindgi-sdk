@@ -77,6 +77,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'run-lease-lost': 409,
   'idempotency-key-body-mismatch': 409,
   'idempotency-key-in-flight': 409,
+  'idempotency-key-replay-withheld': 409,
   'hitl-required': 409,
   'duplicate-node-id': 409,
   'duplicate-edge-id': 409,

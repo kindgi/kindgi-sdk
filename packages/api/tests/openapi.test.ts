@@ -18,8 +18,8 @@ import {
   makeInMemoryProjectBinding,
   makeInMemoryTeamBinding,
 } from '@kindgi/platform';
-import { createStubAppBindings, createStubBinding } from '@kindgi/testing';
 import type { SigningKeyId, TenantId } from '@kindgi/types';
+import { createStubAppBindings, createStubBinding } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type {
@@ -425,6 +425,8 @@ const noopSessionStore: SessionStoreBinding = {
   list: async () => ({ data: [] }),
   revoke: async () => ({ revoked: false }),
   revokeAllForUser: async () => ({ revokedCount: 0 }),
+  // Cookie sessions need a store that resolves its own tokens.
+  resolveToken: async () => null,
 };
 
 const noopIdentityProvider: IdentityProviderBinding = {

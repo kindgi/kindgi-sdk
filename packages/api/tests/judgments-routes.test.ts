@@ -14,7 +14,7 @@ import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/a
 import type { KernelRunRecord, RunAgentRef, RunBinding } from '@kindgi/runtime';
 import type { ConversationId, ProjectId, RunId, TenantId, Timestamp, UserId } from '@kindgi/types';
 
-import { createStubAppBindings } from '@kindgi/testing';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type { JudgmentRegistryBinding, RunHandlerBinding, TokenResolver } from '../src/index.js';
