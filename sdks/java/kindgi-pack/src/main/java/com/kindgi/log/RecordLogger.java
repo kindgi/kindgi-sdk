@@ -21,8 +21,9 @@ import java.util.regex.Pattern;
 /**
  * A logger that writes records: the fixed five ({@code time}, {@code level}, {@code severity},
  * {@code subsystem}, {@code message}), then the correlation ids that are known, in a fixed order,
- * then the event's own fields, then {@code err}. A field named like one of the fixed five can't
- * replace it: it's kept under {@code fields}. The same records as {@code @kindgi/log}.
+ * then the event's own fields, then {@code err}, then {@code inMessage} (the fields the message
+ * states, of those the record has). A field named like one of the fixed five, or {@code inMessage},
+ * can't replace it: it's kept under {@code fields}. The same records as {@code @kindgi/log}.
  */
 final class RecordLogger implements Logger {
   /** Correlation fields, in the order a record carries them, after the fixed five. */
@@ -32,7 +33,10 @@ final class RecordLogger implements Logger {
       "approvalId");
 
   private static final List<String> FIXED = List.of("time", "level", "severity", "subsystem", "message");
-  private static final Set<String> PRETTY_FIXED = Set.of("time", "level", "severity", "subsystem", "message", "err");
+  /** Names a field can't take: the fixed five and {@code inMessage}, the record's own. */
+  private static final Set<String> RESERVED = Set.of("time", "level", "severity", "subsystem", "message", "inMessage");
+  private static final Set<String> PRETTY_FIXED =
+      Set.of("time", "level", "severity", "subsystem", "message", "err", "inMessage");
 
   private static final DateTimeFormatter ISO =
       DateTimeFormatter.ofPattern("uuuu-MM-dd'T'HH:mm:ss.SSS'Z'").withZone(ZoneOffset.UTC);
@@ -99,9 +103,9 @@ final class RecordLogger implements Logger {
       return;
     }
     try {
-      Map<String, Object> record = record(level, message, fields);
+      Map<String, Object> record = record(level, message, fields, options);
       String line = shared.format() == LogFormat.PRETTY
-          ? pretty(record, shared.color(), options.inMessage())
+          ? pretty(record, shared.color(), List.of())
           : JSON.writeValueAsString(record);
       shared.write().accept(line);
     } catch (JsonProcessingException | RuntimeException | StackOverflowError e) {
@@ -118,7 +122,7 @@ final class RecordLogger implements Logger {
   }
 
   @SuppressWarnings("unchecked")
-  private Map<String, Object> record(LogLevel level, String message, Map<String, ?> fields) {
+  private Map<String, Object> record(LogLevel level, String message, Map<String, ?> fields, LogOptions options) {
     Map<String, Object> merged = new LinkedHashMap<>(bindings);
     putAll(merged, fields);
     List<String> extra = shared.redact();
@@ -139,7 +143,7 @@ final class RecordLogger implements Logger {
       if (key.equals("subsystem") || key.equals("err") || CORRELATION.contains(key)) {
         continue;
       }
-      if (FIXED.contains(key)) {
+      if (RESERVED.contains(key)) {
         reserved.put(key, e.getValue());
       } else {
         out.put(key, e.getValue() instanceof Throwable
@@ -158,6 +162,17 @@ final class RecordLogger implements Logger {
     if (merged.get("err") != null) {
       boolean withStack = level == LogLevel.ERROR || LogLevel.DEBUG.enabledAt(threshold);
       redacted.put("err", Errors.serialize(merged.get("err"), withStack));
+    }
+    // The fields the message states, of those the record has: a renderer (the pretty format,
+    // `kindgi dev`) leaves them out of the line.
+    List<String> stated = new ArrayList<>();
+    for (String key : options.inMessage()) {
+      if (!RESERVED.contains(key) && !key.equals("err") && redacted.containsKey(key) && !stated.contains(key)) {
+        stated.add(key);
+      }
+    }
+    if (!stated.isEmpty()) {
+      redacted.put("inMessage", stated);
     }
     return redacted;
   }
@@ -200,11 +215,18 @@ final class RecordLogger implements Logger {
   }
 
   /**
-   * The pretty format, for a person at a terminal. Colours only when {@code color} is set; {@code
-   * omit}: fields the message already states, left out of the line.
+   * The pretty format, for a person at a terminal. Colours only when {@code color} is set. The fields
+   * the message already states (the record's {@code inMessage}, and any in {@code omit}) are left
+   * out of the line, so a record read back from JSON renders as it would have at the source.
    */
   @SuppressWarnings("unchecked")
   static String pretty(Map<String, Object> record, boolean color, List<String> omit) {
+    List<String> stated = new ArrayList<>(omit);
+    if (record.get("inMessage") instanceof List) {
+      for (Object key : (List<Object>) record.get("inMessage")) {
+        stated.add(String.valueOf(key));
+      }
+    }
     LogLevel level = LogLevel.parse(String.valueOf(record.get("level")));
     String time = String.valueOf(record.get("time")).substring(11, 23);
     String label = LABEL.get(level);
@@ -214,7 +236,7 @@ final class RecordLogger implements Logger {
     head.add("[" + record.get("subsystem") + "]");
     head.add(String.valueOf(record.get("message")));
     for (Map.Entry<String, Object> e : record.entrySet()) {
-      if (!PRETTY_FIXED.contains(e.getKey()) && !omit.contains(e.getKey())) {
+      if (!PRETTY_FIXED.contains(e.getKey()) && !stated.contains(e.getKey())) {
         head.add(e.getKey() + "=" + prettyValue(e.getValue()));
       }
     }

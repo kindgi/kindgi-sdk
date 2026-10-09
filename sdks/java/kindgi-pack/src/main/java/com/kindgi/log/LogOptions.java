@@ -11,7 +11,8 @@ import java.util.List;
  * @param inMessage the fields its message already states. The call line {@code tool acme.lookup ok
  *     12ms} states {@code target}, {@code id}, {@code outcome} and {@code durationMs}: the pretty
  *     format leaves them out, so a terminal line doesn't say everything twice; JSON keeps every
- *     field, for queries.
+ *     field, for queries, and lists the ones named here (those the record has) as the record's
+ *     {@code inMessage}, so a renderer reading JSON leaves them out too.
  */
 public record LogOptions(List<String> inMessage) {
   /** No options. */

@@ -83,7 +83,9 @@ class LogVectorsTest {
       assertThat(ERRORS).as("a Java error named " + error.get("name")).containsKey(error.get("name"));
       fields.put("err", ERRORS.get(error.get("name")).apply(error.get("message"), error.get("code")));
     }
-    log.log(LogLevel.parse((String) c.get("level")), (String) c.get("message"), fields, LogOptions.NONE);
+    List<String> inMessage = (List<String>) c.get("inMessage");
+    LogOptions options = inMessage == null ? LogOptions.NONE : new LogOptions(inMessage);
+    log.log(LogLevel.parse((String) c.get("level")), (String) c.get("message"), fields, options);
     Object expected = c.get("expected");
     if (expected == null) {
       assertThat(lines).isEmpty();
