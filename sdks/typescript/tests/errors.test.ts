@@ -185,6 +185,8 @@ describe('fromWire — a code this client does not list is read by its HTTP stat
     'policy-already-registered',
     'version-already-exists',
     'approval-already-decided',
+    'legal-hold',
+    'erasure-in-progress',
   ])('%s is a conflict (listed)', (code) => {
     expect(fromWire({ code, message: 'm' }, 409)).toMatchObject({ code: 'conflict', reason: code });
   });

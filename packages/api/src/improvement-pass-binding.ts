@@ -3,6 +3,7 @@
 
 import type { Cursor, LiveScope, ProjectId, TenantId, Timestamp } from '@kindgi/types';
 
+import type { EvalClassWeights } from './eval-run-binding.js';
 import type { PromotionActor } from './live-version-binding.js';
 import type { ProposalObjective } from './supervisor-binding.js';
 
@@ -41,8 +42,14 @@ export interface ImprovementPassBinding {
   >;
 }
 
-/** What a pass tunes: settings blocks (prompts come later). */
-export type ImprovementTier = 'settings';
+/** What a pass tunes: settings values, or (drafted by a model) a prompt template. */
+export type ImprovementTier = 'settings' | 'prompt';
+
+/** A provider and model, by the tenant's provider id. */
+export interface ImprovementModel {
+  readonly providerId: string;
+  readonly model: string;
+}
 
 export interface ImprovementBudget {
   /** The most the pass's comparisons may cost, in US dollars. */
@@ -64,9 +71,48 @@ export interface StartImprovementPassInput {
   readonly suiteId: string;
   readonly tiers: readonly ImprovementTier[];
   readonly objective: ProposalObjective;
+  /** Which judgments its comparisons count (K4: trusted ones only, by default). */
+  readonly classWeights: EvalClassWeights;
+  /** For a prompt pass: what drafts the templates. */
+  readonly model?: ImprovementModel;
+  /** For a prompt pass: how many templates it drafts. */
+  readonly candidates?: number;
   readonly budget: ImprovementBudget;
   readonly requestedBy: PromotionActor;
 }
+
+/**
+ * When an `improve` schedule's fire starts a pass: enough trusted "no"
+ * judgments (recorded under a restricted class) on the agent's runs in the
+ * scope since its last pass, across enough runs, from enough judges. One
+ * judge can't start a pass alone.
+ */
+export interface ImproveThreshold {
+  readonly judgments: number;
+  readonly runs: number;
+  readonly judges: number;
+}
+
+/** An `improve` schedule's input (`config.input`): when a fire starts a pass, and the pass's options. */
+export interface ImproveScheduleInput {
+  readonly tiers: readonly ImprovementTier[];
+  readonly objective: ProposalObjective;
+  readonly classWeights: EvalClassWeights;
+  readonly model?: ImprovementModel;
+  readonly candidates?: number;
+  /** Each pass's budget; never more than what's left of the month's cap. */
+  readonly budget: ImprovementBudget;
+  readonly threshold: ImproveThreshold;
+  /** The most its passes may cost in a calendar month (UTC), in US dollars. */
+  readonly monthlyCapUsd: number;
+}
+
+export const IMPROVE_SCHEDULE_DEFAULTS = {
+  threshold: { judgments: 5, runs: 3, judges: 2 },
+  monthlyCapUsd: 20,
+  /** The shortest interval between an `improve` schedule's occurrences: a pass costs money. */
+  minIntervalSeconds: 3600,
+} as const;
 
 export interface ListImprovementPassesInput {
   readonly tenantId: TenantId;
@@ -104,6 +150,9 @@ export interface ImprovementPass {
   readonly suiteId: string;
   readonly tiers: readonly ImprovementTier[];
   readonly objective: ProposalObjective;
+  readonly classWeights: EvalClassWeights;
+  readonly model?: ImprovementModel;
+  readonly candidates?: number;
   readonly budget: ImprovementBudget;
   /** `user:<id>` or `service:<id>`. */
   readonly requestedBy: string;
@@ -116,6 +165,8 @@ export interface ImprovementPass {
   readonly outcome?: ImprovementPassOutcome;
   /** Its comparisons so far, each an eval run to open. */
   readonly comparisons?: readonly ImprovementPassComparison[];
+  /** The `improve` schedule and fire that started it; absent for a pass a person started. */
+  readonly trigger?: { readonly triggerId: string; readonly fireId: string };
   readonly createdAt: Timestamp;
   readonly updatedAt: Timestamp;
   readonly finishedAt?: Timestamp;
@@ -135,4 +186,8 @@ export interface ImprovementPassComparison {
   readonly score?: number | null;
   /** Why it didn't run or finish, when it didn't. */
   readonly failed?: string;
+  /** For a drafted template that was never compared: why the check refused it. */
+  readonly refused?: readonly { readonly path: string; readonly message: string }[];
+  /** For a drafted template: what the drafter meant it to change. */
+  readonly hypothesis?: string;
 }

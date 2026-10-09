@@ -111,14 +111,13 @@ async function overridesRefusal(
   tenantId: TenantId,
   start: ParsedStartBody,
 ) {
-  const settings = start.comparison?.overrides?.settings;
+  const overrides = start.comparison?.overrides;
   const agentRef = start.agentRef;
-  if (settings === undefined || agentRef?.version === undefined) return undefined;
+  if (overrides === undefined || agentRef?.version === undefined) return undefined;
   if (check === undefined) {
     return {
       code: 'validation-failed' as const,
-      message:
-        "This runtime can't check settings overrides (it serves no agent or block registry).",
+      message: "This runtime can't check overrides (it serves no agent or block registry).",
       issues: [],
     };
   }
@@ -126,7 +125,7 @@ async function overridesRefusal(
     check,
     tenantId,
     { agentId: agentRef.agentId as unknown as string, version: agentRef.version },
-    settings,
+    overrides,
   );
   if (issues.length === 0) return undefined;
   return {

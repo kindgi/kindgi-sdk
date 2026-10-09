@@ -1032,6 +1032,8 @@ export interface Conversation {
   readonly turnCount: number;
   readonly openedAt: import('@kindgi/types').Timestamp;
   readonly closedAt?: import('@kindgi/types').Timestamp;
+  /** Set on the answer to `unregister`: reads no longer return it. */
+  readonly unregisteredAt?: import('@kindgi/types').Timestamp;
   readonly lastMessageAt?: import('@kindgi/types').Timestamp;
   readonly metadata?: Readonly<Record<string, unknown>>;
 }
@@ -1272,6 +1274,86 @@ export interface RetrievalResult {
   readonly score?: number;
 }
 
+// -- Memory erasures ------------------------------------------
+
+/**
+ * Whose words to erase: one fact, a person (an app's end user
+ * `participant`, or an `external` subject facts name), or one
+ * conversation. Erasing a Kindgi user isn't offered. Matches
+ * `@kindgi/api/openapi.json#MemoryErasureSelector`.
+ */
+export type MemoryErasureSelector =
+  | { readonly factId: string }
+  | {
+      readonly subject: {
+        readonly kind: 'participant' | 'external';
+        readonly id: string;
+      };
+    }
+  | { readonly conversationId: string };
+
+export type MemoryErasureStatus = 'pending' | 'running' | 'waiting-on-run' | 'completed' | 'failed';
+
+/** An erasure and how far it got. Matches `@kindgi/api/openapi.json#MemoryErasure`. */
+export interface MemoryErasure {
+  readonly id: string;
+  readonly selectorKind: 'fact' | 'participant' | 'external' | 'conversation';
+  /** Only while it runs: a completed or failed erasure keeps no identifier. */
+  readonly selector?: MemoryErasureSelector;
+  readonly status: MemoryErasureStatus;
+  /** `settle`: the person's unfinished runs end, or it waits for them, before anything is cleared. */
+  readonly phase: 'seed' | 'expand' | 'settle' | 'erase' | 'done';
+  readonly requestedBy: string;
+  /** A replay after a backup restore can find this person again. */
+  readonly matchable: boolean;
+  /** What each store cleared or deleted, by store. */
+  readonly counts: Readonly<Record<string, number>>;
+  readonly attempts: number;
+  /** The last failure's code, or `not-yet:<reason>` while it waits. Never content. */
+  readonly lastError?: string;
+  /**
+   * The run it waits (or waited) for, and until when: a turn of the
+   * person's in a flow that serves other people (`waiting-on-run`).
+   */
+  readonly waitingOn?: { readonly runId: string; readonly until?: string };
+  /** A tenant admin said not to wait. */
+  readonly forced?: true;
+  /** Runs of the person's kept appearing: it went on to erase after its last round. */
+  readonly settleRoundsCapped?: true;
+  readonly createdAt: string;
+  readonly startedAt?: string;
+  readonly completedAt?: string;
+  readonly replayedAt?: string;
+}
+
+/** `POST /v1/memory/erasures`'s answer: the erasure, and what to know about it. */
+export interface MemoryErasureCreated extends MemoryErasure {
+  /** `erasure-unmatchable`: no erasure ledger key (`KINDGI_ERASURE_LEDGER_KEY`), so a replay after a restore can't find this person. */
+  readonly warnings?: readonly { readonly code: 'erasure-unmatchable'; readonly message: string }[];
+}
+
+/** One ledger row, as exported off-box and given back to a replay. Content-free. */
+export interface MemoryErasureLedgerEntry {
+  readonly id: string;
+  readonly selectorKind: MemoryErasure['selectorKind'];
+  readonly selectorHmac?: string;
+  readonly keyId?: string;
+  readonly requestedBy: string;
+  readonly status: MemoryErasureStatus;
+  readonly createdAt: string;
+  readonly completedAt?: string;
+}
+
+export interface ReplayMemoryErasuresResult {
+  /** Found in the tenant again: run again. */
+  readonly replayed: readonly string[];
+  /** Put back in the ledger; nothing in the tenant matches. */
+  readonly restored: readonly string[];
+  readonly unmatched: readonly {
+    readonly id: string;
+    readonly reason: 'no-keyed-hash' | 'unknown-key';
+  }[];
+}
 // ============================================================
 // Provenance shapes — read + export + verify.
 // ============================================================
@@ -1795,7 +1877,8 @@ export type PolicyStatus = 'draft' | 'active' | 'archived';
 
 /**
  * A tombstoning domain a `retention` policy can cover; `*` is the
- * tenant-wide default. Wire enum — matches
+ * tenant-wide default, except for `memory` and `conversation`, which
+ * only a policy naming them covers. Wire enum — matches
  * `@kindgi/api/openapi.json#RetentionDomain`.
  */
 export type RetentionDomain =
@@ -1814,6 +1897,8 @@ export type RetentionDomain =
   | 'judgment'
   | 'judge_class'
   | 'provider'
+  | 'memory'
+  | 'conversation'
   | 'api_key'
   | 'service_account'
   | '*';

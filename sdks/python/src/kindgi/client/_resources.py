@@ -246,6 +246,13 @@ OPERATIONS: dict[str, Operation] = {
     "conversations.close": Operation(
         "conversations.close", "POST", "/v1/conversations/{conversationId}/close", "json", True
     ),
+    "conversations.unregister": Operation(
+        "conversations.unregister",
+        "POST",
+        "/v1/conversations/{conversationId}/unregister",
+        "json",
+        True,
+    ),
     "conversations.messages": Operation(
         "conversations.messages",
         "GET",
@@ -271,6 +278,24 @@ OPERATIONS: dict[str, Operation] = {
         "memory.verifyFact", "POST", "/v1/memory/facts/{factId}/verify", "json", True
     ),
     "memory.retrieve": Operation("memory.retrieve", "POST", "/v1/memory/retrieve", "json", True),
+    "memory.listErasures": Operation(
+        "memory.listErasures", "GET", "/v1/memory/erasures", "json", False
+    ),
+    "memory.createErasure": Operation(
+        "memory.createErasure", "POST", "/v1/memory/erasures", "json", True
+    ),
+    "memory.exportErasures": Operation(
+        "memory.exportErasures", "GET", "/v1/memory/erasures/export", "json", False
+    ),
+    "memory.replayErasures": Operation(
+        "memory.replayErasures", "POST", "/v1/memory/erasures/replay", "json", True
+    ),
+    "memory.resumeErasure": Operation(
+        "memory.resumeErasure", "POST", "/v1/memory/erasures/{erasureId}/resume", "json", True
+    ),
+    "memory.getErasure": Operation(
+        "memory.getErasure", "GET", "/v1/memory/erasures/{erasureId}", "json", False
+    ),
     "proposals.list": Operation("proposals.list", "GET", "/v1/proposals", "json", False),
     "proposals.create": Operation("proposals.create", "POST", "/v1/proposals", "json", True),
     "proposals.improve": Operation(
@@ -2677,6 +2702,27 @@ class ConversationsResource:
             timeout=timeout,
         )
 
+    def unregister(
+        self,
+        conversation_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.Conversation:
+        """Unregister a conversation. `POST /v1/conversations/{conversationId}/unregister`
+
+        A tombstone: from now on no read, list or recall of earlier conversations returns it, and no message can be added. The retention sweep removes it after the tenant's grace.
+        """
+        return self._client._request(
+            _OPERATIONS["conversations.unregister"],
+            path={"conversationId": conversation_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.Conversation,
+            timeout=timeout,
+        )
+
     def messages(
         self,
         conversation_id: str | UUID,
@@ -2892,6 +2938,127 @@ class MemoryResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.RetrieveMemoryBody, body, fields),
             response=_models.RetrieveMemoryResult,
+            timeout=timeout,
+        )
+
+    def list_erasures(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.MemoryErasurePage:
+        """List erasures. `GET /v1/memory/erasures`
+
+        Cursor-paginated, newest first: each erasure, how far it got and what it cleared. A completed one shows no selector. Requires `admin` on the tenant.
+        """
+        return self._client._request(
+            _OPERATIONS["memory.listErasures"],
+            path={},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.MemoryErasurePage,
+            timeout=timeout,
+        )
+
+    def create_erasure(
+        self,
+        body: _models.CreateMemoryErasureBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.MemoryErasureCreated:
+        """Erase a person's words. `POST /v1/memory/erasures`
+
+        Starts erasing, in the background, one fact (`factId`), a person (`subject`: an app's end user `participant`, or an `external` subject facts name) or one conversation (`conversationId`): their facts, conversations (messages, recall rows), the runs that served them (input, output, journal, snapshots) and the free text they left in provenance; facts written from them go to review. Answers `202` with the erasure; follow it with `GET /v1/memory/erasures/{erasureId}`. A completed erasure keeps no identifier, only a keyed hash for a replay after a backup restore; `warnings` says when this deployment can't keep one (`erasure-unmatchable`: no erasure ledger key, `KINDGI_ERASURE_LEDGER_KEY`). Requires `admin` on the tenant.
+        """
+        return self._client._request(
+            _OPERATIONS["memory.createErasure"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.CreateMemoryErasureBody, body, fields),
+            response=_models.MemoryErasureCreated,
+            timeout=timeout,
+        )
+
+    def export_erasures(self, /, *, timeout: float | None = None) -> _models.MemoryErasureLedger:
+        """Export the erasure ledger. `GET /v1/memory/erasures/export`
+
+        The whole ledger, oldest first, content-free: each erasure's selector kind, the keyed hash of whom it erased, who asked and when. Keep it off-box: restoring a backup rolls the ledger back too, and `POST /v1/memory/erasures/replay` with it runs the erasures again. Requires `admin` on the tenant.
+        """
+        return self._client._request(
+            _OPERATIONS["memory.exportErasures"],
+            path={},
+            query={},
+            headers={},
+            response=_models.MemoryErasureLedger,
+            timeout=timeout,
+        )
+
+    def replay_erasures(
+        self,
+        body: _models.ReplayMemoryErasuresBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ReplayMemoryErasuresResult:
+        """Replay erasures after a backup restore. `POST /v1/memory/erasures/replay`
+
+        Takes the ledger `GET /v1/memory/erasures/export` gave, puts back the rows the restore lost, and finds each erasure's person (or fact, or conversation) again by its keyed hash: those run again (`replayed`); ones nothing in the tenant matches are only restored (`restored`); ones with no keyed hash, or a key this deployment doesn't hold, are `unmatched`. Requires `admin` on the tenant.
+        """
+        return self._client._request(
+            _OPERATIONS["memory.replayErasures"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ReplayMemoryErasuresBody, body, fields),
+            response=_models.ReplayMemoryErasuresResult,
+            timeout=timeout,
+        )
+
+    def resume_erasure(
+        self,
+        erasure_id: str | UUID,
+        body: _models.ResumeMemoryErasureBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.MemoryErasure:
+        """Resume an erasure. `POST /v1/memory/erasures/{erasureId}/resume`
+
+        Tries an unfinished erasure again now. With `force: true`, an erasure `waiting-on-run` (a turn of the person's in a flow that serves other people) stops waiting: the run is cancelled and the erasure goes on; without it, it waits until its deadline (`waitingOn.until`). A finished erasure comes back as it is. Requires `admin` on the tenant.
+        """
+        return self._client._request(
+            _OPERATIONS["memory.resumeErasure"],
+            path={"erasureId": erasure_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ResumeMemoryErasureBody, body, fields),
+            response=_models.MemoryErasure,
+            timeout=timeout,
+        )
+
+    def get_erasure(
+        self, erasure_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.MemoryErasure:
+        """Get an erasure. `GET /v1/memory/erasures/{erasureId}`
+
+        One erasure: its status (`pending`, `running`, `completed`, `failed`), phase, what each store cleared (`counts`), and `lastError` (a code, or `not-yet:<reason>` while it waits for a run to finish). Requires `admin` on the tenant.
+        """
+        return self._client._request(
+            _OPERATIONS["memory.getErasure"],
+            path={"erasureId": erasure_id},
+            query={},
+            headers={},
+            response=_models.MemoryErasure,
             timeout=timeout,
         )
 
@@ -4453,6 +4620,8 @@ class RetentionResource:
             "judgment",
             "judge_class",
             "provider",
+            "memory",
+            "conversation",
             "api_key",
             "service_account",
             "*",
@@ -4521,6 +4690,8 @@ class RetentionResource:
             "judgment",
             "judge_class",
             "provider",
+            "memory",
+            "conversation",
             "api_key",
             "service_account",
             "*",
@@ -4697,7 +4868,7 @@ class EvalSuitesResource:
     ) -> _models.BuildJudgedSuiteResult:
         """Build a test set from judgments. `POST /v1/eval-suites/{suiteId}/versions/from-judgments`
 
-        Publishes a `judged` eval suite version whose cases are copies of judged runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the judged output, and each item's judgments summed up: yes and no counts, the weight behind yes and behind all judgments (an unclassified judgment counts 1), and the reasons. `judgeClassIds` counts only judgments of those classes; `minJudgments` leaves out runs with fewer. Needs `admin` on the project.
+        Publishes a `judged` eval suite version whose cases are copies of judged runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the judged output, and each item's judgments summed up: yes and no counts, the weight behind yes and behind all judgments (an unclassified judgment counts 1), and the reasons. `judgeClassIds` counts only judgments of those classes; `minJudgments` leaves out runs with fewer; `segments` keeps only runs started in that segment path or below it. Needs `admin` on the project.
         """
         return self._client._request(
             _OPERATIONS["evalSuites.buildFromJudgments"],
@@ -9251,6 +9422,27 @@ class AsyncConversationsResource:
             timeout=timeout,
         )
 
+    async def unregister(
+        self,
+        conversation_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.Conversation:
+        """Unregister a conversation. `POST /v1/conversations/{conversationId}/unregister`
+
+        A tombstone: from now on no read, list or recall of earlier conversations returns it, and no message can be added. The retention sweep removes it after the tenant's grace.
+        """
+        return await self._client._request(
+            _OPERATIONS["conversations.unregister"],
+            path={"conversationId": conversation_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.Conversation,
+            timeout=timeout,
+        )
+
     async def messages(
         self,
         conversation_id: str | UUID,
@@ -9466,6 +9658,129 @@ class AsyncMemoryResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.RetrieveMemoryBody, body, fields),
             response=_models.RetrieveMemoryResult,
+            timeout=timeout,
+        )
+
+    async def list_erasures(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.MemoryErasurePage:
+        """List erasures. `GET /v1/memory/erasures`
+
+        Cursor-paginated, newest first: each erasure, how far it got and what it cleared. A completed one shows no selector. Requires `admin` on the tenant.
+        """
+        return await self._client._request(
+            _OPERATIONS["memory.listErasures"],
+            path={},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.MemoryErasurePage,
+            timeout=timeout,
+        )
+
+    async def create_erasure(
+        self,
+        body: _models.CreateMemoryErasureBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.MemoryErasureCreated:
+        """Erase a person's words. `POST /v1/memory/erasures`
+
+        Starts erasing, in the background, one fact (`factId`), a person (`subject`: an app's end user `participant`, or an `external` subject facts name) or one conversation (`conversationId`): their facts, conversations (messages, recall rows), the runs that served them (input, output, journal, snapshots) and the free text they left in provenance; facts written from them go to review. Answers `202` with the erasure; follow it with `GET /v1/memory/erasures/{erasureId}`. A completed erasure keeps no identifier, only a keyed hash for a replay after a backup restore; `warnings` says when this deployment can't keep one (`erasure-unmatchable`: no erasure ledger key, `KINDGI_ERASURE_LEDGER_KEY`). Requires `admin` on the tenant.
+        """
+        return await self._client._request(
+            _OPERATIONS["memory.createErasure"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.CreateMemoryErasureBody, body, fields),
+            response=_models.MemoryErasureCreated,
+            timeout=timeout,
+        )
+
+    async def export_erasures(
+        self, /, *, timeout: float | None = None
+    ) -> _models.MemoryErasureLedger:
+        """Export the erasure ledger. `GET /v1/memory/erasures/export`
+
+        The whole ledger, oldest first, content-free: each erasure's selector kind, the keyed hash of whom it erased, who asked and when. Keep it off-box: restoring a backup rolls the ledger back too, and `POST /v1/memory/erasures/replay` with it runs the erasures again. Requires `admin` on the tenant.
+        """
+        return await self._client._request(
+            _OPERATIONS["memory.exportErasures"],
+            path={},
+            query={},
+            headers={},
+            response=_models.MemoryErasureLedger,
+            timeout=timeout,
+        )
+
+    async def replay_erasures(
+        self,
+        body: _models.ReplayMemoryErasuresBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ReplayMemoryErasuresResult:
+        """Replay erasures after a backup restore. `POST /v1/memory/erasures/replay`
+
+        Takes the ledger `GET /v1/memory/erasures/export` gave, puts back the rows the restore lost, and finds each erasure's person (or fact, or conversation) again by its keyed hash: those run again (`replayed`); ones nothing in the tenant matches are only restored (`restored`); ones with no keyed hash, or a key this deployment doesn't hold, are `unmatched`. Requires `admin` on the tenant.
+        """
+        return await self._client._request(
+            _OPERATIONS["memory.replayErasures"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ReplayMemoryErasuresBody, body, fields),
+            response=_models.ReplayMemoryErasuresResult,
+            timeout=timeout,
+        )
+
+    async def resume_erasure(
+        self,
+        erasure_id: str | UUID,
+        body: _models.ResumeMemoryErasureBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.MemoryErasure:
+        """Resume an erasure. `POST /v1/memory/erasures/{erasureId}/resume`
+
+        Tries an unfinished erasure again now. With `force: true`, an erasure `waiting-on-run` (a turn of the person's in a flow that serves other people) stops waiting: the run is cancelled and the erasure goes on; without it, it waits until its deadline (`waitingOn.until`). A finished erasure comes back as it is. Requires `admin` on the tenant.
+        """
+        return await self._client._request(
+            _OPERATIONS["memory.resumeErasure"],
+            path={"erasureId": erasure_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ResumeMemoryErasureBody, body, fields),
+            response=_models.MemoryErasure,
+            timeout=timeout,
+        )
+
+    async def get_erasure(
+        self, erasure_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.MemoryErasure:
+        """Get an erasure. `GET /v1/memory/erasures/{erasureId}`
+
+        One erasure: its status (`pending`, `running`, `completed`, `failed`), phase, what each store cleared (`counts`), and `lastError` (a code, or `not-yet:<reason>` while it waits for a run to finish). Requires `admin` on the tenant.
+        """
+        return await self._client._request(
+            _OPERATIONS["memory.getErasure"],
+            path={"erasureId": erasure_id},
+            query={},
+            headers={},
+            response=_models.MemoryErasure,
             timeout=timeout,
         )
 
@@ -11031,6 +11346,8 @@ class AsyncRetentionResource:
             "judgment",
             "judge_class",
             "provider",
+            "memory",
+            "conversation",
             "api_key",
             "service_account",
             "*",
@@ -11099,6 +11416,8 @@ class AsyncRetentionResource:
             "judgment",
             "judge_class",
             "provider",
+            "memory",
+            "conversation",
             "api_key",
             "service_account",
             "*",
@@ -11277,7 +11596,7 @@ class AsyncEvalSuitesResource:
     ) -> _models.BuildJudgedSuiteResult:
         """Build a test set from judgments. `POST /v1/eval-suites/{suiteId}/versions/from-judgments`
 
-        Publishes a `judged` eval suite version whose cases are copies of judged runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the judged output, and each item's judgments summed up: yes and no counts, the weight behind yes and behind all judgments (an unclassified judgment counts 1), and the reasons. `judgeClassIds` counts only judgments of those classes; `minJudgments` leaves out runs with fewer. Needs `admin` on the project.
+        Publishes a `judged` eval suite version whose cases are copies of judged runs of one agent (optionally one version) or flow, newest first, at most 1000. Each case holds the run's input, what the turn read (`context`), the judged output, and each item's judgments summed up: yes and no counts, the weight behind yes and behind all judgments (an unclassified judgment counts 1), and the reasons. `judgeClassIds` counts only judgments of those classes; `minJudgments` leaves out runs with fewer; `segments` keeps only runs started in that segment path or below it. Needs `admin` on the project.
         """
         return await self._client._request(
             _OPERATIONS["evalSuites.buildFromJudgments"],

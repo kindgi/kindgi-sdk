@@ -150,6 +150,13 @@ def test_json_for_a_supervisor_even_in_dev_mode_and_a_bad_level_refused() -> Non
         pack_service_logs({"KINDGI_LOG_LEVEL": "loud"}, write=lines.append)
 
 
+def test_a_level_for_a_subsystem_pack_code_logs_under_is_no_problem() -> None:
+    _, problems = pack_service_logs(
+        {"KINDGI_LOG_LEVELS": "billing=debug,pack=warn"}, write=lambda _line: None
+    )
+    assert problems == []
+
+
 def test_a_test_context_logs_nowhere_unless_given_a_logger() -> None:
     ToolContext.for_test().log.info("nothing written")
     lines: list[str] = []
