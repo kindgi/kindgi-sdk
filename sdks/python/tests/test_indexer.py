@@ -176,6 +176,29 @@ def test_several_versions_of_one_tool_sit_side_by_side(make_pack: Callable[..., 
     ]
 
 
+def test_a_tools_needs_spec_is_kept_as_written(make_pack: Callable[..., Path]) -> None:
+    """An optional secret (its schema accepts null) included: the runtime reads it from the index."""
+    sense = (
+        "from kindgi import tool\n"
+        '@tool(id="acme.sense", needs_spec={"secrets": {\n'
+        '    "ANTHROPIC_API_KEY": {"type": "string", "minLength": 8},\n'
+        '    "GROQ_API_KEY": {"type": ["string", "null"], "minLength": 8},\n'
+        "}})\n"
+        "def sense(input: dict) -> dict:\n"
+        '    """Reads the providers."""\n'
+        "    return {}\n"
+    )
+    report, index = index_of(full_pack(make_pack, **{"tools/sense.py": sense}))
+    assert report["fileErrors"] == []
+    (entry,) = [t for t in index["tools"] if t["id"] == "acme.sense"]
+    assert entry["needsSpec"] == {
+        "secrets": {
+            "ANTHROPIC_API_KEY": {"type": "string", "minLength": 8},
+            "GROQ_API_KEY": {"type": ["string", "null"], "minLength": 8},
+        }
+    }
+
+
 def test_the_same_version_twice_is_a_file_error(make_pack: Callable[..., Path]) -> None:
     again = (
         "from kindgi import tool\n"

@@ -182,8 +182,11 @@ you, is declared with `set("needsSpec", …)` and read from `ctx.secrets()`, as
 above. The runtime resolves every declared secret on every call, for the
 call's tenant, in its env (`KINDGI_ENV`; under `kindgi dev`, `local`: the
 pack's `.env` and `.env.local`). It checks each against its schema, and fails
-the call, naming the secret, when one is missing or doesn't match. Every
-declared secret is required.
+the call, naming the secret, when one is missing or doesn't match. A
+declared secret is required, unless its schema accepts null
+(`"type": ["string", "null"]`): an optional one the env doesn't have, or has
+empty, is absent from `ctx.secrets`, and the call goes on (runtime 0.1.6 or
+later; an older runtime requires it).
 
 Everything else comes from the process environment: `System.getenv("CITATOR_URL")`.
 Under `kindgi dev`, the pack service gets the pack's `.env` and `.env.local`,

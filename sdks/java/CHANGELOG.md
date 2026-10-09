@@ -7,6 +7,10 @@ heading into its version.
 
 ## Unreleased
 
+- `kindgi-pack`, `kindgi-pack-scala`: **a secret whose schema accepts null is
+  optional** (`.set("needsSpec", …)` with `"type": ["string", "null"]`): with
+  runtime 0.1.6 or later, one the env doesn't have is absent from
+  `ctx.secrets()`, and the call goes on. The index keeps the schema as written.
 - `kindgi-pack`, `kindgi-pack-scala`: **a guardrail can't ship its check under
   a built-in check's id** (`must-cite`, `never-call-tool`, `max-tool-calls`,
   `output-matches`, `tool-order`, `required-substring`,

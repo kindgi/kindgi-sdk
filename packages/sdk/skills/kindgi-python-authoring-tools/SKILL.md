@@ -141,7 +141,10 @@ The runtime resolves every declared secret on every call — for the
 call's tenant, in its env (`KINDGI_ENV`; in `kindgi dev`, `local`: the
 pack's `.env` and `.env.local`) — checks it against its schema, and
 fails the call, naming the secret, when it is missing or doesn't match.
-Every declared secret is required. In a test, pass them:
+A declared secret is required, unless its schema accepts null
+(`{"type": ["string", "null"]}`): an optional one the env doesn't have, or
+has empty, is absent from `ctx.secrets` (read it with `.get`), and the call
+goes on (runtime 0.1.6 or later; an older runtime requires it). In a test, pass them:
 `ToolContext.for_test(secrets={"CITATOR_KEY": "…"})`.
 
 A value that differs per tenant, org or project but isn't secret (a base URL, a region, an account id) is an **env value**: declared in `needs_spec`, read from `ctx.env`:
