@@ -17,7 +17,7 @@ import type { SigningKeyBinding } from '@kindgi/crypto';
 import type { JournalEntry, KernelRunRecord, RunBinding } from '@kindgi/runtime';
 import type { ProjectId, RunId, SigningKeyId, TenantId, Timestamp } from '@kindgi/types';
 
-import { createStubAppBindings } from '@kindgi/testing';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp, mintPublicRunToken, verifyPublicRunToken } from '../src/index.js';
 import type { PublicRunTokenConfig, RunHandlerBinding, TokenResolver } from '../src/index.js';

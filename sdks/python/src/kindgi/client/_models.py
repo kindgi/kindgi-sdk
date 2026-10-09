@@ -1859,6 +1859,33 @@ class InstructionType(RootModel[str]):
     root: Annotated[str, Field(min_length=1)]
 
 
+class Type(RootModel[str]):
+    root: Annotated[str, Field(min_length=1)]
+
+
+class Remember(BaseModel):
+    """
+    Lets the agent remember: its turns offer the built-in tool `kindgi_remember` (built-in tools are `kindgi_<verb>`; an agent cannot list one in `tools`, and a published tool cannot use the prefix). The model picks the type, the text (up to 2,000 characters), an optional slot `key` and when it stops being true; the scope comes from here and the run. Every remembered fact is `unverified`, attributed to the agent version and the call that wrote it, and expires after `keepDays` unless a person verifies it. A person approves it before any read sees it when the scope is wider than one person (`same-project`, `tenant`) or the text reads like an instruction.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    types: Annotated[list[Type], Field(min_length=1)]
+    """
+    The fact types it may write.
+    """
+    scope: Literal["same-user", "same-conversation", "same-project", "tenant"]
+    """
+    Where its facts go: the conversation's end user (else the user the run acts for), the conversation, the run's project, or the tenant. Each but `tenant` includes the run's project.
+    """
+    keep_days: Annotated[int | None, Field(alias="keepDays", ge=1, le=3650)] = None
+    """
+    Days an unverified fact is kept. Default 30.
+    """
+
+
 class AgentMemoryPolicy(BaseModel):
     """
     How the agent uses what it retrieves.
@@ -1873,6 +1900,10 @@ class AgentMemoryPolicy(BaseModel):
     )
     """
     Fact types that are instructions for this agent: a retrieved, verified fact of one of these types goes into the system message under 'Policies (verified)'. Default: none.
+    """
+    remember: Remember | None = None
+    """
+    Lets the agent remember: its turns offer the built-in tool `kindgi_remember` (built-in tools are `kindgi_<verb>`; an agent cannot list one in `tools`, and a published tool cannot use the prefix). The model picks the type, the text (up to 2,000 characters), an optional slot `key` and when it stops being true; the scope comes from here and the run. Every remembered fact is `unverified`, attributed to the agent version and the call that wrote it, and expires after `keepDays` unless a person verifies it. A person approves it before any read sees it when the scope is wider than one person (`same-project`, `tenant`) or the text reads like an instruction.
     """
 
 
@@ -2206,7 +2237,7 @@ class PublishAgentResult(BaseModel):
     version: str
     warnings: list[Warning] | None = None
     """
-    What the agent should know about this deployment before its first turn, e.g. `semantic-unavailable`: a retrieval intent searches by meaning and the deployment has no embeddings.
+    What the agent should know about this deployment before its first turn, e.g. `semantic-unavailable` (a retrieval intent searches by meaning and the deployment has no embeddings) or `remember-unavailable` (the agent remembers and the deployment cannot store agent memories).
     """
 
 
@@ -3257,6 +3288,10 @@ class Fact(BaseModel):
     review: Literal["pending"] | None = None
     """
     `pending` while a person must approve it: a pending fact is never retrieved.
+    """
+    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
+    """
+    When this revision stops being readable: from its retention (`keepUntil`, or `keepDays` from the fact's first write), or an agent-remembered fact's unverified window. No read returns it after; absent: it doesn't expire.
     """
 
 
@@ -6516,6 +6551,22 @@ class SignInOption(BaseModel):
     """
     Where the browser goes to start signing in with this provider.
     """
+    owner: Literal["tenant", "deployment"] | None = None
+    """
+    Whose it is: a workspace's own identity provider (`tenant`), or one the deployment offers everyone it has added ("Continue with Google", `deployment`). A sign-in page shows a workspace's own first. Absent: `tenant`.
+    """
+
+
+class EmailLink(BaseModel):
+    """
+    Present when the deployment emails sign-in links: a sign-in page offers "Email me a sign-in link". With `captchaSiteKey`, the request needs a Cloudflare Turnstile token (`x-captcha-response`).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    captcha_site_key: Annotated[str | None, Field(alias="captchaSiteKey", min_length=1)] = None
 
 
 class Methods(BaseModel):
@@ -6534,6 +6585,10 @@ class Methods(BaseModel):
     api_token: Annotated[bool, Field(alias="apiToken")]
     """
     Sign-in to the console with an API token (`POST /v1/auth/token-sign-in`).
+    """
+    email_link: Annotated[EmailLink | None, Field(alias="emailLink")] = None
+    """
+    Present when the deployment emails sign-in links: a sign-in page offers "Email me a sign-in link". With `captchaSiteKey`, the request needs a Cloudflare Turnstile token (`x-captcha-response`).
     """
 
 
@@ -10106,6 +10161,10 @@ class WhoamiResult(BaseModel):
     project_id: Annotated[str | None, Field(alias="projectId")] = None
     """
     The project the caller's API key is limited to, when it is.
+    """
+    tenant_admin: Annotated[bool | None, Field(alias="tenantAdmin")] = None
+    """
+    Whether the caller is a tenant admin, decided as the admin routes decide it: `admin` on the tenant when the runtime authorizes, otherwise the `tenant-admin` scope of a full key (never a `member` key or one limited to a project). A console shows its admin pages by it. Absent from older servers: read `scopes`.
     """
 
 

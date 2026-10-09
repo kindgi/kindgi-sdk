@@ -5191,7 +5191,7 @@ class AuthResource:
     ) -> _models.SignInOptions:
         """How a person can sign in. `GET /v1/auth/sign-in-options`
 
-        Public: nobody is signed in yet. With `email`, the identity providers for that email's domain (from the one tenant that claims it); without, an empty list: sign-in is email first, so nothing is offered before an email. `methods` says which ways in the deployment allows: identity providers, and/or an API token (`POST /v1/auth/token-sign-in`); both `false` when nobody can sign in to the console. Always mounted. The answer depends only on the domain: two people at the same domain get the same answer, whether or not either has an account. Rate-limited per client (`429 rate-limit-exceeded`, with `Retry-After`).
+        Public: nobody is signed in yet. With `email`, the ways in for that email's domain: the identity providers of the one tenant the domain is verified for (an unverified domain offers none), then any the deployment offers everyone it has added (`owner: deployment`, "Continue with Google"); without, an empty list: sign-in is email first, so nothing is offered before an email. `methods` says which ways in the deployment allows: identity providers, an API token (`POST /v1/auth/token-sign-in`), and an emailed sign-in link (`emailLink`, with a captcha site key when it needs one); `identityProviders` and `apiToken` both `false` when nobody can sign in to the console. Always mounted. The answer depends only on the domain: two people at the same domain get the same answer, whether or not either has an account. Rate-limited per client (`429 rate-limit-exceeded`, with `Retry-After`).
         """
         return self._client._request(
             _OPERATIONS["auth.signInOptions"],
@@ -6422,7 +6422,7 @@ class EnvResource:
     ) -> _models.EnvRecord:
         """Upsert an env entry. `PUT /v1/env/{name}`
 
-        Requires the `env:write` capability. Every write bumps `revision`; optional `ifRevision` guards against concurrent updates (409 `env-write-conflict`).
+        Requires the `env:write` capability. Every write bumps `revision`; optional `ifRevision` guards against concurrent updates (409 `env-write-conflict`). Env values aren't secret: they're recorded with each run that uses them. A credential goes in `/v1/secrets`.
         """
         return self._client._request(
             _OPERATIONS["env.put"],
@@ -7250,7 +7250,7 @@ class WebhookEndpointsResource:
     def generate_secret(self, /, *, timeout: float | None = None) -> _models.GeneratedWebhookSecret:
         """Generate a webhook signing secret. `POST /v1/webhook-endpoints/generate-secret`
 
-        Returns a new strong secret (`whsec_` + base64 of 32 random bytes). Nothing is stored: put it in your secrets, then register the endpoint with its name.
+        Returns a new strong secret (`whsec_` + base64 of 32 random bytes). Nothing is stored: put it in your secrets, then register the endpoint with its name. Sent with an `Idempotency-Key`, a retry gets `409 idempotency-key-replay-withheld`, not the secret again.
         """
         return self._client._request(
             _OPERATIONS["webhookEndpoints.generateSecret"],
@@ -11775,7 +11775,7 @@ class AsyncAuthResource:
     ) -> _models.SignInOptions:
         """How a person can sign in. `GET /v1/auth/sign-in-options`
 
-        Public: nobody is signed in yet. With `email`, the identity providers for that email's domain (from the one tenant that claims it); without, an empty list: sign-in is email first, so nothing is offered before an email. `methods` says which ways in the deployment allows: identity providers, and/or an API token (`POST /v1/auth/token-sign-in`); both `false` when nobody can sign in to the console. Always mounted. The answer depends only on the domain: two people at the same domain get the same answer, whether or not either has an account. Rate-limited per client (`429 rate-limit-exceeded`, with `Retry-After`).
+        Public: nobody is signed in yet. With `email`, the ways in for that email's domain: the identity providers of the one tenant the domain is verified for (an unverified domain offers none), then any the deployment offers everyone it has added (`owner: deployment`, "Continue with Google"); without, an empty list: sign-in is email first, so nothing is offered before an email. `methods` says which ways in the deployment allows: identity providers, an API token (`POST /v1/auth/token-sign-in`), and an emailed sign-in link (`emailLink`, with a captcha site key when it needs one); `identityProviders` and `apiToken` both `false` when nobody can sign in to the console. Always mounted. The answer depends only on the domain: two people at the same domain get the same answer, whether or not either has an account. Rate-limited per client (`429 rate-limit-exceeded`, with `Retry-After`).
         """
         return await self._client._request(
             _OPERATIONS["auth.signInOptions"],
@@ -13010,7 +13010,7 @@ class AsyncEnvResource:
     ) -> _models.EnvRecord:
         """Upsert an env entry. `PUT /v1/env/{name}`
 
-        Requires the `env:write` capability. Every write bumps `revision`; optional `ifRevision` guards against concurrent updates (409 `env-write-conflict`).
+        Requires the `env:write` capability. Every write bumps `revision`; optional `ifRevision` guards against concurrent updates (409 `env-write-conflict`). Env values aren't secret: they're recorded with each run that uses them. A credential goes in `/v1/secrets`.
         """
         return await self._client._request(
             _OPERATIONS["env.put"],
@@ -13840,7 +13840,7 @@ class AsyncWebhookEndpointsResource:
     ) -> _models.GeneratedWebhookSecret:
         """Generate a webhook signing secret. `POST /v1/webhook-endpoints/generate-secret`
 
-        Returns a new strong secret (`whsec_` + base64 of 32 random bytes). Nothing is stored: put it in your secrets, then register the endpoint with its name.
+        Returns a new strong secret (`whsec_` + base64 of 32 random bytes). Nothing is stored: put it in your secrets, then register the endpoint with its name. Sent with an `Idempotency-Key`, a retry gets `409 idempotency-key-replay-withheld`, not the secret again.
         """
         return await self._client._request(
             _OPERATIONS["webhookEndpoints.generateSecret"],

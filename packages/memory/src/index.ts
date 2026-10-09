@@ -43,6 +43,15 @@ export type {
   RetentionViolationError,
 } from './errors.js';
 
+// ============ Agent memory writes (the `remember` tool) ============
+export type {
+  MemoryRememberBinding,
+  RememberFactInput,
+  RememberFactResult,
+  RememberReviewReason,
+  RememberedContent,
+} from './remember.js';
+
 // ============ MemoryQueryBinding — caller-plugged data-access surface ============
 export type {
   AppendLogInput,

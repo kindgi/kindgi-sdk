@@ -16,7 +16,6 @@ import { describe, expect, test } from 'vitest';
 
 import { type Agent, createAgentRegistry, pinsDigest } from '@kindgi/agents';
 import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
-import { createStubAppBindings } from '@kindgi/testing';
 import type {
   LiveScope,
   ProjectId,
@@ -26,6 +25,8 @@ import type {
   Timestamp,
   UserId,
 } from '@kindgi/types';
+
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp, createProposalService } from '../src/index.js';
 import type {

@@ -36,7 +36,10 @@ you need: you'd run OpenFGA for little else. `kindgi dev` runs without it.
 
 ## Run OpenFGA next to the runtime
 
-The runtime works with OpenFGA v1.9.0. OpenFGA keeps its data in Postgres:
+Run OpenFGA v1.22.0. The runtime also works with v1.9.0, but published
+OpenFGA security advisories affect that version
+([OpenFGA: security advisories](https://github.com/openfga/openfga/security/advisories)).
+OpenFGA keeps its data in Postgres:
 give it its own database on the runtime's server. These commands continue
 [Self-host Kindgi](../self-host/) (the `kindgi` network and the `kindgi-db`
 container):
@@ -44,12 +47,12 @@ container):
 ```sh
 docker exec kindgi-db psql -U kindgi -c 'CREATE DATABASE openfga'
 
-docker run --rm --network kindgi openfga/openfga:v1.9.0 migrate \
+docker run --rm --network kindgi openfga/openfga:v1.22.0 migrate \
   --datastore-engine postgres \
   --datastore-uri "postgres://kindgi:$DB_PASSWORD@kindgi-db:5432/openfga?sslmode=disable"
 
 docker run -d --name kindgi-openfga --network kindgi --restart unless-stopped \
-  openfga/openfga:v1.9.0 run \
+  openfga/openfga:v1.22.0 run \
   --datastore-engine postgres \
   --datastore-uri "postgres://kindgi:$DB_PASSWORD@kindgi-db:5432/openfga?sslmode=disable"
 ```
@@ -62,7 +65,30 @@ Keep OpenFGA on the private network, with no published port: the runtime
 calls it without credentials. Back up its `openfga` database with the
 runtime's ([Back up Postgres](../operate/#back-up-postgres)).
 
-Then point the runtime at it, in `kindgi.env`, and
+### An OpenFGA you already run
+
+To move an OpenFGA from v1.9.0 to v1.22.0, run the new version's `migrate`
+against its database, then restart OpenFGA on the new version:
+
+```sh
+docker run --rm --network kindgi openfga/openfga:v1.22.0 migrate \
+  --datastore-engine postgres \
+  --datastore-uri "postgres://kindgi:$DB_PASSWORD@kindgi-db:5432/openfga?sslmode=disable"
+docker stop kindgi-openfga && docker rm kindgi-openfga
+```
+
+and start it with the `run` command above. On Postgres it's one migration,
+which builds an index without locking the table. In our upgrade, the model,
+every tuple and every permission answer came through unchanged, and v1.9.0
+still ran on the migrated database, so going back needs no schema step.
+
+If you set `OPENFGA_DATASTORE_MAX_IDLE_CONNS`: from v1.11, Postgres's idle
+connections are set with `OPENFGA_DATASTORE_MIN_IDLE_CONNS` instead
+([OpenFGA: configuration](https://openfga.dev/docs/getting-started/setup-openfga/configuration)).
+
+### Point the runtime at it
+
+Set its address in `kindgi.env`, and
 [restart](../operate/#restart-the-runtime):
 
 ```sh
@@ -85,11 +111,12 @@ After an upgrade, a start that brings the store up to the new version's model
 logs one line for it ([From 0.1.3 to 0.1.4](../operate/#from-013-to-014)).
 
 :::caution[Keep the seed user]
-With authorization on, keep `KINDGI_SEED_USER_ID` set, and the same. The
-OpenFGA store's admin is the seed user of the first start. A runtime started
-with another id, or with none (it then picks a new one), runs as a user with no
-access: requests get `403`, lists come back empty, and the log still says
-`admin@tenant`. Start it with the first id again to get access back.
+With authorization on, keep the seed user the same: set `KINDGI_SEED_USER_ID`,
+or keep `KINDGI_API_TOKEN` unchanged (the runtime then keeps the token's user
+across restarts). Each boot makes its seed user a tenant admin, but what was
+granted to an earlier one (a project role, the keys minted for them) stays with
+that user. A runtime started with a new token and no `KINDGI_SEED_USER_ID` says
+so when it starts: `⚠ KINDGI_API_TOKEN changed, so it acts as a new user`.
 :::
 
 **When OpenFGA is unreachable,** requests that need a check answer `500`

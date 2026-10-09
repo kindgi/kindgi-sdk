@@ -16,8 +16,8 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, test } from 'vitest';
 
 import { makeInMemoryProjectBinding } from '@kindgi/platform';
-import { createStubAppBindings } from '@kindgi/testing';
 import type { TenantId } from '@kindgi/types';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { OPERATIONS, createApp, generateOpenApiDocument } from '../src/index.js';
 import type { RunHandlerBinding, TokenResolver } from '../src/index.js';
