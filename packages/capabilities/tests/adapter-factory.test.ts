@@ -144,16 +144,22 @@ describe("a registry made with the runtime's identities", () => {
 
     entry?.factory({ metadata, identities: { azure } });
     expect(factory).toHaveBeenLastCalledWith({ metadata, identities: { azure } });
-    entry?.checkConfig?.({ metadata, hasSecretRef: false, identities: { azure: true, aws: false } });
+    entry?.checkConfig?.({
+      metadata,
+      hasSecretRef: false,
+      identities: { azure: true, aws: false },
+    });
     expect(checkConfig).toHaveBeenLastCalledWith(
       expect.objectContaining({ identities: { azure: true, aws: false } }),
     );
   });
 
-  test("without them, entries are as registered: an entry with no check gets none", () => {
+  test('without them, entries are as registered: an entry with no check gets none', () => {
     const entry = fakeEntry();
     expect(createAdapterFactoryRegistry([entry]).get(entry.adapterId)).toBe(entry);
-    const bound = createAdapterFactoryRegistry([entry], { identities: { azure } }).get(entry.adapterId);
+    const bound = createAdapterFactoryRegistry([entry], { identities: { azure } }).get(
+      entry.adapterId,
+    );
     expect(bound?.checkConfig).toBeUndefined();
   });
 });
