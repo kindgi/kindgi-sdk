@@ -392,6 +392,22 @@ export function agentsRouter(
     if (outcome.kind === 'already-registered') {
       return alreadyRegistered(c, binding, tenantId, outcome.agentId, outcome.version);
     }
+    if (outcome.kind === 'project-mismatch') {
+      // An agent belongs to the project its first version went to, and
+      // never moves (as a block): its versions are published there.
+      c.status(statusFor('agent-project-mismatch') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'agent-project-mismatch',
+            message: `Agent "${outcome.agentId as unknown as string}" belongs to project "${outcome.projectId as unknown as string}"; publish its versions there`,
+            agentId: outcome.agentId as unknown as string,
+            projectId: outcome.projectId as unknown as string,
+          },
+          requestId,
+        ),
+      );
+    }
     if (outcome.kind === 'project-not-found') {
       // Caller supplied a `projectId` that does not resolve within
       // this tenant. Distinct signal from `already-registered` so the
@@ -678,6 +694,13 @@ function derived(
       return fail('bad-input', {
         code: 'bad-input',
         message: `\`projectId\` "${outcome.projectId as unknown as string}" does not resolve to a project in this tenant`,
+      });
+    case 'project-mismatch':
+      return fail('agent-project-mismatch', {
+        code: 'agent-project-mismatch',
+        message: `Agent "${agentId as unknown as string}" belongs to project "${outcome.projectId as unknown as string}"; derive its versions there`,
+        agentId: agentId as unknown as string,
+        projectId: outcome.projectId as unknown as string,
       });
   }
 }

@@ -84,6 +84,13 @@ export function judgedSuitesRouter(
     if (outcome.kind === 'project-not-found') {
       return fail(c, 'bad-input', `\`projectId\` "${body.projectId}" is not a project here.`);
     }
+    if (outcome.kind === 'project-mismatch') {
+      return fail(
+        c,
+        'eval-suite-project-mismatch',
+        `Eval suite "${suiteId}" belongs to project "${outcome.projectId as unknown as string}"; build its versions there.`,
+      );
+    }
     c.status(201);
     return c.json({
       suiteId,
@@ -150,7 +157,9 @@ export interface BuildJudgedSuiteInput {
 export type BuildJudgedSuiteOutcome =
   | { readonly kind: 'ok'; readonly caseCount: number; readonly truncated: boolean }
   | { readonly kind: 'already-registered' }
-  | { readonly kind: 'project-not-found' };
+  | { readonly kind: 'project-not-found' }
+  /** The suite belongs to another project: nothing is written. */
+  | { readonly kind: 'project-mismatch'; readonly projectId: ProjectId };
 
 /**
  * Build a test set and publish it as a `judged` suite version, as
@@ -193,6 +202,9 @@ export async function buildJudgedSuite(
   });
   if (outcome.kind === 'already-registered' || outcome.kind === 'project-not-found') {
     return { kind: outcome.kind };
+  }
+  if (outcome.kind === 'project-mismatch') {
+    return { kind: 'project-mismatch', projectId: outcome.projectId };
   }
   await deps.cases.putCases({ tenantId, suiteId, version, cases: built.cases });
   return { kind: 'ok', caseCount: built.cases.length, truncated: built.truncated };

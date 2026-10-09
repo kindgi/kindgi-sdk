@@ -123,7 +123,7 @@ export async function publishDeployedFlow(
       const outcome = await flows.publish({ tenantId, projectId, flow: version, enqueueTuples });
       if (outcome.kind === 'ok') return 'ok';
       if (outcome.kind === 'already-registered') return 'taken';
-      throw new PublishRefused('flow', `${flow.id}@${version.version}`, outcome.kind);
+      throw new PublishRefused('flow', `${flow.id}@${version.version}`, outcome);
     },
   });
 }

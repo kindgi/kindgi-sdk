@@ -83,6 +83,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'duplicate-edge-id': 409,
   'agent-version-mismatch': 409,
   'agent-already-registered': 409,
+  'agent-project-mismatch': 409,
   'registry-read-only': 409,
   'agent-gone': 410,
   'run-erased': 410,
@@ -91,9 +92,11 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'eval-suite-gone': 410,
   'tool-gone': 410,
   'tool-already-registered': 409,
+  'tool-project-mismatch': 409,
   'guardrail-already-registered': 409,
   'guardrail-config-invalid': 422,
   'flow-already-registered': 409,
+  'flow-project-mismatch': 409,
   'conversation-closed': 409,
   'invalid-agent': 400,
   'invalid-tool-definition': 400,
@@ -194,6 +197,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'block-project-mismatch': 409,
   'eval-suite-not-found': 404,
   'eval-suite-already-registered': 409,
+  'eval-suite-project-mismatch': 409,
   // Admin plane — eval-run dispatch.
   'eval-run-not-found': 404,
   // Judgments (yes/no on a run's output items) and judge classes.

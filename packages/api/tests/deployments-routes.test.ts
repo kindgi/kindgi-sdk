@@ -330,8 +330,11 @@ function makeInMemoryGuardrailRegistry(): GuardrailRegistryBinding {
 
 let lastAgentPublishProjectId: ProjectId | undefined;
 
+/** The project an agent of `elsewhereAgentId` belongs to, in these tests. */
+const ELSEWHERE_PROJECT_ID = randomUUID() as ProjectId;
+
 function makeInMemoryAgentRegistry(
-  opts: { failOnAgentId?: string; refuseAgentId?: string } = {},
+  opts: { failOnAgentId?: string; refuseAgentId?: string; elsewhereAgentId?: string } = {},
 ): AgentRegistryBinding {
   const store = new Map<string, Map<string, Map<string, unknown>>>();
   return {
@@ -368,6 +371,17 @@ function makeInMemoryAgentRegistry(
           version: agent.version,
           projectId,
         } as never;
+      }
+      if (
+        opts.elsewhereAgentId !== undefined &&
+        (agent.id as unknown as string) === opts.elsewhereAgentId
+      ) {
+        return {
+          kind: 'project-mismatch',
+          agentId: agent.id,
+          version: agent.version,
+          projectId: ELSEWHERE_PROJECT_ID,
+        };
       }
       const key = tenantId as unknown as string;
       let byTenant = store.get(key);
@@ -1338,6 +1352,76 @@ describe('POST /v1/deployments — rollback', () => {
     );
     expect(body.error.details).toEqual({ primitive: 'agent', id: 'acme.drafting@1.0.0' });
     // Before: skipped, and the deployment recorded without its agent.
+    expect(
+      await toolRegistry.get({ tenantId, toolId: 'acme.verify-citation' as never }),
+    ).toBeNull();
+    expect(
+      await guardrailRegistry.get({ tenantId, guardrailId: 'acme.no-fabricated-quotes' as never }),
+    ).toBeNull();
+    expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
+  });
+
+  test('an agent that belongs to another project → 409 agent-project-mismatch, rolled back, nothing deployed', async () => {
+    const fixture = buildSignedDeploy({
+      index: {
+        v: 1,
+        artifactVersion: '20260920.1',
+        publishedAt: '2026-09-20T14:32:07.104Z',
+        tools: [
+          {
+            id: 'acme.verify-citation',
+            description: 'x',
+            version: '1.0.0',
+            input: { type: 'object' },
+            output: { type: 'object' },
+          },
+        ],
+        guardrails: [
+          {
+            id: 'acme.no-fabricated-quotes',
+            kind: 'zero-llm',
+            check: 'must-cite',
+            action: { 'on-violation': 'halt' },
+          },
+        ],
+        agents: [
+          {
+            id: 'acme.drafting',
+            version: '1.0.0',
+            name: 'Drafting',
+            instructions: 'do it',
+            capabilities: [{ feature: 'model.text.chat' }],
+            tools: [],
+          },
+        ],
+        flows: [],
+      },
+    });
+    const deploymentRegistry = makeInMemoryDeploymentBinding();
+    const { app, toolRegistry, guardrailRegistry } = makeApp({
+      fixture,
+      agentRegistry: makeInMemoryAgentRegistry({ elsewhereAgentId: 'acme.drafting' }),
+      deploymentRegistry,
+    });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as {
+      error: { code: string; message: string; details?: Record<string, unknown> };
+    };
+    expect(body.error.code).toBe('agent-project-mismatch');
+    expect(body.error.message).toBe(
+      `The agent acme.drafting@1.0.0 wasn't published: it belongs to project "${ELSEWHERE_PROJECT_ID}"; nothing was deployed`,
+    );
+    expect(body.error.details).toEqual({
+      primitive: 'agent',
+      id: 'acme.drafting@1.0.0',
+      projectId: ELSEWHERE_PROJECT_ID,
+    });
+    // A deploy never moves it: what it published before is rolled back.
     expect(
       await toolRegistry.get({ tenantId, toolId: 'acme.verify-citation' as never }),
     ).toBeNull();

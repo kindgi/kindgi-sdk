@@ -122,7 +122,7 @@ export async function publishDeployedAgent(
       const outcome = await agents.publish({ tenantId, projectId, agent: version, enqueueTuples });
       if (outcome.kind === 'ok') return 'ok';
       if (outcome.kind === 'already-registered') return 'taken';
-      throw new PublishRefused('agent', `${agent.id}@${version.version}`, outcome.kind);
+      throw new PublishRefused('agent', `${agent.id}@${version.version}`, outcome);
     },
   });
 }
