@@ -120,6 +120,16 @@ An agent's `retrieval` lists what it reads before each turn. Each entry is a
 
 A turn never reads another conversation's or another end user's facts.
 
+A run of a `same-user` agent that names no end user has this among its
+result's `warnings`:
+
+```json
+{
+  "code": "memory-needs-participant",
+  "message": "Agent \"acme.desk\" keeps memory per end user, but this run names none (`participantId`), so it read and kept none. Pass the person's `participantId` on each run: the user a credential acts for may serve many people."
+}
+```
+
 ### How they reach the model
 
 Retrieved facts go in one message just before the user's, as data, in this
