@@ -9871,6 +9871,10 @@ class WhoamiResult(BaseModel):
     """
     The project the caller's API key is limited to, when it is.
     """
+    tenant_admin: Annotated[bool | None, Field(alias="tenantAdmin")] = None
+    """
+    Whether the caller is a tenant admin, decided as the admin routes decide it: `admin` on the tenant when the runtime authorizes, otherwise the `tenant-admin` scope of a full key (never a `member` key or one limited to a project). A console shows its admin pages by it. Absent from older servers: read `scopes`.
+    """
 
 
 class PersonProjectRole(BaseModel):
