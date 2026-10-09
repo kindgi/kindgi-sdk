@@ -149,15 +149,15 @@ runtime: skip this step.
    ```
 
    ```sh
-   # Java (preview: first install kindgi-pack from the SDK, as the Java quickstart's step 1 shows)
-   npx --yes @kindgi/cli@next init my-agents --template=java   # from now on: ./kindgiw …
+   # Java (preview)
+   npx --yes @kindgi/cli@0.1 init my-agents --template=java   # from now on: ./kindgiw …
    cd my-agents
    ./mvnw -q test
    ```
 
    ```sh
-   # Scala (preview: first build kindgi-pack-scala from the SDK, as the Scala quickstart's step 1 shows)
-   npx --yes @kindgi/cli@next init my-agents --template=scala   # from now on: ./kindgiw …
+   # Scala (preview)
+   npx --yes @kindgi/cli@0.1 init my-agents --template=scala   # from now on: ./kindgiw …
    cd my-agents
    sbt -batch test
    ```
@@ -165,12 +165,9 @@ runtime: skip this step.
 3. Run doctor again from the project's folder; `project` and
    `dependencies` should pass.
 
-`init` also gives you Kindgi's skills, in `.claude/skills/`. Read them: they
-are how you write tools and agents for this project. A Java or Scala project
-has none yet: read its `README.md` and `AGENTS.md`, and
-[kindgi-pack's README](https://github.com/kindgi/kindgi-sdk/tree/main/sdks/java/kindgi-pack)
-(Java) or [kindgi-pack-scala's](https://github.com/kindgi/kindgi-sdk/tree/main/sdks/scala)
-(Scala).
+`init` also gives you Kindgi's skills, in `.claude/skills/`, for the
+project's language (a Java or Scala project gets its own). Read them: they
+are how you write tools and agents for this project.
 
 ## Step 3: start Kindgi
 
