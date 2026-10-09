@@ -16,7 +16,8 @@ export type GuardrailError =
   | JudgeRoutingError
   | JudgeUsageError
   | ScopeMismatchError
-  | UnknownActionError;
+  | UnknownActionError
+  | CheckFailedError;
 
 /**
  * The judge model couldn't be routed via `@kindgi/capabilities`. Wraps
@@ -55,6 +56,17 @@ export interface InvalidGuardrailError {
   readonly code: 'invalid-guardrail';
   readonly message: string;
   readonly issues: readonly { readonly path: string; readonly message: string }[];
+}
+
+/**
+ * The check ran and threw: pack code that crashed, a pack service that couldn't be reached, a
+ * judge that failed. `message` is what it threw, bounded, with no stack. A cancelled turn isn't
+ * this: its abort propagates as it is.
+ */
+export interface CheckFailedError {
+  readonly code: 'check-failed';
+  readonly message: string;
+  readonly guardrailId: GuardrailId;
 }
 
 /** The guardrail references a check id that isn't registered. */

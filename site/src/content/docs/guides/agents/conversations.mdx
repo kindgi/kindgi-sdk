@@ -315,8 +315,13 @@ It prints the conversation, now with `unregisteredAt`:
 ```
 
 From then on, no read, list or [recall](../give-an-agent-memory/#recall-earlier-conversations)
-returns it, and it takes no more turns. Its messages stay in the database
-until a retention policy on `conversation` purges them
+returns it, and it takes no more turns. With
+[authorization](../../../deploy/authorization/) on, unregistering takes
+`write` on the conversation's project (an editor or above); anyone else is
+refused with `403 permission-denied`, and the conversation stays. An id that
+doesn't exist, or a conversation already unregistered, answers `404`. Its
+messages stay in the database until a retention policy on `conversation`
+purges them
 ([Keep and purge deleted data](../../../deploy/retention/)). In your app:
 `conversations.unregister`; over HTTP,
 `POST /v1/conversations/{id}/unregister`.

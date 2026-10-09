@@ -334,8 +334,8 @@ public internet. Its HTTP server is deliberately small and strict:
 ## Jackson
 
 Pack code runs inside your app, with your app's classes, so `kindgi-pack`
-binds inputs and outputs with your app's own Jackson 2 (2.15 or later; your
-version wins). Your Jackson annotations, modules and custom deserializers
+binds inputs and outputs with your app's own Jackson 2 (2.18.11 or later;
+your version wins). Your Jackson annotations, modules and custom deserializers
 apply to tool inputs as they do everywhere else in the app. `kindgi-client`
 is the other way around: it shades its Jackson so the API client never meets
 yours.

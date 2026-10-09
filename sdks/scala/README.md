@@ -191,7 +191,7 @@ indexes:
 ## Jackson
 
 Tool inputs and outputs bind through your app's Jackson 2. This layer brings
-`jackson-module-scala` (2.15, the oldest Jackson kindgi-pack supports), and
+`jackson-module-scala` (2.18, the oldest Jackson kindgi-pack supports), and
 Jackson finds it, with your app's own modules. jackson-module-scala must match
 your `jackson-databind` minor version; it refuses another. If your app uses a
 newer Jackson, depend on the matching `jackson-module-scala` yourself:

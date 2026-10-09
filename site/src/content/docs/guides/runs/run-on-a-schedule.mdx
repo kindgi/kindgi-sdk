@@ -83,6 +83,17 @@ schedule's), `refused`, `failed`, and `pending` while a fire is starting.
 Each fire also logs one `[schedules]` record, with its outcome and run
 ([Logs](../../../deploy/logs/)).
 
+## Find your schedules
+
+```sh
+kindgi schedules list --status=active
+```
+
+With [authorization](../../../deploy/authorization/) on, the list holds the
+schedules in projects you may read, all of them for a tenant admin. A page
+can then hold fewer than `--limit` and still have more after it: keep going
+with `--cursor` (the previous page's `nextCursor`) until there's none.
+
 ## Run it now, pause it, change it
 
 - `kindgi schedules run-now <schedule-id>` runs it once now, outside its
