@@ -359,6 +359,17 @@ and what's different after:
   written; 0.1.4 accepted it. A deploy that includes one is refused whole,
   even when it's unchanged. The refusal carries the id, not the other project
   ([Organize work by org and project](../../guides/projects/organize-by-org-and-project/)).
+- **If your Postgres `DateStyle` is `SQL, DMY` or `German`, check the times
+  earlier releases saved.** Run `SHOW DateStyle;`
+  ([DateStyle](https://www.postgresql.org/docs/16/runtime-config-client.html#GUC-DATESTYLE)).
+  With either style, earlier releases read a date on the 1st to the 12th of a
+  month with day and month swapped, and saved some that way: session expiries,
+  approval deadlines and decision times, wait timeouts, schedule fire times,
+  memory facts' validity times and stored webhook bodies. A date after the
+  12th failed outright. With any other style, a time was read correctly or
+  failed outright, so nothing was saved wrong. 0.1.5 reads and writes times
+  correctly on any `DateStyle`, but it can't repair a swapped time, which
+  looks like a real one.
 - **Run OpenFGA v1.22.0.** Published OpenFGA advisories affect v1.9.0
   ([An OpenFGA you already run](../authorization/#an-openfga-you-already-run)).
 - **Expired rows are deleted every hour:** idempotency answers, sessions and
