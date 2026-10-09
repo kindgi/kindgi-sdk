@@ -1323,7 +1323,9 @@ async function keepRegisteredGuardrail(
  * A tool version a deploy finds already published gets this deploy's code
  * pointer (a new image of the same pack), when its registry can take it
  * (`refreshCodeArtifactRef`); rolling the deploy back puts the old one
- * back. Without it, the version keeps its first pointer, as before.
+ * back, unless another deploy has refreshed it since (compare-and-set on
+ * this deploy's pointer). Without it, the version keeps its first
+ * pointer, as before.
  */
 async function refreshToolCode(
   registry: ToolRegistryBinding,
@@ -1338,9 +1340,12 @@ async function refreshToolCode(
   if (stored === null) return;
   const was = stored.codeArtifactRef ?? null;
   if (canonicalJson(was) === canonicalJson(tool.codeArtifactRef)) return;
-  await refresh({ tenantId, toolId: tool.id, version, codeArtifactRef: tool.codeArtifactRef });
+  const now = tool.codeArtifactRef;
+  const done = await refresh({ tenantId, toolId: tool.id, version, codeArtifactRef: now });
+  if (!done.refreshed) return;
+  // Only while it still points where this deploy put it.
   rolled.push(async () => {
-    await refresh({ tenantId, toolId: tool.id, version, codeArtifactRef: was });
+    await refresh({ tenantId, toolId: tool.id, version, codeArtifactRef: was, expected: now });
   });
 }
 
@@ -1348,7 +1353,9 @@ async function refreshToolCode(
  * A guardrail a deploy keeps gets what this deploy derived for it: its
  * code pointer and its check's config schema, when its registry can take
  * them (`refreshDeployedFields`); rolling the deploy back restores the old
- * ones. Without it, the guardrail keeps what its first deploy derived.
+ * ones, unless another deploy has refreshed them since (compare-and-set on
+ * what this deploy wrote). Without it, the guardrail keeps what its first
+ * deploy derived.
  */
 async function refreshGuardrailFields(
   registry: GuardrailRegistryBinding,
@@ -1368,9 +1375,11 @@ async function refreshGuardrailFields(
     configSchema: existing.configSchema ?? null,
   };
   if (canonicalJson(now) === canonicalJson(was)) return;
-  await refresh({ tenantId, guardrailId: guardrail.id, ...now });
+  const done = await refresh({ tenantId, guardrailId: guardrail.id, ...now });
+  if (!done.refreshed) return;
+  // Only while it still holds what this deploy gave it.
   rolled.push(async () => {
-    await refresh({ tenantId, guardrailId: guardrail.id, ...was });
+    await refresh({ tenantId, guardrailId: guardrail.id, ...was, expected: now });
   });
 }
 

@@ -130,6 +130,13 @@ export interface ToolRefreshCodeInput {
   readonly version: Semver;
   /** Where the version's code is now; `null` for none. */
   readonly codeArtifactRef: CodeArtifactRef | null;
+  /**
+   * Compare-and-set: refresh only while the version still points here
+   * (`null`: nowhere), else answer `{ refreshed: false }` and change
+   * nothing. A deploy's rollback passes what it wrote, so it never undoes
+   * a refresh another deploy made since.
+   */
+  readonly expected?: CodeArtifactRef | null;
 }
 
 /** `refreshed: false` when there's no such live row to refresh. */

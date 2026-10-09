@@ -245,6 +245,15 @@ function makeMockImageRegistry(images: readonly FakeImage[]): ImageRegistryBindi
 
 let lastToolRegisterProjectId: ProjectId | undefined;
 
+/** JSON with keys sorted: equality of values, as a store compares them. */
+function canon(value: unknown): string {
+  return JSON.stringify(value ?? null, (_k, v: unknown) =>
+    v !== null && typeof v === 'object' && !Array.isArray(v)
+      ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+      : v,
+  );
+}
+
 function makeInMemoryToolRegistry(opts: { refreshes?: boolean } = {}): ToolRegistryBinding {
   const store = new Map<string, Map<string, unknown>>();
   const forT = (t: TenantId): Map<string, unknown> => {
@@ -276,10 +285,13 @@ function makeInMemoryToolRegistry(opts: { refreshes?: boolean } = {}): ToolRegis
       return forT(tenantId).has(toolId as unknown as string);
     },
     ...(opts.refreshes === true && {
-      async refreshCodeArtifactRef({ tenantId, toolId, codeArtifactRef }) {
+      async refreshCodeArtifactRef({ tenantId, toolId, codeArtifactRef, expected }) {
         const s = forT(tenantId);
         const tool = s.get(toolId as unknown as string) as Record<string, unknown> | undefined;
         if (tool === undefined) return { refreshed: false };
+        if (expected !== undefined && canon(tool.codeArtifactRef) !== canon(expected)) {
+          return { refreshed: false };
+        }
         const { codeArtifactRef: _old, ...rest } = tool;
         s.set(toolId as unknown as string, {
           ...rest,
@@ -352,10 +364,26 @@ function makeInMemoryGuardrailRegistry(
       return { unregistered: forT(tenantId).delete(guardrailId as unknown as string) };
     },
     ...(opts.refreshes === true && {
-      async refreshDeployedFields({ tenantId, guardrailId, codeArtifactRef, configSchema }) {
+      async refreshDeployedFields({
+        tenantId,
+        guardrailId,
+        codeArtifactRef,
+        configSchema,
+        expected,
+      }) {
         const s = forT(tenantId);
         const row = s.get(guardrailId as unknown as string);
         if (row === undefined) return { refreshed: false };
+        const held = row.guardrail as { codeArtifactRef?: unknown; configSchema?: unknown };
+        if (
+          expected !== undefined &&
+          canon({
+            codeArtifactRef: held.codeArtifactRef ?? null,
+            configSchema: held.configSchema ?? null,
+          }) !== canon(expected)
+        ) {
+          return { refreshed: false };
+        }
         const {
           codeArtifactRef: _ref,
           configSchema: _schema,
@@ -3484,15 +3512,25 @@ describe("POST /v1/deployments — a guardrail id that's already live", () => {
 
   test('in this project, the same definition in a new image: kept, the deploy goes through', async () => {
     const second = laterImage();
-    const { guardrailRegistry, deploy, first } = twoImages(second);
+    const { guardrailRegistry, toolRegistry, deploy, first } = twoImages(second);
     expect((await deploy(first)).status).toBe(201);
     expect((await deploy(second)).status).toBe(201);
-    // Kept as it was: a deploy never changes a guardrail.
+    // Kept as it was: a registry without the refresh methods keeps the
+    // first image's pointer, for the guardrail and the tool alike.
     const kept = (await guardrailRegistry.get({
       tenantId,
       guardrailId: 'acme.no-fabricated-quotes' as never,
-    })) as unknown as { codeArtifactRef: { artifactVersion: string } };
+    })) as unknown as { codeArtifactRef: { artifactVersion: string; imageRef: string } };
     expect(kept.codeArtifactRef.artifactVersion).toBe('20260920.1');
+    expect(kept.codeArtifactRef.imageRef).toBe(first.imageRef);
+    const tool = (await toolRegistry.get({
+      tenantId,
+      toolId: 'acme.verify-citation' as never,
+    })) as unknown as { codeArtifactRef: { artifactVersion: string; imageRef: string } };
+    expect(tool.codeArtifactRef).toMatchObject({
+      artifactVersion: '20260920.1',
+      imageRef: first.imageRef,
+    });
   });
 
   test('in this project with another definition: 409 guardrail-already-registered, nothing deployed', async () => {
@@ -3696,6 +3734,72 @@ describe('POST /v1/deployments — a redeploy refreshes what it derived', () => 
       guardrail: '20260920.1',
       schema: undefined,
       tool: '20260920.1',
+    });
+  });
+
+  test("a rollback leaves another deploy's later refresh in place (compare-and-set)", async () => {
+    // This deploy refreshes, then is refused by a later guardrail; between
+    // the two, another deploy of the tenant refreshes the same rows.
+    const index = indexWith('20260921.1', { configSchema: SCHEMA }) as { guardrails: unknown[] };
+    index.guardrails.push({
+      id: 'acme.elsewhere',
+      kind: 'zero-llm',
+      check: 'must-cite',
+      action: { 'on-violation': 'halt' },
+    });
+    const second = buildSignedDeploy({
+      artifactVersion: '20260921.1',
+      keyId: SECOND_KEY_ID,
+      index: index as Record<string, unknown>,
+    });
+    const made = twoImages(second, { refreshes: true });
+    expect((await made.deploy(made.first)).status).toBe(201);
+    await made.guardrailRegistry.register({
+      tenantId,
+      projectId: randomUUID() as ProjectId,
+      guardrail: {
+        id: 'acme.elsewhere',
+        kind: 'zero-llm',
+        check: 'must-cite',
+        action: { 'on-violation': 'halt' },
+      } as never,
+      enqueueTuples: () => [],
+    });
+    const third = (modulePath: string) => ({
+      kind: 'oci' as const,
+      imageRef: 'ghcr.io/acme/aperture@sha256:third',
+      modulePath,
+      artifactVersion: '20260922.1',
+    });
+    const THIRD_SCHEMA = { type: 'object', properties: { max: { type: 'integer' } } };
+    const get = made.guardrailRegistry.get.bind(made.guardrailRegistry);
+    let raced = false;
+    (made.guardrailRegistry as { get: GuardrailRegistryBinding['get'] }).get = async (input) => {
+      if (input.guardrailId === ('acme.elsewhere' as never) && !raced) {
+        raced = true;
+        await made.toolRegistry.refreshCodeArtifactRef?.({
+          tenantId,
+          toolId: 'acme.verify-citation' as never,
+          version: '1.0.0' as never,
+          codeArtifactRef: third('./tools/legal/verify-citation.js'),
+        });
+        await made.guardrailRegistry.refreshDeployedFields?.({
+          tenantId,
+          guardrailId: 'acme.no-fabricated-quotes' as never,
+          codeArtifactRef: third('./guardrails/must-cite.js'),
+          configSchema: THIRD_SCHEMA,
+        });
+      }
+      return get(input);
+    };
+
+    expect((await made.deploy(second)).status).toBe(409);
+    expect(raced).toBe(true);
+    // The other deploy's refresh stands: this one's rollback didn't undo it.
+    expect(await pointerOf(made)).toEqual({
+      guardrail: '20260922.1',
+      schema: THIRD_SCHEMA,
+      tool: '20260922.1',
     });
   });
 });

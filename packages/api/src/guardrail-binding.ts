@@ -82,6 +82,16 @@ export interface GuardrailRefreshInput {
   readonly codeArtifactRef: CodeArtifactRef | null;
   /** The check's config schema now; `null` for none. */
   readonly configSchema: Readonly<Record<string, unknown>> | null;
+  /**
+   * Compare-and-set: refresh only while the guardrail still holds these
+   * (`null`: none), else answer `{ refreshed: false }` and change nothing.
+   * A deploy's rollback passes what it wrote, so it never undoes a refresh
+   * another deploy made since.
+   */
+  readonly expected?: {
+    readonly codeArtifactRef: CodeArtifactRef | null;
+    readonly configSchema: Readonly<Record<string, unknown>> | null;
+  };
 }
 
 export interface GuardrailListInput {
