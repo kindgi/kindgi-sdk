@@ -419,7 +419,13 @@ and what's different after:
   their config, but a guardrail registered before the upgrade isn't checked
   again: if its config doesn't fit the built-in's settings, its check can't
   run at any turn, and with `halt` it blocks every turn of the agents that
-  list it. List your guardrails (`kindgi guardrails list`), and check each one
+  list it. The runtime warns about each one when it loads it:
+
+  ```text
+  20:40:17.669 WARN  [guardrails] guardrail config invalid traceId=… tenantId=… guardrailId=acme.tool-budget check=max-tool-calls problems="config must NOT have additional properties" fix="unregister it (kindgi guardrails unregister <id>), then register it again or redeploy, with a config that fits; with several runtime instances, restart the others"
+  ```
+
+  List your guardrails (`kindgi guardrails list`), and check each one
   whose `check` is a built-in against
   [its settings](../../guides/guardrails/use-a-built-in-check/#the-built-in-checks).
   To fix one, unregister it (`kindgi guardrails unregister <id>`), then deploy
