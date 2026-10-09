@@ -107,8 +107,10 @@ An agent's `retrieval` lists what it reads before each turn. Each entry is a
 - **`types`:** the fact types it reads, at least one.
 - **`scope`**, always within what the run may see:
   - `same-conversation`: this conversation's facts;
-  - `same-user`: the facts of the conversation's end user and of the Kindgi
-    user the run acts for;
+  - `same-user`: the facts of the conversation's end user (and of the Kindgi
+    user the run acts for). A run that names no end user (`participantId`)
+    reads none: the user a key acts for may serve many people, so the run's
+    result carries a `memory-needs-participant` warning instead;
   - `same-project`: the run's project's facts (none in a run without one);
   - `tenant`: any fact of those types the run may see.
 - **`mode`**, with the user's message as the query: none (the newest facts
@@ -236,9 +238,10 @@ name.
 - **The model picks** the type (one of `types`), the text (up to 2,000
   characters), an optional `key` (a slot: the same key replaces the agent's
   earlier value) and when it stops being true.
-- **It never picks the scope.** `same-user` is the conversation's end user,
-  else the user the run acts for; `same-conversation`, `same-project` and
-  `tenant` are what they say.
+- **It never picks the scope.** `same-user` is the conversation's end user:
+  a run that names none (`participantId`) isn't offered the tool, and its
+  result carries a `memory-needs-participant` warning. `same-conversation`,
+  `same-project` and `tenant` are what they say.
 - **Every remembered fact** is `unverified`, attributed to the agent version
   and the tool call that wrote it, and kept `keepDays` (30 by default) unless
   a person verifies it.
@@ -398,8 +401,9 @@ agent's earlier conversations. It takes no `types`:
 </TabItem>
 </Tabs>
 
-- **`same-user`** (the usual choice): this end user's other conversations,
-  or this user's.
+- **`same-user`** (the usual choice): this end user's other conversations.
+  A run that names no end user (`participantId`) recalls none, never the
+  conversations of the user its key acts for, which may serve many people.
 - **`same-conversation`:** this conversation's messages older than the
   history window.
 - **`same-segment`:** conversations in the run's segment path (the same

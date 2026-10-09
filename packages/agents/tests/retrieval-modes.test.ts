@@ -123,6 +123,24 @@ describe('same-user', () => {
     expect(calls).toEqual(['list {"participantId":"e-1"}', 'list {"userId":"u-1"}']);
   });
 
+  test("a run with a user but no end user selects nothing: never the user's facts for everyone it serves", async () => {
+    const { memory, calls } = memoryWith({ facts: [fact('u1', { userId: 'u-1' as UserId })] });
+    const anonymous = { ...conversation, participantId: undefined } as unknown as Conversation;
+    const out = await retrieveForTurn(
+      agent([{ types: ['acme.note'], scope: 'same-user' }]),
+      anonymous,
+      conversationId,
+      'q',
+      { memory },
+      { userId: 'u-1' as UserId },
+    );
+    expect(out).toEqual({
+      kind: 'ok',
+      value: { facts: [], recalled: [], degraded: [{ intent: 0, reason: 'no-participant' }] },
+    });
+    expect(calls).toEqual([]);
+  });
+
   test('a run with no end user and no user selects nothing (no read at all)', async () => {
     const { memory, calls } = memoryWith({ facts: [fact('x', {})] });
     const anonymous = { ...conversation, participantId: undefined } as unknown as Conversation;
@@ -133,7 +151,10 @@ describe('same-user', () => {
       'q',
       { memory },
     );
-    expect(out).toEqual({ kind: 'ok', value: { facts: [], recalled: [], degraded: [] } });
+    expect(out).toEqual({
+      kind: 'ok',
+      value: { facts: [], recalled: [], degraded: [{ intent: 0, reason: 'no-participant' }] },
+    });
     expect(calls).toEqual([]);
   });
 });

@@ -84,8 +84,11 @@ export interface DegradedIntent {
    * `no-embeddings`: a `both` intent ran its keyword half only.
    * `no-recall`: an intent over conversations, on a runtime that can't
    * recall them (`MemoryQueryBinding.searchConversations`), recalled nothing.
+   * `no-participant`: a `same-user` intent in a run that names no end user
+   * (`participantId`) read nothing. The user the run acts for isn't the
+   * person: a credential that serves many people would mix them.
    */
-  readonly reason: 'no-embeddings' | 'no-recall';
+  readonly reason: 'no-embeddings' | 'no-recall' | 'no-participant';
 }
 
 /** A turn's retrievals: the facts, the recalled messages, and any intent that ran degraded. */
@@ -158,6 +161,11 @@ export async function retrieveForTurn(
   const readers = runMemoryReaders(conversation, conversationId, run);
   const semantic = bindings.embeddingRegistry !== undefined;
   for (const [index, intent] of agent.retrieval.entries()) {
+    // Same-user memory is the end user's: without one named, nothing is read.
+    if (intent.scope === 'same-user' && runParticipantId(conversation, run) === undefined) {
+      degraded.push({ intent: index, reason: 'no-participant' });
+      continue;
+    }
     if (intent.mode === 'semantic' && !semantic) return semanticUnavailable(index, intent, 'none');
     let degradedNow = intent.mode === 'both' && !semantic;
     if (intent.source === 'conversations') {
@@ -561,15 +569,11 @@ function recallSelectionsFor(intent: RetrievalIntent, q: RecallQuery): readonly 
   const projectId = runProjectId(q.conversation, q.run) as string | undefined;
   switch (intent.scope) {
     case 'same-user': {
-      // The turn's person: its end user when it has one, else the user it
-      // acts for (an app's credential is one user for all its end users).
+      // The turn's person: its end user, named. Never the user the run acts
+      // for: a credential that serves many people is one user for all of them.
       const participantId = runParticipantId(q.conversation, q.run);
-      const userId = q.run.userId as string | undefined;
-      if (participantId !== undefined) {
-        return [{ agentId, participantId, excludeConversationId: conversationId }];
-      }
-      return userId !== undefined
-        ? [{ agentId, userId, excludeConversationId: conversationId }]
+      return participantId !== undefined
+        ? [{ agentId, participantId, excludeConversationId: conversationId }]
         : [];
     }
     case 'same-conversation':
@@ -639,11 +643,11 @@ function selectionsFor(
       return projectId === undefined ? [] : [{ projectId }];
     }
     case 'same-user': {
+      // Only with the end user named (`retrieveForTurn` skips the intent
+      // otherwise); then the user the run acts for too, as documented.
       const participantId = runParticipantId(conversation, run);
-      return [
-        ...(participantId !== undefined ? [{ participantId }] : []),
-        ...(run.userId !== undefined ? [{ userId: run.userId }] : []),
-      ];
+      if (participantId === undefined) return [];
+      return [{ participantId }, ...(run.userId !== undefined ? [{ userId: run.userId }] : [])];
     }
     case 'tenant':
       return [undefined];
