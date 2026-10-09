@@ -94,6 +94,10 @@ class GuardrailTest {
         .check((config, trace) -> CheckResult.pass()))
         .hasMessageContaining("its check id \"never-call-tool\" is a built-in check's")
         .hasMessageEndingWith(", or rename the guardrail.");
+    // An async check goes through the same refusal.
+    assertThatThrownBy(() -> Guardrail.define("acme.cites").checkId("tool-order").onViolation("halt")
+        .asyncCheck((config, trace) -> CompletableFuture.completedFuture(CheckResult.pass())))
+        .hasMessageContaining("its check id \"tool-order\" is a built-in check's");
     // The pack's own id is fine.
     Guardrail<Map<String, Object>> own = Guardrail.define("acme.cites").checkId("acme.checks.must-cite")
         .onViolation("halt").check((config, trace) -> CheckResult.pass());

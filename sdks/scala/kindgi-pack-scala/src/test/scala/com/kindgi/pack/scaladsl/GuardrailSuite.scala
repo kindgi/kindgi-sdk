@@ -11,6 +11,10 @@ class GuardrailSuite extends munit.FunSuite {
         .check((_, _) => com.kindgi.pack.CheckResult.pass()))
     assert(refused.getMessage.contains("its check id \"must-cite\" is a built-in check's"), refused.getMessage)
     assert(refused.getMessage.contains("Rename your check"), refused.getMessage)
+    // Defaulted: the guardrail's own id is its check id.
+    val defaulted = intercept[IllegalStateException](
+      Guardrail.json("never-call-tool").onViolation("halt").check((_, _) => com.kindgi.pack.CheckResult.pass()))
+    assert(defaulted.getMessage.endsWith(", or rename the guardrail."), defaulted.getMessage)
     val own = Guardrail.json("acme.cites").checkId("acme.checks.must-cite").onViolation("halt")
       .check((_, _) => com.kindgi.pack.CheckResult.pass())
     assertEquals(own.checkId(), "acme.checks.must-cite")
