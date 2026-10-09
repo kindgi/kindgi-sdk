@@ -39,7 +39,7 @@ import {
 } from '../dev/google-credentials.js';
 import { javaMajor } from '../dev/pack-code.js';
 import { type DockerRunner, docker } from '../dev/runtime-container.js';
-import { DEFAULT_RUNTIME_IMAGE, registryOf } from '../dev/runtime-image.js';
+import { DEFAULT_RUNTIME_IMAGE, RUNTIME_ACCESS_URL, registryOf } from '../dev/runtime-image.js';
 import { checkDocker, checkImageAccess, credentialHelperHint } from '../dev/runtime-registry.js';
 import { extractKindgiError } from '../errors.js';
 import { renderJson } from '../output.js';
@@ -558,7 +558,7 @@ async function registryCheck(
 ): Promise<DoctorCheck> {
   const access = await checkImageAccess(run, image);
   const host = registryOf(image);
-  const login = `${kindgi('auth', 'registry', '--username', '<robot name>', '--password-stdin')} (the robot name and token come from access.kindgi.com; pipe the token in, never paste it into a chat)`;
+  const login = `${kindgi('auth', 'registry', '--username', '<robot name>', '--password-stdin')} (the robot name and token come from ${RUNTIME_ACCESS_URL}, signed in with GitHub; pipe the token in, never paste it into a chat)`;
   switch (access.kind) {
     case 'ok':
       return pass('registry', `Docker can pull the runtime image (${image}).`);
