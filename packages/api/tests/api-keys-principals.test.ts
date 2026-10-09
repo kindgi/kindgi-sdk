@@ -19,9 +19,9 @@ import {
   ref,
   userPrincipal,
 } from '@kindgi/authz';
-import { createStubAppBindings } from '@kindgi/testing';
 import type { ApiTokenId, TenantId, Timestamp, UserId } from '@kindgi/types';
 import { Hono } from 'hono';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type {

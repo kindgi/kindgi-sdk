@@ -2,7 +2,6 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { ConversationBinding, RunSnapshotBinding } from '@kindgi/agents';
-import type { CreateAppInput } from '@kindgi/api';
 import type { MemoryQueryBinding } from '@kindgi/memory';
 import type { TenantHierarchyBinding } from '@kindgi/platform';
 import type {
@@ -13,6 +12,7 @@ import type {
   TriggerRegistryBinding,
   WaitpointBinding,
 } from '@kindgi/runtime';
+import type { CreateAppInput } from '../app.js';
 
 import { createStubBinding } from './stub-binding.js';
 

@@ -23,6 +23,14 @@ public packages never depend on a runtime implementation.
 4. **No shared state.** Every call returns fresh objects; stubs hold no
    state and cannot leak between tests.
 
+## Where they live
+
+The helpers are defined in `@kindgi/api/testing`, beside the
+`CreateAppInput` they stub, and this package re-exports them unchanged.
+`@kindgi/api`'s own tests use them from there: a devDependency on this
+package, which depends on `@kindgi/api`, would be a dependency cycle
+(`pnpm run check:cycles` refuses one).
+
 ## Scope
 
 `createStubAppBindings()` covers exactly the bindings `CreateAppInput`

@@ -18,8 +18,8 @@ import {
   makeInMemoryProjectBinding,
   makeInMemoryTeamBinding,
 } from '@kindgi/platform';
-import { createStubAppBindings, createStubBinding } from '@kindgi/testing';
 import type { SigningKeyId, TenantId } from '@kindgi/types';
+import { createStubAppBindings, createStubBinding } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type {
