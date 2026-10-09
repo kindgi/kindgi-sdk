@@ -194,6 +194,87 @@ pnpm exec kindgi runs get <run id> --url http://localhost:4000 --token "$KINDGI_
   }
 ```
 
+A backup taken before an [erasure](../../guides/agents/erase-a-persons-data/)
+brings back what it cleared: replay the erasures next
+([Erasures and backups](#erasures-and-backups)).
+
+## Erasures and backups
+
+An erasure keeps no identifier of whom it erased, only a keyed hash in the
+erasure ledger, so a replay after a restore can find them again. Give the
+runtime the ledger's key:
+
+- **`KINDGI_ERASURE_LEDGER_KEY_PATH`:** the absolute path of a file holding
+  32 random bytes (`openssl rand 32`), mode `0600`;
+- **or `KINDGI_ERASURE_LEDGER_KEY`:** the same 32 bytes, base64, where secrets
+  come as environment variables.
+
+Use the same key on every replica, whatever the secrets backend, and keep it
+the same across a restore: losing it means losing replay. Without it,
+erasures still run, but each answers with an `erasure-unmatchable` warning,
+and a replay can't find whom it erased.
+
+Three places say whether erasures can be replayed:
+- **the startup log's `Erasures` line**, with the key:
+
+  ```text
+  …
+    Erasures: on; the ledger is replayable after a backup restore (key from KINDGI_ERASURE_LEDGER_KEY)
+  …
+  ```
+
+  and without it:
+
+  ```text
+  …
+    Erasures: on, but NOT replayable after a backup restore: no KINDGI_ERASURE_LEDGER_KEY, so the ledger can't keep a keyed hash
+  …
+  ```
+
+- **`/ready`'s `erasures`:** `replayable` or `unreplayable`;
+- **`kindgi doctor`'s `erasures` check.** It never fails, since a runtime
+  without the key is fine for development. With the key, then without it:
+
+  ```text
+  …
+    ✓ Erasures: Erasures can be replayed after a backup restore: the runtime has the erasure ledger key.
+  …
+  ```
+
+  ```text
+  …
+    – Erasures: Erasures run, but a replay after a backup restore can't find whom they erased: the runtime has no KINDGI_ERASURE_LEDGER_KEY. Fine for development; set it where you run in production.
+  …
+  ```
+
+Then:
+
+1. **Export the ledger off-box, regularly:** a restore rolls it back with
+   everything else.
+
+   ```sh
+   kindgi memory erasures export --out=erasures-$(date +%F).json
+   ```
+
+2. **After a restore, replay the latest export** before the runtime serves
+   anyone. It erases again whoever the restored database holds:
+
+   ```sh
+   kindgi memory erasures replay erasures-<date>.json
+   ```
+
+   Its answer lists the erasures it `replayed`, the ones it `restored` to the
+   ledger, and any it couldn't match (`unmatched`).
+
+Two more things keep erasures complete:
+
+- **End users' ids are opaque:** give `participantId` an id your app uses
+  for the person, never an email or a name. Ids stay on records an erasure
+  keeps.
+- **Postgres can keep a cleared row's old version on disk** until it's
+  vacuumed. Where that matters, run `VACUUM` (and `REINDEX` for indexes) on
+  the database after erasures.
+
 ## Upgrade the runtime
 
 1. [Back up Postgres.](#back-up-postgres)
@@ -344,10 +425,43 @@ and what's different after:
     adds `KINDGI_DEV_GOOGLE_CREDENTIALS=adc` to its `.env`
     ([Gemini on Vertex AI](../../guides/models/gemini-on-vertex-ai/));
   - `kindgi console` opens the console, and so does `kindgi dev --open`.
-- **New:** sign-in with your organization's identity provider
-  ([Set up SSO](../../guides/sso/)), and with Google, Microsoft or GitHub
-  accounts or an emailed link through the deployment's own apps
-  ([Turn on sign-in](../sign-in/)).
+- **New in 0.1.5:**
+  - **Sign-in** with your organization's identity provider
+    ([Set up SSO](../../guides/sso/)), and with Google, Microsoft or GitHub
+    accounts or an emailed link through the deployment's own apps
+    ([Turn on sign-in](../sign-in/)).
+  - **People, API keys and service accounts:** each person and pipeline acts
+    with its own key and grants
+    ([People, API keys and service accounts](../people-and-keys/)).
+  - **Schedules:** an agent or a flow at set times, as you, with a history
+    of each time it ran ([Run on a schedule](../../guides/runs/run-on-a-schedule/)).
+  - **Memory:** an agent remembers what its declaration allows
+    (`kindgi_remember`), with the scope and how long chosen by you, not the
+    model, and can recall earlier conversations. Retrieval can search by
+    meaning through an embeddings endpoint (`KINDGI_MEMORY_EMBEDDINGS`). A
+    tenant admin can erase an end user's words, their conversations and the
+    runs that served them (`kindgi memory erasures`).
+  - **Improvement passes:** propose new settings or a new prompt for an
+    agent version, compare the candidate on a test set, and promote it
+    through the scope's gate after review (`kindgi proposals`). A pass can
+    look for better settings on its own, and a schedule can start one.
+  - **Files kept with a run** (artifacts) and the capability catalog
+    ([Keep files with a run](../../guides/runs/keep-files-with-a-run/)).
+  - **A tool's env values per project** (`ctx.env`)
+    ([Give a tool env values](../../guides/tools/give-a-tool-env-values/)).
+  - **A failed run says why, as data:** `failure`, with its `code` and
+    `message`, on the run.
+  - **Logs:** a pack's service writes log records, `kindgi dev` shows them,
+    and records from a run carry its ids; providers and MCP endpoints can opt
+    in to the run's trace ([Logs](../logs/)).
+  - **Java and Scala, as a preview:**
+    [Quickstart: Java](../../start/quickstart-java/),
+    [Quickstart: Scala](../../start/quickstart-scala/) and
+    [Call Kindgi from a Java app](../../start/java-app/).
+  - **The Cloud Run module:** an image repository you already have, no KMS
+    key, calling your app's Cloud Run services from a tool, client
+    addresses, and the runtime's own settings for sign-in
+    ([Deploy on Google Cloud Run](../cloud-run/)).
 
 #### Known limitations in 0.1.5
 
@@ -437,7 +551,11 @@ WARN  [authz.outbox] drain: FGA refused a batch; trying its tuples one by one te
 ```
 
 It's expected: the runtime then applies the batch's changes one at a time,
-and a change that's already there counts as applied.
+and a change that's already there counts as applied. From 0.1.5, with
+OpenFGA v1.22.0, the warning doesn't appear: the runtime asks OpenFGA to
+ignore changes already in place, and v1.22.0 does, so it takes the batch
+whole. With an older OpenFGA that doesn't, the runtime still applies them
+one at a time, and logs it at `info`.
 
 ### From 0.1.3 to 0.1.4
 

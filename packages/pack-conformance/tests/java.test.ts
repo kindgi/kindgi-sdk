@@ -98,8 +98,6 @@ if (why !== undefined) {
     packDir,
     command: ['sh', launcher, '-cp', classpath, 'com.kindgi.pack.Main', 'serve'],
     env: javaHome ? { JAVA_HOME: javaHome } : {},
-    // The Java service's lines aren't log records yet: they come with its logger (com.kindgi.log).
-    unsupported: ['log-records'],
     async buildIndex(outputPath, pins) {
       let stdout: string;
       try {

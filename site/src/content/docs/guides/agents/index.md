@@ -1,6 +1,6 @@
 ---
 title: Agents
-description: Write an agent, give it input, get a typed answer, choose its model, hold a conversation and cap what a turn may spend.
+description: Write an agent, give it input, get a typed answer, choose its model, hold a conversation, give it memory and cap what a turn may spend.
 sidebar:
   order: 0
   label: Overview
@@ -22,6 +22,10 @@ like any other, with a journal of every model call and tool call.
   preferences, and the `dev-echo` fallback.
 - [Hold a conversation](conversations/): continue a conversation turn by turn,
   read its history, close it.
+- [Give an agent memory](give-an-agent-memory/): facts it reads before each
+  turn, what it remembers, and its earlier conversations.
+- [Erase a person's data](erase-a-persons-data/): clear an end user's words
+  on request, and keep the erasure through a backup restore.
 - [Set an agent's budget](budgets/): steps, cost and time per turn, and what
   happens when a turn runs out.
 

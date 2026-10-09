@@ -5,6 +5,8 @@ package com.kindgi.pack;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.kindgi.log.LogLevel;
+import com.kindgi.log.Logger;
 import com.kindgi.pack.internal.HttpServer;
 import com.kindgi.pack.internal.Json;
 import java.io.ByteArrayOutputStream;
@@ -27,17 +29,31 @@ import org.junit.jupiter.api.Test;
 
 /**
  * The service in process, for what the conformance suite can't see from outside: the token is
- * checked before a body is read, late handlers are logged, and binding errors are issues.
+ * checked before a body is read, late handlers are logged, binding errors are issues, and a call's
+ * records carry its ids and its caller's trace.
  */
 class PackServiceTest {
   private static final String TOKEN = "t0ken";
   private static final String TOOLS = "src/main/java/com/kindgi/pack/testpacks/service/Tools.java";
   private static final String CHECKS = "src/main/java/com/kindgi/pack/testpacks/service/Checks.java";
 
+  /** The service's records, as written (JSON), parsed back. */
   private final List<Map<String, Object>> logs = new CopyOnWriteArrayList<>();
+  private final List<String> lines = new CopyOnWriteArrayList<>();
+  private final Logger log = Logger.builder().level(LogLevel.TRACE).subsystem("pack").write(this::record).build();
   private PackService service;
   private HttpServer server;
   private Thread acceptor;
+
+  @SuppressWarnings("unchecked")
+  private void record(String line) {
+    lines.add(line);
+    try {
+      logs.add((Map<String, Object>) Json.parse(line.getBytes(StandardCharsets.UTF_8)));
+    } catch (IOException e) {
+      throw new AssertionError("not a JSON record: " + line, e);
+    }
+  }
 
   private static Map<String, Object> tool(String id) {
     Map<String, Object> t = new LinkedHashMap<>();
@@ -57,7 +73,8 @@ class PackServiceTest {
     index.put("packVersion", "1.0.0");
     index.put("artifactVersion", "20261001.7");
     List<Object> tools = new ArrayList<>();
-    for (String id : List.of("acme.stubborn", "acme.polite", "acme.nan", "acme.typed")) {
+    for (String id : List.of("acme.stubborn", "acme.polite", "acme.nan", "acme.typed", "acme.later", "acme.laterFails",
+        "acme.laterNull", "acme.laterNever", "acme.logs")) {
       tools.add(tool(id));
     }
     index.put("tools", tools);
@@ -72,9 +89,12 @@ class PackServiceTest {
     broken.put("id", "acme.broken");
     broken.put("checkId", "acme.min");
     broken.put("configSchema", Map.of("type", "object", "if", Map.of()));
-    index.put("guardrails", List.of(min, broken));
+    Map<String, Object> laterMin = new LinkedHashMap<>(min);
+    laterMin.put("id", "acme.laterMin");
+    laterMin.put("checkId", "acme.checks.laterMin");
+    index.put("guardrails", List.of(min, broken, laterMin));
     assertThat(PackService.missingModules(index, getClass().getClassLoader())).isEmpty();
-    service = new PackService(index, TOKEN, 4, "strict", Map.of(), logs::add);
+    service = new PackService(index, TOKEN, 4, "strict", Map.of(), log.child(Map.of("packId", "acme")));
     assertThat(service.prewarm(getClass().getClassLoader())).isEmpty();
     ServerSocket socket = new ServerSocket();
     socket.bind(new InetSocketAddress(InetAddress.getLoopbackAddress(), 0));
@@ -110,17 +130,22 @@ class PackServiceTest {
     }
   }
 
-  @SuppressWarnings("unchecked")
   private Map<String, Object> invoke(String toolId, Object input, String timeoutMs) throws IOException {
+    return invoke(toolId, input, timeoutMs, Map.of("tenantId", "t1", "runId", "r1"), "");
+  }
+
+  @SuppressWarnings("unchecked")
+  private Map<String, Object> invoke(String toolId, Object input, String timeoutMs, Map<String, Object> ctx, String headers)
+      throws IOException {
     Map<String, Object> message = new LinkedHashMap<>();
     message.put("v", 2);
     message.put("kind", "invoke");
     message.put("tool", Map.of("id", toolId));
     message.put("input", input);
-    message.put("ctx", Map.of("tenantId", "t1", "runId", "r1"));
+    message.put("ctx", ctx);
     byte[] body = Json.compact(message);
     String response = raw("POST /v1/invoke HTTP/1.1\r\nkindgi-pack-token: " + TOKEN + "\r\ncontent-type: application/json\r\n"
-        + (timeoutMs == null ? "" : "kindgi-timeout-ms: " + timeoutMs + "\r\n")
+        + headers + (timeoutMs == null ? "" : "kindgi-timeout-ms: " + timeoutMs + "\r\n")
         + "content-length: " + body.length + "\r\n\r\n" + new String(body, StandardCharsets.ISO_8859_1), 10_000);
     assertThat(response).startsWith("HTTP/1.1 200 OK");
     return (Map<String, Object>) Json.parse(response.substring(response.indexOf("\r\n\r\n") + 4).getBytes(StandardCharsets.UTF_8));
@@ -202,7 +227,8 @@ class PackServiceTest {
       Thread.sleep(20);
     }
     assertThat(logs).anySatisfy(l -> assertThat(l).containsEntry("kind", "handler-finished-late")
-        .containsEntry("target", "tool").containsEntry("id", "acme.stubborn").containsKey("afterMs"));
+        .containsEntry("level", "warn").containsEntry("target", "tool").containsEntry("toolId", "acme.stubborn")
+        .containsEntry("tenantId", "t1").containsKey("afterMs"));
   }
 
   @Test
@@ -212,6 +238,45 @@ class PackServiceTest {
     Thread.sleep(300);
     assertThat(logs).noneSatisfy(l -> assertThat(l).containsEntry("kind", "handler-finished-late"));
     assertThat(logs).anySatisfy(l -> assertThat(l).containsEntry("kind", "call").containsEntry("outcome", "deadline-exceeded"));
+  }
+
+  @Test
+  void anAsyncHandlerIsAwaited() throws Exception {
+    assertThat(invoke("acme.later", Map.of("n", 1), null)).containsEntry("output", Map.of("echo", Map.of("n", 1)));
+  }
+
+  @Test
+  void anAsyncHandlersFailureIsTheHandlersOwn() throws Exception {
+    Map<String, Object> answer = invoke("acme.laterFails", Map.of(), null);
+    assertThat(answer).containsEntry("code", "handler-throw");
+    assertThat((String) answer.get("message")).isEqualTo(
+        "Handler for tool \"acme.laterFails\" threw: java.lang.IllegalStateException: card declined");
+  }
+
+  @Test
+  void anAsyncHandlerThatReturnsNoFutureIsAHandlerError() throws Exception {
+    Map<String, Object> answer = invoke("acme.laterNull", Map.of(), null);
+    assertThat(answer).containsEntry("code", "handler-throw");
+    assertThat((String) answer.get("message")).contains("returned no CompletionStage");
+  }
+
+  @Test
+  void anAsyncHandlerPastItsDeadlineHasItsFutureCancelledAndIsNotLate() throws Exception {
+    Map<String, Object> answer = invoke("acme.laterNever", Map.of(), "50");
+    assertThat(answer).containsEntry("code", "deadline-exceeded").containsEntry("toolId", "acme.laterNever");
+    long until = System.nanoTime() + 3_000_000_000L;
+    while (!com.kindgi.pack.testpacks.service.Tools.NEVER.get().isCancelled() && System.nanoTime() < until) {
+      Thread.sleep(10);
+    }
+    assertThat(com.kindgi.pack.testpacks.service.Tools.NEVER.get().isCancelled()).isTrue();
+    Thread.sleep(300);
+    assertThat(logs).noneSatisfy(l -> assertThat(l).containsEntry("kind", "handler-finished-late"));
+  }
+
+  @Test
+  void anAsyncCheckIsAwaited() throws Exception {
+    assertThat(check("acme.checks.laterMin", Map.of("minLength", 9))).containsEntry("kind", "check-result")
+        .containsEntry("result", Map.of("passed", false, "attributes", Map.of("minLength", 9)));
   }
 
   @Test
@@ -230,6 +295,82 @@ class PackServiceTest {
     Map<String, Object> issue = ((List<Map<String, Object>>) answer.get("issues")).get(0);
     assertThat(issue).containsEntry("keyword", "binding").containsEntry("schemaPath", "#");
     assertThat((String) issue.get("message")).contains("unlucky");
+  }
+
+  private Map<String, Object> waitForRecord(java.util.function.Predicate<Map<String, Object>> found) throws InterruptedException {
+    long until = System.nanoTime() + 3_000_000_000L;
+    while (System.nanoTime() < until) {
+      for (Map<String, Object> l : logs) {
+        if (found.test(l)) {
+          return l;
+        }
+      }
+      Thread.sleep(10);
+    }
+    throw new AssertionError("no such record in " + logs);
+  }
+
+  private static final String TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736";
+  private static final String CALLER_SPAN = "00f067aa0ba902b7";
+  private static final Map<String, Object> CTX = Map.of("tenantId", "t1", "runId", "r1", "requestId", "call-1",
+      "projectId", "p1", "secrets", Map.of("API_KEY", "s3cret-value"));
+
+  @Test
+  void aCallsRecordCarriesItsIdsAndTheCallersTraceWithASpanOfItsOwn() throws Exception {
+    invoke("acme.logs", Map.of(), null, CTX, "traceparent: 00-" + TRACE_ID + "-" + CALLER_SPAN + "-01\r\n");
+    Map<String, Object> call = waitForRecord(l -> "call".equals(l.get("event")));
+    assertThat(call).containsEntry("level", "info").containsEntry("severity", "INFO").containsEntry("subsystem", "pack")
+        .containsEntry("traceId", TRACE_ID).containsEntry("requestId", "call-1").containsEntry("tenantId", "t1")
+        .containsEntry("projectId", "p1").containsEntry("runId", "r1").containsEntry("toolId", "acme.logs")
+        .containsEntry("packId", "acme").containsEntry("target", "tool").containsEntry("kind", "call")
+        .containsEntry("id", "acme.logs").containsEntry("outcome", "ok").containsKey("durationMs");
+    assertThat((String) call.get("message")).matches("tool acme\\.logs ok \\d+ms");
+    // A span of the call's own: the caller's is its parent, not its id.
+    assertThat((String) call.get("spanId")).matches("[0-9a-f]{16}").isNotEqualTo(CALLER_SPAN);
+    assertThat(new ArrayList<>(call.keySet())).startsWith("time", "level", "severity", "subsystem", "message", "traceId",
+        "spanId", "requestId", "tenantId", "projectId", "runId", "toolId");
+  }
+
+  @Test
+  void aToolsCtxLogWritesBeneathItsCallWithTheCallsIdsAndTrace() throws Exception {
+    invoke("acme.logs", Map.of(), null, CTX, "traceparent: 00-" + TRACE_ID + "-" + CALLER_SPAN + "-01\r\n");
+    Map<String, Object> call = waitForRecord(l -> "call".equals(l.get("event")));
+    Map<String, Object> mine = waitForRecord(l -> "looked up order".equals(l.get("message")));
+    assertThat(mine).containsEntry("subsystem", "pack.tool").containsEntry("orderId", "o-1")
+        .containsEntry("traceId", TRACE_ID).containsEntry("spanId", call.get("spanId")).containsEntry("runId", "r1")
+        .containsEntry("tenantId", "t1").containsEntry("requestId", "call-1").containsEntry("toolId", "acme.logs");
+  }
+
+  @Test
+  void theContextsSecretsAreReadableButNowhereInTheLog() throws Exception {
+    invoke("acme.logs", Map.of(), null, CTX, "");
+    Map<String, Object> shown = waitForRecord(l -> String.valueOf(l.get("message")).startsWith("the context is"));
+    assertThat(shown).containsKey("ctx").containsEntry("seen", List.of("API_KEY"));
+    waitForRecord(l -> "call".equals(l.get("event")));
+    assertThat(lines).isNotEmpty().allSatisfy(line -> assertThat(line).doesNotContain("s3cret-value"));
+  }
+
+  @Test
+  void aCallerThatSendsNoTraceGetsNoTraceFields() throws Exception {
+    invoke("acme.logs", Map.of(), null, CTX, "");
+    Map<String, Object> call = waitForRecord(l -> "call".equals(l.get("event")));
+    assertThat(call).doesNotContainKeys("traceId", "spanId").containsEntry("runId", "r1");
+  }
+
+  @Test
+  void aFailedCallIsAWarning() throws Exception {
+    invoke("acme.laterFails", Map.of(), null);
+    Map<String, Object> call = waitForRecord(l -> "call".equals(l.get("event")));
+    assertThat(call).containsEntry("level", "warn").containsEntry("severity", "WARNING")
+        .containsEntry("outcome", "handler-throw").containsEntry("toolId", "acme.laterFails");
+  }
+
+  @Test
+  void aChecksRecordNamesTheCheck() throws Exception {
+    check("acme.checks.min", Map.of("minLength", 1));
+    Map<String, Object> call = waitForRecord(l -> "call".equals(l.get("event")));
+    assertThat(call).containsEntry("target", "check").containsEntry("checkId", "acme.checks.min")
+        .doesNotContainKeys("toolId", "tenantId");
   }
 
   @Test

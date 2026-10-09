@@ -71,11 +71,12 @@ kindgi schedules fires <schedule-id> --table
 
 The history is newest first, kept for 30 days. Each row has when the fire
 happened (`FIRED`), the time it was for (`FOR`, or `run-now` for one you
-started by hand), its `OUTCOME`, the `RUN` it started, and a `NOTE`: why it
-was skipped, refused or failed, or how many missed times it stood in for.
-Without `--table`, the same fires come as JSON. The outcomes are `started`,
-`skipped-overlap`, `skipped-erasure`, `refused`, `failed`, and `pending`
-while a fire is starting.
+started by hand), its `OUTCOME`, what it `STARTED` (a run's id, or
+`pass <id>` for an [improve schedule](#improve-on-a-schedule)), and a
+`NOTE`: why it was skipped, refused or failed, or how many missed times it
+stood in for. Without `--table`, the same fires come as JSON. The outcomes
+are `started`, `skipped-overlap`, `skipped-erasure`, `skipped` (an improve
+schedule's), `refused`, `failed`, and `pending` while a fire is starting.
 
 `kindgi runs list --trigger=<schedule-id>` lists the runs it started.
 
@@ -91,3 +92,97 @@ Each fire also logs one `[schedules]` record, with its outcome and run
 - `kindgi schedules update <schedule-id>` changes when it runs, what it runs,
   its input or its policies, with the same flags as `create`.
 - `kindgi schedules unregister <schedule-id>` removes it.
+
+## Improve on a schedule
+
+A schedule can start [improvement passes](../../evals/improve-an-agent/)
+instead of runs, when enough new trusted judgments have come in on an
+agent's runs:
+
+```sh
+kindgi schedules create --cron="0 3 * * *" --improve=acme.rank.scorer --project=<project-id> --segment=company:acme \
+  --input='{"tiers": ["settings"], "threshold": {"judgments": 5, "runs": 3, "judges": 2}, "monthlyCapUsd": 20}' --label="acme improve"
+```
+
+```json
+{
+  "scheduleId": "fa6356f8-3f9f-4ab3-b713-636424a43120",
+  "triggerId": "fa6356f8-3f9f-4ab3-b713-636424a43120",
+  "improve": {
+    "agentId": "acme.rank.scorer",
+    "scope": {
+      "kind": "segment",
+      "projectId": "eea49512-700f-4c59-9f66-05ca3b820a3b",
+      "path": [
+        {
+          "key": "company",
+          "value": "acme"
+        }
+      ]
+    }
+  },
+  …
+  "input": {
+    "tiers": [
+      "settings"
+    ],
+    "budget": {
+      "maxCostUsd": 5,
+      "maxCandidates": 30
+    },
+    "objective": "weightedYesShare",
+    "threshold": {
+      "runs": 3,
+      "judges": 2,
+      "judgments": 5
+    },
+    "classWeights": "restricted-only",
+    "monthlyCapUsd": 20
+  },
+  …
+}
+```
+
+At each fire it counts the trusted "no" judgments (recorded under a
+[restricted judge class](../../evals/judge-a-runs-output/#restrict-who-may-judge-as-a-class))
+on the agent's runs in its scope since the agent's last pass there (one that
+didn't fail or get cancelled, whoever started it). With enough of them,
+across enough runs, from enough judges, it starts a pass on a fresh test set
+of those runs (`improve.<pass-id>`). Otherwise the fire is `skipped`, and its
+note says which count was short. Below, that schedule's history after three
+`run-now` fires, newest first. The oldest, at the bottom, was skipped: one
+judge short. Then the threshold was lowered to one judge
+(`kindgi schedules update <schedule-id> --input='{"tiers": ["settings"], "threshold": {"judgments": 5, "runs": 3, "judges": 1}, "monthlyCapUsd": 20}'`),
+the next fire started a pass, and the newest came while that pass was still
+running:
+
+```sh
+kindgi schedules fires <schedule-id> --table
+```
+
+```text
+FIRED                     FOR      OUTCOME          STARTED                                    NOTE
+────────────────────────  ───────  ───────────────  ─────────────────────────────────────────  ──────────────────────────────────────────────────────────────────────────────────────────────────────
+2026-10-09T13:25:40.917Z  run-now  skipped-overlap                                             Its previous pass 3599f4ab-8788-433f-af66-7990ddfa9f47 is still running.
+2026-10-09T13:25:40.341Z  run-now  started          pass 3599f4ab-8788-433f-af66-7990ddfa9f47
+2026-10-09T13:25:39.201Z  run-now  skipped                                                     Not enough new trusted judgments so far: 1 of 2 judges (trusted "no" judgments met: 10, runs met: 10).
+```
+
+- **Its scope** is the schedule's project (`--project`), or a segment of it
+  (`--segment=<key:value>`, repeated for a path). Never the tenant or an org:
+  a pass learns from one project's runs, so its evidence must cover the scope
+  it changes. Promote wider by hand after review.
+- **Its input** (`--input`) takes the pass's options, `threshold` and
+  `monthlyCapUsd`, and is kept with the defaults applied, as above: the
+  thresholds default to 5 judgments, 3 runs and 2 judges, and the cap to 20
+  US dollars a month.
+- **A monthly cap:** once the schedule's passes this month (UTC) have cost
+  `monthlyCapUsd`, its fires are skipped until the next month, and a pass's
+  budget is never more than what's left of it.
+- **One pass at a time:** while the schedule's previous pass still runs, a
+  fire is `skipped-overlap`.
+- **At most once an hour.** Registering needs `publish` on the agent.
+
+A fire that started a pass names it (`passId`), and the pass names the
+schedule and the fire (`trigger`). When the pass proposes, it asks for the
+review at once, so the proposal waits in reviewers' approvals.

@@ -11,6 +11,7 @@ import com.fasterxml.jackson.databind.JavaType;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jdk8.Jdk8Module;
+import com.fasterxml.jackson.databind.util.TokenBuffer;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import java.io.IOException;
 import java.lang.reflect.Type;
@@ -24,6 +25,12 @@ import org.jspecify.annotations.Nullable;
  * {@code Map} (in key order), a {@code List}, a {@code String}, a {@code Number}, a {@code Boolean}
  * or {@code null}; a tool's input and output are bound to its types through their Jackson
  * annotations.
+ *
+ * <p>Two mappers. The wire's ({@link #mapper()}) reads and writes the protocol's messages and the
+ * index, and nothing an app installs changes it. The binding one ({@link #binding()}) also has
+ * every Jackson module the app's classpath declares ({@code findAndRegisterModules()}: Scala's,
+ * Kotlin's, Guava's, an app's own): it binds tool inputs, writes tool outputs and reads types for
+ * their schemas, so a tool's types mean what they mean everywhere else in the app.
  */
 public final class Json {
   private Json() {}
@@ -39,9 +46,16 @@ public final class Json {
           .enable(JsonParser.Feature.STRICT_DUPLICATE_DETECTION)
           .setSerializationInclusion(JsonInclude.Include.NON_NULL);
 
-  /** @return the mapper (shared) */
+  private static final ObjectMapper BINDING = MAPPER.copy().findAndRegisterModules();
+
+  /** @return the wire's mapper (shared): the protocol and the index */
   public static ObjectMapper mapper() {
     return MAPPER;
+  }
+
+  /** @return the binding mapper (shared): tool inputs and outputs, with the app's Jackson modules */
+  public static ObjectMapper binding() {
+    return BINDING;
   }
 
   /**
@@ -89,18 +103,40 @@ public final class Json {
    * @return the typed value
    */
   public static Object bind(Object value, Type type) {
-    JavaType javaType = MAPPER.getTypeFactory().constructType(type);
-    return MAPPER.convertValue(value, javaType);
+    JavaType javaType = BINDING.getTypeFactory().constructType(type);
+    return BINDING.convertValue(value, javaType);
   }
 
   /**
-   * A typed value (a tool's output) as a plain value.
+   * A wire value built from typed parts (an index entry) as a plain value: the app's modules don't
+   * apply.
    *
    * @param value the typed value
    * @return the plain value
    */
   public static Object plain(Object value) {
     return MAPPER.convertValue(value, Object.class);
+  }
+
+  /**
+   * A tool's typed value (its output, a check's attributes, a default) as a plain value: the inverse
+   * of {@link #bind}. Written by the binding mapper, so the app's serializers apply, and read back by
+   * the wire's, so the result is plain whatever the app's modules do to untyped values (Scala's
+   * module reads them as Scala collections).
+   *
+   * @param value the typed value
+   * @return the plain value
+   * @throws IllegalArgumentException when the value can't be written as JSON
+   */
+  public static @Nullable Object unbind(@Nullable Object value) {
+    try (TokenBuffer buffer = new TokenBuffer(BINDING, false)) {
+      BINDING.writeValue(buffer, value);
+      try (JsonParser parser = buffer.asParser(MAPPER)) {
+        return MAPPER.readValue(parser, Object.class);
+      }
+    } catch (IOException e) {
+      throw new IllegalArgumentException(e.getMessage(), e);
+    }
   }
 
   /**

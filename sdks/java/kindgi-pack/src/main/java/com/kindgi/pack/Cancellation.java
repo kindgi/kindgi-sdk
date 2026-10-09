@@ -4,6 +4,8 @@
 package com.kindgi.pack;
 
 import java.time.Duration;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import org.jspecify.annotations.Nullable;
@@ -16,6 +18,7 @@ import org.jspecify.annotations.Nullable;
 public final class Cancellation {
   private final CountDownLatch cancelled = new CountDownLatch(1);
   private volatile @Nullable String reason;
+  private final List<Runnable> onCancel = new CopyOnWriteArrayList<>();
 
   /** A cancellation that hasn't fired. */
   public Cancellation() {}
@@ -50,12 +53,34 @@ public final class Cancellation {
     return cancelled.await(timeout.toMillis(), TimeUnit.MILLISECONDS);
   }
 
+  /**
+   * Runs {@code action} when the call is cancelled, or now if it already was: to stop work the
+   * handler started elsewhere (a request, a future).
+   *
+   * @param action what to run, once
+   */
+  public void onCancel(Runnable action) {
+    onCancel.add(action);
+    if (isCancelled() && onCancel.remove(action)) {
+      action.run();
+    }
+  }
+
   /** Fires the cancellation (the service does, at the deadline or when the caller goes away). */
   void cancel(String why) {
     if (reason == null) {
       reason = why;
     }
     cancelled.countDown();
+    for (Runnable action : onCancel) {
+      if (onCancel.remove(action)) {
+        try {
+          action.run();
+        } catch (RuntimeException e) {
+          // A failing action doesn't keep the others from running.
+        }
+      }
+    }
   }
 
   /** The call was cancelled; a handler may let it propagate. */

@@ -3,8 +3,9 @@
 Call the Kindgi™ API from a Java application: agents, runs, approvals, evals
 and the rest, with typed models, typed errors, paging, streaming and retries.
 
-**Status:** preview, not on Maven Central yet. Build it from this repository
-(below). Needs Java 17 or later.
+**Status:** preview. Java and Scala support is tested and supported, but its
+API may still change in 0.1.6 without the usual deprecation period. On Maven Central;
+needs Java 17 or later. Its version is the Kindgi release's (the CLI's).
 
 ```xml
 <dependency>

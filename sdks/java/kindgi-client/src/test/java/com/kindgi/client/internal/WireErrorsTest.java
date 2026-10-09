@@ -13,6 +13,9 @@ import com.kindgi.client.KindgiApiException;
 import com.kindgi.client.NotFoundException;
 import com.kindgi.client.RateLimitedException;
 import com.kindgi.client.ServerException;
+import java.io.IOException;
+import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -41,7 +44,11 @@ class WireErrorsTest {
   @Test
   void aNewerServersCodeFallsBackToItsStatus() {
     assertThat(WireErrors.fromWire(wire(Map.of("code", "org-not-found", "message", "m")), 404, null)).isInstanceOf(NotFoundException.class);
-    assertThat(WireErrors.fromWire(wire(Map.of("code", "budget-exceeded", "message", "m")), 409, null)).isInstanceOf(ServerException.class);
+    assertThat(WireErrors.fromWire(wire(Map.of("code", "something-new", "message", "m")), 409, null))
+        .isInstanceOfSatisfying(ConflictException.class, c -> assertThat(c.serverCode()).isEqualTo("something-new"));
+    assertThat(WireErrors.fromWire(wire(Map.of("code", "something-new", "message", "m")), 413, null)).isInstanceOf(InvalidRequestException.class);
+    // 422 stays a server error: the docs match its codes there.
+    assertThat(WireErrors.fromWire(wire(Map.of("code", "budget-exceeded", "message", "m")), 422, null)).isInstanceOf(ServerException.class);
     assertThat(WireErrors.fromWire(wire(Map.of("code", "something-new", "message", "m")), 400, null)).isInstanceOf(InvalidRequestException.class);
   }
 
@@ -79,5 +86,62 @@ class WireErrorsTest {
     assertThat(e).isInstanceOf(ServerException.class);
     assertThat(e.serverCode()).isEqualTo("unknown");
     assertThat(e.getMessage()).isEqualTo("HTTP 502 without a recognizable error body");
+  }
+
+  private static final Path OPENAPI = Path.of(System.getProperty("kindgi.openapi", "../../../packages/api/openapi.json"));
+
+  /** The classes a code may land in on purpose, against its status: each with its reason. */
+  private static final Map<String, Class<? extends KindgiApiException>> EXCEPTIONS =
+      Map.of(
+          // Its own class, with the violations.
+          "guardrail-violation", GuardrailViolationException.class,
+          // A provider registration the adapter refuses: an invalid request, with its issues.
+          "provider-config-invalid", InvalidRequestException.class);
+
+  /** The class a documented code belongs in: its HTTP status's; 422 and 5xx are server errors. */
+  private static Class<? extends KindgiApiException> expectedClass(String code, int status) {
+    if (EXCEPTIONS.containsKey(code)) {
+      return EXCEPTIONS.get(code);
+    }
+    switch (status) {
+      case 400:
+      case 413:
+        return InvalidRequestException.class;
+      case 401:
+      case 403:
+        return AuthException.class;
+      case 404:
+      case 410:
+        return NotFoundException.class;
+      case 409:
+        return ConflictException.class;
+      case 429:
+        return RateLimitedException.class;
+      default:
+        return ServerException.class;
+    }
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void everyCodeTheApiDocumentsIsInItsStatussFamilyAndKeepsItsCode() throws IOException {
+    Map<String, Object> spec = Json.mapper().readValue(OPENAPI.toFile(), Map.class);
+    Map<String, Object> schemas = (Map<String, Object>) ((Map<String, Object>) spec.get("components")).get("schemas");
+    Map<String, Integer> codes = (Map<String, Integer>) ((Map<String, Object>) schemas.get("WireError")).get("x-error-codes");
+    assertThat(codes).hasSizeGreaterThan(100);
+    List<String> wrong = new ArrayList<>();
+    for (Map.Entry<String, Integer> entry : codes.entrySet()) {
+      String code = entry.getKey();
+      int status = entry.getValue();
+      KindgiApiException e = WireErrors.fromWire(wire(Map.of("code", code, "message", "m")), status, null);
+      Class<? extends KindgiApiException> expected = expectedClass(code, status);
+      if (e.getClass() != expected) {
+        wrong.add(code + " (" + status + "): " + e.getClass().getSimpleName() + ", not " + expected.getSimpleName());
+      }
+      if (!code.equals(e.serverCode())) {
+        wrong.add(code + " (" + status + "): serverCode " + e.serverCode());
+      }
+    }
+    assertThat(wrong).isEmpty();
   }
 }

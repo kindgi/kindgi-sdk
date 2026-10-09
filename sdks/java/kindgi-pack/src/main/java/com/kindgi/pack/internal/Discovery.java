@@ -23,7 +23,7 @@ public final class Discovery {
   private static final Pattern GLOB_CHARS = Pattern.compile("[*?{\\[]");
 
   /** Tests sit next to primitives and are never primitives. */
-  static final Pattern TEST_FILE = Pattern.compile("(?:^|/)src/test/|(?:Test|Tests|IT)\\.java$");
+  static final Pattern TEST_FILE = Pattern.compile("(?:^|/)src/test/|(?:Test|Tests|IT)\\.(?:java|scala)$");
 
   /** Never walked: dot directories and installed packages anywhere; build output at the root. */
   private static final Set<String> SKIP_DIRS = Set.of("node_modules");

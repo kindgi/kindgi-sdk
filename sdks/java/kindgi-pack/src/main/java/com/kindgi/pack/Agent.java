@@ -42,7 +42,7 @@ public final class Agent {
    * @return a builder
    */
   public static Builder define(String id) {
-    return new Builder(id, StackWalker.getInstance(StackWalker.Option.RETAIN_CLASS_REFERENCE).getCallerClass());
+    return new Builder(id, Callers.definer());
   }
 
   /** @return the agent's id */
@@ -101,6 +101,15 @@ public final class Agent {
      */
     public Builder name(String name) {
       entry.put("name", name);
+      return this;
+    }
+
+    /**
+     * @param description what the agent is for (shown to people, not the model)
+     * @return this
+     */
+    public Builder description(String description) {
+      entry.put("description", description);
       return this;
     }
 
