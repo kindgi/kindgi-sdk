@@ -301,6 +301,11 @@ and what's different after:
 - **The runtime's own address, `/`, leads to the console,** or lists what it
   serves; it answered `404`. Health checks stay on `/ready`
   ([Check health and logs](#check-health-and-logs)).
+- **Anthropic retires Claude Sonnet 4.5** (`claude-sonnet-4-5-20250929`) on
+  2026-11-30. A provider registration that names it should move to
+  `claude-sonnet-5-5`, the `anthropic` preset's default. No preset lists it,
+  so only a registration made with a spec is affected
+  ([Anthropic: model deprecations](https://platform.claude.com/docs/en/about-claude/model-deprecations)).
 - **Claude agents use Anthropic's prompt cache:** a turn's later calls read
   the prompt they repeat at a fraction of the input price, and the first
   write costs a little more. Register the `anthropic` preset again for the
