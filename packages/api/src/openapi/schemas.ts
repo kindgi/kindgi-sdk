@@ -3261,6 +3261,11 @@ export const JudgedRunContextSchema: JsonSchema = {
       description:
         "The env values each tool's calls were sent (`needsSpec.env`), by tool id: its first call's, as the run recorded them. A replay sends them to a read-only tool it runs live, so the tool reads the config the run saw, not today's. Absent for a run from before env was recorded.",
     },
+    replayOf: {
+      type: 'string',
+      description:
+        "When the judged run is a comparison's replay: the run it re-ran, stamped at its first judgment. A test set built from judgments leaves replays out.",
+    },
   },
 };
 

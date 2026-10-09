@@ -396,6 +396,7 @@ export type {
 export {
   JUDGE_CLASS_SCOPE_KINDS,
   VERDICTS,
+  isReplayCopy,
   judgeClassApplies,
   whyNotAssertable,
 } from './judgment-binding.js';
