@@ -83,7 +83,7 @@ describe('changed-paths', () => {
         return `${files.join('\n')}\n`;
       },
     });
-    assert.deepEqual(decide(JVM, run(['README.md', 'site/x.md'])), {
+    assert.deepEqual(decide(JVM, run(['README.txt', 'site/x.txt'])), {
       changed: false,
       why: 'none of 2 changed files match',
       files: [],
@@ -113,10 +113,10 @@ describe('changed-paths', () => {
     git(['init', '-q', '-b', 'main']);
     commit('README.md', 'start');
     git(['checkout', '-q', '-b', 'feature']);
-    const head = commit('site/page.md', 'docs only');
+    const head = commit('site/page.txt', 'docs only');
     git(['checkout', '-q', 'main']);
     const base = commit('sdks/java/pom.xml', 'main moves on, in the JVM paths');
-    assert.deepEqual(changedFiles({ base, head, mergeBase: true }, git), ['site/page.md']);
+    assert.deepEqual(changedFiles({ base, head, mergeBase: true }, git), ['site/page.txt']);
     assert.equal(
       decide(JVM, {
         eventName: 'pull_request',
