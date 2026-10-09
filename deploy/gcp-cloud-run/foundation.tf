@@ -5,15 +5,17 @@
 # services stand on.
 
 locals {
+  # The KMS key exists only for KINDGI_SECRETS_BACKEND=postgres (var.secrets_backend).
+  kms = var.secrets_backend == "postgres"
+
   apis = concat([
     "artifactregistry.googleapis.com",
-    "cloudkms.googleapis.com",
     "compute.googleapis.com",
     "iam.googleapis.com",
     "run.googleapis.com",
     "secretmanager.googleapis.com",
     "sqladmin.googleapis.com",
-  ], var.vertex_ai ? ["aiplatform.googleapis.com"] : [])
+  ], local.kms ? ["cloudkms.googleapis.com"] : [], var.vertex_ai ? ["aiplatform.googleapis.com"] : [])
 }
 
 resource "google_project_service" "apis" {
@@ -147,11 +149,20 @@ resource "google_storage_bucket_iam_member" "pack_reads" {
 
 # ---- images -------------------------------------------------------------------
 # One repository for the runtime image (mirrored from Quay, see the
-# README) and the pack images `kindgi build` pushes. Cloud Run pulls with
-# its service agent; the server reads deployments' images with its own
-# identity (KINDGI_IMAGE_REGISTRY_AUTH=google).
+# README) and the pack images `kindgi build` pushes: the module's own, or
+# an existing one (var.image_repository). Cloud Run pulls with its service
+# agent; the server reads deployments' images with its own identity
+# (KINDGI_IMAGE_REGISTRY_AUTH=google).
+
+locals {
+  own_repository = var.image_repository == null
+  # An existing repository in another project: this project's Cloud Run
+  # service agent needs to read it too, to pull the images.
+  cross_project_repository = !local.own_repository && try(var.image_repository.project, var.project_id) != var.project_id
+}
 
 resource "google_artifact_registry_repository" "images" {
+  count         = local.own_repository ? 1 : 0
   repository_id = var.name_prefix
   location      = var.region
   format        = "DOCKER"
@@ -159,26 +170,50 @@ resource "google_artifact_registry_repository" "images" {
   depends_on    = [google_project_service.apis]
 }
 
+# A deployment from before image_repository keeps its repository at index 0.
+moved {
+  from = google_artifact_registry_repository.images
+  to   = google_artifact_registry_repository.images[0]
+}
+
 resource "google_artifact_registry_repository_iam_member" "server_reads_images" {
-  repository = google_artifact_registry_repository.images.name
-  location   = var.region
+  project    = local.own_repository ? null : var.image_repository.project
+  repository = local.own_repository ? google_artifact_registry_repository.images[0].name : var.image_repository.repository
+  location   = local.own_repository ? var.region : var.image_repository.location
   role       = "roles/artifactregistry.reader"
   member     = "serviceAccount:${google_service_account.server.email}"
 }
 
+data "google_project" "this" {
+  count      = local.cross_project_repository ? 1 : 0
+  project_id = var.project_id
+}
+
+resource "google_artifact_registry_repository_iam_member" "run_agent_pulls_images" {
+  count      = local.cross_project_repository ? 1 : 0
+  project    = var.image_repository.project
+  repository = var.image_repository.repository
+  location   = var.image_repository.location
+  role       = "roles/artifactregistry.reader"
+  member     = "serviceAccount:service-${data.google_project.this[0].number}@serverless-robot-prod.iam.gserviceaccount.com"
+}
+
 # ---- the key that wraps Kindgi's secrets --------------------------------------
 # KINDGI_SECRETS_BACKEND=postgres with KMS gcp: secrets set through the API
-# are envelope-encrypted in Postgres under this key.
+# are envelope-encrypted in Postgres under this key. With
+# secrets_backend = "none" the runtime stores no secrets, and there is no key.
 
 resource "google_kms_key_ring" "kindgi" {
+  count      = local.kms ? 1 : 0
   name       = var.name_prefix
   location   = var.region
   depends_on = [google_project_service.apis]
 }
 
 resource "google_kms_crypto_key" "secrets" {
+  count           = local.kms ? 1 : 0
   name            = "${var.name_prefix}-secrets"
-  key_ring        = google_kms_key_ring.kindgi.id
+  key_ring        = google_kms_key_ring.kindgi[0].id
   rotation_period = "7776000s" # 90 days
 
   lifecycle {
@@ -187,7 +222,8 @@ resource "google_kms_crypto_key" "secrets" {
 }
 
 resource "google_kms_crypto_key_iam_member" "server_wraps" {
-  crypto_key_id = google_kms_crypto_key.secrets.id
+  count         = local.kms ? 1 : 0
+  crypto_key_id = google_kms_crypto_key.secrets[0].id
   role          = "roles/cloudkms.cryptoKeyEncrypterDecrypter"
   member        = "serviceAccount:${google_service_account.server.email}"
 }
@@ -198,7 +234,30 @@ resource "google_kms_crypto_key_iam_member" "server_wraps" {
 # kms-unauthorized"). From 0.1.3 the probe is an encrypt/decrypt round trip
 # and needs only the role above.
 resource "google_kms_crypto_key_iam_member" "server_reads_key" {
-  crypto_key_id = google_kms_crypto_key.secrets.id
+  count         = local.kms ? 1 : 0
+  crypto_key_id = google_kms_crypto_key.secrets[0].id
   role          = "roles/cloudkms.viewer"
   member        = "serviceAccount:${google_service_account.server.email}"
+}
+
+# A deployment from before secrets_backend keeps its key: the resources
+# gained a count, and their state moves to index 0, so it plans no change.
+moved {
+  from = google_kms_key_ring.kindgi
+  to   = google_kms_key_ring.kindgi[0]
+}
+
+moved {
+  from = google_kms_crypto_key.secrets
+  to   = google_kms_crypto_key.secrets[0]
+}
+
+moved {
+  from = google_kms_crypto_key_iam_member.server_wraps
+  to   = google_kms_crypto_key_iam_member.server_wraps[0]
+}
+
+moved {
+  from = google_kms_crypto_key_iam_member.server_reads_key
+  to   = google_kms_crypto_key_iam_member.server_reads_key[0]
 }

@@ -10,7 +10,14 @@ import { describe, expect, test } from 'vitest';
 
 import type { ToolId } from '@kindgi/types';
 
-import { TOOL_SCHEMA_URI, defineTool, toManifest, toMcpManifest } from '../src/index.js';
+import {
+  BUILT_IN_TOOL_PREFIX,
+  TOOL_SCHEMA_URI,
+  defineTool,
+  toManifest,
+  toMcpManifest,
+  validateToolManifest,
+} from '../src/index.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -97,5 +104,20 @@ describe('schema drift', () => {
 
   test('exports the canonical $id', () => {
     expect(TOOL_SCHEMA_URI).toBe('https://kindgi.com/schemas/v1/tool.schema.json');
+  });
+});
+
+describe('the built-in prefix', () => {
+  test('a published tool cannot take an id built into Kindgi (`kindgi_`)', () => {
+    const manifest = {
+      id: 'kindgi_remember',
+      description: 'Not the built-in',
+      version: '1.0.0',
+      input: { type: 'object' },
+      output: { type: 'object' },
+    };
+    const r = validateToolManifest(manifest);
+    expect(r.kind === 'err' && r.error.message).toContain(`"${BUILT_IN_TOOL_PREFIX}" is reserved`);
+    expect(validateToolManifest({ ...manifest, id: 'acme.remember' }).kind).toBe('ok');
   });
 });

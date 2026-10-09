@@ -37,6 +37,48 @@ export const AUTH_SECRET_VAR = 'KINDGI_AUTH_SECRET';
 /** Identity provider origins on a private network the operator allows. */
 export const AUTH_PRIVATE_IDP_ORIGINS_VAR = 'KINDGI_AUTH_PRIVATE_IDP_ORIGINS';
 
+/** Email domains the operator verified, each for one tenant: `domain:tenant,…`. */
+export const AUTH_VERIFIED_DOMAINS_VAR = 'KINDGI_AUTH_VERIFIED_DOMAINS';
+
+/** "Continue with Google": the deployment's own app's client id. */
+export const AUTH_GOOGLE_CLIENT_ID_VAR = 'KINDGI_AUTH_GOOGLE_CLIENT_ID';
+
+/** Its client secret, or a file holding it (`…_SECRET_PATH`). */
+export const AUTH_GOOGLE_CLIENT_SECRET_VAR = 'KINDGI_AUTH_GOOGLE_CLIENT_SECRET';
+export const AUTH_GOOGLE_CLIENT_SECRET_PATH_VAR = 'KINDGI_AUTH_GOOGLE_CLIENT_SECRET_PATH';
+
+/** "Continue with Microsoft": the deployment's own app's client id. */
+export const AUTH_MICROSOFT_CLIENT_ID_VAR = 'KINDGI_AUTH_MICROSOFT_CLIENT_ID';
+
+/** Its client secret, or a file holding it (`…_SECRET_PATH`). */
+export const AUTH_MICROSOFT_CLIENT_SECRET_VAR = 'KINDGI_AUTH_MICROSOFT_CLIENT_SECRET';
+export const AUTH_MICROSOFT_CLIENT_SECRET_PATH_VAR = 'KINDGI_AUTH_MICROSOFT_CLIENT_SECRET_PATH';
+
+/** "Continue with GitHub": the deployment's own app's client id. */
+export const AUTH_GITHUB_CLIENT_ID_VAR = 'KINDGI_AUTH_GITHUB_CLIENT_ID';
+
+/** Its client secret, or a file holding it (`…_SECRET_PATH`). */
+export const AUTH_GITHUB_CLIENT_SECRET_VAR = 'KINDGI_AUTH_GITHUB_CLIENT_SECRET';
+export const AUTH_GITHUB_CLIENT_SECRET_PATH_VAR = 'KINDGI_AUTH_GITHUB_CLIENT_SECRET_PATH';
+
+/** The emailed sign-in link: the SMTP server to send it through (a URL with its credentials), or a file holding it. */
+export const AUTH_EMAIL_SMTP_URL_VAR = 'KINDGI_AUTH_EMAIL_SMTP_URL';
+export const AUTH_EMAIL_SMTP_URL_PATH_VAR = 'KINDGI_AUTH_EMAIL_SMTP_URL_PATH';
+
+/** The emailed sign-in link's From address. */
+export const AUTH_EMAIL_FROM_VAR = 'KINDGI_AUTH_EMAIL_FROM';
+
+/** At most this many emailed links to one address in 24 hours. Default 10. */
+export const AUTH_EMAIL_LINK_DAILY_CAP_VAR = 'KINDGI_AUTH_EMAIL_LINK_DAILY_CAP';
+
+/** Cloudflare Turnstile on asking for an emailed link: its secret (or a file holding it) and its site key. */
+export const AUTH_TURNSTILE_SECRET_VAR = 'KINDGI_AUTH_TURNSTILE_SECRET';
+export const AUTH_TURNSTILE_SECRET_PATH_VAR = 'KINDGI_AUTH_TURNSTILE_SECRET_PATH';
+export const AUTH_TURNSTILE_SITE_KEY_VAR = 'KINDGI_AUTH_TURNSTILE_SITE_KEY';
+
+/** Which hops in front of the runtime to trust for the client's address: a hop count, or IPs/CIDRs. */
+export const TRUSTED_PROXIES_VAR = 'KINDGI_TRUSTED_PROXIES';
+
 /** A browser session's absolute lifetime, in milliseconds. */
 export const SESSION_TTL_MS_VAR = 'KINDGI_SESSION_TTL_MS';
 

@@ -12,9 +12,11 @@
 import type { ProvenanceBuilder } from '@kindgi/provenance';
 import type { Timestamp } from '@kindgi/types';
 
-import type { ConversationMessage, RetrievedFact } from '../types.js';
+import { REMEMBER_TOOL_ID } from '../remember.js';
+import type { ConversationMessage, RetrievalIntent, RetrievedFact } from '../types.js';
 import type { TurnContext } from './context.js';
 import type { GateDecision } from './gate-decision.js';
+import type { RememberToolOutput } from './remember-tool.js';
 
 /** The turn's user message. */
 export function addInputNode(provenance: ProvenanceBuilder, message: ConversationMessage): void {
@@ -26,12 +28,38 @@ export function addInputNode(provenance: ProvenanceBuilder, message: Conversatio
   });
 }
 
-/** The facts the turn retrieved for its user message. */
+/**
+ * The turn's memory searches and the facts they found for its user
+ * message. Each retrieval intent is one `memory-read` node, `operation:
+ * search_memory` (the OpenTelemetry GenAI name), `caused-by` the input,
+ * with what it searched and the ids it found; each fact is a `retrieval`
+ * node `retrieved-from` its search and `influenced-by` the input.
+ */
 export function addRetrievalNodes(
   provenance: ProvenanceBuilder,
+  intents: readonly RetrievalIntent[],
   retrieved: readonly RetrievedFact[],
   input: ConversationMessage,
 ): void {
+  const searchIds = intents.map((intent, i) => {
+    const id = `memory-read:search:${input.sequence}:${i}`;
+    const found = retrieved.filter((r) => sameIntent(r.intent, intent));
+    provenance.addNode({
+      id,
+      kind: 'memory-read',
+      timestamp: input.createdAt,
+      attributes: {
+        operation: 'search_memory',
+        intent: i,
+        types: [...intent.types],
+        scope: intent.scope,
+        mode: intent.mode ?? 'list',
+        factIds: found.map((r) => r.fact.id as unknown as string),
+      },
+    });
+    provenance.addEdge({ from: id, to: `input:${input.sequence}`, kind: 'caused-by' });
+    return id;
+  });
   for (const r of retrieved) {
     provenance.addNode({
       id: `retrieval:${r.fact.id}`,
@@ -43,14 +71,24 @@ export function addRetrievalNodes(
         factType: r.fact.type,
         intentScope: r.intent.scope,
         ...(r.score !== undefined && { score: r.score }),
+        ...(r.ranks !== undefined && { ranks: { ...r.ranks } }),
       },
     });
+    const search = searchIds[intents.findIndex((intent) => sameIntent(r.intent, intent))];
+    if (search !== undefined) {
+      provenance.addEdge({ from: `retrieval:${r.fact.id}`, to: search, kind: 'retrieved-from' });
+    }
     provenance.addEdge({
       from: `retrieval:${r.fact.id}`,
       to: `input:${input.sequence}`,
       kind: 'influenced-by',
     });
   }
+}
+
+/** The same intent, whether live or read back from the journal. */
+function sameIntent(a: RetrievalIntent, b: RetrievalIntent): boolean {
+  return a === b || JSON.stringify(a) === JSON.stringify(b);
 }
 
 /** One model call: its identity; its usage is the cost ledger's, by `callId`. */
@@ -129,6 +167,45 @@ export function addToolNodes(
 }
 
 /**
+ * What a `remember` call wrote, from its stored result (so a resumed turn
+ * adds the same node): a `memory-write` node, `operation: create_memory`
+ * or `update_memory`, the fact's id and version, its actor the agent,
+ * `produced` by the call.
+ */
+export function addMemoryWriteNode(
+  provenance: ProvenanceBuilder,
+  result: ConversationMessage,
+  agent: { readonly id: string; readonly version: string },
+): void {
+  const call = result.toolCall;
+  if (call === undefined || call.toolId !== REMEMBER_TOOL_ID) return;
+  const written = rememberedOf(result.content);
+  if (written === undefined) return;
+  const id = `memory-write:${written.factId}@${written.version}`;
+  provenance.addNode({
+    id,
+    kind: 'memory-write',
+    timestamp: result.createdAt,
+    actor: `agent:${agent.id}@${agent.version}`,
+    attributes: {
+      operation: written.outcome === 'superseded' ? 'update_memory' : 'create_memory',
+      factId: written.factId,
+      version: written.version,
+      ...(written.status === 'pending-review' && { review: 'pending' }),
+    },
+  });
+  provenance.addEdge({ from: id, to: `tool-call:${call.invocationId}`, kind: 'produced' });
+}
+
+function rememberedOf(content: ConversationMessage['content']): RememberToolOutput | undefined {
+  if (typeof content !== 'object' || content === null) return undefined;
+  const out = content as Partial<RememberToolOutput>;
+  if (out.status !== 'remembered' && out.status !== 'pending-review') return undefined;
+  if (typeof out.factId !== 'string' || typeof out.version !== 'number') return undefined;
+  return out as RememberToolOutput;
+}
+
+/**
  * The tool calls of one model step: a node pair for each result the step
  * stored, and their invocation ids added to the turn's tool results.
  */
@@ -142,6 +219,10 @@ export function addStepToolNodes(
     const { invocationId, toolId } = result.toolCall;
     if (ctx.provenance !== undefined) {
       addToolNodes(ctx.provenance, step, result, versionOf(ctx, toolId));
+      addMemoryWriteNode(ctx.provenance, result, {
+        id: ctx.input.agent.id as unknown as string,
+        version: ctx.input.agent.version as unknown as string,
+      });
       const approval = ctx.toolApprovals?.get(invocationId);
       if (approval !== undefined) {
         addToolApprovalNodes(

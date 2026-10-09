@@ -7,7 +7,7 @@ import { describe, expect, test } from 'vitest';
 
 import type { Cursor, ProjectId, TenantId } from '@kindgi/types';
 
-import { createStubAppBindings } from '@kindgi/testing';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type {

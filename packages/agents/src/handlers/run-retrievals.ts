@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import type { Principal } from '@kindgi/authz';
 import type { NodeContext, NodeHandler } from '@kindgi/handler';
-import type { UserId } from '@kindgi/types';
 
+import { runUserId } from '../remember.js';
 import { type DegradedIntent, retrieveForTurn } from '../retrieval.js';
 import { emitTurnEvent } from '../streaming.js';
 import type { RetrievedFact } from '../types.js';
@@ -42,7 +41,7 @@ export function buildRunRetrievalsHandler(ctx: TurnContext): NodeHandler {
     });
 
     if (ctx.provenance !== undefined && ctx.userMessage !== undefined) {
-      addRetrievalNodes(ctx.provenance, facts, ctx.userMessage);
+      addRetrievalNodes(ctx.provenance, ctx.input.agent.retrieval, facts, ctx.userMessage);
     }
 
     // The facts go in the journal: a resumed turn restores them from it
@@ -67,12 +66,6 @@ async function recordedRetrievals(
     runId: kctx.runId,
     replay,
   });
-}
-
-/** The Kindgi user a turn acts for: the one an agent was delegated by, or the actor. */
-function runUserId(principal: Principal | undefined): UserId | undefined {
-  const user = principal?.onBehalfOf ?? principal?.actor;
-  return user?.kind === 'user' ? (user.id as UserId) : undefined;
 }
 
 async function retrieveLive(ctx: TurnContext): Promise<{

@@ -20,7 +20,7 @@ import { type Agent, createAgentRegistry, pinsDigest } from '@kindgi/agents';
 import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
 import type { ProjectId, TenantId, UserId } from '@kindgi/types';
 
-import { createStubAppBindings } from '@kindgi/testing';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type {
