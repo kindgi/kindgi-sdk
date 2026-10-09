@@ -217,6 +217,8 @@ export interface JavaIndexerOptions {
   /** Pins for a reproducible index (`kindgi build`). */
   readonly artifactVersion?: string;
   readonly publishedAt?: string;
+  /** What pack code prints while the indexer loads it (`IndexerRunOptions.onOutput`). */
+  readonly onOutput?: (line: string, stream: 'stdout' | 'stderr') => void;
 }
 
 /**
@@ -238,7 +240,9 @@ export async function runJavaIndexer(opts: JavaIndexerOptions): Promise<IndexRes
     '--json',
   ];
   return indexResultOf(
-    outcomeOfChild(await runChild(opts.code.java, args, javaEnv(opts.code, opts.env))),
+    outcomeOfChild(
+      await runChild(opts.code.java, args, javaEnv(opts.code, opts.env), opts.onOutput),
+    ),
   );
 }
 
@@ -591,6 +595,7 @@ export async function runIndexerReadReal(
       outputPath,
       code,
       env: options.env !== undefined ? await options.env() : {},
+      ...(options.onOutput !== undefined && { onOutput: options.onOutput }),
     });
   }
   return indexResultOf(
