@@ -11,19 +11,9 @@ import type {
 } from '@kindgi/types';
 
 import { KindgiApiError, notYetWired } from '../errors.js';
-import { type ListPage, type WirePage, listPage } from '../list-page.js';
+import type { ListPage } from '../list-page.js';
 import type { Transport } from '../transport.js';
-import type {
-  ApplyProposalResult,
-  DryRunCriterion,
-  DryRunProposalResult,
-  FixProposal,
-  FixProposalStatus,
-  RollbackProposalResult,
-  SubmitReviewProposalResult,
-  Supervisor,
-  SupervisorSpec,
-} from '../types.js';
+import type { DryRunCriterion, Supervisor, SupervisorSpec } from '../types.js';
 
 /**
  * Supervisor resource — observers that watch agents, propose bounded
@@ -31,16 +21,11 @@ import type {
  * Meta-fixes (fixes to a supervisor itself) route to the senior
  * reviewer class.
  *
- * The API exposes the fix-proposal lifecycle as `/v1/proposals/*`
- * (see `packages/api/src/routes/proposals.ts`). Supervisors themselves
- * have no API routes — `define` / `get` / `list` / `versions` /
- * `delete` throw `not-yet-wired`; a deployment supplies supervisors
- * through the `SupervisorBinding` it passes to the API.
- *
- * Sub-namespace `.proposals` covers the fix-proposal lifecycle
- * (`draft → dryRun → submitForReview → apply | rollback | withdraw`).
- * Every `.proposals.*` call takes a `supervisorId`, sent as the
- * `X-Supervisor-Id` header. `reflectReview` has no route.
+ * Supervisors themselves have no API routes — `define` / `get` /
+ * `list` / `versions` / `delete` throw `not-yet-wired`; a deployment
+ * supplies supervisors through the `SupervisorBinding` it passes to the
+ * API. Improvement proposals are `client.proposals`; the old
+ * `.proposals` sub-namespace throws (removed in 0.1.5).
  */
 export interface SupervisorClient {
   /**
@@ -74,119 +59,54 @@ export interface SupervisorClient {
   /** @unwired No `DELETE /v1/supervisors/{id}` route. */
   delete(id: SupervisorId): Promise<void>;
 
-  readonly proposals: ProposalsClient;
+  /** @deprecated Removed in 0.1.5: use `client.proposals`. Removed at 0.2. */
+  readonly proposals: SupervisorProposalsClient;
 }
 
-export interface ProposalsClient {
-  /**
-   * Draft a fix proposal for `(agentId, agentVersion)`. Duplicate
-   * proposals (same `(supervisor, fingerprint)` non-terminal) short-
-   * circuit to the pre-existing row (the response carries
-   * `X-Proposal-Deduped: true`). One proposal per call.
-   *
-   * @wire `POST /v1/proposals` — see
-   *   `@kindgi/api/openapi.json#/paths/~1v1~1proposals/post`. Requires
-   *   `X-Supervisor-Id` header (threaded from the `supervisorId`
-   *   argument).
-   */
-  draft(input: DraftProposalsInput): Promise<FixProposal>;
-
-  /**
-   * Paginated list of proposals scoped to `(tenantId, supervisorId)`.
-   *
-   * @wire `GET /v1/proposals` — see
-   *   `@kindgi/api/openapi.json#/paths/~1v1~1proposals/get`.
-   */
-  list(input: ProposalListInput): Promise<ListPage<FixProposal>>;
-
-  /**
-   * @wire `GET /v1/proposals/{proposalId}` — see
-   *   `@kindgi/api/openapi.json#/paths/~1v1~1proposals~1{proposalId}/get`.
-   */
-  get(supervisorId: SupervisorId, id: FixProposalId): Promise<FixProposal>;
-
-  /**
-   * Dry-run a proposal against a held-out eval dataset.
-   *
-   * @wire `POST /v1/proposals/{proposalId}/dry-run` — see
-   *   `@kindgi/api/openapi.json#/paths/~1v1~1proposals~1{proposalId}~1dry-run/post`.
-   *   Returns `{ proposal, passed }`; `passed: false` is a legitimate
-   *   outcome, not an error.
-   */
-  dryRun(
-    supervisorId: SupervisorId,
-    id: FixProposalId,
-    input: ProposalDryRunInput,
-  ): Promise<DryRunProposalResult>;
-
-  /**
-   * Submit a dry-run-passed proposal for HITL review.
-   *
-   * @wire `POST /v1/proposals/{proposalId}/submit-review` — see
-   *   `@kindgi/api/openapi.json#/paths/~1v1~1proposals~1{proposalId}~1submit-review/post`.
-   *   Returns `{ proposal, approvalId, metaFix }`.
-   */
+/**
+ * @deprecated Removed in 0.1.5: proposals now change data blocks. Every
+ *   method throws a `not-yet-wired` error naming its replacement on
+ *   `client.proposals` (`create`, `evaluate`, `request`, `rollback`,
+ *   `withdraw`, `list`, `get`). Removed at 0.2.
+ */
+export interface SupervisorProposalsClient {
+  /** @deprecated Use `client.proposals.create`. */
+  draft(input: DraftProposalsInput): Promise<never>;
+  /** @deprecated Use `client.proposals.list`. */
+  list(input: ProposalListInput): Promise<never>;
+  /** @deprecated Use `client.proposals.get`. */
+  get(supervisorId: SupervisorId, id: FixProposalId): Promise<never>;
+  /** @deprecated Use `client.proposals.evaluate`. */
+  dryRun(supervisorId: SupervisorId, id: FixProposalId, input: ProposalDryRunInput): Promise<never>;
+  /** @deprecated Use `client.proposals.request`. */
   submitForReview(
     supervisorId: SupervisorId,
     id: FixProposalId,
     input?: SubmitForReviewInput,
-  ): Promise<SubmitReviewProposalResult>;
-
-  /**
-   * @unwired No `POST /v1/proposals/{id}/reflect-review` route. A
-   *   proposal's review outcome follows from deciding its approval
-   *   (`approvals.decide`).
-   */
+  ): Promise<never>;
+  /** @deprecated A proposal's review is its promotion's approval (`client.approvals`). */
   reflectReview(
     supervisorId: SupervisorId,
     id: FixProposalId,
     input: ReflectReviewInput,
-  ): Promise<void>;
-
-  /**
-   * Apply an approved proposal: writes a new agent version and
-   * transitions the proposal to `applied`.
-   *
-   * @wire `POST /v1/proposals/{proposalId}/apply` — see
-   *   `@kindgi/api/openapi.json#/paths/~1v1~1proposals~1{proposalId}~1apply/post`.
-   *   Returns `{ proposalId, appliedVersion, appliedAt }` — applying is
-   *   a registry write, not a run.
-   */
-  apply(
-    supervisorId: SupervisorId,
-    id: FixProposalId,
-    input?: ApplyProposalInput,
-  ): Promise<ApplyProposalResult>;
-
-  /**
-   * Roll back a previously-applied proposal. Unregisters the applied
-   * version; transitions the proposal to `rolled-back`.
-   *
-   * @wire `POST /v1/proposals/{proposalId}/rollback` — see
-   *   `@kindgi/api/openapi.json#/paths/~1v1~1proposals~1{proposalId}~1rollback/post`.
-   *   Requires a non-empty `reason`.
-   */
+  ): Promise<never>;
+  /** @deprecated Use `client.proposals.request`. */
+  apply(supervisorId: SupervisorId, id: FixProposalId, input?: ApplyProposalInput): Promise<never>;
+  /** @deprecated Use `client.proposals.rollback`. */
   rollback(
     supervisorId: SupervisorId,
     id: FixProposalId,
     input: RollbackProposalInput,
-  ): Promise<RollbackProposalResult>;
-
-  /**
-   * Withdraw a non-terminal proposal.
-   *
-   * @wire `POST /v1/proposals/{proposalId}/withdraw` — see
-   *   `@kindgi/api/openapi.json#/paths/~1v1~1proposals~1{proposalId}~1withdraw/post`.
-   *   Requires a non-empty `reason`. Terminal-state calls surface as
-   *   `409 proposal-invalid-state-transition`.
-   */
+  ): Promise<never>;
+  /** @deprecated Use `client.proposals.withdraw`. */
   withdraw(
     supervisorId: SupervisorId,
     id: FixProposalId,
     input: WithdrawProposalInput,
-  ): Promise<FixProposal>;
+  ): Promise<never>;
 }
 
+/** @deprecated Input of the removed `client.supervisor.proposals`; removed at 0.2. */
 export interface DraftProposalsInput {
   readonly supervisorId: SupervisorId;
   readonly agentId: AgentId;
@@ -200,15 +120,17 @@ export interface DraftProposalsInput {
   readonly idempotencyKey?: string;
 }
 
+/** @deprecated Input of the removed `client.supervisor.proposals`; removed at 0.2. */
 export interface ProposalListInput {
   readonly supervisorId: SupervisorId;
   readonly limit?: number;
   readonly cursor?: Cursor;
-  readonly status?: FixProposalStatus;
+  readonly status?: string;
   readonly agentId?: AgentId;
   readonly tier?: 'prompt' | 'retrieval' | 'tool-config';
 }
 
+/** @deprecated Input of the removed `client.supervisor.proposals`; removed at 0.2. */
 export interface ProposalDryRunInput {
   readonly datasetId: DatasetId;
   readonly datasetVersion: string;
@@ -216,6 +138,7 @@ export interface ProposalDryRunInput {
   readonly idempotencyKey?: string;
 }
 
+/** @deprecated Input of the removed `client.supervisor.proposals`; removed at 0.2. */
 export interface SubmitForReviewInput {
   /** Override the auto-selected reviewer role (e.g. escalate to senior manually). */
   readonly requiredRole?: 'standard' | 'senior' | 'admin';
@@ -233,17 +156,20 @@ export interface ReflectReviewInput {
   readonly reviewerComments?: string;
 }
 
+/** @deprecated Input of the removed `client.supervisor.proposals`; removed at 0.2. */
 export interface ApplyProposalInput {
   /** Override the auto-derived patch bump of the baseline. */
   readonly newVersion?: string;
   readonly idempotencyKey?: string;
 }
 
+/** @deprecated Input of the removed `client.supervisor.proposals`; removed at 0.2. */
 export interface RollbackProposalInput {
   readonly reason: string;
   readonly idempotencyKey?: string;
 }
 
+/** @deprecated Input of the removed `client.supervisor.proposals`; removed at 0.2. */
 export interface WithdrawProposalInput {
   readonly reason: string;
   readonly idempotencyKey?: string;
@@ -252,11 +178,19 @@ export interface WithdrawProposalInput {
 const REASON_NO_SUPERVISOR_CRUD =
   'no /v1/supervisors CRUD routes on the API — supervisor persistence is caller-plugged via SupervisorBinding at deployment boot (framework does NOT own supervisor storage; analogous to the identity-directory pattern for users)';
 
-export function makeSupervisorClient(transport: Transport): SupervisorClient {
-  const supervisorHeader = (supervisorId: SupervisorId): Record<string, string> => ({
-    'X-Supervisor-Id': supervisorId as unknown as string,
-  });
+/** A removed `client.supervisor.proposals` method: it throws, naming its replacement. */
+function removed(method: string, replacement: string): () => Promise<never> {
+  return async () => {
+    throw new KindgiApiError(
+      notYetWired(
+        `supervisor.proposals.${method}`,
+        `removed in 0.1.5: proposals now change data blocks; use client.proposals.${replacement} (see client.proposals.create, evaluate and request)`,
+      ),
+    );
+  };
+}
 
+export function makeSupervisorClient(_transport: Transport): SupervisorClient {
   return {
     async define(_spec) {
       throw new KindgiApiError(notYetWired('supervisor.define', REASON_NO_SUPERVISOR_CRUD));
@@ -275,115 +209,15 @@ export function makeSupervisorClient(transport: Transport): SupervisorClient {
     },
 
     proposals: {
-      async draft(input) {
-        return transport.request<FixProposal>({
-          method: 'POST',
-          path: '/v1/proposals',
-          headers: supervisorHeader(input.supervisorId),
-          body: {
-            agentId: input.agentId as unknown as string,
-            agentVersion: input.agentVersion,
-            tier: input.tier,
-            change: input.change,
-            patternRefs: input.patternRefs,
-            hypothesis: input.hypothesis,
-            proposerRuleId: input.proposerRuleId,
-          },
-          ...(input.idempotencyKey !== undefined && { idempotencyKey: input.idempotencyKey }),
-        });
-      },
-
-      async list(input) {
-        const page = await transport.request<WirePage<FixProposal>>({
-          method: 'GET',
-          path: '/v1/proposals',
-          headers: supervisorHeader(input.supervisorId),
-          query: {
-            ...(input.limit !== undefined && { limit: input.limit }),
-            ...(input.cursor !== undefined && { cursor: input.cursor as unknown as string }),
-            ...(input.status !== undefined && { status: input.status }),
-            ...(input.agentId !== undefined && { agentId: input.agentId as unknown as string }),
-            ...(input.tier !== undefined && { tier: input.tier }),
-          },
-        });
-        return listPage(page);
-      },
-
-      async get(supervisorId, id) {
-        return transport.request<FixProposal>({
-          method: 'GET',
-          path: `/v1/proposals/${encodeURIComponent(id as unknown as string)}`,
-          headers: supervisorHeader(supervisorId),
-        });
-      },
-
-      async dryRun(supervisorId, id, input) {
-        return transport.request<DryRunProposalResult>({
-          method: 'POST',
-          path: `/v1/proposals/${encodeURIComponent(id as unknown as string)}/dry-run`,
-          headers: supervisorHeader(supervisorId),
-          body: {
-            datasetId: input.datasetId as unknown as string,
-            datasetVersion: input.datasetVersion,
-            criterion: input.criterion,
-          },
-          ...(input.idempotencyKey !== undefined && { idempotencyKey: input.idempotencyKey }),
-        });
-      },
-
-      async submitForReview(supervisorId, id, input) {
-        const body: Record<string, unknown> = {};
-        if (input?.requiredRole !== undefined) body.requiredRole = input.requiredRole;
-        if (input?.expiresAt !== undefined) body.expiresAt = input.expiresAt as unknown as string;
-        return transport.request<SubmitReviewProposalResult>({
-          method: 'POST',
-          path: `/v1/proposals/${encodeURIComponent(id as unknown as string)}/submit-review`,
-          headers: supervisorHeader(supervisorId),
-          body,
-          ...(input?.idempotencyKey !== undefined && { idempotencyKey: input.idempotencyKey }),
-        });
-      },
-
-      async reflectReview(_supervisorId, _id, _input) {
-        throw new KindgiApiError(
-          notYetWired(
-            'supervisor.proposals.reflectReview',
-            'no POST /v1/proposals/{id}/reflect-review route on the API — review reflection is atomic with POST /v1/approvals/{id}/complete (wire detects the linked proposal + updates status alongside the decision)',
-          ),
-        );
-      },
-
-      async apply(supervisorId, id, input) {
-        const body: Record<string, unknown> = {};
-        if (input?.newVersion !== undefined) body.newVersion = input.newVersion;
-        return transport.request<ApplyProposalResult>({
-          method: 'POST',
-          path: `/v1/proposals/${encodeURIComponent(id as unknown as string)}/apply`,
-          headers: supervisorHeader(supervisorId),
-          body,
-          ...(input?.idempotencyKey !== undefined && { idempotencyKey: input.idempotencyKey }),
-        });
-      },
-
-      async rollback(supervisorId, id, input) {
-        return transport.request<RollbackProposalResult>({
-          method: 'POST',
-          path: `/v1/proposals/${encodeURIComponent(id as unknown as string)}/rollback`,
-          headers: supervisorHeader(supervisorId),
-          body: { reason: input.reason },
-          ...(input.idempotencyKey !== undefined && { idempotencyKey: input.idempotencyKey }),
-        });
-      },
-
-      async withdraw(supervisorId, id, input) {
-        return transport.request<FixProposal>({
-          method: 'POST',
-          path: `/v1/proposals/${encodeURIComponent(id as unknown as string)}/withdraw`,
-          headers: supervisorHeader(supervisorId),
-          body: { reason: input.reason },
-          ...(input.idempotencyKey !== undefined && { idempotencyKey: input.idempotencyKey }),
-        });
-      },
+      draft: removed('draft', 'create'),
+      list: removed('list', 'list'),
+      get: removed('get', 'get'),
+      dryRun: removed('dryRun', 'evaluate'),
+      submitForReview: removed('submitForReview', 'request'),
+      reflectReview: removed('reflectReview', 'request'),
+      apply: removed('apply', 'request'),
+      rollback: removed('rollback', 'rollback'),
+      withdraw: removed('withdraw', 'withdraw'),
     },
   };
 }

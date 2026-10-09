@@ -24,6 +24,12 @@ server_max_instances = 1
 # A fixed egress address, if the app's side allowlists where webhooks come from.
 nat_static_ip = false
 
+# Console sign-in with the API token (off by default since runtime 0.1.5).
+# More sign-in settings: README, "7. Turn on sign-in".
+server_env = {
+  KINDGI_CONSOLE_TOKEN_SIGN_IN = "on"
+}
+
 pack_env = {
   LOG_LEVEL = "info"
 }

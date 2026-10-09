@@ -1,0 +1,246 @@
+---
+title: Erase a person's data
+description: Erase an end user's words on request, from their memory facts, conversations and the runs that served them, and know what it clears, what it can't reach, and how it survives a backup restore.
+sidebar:
+  order: 5.6
+---
+
+When a person asks you to forget them, an **erasure** clears their words from
+the runtime: their [memory facts](../give-an-agent-memory/), their
+conversations, the runs that served them, and what those runs left behind. It
+runs in the background, and only a tenant admin can start one.
+
+## Who an erasure can name
+
+Exactly one of:
+
+- **an app's end user**, the `participantId` your app gives on their
+  conversations and facts (`--participant`);
+- **an `external` subject**, a person facts name in their `subjects` who
+  never talked to an agent (`--external`);
+- **one conversation** (`--conversation`);
+- **one fact**, every revision (`--fact`).
+
+Erasing a Kindgi user (an employee of yours) isn't offered: what they run is
+your organization's work, not their personal data. The API refuses it with a
+`400`.
+
+## Start one and follow it
+
+```sh
+kindgi memory erasures create --participant=end-7
+```
+
+`create` answers at once (`202`) with the erasure, and the work goes on in
+the background:
+
+```json
+{
+  "id": "b8516687-01dc-4855-86ed-816455bf3bf8",
+  "selectorKind": "participant",
+  "selector": {
+    "subject": {
+      "id": "end-7",
+      "kind": "participant"
+    }
+  },
+  "status": "pending",
+  "phase": "seed",
+  "requestedBy": "user:60328bcc-a6e4-4854-9442-fbdcc460838c",
+  "matchable": true,
+  "counts": {},
+  "attempts": 0,
+  "createdAt": "2026-10-09T13:30:39.645Z"
+}
+```
+
+```sh
+kindgi memory erasures get <erasure-id>
+kindgi memory erasures list
+```
+
+`get` shows its `status` (`pending`, `running`, `waiting-on-run`,
+`completed` or `failed`), its `phase` (`seed`, `expand`, `settle`, `erase`,
+then `done`), what each store cleared so far (`counts`), and the last error
+it will retry (`lastError`).
+
+From your app: `memory.erasures.create`, `get`, `list`, `resume`, `export`
+and `replay` in TypeScript; `memory.create_erasure`, `get_erasure`,
+`list_erasures`, `resume_erasure`, `export_erasures` and `replay_erasures` in
+Python. Over HTTP, it's `/v1/memory/erasures`.
+
+### It takes effect at once
+
+From the moment an erasure starts:
+
+- no memory read returns the facts it names, even before they're cleared;
+- a new turn for the person (their conversation, or their `participantId`)
+  is refused, `409 erasure-in-progress`. The CLI prints
+  `Error [erasure-in-progress]: An erasure of this person's words is in progress: no new turn starts for them until it completes.`;
+- writing a fact for them is refused the same way, and so is an agent's
+  `kindgi_remember`.
+
+A turn of theirs that's already running or waiting isn't refused. In the
+`settle` phase, the erasure cancels their waiting turns (the run's history
+says `erased`) and waits for one that's executing, before it clears
+anything. Here it's waiting for a turn that's still executing:
+
+```text
+{
+  "id": "044cd0b9-244e-471d-916c-431edc0dbc42",
+  "selectorKind": "participant",
+  "selector": {
+    "subject": {
+      "id": "end-61",
+      "kind": "participant"
+    }
+  },
+  "status": "running",
+  "phase": "settle",
+  "requestedBy": "user:973bc704-cfcc-49be-8b3d-cdbe61dd51e8",
+  "matchable": true,
+  "counts": {},
+  "attempts": 0,
+  "lastError": "not-yet:run-executing",
+  "createdAt": "2026-10-09T12:45:29.410Z",
+  "startedAt": "2026-10-09T12:45:29.417Z"
+}
+```
+
+And the same erasure, completed. It keeps no trace of whom it erased: the
+`selector` is gone.
+
+```text
+{
+  "id": "044cd0b9-244e-471d-916c-431edc0dbc42",
+  "selectorKind": "participant",
+  "status": "completed",
+  "phase": "done",
+  "requestedBy": "user:973bc704-cfcc-49be-8b3d-cdbe61dd51e8",
+  "matchable": true,
+  "counts": {
+    "kernel_runs": 3,
+    "memory_facts": 1,
+    "hitl_approvals": 1,
+    "kernel_waitpoints": 1,
+    "memory_embeddings": 0,
+    "memory_log_entries": 4,
+    "agent_conversations": 2,
+    "agent_run_snapshots": 3,
+    "conversation_recall": 4,
+    "kernel_runs_cancelled": 1,
+    "memory_fact_revisions": 1,
+    "kernel_journal_entries": 95
+  },
+  "attempts": 0,
+  "createdAt": "2026-10-09T12:45:29.410Z",
+  "startedAt": "2026-10-09T12:45:29.417Z",
+  "completedAt": "2026-10-09T12:45:41.704Z"
+}
+```
+
+The turn it cancelled ends its journal like this, with nothing left of
+what it held:
+
+```sh
+kindgi runs journal <run-id>
+```
+
+```json
+{
+  "data": [
+    …
+    {
+      "sequence": 4,
+      "kind": "wait.suspended",
+      "nodeId": "setup",
+      "timestamp": "2026-10-09T12:45:28.617Z"
+    },
+    {
+      "sequence": 5,
+      "kind": "run.cancelled",
+      "payload": {
+        "reason": "erased"
+      },
+      "timestamp": "2026-10-09T12:45:41.565Z"
+    }
+  ],
+  …
+}
+```
+
+Once it completes, new turns for the person start again.
+
+## What it clears
+
+- **Their facts,** every revision, and their vectors. A fact written from an
+  erased one goes to review: a `memory-fact` approval, reason
+  `derived-from-erased`.
+- **Their conversations,** with their messages and what recall indexed. The
+  conversation then answers `404`.
+- **The runs that served them:** each run's input, output and journal, its
+  snapshots and waitpoints, and what it left in provenance. The run itself
+  stays, with `contentErasedAt`. Judging such a run is refused,
+  `410 run-erased`.
+- **What else held their words:** approvals' text (a tool call's arguments,
+  a reviewer's rationale; the title, status and who decided stay), audit
+  events' text, monitoring observations, a webhook delivery's error message,
+  a model call's error message (the cost stays), and evals' copies. A test
+  set's case copied from an erased run reads `erased: true`, and comparisons
+  leave it out and count it (`summary.erased`).
+
+Audit events of a kind your compliance setup holds (legal hold) keep their
+text; the erasure counts them. A fact under legal hold stops the erasure
+before it starts: `409 legal-hold`, with the held facts in `details.factIds`.
+
+### What it can't reach
+
+- **What the runtime logged** to your log system: keep production at `info`
+  or `warn` ([What logs hold](../../../deploy/logs/#what-logs-hold)).
+- **Signed exports already made**, such as an approval's audit bundle.
+- **A webhook receiver's copy** of a delivery that was already sent.
+- **An improvement pass's drafted prompts and hypotheses.** A draft that
+  quotes eight or more words in a row of a test case is refused, and such
+  quotes are cut from a hypothesis, so they hold a paraphrase at most. The
+  reviewer who approves a proposal is the check.
+
+## Shared flows
+
+A person's turn can sit inside a flow that also serves other people.
+Cancelling it now could end their work too, so the erasure waits for that run
+(status `waiting-on-run`, with `waitingOn` naming it) until a deadline:
+`KINDGI_ERASURE_SHARED_WAIT_MS`, 7 days by default. Then it cancels the run
+and goes on. Erasing a person also clears the records of flows they shared
+with others.
+
+```sh
+kindgi memory erasures resume <erasure-id>           # try again now
+kindgi memory erasures resume <erasure-id> --force   # stop waiting: cancel that run and go on
+```
+
+## After a backup restore
+
+Restoring a backup brings back what an erasure cleared, and rolls the
+erasure ledger back too. So export the ledger off-box regularly, and replay
+it after a restore:
+
+```sh
+kindgi memory erasures export --out=erasure-ledger.json
+```
+
+```json
+{
+  "wrote": "erasure-ledger.json",
+  "erasures": 1
+}
+```
+
+```sh
+kindgi memory erasures replay erasure-ledger.json
+```
+
+The ledger keeps no identifier, only a keyed hash of whom each erasure
+erased. A replay needs the runtime's erasure ledger key to find them again:
+without it, an erasure still runs, but answers with an
+`erasure-unmatchable` warning, and a replay can't match it. Setting up the
+key and the restore: [Erasures and backups](../../../deploy/operate/#erasures-and-backups).

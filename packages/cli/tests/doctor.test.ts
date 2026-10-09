@@ -63,6 +63,9 @@ const TOOLS: Readonly<Record<string, string | null>> = {
   npm: '10.9.2',
   python3: 'Python 3.12.4',
   uv: 'uv 0.5.11 (Homebrew 2024-12-19)',
+  java: 'openjdk version "21.0.6" 2025-01-21 LTS',
+  mvn: 'Apache Maven 3.9.16 (abc)',
+  sbt: '1.12.15',
 };
 
 function seam(
@@ -162,6 +165,9 @@ describe('outside a project', () => {
       'npm',
       'python',
       'uv',
+      'java',
+      'maven',
+      'sbt',
       'docker',
       'registry',
       'console-sign-in',
@@ -170,6 +176,7 @@ describe('outside a project', () => {
       'model-key',
       'runtime',
       'provider',
+      'erasures',
     ]);
     expect(check('console-sign-in')).toMatchObject({ status: 'skip' });
     expect(check('console-sign-in')?.message).toContain('no runtime to ask');
@@ -177,10 +184,13 @@ describe('outside a project', () => {
     expect(check('python')).toMatchObject({ status: 'skip' });
     expect(check('python')?.message).toContain('Python 3.12.4 is installed');
     expect(check('uv')?.message).toContain('uv 0.5.11 is installed');
+    expect(check('java')).toMatchObject({ status: 'skip' });
+    expect(check('java')?.message).toContain('Java 21.0.6 is installed');
+    expect(check('maven')?.message).toContain('Maven 3.9.16 is installed');
     expect(check('registry')).toMatchObject({ status: 'pass' });
     expect(check('project')).toMatchObject({ status: 'skip' });
     expect(check('project')?.fix).toMatch(/^Create one: npx @kindgi\/cli@\S+ init <name> /);
-    for (const id of ['dependencies', 'model-key', 'runtime', 'provider']) {
+    for (const id of ['dependencies', 'model-key', 'runtime', 'provider', 'erasures']) {
       expect(check(id)).toMatchObject({
         status: 'skip',
         message: 'Not checked: it needs a project.',
@@ -293,6 +303,35 @@ describe('a TypeScript project', () => {
     const { out, check } = await doctor({ env: { ANTHROPIC_API_KEY: SECRET } });
     expect(check('model-key')?.message).toContain('ANTHROPIC_API_KEY is set in your shell');
     expect(out.stdout).not.toContain(SECRET);
+  });
+
+  test("erasures: replayable passes; without the AAD key it says so, never failing; an older runtime doesn't say", async () => {
+    await tsProject({ installed: true, rc: RC, envLocal: `ANTHROPIC_API_KEY=${SECRET}\n` });
+    const ready =
+      (erasures?: string): typeof fetch =>
+      async (input) =>
+        String(input).endsWith('/ready')
+          ? new Response(
+              JSON.stringify({ ok: true, ...(erasures !== undefined && { erasures }) }),
+              {
+                status: 200,
+              },
+            )
+          : new Response('{"status":"ok"}', { status: 200 });
+    const replayable = await doctor({
+      fetchImpl: ready('replayable'),
+      providers: [{ id: 'anthropic' }],
+    });
+    expect(replayable.check('erasures')).toMatchObject({ status: 'pass' });
+    const unreplayable = await doctor({
+      fetchImpl: ready('unreplayable'),
+      providers: [{ id: 'anthropic' }],
+    });
+    expect(unreplayable.check('erasures')).toMatchObject({ status: 'skip' });
+    expect(unreplayable.check('erasures')?.message).toContain('no KINDGI_ERASURE_LEDGER_KEY');
+    expect(unreplayable.out.exitCode).toBe(0);
+    const older = await doctor({ fetchImpl: ready(), providers: [{ id: 'anthropic' }] });
+    expect(older.check('erasures')?.message).toContain("this runtime doesn't say");
   });
 
   test('a running runtime with a provider: everything passes, exit 0', async () => {
@@ -731,6 +770,111 @@ describe('a Python project', () => {
     await pyProject();
     const { check } = await doctor({ seam: seam({ tools: { python3: 'Python 3.10.12' } }) });
     expect(check('python')).toMatchObject({ status: 'fail' });
+  });
+});
+
+describe('a Java project (kindgi.config.json)', () => {
+  const POM_WITH_KINDGI = `<project><dependencies><dependency>
+      <groupId>com.kindgi</groupId>
+      <artifactId>kindgi-pack</artifactId>
+      <version>0.1.6</version>
+    </dependency></dependencies></project>`;
+
+  async function javaProject(options: { pom?: string; wrapper?: boolean } = {}): Promise<void> {
+    await writeFile(
+      join(dir, 'kindgi.config.json'),
+      JSON.stringify({ language: 'java', pack: { id: 'acme', version: '1.0.0' } }),
+    );
+    if (options.pom !== undefined) await writeFile(join(dir, 'pom.xml'), options.pom);
+    if (options.wrapper === true) await writeFile(join(dir, 'mvnw'), '#!/bin/sh\n');
+  }
+
+  test('a JDK 17+, the Maven wrapper and kindgi-pack in pom.xml pass', async () => {
+    await javaProject({ pom: POM_WITH_KINDGI, wrapper: true });
+    const { report, check } = await doctor();
+    expect(report?.project).toEqual({ dir, language: 'java' });
+    expect(check('project')?.message).toContain('A Java project (kindgi.config.json)');
+    expect(check('java')).toMatchObject({
+      status: 'pass',
+      message: 'Java 21.0.6 (the java on your PATH).',
+    });
+    expect(check('maven')).toMatchObject({
+      status: 'pass',
+      message: 'The project has the Maven wrapper (mvnw).',
+    });
+    expect(check('dependencies')).toMatchObject({ status: 'pass' });
+    expect(check('python')?.message).toContain('Not needed (a Java project)');
+  });
+
+  test("JAVA_HOME's JDK is the one checked; older than 17 fails, with the fix", async () => {
+    await javaProject({ pom: POM_WITH_KINDGI });
+    const { check } = await doctor({
+      env: { JAVA_HOME: '/opt/jdk-11' },
+      seam: seam({ tools: { '/opt/jdk-11/bin/java': 'openjdk version "11.0.22" 2024-01-16' } }),
+    });
+    expect(check('java')).toMatchObject({ status: 'fail' });
+    expect(check('java')?.message).toBe(
+      'Java 11.0.22 (JAVA_HOME, /opt/jdk-11); a Kindgi Java project needs 17 or later.',
+    );
+    expect(check('java')?.fix).toContain('adoptium.net');
+    expect(check('maven')).toMatchObject({ status: 'pass', message: 'Maven 3.9.16.' });
+  });
+
+  test('no JDK, no Maven, no kindgi-pack: each fails with its fix', async () => {
+    await javaProject({ pom: '<project></project>' });
+    const { check } = await doctor({ seam: seam({ tools: { java: null, mvn: null } }) });
+    expect(check('java')).toMatchObject({ status: 'fail' });
+    expect(check('maven')).toMatchObject({ status: 'fail' });
+    expect(check('maven')?.fix).toContain('mvn wrapper:wrapper');
+    expect(check('dependencies')).toMatchObject({
+      status: 'fail',
+      fix: 'Add the com.kindgi:kindgi-pack dependency to pom.xml.',
+    });
+  });
+});
+
+describe('a Scala project (kindgi.config.json, "language": "scala")', () => {
+  async function scalaProject(build?: string): Promise<void> {
+    await writeFile(
+      join(dir, 'kindgi.config.json'),
+      JSON.stringify({ language: 'scala', pack: { id: 'acme', version: '1.0.0' } }),
+    );
+    if (build !== undefined) await writeFile(join(dir, 'build.sbt'), build);
+  }
+
+  test('a JDK 17+, sbt and kindgi-pack-scala in the build pass; Maven is not needed', async () => {
+    await scalaProject('libraryDependencies ++= Dependencies.all\n');
+    // The dependency may live in project/*.scala.
+    await mkdir(join(dir, 'project'), { recursive: true });
+    await writeFile(
+      join(dir, 'project', 'Dependencies.scala'),
+      'object Dependencies { val all = Seq("com.kindgi" %% "kindgi-pack-scala" % "0.1.6") }\n',
+    );
+    const { report, check } = await doctor();
+    expect(report?.project).toEqual({ dir, language: 'scala' });
+    expect(check('project')?.message).toContain('A Scala project (kindgi.config.json)');
+    expect(check('java')).toMatchObject({ status: 'pass' });
+    expect(check('sbt')).toMatchObject({ status: 'pass' });
+    expect(check('sbt')?.message).toContain('sbt 1.12.15');
+    expect(check('maven')?.message).toContain('Not needed (a Scala project)');
+    expect(check('dependencies')).toMatchObject({ status: 'pass' });
+  });
+
+  test('no sbt and no kindgi-pack-scala: each fails with its fix', async () => {
+    await scalaProject('scalaVersion := "3.3.8"\n');
+    const { check } = await doctor({ seam: seam({ tools: { sbt: null } }) });
+    expect(check('sbt')).toMatchObject({ status: 'fail' });
+    expect(check('sbt')?.fix).toContain('scala-sbt.org');
+    expect(check('dependencies')).toMatchObject({
+      status: 'fail',
+      fix: 'Add "com.kindgi" %% "kindgi-pack-scala" % "<version>" to libraryDependencies in build.sbt.',
+    });
+  });
+
+  test('outside a Scala project, sbt is a skip that says whether it is installed', async () => {
+    const { check } = await doctor();
+    expect(check('sbt')).toMatchObject({ status: 'skip' });
+    expect(check('sbt')?.message).toContain('sbt 1.12.15 is installed, for a Scala project');
   });
 });
 

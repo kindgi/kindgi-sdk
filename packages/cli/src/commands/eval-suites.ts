@@ -3,7 +3,14 @@
 
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
-import { integerFlag, listFlag, requiredPositional, runSdk, stringFlag } from './helpers.js';
+import {
+  integerFlag,
+  listFlag,
+  requiredPositional,
+  runSdk,
+  segmentsFlag,
+  stringFlag,
+} from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
 
 const KINDS = [
@@ -105,7 +112,7 @@ const fromJudgments: LeafCommand = {
   description:
     "Build a test set: publish a `judged` suite version whose cases are copies of an agent's or flow's judged runs, with each item's judgments summed up.",
   usage:
-    'kindgi eval-suites from-judgments <suite-id> --suite-version=<semver> --project=<id> (--agent=<id> [--agent-version=<v>] | --flow=<id>) [--since=<iso>] [--until=<iso>] [--class=<judge-class-id> ...] [--min-judgments=<n>] [--description=<text>]',
+    'kindgi eval-suites from-judgments <suite-id> --suite-version=<semver> --project=<id> (--agent=<id> [--agent-version=<v>] | --flow=<id>) [--since=<iso>] [--until=<iso>] [--class=<judge-class-id> ...] [--min-judgments=<n>] [--segment=<key:value> ...] [--description=<text>]',
   optionSpec: {
     'suite-version': { type: 'string', description: 'The version to publish. Required.' },
     project: { type: 'string', description: 'The project whose judged runs to use. Required.' },
@@ -130,6 +137,12 @@ const fromJudgments: LeafCommand = {
       type: 'string',
       description: 'Leave out runs with fewer counted judgments (default 1).',
     },
+    segment: {
+      type: 'string',
+      multiple: true,
+      description:
+        'Only runs started in this segment or below it, as key:value; repeat it for a path, coarse to fine (`--segment=company:acme --segment=role:cfo`).',
+    },
     description: { type: 'string', description: 'A description for the suite version.' },
   },
   run: (ctx) =>
@@ -151,6 +164,7 @@ const fromJudgments: LeafCommand = {
         throw new UsageError('--min-judgments must be 1 or more');
       }
       const classes = listFlag(ctx, 'class');
+      const segments = segmentsFlag(ctx);
       return await ctx.client().evalSuites.buildFromJudgments(suiteId, {
         version,
         projectId,
@@ -164,6 +178,7 @@ const fromJudgments: LeafCommand = {
         }),
         ...(classes.length > 0 && { judgeClassIds: classes }),
         ...(minJudgments !== undefined && { minJudgments }),
+        ...(segments.length > 0 && { segments: [...segments] }),
       });
     }),
 };

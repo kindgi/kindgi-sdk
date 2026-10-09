@@ -1,0 +1,16 @@
+package {{SCALA_PACKAGE}}.flows
+
+import com.kindgi.pack.scaladsl._
+import {{SCALA_PACKAGE}}.tools.Echo
+
+/** {{PACK_ID}}.echo-flow — runs the pack's echo tool, then ends. */
+object EchoFlow {
+  val flow: Flow = Flow("{{PACK_ID}}.echo-flow")
+    .version("{{PACK_VERSION}}")
+    .set("name", "Echo Flow")
+    .set("description", "Runs the pack's echo tool and terminates.")
+    .toolNode("echo", Echo.tool)
+    .edge("e-start", "$start", "echo")
+    .edge("e-end", "echo", "$end")
+    .build()
+}

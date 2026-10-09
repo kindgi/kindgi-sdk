@@ -10,8 +10,8 @@
  *
  * Per case: the replay runs, the items kept, dropped and new (new ones
  * for experts to judge), the tool calls and what happened to each, and
- * whether the replay diverged (a read with no recording ran live under
- * `reads: 'recorded'`). The summary (`JudgedComparisonSummary`) is what a
+ * whether the replay diverged (a read ran live under `reads: 'recorded'`,
+ * other than a recomputed one). The summary (`JudgedComparisonSummary`) is what a
  * promotion gate reads.
  */
 
@@ -21,13 +21,20 @@ import type { RunId } from '@kindgi/types';
 
 import type { AgentRegistryBinding } from './agent-binding.js';
 import type { EvalCaseStoreBinding, JudgedEvalCase } from './eval-case-binding.js';
-import type { AgentRef, EvalClassWeights, EvalComparison, FlowRef } from './eval-run-binding.js';
+import type {
+  AgentRef,
+  EvalClassWeights,
+  EvalComparison,
+  EvalSample,
+  FlowRef,
+} from './eval-run-binding.js';
 import type {
   DispatchContext,
   DispatchResult,
   EvalRunDispatcher,
   EvalRunSubjectInvokeOutcome,
 } from './eval-run-dispatcher.js';
+import { sampleCases } from './eval-sample.js';
 import {
   type ItemChanges,
   type OutputScore,
@@ -92,6 +99,15 @@ export type ComparisonCandidate =
        * without an agent registry.
        */
       readonly pinsDigest?: string;
+      /**
+       * The blocks whose content the replays replaced
+       * (`comparison.overrides`): it ran no published version, so it
+       * can't gate a promotion.
+       */
+      readonly overrides?: {
+        readonly settings?: readonly string[];
+        readonly prompts?: readonly string[];
+      };
     }
   | {
       readonly kind: 'flow';
@@ -112,7 +128,11 @@ export interface JudgedComparisonSummary {
   /** Where the test set's judgments came from. */
   readonly scope: { readonly projectId?: string };
   readonly cases: number;
-  /** Cases where a read with no recording ran live under `reads: 'recorded'`. */
+  /**
+   * Cases where a read ran live under `reads: 'recorded'`: one with no
+   * recording, or one re-run because the candidate pins other settings
+   * that reads from somewhere. A recomputed call (reads from nowhere) isn't.
+   */
   readonly diverged: number;
   /** Tool calls refused across the cases (what the candidate would have done). */
   readonly refusedWrites: number;
@@ -123,6 +143,11 @@ export interface JudgedComparisonSummary {
    * refused): no output to score, so they're left out of the metrics.
    */
   readonly stopped: number;
+  /**
+   * Cases an erasure cleared (a person's words were erased): left out of
+   * the run and the metrics. Absent: none.
+   */
+  readonly erased?: number;
   readonly reads: EvalComparison['reads'];
   /**
    * Which judgments counted: `restricted-only` weighs a judgment not
@@ -130,6 +155,8 @@ export interface JudgedComparisonSummary {
    * from a summary recorded before T200: `as-recorded`.
    */
   readonly classWeights?: EvalClassWeights;
+  /** The part of the test set it ran (absent: every case). */
+  readonly sample?: EvalSample;
   /** The models that answered the candidate's replays, and how many replays each. */
   readonly sampling: {
     readonly models: readonly {
@@ -176,6 +203,9 @@ export interface JudgedDispatcherOptions {
 /** Cases read per page. */
 const CASE_PAGE = 100;
 
+export const OVERRIDES_NEED_AN_AGENT =
+  "`overrides` replaces an agent version's block content: it needs `agentRef`.";
+
 export const VERSIONS_NEED_A_FLOW =
   '`versions` runs a flow with some of its agents or tools at other versions: it needs `flowRef`.';
 
@@ -200,6 +230,9 @@ function validateComparison(
   if (c.versions !== undefined && 'agentId' in target) {
     return { kind: 'err', message: VERSIONS_NEED_A_FLOW };
   }
+  if (c.overrides !== undefined && !('agentId' in target)) {
+    return { kind: 'err', message: OVERRIDES_NEED_AN_AGENT };
+  }
   if (c.baseline !== 'recorded') {
     return { kind: 'err', message: "Only `baseline: 'recorded'` runs today." };
   }
@@ -212,22 +245,41 @@ export function createJudgedDispatcher(options: JudgedDispatcherOptions): EvalRu
     validate: validateComparison,
     async dispatch(ctx): Promise<DispatchResult> {
       const comparison = ctx.comparison ?? DEFAULT_COMPARISON;
-      const stored = await allCases(options.cases, ctx);
+      const listed = await allCases(options.cases, ctx);
+      // An erased case has nothing left to replay: left out, and counted.
+      // A sample is drawn from the rest.
+      const replayable = listed.filter((c) => c.erased !== true);
+      const erased = listed.length - replayable.length;
+      const stored =
+        comparison.sample === undefined ? replayable : sampleCases(replayable, comparison.sample);
       const all =
         comparison.classWeights === 'restricted-only' ? stored.map(restrictedOnly) : stored;
       if (ctx.dryRun) {
-        return { result: { dryRun: true, cases: all.length, comparison } };
+        return {
+          result: { dryRun: true, cases: all.length, ...(erased > 0 && { erased }), comparison },
+        };
       }
       const results: JudgedCaseResult[] = [];
       const models = new Map<string, { providerId: string; model: string; runs: number }>();
+      // Erased after they were listed: the replay was refused (`run-erased`).
+      const erasedLate = new Set<string>();
       for (const judgedCase of all) {
         if (ctx.abortSignal.aborted) break;
         const result = await runCase(ctx, comparison, judgedCase, models);
+        if (result === 'erased') {
+          erasedLate.add(judgedCase.caseId);
+          continue;
+        }
         results.push(result);
         ctx.onProgress(result as unknown as Readonly<Record<string, unknown>>);
       }
       const pinsDigest = await candidatePins(options.agents, ctx);
-      const summary = summarize(ctx, comparison, all, results, [...models.values()], pinsDigest);
+      const ran = all.filter((c) => !erasedLate.has(c.caseId));
+      const erasedAll = erased + erasedLate.size;
+      const summary = {
+        ...summarize(ctx, comparison, ran, results, [...models.values()], pinsDigest),
+        ...(erasedAll > 0 && { erased: erasedAll }),
+      };
       return {
         result: { summary, perCase: results },
         ...(ctx.abortSignal.aborted && { error: 'cancelled' }),
@@ -299,7 +351,11 @@ class CaseTally {
     this.candidate.push(scoreItems(matched, comparison.k));
     const tools = outcome.replay?.tools ?? [];
     this.refusedWrites = Math.max(this.refusedWrites, refusedCount(outcome));
-    if (comparison.reads === 'recorded' && tools.some((t) => t.source === 'live')) {
+    // A recomputed call read nothing new: only a live read diverges.
+    if (
+      comparison.reads === 'recorded' &&
+      tools.some((t) => t.source === 'live' && t.recomputed !== true)
+    ) {
       this.diverged = true;
     }
     if (outcome.replay?.approval === 'skipped') this.approvalSkipped = true;
@@ -331,7 +387,7 @@ async function runCase(
   comparison: EvalComparison,
   judgedCase: JudgedEvalCase,
   models: Map<string, { providerId: string; model: string; runs: number }>,
-): Promise<JudgedCaseResult> {
+): Promise<JudgedCaseResult | 'erased'> {
   // An agent turn's items are its answer and typed result; a flow run's, its whole output.
   const agentTurn = judgedCase.subject.kind === 'agent';
   const baseline = scoreItems(
@@ -341,6 +397,8 @@ async function runCase(
   const tally = new CaseTally(judgedCase, comparison, agentTurn);
   for (let rep = 0; rep < comparison.repetitions; rep++) {
     const outcome = await invokeCase(ctx, judgedCase);
+    // Its past run was erased meanwhile: nothing left to replay.
+    if (outcome.erased === true) return 'erased';
     if (tally.add(outcome) === 'ran') countModel(models, outcome);
   }
   return tally.result(baseline);
@@ -505,7 +563,7 @@ function summarize(
           : 'failed',
     completedAt: new Date().toISOString(),
     suite: { id: ctx.suite.id, version: ctx.suite.version },
-    candidate: candidateOf(ctx.target, ctx.comparison?.versions, pinsDigest),
+    candidate: candidateOf(ctx.target, ctx.comparison, pinsDigest),
     baseline: {
       kind: 'recorded',
       versions: [...versions.values()].map(
@@ -523,6 +581,7 @@ function summarize(
     stopped,
     reads: comparison.reads,
     classWeights: comparison.classWeights ?? 'as-recorded',
+    ...(comparison.sample !== undefined && { sample: comparison.sample }),
     sampling: { models },
     repetitions: comparison.repetitions,
     metrics: {
@@ -579,15 +638,23 @@ async function candidatePins(
 
 function candidateOf(
   target: AgentRef | FlowRef,
-  versions: FlowVersionOverrides | undefined,
+  comparison: EvalComparison | undefined,
   pinsDigest?: string,
 ): ComparisonCandidate {
+  const versions = comparison?.versions;
+  const settings = Object.keys(comparison?.overrides?.settings ?? {}).sort();
+  const prompts = Object.keys(comparison?.overrides?.prompts ?? {}).sort();
+  const overrides = {
+    ...(settings.length > 0 && { settings }),
+    ...(prompts.length > 0 && { prompts }),
+  };
   return 'agentId' in target
     ? {
         kind: 'agent',
         agentId: target.agentId as unknown as string,
         version: target.version ?? '',
         ...(pinsDigest !== undefined && { pinsDigest }),
+        ...(Object.keys(overrides).length > 0 && { overrides }),
       }
     : {
         kind: 'flow',

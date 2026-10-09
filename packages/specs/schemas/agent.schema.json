@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://kindgi.com/schemas/v1/agent.schema.json",
-  "$comment": "schema-version: 1.4.0",
+  "$comment": "schema-version: 1.6.0",
   "title": "Agent",
   "description": "An agent definition. Declarative composition of instructions + capabilities + tools + memory retrieval + guardrails + conversation policy. The same definition is durable across restarts and versioned like flows — provenance references agents by (id, version).",
   "type": "object",
@@ -71,7 +71,7 @@
     "retrieval": {
       "type": "array",
       "items": { "$ref": "#/$defs/RetrievalIntent" },
-      "description": "Fact-retrieval intents run before every turn to ground the model's context. Each sees only what the run may (its project and org, the user it acts for, its conversation and that conversation's end user, and tenant-wide facts); retrieved facts reach the model as a labelled data block, never as instructions. Schema-version 1.4.0 adds the `same-user` scope and `memory`."
+      "description": "Fact-retrieval intents run before every turn to ground the model's context. Each sees only what the run may (its project and org, the user it acts for, its conversation and that conversation's end user, and tenant-wide facts); retrieved facts reach the model as a labelled data block, never as instructions. Schema-version 1.4.0 adds the `same-user` scope and `memory`; 1.5.0 adds `memory.remember`; 1.6.0 adds `source: conversations` and `same-segment`."
     },
     "memory": {
       "type": "object",
@@ -82,6 +82,31 @@
           "type": "array",
           "items": { "type": "string", "minLength": 1 },
           "description": "Fact types that are instructions for this agent: a retrieved fact of one of these types that a person verified goes into the system message under 'Policies (verified)'. Default: none, every retrieved fact is data."
+        },
+        "remember": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["types", "scope"],
+          "description": "Lets the agent remember: its turns offer the built-in tool `kindgi_remember` (built-in tools are `kindgi_<verb>`; an agent can't list one in `tools`). The model picks the type, the text (up to 2,000 characters), an optional slot `key` and when it stops being true; the scope comes from here and the run. Every remembered fact is `unverified`, attributed to the agent version and the call that wrote it, and expires after `keepDays` unless a person verifies it. A person approves it before any read sees it when the scope is wider than one person (`same-project`, `tenant`) or the text reads like an instruction.",
+          "properties": {
+            "types": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string", "minLength": 1 },
+              "description": "The fact types it may write."
+            },
+            "scope": {
+              "type": "string",
+              "enum": ["same-user", "same-conversation", "same-project", "tenant"],
+              "description": "Where its facts go: the conversation's end user (else the user the run acts for), the conversation, the run's project, or the tenant. Each but `tenant` includes the run's project."
+            },
+            "keepDays": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 3650,
+              "description": "Days an unverified fact is kept. Default 30."
+            }
+          }
         }
       }
     },
@@ -219,28 +244,56 @@
     },
     "RetrievalIntent": {
       "type": "object",
-      "required": ["types", "scope"],
+      "required": ["scope"],
       "additionalProperties": false,
       "properties": {
+        "source": {
+          "type": "string",
+          "enum": ["facts", "conversations"],
+          "description": "What it reads: facts (the default), or messages of this agent's earlier conversations, quoted in the turn's `<memory>` block as earlier conversation, never as turns. Schema-version 1.6.0."
+        },
         "types": {
           "type": "array",
           "minItems": 1,
-          "items": { "type": "string", "minLength": 1 }
+          "items": { "type": "string", "minLength": 1 },
+          "description": "The fact types it retrieves: required for facts, absent for conversations."
+        },
+        "roles": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string", "enum": ["user", "agent"] },
+          "description": "For conversations: whose messages it recalls. Default [\"user\"], the people's own words. Adding \"agent\" recalls the agent's earlier answers too, which can carry its mistakes: they are quoted as unverified earlier answers, and publishing warns."
         },
         "scope": {
           "type": "string",
-          "enum": ["same-conversation", "same-user", "same-project", "tenant"],
-          "description": "What the intent selects within what the run may see: this conversation's facts; this run's end user's and user's; the run's project's (none without a project); or every fact of the type it may see."
+          "enum": ["same-conversation", "same-user", "same-segment", "same-project", "tenant"],
+          "description": "What the intent selects within what the run may see. Facts: this conversation's; this run's end user's and user's; the run's project's (none without a project); or every fact of the type it may see (`tenant`). Conversations: this person's other conversations with the agent (`same-user`); this conversation's messages older than the history window (`same-conversation`); conversations in the run's segment path (`same-segment`) or its project (`same-project`), whoever had them: those two quote other people's conversations. `same-segment` is for conversations only, `tenant` for facts only."
         },
         "limit": {
           "type": "integer",
           "minimum": 1,
-          "description": "Cap on facts per turn. Default 10."
+          "description": "Cap on facts (or recalled messages) per turn. Default 10."
         },
         "mode": {
           "type": "string",
           "enum": ["keyword", "semantic", "both"],
-          "description": "With the user's message as the query: full-text (`keyword`), by meaning (`semantic`, which fails the turn with `semantic-unavailable` on a runtime without embeddings), or both fused by rank (without embeddings, the keyword half). Absent: the newest facts, no query."
+          "description": "With the user's message as the query: full-text (`keyword`), by meaning (`semantic`, which fails the turn with `semantic-unavailable` on a runtime without embeddings), or both fused by rank (without embeddings, the keyword half). Absent: the newest facts (or messages), no query."
+        }
+      },
+      "if": { "properties": { "source": { "const": "conversations" } }, "required": ["source"] },
+      "then": {
+        "properties": {
+          "types": false,
+          "scope": { "enum": ["same-user", "same-conversation", "same-segment", "same-project"] }
+        }
+      },
+      "else": {
+        "required": ["types"],
+        "properties": {
+          "types": true,
+          "roles": false,
+          "scope": { "enum": ["same-conversation", "same-user", "same-project", "tenant"] }
         }
       }
     },

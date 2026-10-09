@@ -14,6 +14,7 @@ import type { ConversationMessage } from '../types.js';
 
 import type { TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
+import { readHistory } from './history.js';
 
 /**
  * Compose the initial `modelMessages` array the loop's first iteration
@@ -48,25 +49,12 @@ export function buildBuildInitialMessagesHandler(ctx: TurnContext): NodeHandler 
     // the closure by render-prompt through the local field `renderedPrompt`).
     void input;
 
-    const historyLimit = ctx.input.agent.conversationPolicy?.historyLimit;
-    const messages = await ctx.bindings.conversationBinding.readMessages({
-      tenantId: ctx.input.tenantId,
-      conversationId: ctx.input.conversationId,
-    });
-    if (messages.kind === 'err') throwAgentTurnFailure(messages.error);
-    // The user message just appended is included in the history read;
-    // drop it because the composer adds it explicitly as the last
-    // element.
-    const historyRaw = messages.value.filter((m) => m.sequence !== ctx.userMessage?.sequence);
-    const history =
-      historyLimit === undefined
-        ? historyRaw
-        : historyRaw.slice(Math.max(0, historyRaw.length - historyLimit));
+    const history = await readHistory(ctx);
 
     const agent = ctx.input.agent;
     const policies = ctx.retrieved.filter((r) => isPolicyFact(agent, r));
     const data = ctx.retrieved.filter((r) => !isPolicyFact(agent, r));
-    const memoryBlock = formatRetrievedForPrompt(data);
+    const memoryBlock = formatRetrievedForPrompt(data, ctx.recalled ?? []);
     const memoryMessage: ModelMessage | undefined =
       memoryBlock.length > 0 ? { role: 'user', content: memoryBlock } : undefined;
 

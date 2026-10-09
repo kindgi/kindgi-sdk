@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import { writeFile } from 'node:fs/promises';
+
 import type {
   FactsClient,
   MemoryClient,
+  MemoryErasuresClient,
   SearchInput,
   SupersedeFactInput,
   WriteFactInput,
@@ -330,9 +333,182 @@ const factsGroup: Command = {
   ],
 };
 
+// ---------- erasures ----------
+
+type ErasurePage = Awaited<ReturnType<MemoryErasuresClient['list']>>;
+type Erasure = ErasurePage['data'][number];
+type LedgerEntry = Awaited<ReturnType<MemoryErasuresClient['export']>>[number];
+
+/** `memory erasures list --table`. */
+const ERASURES_TABLE: TableSpec<ErasurePage, Erasure> = {
+  rows: (page) => page.data,
+  columns: [
+    { header: 'ID', get: (e) => e.id },
+    { header: 'KIND', get: (e) => e.selectorKind },
+    { header: 'STATUS', get: (e) => (e.status === 'running' ? `running (${e.phase})` : e.status) },
+    { header: 'CREATED', get: (e) => e.createdAt },
+    { header: 'COMPLETED', get: (e) => e.completedAt ?? '' },
+    { header: 'REPLAYABLE', get: (e) => (e.matchable ? 'yes' : 'no') },
+    { header: 'BY', get: (e) => e.requestedBy },
+  ],
+};
+
+const SELECTOR_FLAGS = ['participant', 'external', 'fact', 'conversation'] as const;
+
+const erasuresCreate: LeafCommand = {
+  kind: 'leaf',
+  name: 'create',
+  description:
+    "Erase a person's words: their facts, conversations, the runs that served them, and what those left in provenance. Runs in the background; a tenant admin only.",
+  usage:
+    'kindgi memory erasures create (--participant=<id> | --external=<id> | --fact=<fact-id> | --conversation=<conversation-id>)',
+  optionSpec: {
+    participant: {
+      type: 'string',
+      description: "An app's end user (the `participantId` it gave).",
+    },
+    external: { type: 'string', description: 'A person facts name as an `external` subject.' },
+    fact: { type: 'string', description: 'One fact, every revision.' },
+    conversation: { type: 'string', description: 'One conversation.' },
+  },
+  run: (ctx) =>
+    runSdk(ctx, 'memory erasures create', async () => {
+      const given = SELECTOR_FLAGS.filter((f) => stringFlag(ctx, f) !== undefined);
+      if (given.length !== 1) {
+        throw new Error('Name exactly one of --participant, --external, --fact or --conversation');
+      }
+      const flag = given[0] as (typeof SELECTOR_FLAGS)[number];
+      const id = stringFlag(ctx, flag) as string;
+      return await ctx
+        .client()
+        .memory.erasures.create(
+          flag === 'fact'
+            ? { factId: id }
+            : flag === 'conversation'
+              ? { conversationId: id }
+              : { subject: { kind: flag, id } },
+        );
+    }),
+};
+
+const erasuresGet: LeafCommand = {
+  kind: 'leaf',
+  name: 'get',
+  description: 'An erasure: its status, phase, and what each store cleared.',
+  usage: 'kindgi memory erasures get <erasure-id>',
+  run: (ctx) =>
+    runSdk(ctx, 'memory erasures get', async () =>
+      ctx.client().memory.erasures.get(requiredPositional(ctx, 0, '<erasure-id>')),
+    ),
+};
+
+const erasuresList: LeafCommand = {
+  kind: 'leaf',
+  name: 'list',
+  description: 'Erasures, newest first.',
+  usage: 'kindgi memory erasures list [--limit=<n>] [--cursor=<c>]',
+  optionSpec: {
+    limit: { type: 'string', description: 'The most to return (default 25, at most 100).' },
+    cursor: {
+      type: 'string',
+      description: "Resume after this cursor (the previous page's `nextCursor`).",
+    },
+  },
+  run: (ctx) =>
+    runSdk(
+      ctx,
+      'memory erasures list',
+      async () => {
+        const limit = integerFlag(ctx, 'limit');
+        const cursor = stringFlag(ctx, 'cursor');
+        return await ctx.client().memory.erasures.list({
+          ...(limit !== undefined && { limit }),
+          ...(cursor !== undefined && { cursor }),
+        });
+      },
+      ERASURES_TABLE,
+    ),
+};
+
+const erasuresExport: LeafCommand = {
+  kind: 'leaf',
+  name: 'export',
+  description:
+    'The erasure ledger, content-free, to keep off-box: restoring a backup rolls it back too, and `replay` takes it.',
+  usage: 'kindgi memory erasures export [--out=<file>]',
+  optionSpec: {
+    out: { type: 'string', description: 'Write it to this file (else, to stdout).' },
+  },
+  run: (ctx) =>
+    runSdk(ctx, 'memory erasures export', async () => {
+      const erasures = await ctx.client().memory.erasures.export();
+      const out = stringFlag(ctx, 'out');
+      if (out === undefined) return { erasures };
+      await writeFile(out, `${JSON.stringify({ erasures }, null, 2)}\n`, 'utf8');
+      return { wrote: out, erasures: erasures.length };
+    }),
+};
+
+const erasuresReplay: LeafCommand = {
+  kind: 'leaf',
+  name: 'replay',
+  description:
+    'After restoring a backup: put the exported ledger back, and erase again whoever the tenant holds again.',
+  usage: 'kindgi memory erasures replay <export-file>',
+  run: (ctx) =>
+    runSdk(ctx, 'memory erasures replay', async () => {
+      const file = requiredPositional(ctx, 0, '<export-file>');
+      const read = (await readJsonInput(`@${file}`)) as
+        | { readonly erasures?: unknown; readonly data?: unknown }
+        | unknown[];
+      const erasures = Array.isArray(read) ? read : (read.erasures ?? read.data);
+      if (!Array.isArray(erasures)) {
+        throw new Error(`${file} isn't an export: expected {"erasures": [...]}`);
+      }
+      return await ctx.client().memory.erasures.replay(erasures as LedgerEntry[]);
+    }),
+};
+
+const erasuresResume: LeafCommand = {
+  kind: 'leaf',
+  name: 'resume',
+  description:
+    'Try an erasure again now; --force stops one waiting on a run in a flow that serves other people (that run is cancelled).',
+  usage: 'kindgi memory erasures resume <erasure-id> [--force]',
+  optionSpec: {
+    force: {
+      type: 'boolean',
+      description:
+        "Don't wait for the shared flow's run: cancel it and go on (it would otherwise wait until its deadline).",
+    },
+  },
+  run: (ctx) =>
+    runSdk(ctx, 'memory erasures resume', async () =>
+      ctx.client().memory.erasures.resume(requiredPositional(ctx, 0, '<erasure-id>'), {
+        ...(ctx.options.force === true && { force: true }),
+      }),
+    ),
+};
+
+const erasuresGroup: Command = {
+  kind: 'group',
+  name: 'erasures',
+  description:
+    "Erasing a person's words: create, get, list, resume, export, replay (a tenant admin only).",
+  subcommands: [
+    erasuresCreate,
+    erasuresGet,
+    erasuresList,
+    erasuresResume,
+    erasuresExport,
+    erasuresReplay,
+  ],
+};
+
 export const memoryCommand: Command = {
   kind: 'group',
   name: 'memory',
-  description: 'Memory: the facts agents remember, by type and scope.',
-  subcommands: [factsGroup],
+  description:
+    "Memory: the facts agents remember, by type and scope, and erasing a person's words.",
+  subcommands: [factsGroup, erasuresGroup],
 };

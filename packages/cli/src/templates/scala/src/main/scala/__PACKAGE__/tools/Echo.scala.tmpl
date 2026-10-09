@@ -1,0 +1,16 @@
+package {{SCALA_PACKAGE}}.tools
+
+import com.kindgi.pack.scaladsl._
+import jakarta.validation.constraints.{PositiveOrZero, Size}
+import java.time.Instant
+
+/** {{PACK_ID}}.echo — echoes the message back with a UTC timestamp and its length. */
+object Echo {
+  final case class Input(@Size(min = 1, max = 500) message: String)
+  final case class Output(echo: String, echoedAt: Instant, @PositiveOrZero characterCount: Int)
+
+  val tool: Tool[Input, Output] = Tool[Input, Output]("{{PACK_ID}}.echo")
+    .description("Echoes the caller-provided message with a UTC timestamp and character count.")
+    .readOnly
+    .handler((in, _) => Output(in.message, Instant.now(), in.message.length))
+}

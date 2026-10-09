@@ -106,6 +106,21 @@ speaks the same pack protocol as the Node one, and both pass
 Kindgi CLI for Python developers: `@kindgi/cli` with Node from a wheel, so
 `uv run kindgi dev` needs no Node install.
 
+## Java
+
+[`kindgi-client`](./sdks/java) (Java 17+, preview; not on Maven Central yet) — the
+Kindgi API from a Java app: generated from the OpenAPI document at build time, with
+typed models and errors, paging, streaming and retries. It works beside an app's
+own Jackson, Spring Boot 3 and 4 included.
+
+[`kindgi-pack`](./sdks/java/kindgi-pack) (Java 17+, preview) — a pack's tools and
+guardrail checks in Java: records for schemas, the indexer, and a pack service that
+passes the same conformance suite as the TypeScript and Python ones.
+
+[`kindgi-pack-scala`](./sdks/scala) (Scala 2.13 and 3, preview) — the same in Scala:
+case classes for schemas, `Future`s for async work, on kindgi-pack's indexer and
+pack service.
+
 ## Specs
 
 [`@kindgi/specs`](./packages/specs) holds the canonical JSON Schemas
