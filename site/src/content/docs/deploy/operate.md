@@ -373,6 +373,15 @@ and what's different after:
   config fails every turn it checks; unregister it, and register it again
   with a config that fits
   ([Configure a guardrail](../../guides/guardrails/configure-a-guardrail/)).
+- **A halting guardrail whose check can't run now stops the turn; it used to
+  let it through.** That's a check that can't run, for any reason: it isn't
+  registered, the check refuses its config, it throws, its pack's service
+  can't be reached, or an `llm-judge` guardrail's judge can't be routed to a
+  model. With `halt`, the turn fails with `guardrail-violation`, and
+  `evaluationErrors` says which guardrail and why. With any other action, the
+  turn goes on; in 0.1.4 a check that threw failed the turn whatever the
+  action. Either way, the error is in the run's provenance and journal
+  ([When the check can't run](../../guides/guardrails/halt-or-record/#when-the-check-cant-run)).
 - **The runtime signs exports** (audit bundles, provenance, compliance
   evidence) with the deployment's export key: set
   `KINDGI_EXPORT_SIGNING_KEY_PATH`, `KINDGI_EXPORT_SIGNING_KEY` or
@@ -470,6 +479,13 @@ and what's different after:
   `http://localhost`, where Chrome and Firefox do. Open the local console in
   Chrome or Firefox. A fix is planned. A deployment's console needs `https`
   in every browser (above).
+
+- **Built-in guardrail checks don't run yet.** A guardrail that names one of
+  the built-in checks in `@kindgi/guardrails` (`must-cite`,
+  `never-call-tool`, …) has no check to run, so under `halt` it stops every
+  turn it checks (above). Write your own check instead
+  ([Write a guardrail](../../guides/guardrails/write-a-guardrail/)). A fix is
+  planned.
 
 ### Runtime 0.1.4.2
 

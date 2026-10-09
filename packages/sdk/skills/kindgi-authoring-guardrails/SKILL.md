@@ -15,7 +15,7 @@ description: >
   kindgi-authoring-agents.
 type: core
 library: "@kindgi/sdk"
-version: "0.3.6"
+version: "0.3.7"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -52,10 +52,16 @@ before the response is stored.
   the check's `config`, and `action` / `severity` / `scope`. Its type is
   `Guardrail` from `@kindgi/guardrails`. One check can back many
   guardrails with different configs.
-- **Built-in checks** (`BUILT_IN_CHECK_IDS` in `@kindgi/guardrails`):
-  `must-cite`, `never-call-tool`, `max-tool-calls`, `output-matches`,
-  `tool-order`, `required-substring`, `forbidden-substring`. A guardrail
-  can name one of these instead of shipping its own check.
+- **Built-in checks don't run in the runtime yet.** `@kindgi/guardrails`
+  lists some (`BUILT_IN_CHECK_IDS`: `must-cite`, `never-call-tool`,
+  `max-tool-calls`, `output-matches`, `tool-order`, `required-substring`,
+  `forbidden-substring`), but the runtime doesn't run them for a pack's
+  agents. Ship your own check with `defineCheck`, as in the pack file
+  below, even for a rule one of them covers. A guardrail that names one
+  has no check to run, and a check that can't run, for any reason, never
+  counts as passed: with `halt`, the turn is blocked with
+  `guardrail-violation`, and `evaluationErrors` says why; with any other
+  action, the turn goes on and the error is recorded.
 
 `@kindgi/sdk` exports `defineCheck` but no helper for the guardrail
 itself: a pack file default-exports the declaration as a plain object.
@@ -133,7 +139,7 @@ import type { GuardrailId } from '@kindgi/sdk/types';
 
 import { check } from './index.js';
 
-const checks = createCheckRegistry([check]); // built-in checks are included
+const checks = createCheckRegistry([check]); // also holds the built-ins: don't name one (above)
 const defined = defineGuardrail(
   {
     id: 'acme.no-fabricated-quotes' as GuardrailId,
@@ -168,8 +174,9 @@ available to the runtime that evaluates it.
   - `'external'` — evaluated outside the engine. The built-in
     `external` strategy returns an `invalid-guardrail` error; a caller
     that wants external evaluation registers its own strategy.
-- **`check`** — the id of a registered check (built-in, or one built
-  with `defineCheck`). In a pack file it may also be the check object.
+- **`check`** — the id of a registered check: one built with
+  `defineCheck` (the built-in ids don't run in the runtime yet). In a
+  pack file it may also be the check object.
 - **`config`** — the check's parameters, validated against the check's
   `configSchema` by `defineGuardrail`. In a pack, the declaration's
   `config` goes into the index and the check runs with it; without one
