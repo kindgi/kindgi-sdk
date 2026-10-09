@@ -590,6 +590,15 @@ export type {
   CostRecordPage,
   CostTokenTotals,
 } from './cost-binding.js';
+export {
+  CURSOR_TTL_MS,
+  createAeadCursorSealer,
+  type CursorContext,
+  type CursorKey,
+  type CursorSealer,
+  type OpenedCursor,
+} from './cursor-seal.js';
+export { sealedCursors } from './middleware/sealed-cursors.js';
 export type {
   ToolGetInput,
   ToolGetVersionInput,

@@ -31,6 +31,7 @@ import type { AgentRegistryBinding } from './agent-binding.js';
 import type { BlockRegistryBinding } from './block-binding.js';
 import type { CapabilityRegistryBinding } from './capability-binding.js';
 import type { CostBinding } from './cost-binding.js';
+import type { CursorSealer } from './cursor-seal.js';
 import type { DeploymentBinding } from './deployment-binding.js';
 import type { EnvBinding } from './env-binding.js';
 import type { WireErrorBody } from './errors.js';
@@ -74,6 +75,7 @@ import { PROJECT_REF_ROUTES, refuseBadProjectId } from './middleware/project-ref
 import { publicRunCorsMiddleware, publicRunRouteMatcher } from './middleware/public-run-routes.js';
 import { requestIdMiddleware } from './middleware/request-id.js';
 import { requestLogMiddleware } from './middleware/request-log.js';
+import { sealedCursors } from './middleware/sealed-cursors.js';
 import { sigv4Middleware } from './middleware/sigv4.js';
 import { type GenerateOptions, generateOpenApiDocument } from './openapi/generate.js';
 import type { PersonGrantsBinding } from './person-grants-binding.js';
@@ -295,6 +297,14 @@ export interface CreateAppInput {
    * store (Postgres, Redis, etc.).
    */
   readonly idempotencyStore?: IdempotencyStore;
+  /**
+   * Optional. Seals every list's page cursors (`createAeadCursorSealer`
+   * with the runtime's pagination key): a cursor then shows nothing of the
+   * row it points after, and opens only for the tenant, caller, list and
+   * filters it was handed out for, for a day. Absent: cursors are the
+   * bindings' own, readable positions.
+   */
+  readonly cursorSealer?: CursorSealer;
   /**
    * Optional. When present, mounts the API-key routes: `POST /v1/tokens`
    * (mint), `GET /v1/tokens` (list), `GET /v1/tokens/:tokenId` and
@@ -1116,6 +1126,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   });
   // A key limited to a project names no other one.
   v1.use('*', refuseOtherProjectForKey());
+  // Page cursors are sealed at the edge, for every list.
+  if (input.cursorSealer !== undefined) v1.use('*', sealedCursors(input.cursorSealer));
   const authorizer: Authorizer | undefined =
     input.authz !== undefined ? createAuthorizer(input.authz.authzCheckBinding) : undefined;
 

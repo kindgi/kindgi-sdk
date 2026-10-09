@@ -331,9 +331,17 @@ export function approvalsRouter(
     }
     const page = visible.slice(0, limit);
     const hasMore = visible.length > limit || listed.value.nextCursor !== undefined;
-    const last = page[page.length - 1];
-    // Continue after the last approval shown: at its exact `createdAt` when
-    // the binding gives it, else (a binding from before) at its time.
+    // Continue after the last approval shown. With sealed cursors, a page
+    // that holds every approval of the window the caller may read continues
+    // after the last one fetched instead: past those it can't read (so a
+    // window of them never ends the paging), which the sealed cursor won't
+    // show. At its exact `createdAt` when the binding gives it, else (a
+    // binding from before) at its time.
+    const fetched = listed.value.approvals;
+    const last =
+      c.get('cursorsSealed') === true && visible.length <= limit
+        ? fetched[fetched.length - 1]
+        : page[page.length - 1];
     const exact = last !== undefined ? listed.value.exactCreatedAt?.[last.id] : undefined;
     const nextCursor =
       !hasMore || last === undefined
