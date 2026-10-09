@@ -50,6 +50,9 @@ offers the ways in the deployment has ([Turn on sign-in](../../deploy/sign-in/))
 - **Only people already added to a workspace get in,** by an email their
   provider has proved. Nobody is created by signing in, and roles stay
   Kindgi's: an identity provider says who someone is, not what they may do.
+- **Google and Microsoft speak for a work email only through the company's
+  own accounts,** and a workspace with its own identity provider signs its
+  domain's people in with it alone.
 - **The buttons a person sees grant nothing.** Which "Continue with" buttons
   appear depends on the email's domain alone; access is decided after the
   provider signs them in.

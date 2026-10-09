@@ -7,7 +7,10 @@ sidebar:
 
 Signing in to the console starts a **session**: a cookie the browser sends
 with each request, `__Host-kindgi_session`. It's `HttpOnly`, so the page's
-own scripts can't read it, and the runtime stores only its hash.
+own scripts can't read it, and the runtime stores only its hash. Signing in
+also uses two short-lived cookies: `__Host-kindgi_pick`, while you choose a
+workspace, and `__Host-kindgi_link_asked`, for a day after you ask for a
+sign-in link.
 
 ## How long it lasts
 

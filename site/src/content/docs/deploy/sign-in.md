@@ -169,10 +169,21 @@ nothing. Access is decided after the provider signs them in:
 
 1. **The provider proves the email:** Google's verified email, with its ID
    token checked; a verified GitHub email; Microsoft's `xms_edov`.
-2. **That email belongs to someone already added to a workspace** this
+2. **Google and Microsoft speak for a work email only through the company's
+   own accounts.** Google: Gmail, or a Google Workspace account of that
+   domain. Microsoft: a work account, or a personal account only on
+   outlook.com, hotmail.com, live.com or msn.com. A personal account made on
+   a work address is refused (`email-not-managed`).
+3. **A workspace with its own identity provider signs its people in with
+   it.** On a domain verified to such a workspace, sign-in offers and accepts
+   only that provider and the Google or Microsoft accounts the domain
+   manages: GitHub and the emailed link are refused
+   (`identity-provider-required`, audited). Guests on personal domains, such
+   as gmail.com, keep every way in.
+4. **That email belongs to someone already added to a workspace** this
    runtime serves, and not removed. Several workspaces: they choose one.
    None: refused (`not-invited`).
-3. **The first sign-in links the provider account to the person.** A
+5. **The first sign-in links the provider account to the person.** A
    different account with the same email is refused afterwards
    (`account-mismatch`), so an address that later moves to someone else
    can't take the person over.
@@ -228,8 +239,11 @@ If you didn't ask to sign in, ignore this email: nobody can sign in without the 
 ```
 
 The page always answers the same, for any email, so it can't be used to
-find out who has an account. Each address gets at most 10 links a day
-(`KINDGI_AUTH_EMAIL_LINK_DAILY_CAP`), and each client 3 requests a minute.
+find out who has an account. An address gets at most one link a minute and
+three per 15 minutes, with a backstop of 20 a day per address and client
+network (`KINDGI_AUTH_EMAIL_LINK_DAILY_CAP`). The browser that already got a
+link for an address isn't held by the 15 minutes, so someone else's
+requests can't keep that person out. Each client may ask 3 times a minute.
 
 **A captcha in front:** [Cloudflare Turnstile](https://developers.cloudflare.com/turnstile/).
 Add a widget (mode Managed) whose hostname is the console's, and give the

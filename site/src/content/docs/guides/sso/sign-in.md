@@ -21,10 +21,8 @@ how to sign in:**
 - **Continue with GitHub**, when the deployment has a GitHub app;
 - **Email me a sign-in link**, when the deployment sends them.
 
-For `pat@acme-live.example`, on a domain set up for its workspace's own
-identity provider and with no known mail host:
-
-![The sign-in page for pat@acme-live.example: Sign in with Acme Live, then Continue with Google, Microsoft and GitHub, then Email me a sign-in link](../../../../assets/sso/sign-in-verified-domain.png)
+When your workspace has its own identity provider, it's the way in for your
+domain: GitHub and the emailed link aren't offered there.
 
 For a Gmail address, Google and GitHub:
 
@@ -51,6 +49,8 @@ once, for ten minutes. After that:
 
 | The page says | What it means |
 |---|---|
+| Use your work account | Google or Microsoft confirm a work email only through your company's own account. Sign in with that, or another way your workspace offers. |
+| Use your company's sign-in | Your workspace signs its people in with its own identity provider. Enter your email again and choose it. |
 | You haven't been added here yet | Your sign-in worked, but nobody has added you to this workspace with this email. Ask an admin. |
 | Your email isn't verified | Your identity provider says your email isn't verified. Verify it there. |
 | No email came back | Your identity provider didn't send your email address. Your admin sets it to send the `email` claim or attribute. |
