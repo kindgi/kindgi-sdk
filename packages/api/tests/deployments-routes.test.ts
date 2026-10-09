@@ -245,7 +245,7 @@ function makeMockImageRegistry(images: readonly FakeImage[]): ImageRegistryBindi
 
 let lastToolRegisterProjectId: ProjectId | undefined;
 
-function makeInMemoryToolRegistry(): ToolRegistryBinding {
+function makeInMemoryToolRegistry(opts: { refreshes?: boolean } = {}): ToolRegistryBinding {
   const store = new Map<string, Map<string, unknown>>();
   const forT = (t: TenantId): Map<string, unknown> => {
     const k = t as unknown as string;
@@ -264,12 +264,30 @@ function makeInMemoryToolRegistry(): ToolRegistryBinding {
     async get({ tenantId, toolId }) {
       return (forT(tenantId).get(toolId as unknown as string) as never) ?? null;
     },
-    async getVersion() {
-      return null;
+    async getVersion({ tenantId, toolId, version }) {
+      const tool = forT(tenantId).get(toolId as unknown as string) as
+        | { version?: string }
+        | undefined;
+      return tool !== undefined && tool.version === (version as unknown as string)
+        ? (tool as never)
+        : null;
     },
     async headExists({ tenantId, toolId }) {
       return forT(tenantId).has(toolId as unknown as string);
     },
+    ...(opts.refreshes === true && {
+      async refreshCodeArtifactRef({ tenantId, toolId, codeArtifactRef }) {
+        const s = forT(tenantId);
+        const tool = s.get(toolId as unknown as string) as Record<string, unknown> | undefined;
+        if (tool === undefined) return { refreshed: false };
+        const { codeArtifactRef: _old, ...rest } = tool;
+        s.set(toolId as unknown as string, {
+          ...rest,
+          ...(codeArtifactRef !== null && { codeArtifactRef }),
+        });
+        return { refreshed: true };
+      },
+    }),
     async listVersions({ tenantId, toolId }) {
       const tool = forT(tenantId).get(toolId as unknown as string);
       return { data: tool === undefined ? [] : [tool as never] };
@@ -298,7 +316,9 @@ function makeInMemoryToolRegistry(): ToolRegistryBinding {
 let lastGuardrailRegisterProjectId: ProjectId | undefined;
 
 /** Guardrails by tenant, each row in its project, as the registry keeps them. */
-function makeInMemoryGuardrailRegistry(): GuardrailRegistryBinding {
+function makeInMemoryGuardrailRegistry(
+  opts: { refreshes?: boolean } = {},
+): GuardrailRegistryBinding {
   const store = new Map<string, Map<string, { guardrail: unknown; projectId: ProjectId }>>();
   const forT = (t: TenantId): Map<string, { guardrail: unknown; projectId: ProjectId }> => {
     const k = t as unknown as string;
@@ -331,6 +351,27 @@ function makeInMemoryGuardrailRegistry(): GuardrailRegistryBinding {
     async unregister({ tenantId, guardrailId }) {
       return { unregistered: forT(tenantId).delete(guardrailId as unknown as string) };
     },
+    ...(opts.refreshes === true && {
+      async refreshDeployedFields({ tenantId, guardrailId, codeArtifactRef, configSchema }) {
+        const s = forT(tenantId);
+        const row = s.get(guardrailId as unknown as string);
+        if (row === undefined) return { refreshed: false };
+        const {
+          codeArtifactRef: _ref,
+          configSchema: _schema,
+          ...rest
+        } = row.guardrail as Record<string, unknown>;
+        s.set(guardrailId as unknown as string, {
+          projectId: row.projectId,
+          guardrail: {
+            ...rest,
+            ...(codeArtifactRef !== null && { codeArtifactRef }),
+            ...(configSchema !== null && { configSchema }),
+          },
+        });
+        return { refreshed: true };
+      },
+    }),
   };
 }
 
@@ -613,6 +654,8 @@ function makeApp(opts: {
   writes?: string[];
   /** The project the deploy lands in. Default `DEFAULT_PROJECT_ID`. */
   projectId?: ProjectId;
+  /** The tool and guardrail registries take a redeploy's code pointer (and config schema). */
+  refreshes?: boolean;
 }) {
   const deploymentRegistry = opts.deploymentRegistry ?? makeInMemoryDeploymentBinding();
   const trust: TrustEntry[] = [
@@ -641,8 +684,9 @@ function makeApp(opts: {
     ...(opts.extraImages ?? []),
   ];
   const imageRegistry = opts.imageRegistry ?? makeMockImageRegistry(images);
-  const toolRegistry = opts.toolRegistry ?? makeInMemoryToolRegistry();
-  const guardrailRegistry = makeInMemoryGuardrailRegistry();
+  const refreshes = { refreshes: opts.refreshes === true };
+  const toolRegistry = opts.toolRegistry ?? makeInMemoryToolRegistry(refreshes);
+  const guardrailRegistry = makeInMemoryGuardrailRegistry(refreshes);
   const agentRegistry = opts.agentRegistry ?? makeInMemoryAgentRegistry();
   const flowRegistry = opts.flowRegistry ?? makeInMemoryFlowRegistry();
 
@@ -3364,13 +3408,14 @@ function indexWith(
 const SECOND_KEY_ID = 'aperture-staging-2026-02' as SigningKeyId;
 
 /** An app that trusts two images of the pack: the first, and a later one (`second`). */
-function twoImages(second: SignedDeploy) {
+function twoImages(second: SignedDeploy, opts: { refreshes?: boolean } = {}) {
   const first = buildSignedDeploy({
     artifactVersion: '20260920.1',
     index: indexWith('20260920.1'),
   });
   const made = makeApp({
     fixture: first,
+    ...(opts.refreshes === true && { refreshes: true }),
     extraTrust: [
       {
         keyId: SECOND_KEY_ID,
@@ -3580,5 +3625,77 @@ describe('sameGuardrailDefinition', () => {
     ['no code pointer', g({ codeArtifactRef: undefined })],
   ])('different, with %s', (_why, other) => {
     expect(sameGuardrailDefinition(base, other)).toBe(false);
+  });
+});
+
+describe('POST /v1/deployments — a redeploy refreshes what it derived', () => {
+  const SCHEMA = { type: 'object', properties: { min: { type: 'integer' } } };
+  const pointerOf = async (made: ReturnType<typeof twoImages>) => {
+    const guardrail = (await made.guardrailRegistry.get({
+      tenantId,
+      guardrailId: 'acme.no-fabricated-quotes' as never,
+    })) as unknown as { codeArtifactRef: { artifactVersion: string }; configSchema?: unknown };
+    const tool = (await made.toolRegistry.get({
+      tenantId,
+      toolId: 'acme.verify-citation' as never,
+    })) as unknown as { codeArtifactRef: { artifactVersion: string } };
+    return {
+      guardrail: guardrail.codeArtifactRef.artifactVersion,
+      schema: guardrail.configSchema,
+      tool: tool.codeArtifactRef.artifactVersion,
+    };
+  };
+
+  test("a kept tool version and guardrail get the new image's pointer, the guardrail its config schema", async () => {
+    const second = laterImage({ configSchema: SCHEMA });
+    const made = twoImages(second, { refreshes: true });
+    expect((await made.deploy(made.first)).status).toBe(201);
+    expect(await pointerOf(made)).toEqual({
+      guardrail: '20260920.1',
+      schema: undefined,
+      tool: '20260920.1',
+    });
+    expect((await made.deploy(second)).status).toBe(201);
+    expect(await pointerOf(made)).toEqual({
+      guardrail: '20260921.1',
+      schema: SCHEMA,
+      tool: '20260921.1',
+    });
+  });
+
+  test('a deploy refused after refreshing puts the old pointer and schema back', async () => {
+    // The later image also brings a guardrail whose id lives in another project.
+    const index = indexWith('20260921.1', { configSchema: SCHEMA }) as { guardrails: unknown[] };
+    index.guardrails.push({
+      id: 'acme.elsewhere',
+      kind: 'zero-llm',
+      check: 'must-cite',
+      action: { 'on-violation': 'halt' },
+    });
+    const second = buildSignedDeploy({
+      artifactVersion: '20260921.1',
+      keyId: SECOND_KEY_ID,
+      index: index as Record<string, unknown>,
+    });
+    const made = twoImages(second, { refreshes: true });
+    expect((await made.deploy(made.first)).status).toBe(201);
+    await made.guardrailRegistry.register({
+      tenantId,
+      projectId: randomUUID() as ProjectId,
+      guardrail: {
+        id: 'acme.elsewhere',
+        kind: 'zero-llm',
+        check: 'must-cite',
+        action: { 'on-violation': 'halt' },
+      } as never,
+      enqueueTuples: () => [],
+    });
+
+    expect((await made.deploy(second)).status).toBe(409);
+    expect(await pointerOf(made)).toEqual({
+      guardrail: '20260920.1',
+      schema: undefined,
+      tool: '20260920.1',
+    });
   });
 });

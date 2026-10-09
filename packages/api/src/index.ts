@@ -605,6 +605,8 @@ export type {
   ToolResolveOutcome,
   ToolUnregisterInput,
   ToolUnregisterOutcome,
+  ToolRefreshCodeInput,
+  RegistryRefreshOutcome,
   ToolVersionPage,
 } from './tool-binding.js';
 export type {
@@ -616,6 +618,7 @@ export type {
   GuardrailRegistryBinding,
   GuardrailUnregisterInput,
   GuardrailUnregisterOutcome,
+  GuardrailRefreshInput,
 } from './guardrail-binding.js';
 export type {
   MemoryBinding,
