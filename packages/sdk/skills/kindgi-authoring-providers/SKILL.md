@@ -5,8 +5,9 @@ description: >
   can actually call a real model. Covers four paths — hosted via
   Anthropic native adapter, Gemini on Vertex AI (Google Application
   Default Credentials, no API key), hosted via the OpenAI-compat adapter
-  (works with OpenAI + Groq + Together + Fireworks + OpenRouter +
-  Ollama + vLLM + any other OpenAI-compatible endpoint), and local
+  (works with OpenAI, Groq, self-hosted vLLM and Ollama, and any other
+  OpenAI-compatible endpoint, a hosted gateway such as OpenRouter
+  included), and local
   via the in-process ONNX adapter — plus the credential flow (in
   `kindgi dev` the key lives in the project's env files — `.env`, then
   `.env.local` — added by hand or with `kindgi secrets set`'s no-echo
@@ -22,9 +23,9 @@ description: >
   kindgi-getting-started.
 type: core
 library: "@kindgi/sdk"
-version: "0.9.7"
+version: "0.9.11"
 sdk_version: "0.0.0"
-pack_languages: [node, python]
+pack_languages: [node, python, java, scala]
 sources:
   - packages/adapters/model-anthropic/src/provider.ts
   - packages/adapters/model-gemini/src/provider.ts
@@ -40,7 +41,8 @@ sources:
 > (`@kindgi/cli`), not a global command. Run it through the project's
 > package manager — `pnpm exec kindgi …`, `npx --no kindgi …` (npm),
 > `yarn kindgi …` or `bun run kindgi …`. A Python pack (`[tool.kindgi]` in
-> `pyproject.toml`) has no Node project: run the `kindgi` on `PATH`.
+> `pyproject.toml`) has no Node project: run the `kindgi` on `PATH`. A Java
+> or Scala pack (`kindgi.config.json`) runs the CLI it pins: `./kindgiw …`.
 > Commands below are written `kindgi …` for brevity.
 
 An **agent** is a versioned declaration; it needs a **provider** to run.
@@ -75,8 +77,9 @@ Three moving parts:
 1. **API key on disk** — in `kindgi dev` (environment `local`) the dotenv
    secret binding reads the project's own env files: `.env`, then
    `.env.local` on top (change the list with `dev.envFiles` in
-   `kindgi.config.ts`, or `envFiles` under `[tool.kindgi.dev]` in a Python
-   pack's `pyproject.toml`). A key already in the app's `.env` just works.
+   `kindgi.config.ts`, `envFiles` under `[tool.kindgi.dev]` in a Python
+   pack's `pyproject.toml`, or `dev.envFiles` in a Java or Scala pack's
+   `kindgi.config.json`). A key already in the app's `.env` just works.
    `kindgi secrets set` (interactive, no-echo) writes `.env.local`. For
    non-sensitive values (log levels, region names, feature flags),
    `kindgi env set NAME VALUE --env=local` writes the same file with a
@@ -130,8 +133,9 @@ credential on argv.
 kindgi providers register --preset=anthropic                          # Opus 5.5, Sonnet 5.5 (default), Haiku 5.5, Haiku 4.5
 kindgi providers register --preset=anthropic --models=claude-sonnet-5-5  # just one
 ```
-Don't pin `claude-haiku-4-5`: Anthropic retires it on or after 2026-10-15,
-and a turn routed to it then fails; `claude-haiku-5-5` replaces it. Each
+Before pinning a Claude model, check its status on Anthropic's model
+deprecations page (https://platform.claude.com/docs/en/about-claude/model-deprecations): a turn routed to a retired model fails. Prefer the
+preset's default. Each
 preset names a default model (`metadata.defaultModel`, marked `(default)`
 when it registers), which an agent with no preference gets. A preset
 registered before 0.1.4 has none: unregister it and register it again.
@@ -163,12 +167,15 @@ providers: [
 preset = "anthropic"
 models = ["claude-sonnet-5-5"]
 ```
+In a Java or Scala pack's `kindgi.config.json`, the same keys:
+`"providers": [{"preset": "anthropic", "models": ["claude-sonnet-5-5"]}]`.
 - A preset entry takes `models`, `project`, `secret` (the key's name, in place
-  of the preset's) and `maxOutputTokens`, spelled the same in `pyproject.toml`;
+  of the preset's) and `maxOutputTokens`, spelled the same in `pyproject.toml`
+  and `kindgi.config.json`;
   a `spec` entry is a `--spec` body. A
   key is always a secret's name (`secret_ref`); a credential in
   `adapter_config` is refused.
-- Each boot prints `Providers from kindgi.config.ts:` with one line each:
+- Each boot prints `Providers from kindgi.config.ts:` (the pack's config file) with one line each:
   `registered`, `unchanged`, `registered again (changed in kindgi.config.ts)`,
   `unregistered (no longer in kindgi.config.ts)`, or ⚠ `not registered: <KEY>
   is not in .env, .env.local` (set the key, then restart: the config isn't
@@ -264,9 +271,9 @@ Works with **any** OpenAI-compatible endpoint. Same adapter, different
 | Groq | `https://api.groq.com/openai/v1` |
 | Together | `https://api.together.xyz/v1` |
 | Fireworks | `https://api.fireworks.ai/inference/v1` |
-| OpenRouter | `https://openrouter.ai/api/v1` |
 | DeepSeek | `https://api.deepseek.com/v1` |
 | LiteLLM proxy | `http://localhost:4000/v1` |
+| OpenRouter (a hosted gateway) | `https://openrouter.ai/api/v1` |
 
 The connection carries the `baseURL` (in `adapter_config`);
 each endpoint is a separate provider row because each has its own API
@@ -534,7 +541,8 @@ Or skip step 2: `kindgi providers register --preset=gemini --project=<your-gcp-p
 registers both models above.
 Then pin it from an agent with `preferredProvider: 'gemini'` (and a model
 with `preferredModel`; in Python, `preferred_provider="gemini"` and
-`preferred_model=…`), or let the router pick by capability.
+`preferred_model=…`; in Java, `.set("preferredProvider", "gemini")`), or let
+the router pick by capability.
 
 ## How the router picks between multiple providers + models
 
@@ -549,7 +557,8 @@ tenant policy), then sorts survivors in this order:
      - Only `preferredModel` set → promote any provider exposing that model.
      - Only `preferredProvider` set → promote every model of that provider.
    `defineAgent` takes both (`preferredProvider`, `preferredModel`), and
-   so does a Python `Agent` (`preferred_provider=`, `preferred_model=`).
+   so does a Python `Agent` (`preferred_provider=`, `preferred_model=`) and
+   a Java `Agent.define(…)` (`set("preferredProvider", …)`).
 2. **`capability.prefer[]` weights.** If the agent's capability
    declares `prefer: [{feature: 'thinking', weight: 3}, ...]`, tuples
    with matching model features (or provider attributes) get higher
@@ -648,7 +657,8 @@ defineAgent({
    be the FULL npm package name of the adapter — `"@kindgi/adapter-model-anthropic"`,
    NOT `"anthropic"`. Adapters are registered with the runtime under
    their full package names, and a short name matches none of them, so
-   the registration fails. The model adapters are
+   registering is refused: the runtime has no adapter by that name
+   (`✗ /adapter_id: …`). The model adapters are
    `@kindgi/adapter-model-anthropic`, `@kindgi/adapter-model-gemini`,
    `@kindgi/adapter-model-openai-compat` and
    `@kindgi/adapter-model-in-process`; `kindgi providers presets` shows
@@ -685,8 +695,9 @@ defineAgent({
    Then re-register.
 
 6. **Key not found by the runtime.** `kindgi dev` reads the env files
-   at the PACK ROOT (the directory with `kindgi.config.ts`, or a Python
-   pack's `pyproject.toml` with `[tool.kindgi]`) — `.env` and
+   at the PACK ROOT (the directory with `kindgi.config.ts`, a Python
+   pack's `pyproject.toml` with `[tool.kindgi]`, or a Java or Scala pack's
+   `kindgi.config.json`) — `.env` and
    `.env.local`, or whatever `dev.envFiles` lists; the boot log prints
    which files it found. A `KINDGI_`-prefixed name is Kindgi runtime
    config and never resolves as a secret. Outside `kindgi dev`, the
@@ -714,6 +725,21 @@ defineAgent({
    `capabilities.needs` (mistake 2), a `models` / `providers` allow-list
    that names nothing registered, and the tenant's policy. `kindgi
    providers list` shows what is registered.
+
+10. **A setting the adapter can't use.** Registering checks the spec
+    against its adapter (no network call, no key read) and refuses what
+    it can't use: `422 provider-config-invalid`, nothing stored, one line
+    per problem with its JSON-pointer path:
+    ```text
+    Error [invalid-request]: Provider "ollama" doesn't fit adapter @kindgi/adapter-model-openai-compat: adapter_config.api must be one of responses, chat-completions.
+      ✗ /adapter_config/api: adapter_config.api must be one of responses, chat-completions.
+    ```
+    Fix each `✗` line's setting and register again. A key the adapter
+    needs is checked too (`✗ /secret_ref: …`); whether the key works, or
+    the endpoint answers, isn't (the first turn finds out). A
+    registration stored before 0.1.5 wasn't checked: `kindgi doctor`
+    names its problems (`GET /v1/providers/<id>/check`); unregister it
+    and register it again.
 
 ## Verifying end-to-end
 

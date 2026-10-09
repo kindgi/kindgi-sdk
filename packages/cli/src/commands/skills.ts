@@ -25,8 +25,8 @@
  * to git so teammates see the same installed state.
  *
  * A pack gets the skills written for its language: each skill lists
- * them in its frontmatter (`pack_languages: [node, python]`); a skill
- * without the field teaches the TypeScript surface (`[node]`).
+ * them in its frontmatter (`pack_languages: [node, python, java, scala]`); a
+ * skill without the field teaches the TypeScript surface (`[node]`).
  */
 
 import { createHash } from 'node:crypto';
@@ -338,6 +338,14 @@ async function listSkillDirs(root: string): Promise<string[]> {
   }
 }
 
+/** Every pack language, by name: a new one fails to compile here until skills can name it. */
+const PACK_LANGUAGES: Readonly<Record<PackLanguage, true>> = {
+  node: true,
+  python: true,
+  java: true,
+  scala: true,
+};
+
 /** The bundled skills written for packs in `language` (`pack_languages`). */
 async function listBundledSkills(root: string, language: PackLanguage): Promise<string[]> {
   const names: string[] = [];
@@ -350,7 +358,7 @@ async function listBundledSkills(root: string, language: PackLanguage): Promise<
 
 /**
  * The pack languages a SKILL.md is written for — its frontmatter's
- * `pack_languages: [node, python]`. A skill without the field predates
+ * `pack_languages: [node, python, java, scala]`. A skill without the field predates
  * it and teaches the TypeScript surface: `['node']`.
  */
 export function skillPackLanguages(text: string): readonly PackLanguage[] {
@@ -360,7 +368,7 @@ export function skillPackLanguages(text: string): readonly PackLanguage[] {
   return list
     .split(',')
     .map((item) => item.trim().replace(/^["']|["']$/g, ''))
-    .filter((item): item is PackLanguage => item === 'node' || item === 'python');
+    .filter((item): item is PackLanguage => Object.hasOwn(PACK_LANGUAGES, item));
 }
 
 async function pathExists(p: string): Promise<boolean> {

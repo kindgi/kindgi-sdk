@@ -18,10 +18,18 @@ import { type EvalRunsClient, makeEvalRunsClient } from './resources/eval-runs.j
 import { type EvalSuitesClient, makeEvalSuitesClient } from './resources/eval-suites.js';
 import { type EventTriggersClient, makeEventTriggersClient } from './resources/event-triggers.js';
 import { type EventsClient, makeEventsClient } from './resources/events.js';
+import {
+  type ExportSigningKeysClient,
+  makeExportSigningKeysClient,
+} from './resources/export-signing-keys.js';
 import { type FlowsClient, makeFlowsClient } from './resources/flows.js';
 import { type GatePoliciesClient, makeGatePoliciesClient } from './resources/gate-policies.js';
 import { type GuardrailsClient, makeGuardrailsClient } from './resources/guardrails.js';
 import { type IdentityClient, makeIdentityClient } from './resources/identity.js';
+import {
+  type ImprovementPassesClient,
+  makeImprovementPassesClient,
+} from './resources/improvement-passes.js';
 import { type JudgeClassesClient, makeJudgeClassesClient } from './resources/judge-classes.js';
 import { type JudgmentsClient, makeJudgmentsClient } from './resources/judgments.js';
 import { type McpClient, makeMcpClient } from './resources/mcp.js';
@@ -31,12 +39,17 @@ import { type OrgsClient, makeOrgsClient } from './resources/orgs.js';
 import { type PacksClient, makePacksClient } from './resources/packs.js';
 import { type PoliciesClient, makePoliciesClient } from './resources/policies.js';
 import { type ProjectsClient, makeProjectsClient } from './resources/projects.js';
+import { type ProposalsClient, makeProposalsClient } from './resources/proposals.js';
 import { type ProvenanceClient, makeProvenanceClient } from './resources/provenance.js';
 import { type ProvidersClient, makeProvidersClient } from './resources/providers.js';
 import { type RetentionClient, makeRetentionClient } from './resources/retention.js';
 import { type RunsClient, makeRunsClient } from './resources/runs.js';
 import { type SchedulesClient, makeSchedulesClient } from './resources/schedules.js';
 import { type SecretsClient, makeSecretsClient } from './resources/secrets.js';
+import {
+  type ServiceAccountsClient,
+  makeServiceAccountsClient,
+} from './resources/service-accounts.js';
 import { type SigningKeysClient, makeSigningKeysClient } from './resources/signing-keys.js';
 import { type SupervisorClient, makeSupervisorClient } from './resources/supervisor.js';
 import { type TeamsClient, makeTeamsClient } from './resources/teams.js';
@@ -74,6 +87,10 @@ export interface KindgiClient {
   readonly provenance: ProvenanceClient;
   // Governance & oversight
   readonly supervisor: SupervisorClient;
+  /** Improvement proposals: new content for a data block, evaluated, then promoted for a scope. */
+  readonly proposals: ProposalsClient;
+  /** Improvement passes, started with `proposals.improve`. */
+  readonly improvementPasses: ImprovementPassesClient;
   readonly observations: ObservationsClient;
   readonly approvals: ApprovalsClient;
   // Platform & configuration
@@ -105,7 +122,11 @@ export interface KindgiClient {
   readonly teams: TeamsClient;
   readonly orgs: OrgsClient;
   readonly signingKeys: SigningKeysClient;
+  /** The keys this deployment signs its exports with (audit bundles, provenance, compliance evidence). */
+  readonly exportSigningKeys: ExportSigningKeysClient;
   readonly tokens: TokensClient;
+  /** Non-human principals with their own grants; they act through API keys. */
+  readonly serviceAccounts: ServiceAccountsClient;
   // Interop
   readonly mcp: McpClient;
   readonly events: EventsClient;
@@ -144,6 +165,8 @@ export function createClient(options: ClientOptions): KindgiClient {
     memory: makeMemoryClient(transport),
     provenance: makeProvenanceClient(transport),
     supervisor: makeSupervisorClient(transport),
+    proposals: makeProposalsClient(transport),
+    improvementPasses: makeImprovementPassesClient(transport),
     observations: makeObservationsClient(transport),
     approvals: makeApprovalsClient(transport),
     tenant: makeTenantClient(transport),
@@ -171,7 +194,9 @@ export function createClient(options: ClientOptions): KindgiClient {
     teams: makeTeamsClient(transport),
     orgs: makeOrgsClient(transport),
     signingKeys: makeSigningKeysClient(transport),
+    exportSigningKeys: makeExportSigningKeysClient(transport),
     tokens: makeTokensClient(transport),
+    serviceAccounts: makeServiceAccountsClient(transport),
     mcp: makeMcpClient(transport),
     events: makeEventsClient(transport),
     eventTriggers: makeEventTriggersClient(transport),

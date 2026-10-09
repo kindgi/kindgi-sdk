@@ -36,7 +36,9 @@ thing at a time, and wait until they say they've done it.
   - a TypeScript project: `pnpm exec kindgi` if `pnpm --version` works,
     else `npx --no kindgi`;
   - a Python project: `uv run kindgi` (the project's dev dependencies bring
-    the CLI).
+    the CLI);
+  - a Java or Scala project: `./kindgiw` (the CLI version the project pins in
+    `kindgi.config.json`; `kindgiw.cmd` on Windows).
 
 ## Step 0: check the machine
 
@@ -69,7 +71,7 @@ running and no model key yet:
 ```json
 {
   "ok": false,
-  "cliVersion": "0.1.4-rc.4",
+  "cliVersion": "0.1.4",
   "project": { "dir": "/Users/you/my-agents", "language": "node" },
   "checks": [
     {"id": "node", "status": "pass", "message": "Node 22.21.1."},
@@ -81,17 +83,22 @@ running and no model key yet:
 }
 ```
 
-The checks come in this order: `node`, `npm`, `python`, `uv`, `docker`,
-`registry`, `project`, `dependencies`, `model-key`, `runtime`, `provider`.
+The checks come in this order: `node`, `npm`, `python`, `uv`, `java`,
+`maven`, `sbt`, `docker`, `registry`, `console-sign-in`, `project`,
+`dependencies`, `model-key`,
+`runtime`, `provider`.
 
 - **`fail`:** run its `fix`, as written: it names the CLI to use in that
   folder. When the fix needs the person (start Docker Desktop, sign in, copy
   a key), ask them, then run doctor again.
 - **`warn`:** it works now, but the person should know: tell them its
   `message` and `fix`, and go on. `ok` stays `true` and the exit code `0`.
-  In this release only `provider` warns: when an agent that names no model
-  would get a model the preset no longer lists, or one other than the
-  preset's default.
+  In this release two checks warn. `provider`: when an agent that names no
+  model would get a model the preset no longer lists, or one other than the
+  preset's default; or when the runtime can't build a registered provider
+  (each problem is in the check's `details`). When it can build none,
+  `provider` fails instead. `console-sign-in`: when nobody can sign in to the
+  console of the runtime the CLI points at.
 - **`skip`:** not applicable yet. Outside a project, `project` and every
   check after it skip; `runtime` skips while `kindgi dev` isn't running.
 
@@ -121,7 +128,10 @@ runtime: skip this step.
 1. Ask the person for a name for their project, or use `my-agents`. Use
    TypeScript if doctor's `node` check passes and the person has no
    preference; Python if they ask for it, or if there's no Node (doctor's
-   `python` and `uv` say whether it's ready).
+   `python` and `uv` say whether it's ready); Java if they ask for it
+   (doctor's `java` says whether there's a JDK 17 or later; Maven comes with
+   the project); Scala if they ask for it (a JDK 17 or later too, and
+   doctor's `sbt` says whether sbt is installed).
 2. Create it and install its dependencies:
 
    ```sh
@@ -138,10 +148,25 @@ runtime: skip this step.
    uv sync          # brings the CLI too: from now on, uv run kindgi …
    ```
 
+   ```sh
+   # Java (preview)
+   npx --yes @kindgi/cli@0.1 init my-agents --template=java   # from now on: ./kindgiw …
+   cd my-agents
+   ./mvnw -q test
+   ```
+
+   ```sh
+   # Scala (preview)
+   npx --yes @kindgi/cli@0.1 init my-agents --template=scala   # from now on: ./kindgiw …
+   cd my-agents
+   sbt -batch test
+   ```
+
 3. Run doctor again from the project's folder; `project` and
    `dependencies` should pass.
 
-`init` also gives you Kindgi's skills, in `.claude/skills/`. Read them: they
+`init` also gives you Kindgi's skills, in `.claude/skills/`, for the
+project's language (a Java or Scala project gets its own). Read them: they
 are how you write tools and agents for this project.
 
 ## Step 3: start Kindgi
@@ -163,7 +188,13 @@ real one.
 
 Run doctor every few seconds until `runtime` passes. `model-key` and
 `provider` still fail: that's expected until step 4. Then tell the person
-it's running, and how to stop it: `kill <the process id>`.
+it's running, and how to stop it: `kill <the process id>`. Also tell them
+where the console is: the `Console` line of `.kindgi/dev.log`, its first
+address (`kindgi doctor --json` has it as `consoleUrl`, and `kindgi console`
+opens it in their browser). They sign in there with **Sign in as seeded
+user**, which needs no token: don't print the token in the chat. Tell them
+to use Chrome or Firefox: Safari can't keep the local sign-in over http yet
+([Known limitations](../../deploy/operate/#known-limitations-in-015)).
 
 ## Step 4: the model key
 
@@ -178,7 +209,7 @@ it's running, and how to stop it: `kill <the process id>`.
    | OpenAI | `OPENAI_API_KEY` | `openai` |
    | Gemini (a Google AI Studio key) | `GEMINI_API_KEY` | `gemini-api` |
    | Groq | `GROQ_API_KEY` | `groq` |
-   | OpenRouter (many vendors, one key) | `OPENROUTER_API_KEY` | `openrouter` |
+   | OpenRouter (a hosted gateway) | `OPENROUTER_API_KEY` | `openrouter` |
 
    **If they have no key, or don't want to add one now,** stop here,
    honestly: Kindgi is running with its stand-in model, `dev-echo`, which

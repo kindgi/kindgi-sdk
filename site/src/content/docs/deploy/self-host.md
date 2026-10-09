@@ -14,8 +14,10 @@ You run four containers on one Docker network:
 
 You then deploy a pack to it, and run a flow end to end. Everything here runs on one machine with Docker Desktop. On a server the pieces are the same; step 2 says what changes.
 
-:::note[Private preview]
-The runtime image is in private preview: request access at contact@kindgi.com
+:::note[Access to the runtime image]
+Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub for the
+runtime image's pull credentials, and log in once with `kindgi auth registry`
+(see [Install](../../start/install/#access-to-the-runtime-image)). Questions or trouble: contact@kindgi.com.
 :::
 
 ## Before you start
@@ -146,7 +148,7 @@ docker run -d --name kindgi-pack --network kindgi --env-file pack.env \
 Its log says it's listening:
 
 ```text
-{"kind":"listening","port":8080,"packId":"acme-pack","artifactVersion":"20261003.1"}
+{"time":"2026-10-08T19:38:48.568Z","level":"info","severity":"INFO","subsystem":"pack","message":"Listening on port 8080","port":8080,"packId":"acme-pack","artifactVersion":"20261008.193828","event":"listening","kind":"listening"}
 ```
 
 ## 5. Configure and start the runtime
@@ -185,11 +187,14 @@ Every setting is in the [environment variable reference](../../reference/env-var
 Start the runtime:
 
 ```sh
-docker run -d --name kindgi-server --network kindgi \
+docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
   --add-host registry.localhost:host-gateway \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
   quay.io/kindgi/runtime:0.1.4
 ```
+
+`--restart unless-stopped` brings the runtime back by itself after a crash,
+or after its database was unreachable for a while.
 
 ## 6. Check it
 
@@ -202,6 +207,8 @@ curl -s http://localhost:4000/ready
 ```
 
 `/ready` answers once the runtime is up and its database answers (`/health` checks only the process; see [Operate](../operate/#check-health-and-logs)).
+
+Open `http://localhost:4000/` in a browser: it leads to the console, at `/console/`. A runtime started without the console answers there with a short page naming what it serves (`/health`, `/ready`, the API reference at `/docs`).
 
 Its log names what it's running with:
 
@@ -219,7 +226,7 @@ Kindgi API server listening on http://localhost:4000
   ⚠ The license key expires in 29 days (2026-11-02). Renew it: contact@kindgi.com.
   Env: production (tool secrets resolve in it)
   Tenant host access: deployed (stdio MCP endpoints refused; KINDGI_TENANT_HOST_ACCESS)
-  Pack service: http://kindgi-pack:8080 — acme-pack (artifact 20261003.1), protocol 2, 3 tools, 1 check
+  Pack service: http://kindgi-pack:8080 — acme-pack (artifact …), protocol 2, 3 tools, 1 check
 ```
 
 Without `KINDGI_LICENSE_KEY`, the runtime doesn't start. It exits with code 2 and says:
@@ -238,6 +245,44 @@ Kindgi API server listening on http://localhost:4000 (reached at https://kindgi.
   Docs:    https://kindgi.example.com/docs
   …
 ```
+
+### Behind a load balancer or ingress
+
+The runtime limits how often one client can ask for some things, such as a page that starts sign-in. It also records the client's address in its sign-in records. For both, it needs to know which address is the client's.
+
+**Unset, it uses the address of whatever connects to it.** It ignores `X-Forwarded-For`, because any client can send that header with any address in it. That's right when clients connect directly. Behind a proxy, every request comes from the proxy, so every client shares one limit, and the runtime warns once:
+
+```text
+Requests arrive through a proxy (X-Forwarded-For), but KINDGI_TRUSTED_PROXIES is unset: every client counts as the proxy, so rate limits are shared by everyone. Set it to the number of proxies in front (e.g. 1) or their IP ranges.
+```
+
+Tell it which proxies to trust with `KINDGI_TRUSTED_PROXIES` in `kindgi.env`, in one of two forms:
+
+- **How many proxies are in front:** `1` behind one load balancer or ingress, `2` behind two (Azure Front Door in front of a Container Apps ingress, for example).
+
+  ```sh
+  KINDGI_TRUSTED_PROXIES=1
+  ```
+
+- **Your proxies' addresses:** IPs or CIDR ranges, comma-separated.
+
+  ```sh
+  KINDGI_TRUSTED_PROXIES=10.0.0.0/8, 192.168.0.0/16
+  ```
+
+Each proxy appends the address it got the request from to the right of `X-Forwarded-For`. So the runtime reads that header from the right, skips the proxies you trust, and takes the next address as the client's. It never takes the leftmost address on its own: that's the one a client can write.
+
+Count only the proxies that are really in front. One too many, and a client can choose its own address; one too few, and every client counts as your outermost proxy.
+
+The start log says which it uses, with one of these lines:
+
+```text
+  Client address: the connection's peer (KINDGI_TRUSTED_PROXIES unset; behind a proxy, set it)
+  Client address: X-Forwarded-For behind 1 trusted proxy hop (KINDGI_TRUSTED_PROXIES)
+  Client address: X-Forwarded-For behind trusted proxies 10.0.0.0/8, 192.168.0.0/16 (KINDGI_TRUSTED_PROXIES)
+```
+
+Point the load balancer's health check at `/ready` (see [Operate](../operate/#check-health-and-logs)).
 
 ## 7. Trust your key and deploy
 

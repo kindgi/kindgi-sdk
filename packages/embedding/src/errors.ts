@@ -9,7 +9,19 @@ export type EmbeddingError =
   | NoEmbeddingProviderError
   | UnknownEmbeddingModelError
   | DuplicateEmbeddingProviderError
-  | AmbiguousDefaultProviderError;
+  | AmbiguousDefaultProviderError
+  | EmbeddingUnavailableError;
+
+/**
+ * The provider is configured but can't embed now: its endpoint doesn't
+ * answer, or it hasn't answered yet since the server started. Search by
+ * meaning is unavailable until it does (a caller treats this like having
+ * no embeddings, never as a server error).
+ */
+export interface EmbeddingUnavailableError {
+  readonly code: 'embedding-unavailable';
+  readonly message: string;
+}
 
 /**
  * A caller asked for semantic embedding work without naming a model,

@@ -42,6 +42,20 @@ export interface AppEnv {
      * account.
      */
     tokenId?: ApiTokenId;
+    /** The service account an API key acts for. */
+    serviceAccountId?: string;
+    /**
+     * Set by a route whose answer carries a secret (`withholdFromReplay`):
+     * the Idempotency-Key middleware keeps that the request succeeded, not
+     * its answer.
+     */
+    idempotencyWithhold?: boolean;
+    /** An API key's role ceiling (`member` keys can't administer the tenant). */
+    tokenRole?: 'admin' | 'member';
+    /** The project an API key is narrowed to. */
+    tokenProjectId?: string;
+    /** When the API token the request came with expires, if it does. */
+    tokenExpiresAt?: Date;
     /**
      * Set by `bearerAuthMiddleware` when the caller presented a
      * framework-issued OAuth session token (`kgi_sk_*`).
@@ -49,6 +63,8 @@ export interface AppEnv {
      * revoke without a second lookup. Absent for static bearer tokens.
      */
     sessionId?: SessionId;
+    /** Set when the session token came from a cookie (not a header): that cookie's name. */
+    sessionCookieName?: string;
     /** Identity-provider id behind a session token. Absent for bearer. */
     providerId?: string;
     /** Set by `sigv4Middleware` on `/s3/*`: the bucket the credential may access. */

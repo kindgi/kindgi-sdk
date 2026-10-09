@@ -7,6 +7,7 @@ import { defineConfig } from 'astro/config';
 import starlightLlmsTxt from 'starlight-llms-txt';
 import starlightOpenAPI, { createOpenAPISidebarGroup } from 'starlight-openapi';
 import { createStarlightTypeDocPlugin } from 'starlight-typedoc';
+import { docsVersion, versionedPages } from './scripts/versioned-pages.mjs';
 
 // Each released minor line is built from its git tag under its own base
 // (`/v0.1/`), the newest also at the root. Content links are relative, so a
@@ -17,6 +18,11 @@ const preview = process.env.PUBLIC_KINDGI_DOCS_PREVIEW === '1';
 // Only the latest release's docs (served at the root) are indexed: an older
 // line or a preview would compete with them in search results.
 const indexed = base === '/' && !preview;
+// The git ref this build describes (a release's tag, else `main`) and its
+// version: hand-written pages' repository links and `{{kindgi.version}}`
+// follow them (scripts/versioned-pages.mjs; code blocks in ec.config.mjs).
+const ref = process.env.KINDGI_DOCS_REF ?? 'main';
+const version = docsVersion();
 
 // The guides, one collapsible group per area, in reading order.
 const guideAreas = [
@@ -30,6 +36,7 @@ const guideAreas = [
   ['Guardrails', 'guardrails'],
   ['Approvals', 'approvals'],
   ['Secrets and env', 'secrets'],
+  ['Sign-in', 'sso'],
   ['Cost and provenance', 'observability'],
   ['Evals', 'evals'],
 ];
@@ -53,6 +60,8 @@ export default defineConfig({
   // flag in prose into an en dash.
   markdown: { processor: satteri({ features: { smartPunctuation: false } }) },
   integrations: [
+    // Before Starlight, so its search index reads the fixed pages.
+    versionedPages({ ref, version }),
     starlight({
       title: 'Kindgi',
       description:

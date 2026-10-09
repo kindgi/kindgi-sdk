@@ -57,13 +57,39 @@ import {
 } from '@kindgi/secrets-dotenv';
 
 import type { KindgiClient, Provider } from '@kindgi/client';
-import { CORS_ORIGINS_VAR, PUBLIC_TOKEN_KEY_PATH_VAR, parseCorsOrigins } from '@kindgi/env-schema';
+import {
+  CORS_ORIGINS_VAR,
+  EXPORT_SIGNING_KEY_PATH_VAR,
+  PUBLIC_TOKEN_KEY_PATH_VAR,
+  parseCorsOrigins,
+} from '@kindgi/env-schema';
 
 import type { CommandContext } from '../context.js';
 import { createDevOnlyImportsCheck } from '../dev/dev-only-imports.js';
-import { type PackCode, resolvePackCode } from '../dev/pack-code.js';
+import {
+  DEV_GOOGLE_CREDENTIALS_VAR,
+  type DevGoogleCredentials,
+  VERTEX_PROVIDER_ID,
+  isVertexRegistration,
+  resolveDevGoogleCredentials,
+  vertexCredentialsHint,
+} from '../dev/google-credentials.js';
+import {
+  DEFAULT_DEV_LOG_VIEW,
+  type DevLogFlags,
+  type DevLogView,
+  type DevOutput,
+  parseDevLogFlags,
+  resolveDevLogView,
+  runtimeLogLevels,
+  showIndexerLine,
+  showLine,
+  showText,
+  sourceLogEnv,
+} from '../dev/log-view.js';
+import { type PackCode, isJvmPackCode, resolvePackCode } from '../dev/pack-code.js';
 import { devPackEnv, devPackEnvFiles } from '../dev/pack-env.js';
-import { createPackRefresher, describePackEvent } from '../dev/pack-service.js';
+import { createPackRefresher, showPackEvent } from '../dev/pack-service.js';
 import { PORT_SEARCH_SPAN, firstFreePort } from '../dev/port.js';
 import { type DevProject, resolveDevProject } from '../dev/project.js';
 import {
@@ -91,10 +117,12 @@ import { RuntimeStartStopped } from '../dev/runtime-container.js';
 import { DEFAULT_RUNTIME_IMAGE } from '../dev/runtime-image.js';
 import { describeEnvDiagnostics, loadLocalEnvSettings } from '../env/project-env.js';
 import { PYPI_NO_BUNDLER } from '../esbuild-loader.js';
+import { openUrlInBrowser } from '../open-url.js';
 import { renderJson } from '../output.js';
 import { binDisplay, cliInstall, detectBinRunner } from '../package-manager.js';
 import { loadProviderPresets } from '../providers/preset-loader.js';
 import { CLI_VERSION } from '../version-info.js';
+import { consoleUrlOf, couldNotOpen } from './console.js';
 import { defaultSdkSkillsRoot } from './init.js';
 import { detectSkillDrift } from './skills.js';
 import type { CommandResult, LeafCommand } from './types.js';
@@ -104,7 +132,7 @@ export const devCommand: LeafCommand = {
   name: 'dev',
   description: 'Run the Kindgi runtime as a container + hot-reload the pack under cwd.',
   usage:
-    'kindgi dev [--port <n>] [--database-url <url>] [--tenant <id>] [--dev-token <token>] [--no-watch] [--path <dir>] [--reset [--yes]] [--recreate-services] [--runtime-image <ref> | --runtime-url <url>]',
+    'kindgi dev [--port <n>] [--database-url <url>] [--tenant <id>] [--dev-token <token>] [--no-watch] [--open] [--path <dir>] [--reset [--yes]] [--recreate-services] [--runtime-image <ref> | --runtime-url <url>] [--log-level <level>] [--log <subsystem>=<level>]... [--log-format pretty|json] [--quiet]',
   optionSpec: {
     port: {
       type: 'string',
@@ -150,10 +178,14 @@ export const devCommand: LeafCommand = {
       type: 'boolean',
       description: 'Start, index and register once, then exit. For smoke tests and CI.',
     },
+    open: {
+      type: 'boolean',
+      description: 'Open the console in your browser once Kindgi is up.',
+    },
     path: {
       type: 'string',
       description:
-        'The pack root, with a `kindgi.config.ts` (or `.mts`) or a `pyproject.toml` with `[tool.kindgi]`. Default: the current directory.',
+        'The pack root, with a `kindgi.config.ts` (or `.mts`), a `pyproject.toml` with `[tool.kindgi]`, or a `kindgi.config.json` (Java). Default: the current directory.',
     },
     // --reset: a fresh start for the project. With the bundled Postgres it
     // drops the project's database (asking first) and makes a new token;
@@ -175,6 +207,24 @@ export const devCommand: LeafCommand = {
       type: 'boolean',
       description:
         'Let `docker compose` recreate the bundled Postgres if its definition changed (needs compose). By default an existing container is reused.',
+    },
+    // The runtime's and the pack service's records: what's shown, and how.
+    // `--quiet` (a global flag) keeps errors only.
+    'log-level': {
+      type: 'string',
+      description:
+        "The lowest level of the log records shown: error, warn, info, debug or trace. Default: `KINDGI_LOG_LEVEL` (the shell's, then the env files'), else info; with `--quiet`, error.",
+    },
+    log: {
+      type: 'string',
+      multiple: true,
+      description:
+        "A subsystem's own level, `<subsystem>=<level>` (e.g. `--log=http=debug`, `--log=pack=debug`); repeat it, or give a comma list. A dotted child inherits its parent's (`pack` covers `pack.tool`).",
+    },
+    'log-format': {
+      type: 'string',
+      description:
+        'How log records are shown: `pretty` (the default: tagged `[runtime]` / `[pack]`, coloured on a terminal unless `NO_COLOR` is set) or `json` (each record as written, one per line on stdout, for `| jq`; everything else stays on stderr).',
     },
   },
   run: async (ctx): Promise<CommandResult> => runDev(ctx),
@@ -201,8 +251,29 @@ export const DEFAULT_WATCH_DEBOUNCE_MS = 200;
  * so nothing to intercept.
  */
 function emitProgress(msg: string): void {
+  if (logView.quiet) return;
+  emitProblem(msg);
+}
+
+/** A progress line that's an error: shown under `--quiet` too. */
+function emitProblem(msg: string): void {
   process.stderr.write(`${stoppingLineOpen ? '\n' : ''}  ${msg}\n`);
   stoppingLineOpen = false;
+}
+
+/**
+ * How logs show this session (`dev/log-view.ts`): set from the flags as
+ * `runDev` starts, and again once the env files are read.
+ */
+let logView: DevLogView = DEFAULT_DEV_LOG_VIEW;
+
+/** A source's line as the view shows it: records on stdout with `--log-format=json`. */
+function emitOutput(output: DevOutput | undefined): void {
+  if (output === undefined) return;
+  for (const line of output.lines) {
+    if (output.stream === 'stdout') process.stdout.write(`${line}\n`);
+    else emitProblem(`  ${line}`);
+  }
 }
 
 /**
@@ -238,7 +309,7 @@ async function withHeartbeat<T>(
   const started = Date.now();
   const tick = setInterval(() => {
     const elapsed = Math.round((Date.now() - started) / 1000);
-    process.stderr.write(`  ⋯ ${label} (${elapsed}s elapsed)\n`);
+    emitProgress(`⋯ ${label} (${elapsed}s elapsed)`);
   }, intervalMs);
   try {
     return await work();
@@ -264,6 +335,8 @@ interface ResolvedDevArgs {
   readonly tenantId: string | undefined;
   readonly token: string | undefined;
   readonly watch: boolean;
+  /** `--open`: open the console in the browser once Kindgi is up. */
+  readonly open: boolean;
   readonly packDir: string;
   /** `--reset`: drop the project's bundled database (asking first) and make a new token. */
   readonly reset: boolean;
@@ -275,12 +348,22 @@ interface ResolvedDevArgs {
   readonly runtimeImage: string;
   /** A runtime the developer runs (`--runtime-url`); no container then. */
   readonly runtimeUrl: string | undefined;
+  /** `--log-level`, `--log`, `--log-format` and `--quiet`. */
+  readonly log: DevLogFlags;
 }
 
 export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   const parsed = resolveDevArgs(ctx);
   if (parsed.kind === 'error') return parsed;
   const args = parsed.args;
+  // How logs show: the flags and the shell's settings now, the env files'
+  // once they're read.
+  const stderrIsTTY = process.stderr.isTTY === true;
+  const earlyView = resolveDevLogView(args.log, { env: ctx.env, files: {}, isTTY: stderrIsTTY });
+  if (earlyView.kind === 'error') {
+    return { kind: 'error', stderr: `kindgi dev: ${earlyView.message}\n`, exitCode: 1 };
+  }
+  logView = earlyView.value;
 
   const runners = pickRunners(ctx);
   if (runners.kind === 'error') return runners;
@@ -293,7 +376,7 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   if (configFile === undefined) {
     return {
       kind: 'error',
-      stderr: `kindgi dev could not find a kindgi.config.ts (or a pyproject.toml with a [tool.kindgi] table) at ${args.packDir}.\nRun \`kindgi init <pack-name>\` to scaffold a pack, or pass --path=<dir> to point at an existing one.\n`,
+      stderr: `kindgi dev could not find a kindgi.config.ts (or a pyproject.toml with a [tool.kindgi] table, or a kindgi.config.json) at ${args.packDir}.\nRun \`kindgi init <pack-name>\` to scaffold a pack, or pass --path=<dir> to point at an existing one.\n`,
       exitCode: 1,
     };
   }
@@ -303,6 +386,15 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   // secret binding.
   const projectEnv = await loadDevProjectEnv(ctx, args.packDir);
   if (projectEnv.kind === 'error') return projectEnv;
+  const view = resolveDevLogView(args.log, {
+    env: ctx.env,
+    files: projectEnv.runtime,
+    isTTY: stderrIsTTY,
+  });
+  if (view.kind === 'error') {
+    return { kind: 'error', stderr: `kindgi dev: ${view.message}\n`, exitCode: 1 };
+  }
+  logView = view.value;
   // The PyPI CLI (kindgi-cli) has no TypeScript bundler: say so before anything starts.
   if (projectEnv.language === 'node' && cliInstall(ctx.env) === 'pypi') {
     return { kind: 'error', stderr: `kindgi dev: ${PYPI_NO_BUNDLER}\n`, exitCode: 1 };
@@ -320,6 +412,27 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
       : declaredProviders(projectEnv.config, configName, await loadProviderPresets());
   if (declared.kind === 'invalid') {
     return { kind: 'error', stderr: `kindgi dev: ${declared.message}\n`, exitCode: 1 };
+  }
+
+  // Google credentials for Vertex AI: only the ones KINDGI_DEV_GOOGLE_CREDENTIALS
+  // names (the shell, then the env files) reach the runtime. A declared
+  // Vertex provider without them is said now, before anything starts.
+  const google = resolveDevGoogleCredentials(
+    ctx.env[DEV_GOOGLE_CREDENTIALS_VAR] ?? projectEnv.runtime[DEV_GOOGLE_CREDENTIALS_VAR],
+    ctx.env,
+  );
+  if (google.kind === 'error') {
+    return { kind: 'error', stderr: `kindgi dev: ${google.message}\n`, exitCode: 1 };
+  }
+  const declaredVertex = declared.providers
+    .filter((p) => isVertexRegistration(p.input))
+    .map((p) => p.id);
+  if (google.credentials !== undefined) {
+    emitProgress(
+      `✓ Google credentials: ${google.credentials.path} (${google.credentials.who}), mounted read-only for Vertex AI`,
+    );
+  } else if (declaredVertex.length > 0) {
+    emitProgress(`⚠ ${vertexCredentialsHint(declaredVertex, ctx.env)}`);
   }
 
   // The runtime's port, before anything starts. Taken without `--port`
@@ -479,18 +592,22 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   // The pack's code is bundled and runs in a local pack service. It
   // starts once the pack is bundled and indexed; the api-server gets
   // its transport now.
-  const packEnv = () =>
-    devPackEnv({
+  // The pack service and the indexer write records at the levels shown.
+  const packEnv = async () => ({
+    ...(await devPackEnv({
       packDir: args.packDir,
       ...(projectEnv.localEnvFiles !== undefined && { localEnvFiles: projectEnv.localEnvFiles }),
       hostEnv: ctx.env,
-    });
+    })),
+    ...sourceLogEnv(logView),
+  });
   const code = await resolveDevPackCode(
     dev,
     projectEnv.language,
     args.packDir,
     projectEnv.config,
     packEnv,
+    ctx.env,
   );
   if (code.kind === 'error') {
     return code;
@@ -504,10 +621,10 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
     packDir: args.packDir,
     code: code.value,
     env: packEnv,
-    onLog: (line: string) => emitProgress(`  [pack] ${line}`),
-    onEvent: (event: Parameters<typeof describePackEvent>[0]) => {
-      const line = describePackEvent(event);
-      if (line !== undefined) emitProgress(line);
+    onLog: (line: string, stream: 'stdout' | 'stderr') =>
+      emitOutput(showText('pack', line, logView, stream)),
+    onEvent: (event: Parameters<typeof showPackEvent>[0]) => {
+      for (const output of showPackEvent(event, logView)) emitOutput(output);
     },
   };
   // The front listens for the whole session; children come and go behind
@@ -546,6 +663,7 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
     packDir: args.packDir,
     env: packEnv,
     code: code.value,
+    onIndexerOutput: (line) => emitOutput(showIndexerLine(line, logView)),
     ...(devOnly !== undefined && {
       onBuild: async (build) => {
         if (build.externals === undefined) return;
@@ -581,12 +699,19 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
         ...(publicRunTokens.keyPath !== undefined && {
           publicRunTokenKeyPath: publicRunTokens.keyPath,
         }),
+        ...(publicRunTokens.exportKeyPath !== undefined && {
+          exportSigningKeyPath: publicRunTokens.exportKeyPath,
+        }),
         ...(publicRunTokens.corsOrigins.length > 0 && {
           corsOrigins: publicRunTokens.corsOrigins,
         }),
+        ...(google.credentials !== undefined && {
+          googleCredentialsPath: google.credentials.path,
+        }),
         runtimeImage: args.runtimeImage,
         ...(args.runtimeUrl !== undefined && { runtimeUrl: args.runtimeUrl }),
-        onLog: (line) => emitProgress(`  [runtime] ${line}`),
+        logLevels: runtimeLogLevels(logView),
+        onLog: (line, stream) => emitOutput(showLine('runtime', line, logView, stream)),
         onProgress: emitProgress,
         ...(ctx.stopSignal !== undefined && { signal: ctx.stopSignal }),
       }),
@@ -662,9 +787,18 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   });
   const providers = await registeredProviders(client);
   const registerProviderCommand = await registerProviderHint(kindgi);
+  // A Vertex provider registered by hand (the `gemini` preset) has no
+  // credentials either; a declared one was named before the start.
+  if (google.credentials === undefined) {
+    const byHand = (providers ?? [])
+      .map((p) => p.id)
+      .filter((id) => id === VERTEX_PROVIDER_ID && !declaredVertex.includes(id));
+    if (byHand.length > 0) emitProgress(`⚠ ${vertexCredentialsHint(byHand, ctx.env)}`);
+  }
 
   const bannerLines = renderDevBanner({
     baseUrl: server.baseUrl,
+    consoleMounted: server.consoleMounted === true,
     tenantId: server.tenantId,
     token: server.token,
     providers,
@@ -675,6 +809,7 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
     discoveryRoots: discoveryRoots(projectEnv.discoveryPatterns),
     ...(servicesHandle !== undefined && { autoStartedServices: servicesHandle.services }),
     corsOrigins: publicRunTokens.corsOrigins,
+    ...(google.credentials !== undefined && { googleCredentials: google.credentials }),
   });
 
   // Write `.kindgirc.json` to the pack root so a SECOND terminal in
@@ -728,12 +863,12 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   emitProgress('════════════════════════════════════════');
   emitProgress('  ✓ Kindgi is up');
   emitProgress('════════════════════════════════════════');
+  if (server.consoleMounted === true) {
+    for (const line of renderConsoleLines(server.baseUrl)) emitProgress(line);
+  }
   emitProgress(`  API        ${server.baseUrl}`);
   if (project !== undefined) {
     emitProgress(`  Project    ${project.name} · database ${project.database}`);
-  }
-  if (server.consoleMounted === true) {
-    emitProgress(`  Console    ${server.baseUrl}/console/`);
   }
   emitProgress(`  Tenant     ${server.tenantId}`);
   emitProgress(`  Token      ${server.token}`);
@@ -773,6 +908,17 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   if (args.watch) {
     emitProgress(`  Watching ${args.packDir}`);
     emitProgress('  Ctrl+C to stop.');
+    emitProgress('');
+  }
+  if (args.open) {
+    if (server.consoleMounted === true) {
+      const opened = await (ctx.openUrl ?? openUrlInBrowser)(consoleUrlOf(server.baseUrl));
+      emitProgress(
+        opened.ok ? '  Opened the console in your browser.' : `  ${couldNotOpen(opened.reason)}`,
+      );
+    } else {
+      emitProgress('  --open: this runtime serves no console, so there is nothing to open.');
+    }
     emitProgress('');
   }
 
@@ -821,7 +967,7 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
           emitProgress('  (no primitives yet)');
         } else {
           lastWatchReport = undefined;
-          emitProgress(`  ✗ refresh failed [${outcome.code}] ${outcome.message}`);
+          emitProblem(`  ✗ refresh failed [${outcome.code}] ${outcome.message}`);
         }
       })();
       inFlightTicks.add(tick);
@@ -888,6 +1034,7 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   // stood when kindgi dev stopped.
   const summary = {
     apiUrl: server.baseUrl,
+    ...(server.consoleMounted === true && { consoleUrl: consoleUrlOf(server.baseUrl) }),
     tenantId: server.tenantId,
     token: server.token,
     port: server.port,
@@ -907,7 +1054,11 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   const stdout = ctx.globals.formatRequested ? renderJson(summary, ctx.globals.format).stdout : '';
   return {
     kind: 'ok',
-    rendered: { stdout, stderr: args.watch ? '' : `${bannerLines.join('\n')}\n` },
+    // --quiet: errors only, so no summary.
+    rendered: {
+      stdout,
+      stderr: args.watch || logView.quiet ? '' : `${bannerLines.join('\n')}\n`,
+    },
   };
 }
 
@@ -915,7 +1066,8 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
  * Public run tokens for the browser app under development: signed with
  * the key file when `KINDGI_PUBLIC_TOKEN_SIGNING_KEY_PATH` is set,
  * otherwise with a key made now (tokens stop working when `kindgi dev`
- * stops). `KINDGI_CORS_ORIGINS` lists the app's origins
+ * stops). Exports the same way: `KINDGI_EXPORT_SIGNING_KEY_PATH`'s key
+ * file, otherwise a key the runtime makes at startup. `KINDGI_CORS_ORIGINS` lists the app's origins
  * (`http://localhost:3000`). Both come from the shell, then the env files,
  * like `KINDGI_DATABASE_URL`.
  */
@@ -927,6 +1079,8 @@ async function resolveDevPublicRunTokens(
       readonly kind: 'ok';
       /** The developer's key file, mounted into the runtime; absent: the runtime makes a key. */
       readonly keyPath: string | undefined;
+      /** The developer's export signing key file (`KINDGI_EXPORT_SIGNING_KEY_PATH`), the same way. */
+      readonly exportKeyPath: string | undefined;
       readonly corsOrigins: readonly string[];
     }
   | { readonly kind: 'error'; readonly stderr: string; readonly exitCode: number }
@@ -936,13 +1090,21 @@ async function resolveDevPublicRunTokens(
     return value === undefined || value.trim() === '' ? undefined : value.trim();
   };
   try {
-    const keyPath = pick(PUBLIC_TOKEN_KEY_PATH_VAR);
-    if (keyPath !== undefined && (!isAbsolute(keyPath) || !existsSync(keyPath))) {
-      throw new Error(
-        `${PUBLIC_TOKEN_KEY_PATH_VAR} must be the absolute path of an existing key file. Got "${keyPath}".`,
-      );
-    }
-    return { kind: 'ok', keyPath, corsOrigins: parseCorsOrigins(pick(CORS_ORIGINS_VAR)) };
+    const keyFile = (name: string): string | undefined => {
+      const path = pick(name);
+      if (path !== undefined && (!isAbsolute(path) || !existsSync(path))) {
+        throw new Error(
+          `${name} must be the absolute path of an existing key file. Got "${path}".`,
+        );
+      }
+      return path;
+    };
+    return {
+      kind: 'ok',
+      keyPath: keyFile(PUBLIC_TOKEN_KEY_PATH_VAR),
+      exportKeyPath: keyFile(EXPORT_SIGNING_KEY_PATH_VAR),
+      corsOrigins: parseCorsOrigins(pick(CORS_ORIGINS_VAR)),
+    };
   } catch (err) {
     return { kind: 'error', stderr: `kindgi dev: ${(err as Error).message}\n`, exitCode: 1 };
   }
@@ -1109,6 +1271,18 @@ function resolveDevArgs(ctx: CommandContext): DevArgsOutcome {
   }
   const watch = !watchOff;
 
+  // --open — the console in the browser; with --no-watch the runtime
+  // stops as kindgi dev exits, so there'd be nothing to open.
+  const open = ctx.options.open === true;
+  if (open && !watch) {
+    return {
+      kind: 'error',
+      stderr:
+        "Contradictory flags: --open and --no-watch. With --no-watch the runtime stops when kindgi dev exits, so there's no console to open.\n",
+      exitCode: 1,
+    };
+  }
+
   // --path — pack root. Default is cwd.
   const pathFlag = ctx.options.path;
   const rawPath = typeof pathFlag === 'string' && pathFlag !== '' ? pathFlag : ctx.cwd;
@@ -1141,6 +1315,17 @@ function resolveDevArgs(ctx: CommandContext): DevArgsOutcome {
   const runtimeImage =
     typeof imageFlag === 'string' && imageFlag !== '' ? imageFlag : DEFAULT_RUNTIME_IMAGE;
 
+  // --log-level / --log / --log-format / --quiet — what the logs show, and how.
+  const log = parseDevLogFlags({
+    level: ctx.options['log-level'],
+    log: ctx.options.log,
+    format: ctx.options['log-format'],
+    quiet: ctx.globals.format === 'quiet',
+  });
+  if (log.kind === 'error') {
+    return { kind: 'error', stderr: `kindgi dev: ${log.message}\n`, exitCode: 1 };
+  }
+
   return {
     kind: 'ok',
     args: {
@@ -1150,12 +1335,14 @@ function resolveDevArgs(ctx: CommandContext): DevArgsOutcome {
       tenantId,
       token,
       watch,
+      open,
       packDir,
       reset,
       yes,
       recreateServices,
       runtimeImage,
       runtimeUrl,
+      log: log.value,
     },
   };
 }
@@ -1290,9 +1477,10 @@ function emitBootIndex(
   roots: readonly string[],
 ): void {
   if (bootIndex.kind !== 'ok') {
-    // Dev stays up either way; the section says so.
+    // Dev stays up either way; the section says so. No primitives yet isn't an error.
+    const emit = bootIndex.code === 'discovery-empty' ? emitProgress : emitProblem;
     for (const line of renderIndexSection({ bootIndex, bootReport, discoveryRoots: roots })) {
-      emitProgress(line.replace(/^ {2}/, ''));
+      emit(line.replace(/^ {2}/, ''));
     }
     return;
   }
@@ -1301,10 +1489,10 @@ function emitBootIndex(
     `✓ loaded: ${c.tools} tools, ${c.guardrails} guardrails, ${c.agents} agents, ${c.flows} flows`,
   );
   for (const e of bootIndex.fileErrors) {
-    emitProgress(`  ⚠ indexer: ${e.filePath ?? '?'} [${e.code}] ${e.message}`);
+    emitProblem(`  ⚠ indexer: ${e.filePath ?? '?'} [${e.code}] ${e.message}`);
   }
   for (const f of bootReport.failed) {
-    emitProgress(`  ⚠ ${f.kind}: ${f.id} — ${f.message ?? 'unknown reason'}`);
+    emitProblem(`  ⚠ ${f.kind}: ${f.id} — ${f.message ?? 'unknown reason'}`);
   }
 }
 
@@ -1444,14 +1632,14 @@ function emitWatchTick(input: {
     emitProgress(`  ✓ loaded ${registered} primitives (${totals}) in ${elapsedMs}ms`);
     return;
   }
-  emitProgress(
+  emitProblem(
     `  ⚠ loaded ${registered} of ${registered + failed.length} in ${elapsedMs}ms — ${totals}`,
   );
   for (const e of fileErrors) {
-    emitProgress(`    ✗ indexer: ${e.filePath ?? '?'} [${e.code}] ${e.message}`);
+    emitProblem(`    ✗ indexer: ${e.filePath ?? '?'} [${e.code}] ${e.message}`);
   }
   for (const f of failed) {
-    emitProgress(`    ✗ ${f.kind}: ${f.id} — ${f.message ?? 'unknown reason'}`);
+    emitProblem(`    ✗ ${f.kind}: ${f.id} — ${f.message ?? 'unknown reason'}`);
   }
 }
 
@@ -1486,8 +1674,8 @@ async function emitSkillDriftHint(
 
 /**
  * How this pack's code runs (`dev/pack-code.ts`). For a Python pack, the
- * interpreter is resolved and checked — with the pack's own environment —
- * before anything boots.
+ * interpreter, and for a JVM pack, the JDK and Maven or sbt, are resolved
+ * and checked — with the pack's own environment — before anything boots.
  */
 async function resolveDevPackCode(
   dev: DevRunners,
@@ -1495,15 +1683,23 @@ async function resolveDevPackCode(
   packDir: string,
   config: Readonly<Record<string, unknown>> | undefined,
   packEnv: () => Promise<Readonly<Record<string, string>>>,
+  hostEnv: Readonly<Record<string, string | undefined>>,
 ): Promise<
   { readonly kind: 'ok'; readonly value: PackCode } | (CommandResult & { readonly kind: 'error' })
 > {
-  const resolved = await resolvePackCode(language, packDir, config);
+  const resolved = await resolvePackCode(language, packDir, config, hostEnv);
   if (resolved.kind === 'err') {
     return { kind: 'error', stderr: `kindgi dev: ${resolved.message}\n`, exitCode: 1 };
   }
   if (resolved.value.language === 'python') {
     const checked = await dev.checkPackPython(resolved.value.python, await packEnv(), packDir);
+    if (checked.kind === 'err') {
+      return { kind: 'error', stderr: `kindgi dev: ${checked.message}\n`, exitCode: 1 };
+    }
+    emitProgress(`✓ pack code: ${checked.value}`);
+  }
+  if (isJvmPackCode(resolved.value)) {
+    const checked = await dev.checkPackJvm(resolved.value, await packEnv(), packDir);
     if (checked.kind === 'err') {
       return { kind: 'error', stderr: `kindgi dev: ${checked.message}\n`, exitCode: 1 };
     }
@@ -1606,6 +1802,8 @@ async function applyDeclaredProviders(inputs: {
 
 interface DevBannerInputs {
   readonly baseUrl: string;
+  /** The runtime serves the console (`/console/`). */
+  readonly consoleMounted?: boolean;
   readonly tenantId: string;
   readonly token: string;
   /** The tenant's model providers; `undefined` leaves the line out. */
@@ -1624,6 +1822,8 @@ interface DevBannerInputs {
   readonly discoveryRoots?: readonly string[];
   /** `KINDGI_CORS_ORIGINS`: browser origins allowed to follow runs. Absent: the line is left out. */
   readonly corsOrigins?: readonly string[];
+  /** The Google credentials mounted for Vertex AI (`KINDGI_DEV_GOOGLE_CREDENTIALS`). Absent: no line. */
+  readonly googleCredentials?: DevGoogleCredentials;
 }
 
 /** The browser origins line: who may follow runs with public run tokens (`KINDGI_CORS_ORIGINS`). */
@@ -1670,6 +1870,18 @@ function describeProviders(
   return `${named} — canned replies; for a real model: ${registerProviderCommand}`;
 }
 
+/**
+ * The ready block's first lines: the console, and how to sign in to it
+ * (T374). First, so the URL a person opens is the console's: the API's
+ * own address used to be the first one printed, and answered 404.
+ */
+export function renderConsoleLines(baseUrl: string): readonly string[] {
+  return [
+    `  Console    ${consoleUrlOf(baseUrl)}   (open in your browser)`,
+    '             Sign in: "Sign in as seeded user" on the sign-in page (the dev token, below)',
+  ];
+}
+
 /** The banner `kindgi dev --no-watch` prints to stderr when it exits. */
 export function renderDevBanner(inputs: DevBannerInputs): readonly string[] {
   const lines: string[] = [];
@@ -1677,6 +1889,9 @@ export function renderDevBanner(inputs: DevBannerInputs): readonly string[] {
   lines.push(
     '  Starting Kindgi locally (dev: the runtime in a container, your code on this machine)',
   );
+  if (inputs.consoleMounted === true) {
+    lines.push(`    Console            ${consoleUrlOf(inputs.baseUrl)}`);
+  }
   lines.push(`    API server         ${inputs.baseUrl}`);
   lines.push(`    Tenant             ${inputs.tenantId}`);
   lines.push(`    Bearer token       ${inputs.token}`);
@@ -1693,6 +1908,11 @@ export function renderDevBanner(inputs: DevBannerInputs): readonly string[] {
   }
   if (inputs.corsOrigins !== undefined) {
     lines.push(`    Browser origins    ${describeBrowserOrigins(inputs.corsOrigins)}`);
+  }
+  if (inputs.googleCredentials !== undefined) {
+    lines.push(
+      `    Google credentials ${inputs.googleCredentials.path} (${inputs.googleCredentials.who}), read-only, for Vertex AI`,
+    );
   }
   lines.push('');
   lines.push(...renderIndexSection(inputs));

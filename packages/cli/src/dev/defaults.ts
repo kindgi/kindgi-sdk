@@ -33,7 +33,18 @@ import {
 import { createPackServiceSupervisor } from '@kindgi/handler-runtime/pack-service';
 
 import { createDevPackBuilder } from './bundler.js';
-import { type PackCode, checkPackPython } from './pack-code.js';
+import { createJavaPackBuilder } from './java-builder.js';
+import { lineReader } from './lines.js';
+import {
+  type JvmPackCode,
+  type PackCode,
+  checkPackJvm,
+  checkPackPython,
+  isJvmPackCode,
+  javaArgsFile,
+  javaEnv,
+  javaLauncher,
+} from './pack-code.js';
 import { devBundleMapPath, devIndexPath } from './paths.js';
 import { runtimePortInUseReal } from './port.js';
 import {
@@ -70,6 +81,7 @@ import {
   startRuntimeContainer,
 } from './runtime-container.js';
 import {
+  RUNTIME_EXPORT_SIGNING_KEY,
   RUNTIME_GOOGLE_CREDENTIALS,
   RUNTIME_PACK_DIR,
   RUNTIME_PUBLIC_TOKEN_KEY,
@@ -78,6 +90,7 @@ import {
   shellReferencesOf,
   writeRuntimeEnv,
 } from './runtime-env.js';
+import { createScalaPackBuilder } from './scala-builder.js';
 import {
   DEFAULT_SCAN_INTERVAL_MS,
   type ScanBackstop,
@@ -101,12 +114,17 @@ function resolvePackServiceEntrypoint(): string {
 /**
  * The pack-service process for the pack's code: the Node pack service
  * (loading the bundles in `.kindgi/dev/dist`, stack traces mapped back to
- * the sources), or `python -m kindgi.pack serve` with the pack's Python.
+ * the sources), `python -m kindgi.pack serve` with the pack's Python, or,
+ * for a JVM pack (Java or Scala), `com.kindgi.pack.Main serve` through the
+ * launcher with the pack's classpath (its `@argfile`, which the build
+ * rewrites).
  */
 export function packServiceCommand(code: PackCode): readonly [string, ...string[]] {
-  return code.language === 'python'
-    ? [...code.python, '-m', 'kindgi.pack', 'serve']
-    : [process.execPath, '--enable-source-maps', resolvePackServiceEntrypoint()];
+  if (code.language === 'python') return [...code.python, '-m', 'kindgi.pack', 'serve'];
+  if (isJvmPackCode(code)) {
+    return ['sh', javaLauncher(code), `@${javaArgsFile(code)}`, 'com.kindgi.pack.Main', 'serve'];
+  }
+  return [process.execPath, '--enable-source-maps', resolvePackServiceEntrypoint()];
 }
 
 /**
@@ -120,7 +138,10 @@ export function createPackServiceReal(opts: DevPackServiceOptions): DevPackServi
     moduleRoot: opts.packDir,
     // A required env name the pack lacks is a warning in dev (the
     // service still serves), not a refusal as in a deployment.
-    env: async () => ({ ...(await opts.env()), [PACK_ENV_CHECK_VAR]: 'warn' }),
+    env: async () => {
+      const env = { ...(await opts.env()), [PACK_ENV_CHECK_VAR]: 'warn' };
+      return isJvmPackCode(opts.code) ? javaEnv(opts.code, env) : env;
+    },
     onLog: opts.onLog,
     onEvent: opts.onEvent,
     ...(opts.port !== undefined && { port: opts.port }),
@@ -128,7 +149,7 @@ export function createPackServiceReal(opts: DevPackServiceOptions): DevPackServi
   });
 }
 
-/** The builder for the pack's code: esbuild bundles (Node) or the sources (Python). */
+/** The builder for the pack's code: esbuild bundles (Node), the sources (Python), Maven (Java), sbt (Scala). */
 export function createPackBuilderReal(opts: {
   readonly packDir: string;
   readonly patterns: readonly string[];
@@ -136,6 +157,12 @@ export function createPackBuilderReal(opts: {
   readonly code: PackCode;
   readonly env: () => Promise<Readonly<Record<string, string>>>;
 }): PackBuilder {
+  if (opts.code.language === 'java') {
+    return createJavaPackBuilder({ packDir: opts.packDir, code: opts.code, env: opts.env });
+  }
+  if (opts.code.language === 'scala') {
+    return createScalaPackBuilder({ packDir: opts.packDir, code: opts.code, env: opts.env });
+  }
   return opts.code.language === 'python'
     ? createPythonPackBuilder({ packDir: opts.packDir, python: opts.code.python, env: opts.env })
     : createDevPackBuilder({
@@ -154,6 +181,8 @@ export interface PythonIndexerOptions {
   /** Pins for a reproducible index (`kindgi build`). */
   readonly artifactVersion?: string;
   readonly publishedAt?: string;
+  /** What pack code prints while the indexer loads it (`IndexerRunOptions.onOutput`). */
+  readonly onOutput?: (line: string, stream: 'stdout' | 'stderr') => void;
 }
 
 /**
@@ -176,7 +205,45 @@ export async function runPythonIndexer(opts: PythonIndexerOptions): Promise<Inde
     ...(opts.publishedAt !== undefined ? ['--published-at', opts.publishedAt] : []),
     '--json',
   ];
-  return indexResultOf(outcomeOfChild(await runChild(program, args, opts.env)));
+  return indexResultOf(outcomeOfChild(await runChild(program, args, opts.env, opts.onOutput)));
+}
+
+export interface JavaIndexerOptions {
+  readonly packDir: string;
+  readonly outputPath: string;
+  /** The pack's JDK and build (its classpath `@argfile`, written by a build). */
+  readonly code: JvmPackCode;
+  readonly env: Readonly<Record<string, string>>;
+  /** Pins for a reproducible index (`kindgi build`). */
+  readonly artifactVersion?: string;
+  readonly publishedAt?: string;
+  /** What pack code prints while the indexer loads it (`IndexerRunOptions.onOutput`). */
+  readonly onOutput?: (line: string, stream: 'stdout' | 'stderr') => void;
+}
+
+/**
+ * `com.kindgi.pack.Main index` with the pack's JDK and classpath, read back
+ * like the other indexers: the same one-line outcome, then the written
+ * index.
+ */
+export async function runJavaIndexer(opts: JavaIndexerOptions): Promise<IndexResult> {
+  const args = [
+    `@${javaArgsFile(opts.code)}`,
+    'com.kindgi.pack.Main',
+    'index',
+    '--pack-dir',
+    opts.packDir,
+    '--output',
+    opts.outputPath,
+    ...(opts.artifactVersion !== undefined ? ['--artifact-version', opts.artifactVersion] : []),
+    ...(opts.publishedAt !== undefined ? ['--published-at', opts.publishedAt] : []),
+    '--json',
+  ];
+  return indexResultOf(
+    outcomeOfChild(
+      await runChild(opts.code.java, args, javaEnv(opts.code, opts.env), opts.onOutput),
+    ),
+  );
 }
 
 /** The indexer's outcome — in this process, or as a child's JSON line. */
@@ -201,6 +268,7 @@ async function runIndexerInChild(
   outputPath: string,
   env: () => Promise<Readonly<Record<string, string>>>,
   bundleMap: Readonly<Record<string, string>>,
+  onOutput?: (line: string, stream: 'stdout' | 'stderr') => void,
 ): Promise<IndexerOutcome> {
   const mapPath = devBundleMapPath(packDir);
   await mkdir(dirname(mapPath), { recursive: true });
@@ -219,7 +287,7 @@ async function runIndexerInChild(
     '--bundle-map',
     mapPath,
   ];
-  return outcomeOfChild(await runChild(process.execPath, args, await env()));
+  return outcomeOfChild(await runChild(process.execPath, args, await env(), onOutput));
 }
 
 /** The outcome an indexer child printed as its last stdout line. */
@@ -243,24 +311,55 @@ function outcomeOfChild(run: {
   }
 }
 
+/**
+ * Run an indexer child to the end: its output, and each line of it to
+ * `onOutput` as it comes, except its last stdout line when that's the
+ * indexer's result (held back until the next line shows it isn't).
+ */
 function runChild(
   command: string,
   args: readonly string[],
   env: Readonly<Record<string, string>>,
+  onOutput?: (line: string, stream: 'stdout' | 'stderr') => void,
 ): Promise<{ readonly stdout: string; readonly stderr: string; readonly code: number | null }> {
   return new Promise((resolvePromise) => {
     const child = spawn(command, [...args], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
     let stdout = '';
     let stderr = '';
-    child.stdout.on('data', (chunk: Buffer) => {
-      stdout += chunk.toString('utf8');
+    let held: string | undefined;
+    const outLines = lineReader((line) => {
+      if (held !== undefined) onOutput?.(held, 'stdout');
+      held = line;
     });
-    child.stderr.on('data', (chunk: Buffer) => {
-      stderr += chunk.toString('utf8');
+    const errLines = lineReader((line) => onOutput?.(line, 'stderr'));
+    child.stdout.on('data', (chunk: string) => {
+      stdout += chunk;
+      outLines.push(chunk);
+    });
+    child.stderr.on('data', (chunk: string) => {
+      stderr += chunk;
+      errLines.push(chunk);
     });
     child.once('error', (cause) => resolvePromise({ stdout, stderr: cause.message, code: null }));
-    child.once('close', (code) => resolvePromise({ stdout, stderr, code }));
+    child.once('close', (code) => {
+      outLines.end();
+      errLines.end();
+      if (held !== undefined && !isIndexerResult(held)) onOutput?.(held, 'stdout');
+      resolvePromise({ stdout, stderr, code });
+    });
   });
+}
+
+/** Whether a line is an indexer's one-line result (`{"kind":"ok"|"err",…}`). */
+function isIndexerResult(line: string): boolean {
+  try {
+    const parsed = JSON.parse(line) as { readonly kind?: unknown };
+    return parsed.kind === 'ok' || parsed.kind === 'err';
+  } catch {
+    return false;
+  }
 }
 
 /** Swap the staged index in: the dev index changes in one step (a rename). */
@@ -272,8 +371,8 @@ export async function publishIndexReal(stagedPath: string, indexPath: string): P
  * The Kindgi runtime, as a container: pull the image if needed, write
  * `runtime.env`, start it with the pack directory mounted, and wait until
  * it serves. The runtime makes or loads its own public run token key;
- * the developer's key file, if set, and their Google credentials are
- * mounted read-only.
+ * the developer's key file, if set, and the Google credentials
+ * `KINDGI_DEV_GOOGLE_CREDENTIALS` names, if any, are mounted read-only.
  */
 export async function startApiServerContainerReal(
   opts: StartApiServerOptions,
@@ -283,7 +382,7 @@ export async function startApiServerContainerReal(
   const image = await ensureRuntimeImage(opts.runtimeImage, progress);
   if (image.kind === 'error') throw new Error(image.message);
 
-  const googleCredentials = googleCredentialsPath(opts.hostEnv);
+  const googleCredentials = opts.googleCredentialsPath;
   const env = buildRuntimeEnv({
     ...(network === 'host-network'
       ? { apiPort: opts.port, apiHost: '127.0.0.1' }
@@ -301,7 +400,12 @@ export async function startApiServerContainerReal(
     ...(opts.publicRunTokenKeyPath !== undefined && {
       publicTokenKeyPath: RUNTIME_PUBLIC_TOKEN_KEY,
     }),
+    ...(opts.exportSigningKeyPath !== undefined && {
+      exportSigningKeyPath: RUNTIME_EXPORT_SIGNING_KEY,
+    }),
     ...(googleCredentials !== undefined && { googleCredentialsPath: RUNTIME_GOOGLE_CREDENTIALS }),
+    // kindgi dev reads the container's output as records and shows them.
+    log: { ...opts.logLevels, KINDGI_LOG_FORMAT: 'json' },
     shellReferences: await shellReferencesOf({
       packDir: opts.packDir,
       ...(opts.localEnvFiles !== undefined && { localEnvFiles: opts.localEnvFiles }),
@@ -320,6 +424,9 @@ export async function startApiServerContainerReal(
     ...(googleCredentials !== undefined && { googleCredentials }),
     ...(opts.publicRunTokenKeyPath !== undefined && {
       publicTokenKey: opts.publicRunTokenKeyPath,
+    }),
+    ...(opts.exportSigningKeyPath !== undefined && {
+      exportSigningKey: opts.exportSigningKeyPath,
     }),
     onLog: opts.onLog ?? (() => undefined),
     ...(opts.signal !== undefined && { signal: opts.signal }),
@@ -363,7 +470,7 @@ export async function attachToRuntimeReal(
   const url = new URL(opts.runtimeUrl);
   const baseUrl = url.origin;
   const port = Number(url.port || (url.protocol === 'https:' ? 443 : 80));
-  const googleCredentials = googleCredentialsPath(opts.hostEnv);
+  const googleCredentials = opts.googleCredentialsPath;
   const envFile = runtimeEnvPath(opts.packDir);
   await writeRuntimeEnv(
     envFile,
@@ -382,7 +489,12 @@ export async function attachToRuntimeReal(
       ...(opts.publicRunTokenKeyPath !== undefined && {
         publicTokenKeyPath: opts.publicRunTokenKeyPath,
       }),
+      ...(opts.exportSigningKeyPath !== undefined && {
+        exportSigningKeyPath: opts.exportSigningKeyPath,
+      }),
       ...(googleCredentials !== undefined && { googleCredentialsPath: googleCredentials }),
+      // Its output goes to the developer's terminal, which picks the format.
+      ...(opts.logLevels !== undefined && { log: opts.logLevels }),
       shellReferences: await shellReferencesOf({
         packDir: opts.packDir,
         ...(opts.localEnvFiles !== undefined && { localEnvFiles: opts.localEnvFiles }),
@@ -456,22 +568,6 @@ export function databaseUrlFrom(url: string, network: RuntimeNetwork): string {
 }
 
 /**
- * The developer's Google Application Default Credentials, mounted
- * read-only (Kindgi keeps no key files of its own): `GOOGLE_APPLICATION_CREDENTIALS`
- * if set, else the file `gcloud auth application-default login` writes.
- */
-export function googleCredentialsPath(
-  hostEnv: Readonly<Record<string, string | undefined>>,
-): string | undefined {
-  const explicit = hostEnv.GOOGLE_APPLICATION_CREDENTIALS;
-  if (explicit !== undefined && explicit !== '' && existsSync(explicit)) return explicit;
-  const home = hostEnv.HOME;
-  if (home === undefined || home === '') return undefined;
-  const adc = join(home, '.config', 'gcloud', 'application_default_credentials.json');
-  return existsSync(adc) ? adc : undefined;
-}
-
-/**
  * Run the indexer against a pack root. `runIndexer` writes an
  * `index.json` on the pack root by default; we tolerate the write and
  * read the bytes back so callers get the parsed manifest without a
@@ -490,11 +586,27 @@ export async function runIndexerReadReal(
       outputPath,
       python: code.python,
       env: options.env !== undefined ? await options.env() : {},
+      ...(options.onOutput !== undefined && { onOutput: options.onOutput }),
+    });
+  }
+  if (isJvmPackCode(code)) {
+    return runJavaIndexer({
+      packDir,
+      outputPath,
+      code,
+      env: options.env !== undefined ? await options.env() : {},
+      ...(options.onOutput !== undefined && { onOutput: options.onOutput }),
     });
   }
   return indexResultOf(
     options.env !== undefined
-      ? await runIndexerInChild(packDir, outputPath, options.env, options.bundleMap ?? {})
+      ? await runIndexerInChild(
+          packDir,
+          outputPath,
+          options.env,
+          options.bundleMap ?? {},
+          options.onOutput,
+        )
       : await runIndexerReal({ packDir, outputPath }),
   );
 }
@@ -1064,6 +1176,7 @@ export const REAL_DEV_RUNNERS: DevRunners = {
   createPackBuilder: createPackBuilderReal,
   createPackService: createPackServiceReal,
   checkPackPython,
+  checkPackJvm,
   publishIndex: publishIndexReal,
   watchPack: watchPackReal,
   startServices: startServicesReal,

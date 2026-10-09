@@ -18,8 +18,8 @@ import {
   makeInMemoryProjectBinding,
   makeInMemoryTeamBinding,
 } from '@kindgi/platform';
-import { createStubAppBindings, createStubBinding } from '@kindgi/testing';
 import type { SigningKeyId, TenantId } from '@kindgi/types';
+import { createStubAppBindings, createStubBinding } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type {
@@ -45,6 +45,7 @@ import type {
   JudgmentRegistryBinding,
   MCPEndpointRegistryBinding,
   MemoryBinding,
+  MemoryErasureBinding,
   PolicyRegistryBinding,
   ProviderRegistryBinding,
   PublicRunTokenConfig,
@@ -53,6 +54,7 @@ import type {
   ReviewerRegistryBinding,
   RunHandlerBinding,
   SecretBinding,
+  ServiceAccountBinding,
   SessionStoreBinding,
   SigningKeyBinding as SigningKeyRegistryBinding,
   SupervisorBinding,
@@ -183,7 +185,10 @@ const noopMemory: MemoryBinding = {
     code: 'persistence-error',
     message: 'noop',
   }),
-  supersedeFact: async () => ({ superseded: false }),
+  supersedeFact: async () => ({ kind: 'not-found' }),
+  deleteFact: async () => ({ kind: 'not-found' }),
+  verifyFact: async () => ({ kind: 'not-found' }),
+  listRevisions: async () => null,
   retrieve: async () => ({ kind: 'ok', results: [] }),
 };
 const noopBlobStorage: BlobStorageBinding = {
@@ -354,6 +359,18 @@ const noopRetention: RetentionBinding = {
   sweep: async () => ({ perDomain: [], totalPurged: 0 }),
 };
 
+const noopMemoryErasures: MemoryErasureBinding = {
+  create: async () => ({
+    kind: 'refused',
+    refusal: { code: 'legal-hold', message: 'noop' },
+  }),
+  get: async () => undefined,
+  list: async () => ({ data: [] }),
+  exportLedger: async () => [],
+  resume: async () => undefined,
+  replay: async () => ({ replayed: [], restored: [], unmatched: [] }),
+};
+
 const noopAgentReleases: AgentReleaseBindings = {
   live: { resolve: async () => null, list: async () => [] },
   promotions: {
@@ -408,6 +425,8 @@ const noopSessionStore: SessionStoreBinding = {
   list: async () => ({ data: [] }),
   revoke: async () => ({ revoked: false }),
   revokeAllForUser: async () => ({ revokedCount: 0 }),
+  // Cookie sessions need a store that resolves its own tokens.
+  resolveToken: async () => null,
 };
 
 const noopIdentityProvider: IdentityProviderBinding = {
@@ -415,6 +434,8 @@ const noopIdentityProvider: IdentityProviderBinding = {
   get: async () => null,
   register: async ({ config }) => ({ kind: 'ok', providerId: config.providerId }),
   unregister: async () => ({ unregistered: false }),
+  signInUrls: async () => undefined,
+  update: async () => ({ kind: 'not-found' }),
 };
 
 const noopIdentityDirectory: IdentityDirectoryBinding = {
@@ -422,6 +443,21 @@ const noopIdentityDirectory: IdentityDirectoryBinding = {
   listUsers: async () => ({ data: [] }),
   listSessions: async () => ({ data: [] }),
   revokeAllSessions: async ({ userId }) => ({ userId, revokedCount: 0 }),
+  createUser: async () => ({ kind: 'email-taken', userId: 'noop-user' as never }),
+  unregisterUser: async () => ({ kind: 'not-found' }),
+};
+
+const serviceAccountNotFound = {
+  kind: 'err',
+  error: { code: 'service-account-not-found', message: 'noop' },
+} as const;
+const noopServiceAccounts: ServiceAccountBinding = {
+  create: async () => serviceAccountNotFound,
+  get: async () => null,
+  list: async () => ({ data: [] }),
+  grant: async () => serviceAccountNotFound,
+  ungrant: async () => serviceAccountNotFound,
+  unregister: async () => serviceAccountNotFound,
 };
 
 const noopExchangeCode: ExchangeCodeFn = async () => ({
@@ -526,15 +562,8 @@ const noopSecretsBinding: SecretBinding = {
 const noopSupervisor: SupervisorBinding = {
   listProposals: async () => ({ data: [] }),
   getProposal: async () => null,
-  draftProposal: async () => ({
-    kind: 'ok',
-    proposal: {} as never,
-  }),
-  dryRunProposal: async ({ proposalId }) => ({ kind: 'not-found', proposalId }),
-  submitReview: async ({ proposalId }) => ({ kind: 'not-found', proposalId }),
-  applyProposal: async ({ proposalId }) => ({ kind: 'not-found', proposalId }),
-  rollbackProposal: async ({ proposalId }) => ({ kind: 'not-found', proposalId }),
-  withdrawProposal: async ({ proposalId }) => ({ kind: 'not-found', proposalId }),
+  createProposal: async () => ({ kind: 'ok', proposal: {} as never }),
+  recordProposal: async () => ({ kind: 'not-found' }),
   queryObservations: async () => ({ kind: 'ok', page: { data: [] } }),
 };
 
@@ -552,6 +581,7 @@ function collectMountedRoutes(): HonoRouteRecord[] {
     resolveToken: noopResolveToken,
     runHandler: noopRunHandler,
     tokenAdmin: noopTokenAdmin,
+    serviceAccountBinding: noopServiceAccounts,
     reviewerBinding: noopReviewerBinding,
     hitlBinding: noopHitlBinding,
     reviewerRegistry: noopReviewerRegistry,
@@ -562,6 +592,7 @@ function collectMountedRoutes(): HonoRouteRecord[] {
     toolRegistry: noopToolRegistry,
     guardrailRegistry: noopGuardrailRegistry,
     memory: noopMemory,
+    memoryErasures: noopMemoryErasures,
     supervisor: noopSupervisor,
     blobStorage: noopBlobStorage,
     capabilityRegistry: noopCapabilityRegistry,
@@ -580,6 +611,7 @@ function collectMountedRoutes(): HonoRouteRecord[] {
     judgmentRegistry: noopJudgmentRegistry,
     evalCaseStore: noopEvalCaseStore,
     sessionStore: noopSessionStore,
+    session: { cookie: { allowedOrigins: ['https://console.example.com'] }, tokenSignIn: true },
     identityProvider: noopIdentityProvider,
     exchangeCode: noopExchangeCode,
     identityDirectory: noopIdentityDirectory,

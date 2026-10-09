@@ -21,6 +21,7 @@ import { mergeTenantPolicies } from '../tenant-policy.js';
 import type { Conversation } from '../types.js';
 import type { TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
+import { withRememberTool } from './remember-tool.js';
 import { type PinnedBlockVersions, resolveTurnBlocks } from './resolve-blocks.js';
 import { resolveTurnTools } from './resolve-tools.js';
 import { type ToolErrorPolicy, effectiveToolErrorPolicy } from './tool-errors.js';
@@ -102,7 +103,7 @@ export async function resolveTurnEnvironment(
   // This turn's tools come from the tenant's own registry — never a
   // registry shared across concurrent turns of other tenants.
   const tenantTools = await ctx.bindings.toolRegistry.forTenant(ctx.input.tenantId);
-  ctx.tools = resolveTurnTools(tenantTools, ctx.input.agent, pinnedTools);
+  ctx.tools = withRememberTool(ctx, resolveTurnTools(tenantTools, ctx.input.agent, pinnedTools));
   // The data blocks, at the versions pinned (the turn's own on resume).
   const blocks = await resolveTurnBlocks(ctx, pinnedBlocks);
   if (blocks !== undefined) ctx.blocks = blocks;

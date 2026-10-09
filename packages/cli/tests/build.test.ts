@@ -26,10 +26,15 @@
 
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
+import {
+  DEFAULT_JAVA_BUILD_IMAGE_REF,
+  DEFAULT_JAVA_RUNTIME_IMAGE_REF,
+  JAVA_PACK_SERVICE_COMMAND,
+} from '../src/build/java-image.js';
 import { DEFAULT_UV_IMAGE_REF, PYTHON_PACK_SERVICE_COMMAND } from '../src/build/python-image.js';
 import type {
   BuildRunners,
@@ -42,6 +47,11 @@ import type {
   TarPackResult,
   TerminalPayload,
 } from '../src/build/runners.js';
+import {
+  DEFAULT_SCALA_BUILD_IMAGE_REF,
+  SCALA_PACK_SERVICE_COMMAND,
+} from '../src/build/scala-image.js';
+import { buildTimeDefaults } from '../src/commands/build.js';
 import { type RunCliInputs, runCli } from '../src/main.js';
 
 let cwd: string;
@@ -539,10 +549,16 @@ describe('kindgi build — integrity gate', () => {
 describe('kindgi build — signing surface', () => {
   test('signs the canonicalised body (sorted-key JSON, five fields)', async () => {
     const fixtures = makeFixtures();
-    await runCli({
-      ...baseInputs(fixtures),
-      argv: ['build', '--env=staging', `--path=${packDir}`],
-    });
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-10-08T09:05:03.042Z'));
+    try {
+      await runCli({
+        ...baseInputs(fixtures),
+        argv: ['build', '--env=staging', `--path=${packDir}`],
+      });
+    } finally {
+      vi.useRealTimers();
+    }
     expect(fixtures.state.capturedSignedMessage).toBeDefined();
     const text = new TextDecoder().decode(fixtures.state.capturedSignedMessage);
     // Sorted keys: artifactVersion, imageDigest, indexHash, publishedAt, tenantId.
@@ -555,7 +571,9 @@ describe('kindgi build — signing surface', () => {
       'tenantId',
     ]);
     expect(parsed.tenantId).toBe('tenant-acme-staging');
-    expect(parsed.publishedAt).toBe('1970-01-01T00:00:00.000Z');
+    // Unpinned, the build server's build signs the build time too.
+    expect(parsed.artifactVersion).toBe('20261008.090503');
+    expect(parsed.publishedAt).toBe('2026-10-08T09:05:03.042Z');
     // Key order in the raw string is sorted (canonical stringify).
     expect(text.indexOf('artifactVersion')).toBeLessThan(text.indexOf('imageDigest'));
     expect(text.indexOf('imageDigest')).toBeLessThan(text.indexOf('indexHash'));
@@ -810,6 +828,235 @@ describe('kindgi build — a Python pack', () => {
       indexHash: SAMPLE_INDEX_HASH_HEX,
     });
     expect(envelope.signature).toBeTruthy();
+  });
+});
+
+/** The JVM build runners, recording what they're called with (Java and Scala packs). */
+function withJvm(fixtures: Fixtures, compileErrors?: readonly string[]) {
+  const calls = {
+    prepared: [] as unknown[],
+    indexed: [] as unknown[],
+    images: [] as (readonly string[])[],
+    languages: [] as string[],
+    files: [] as (readonly string[])[],
+  };
+  fixtures.runners = {
+    ...fixtures.runners,
+    jvm: {
+      prepare: async (o) => {
+        calls.prepared.push(o.code);
+        return compileErrors === undefined
+          ? { kind: 'ok' }
+          : { kind: 'err', errors: compileErrors };
+      },
+      runLocalIndexer: async (o) => {
+        calls.indexed.push(o.code);
+        await writeFile(o.outputPath, SAMPLE_INDEX_BYTES);
+        return {
+          kind: 'ok',
+          packId: 'my-pack',
+          packVersion: '0.1.0',
+          counts: { tools: 1, guardrails: 0, agents: 0, flows: 0 },
+          fileErrors: [],
+          index: SAMPLE_INDEX,
+        };
+      },
+      writeContainerfile: async (o) => {
+        calls.images.push([o.buildImageRef, o.runtimeImageRef]);
+        calls.languages.push(o.language);
+        await writeFile(o.outputPath, `# ${o.language} containerfile\n`, 'utf8');
+      },
+      writeContext: async (o) => {
+        calls.files.push(o.files);
+      },
+    },
+  };
+  return calls;
+}
+
+describe('kindgi build — a Java pack', () => {
+  async function javaPack(withPom = true): Promise<void> {
+    await rm(join(packDir, 'kindgi.config.ts'));
+    await rm(join(packDir, 'package.json'));
+    await rm(join(packDir, 'package-lock.json'));
+    await writeFile(
+      join(packDir, 'kindgi.config.json'),
+      JSON.stringify({ language: 'java', pack: { id: 'my-pack', version: '0.1.0' } }),
+      'utf8',
+    );
+    if (withPom) await writeFile(join(packDir, 'pom.xml'), '<project/>\n', 'utf8');
+    await mkdir(join(packDir, 'src', 'main', 'java', 'acme', 'tools'), { recursive: true });
+    await writeFile(
+      join(packDir, 'src', 'main', 'java', 'acme', 'tools', 'Echo.java'),
+      'x',
+      'utf8',
+    );
+    await mkdir(join(packDir, 'target', 'classes'), { recursive: true });
+    await writeFile(join(packDir, 'target', 'classes', 'Echo.class'), 'x', 'utf8');
+    await writeFile(join(packDir, '.env'), 'SECRET=1\n', 'utf8');
+  }
+
+  function withJava(fixtures: Fixtures, compileErrors?: readonly string[]) {
+    return withJvm(fixtures, compileErrors);
+  }
+
+  const JAVA_CONFIG = { language: 'java', dev: { javaHome: '/opt/jdk-17', maven: ['mvn'] } };
+
+  test("compiles and indexes with the pack's JDK, ships the pack root, then builds, checks and signs", async () => {
+    await javaPack();
+    const fixtures = makeFixtures();
+    const calls = withJava(fixtures);
+    const out = await runCli({
+      ...baseInputs(fixtures, {}, JAVA_CONFIG),
+      argv: ['build', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    const code = {
+      language: 'java',
+      java: '/opt/jdk-17/bin/java',
+      javaHome: '/opt/jdk-17',
+      maven: ['mvn'],
+      workDir: join(packDir, '.kindgi/build/java'),
+    };
+    expect(calls.prepared).toEqual([code]);
+    expect(calls.indexed).toEqual([code]);
+    expect(calls.images).toEqual([[DEFAULT_JAVA_BUILD_IMAGE_REF, DEFAULT_JAVA_RUNTIME_IMAGE_REF]]);
+    expect(calls.files).toEqual([
+      ['kindgi.config.json', 'pom.xml', 'src/main/java/acme/tools/Echo.java'],
+    ]);
+    expect(fixtures.state.esbuildCalls).toBe(0);
+    expect(fixtures.state.tarCalls).toBe(1);
+    expect(fixtures.state.postCalls).toBe(1);
+    expect(fixtures.state.signCalls).toBe(1);
+  });
+
+  test("a pack that doesn't compile stops before indexing, with javac's located errors", async () => {
+    await javaPack();
+    const fixtures = makeFixtures();
+    const calls = withJava(fixtures, ['src/main/java/acme/tools/Echo.java:3:1: class expected']);
+    const out = await runCli({
+      ...baseInputs(fixtures, {}, JAVA_CONFIG),
+      argv: ['build', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain("The pack didn't compile");
+    expect(out.stderr).toContain('src/main/java/acme/tools/Echo.java:3:1: class expected');
+    expect(calls.indexed).toEqual([]);
+    expect(fixtures.state.postCalls).toBe(0);
+  });
+
+  test('without pom.xml the build stops before uploading', async () => {
+    await javaPack(false);
+    const fixtures = makeFixtures();
+    withJava(fixtures);
+    const out = await runCli({
+      ...baseInputs(fixtures, {}, JAVA_CONFIG),
+      argv: ['build', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('No pom.xml');
+    expect(fixtures.state.postCalls).toBe(0);
+  });
+
+  test('--local builds with Docker and names the pack service it runs', async () => {
+    await javaPack();
+    const fixtures = makeFixtures();
+    withJava(fixtures);
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: {} }, { ...JAVA_CONFIG, environments: {} }),
+      argv: ['build', '--local', '--artifact-version=20261007.1', `--path=${packDir}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(fixtures.state.dockerBuilds[0]).toMatchObject({ tag: 'kindgi-pack/my-pack:20261007.1' });
+    expect(out.stderr).toContain(`(the pack service: ${JAVA_PACK_SERVICE_COMMAND.join(' ')})`);
+  });
+});
+
+describe('kindgi build — a Scala pack', () => {
+  async function scalaPack(withBuild = true): Promise<void> {
+    await rm(join(packDir, 'kindgi.config.ts'));
+    await rm(join(packDir, 'package.json'));
+    await rm(join(packDir, 'package-lock.json'));
+    await writeFile(
+      join(packDir, 'kindgi.config.json'),
+      JSON.stringify({ language: 'scala', pack: { id: 'my-pack', version: '0.1.0' } }),
+      'utf8',
+    );
+    if (withBuild) await writeFile(join(packDir, 'build.sbt'), 'scalaVersion := "3.3.8"\n', 'utf8');
+    const files: Record<string, string> = {
+      'project/build.properties': 'sbt.version=1.12.15\n',
+      'src/main/scala/acme/tools/Echo.scala': 'object Echo',
+      // Build output, build-server state and credentials stay out of the image.
+      'target/scala-3.3.8/classes/acme/tools/Echo$.class': 'x',
+      'project/target/active.json': '{}',
+      'project/project/target/x': 'x',
+      '.bsp/sbt.json': '{}',
+      'credentials.sbt': 'credentials += ???',
+      '.env': 'SECRET=1\n',
+    };
+    for (const [rel, text] of Object.entries(files)) {
+      await mkdir(dirname(join(packDir, rel)), { recursive: true });
+      await writeFile(join(packDir, rel), text, 'utf8');
+    }
+  }
+
+  const SCALA_CONFIG = { language: 'scala', dev: { javaHome: '/opt/jdk-17' } };
+
+  test("compiles and indexes with the pack's JDK and sbt, ships the pack root, builds with the sbt image", async () => {
+    await scalaPack();
+    const fixtures = makeFixtures();
+    const calls = withJvm(fixtures);
+    const out = await runCli({
+      ...baseInputs(fixtures, {}, SCALA_CONFIG),
+      argv: ['build', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    const code = {
+      language: 'scala',
+      java: '/opt/jdk-17/bin/java',
+      javaHome: '/opt/jdk-17',
+      sbt: ['sbt'],
+      workDir: join(packDir, '.kindgi/build/scala'),
+    };
+    expect(calls.prepared).toEqual([code]);
+    expect(calls.indexed).toEqual([code]);
+    expect(calls.languages).toEqual(['scala']);
+    expect(calls.images).toEqual([[DEFAULT_SCALA_BUILD_IMAGE_REF, DEFAULT_JAVA_RUNTIME_IMAGE_REF]]);
+    expect(calls.files).toEqual([
+      [
+        'build.sbt',
+        'kindgi.config.json',
+        'project/build.properties',
+        'src/main/scala/acme/tools/Echo.scala',
+      ],
+    ]);
+    expect(out.stderr).toContain('Indexing (Scala — /opt/jdk-17; sbt)');
+    expect(out.stderr).toContain('classes and dependencies from build.sbt');
+  });
+
+  test('without build.sbt the build stops before uploading', async () => {
+    await scalaPack(false);
+    const fixtures = makeFixtures();
+    withJvm(fixtures);
+    const out = await runCli({
+      ...baseInputs(fixtures, {}, SCALA_CONFIG),
+      argv: ['build', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('No build.sbt');
+    expect(fixtures.state.postCalls).toBe(0);
+  });
+
+  test('--local names the pack service the image runs', async () => {
+    await scalaPack();
+    const fixtures = makeFixtures();
+    withJvm(fixtures);
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: {} }, { ...SCALA_CONFIG, environments: {} }),
+      argv: ['build', '--local', '--artifact-version=20261008.1', `--path=${packDir}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stderr).toContain(`(the pack service: ${SCALA_PACK_SERVICE_COMMAND.join(' ')})`);
   });
 });
 
@@ -1157,5 +1404,127 @@ describe('kindgi build --local --push', () => {
     expect(fixtures.state.dockerBuilds[0]).not.toHaveProperty('push');
     expect(fixtures.state.dockerBuilds[0]).not.toHaveProperty('platform');
     expect(fixtures.state.signCalls).toBe(0);
+  });
+});
+
+describe('kindgi build — the artifact version and publish time', () => {
+  // What the runtime's deploy route accepts.
+  const ARTIFACT_VERSION_RE = /^\d{8}\.\d+$/;
+
+  test('default to the build time: YYYYMMDD.HHMMSS and the ISO time, both UTC', () => {
+    expect(buildTimeDefaults(new Date('2026-10-08T09:05:03.042Z'))).toEqual({
+      artifactVersion: '20261008.090503',
+      publishedAt: '2026-10-08T09:05:03.042Z',
+    });
+    expect(buildTimeDefaults(new Date('2026-01-02T03:04:05.006Z')).artifactVersion).toBe(
+      '20260102.030405',
+    );
+    for (const at of ['2026-10-08T00:00:00.000Z', '2026-10-08T23:59:59.999Z']) {
+      expect(buildTimeDefaults(new Date(at)).artifactVersion).toMatch(ARTIFACT_VERSION_RE);
+    }
+  });
+
+  test('sort in build order within a day, and across midnight', () => {
+    const times = [
+      '2026-10-08T00:00:00.000Z',
+      '2026-10-08T00:00:01.000Z',
+      '2026-10-08T00:59:59.999Z',
+      '2026-10-08T09:59:59.000Z',
+      '2026-10-08T10:00:00.000Z',
+      '2026-10-08T23:59:59.999Z',
+      '2026-10-09T00:00:00.000Z',
+    ];
+    const versions = times.map((at) => buildTimeDefaults(new Date(at)).artifactVersion);
+    expect(new Set(versions).size).toBe(versions.length);
+    expect([...versions].sort()).toEqual(versions);
+    const sameDay = versions.slice(0, -1).map((v) => Number(v.split('.')[1]));
+    expect([...sameDay].sort((a, b) => a - b)).toEqual(sameDay);
+  });
+
+  test('two unpinned builds the same day get their own versions, tags and publish times', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const builds = [];
+      for (const at of ['2026-10-08T09:05:03.042Z', '2026-10-08T09:05:04.510Z']) {
+        vi.setSystemTime(new Date(at));
+        const fixtures = makeFixtures();
+        const seen: { artifactVersion: string; publishedAt: string }[] = [];
+        const runners: BuildRunners = {
+          ...fixtures.runners,
+          runLocalIndexer: async (o) => {
+            seen.push({ artifactVersion: o.artifactVersion, publishedAt: o.publishedAt });
+            return fixtures.runners.runLocalIndexer(o);
+          },
+          writeContainerfile: async (o) => {
+            seen.push({ artifactVersion: o.artifactVersion, publishedAt: o.publishedAt });
+            return fixtures.runners.writeContainerfile(o);
+          },
+        };
+        const out = await runCli({
+          ...baseInputs({ ...fixtures, runners }),
+          argv: ['build', '--local', '--push', '--env=staging', `--path=${packDir}`],
+        });
+        expect(out.exitCode, out.stderr).toBe(0);
+        const envelope = JSON.parse(
+          await readFile(join(packDir, '.kindgi/build/deploy-envelope.json'), 'utf8'),
+        ) as Record<string, unknown>;
+        builds.push({ tag: fixtures.state.dockerBuilds[0]?.tag, envelope, seen });
+      }
+      expect(builds.map((b) => b.tag)).toEqual([
+        'ghcr.io/acme/my-pack:20261008.090503',
+        'ghcr.io/acme/my-pack:20261008.090504',
+      ]);
+      expect(builds.map((b) => b.envelope)).toMatchObject([
+        { artifactVersion: '20261008.090503', publishedAt: '2026-10-08T09:05:03.042Z' },
+        { artifactVersion: '20261008.090504', publishedAt: '2026-10-08T09:05:04.510Z' },
+      ]);
+      // The local index, the image and the signature get the same values.
+      for (const { envelope, seen } of builds) {
+        expect(seen).toHaveLength(2);
+        for (const values of seen) {
+          expect(values).toEqual({
+            artifactVersion: envelope.artifactVersion,
+            publishedAt: envelope.publishedAt,
+          });
+        }
+      }
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('a pinned build uses both flags as given, whenever it runs', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      const envelopes = [];
+      for (const at of ['2026-10-08T09:05:03.042Z', '2026-10-09T17:00:00.000Z']) {
+        vi.setSystemTime(new Date(at));
+        const fixtures = makeFixtures();
+        const out = await runCli({
+          ...baseInputs(fixtures),
+          argv: [
+            'build',
+            '--local',
+            '--push',
+            '--env=staging',
+            '--artifact-version=20261008.7',
+            '--published-at=2026-10-08T12:00:00.000Z',
+            `--path=${packDir}`,
+          ],
+        });
+        expect(out.exitCode, out.stderr).toBe(0);
+        expect(fixtures.state.dockerBuilds[0]?.tag).toBe('ghcr.io/acme/my-pack:20261008.7');
+        envelopes.push(
+          JSON.parse(await readFile(join(packDir, '.kindgi/build/deploy-envelope.json'), 'utf8')),
+        );
+      }
+      expect(envelopes[0]).toMatchObject({
+        artifactVersion: '20261008.7',
+        publishedAt: '2026-10-08T12:00:00.000Z',
+      });
+      expect(envelopes[1]).toEqual(envelopes[0]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

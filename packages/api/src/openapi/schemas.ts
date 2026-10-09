@@ -167,6 +167,31 @@ export const RunAgentSchema: JsonSchema = {
   },
 };
 
+/**
+ * The trigger that started a run. A component of its own, so generated
+ * clients name it `RunTrigger`.
+ */
+export const RunTriggerSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['triggerId', 'kind', 'fireId'],
+  description:
+    'Set on a run a trigger started (a schedule, an event trigger or an inbound webhook): the trigger and the fire that started it. Absent on other runs.',
+  properties: {
+    triggerId: { type: 'string', format: 'uuid' },
+    kind: { type: 'string', enum: ['schedule', 'event', 'webhook'] },
+    fireId: {
+      type: 'string',
+      description: "The fire that started the run: one entry of the trigger's fire history.",
+    },
+    scheduledFor: {
+      type: 'string',
+      format: 'date-time',
+      description: "A schedule's fire: the occurrence the run is for.",
+    },
+  },
+};
+
 export const ScopeSegmentSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -581,6 +606,22 @@ export const UnpinBodySchema: JsonSchema = {
   },
 };
 
+export const RunFailureSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['code', 'message'],
+  description:
+    "Why a failed run failed; present only on a `failed` run. An agent turn's failure carries its own code (`budget-exceeded`, `capability-routing-failed`, `model-invocation-failed`, …); any other failure is `run-failed`, with the run's failure message.",
+  properties: {
+    code: { type: 'string' },
+    message: { type: 'string' },
+    cause: {
+      description:
+        "What the error came from, when it says: e.g. for `capability-routing-failed`, the router's `capability-unsatisfiable` with its reasons, by provider.",
+    },
+  },
+};
+
 export const RunSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -605,10 +646,21 @@ export const RunSchema: JsonSchema = {
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
     completedAt: { type: 'string', format: 'date-time' },
-    failureMessage: { type: 'string' },
+    failureMessage: {
+      type: 'string',
+      description:
+        'The failure as the runtime recorded it. Read `failure` instead: an agent turn records its typed error here in an internal form.',
+    },
+    failure: { $ref: '#/components/schemas/RunFailure' },
     output: {
       description:
         "The run's output once it completed. Present on single-run responses; on lists only with `?include=output`.",
+    },
+    contentErasedAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        "When an erasure cleared the run's content (its input, output, failure message and journal payloads): a person's words were erased. Structure (status, times, ids) stays.",
     },
     parentRunId: {
       type: 'string',
@@ -621,6 +673,7 @@ export const RunSchema: JsonSchema = {
       description: 'Set on a child run: the node in the parent run that started it.',
     },
     agent: { $ref: '#/components/schemas/RunAgent' },
+    trigger: { $ref: '#/components/schemas/RunTrigger' },
     replayOf: {
       type: 'string',
       format: 'uuid',
@@ -898,7 +951,18 @@ const ApiTokenRoleSchema: JsonSchema = {
   type: 'string',
   enum: ['admin', 'member'],
   description:
-    "The key's role in its tenant: `admin` administers the tenant (and manages keys); `member` belongs to it and administers nothing.",
+    "The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action on the tenant, whoever it's for; below it, its principal's roles hold (a project admin's member key administers that project).",
+};
+
+export const ApiKeyPrincipalSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'id'],
+  description: 'Whom an API key acts for: a person, or a service account.',
+  properties: {
+    kind: { type: 'string', enum: ['user', 'service-account'] },
+    id: { type: 'string', minLength: 1, description: 'The user id, or the service account id.' },
+  },
 };
 
 const ApiTokenCapabilitiesSchema: JsonSchema = {
@@ -911,10 +975,13 @@ const ApiTokenCapabilitiesSchema: JsonSchema = {
 export const MintTokenBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
+  description:
+    'A new API key. `for` is whom it acts for: the caller by default; only a tenant admin mints for someone else.',
   properties: {
+    for: { $ref: '#/components/schemas/ApiKeyPrincipal' },
     role: {
       ...ApiTokenRoleSchema,
-      description: `${ApiTokenRoleSchema.description} Default \`member\`.`,
+      description: `${ApiTokenRoleSchema.description} Default \`member\`; \`admin\` needs a tenant admin minting it.`,
     },
     capabilities: {
       ...ApiTokenCapabilitiesSchema,
@@ -922,24 +989,35 @@ export const MintTokenBodySchema: JsonSchema = {
     },
     label: { type: 'string', description: 'Optional human-readable label.' },
     expiresAt: { type: 'string', format: 'date-time', description: 'ISO 8601 timestamp.' },
-    projectId: { type: 'string', format: 'uuid' },
+    projectId: {
+      type: 'string',
+      format: 'uuid',
+      description:
+        'Limit the key to this project: a request naming another project is refused (`key-project-mismatch`). A key limited to a project mints only keys limited to it.',
+    },
   },
 };
 
 export const ApiTokenSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  description: 'An API key: a service account in its tenant. Never includes the secret.',
+  description:
+    'An API key. Never includes the secret. `principal` is whom it acts for; absent on a key that is a service account of its own (`service_account:<tokenId>`), as keys minted before principals are.',
   required: ['tokenId', 'role', 'capabilities', 'createdAt'],
   properties: {
     tokenId: { type: 'string', format: 'uuid' },
+    principal: { $ref: '#/components/schemas/ApiKeyPrincipal' },
     role: ApiTokenRoleSchema,
     capabilities: ApiTokenCapabilitiesSchema,
     label: { type: 'string' },
-    projectId: { type: 'string', format: 'uuid' },
+    projectId: {
+      type: 'string',
+      format: 'uuid',
+      description: 'The project the key is limited to.',
+    },
     createdBy: {
       type: 'string',
-      description: 'Who minted it: `user:<id>` or `service_account:<tokenId>`.',
+      description: 'Who minted it: `user:<id>` or `service_account:<id>`.',
     },
     createdAt: { type: 'string', format: 'date-time' },
     expiresAt: { type: 'string', format: 'date-time' },
@@ -981,6 +1059,133 @@ export const ApiTokenPageSchema: JsonSchema = {
       description: 'Opaque cursor for the next page. Absent when `hasMore: false`.',
     },
     hasMore: { type: 'boolean' },
+  },
+};
+
+// ---------------- service accounts ----------------
+
+export const ServiceAccountGrantTenantAdminSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind'],
+  description: 'Tenant admin.',
+  properties: { kind: { type: 'string', enum: ['tenant-admin'] } },
+};
+
+export const ServiceAccountGrantTenantMemberSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind'],
+  description:
+    "Tenant member: read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. A service account has it only when granted; a person has it from being added.",
+  properties: { kind: { type: 'string', enum: ['tenant-member'] } },
+};
+
+export const ServiceAccountGrantProjectSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'projectId', 'role'],
+  description: "A role on one project; it replaces the account's role there.",
+  properties: {
+    kind: { type: 'string', enum: ['project'] },
+    projectId: { type: 'string', format: 'uuid' },
+    role: { $ref: '#/components/schemas/ProjectRole' },
+  },
+};
+
+export const ServiceAccountGrantSchema: JsonSchema = {
+  description:
+    "What a service account may do: tenant admin, tenant member (read the tenant's settings), or a role on one project.",
+  oneOf: [
+    { $ref: '#/components/schemas/ServiceAccountGrantTenantAdmin' },
+    { $ref: '#/components/schemas/ServiceAccountGrantTenantMember' },
+    { $ref: '#/components/schemas/ServiceAccountGrantProject' },
+  ],
+  discriminator: { propertyName: 'kind' },
+};
+
+export const ServiceAccountGrantBodySchema: JsonSchema = {
+  description: 'The grant to add: tenant admin, tenant member, or a role on one project.',
+  oneOf: [
+    { $ref: '#/components/schemas/ServiceAccountGrantTenantAdmin' },
+    { $ref: '#/components/schemas/ServiceAccountGrantTenantMember' },
+    { $ref: '#/components/schemas/ServiceAccountGrantProject' },
+  ],
+  discriminator: { propertyName: 'kind' },
+};
+
+export const ServiceAccountUngrantProjectSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'projectId'],
+  description: 'Whatever role the account has on one project.',
+  properties: {
+    kind: { type: 'string', enum: ['project'] },
+    projectId: { type: 'string', format: 'uuid' },
+  },
+};
+
+export const ServiceAccountUngrantBodySchema: JsonSchema = {
+  description: 'The grant to remove: tenant admin, tenant member, or the role on a project.',
+  oneOf: [
+    { $ref: '#/components/schemas/ServiceAccountGrantTenantAdmin' },
+    { $ref: '#/components/schemas/ServiceAccountGrantTenantMember' },
+    { $ref: '#/components/schemas/ServiceAccountUngrantProject' },
+  ],
+  discriminator: { propertyName: 'kind' },
+};
+
+export const ServiceAccountSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    'A named, non-human principal (`service_account:<id>`) for an app, a pipeline or a schedule. It acts through API keys minted for it.',
+  required: ['serviceAccountId', 'name', 'grants', 'createdAt'],
+  properties: {
+    serviceAccountId: { type: 'string' },
+    name: { type: 'string', description: "Unique among the tenant's active accounts." },
+    description: { type: 'string' },
+    grants: { type: 'array', items: { $ref: '#/components/schemas/ServiceAccountGrant' } },
+    createdBy: {
+      type: 'string',
+      description: 'Who created it: `user:<id>` or `service_account:<id>`.',
+    },
+    createdAt: { type: 'string', format: 'date-time' },
+    unregisteredAt: {
+      type: 'string',
+      format: 'date-time',
+      description: 'Set once unregistered: it has no grants, and its keys no longer work.',
+    },
+  },
+};
+
+export const ServiceAccountPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/ServiceAccount' } },
+    hasMore: { type: 'boolean' },
+    nextCursor: { type: 'string' },
+  },
+};
+
+export const CreateServiceAccountBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['name'],
+  properties: {
+    name: {
+      type: 'string',
+      pattern: '^[a-z0-9][a-z0-9-]{0,62}$',
+      description: 'Lowercase letters, digits and hyphens, e.g. `acme-ci`.',
+    },
+    description: { type: 'string', maxLength: 500 },
+    grants: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/ServiceAccountGrant' },
+      description: 'Written before the account is returned, so its first key works at once.',
+    },
   },
 };
 
@@ -1175,19 +1380,138 @@ export const UnregisterReviewerResultSchema: JsonSchema = {
   },
 };
 
-export const ExportAuditBundleBodySchema: JsonSchema = {
+// ---------------- signed exports: one envelope ----------------
+
+const SIGNING_KEY_ID_PROPERTY: JsonSchema = {
+  type: 'string',
+  minLength: 1,
   description:
-    "Body for `POST /v1/approvals/{approvalId}/audit-bundle`. `signingKeyId` selects the Ed25519 key from the deployment's `signingKey` binding. `includeMessages` optionally hydrates conversation messages tied to the approval's run.",
+    "Optional: sign with this key, one of `GET /v1/export-signing-keys`. Leave it out to sign with the deployment's active key. A key the deployment doesn't sign with is `404 signing-key-not-found`.",
+};
+
+/**
+ * The envelope every signed export answers (an audit bundle, a run's
+ * provenance, compliance evidence): the same fields, so one verifier
+ * reads all three. Only the subject field differs.
+ */
+function signedExportEnvelope(input: {
+  readonly description: string;
+  readonly kind: 'audit-bundle' | 'provenance' | 'compliance';
+  readonly subject: readonly [string, JsonSchema];
+  readonly versionDescription: string;
+}): JsonSchema {
+  const [subjectKey, subjectSchema] = input.subject;
+  return {
+    description: input.description,
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      subjectKey,
+      'bundle',
+      'bundleSchemaVersion',
+      'algorithm',
+      'signingKeyId',
+      'signature',
+      'publicKey',
+      'canonicalization',
+      'exportedAt',
+    ],
+    properties: {
+      [subjectKey]: subjectSchema,
+      kind: {
+        type: 'string',
+        const: input.kind,
+        description:
+          'Which export this is: `audit-bundle`, `provenance` or `compliance`. Absent from older servers.',
+      },
+      bundle: {
+        type: 'string',
+        description:
+          'Base64 of the exact bytes that were signed: the body, as sorted-key JSON with no whitespace. Verify these bytes; nothing needs re-serializing.',
+      },
+      bundleSchemaVersion: { type: 'string', description: input.versionDescription },
+      algorithm: {
+        type: 'string',
+        enum: ['ed25519', 'ecdsa-p256-sha256'],
+        description:
+          "The signing key's algorithm. `ecdsa-p256-sha256` signatures are IEEE P1363 `r‖s`. A verifier refuses an algorithm it doesn't know.",
+      },
+      signingKeyId: {
+        type: 'string',
+        description: 'The key that signed it: one of `GET /v1/export-signing-keys`.',
+      },
+      signature: {
+        type: 'string',
+        description:
+          "Base64 of the 64-byte signature over the `bundle` bytes: Ed25519's, or ECDSA P-256's as IEEE P1363 `r‖s`.",
+      },
+      publicKey: {
+        type: 'string',
+        description:
+          "The signing key's public half, PEM SPKI. On its own it only proves the bytes weren't changed; check it against `GET /v1/export-signing-keys` (or a key you pinned) to know who signed them.",
+      },
+      canonicalization: {
+        type: 'string',
+        const: 'sorted-key-json',
+        description: 'Sorted-key JSON, no whitespace (`canonicalize` in `@kindgi/schema`).',
+      },
+      exportedAt: {
+        type: 'string',
+        format: 'date-time',
+        description: "When it was signed: the same instant as the signed body's `exportedAt`.",
+      },
+    },
+  };
+}
+
+export const ExportSigningKeySchema: JsonSchema = {
+  description: 'A public key this deployment signs exports with.',
   type: 'object',
   additionalProperties: false,
-  required: ['signingKeyId'],
+  required: ['keyId', 'algorithm', 'publicKeyPem', 'fingerprint', 'active'],
   properties: {
-    signingKeyId: {
+    keyId: {
       type: 'string',
-      minLength: 1,
       description:
-        'The `SigningKeyId` the deployment plugs into its `signingKey` binding. Server looks up the private key via `signingKey.getPrivateKey(signingKeyId)` — 404 if unknown.',
+        'Derived from the public key (`ex_` and 16 base64url characters), so the same key keeps its id.',
     },
+    algorithm: {
+      type: 'string',
+      enum: ['ed25519', 'ecdsa-p256-sha256'],
+      description:
+        'An Ed25519 key signs `ed25519`; an EC P-256 key (a KMS without Ed25519) signs `ecdsa-p256-sha256`.',
+    },
+    publicKeyPem: { type: 'string', description: 'PEM SPKI.' },
+    fingerprint: {
+      type: 'string',
+      pattern: '^sha256:[0-9a-f]{64}$',
+      description:
+        '`sha256:` and the hex SHA-256 of the raw public key: to pin it, or compare by eye.',
+    },
+    active: { type: 'boolean', description: 'Whether new exports are signed with it.' },
+  },
+};
+
+export const ExportSigningKeyListSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data'],
+  properties: {
+    data: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/ExportSigningKey' },
+      description: "Active first. Empty when the deployment doesn't sign exports.",
+    },
+  },
+};
+
+export const ExportAuditBundleBodySchema: JsonSchema = {
+  description:
+    "Body for `POST /v1/approvals/{approvalId}/audit-bundle`, optional: no body signs with the active key. `includeMessages` adds the conversation messages of the approval's run.",
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    signingKeyId: SIGNING_KEY_ID_PROPERTY,
     includeMessages: {
       type: 'boolean',
       description:
@@ -1197,52 +1521,14 @@ export const ExportAuditBundleBodySchema: JsonSchema = {
   },
 };
 
-export const ExportAuditBundleResultSchema: JsonSchema = {
+export const ExportAuditBundleResultSchema: JsonSchema = signedExportEnvelope({
   description:
-    'Signed exportable audit bundle. Same envelope shape as `ExportProvenanceResult` — clients can reuse the same `verifyEd25519` wrapper for both. `bundle` is base64 of the exact bytes that were signed (sorted-key canonical JSON, no whitespace). Bundle body: `{ bundleVersion, approvalId, tenantId, subjectKind, subjectRef, requiredRole, status, decision, decidedAt?, evidence: { guardrailResults?, messages? }, createdAt, exportedAt }`.',
-  type: 'object',
-  additionalProperties: false,
-  required: [
-    'approvalId',
-    'bundle',
-    'bundleSchemaVersion',
-    'algorithm',
-    'signingKeyId',
-    'signature',
-    'publicKey',
-    'canonicalization',
-    'exportedAt',
-  ],
-  properties: {
-    approvalId: { type: 'string', format: 'uuid' },
-    bundle: {
-      type: 'string',
-      description: 'Base64-encoded canonical JSON of the bundle body.',
-    },
-    bundleSchemaVersion: {
-      type: 'integer',
-      description: 'Integer schema version for the bundle body shape. Currently `1`.',
-    },
-    algorithm: { type: 'string', const: 'ed25519' },
-    signingKeyId: { type: 'string' },
-    signature: {
-      type: 'string',
-      description: 'Base64-encoded Ed25519 signature over `bundle` (after base64-decode).',
-    },
-    publicKey: {
-      type: 'string',
-      description:
-        'PEM-encoded Ed25519 public key (DER SPKI envelope). Pass into `parsePublicKeyPem` for verification.',
-    },
-    canonicalization: {
-      type: 'string',
-      const: 'sorted-key-json',
-      description:
-        'Canonicalization algorithm — sorted-key JSON, no whitespace. Same algorithm as `canonicalize`.',
-    },
-    exportedAt: { type: 'string', format: 'date-time' },
-  },
-};
+    "A decided approval's signed audit bundle. Body: `{ bundleSchemaVersion, approvalId, tenantId, subjectKind, subjectRef, requiredRole, status, createdAt, decidedAt?, decision, evidence: { guardrailResults?, messages? }, exportedAt }`.",
+  kind: 'audit-bundle',
+  subject: ['approvalId', { type: 'string', format: 'uuid' }],
+  versionDescription:
+    "The body's version, semver. `2.0.0`: a string like the other exports' (it was the integer `1`), named `bundleSchemaVersion` in the body too, with `exportedAt` signed once.",
+});
 
 export const CompleteApprovalResultSchema: JsonSchema = {
   type: 'object',
@@ -1306,12 +1592,82 @@ export const PromptParameterSchema: JsonSchema = {
 export const RetrievalIntentSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['types', 'scope'],
+  required: ['scope'],
   properties: {
-    types: { type: 'array', items: { type: 'string' }, minItems: 1 },
-    scope: { type: 'string', enum: ['same-conversation', 'same-project', 'tenant'] },
+    source: {
+      type: 'string',
+      enum: ['facts', 'conversations'],
+      description:
+        "What it reads: facts (the default), or messages of this agent's earlier conversations, quoted in the turn's `<memory>` block as earlier conversation, never as turns.",
+    },
+    types: {
+      type: 'array',
+      items: { type: 'string' },
+      minItems: 1,
+      description: 'The fact types it retrieves: required for facts; not used for conversations.',
+    },
+    roles: {
+      type: 'array',
+      items: { type: 'string', enum: ['user', 'agent'] },
+      minItems: 1,
+      uniqueItems: true,
+      description:
+        "For conversations: whose messages it recalls. Default `['user']`, the people's own words. Adding `agent` recalls the agent's earlier answers too, which can carry its mistakes: they are quoted as unverified earlier answers, and publishing warns `recall-agent-answers`.",
+    },
+    scope: {
+      type: 'string',
+      enum: ['same-conversation', 'same-user', 'same-segment', 'same-project', 'tenant'],
+      description:
+        "What the intent selects within what the run may see. Facts: this conversation's; this run's end user's and user's; the run's project's (none without a project); or every fact of the type it may see (`tenant`). Conversations: this person's other conversations with the agent (`same-user`); this conversation's messages older than the history window (`same-conversation`); conversations in the run's segment path (`same-segment`) or its project (`same-project`), whoever had them: those two quote other people's conversations, so publishing warns and their messages are marked as another person's. `same-segment` is for conversations only, `tenant` for facts only.",
+    },
     limit: { type: 'integer', minimum: 1 },
-    mode: { type: 'string', enum: ['keyword', 'semantic', 'both'] },
+    mode: {
+      type: 'string',
+      enum: ['keyword', 'semantic', 'both'],
+      description:
+        "With the user's message as the query: full-text, by meaning (fails the turn with `semantic-unavailable` on a runtime without embeddings), or both fused by rank (without embeddings, the keyword half). Absent: the newest facts.",
+    },
+  },
+};
+
+export const AgentMemoryPolicySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: 'How the agent uses what it retrieves.',
+  properties: {
+    instructionTypes: {
+      type: 'array',
+      items: { type: 'string', minLength: 1 },
+      description:
+        "Fact types that are instructions for this agent: a retrieved, verified fact of one of these types goes into the system message under 'Policies (verified)'. Default: none.",
+    },
+    remember: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['types', 'scope'],
+      description:
+        'Lets the agent remember: its turns offer the built-in tool `kindgi_remember` (built-in tools are `kindgi_<verb>`; an agent cannot list one in `tools`, and a published tool cannot use the prefix). The model picks the type, the text (up to 2,000 characters), an optional slot `key` and when it stops being true; the scope comes from here and the run. Every remembered fact is `unverified`, attributed to the agent version and the call that wrote it, and expires after `keepDays` unless a person verifies it. A person approves it before any read sees it when the scope is wider than one person (`same-project`, `tenant`) or the text reads like an instruction.',
+      properties: {
+        types: {
+          type: 'array',
+          minItems: 1,
+          items: { type: 'string', minLength: 1 },
+          description: 'The fact types it may write.',
+        },
+        scope: {
+          type: 'string',
+          enum: ['same-user', 'same-conversation', 'same-project', 'tenant'],
+          description:
+            "Where its facts go: the conversation's end user (else the user the run acts for), the conversation, the run's project, or the tenant. Each but `tenant` includes the run's project.",
+        },
+        keepDays: {
+          type: 'integer',
+          minimum: 1,
+          maximum: 3650,
+          description: 'Days an unverified fact is kept. Default 30.',
+        },
+      },
+    },
   },
 };
 
@@ -1446,6 +1802,7 @@ export const AgentSchema: JsonSchema = {
     capabilities: { type: 'array', items: { $ref: '#/components/schemas/Capability' } },
     tools: { type: 'array', items: { $ref: '#/components/schemas/ToolRef' } },
     retrieval: { type: 'array', items: { $ref: '#/components/schemas/RetrievalIntent' } },
+    memory: { $ref: '#/components/schemas/AgentMemoryPolicy' },
     guardrails: { type: 'array', items: { type: 'string' } },
     preferredProvider: {
       type: 'string',
@@ -1497,6 +1854,11 @@ export const VersionDerivationSchema: JsonSchema = {
     },
     label: { type: 'string', description: 'For `edited`: a short label for the version.' },
     by: { type: 'string', description: 'For `edited`: who derived it (`user:<id>`).' },
+    proposalId: {
+      type: 'string',
+      description:
+        'For `edited`: the improvement proposal it was derived for. Such a version serves no scope until a promotion makes it live.',
+    },
   },
 };
 
@@ -1611,6 +1973,7 @@ export const PublishAgentBodySchema: JsonSchema = {
     capabilities: { type: 'array', items: { $ref: '#/components/schemas/Capability' } },
     tools: { type: 'array', items: { $ref: '#/components/schemas/ToolRef' } },
     retrieval: { type: 'array', items: { $ref: '#/components/schemas/RetrievalIntent' } },
+    memory: { $ref: '#/components/schemas/AgentMemoryPolicy' },
     guardrails: { type: 'array', items: { type: 'string' } },
     preferredProvider: {
       type: 'string',
@@ -1639,6 +2002,17 @@ export const PublishAgentResultSchema: JsonSchema = {
   properties: {
     agentId: { type: 'string' },
     version: { type: 'string' },
+    warnings: {
+      type: 'array',
+      description:
+        "What the agent should know about this deployment before its first turn, e.g. `semantic-unavailable` (a retrieval intent searches by meaning and the deployment has no embeddings), `remember-unavailable` (the agent remembers and the deployment cannot store agent memories), `recall-other-people` (an intent recalls conversations in the run's segment or project, whoever had them) or `recall-unavailable` (the deployment cannot recall earlier conversations).",
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['code', 'message'],
+        properties: { code: { type: 'string' }, message: { type: 'string' } },
+      },
+    },
   },
 };
 
@@ -2382,6 +2756,12 @@ export const ConversationSchema: JsonSchema = {
     status: ConversationStatusSchema,
     openedAt: { type: 'string', format: 'date-time' },
     closedAt: { type: 'string', format: 'date-time' },
+    unregisteredAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'When it was unregistered (`POST /v1/conversations/{conversationId}/unregister`). Only the unregister call returns it: reads no longer do.',
+    },
     turnCount: { type: 'integer', minimum: 0 },
     lastMessageAt: { type: 'string', format: 'date-time' },
     metadata: { type: 'object', additionalProperties: true },
@@ -2795,7 +3175,7 @@ export const JudgedRunContextSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    'What a judged run needs besides its input to be replayed, captured when it was first judged. For an agent turn: the conversation before it, what its retrievals returned, and the decision at its session approval gate. For a flow run: its tool calls with their results.',
+    'What a judged run needs besides its input to be replayed, captured when it was first judged. For an agent turn: the conversation before it, what its retrievals returned, and the decision at its session approval gate. For a flow run: its tool calls with their results. For both: the env values its tools were sent.',
   properties: {
     history: {
       type: 'array',
@@ -2808,6 +3188,10 @@ export const JudgedRunContextSchema: JsonSchema = {
       description: 'Whether older messages were left out of `history`.',
     },
     retrieved: { description: "What the turn's retrievals returned." },
+    recalled: {
+      description:
+        'Messages of earlier conversations the turn recalled (intents over conversations), as quoted to the model.',
+    },
     sessionApproval: {
       type: 'object',
       additionalProperties: false,
@@ -2862,11 +3246,20 @@ export const JudgedRunContextSchema: JsonSchema = {
               agentId: { type: 'string' },
               agentVersion: { type: 'string' },
               retrieved: { description: "What the step's turn retrieved." },
+              recalled: {
+                description: "Messages of earlier conversations the step's turn recalled.",
+              },
             },
           },
         },
         truncated: { type: 'boolean', description: 'More calls were made than were kept.' },
       },
+    },
+    toolEnv: {
+      type: 'object',
+      additionalProperties: { type: 'object', additionalProperties: { type: 'string' } },
+      description:
+        "The env values each tool's calls were sent (`needsSpec.env`), by tool id: its first call's, as the run recorded them. A replay sends them to a read-only tool it runs live, so the tool reads the config the run saw, not today's. Absent for a run from before env was recorded.",
     },
   },
 };
@@ -2885,6 +3278,12 @@ export const JudgedRunCopySchema: JsonSchema = {
       $ref: '#/components/schemas/JudgedRunContext',
     },
     output: {},
+    segments: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/ScopeSegment' },
+      description:
+        'The segment path the run was started with (empty: none). Absent for runs judged before it was recorded.',
+    },
     capturedAt: { type: 'string', format: 'date-time' },
   },
 };
@@ -2983,6 +3382,13 @@ export const JudgedItemSummarySchema: JsonSchema = {
         properties: {
           verdict: { type: 'string', enum: ['yes', 'no'] },
           reason: { type: 'string' },
+          judgeClassId: { type: 'string', description: "The judgment's class, when it had one." },
+          restricted: {
+            type: 'boolean',
+            enum: [true],
+            description:
+              'Set when the judgment was recorded while its class was restricted (`Judgment.restricted`).',
+          },
         },
       },
     },
@@ -3002,6 +3408,12 @@ export const JudgedEvalCaseSchema: JsonSchema = {
     context: { $ref: '#/components/schemas/JudgedRunContext' },
     output: {},
     items: { type: 'array', items: { $ref: '#/components/schemas/JudgedItemSummary' } },
+    erased: {
+      type: 'boolean',
+      const: true,
+      description:
+        "An erasure cleared this case (a person's words were erased): `input` and `output` are null, `items` empty, and eval runs leave it out (counted as `erased`).",
+    },
   },
 };
 
@@ -3047,6 +3459,12 @@ export const BuildJudgedSuiteBodySchema: JsonSchema = {
       minimum: 1,
       description: 'Leave out runs with fewer counted judgments. Default 1.',
     },
+    segments: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/ScopeSegment' },
+      description:
+        "Only runs started in this segment path or below it, coarse to fine (e.g. `company=acme`). A run judged before its segments were recorded with its judgments is in no segment, so it's left out.",
+    },
     description: { type: 'string' },
   },
 };
@@ -3074,7 +3492,7 @@ export const FactScopeSchema: JsonSchema = {
   additionalProperties: true,
   required: ['tenantId'],
   description:
-    'Fact scope object. `tenantId` is required; every optional key narrows the fact (`userId`, `orgId`, `projectId`, `threadId`, `sessionId`). Additional keys accepted for forward compatibility.',
+    'Fact scope object. `tenantId` is required; every optional key narrows the fact (`userId`, `orgId`, `projectId`, `threadId`, `sessionId`, `participantId`). A fact is readable by whoever has every container it names. Additional keys accepted for forward compatibility.',
   properties: {
     tenantId: { type: 'string' },
     userId: { type: 'string' },
@@ -3082,6 +3500,47 @@ export const FactScopeSchema: JsonSchema = {
     projectId: { type: 'string' },
     threadId: { type: 'string' },
     sessionId: { type: 'string' },
+    participantId: {
+      type: 'string',
+      minLength: 1,
+      description:
+        "An app's end user, by the app's own id: a fact private to that participant's runs. Needs `projectId`.",
+    },
+  },
+};
+
+export const FactSubjectSchema: JsonSchema = {
+  description: 'Whom a fact is about: what access and erasure requests by person find.',
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'id'],
+  properties: {
+    kind: { type: 'string', enum: ['participant', 'user', 'external'] },
+    id: { type: 'string', minLength: 1 },
+  },
+};
+
+export const FactAttributionSchema: JsonSchema = {
+  description: 'Who asserted a fact, set by the server from the writer.',
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'id'],
+  properties: {
+    kind: { type: 'string', enum: ['user', 'service', 'agent'] },
+    id: { type: 'string' },
+    agentVersion: { type: 'string' },
+  },
+};
+
+export const FactGeneratedBySchema: JsonSchema = {
+  description: 'The run step that wrote a fact, for one an agent wrote.',
+  type: 'object',
+  additionalProperties: false,
+  required: ['runId'],
+  properties: {
+    runId: { type: 'string' },
+    stepId: { type: 'string' },
+    toolCallId: { type: 'string' },
   },
 };
 
@@ -3137,7 +3596,15 @@ export const FactSchema: JsonSchema = {
   additionalProperties: false,
   required: ['id', 'type', 'scope', 'version', 'createdAt'],
   properties: {
-    id: { type: 'string', description: 'FactId.' },
+    id: {
+      type: 'string',
+      description:
+        'The fact id, kept across revisions (for a fact never superseded, also its one revision id).',
+    },
+    revisionId: {
+      type: 'string',
+      description: "This revision's own id; absent where it equals `id`.",
+    },
     type: {
       type: 'string',
       description: 'Fact type identifier (pack-defined; a few are framework-standard).',
@@ -3146,7 +3613,7 @@ export const FactSchema: JsonSchema = {
     version: {
       type: 'integer',
       minimum: 1,
-      description: 'Monotonic version within (scope, id). Supersession increments.',
+      description: 'The revision number within the fact: 1, then one more per supersede or verify.',
     },
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
@@ -3163,7 +3630,63 @@ export const FactSchema: JsonSchema = {
     causedByLogId: { type: 'array', items: { type: 'string' } },
     supersedes: {
       type: 'string',
-      description: 'FactId of the predecessor when this row supersedes another.',
+      description: 'The revision this one replaced.',
+    },
+    trust: {
+      type: 'string',
+      enum: ['verified', 'asserted', 'unverified'],
+      description:
+        '`verified`: a person with the right checked it. `asserted`: an app or a person wrote it. `unverified`: an agent remembered it during a conversation. Absent on facts from before trust was recorded: `asserted`.',
+    },
+    verifiedBy: { type: 'string' },
+    verifiedAt: { type: 'string', format: 'date-time' },
+    attributedTo: { $ref: '#/components/schemas/FactAttribution' },
+    generatedBy: { $ref: '#/components/schemas/FactGeneratedBy' },
+    subjects: { type: 'array', items: { $ref: '#/components/schemas/FactSubject' } },
+    validFrom: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When the fact starts being true in the world; absent: always.',
+    },
+    validUntil: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When the fact stops being true in the world; absent: still true.',
+    },
+    observedAt: { type: 'string', format: 'date-time', description: 'When it was said or seen.' },
+    invalidatedAt: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When this revision stopped being current; absent: it is current.',
+    },
+    invalidatedBy: { type: 'string', description: '`user:<id>` or `service:<id>`.' },
+    invalidationReason: {
+      type: 'string',
+      enum: ['superseded', 'deleted', 'erased', 'expired'],
+    },
+    review: {
+      type: 'string',
+      enum: ['pending'],
+      description: '`pending` while a person must approve it: a pending fact is never retrieved.',
+    },
+    expiresAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        "When this revision stops being readable: from its retention (`keepUntil`, or `keepDays` from the fact's first write), or an agent-remembered fact's unverified window. No read returns it after; absent: it doesn't expire.",
+    },
+  },
+};
+
+export const FactRevisionListSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data'],
+  properties: {
+    data: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/Fact' },
+      description: 'Every revision, newest first.',
     },
   },
 };
@@ -3184,7 +3707,7 @@ export const FactCollectionPageSchema: JsonSchema = {
 
 export const WriteFactBodySchema: JsonSchema = {
   description:
-    "Write a fact. `type` selects the retrieval-policy (which indexes populate); `scope.tenantId` MUST match the caller's tenant. Optional `retention` overrides tenant defaults; optional `contentHash` is a caller-supplied idempotence hint (runtime computes its own hash regardless).",
+    "Write a fact. `type` selects the retrieval-policy (which indexes populate); `scope.tenantId` MUST match the caller's tenant. Optional `retention` overrides tenant defaults; optional `contentHash` is a caller-supplied idempotence hint (runtime computes its own hash regardless). `subjects` names whom it is about; `validFrom`/`validUntil` when it is true in the world; `observedAt` when it was said or seen.",
   type: 'object',
   additionalProperties: false,
   required: ['type', 'scope', 'content'],
@@ -3194,22 +3717,49 @@ export const WriteFactBodySchema: JsonSchema = {
     content: { description: 'Free-form structured payload.' },
     retention: { $ref: '#/components/schemas/Retention' },
     contentHash: { type: 'string' },
+    subjects: {
+      type: 'array',
+      maxItems: 20,
+      items: { $ref: '#/components/schemas/FactSubject' },
+    },
+    validFrom: { type: 'string', format: 'date-time' },
+    validUntil: { type: 'string', format: 'date-time' },
+    observedAt: { type: 'string', format: 'date-time' },
   },
 };
 
-export const SupersedeFactResultSchema: JsonSchema = {
+export const SupersedeFactBodySchema: JsonSchema = {
+  description:
+    "The fact's next revision: new `content`, and optionally new `retention`, `subjects` and times (absent ones keep their current values). Its scope and type stay. `expectVersion`: only if the current revision is still this one.",
   type: 'object',
   additionalProperties: false,
-  required: ['factId', 'superseded'],
+  required: ['content'],
   properties: {
-    factId: { type: 'string' },
-    superseded: { type: 'boolean', const: true },
+    content: { description: 'Free-form structured payload.' },
+    expectVersion: { type: 'integer', minimum: 1 },
+    retention: { $ref: '#/components/schemas/Retention' },
+    subjects: {
+      type: 'array',
+      maxItems: 20,
+      items: { $ref: '#/components/schemas/FactSubject' },
+    },
+    validFrom: { type: 'string', format: 'date-time' },
+    validUntil: { type: 'string', format: 'date-time' },
+    observedAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const VerifyFactBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    expectVersion: { type: 'integer', minimum: 1 },
   },
 };
 
 export const RetrieveIntentSchema: JsonSchema = {
   description:
-    'Retrieval intent — mirrors `RetrievalIntent` from `@kindgi/agents`, widened for direct-HTTP use. `mode: "list"` returns a plain scoped list (no query). `mode: "keyword"` runs full-text search. `mode: "semantic"` runs vector similarity search — requires an embedding provider bound on the deployment; if unavailable, the route returns `400 bad-input`. `mode: "both"` unions keyword + semantic results, dedup by fact id.',
+    'Retrieval intent — mirrors `RetrievalIntent` from `@kindgi/agents`, widened for direct-HTTP use. `mode: "list"` returns a plain scoped list (no query), newest first. `mode: "keyword"` runs full-text search. `mode: "semantic"` searches by meaning — it needs embeddings on the deployment; without them the route answers `422 semantic-unavailable`. `mode: "both"` runs both and fuses them by rank (reciprocal rank fusion), as `semantic` needing embeddings.',
   type: 'object',
   additionalProperties: false,
   required: ['mode'],
@@ -3237,7 +3787,7 @@ export const RetrievalHitSchema: JsonSchema = {
     score: {
       type: 'number',
       description:
-        'Relevance score. Keyword mode returns an implementation-defined rank (higher = better). Semantic mode returns cosine similarity in [-1, 1] (higher = better). Absent for `list` mode.',
+        'Relevance score. Keyword mode returns an implementation-defined rank (higher = better). Semantic mode returns cosine similarity in [-1, 1] (higher = better). Both: the fused rank score, `Σ 1/(60 + rank)` (higher = better). Absent for `list` mode.',
     },
   },
 };
@@ -3248,6 +3798,273 @@ export const RetrieveMemoryResultSchema: JsonSchema = {
   required: ['results'],
   properties: {
     results: { type: 'array', items: { $ref: '#/components/schemas/RetrievalHit' } },
+  },
+};
+
+// ---------------- memory erasures ----------------
+
+const ErasureSelectorKindSchema: JsonSchema = {
+  type: 'string',
+  enum: ['fact', 'participant', 'external', 'conversation'],
+};
+
+const ErasureStatusSchema: JsonSchema = {
+  type: 'string',
+  enum: ['pending', 'running', 'waiting-on-run', 'completed', 'failed'],
+  description:
+    "`waiting-on-run`: a turn of the person's sits in a flow that serves other people; the erasure waits for it (`waitingOn`) until its deadline, then cancels it.",
+};
+
+/** Erase one fact. */
+export const MemoryErasureFactSelectorSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['factId'],
+  description: 'One fact.',
+  properties: { factId: { type: 'string', minLength: 1, maxLength: 256 } },
+};
+
+/** Erase a person's words. */
+export const MemoryErasureSubjectSelectorSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['subject'],
+  description:
+    "A person: an app's end user (`participant`), or an `external` subject facts name. Erasing a Kindgi user isn't offered.",
+  properties: {
+    subject: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['kind', 'id'],
+      properties: {
+        kind: { type: 'string', enum: ['participant', 'external'] },
+        id: { type: 'string', minLength: 1, maxLength: 256 },
+      },
+    },
+  },
+};
+
+/** Erase one conversation. */
+export const MemoryErasureConversationSelectorSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['conversationId'],
+  description: 'One conversation.',
+  properties: { conversationId: { type: 'string', minLength: 1, maxLength: 256 } },
+};
+
+const MEMORY_ERASURE_SELECTORS = [
+  { $ref: '#/components/schemas/MemoryErasureFactSelector' },
+  { $ref: '#/components/schemas/MemoryErasureSubjectSelector' },
+  { $ref: '#/components/schemas/MemoryErasureConversationSelector' },
+];
+
+/** Whose words to erase: exactly one of a fact, a person or a conversation. */
+export const MemoryErasureSelectorSchema: JsonSchema = {
+  description:
+    "Whose words to erase: one fact (`factId`), a person (`subject`: an app's end user `participant`, or an `external` subject facts name), or one conversation (`conversationId`).",
+  oneOf: MEMORY_ERASURE_SELECTORS,
+};
+
+// Its own schema, used only as the request body: `MemoryErasure` names
+// `MemoryErasureSelector` too, and a union other schemas name gets inlined
+// away by the Python generator (as `RegisterIdentityProviderBody`).
+export const CreateMemoryErasureBodySchema: JsonSchema = {
+  description:
+    "Whose words to erase: one fact (`factId`), a person (`subject`: an app's end user `participant`, or an `external` subject facts name), or one conversation (`conversationId`).",
+  oneOf: MEMORY_ERASURE_SELECTORS,
+};
+
+export const MemoryErasureSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'id',
+    'selectorKind',
+    'status',
+    'phase',
+    'requestedBy',
+    'matchable',
+    'counts',
+    'attempts',
+    'createdAt',
+  ],
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    selectorKind: ErasureSelectorKindSchema,
+    selector: {
+      $ref: '#/components/schemas/MemoryErasureSelector',
+      description: 'Only while it runs: a completed or failed erasure keeps no identifier.',
+    },
+    status: ErasureStatusSchema,
+    phase: {
+      type: 'string',
+      enum: ['seed', 'expand', 'settle', 'erase', 'done'],
+      description:
+        "Where a running erasure is: `seed`, `expand`, `settle` (the person's unfinished runs end, or it waits for them, before anything is cleared), `erase`, then `done`.",
+    },
+    requestedBy: { type: 'string', description: '`user:<id>` or `service:<id>`.' },
+    matchable: {
+      type: 'boolean',
+      description:
+        'A replay after a backup restore can find this person again: a keyed hash was kept.',
+    },
+    counts: {
+      type: 'object',
+      additionalProperties: { type: 'integer', minimum: 0 },
+      description: 'What each store cleared or deleted, by store.',
+    },
+    attempts: { type: 'integer', minimum: 0, description: 'Failed attempts so far.' },
+    lastError: {
+      type: 'string',
+      description: "The last failure's code, or `not-yet:<reason>` while it waits. Never content.",
+    },
+    waitingOn: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['runId'],
+      properties: {
+        runId: { type: 'string', format: 'uuid' },
+        until: { type: 'string', format: 'date-time' },
+      },
+      description:
+        'The run it waits (or waited) for, and until when; kept as the record of the wait.',
+    },
+    forced: { type: 'boolean', const: true, description: 'A tenant admin said not to wait.' },
+    settleRoundsCapped: {
+      type: 'boolean',
+      const: true,
+      description:
+        "Runs of the person's kept appearing, round after round: the erasure went on to erase after its last round rather than wait any longer. Absent: it didn't.",
+    },
+    createdAt: { type: 'string', format: 'date-time' },
+    startedAt: { type: 'string', format: 'date-time' },
+    completedAt: { type: 'string', format: 'date-time' },
+    replayedAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const ResumeMemoryErasureBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    force: {
+      type: 'boolean',
+      description:
+        "Stop waiting for a run in a flow that serves other people: it's cancelled, and the erasure goes on.",
+    },
+  },
+};
+
+export const MemoryErasureCreatedSchema: JsonSchema = {
+  allOf: [
+    { $ref: '#/components/schemas/MemoryErasure' },
+    {
+      type: 'object',
+      properties: {
+        warnings: {
+          type: 'array',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['code', 'message'],
+            properties: {
+              code: {
+                type: 'string',
+                enum: ['erasure-unmatchable'],
+                description:
+                  "`erasure-unmatchable`: this deployment has no erasure ledger key (`KINDGI_ERASURE_LEDGER_KEY`), so a replay after a restore can't find this person.",
+              },
+              message: { type: 'string' },
+            },
+          },
+        },
+      },
+    },
+  ],
+};
+
+export const MemoryErasurePageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/MemoryErasure' } },
+    hasMore: { type: 'boolean' },
+    nextCursor: { type: 'string' },
+  },
+};
+
+export const MemoryErasureLedgerEntrySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'selectorKind', 'requestedBy', 'status', 'createdAt'],
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    selectorKind: ErasureSelectorKindSchema,
+    selectorHmac: {
+      type: 'string',
+      pattern: '^[0-9a-f]{64}$',
+      description: "HMAC-SHA256 of the selector under the tenant's ledger key; absent without one.",
+    },
+    keyId: { type: 'string', description: 'Which ledger key made `selectorHmac`.' },
+    requestedBy: { type: 'string' },
+    status: ErasureStatusSchema,
+    createdAt: { type: 'string', format: 'date-time' },
+    completedAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const MemoryErasureLedgerSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/MemoryErasureLedgerEntry' } },
+  },
+};
+
+export const ReplayMemoryErasuresBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['erasures'],
+  properties: {
+    erasures: {
+      type: 'array',
+      maxItems: 10_000,
+      items: { $ref: '#/components/schemas/MemoryErasureLedgerEntry' },
+      description: 'The ledger as `GET /v1/memory/erasures/export` gave it.',
+    },
+  },
+};
+
+export const ReplayMemoryErasuresResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['replayed', 'restored', 'unmatched'],
+  properties: {
+    replayed: {
+      type: 'array',
+      items: { type: 'string', format: 'uuid' },
+      description: 'Found in the tenant again: run again.',
+    },
+    restored: {
+      type: 'array',
+      items: { type: 'string', format: 'uuid' },
+      description: 'Put back in the ledger; nothing in the tenant matches.',
+    },
+    unmatched: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['id', 'reason'],
+        properties: {
+          id: { type: 'string', format: 'uuid' },
+          reason: { type: 'string', enum: ['no-keyed-hash', 'unknown-key'] },
+        },
+      },
+    },
   },
 };
 
@@ -3336,110 +4153,212 @@ export const RevokeSigningKeyResultSchema: JsonSchema = {
   },
 };
 
-// ---------------- supervisor (fix proposals) ----------------
+// ---------------- improvement proposals ----------------
 
 export const ProposalTierSchema: JsonSchema = {
   type: 'string',
-  enum: ['prompt', 'retrieval', 'tool-config'],
+  enum: ['settings-block', 'prompt-block'],
+  description:
+    'What a proposal changes: a settings block (new values) or a prompt block (a new template) the agent version pins.',
 };
 
 export const FixProposalStatusSchema: JsonSchema = {
   type: 'string',
   enum: [
     'draft',
-    'dry-running',
-    'dry-run-passed',
-    'dry-run-failed',
-    'proposed-for-review',
-    'approved',
+    'evaluating',
+    'evaluated',
+    'not-better',
+    'evaluation-failed',
+    'in-review',
+    'promoted',
+    'refused',
     'rejected',
-    'applied',
+    'expired',
+    'superseded',
     'rolled-back',
     'withdrawn',
   ],
+  description:
+    "Where a proposal stands, from its comparison and its promotion (never stored). `draft`: not evaluated yet. `evaluating`: its comparison is queued or running. `evaluated`: the candidate beat the recorded outputs on the objective metric by more than the noise (the spread, with more than one repetition). `not-better`: it didn't. `evaluation-failed`: the comparison failed or was cancelled. `in-review`: requested; the gate passed and an approval is open. `promoted`: live for the scope (`promotion.liveNow` says whether it still serves it). `refused`: the gate refused it. `rejected`: the reviewer rejected it. `expired`: the approval expired undecided. `superseded`: approved after the scope's live version or policy changed. `rolled-back`: rolled back through the proposal. `withdrawn`: withdrawn.",
 };
 
-export const PatternRefSchema: JsonSchema = {
+export const ProposalChangeSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['kind', 'key', 'count', 'firstSeenAt', 'lastSeenAt', 'sampleConversations'],
+  required: ['blockId', 'fromVersion', 'content'],
   properties: {
-    kind: {
+    blockId: { type: 'string', description: 'The data block the change is to.' },
+    fromVersion: {
       type: 'string',
-      enum: ['guardrail-violation', 'tool-error', 'budget-exceeded', 'model-error', 'aborted'],
+      description: "The block version the agent version pins: what's being changed.",
     },
-    key: { type: 'string' },
-    count: { type: 'integer', minimum: 1 },
-    firstSeenAt: { type: 'string', format: 'date-time' },
-    lastSeenAt: { type: 'string', format: 'date-time' },
-    sampleConversations: {
-      type: 'array',
-      items: { type: 'string', format: 'uuid' },
+    content: {
+      type: 'object',
+      description:
+        'The new content: `{ values }` for a settings block (its schema carries over), `{ template }` for a prompt block (its parameters carry over).',
+      additionalProperties: false,
+      properties: {
+        values: { type: 'object', additionalProperties: true },
+        template: { type: 'string' },
+      },
     },
   },
 };
 
-export const ProposedChangeSchema: JsonSchema = {
-  description:
-    'Polymorphic change payload. Shape depends on the sibling `tier` on the proposal (prompt / retrieval / tool-config).',
+export const ProposalDrafterSchema: JsonSchema = {
   type: 'object',
-  additionalProperties: true,
+  additionalProperties: false,
+  required: ['kind'],
+  description: "Who wrote the proposal: a person, or one of the runtime's drafters.",
+  properties: {
+    kind: { type: 'string', enum: ['person', 'settings-optimizer', 'prompt-drafter'] },
+    by: { type: 'string', description: 'For a person: `user:<id>` (or `service:<id>`).' },
+    version: { type: 'string', description: "For a drafter: the drafter's version." },
+    model: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['providerId', 'model'],
+      description: 'For a drafter that used a model: which.',
+      properties: { providerId: { type: 'string' }, model: { type: 'string' } },
+    },
+    passId: {
+      type: 'string',
+      description:
+        'For a drafter: the improvement pass that drafted it (`GET /v1/improvement-passes/{passId}`).',
+    },
+  },
+};
+
+export const ProposalCandidateSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['agentVersion', 'blockVersion', 'pinsDigest'],
+  description:
+    'The versions evaluating the proposal published. They serve no scope until a promotion makes the agent version live.',
+  properties: {
+    agentVersion: {
+      type: 'string',
+      description: 'The derived agent version (its `derivedFrom.proposalId` names the proposal).',
+    },
+    blockVersion: {
+      type: 'string',
+      description: "The block version published from the proposal's content.",
+    },
+    pinsDigest: { type: 'string' },
+  },
+};
+
+export const ProposalEvaluationSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['evalRunId', 'suiteId', 'objective', 'startedAt'],
+  description:
+    "The comparison the proposal was evaluated with, and what it found on the objective metric (the full summary is the eval run's).",
+  properties: {
+    evalRunId: { type: 'string', format: 'uuid' },
+    suiteId: { type: 'string', description: 'The test set (a judged eval suite).' },
+    objective: { type: 'string', enum: ['weightedYesShare', 'weightedPrecisionAtK'] },
+    startedAt: { type: 'string', format: 'date-time' },
+    runStatus: {
+      type: 'string',
+      enum: ['pending', 'running', 'completed', 'failed', 'cancelled'],
+      description: "The eval run's status. Absent when the run can't be read.",
+    },
+    baseline: {
+      type: ['number', 'null'],
+      description: "The recorded outputs' score; `null` without judged evidence.",
+    },
+    candidate: { type: ['number', 'null'], description: "The candidate's score." },
+    delta: { type: ['number', 'null'] },
+    spread: {
+      type: 'number',
+      description:
+        "With more than one repetition: the candidate's max − min, the noise a delta must beat.",
+    },
+    cases: { type: 'integer' },
+    better: { type: 'boolean', description: 'Set once the comparison finished.' },
+  },
+};
+
+export const ProposalPromotionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'status'],
+  description: "The promotion the proposal's request made.",
+  properties: {
+    id: { type: 'string' },
+    status: {
+      type: 'string',
+      enum: ['promoted', 'pending-approval', 'refused', 'superseded', 'rejected', 'expired'],
+    },
+    approvalId: { type: 'string', description: 'The approval a request in review waits on.' },
+    liveNow: {
+      type: 'boolean',
+      description: 'For a promoted proposal: whether its version still serves the scope.',
+    },
+  },
 };
 
 export const FixProposalSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
+  description:
+    'An improvement proposal: a change to one data block an agent version pins, for one live scope, taken through the same comparison, gate and promotion as any other version.',
   required: [
     'id',
-    'tenantId',
-    'supervisorId',
     'agentId',
-    'agentVersion',
+    'fromVersion',
+    'scope',
     'tier',
     'change',
-    'patternRefs',
     'hypothesis',
-    'proposerRuleId',
+    'drafter',
     'status',
-    'fingerprint',
     'createdAt',
     'updatedAt',
   ],
   properties: {
-    id: { type: 'string', format: 'uuid', description: 'FixProposalId.' },
-    tenantId: { type: 'string', format: 'uuid' },
-    supervisorId: { type: 'string' },
+    id: { type: 'string', format: 'uuid' },
     agentId: { type: 'string' },
-    agentVersion: { type: 'string', description: 'Semver of the baseline agent version.' },
-    tier: ProposalTierSchema,
-    change: ProposedChangeSchema,
-    patternRefs: {
-      type: 'array',
-      items: { $ref: '#/components/schemas/PatternRef' },
+    fromVersion: { type: 'string', description: 'The agent version the change applies to.' },
+    scope: { $ref: '#/components/schemas/LiveScope' },
+    tier: { $ref: '#/components/schemas/ProposalTier' },
+    change: { $ref: '#/components/schemas/ProposalChange' },
+    hypothesis: { type: 'string', description: 'What the change should improve, and why.' },
+    evidence: {
+      type: 'object',
+      additionalProperties: false,
+      properties: { judgmentIds: { type: 'array', items: { type: 'string' } } },
     },
-    hypothesis: { type: 'string' },
-    proposerRuleId: { type: 'string' },
-    status: FixProposalStatusSchema,
-    fingerprint: {
-      type: 'string',
-      description: 'sha256(tier + agentId + agentVersion + canonical(change)). Dedup key.',
+    drafter: { $ref: '#/components/schemas/ProposalDrafter' },
+    status: { $ref: '#/components/schemas/FixProposalStatus' },
+    candidate: { $ref: '#/components/schemas/ProposalCandidate' },
+    evaluation: { $ref: '#/components/schemas/ProposalEvaluation' },
+    promotion: { $ref: '#/components/schemas/ProposalPromotion' },
+    rolledBack: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['at', 'promotionId', 'by'],
+      properties: {
+        at: { type: 'string', format: 'date-time' },
+        promotionId: { type: 'string', description: "The rollback's own promotion row." },
+        by: { type: 'string' },
+        reason: { type: 'string' },
+      },
     },
-    resolutionReason: { type: 'string' },
-    reviewApprovalId: {
-      type: 'string',
-      format: 'uuid',
-      description: 'HITL approval id created when the proposal was submitted for review.',
+    withdrawn: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['at', 'by', 'reason'],
+      properties: {
+        at: { type: 'string', format: 'date-time' },
+        by: { type: 'string' },
+        reason: { type: 'string' },
+      },
     },
-    appliedVersion: {
-      type: 'string',
-      description:
-        'Semver of the new agent version the proposal materialized as. Present on `applied` and `rolled-back` proposals.',
-    },
-    appliedAt: { type: 'string', format: 'date-time' },
-    rolledBackAt: { type: 'string', format: 'date-time' },
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
-    resolvedAt: { type: 'string', format: 'date-time' },
   },
 };
 
@@ -3449,159 +4368,298 @@ export const FixProposalCollectionPageSchema: JsonSchema = {
   required: ['data', 'hasMore'],
   properties: {
     data: { type: 'array', items: { $ref: '#/components/schemas/FixProposal' } },
-    nextCursor: {
-      type: 'string',
-      description: 'Opaque cursor for the next page. Absent when `hasMore: false`.',
-    },
     hasMore: { type: 'boolean' },
+    nextCursor: { type: 'string' },
   },
 };
 
-export const DraftProposalBodySchema: JsonSchema = {
-  description:
-    'Draft a fix proposal for `(agentId, agentVersion)`. The supervisor context comes from the `X-Supervisor-Id` header; the caller supplies the target agent + change payload + supporting evidence. Duplicate proposals (same `(supervisor, fingerprint)` in a non-terminal state) short-circuit to the pre-existing row and set `X-Proposal-Deduped: true` on the response.',
+export const ImprovementBudgetSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
+  required: ['maxCostUsd', 'maxCandidates'],
+  properties: {
+    maxCostUsd: {
+      type: 'number',
+      exclusiveMinimum: 0,
+      maximum: 100,
+      description: "The most the pass's comparisons may cost, in US dollars.",
+    },
+    maxCandidates: {
+      type: 'integer',
+      minimum: 1,
+      maximum: 200,
+      description: 'The most candidates it compares.',
+    },
+  },
+};
+
+export const ImprovementPassOutcomeSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind'],
+  description:
+    "What a finished pass found. `proposed`: its best candidate beat the current values on the test set's hold-out part, so it wrote an improvement proposal (`proposalId`) for a reviewer to decide. `nothing-found`: no candidate beat them by more than the noise, or within the budget (`reason`; `holdOut` has the best candidate's numbers when one got that far). `failed`: `message` says why.",
+  properties: {
+    kind: { type: 'string', enum: ['proposed', 'nothing-found', 'failed'] },
+    proposalId: { type: 'string', format: 'uuid' },
+    reason: { type: 'string' },
+    holdOut: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['baseline', 'candidate', 'delta'],
+      properties: {
+        baseline: { type: ['number', 'null'] },
+        candidate: { type: ['number', 'null'] },
+        delta: { type: ['number', 'null'] },
+        spread: { type: 'number' },
+      },
+    },
+    message: { type: 'string' },
+  },
+};
+
+export const ImprovementPassSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "An improvement pass: the runtime looking for better values for an agent version's tunable settings (`x-kindgi-tunable`) on a test set, within a budget. Its best candidate becomes an improvement proposal.",
   required: [
+    'id',
     'agentId',
-    'agentVersion',
-    'tier',
-    'change',
-    'patternRefs',
-    'hypothesis',
-    'proposerRuleId',
+    'fromVersion',
+    'scope',
+    'suiteId',
+    'tiers',
+    'objective',
+    'budget',
+    'requestedBy',
+    'status',
+    'candidatesEvaluated',
+    'costUsd',
+    'createdAt',
+    'updatedAt',
   ],
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    agentId: { type: 'string' },
+    fromVersion: { type: 'string', description: 'The version whose settings it tunes.' },
+    scope: { $ref: '#/components/schemas/LiveScope' },
+    suiteId: { type: 'string', description: 'The test set it searches and proves on.' },
+    tiers: { type: 'array', items: { type: 'string', enum: ['settings', 'prompt'] } },
+    objective: { type: 'string', enum: ['weightedYesShare', 'weightedPrecisionAtK'] },
+    classWeights: {
+      type: 'string',
+      enum: ['as-recorded', 'restricted-only'],
+      description:
+        'Which judgments its comparisons count. Absent from older servers: `restricted-only`.',
+    },
+    model: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['providerId', 'model'],
+      description: 'For a prompt pass: the provider and model that drafts the templates.',
+      properties: { providerId: { type: 'string' }, model: { type: 'string' } },
+    },
+    candidates: {
+      type: 'integer',
+      minimum: 1,
+      maximum: 5,
+      description: 'For a prompt pass: how many templates it drafts.',
+    },
+    budget: { $ref: '#/components/schemas/ImprovementBudget' },
+    requestedBy: { type: 'string' },
+    status: { type: 'string', enum: ['running', 'completed', 'failed', 'cancelled'] },
+    candidatesEvaluated: { type: 'integer', minimum: 0 },
+    costUsd: { type: 'string', description: 'What its comparisons have cost so far (US dollars).' },
+    outcome: { $ref: '#/components/schemas/ImprovementPassOutcome' },
+    comparisons: {
+      type: 'array',
+      description:
+        'Its comparisons so far, each an eval run to open: `reference` (the version as it is, on the search part), each `candidate` (the block and the values it changed, on the search part), and the `proof` (the proposal, on the hold-out part). Absent from older servers.',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['role', 'part'],
+        properties: {
+          evalRunId: { type: 'string', format: 'uuid' },
+          role: { type: 'string', enum: ['reference', 'candidate', 'proof'] },
+          part: { type: 'string', enum: ['search', 'hold-out'] },
+          blockId: { type: 'string' },
+          changed: { type: 'object', additionalProperties: true },
+          score: { type: ['number', 'null'] },
+          failed: { type: 'string' },
+          refused: {
+            type: 'array',
+            description:
+              "For a drafted template that was never compared: why the check refused it (what it reads or names that the agent doesn't have, or its size).",
+            items: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['path', 'message'],
+              properties: { path: { type: 'string' }, message: { type: 'string' } },
+            },
+          },
+          hypothesis: {
+            type: 'string',
+            description: 'For a drafted template: what the drafter meant it to change.',
+          },
+        },
+      },
+    },
+    trigger: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['triggerId', 'fireId'],
+      description:
+        'The improve schedule and fire that started it (`GET /v1/schedules/{triggerId}/fires`); absent for a pass a person started.',
+      properties: { triggerId: { type: 'string' }, fireId: { type: 'string' } },
+    },
+    createdAt: { type: 'string', format: 'date-time' },
+    updatedAt: { type: 'string', format: 'date-time' },
+    finishedAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const ImprovementPassCollectionPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/ImprovementPass' } },
+    hasMore: { type: 'boolean' },
+    nextCursor: { type: 'string' },
+  },
+};
+
+export const ImproveBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['agentId', 'scope', 'suiteId'],
+  description: 'Start an improvement pass.',
   properties: {
     agentId: { type: 'string' },
-    agentVersion: { type: 'string' },
-    tier: ProposalTierSchema,
-    change: ProposedChangeSchema,
-    patternRefs: {
-      type: 'array',
-      items: { $ref: '#/components/schemas/PatternRef' },
-    },
-    hypothesis: { type: 'string', minLength: 1 },
-    proposerRuleId: { type: 'string', minLength: 1 },
-  },
-};
-
-export const PassCriterionSchema: JsonSchema = {
-  description:
-    'How the dry-run judges whether the candidate is good enough to submit for review. Two kinds: `min-pass-rate` (candidate pass rate ≥ threshold) or `strict-improvement` (candidate pass rate exceeds baseline by ≥ delta).',
-  oneOf: [
-    {
-      type: 'object',
-      additionalProperties: false,
-      required: ['kind', 'minPassRate'],
-      properties: {
-        kind: { type: 'string', const: 'min-pass-rate' },
-        minPassRate: { type: 'number', minimum: 0, maximum: 1 },
-      },
-    },
-    {
-      type: 'object',
-      additionalProperties: false,
-      required: ['kind', 'baselinePassRate', 'minDelta'],
-      properties: {
-        kind: { type: 'string', const: 'strict-improvement' },
-        baselinePassRate: { type: 'number', minimum: 0, maximum: 1 },
-        minDelta: { type: 'number' },
-      },
-    },
-  ],
-};
-
-export const DryRunProposalBodySchema: JsonSchema = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['datasetId', 'datasetVersion', 'criterion'],
-  properties: {
-    datasetId: { type: 'string', minLength: 1 },
-    datasetVersion: { type: 'string', minLength: 1 },
-    criterion: PassCriterionSchema,
-  },
-};
-
-export const DryRunProposalResultSchema: JsonSchema = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['proposal', 'passed'],
-  properties: {
-    proposal: { $ref: '#/components/schemas/FixProposal' },
-    passed: {
-      type: 'boolean',
-      description:
-        'True when the candidate met the criterion — proposal moves to `dry-run-passed`. False → `dry-run-failed` (still a legitimate response, not an error).',
-    },
-  },
-};
-
-export const SubmitReviewProposalBodySchema: JsonSchema = {
-  description:
-    'Body is optional — omit to accept every default. `requiredRole` overrides the auto-derivation (meta-fixes → senior). `expiresAt` sets the HITL approval deadline.',
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    requiredRole: { $ref: '#/components/schemas/ReviewerRole' },
-    expiresAt: { type: 'string', format: 'date-time' },
-  },
-};
-
-export const SubmitReviewProposalResultSchema: JsonSchema = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['proposal', 'approvalId', 'metaFix'],
-  properties: {
-    proposal: { $ref: '#/components/schemas/FixProposal' },
-    approvalId: { type: 'string', format: 'uuid' },
-    metaFix: {
-      type: 'boolean',
-      description:
-        "True when the proposal targets one of the supervisor's own agent ids — reviewer role auto-bumps to `senior` unless overridden.",
-    },
-  },
-};
-
-export const ApplyProposalBodySchema: JsonSchema = {
-  description:
-    'Body is optional. `newVersion` overrides the auto-derived patch bump of the baseline; omit to let the runtime bump `1.0.0 → 1.0.1`.',
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    newVersion: {
+    fromVersion: {
       type: 'string',
-      description: 'Semver, strictly greater than the baseline.',
+      description: 'The version whose settings it tunes. Default: the one serving `scope`.',
+    },
+    scope: { $ref: '#/components/schemas/LiveScope' },
+    suiteId: {
+      type: 'string',
+      description:
+        'The test set (a judged eval suite). The pass splits it into a search part and a hold-out part, and proves its best candidate on the hold-out part.',
+    },
+    tiers: {
+      type: 'array',
+      items: { type: 'string', enum: ['settings', 'prompt'] },
+      minItems: 1,
+      maxItems: 1,
+      default: ['settings'],
+      description:
+        "`['settings']`: values for the tunable settings keys. `['prompt']`: a model drafts templates for the prompt block (needs `model`); a template that reads or names anything the agent doesn't have is refused, and a drafted proposal always waits for a reviewer.",
+    },
+    model: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['providerId', 'model'],
+      description: "For a prompt pass: the tenant's provider and model that drafts the templates.",
+      properties: { providerId: { type: 'string' }, model: { type: 'string' } },
+    },
+    candidates: {
+      type: 'integer',
+      minimum: 1,
+      maximum: 5,
+      default: 3,
+      description: 'For a prompt pass: how many templates it drafts.',
+    },
+    classWeights: {
+      type: 'string',
+      enum: ['as-recorded', 'restricted-only'],
+      default: 'restricted-only',
+      description:
+        'Which judgments the pass learns from: by default only those recorded under a restricted (trusted) judge class.',
+    },
+    objective: {
+      type: 'string',
+      enum: ['weightedYesShare', 'weightedPrecisionAtK'],
+      default: 'weightedYesShare',
+    },
+    budget: {
+      type: 'object',
+      additionalProperties: false,
+      description: 'Default: $5 and 30 candidates.',
+      properties: {
+        maxCostUsd: { type: 'number', exclusiveMinimum: 0, maximum: 100 },
+        maxCandidates: { type: 'integer', minimum: 1, maximum: 200 },
+      },
     },
   },
 };
 
-export const ApplyProposalResultSchema: JsonSchema = {
+export const CreateProposalBodySchema: JsonSchema = {
+  description:
+    'A hand-written proposal: new content for a data block that `fromVersion` pins, for a live scope. The same change from the same version for the same scope is one proposal (answered with `X-Proposal-Deduped: true`).',
   type: 'object',
   additionalProperties: false,
-  required: ['proposalId', 'appliedVersion', 'appliedAt'],
+  required: ['agentId', 'fromVersion', 'scope', 'tier', 'change', 'hypothesis'],
   properties: {
-    proposalId: { type: 'string', format: 'uuid' },
-    appliedVersion: { type: 'string' },
-    appliedAt: { type: 'string', format: 'date-time' },
+    agentId: { type: 'string' },
+    fromVersion: { type: 'string', description: 'The agent version the change applies to.' },
+    scope: { $ref: '#/components/schemas/LiveScope' },
+    tier: { $ref: '#/components/schemas/ProposalTier' },
+    change: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['blockId', 'content'],
+      properties: {
+        blockId: { type: 'string', description: "A block `fromVersion` pins, of the tier's kind." },
+        content: {
+          type: 'object',
+          description:
+            '`{ values }` for a settings block (they must satisfy its schema), `{ template }` for a prompt block.',
+          additionalProperties: false,
+          properties: {
+            values: { type: 'object', additionalProperties: true },
+            template: { type: 'string' },
+          },
+        },
+      },
+    },
+    hypothesis: { type: 'string', minLength: 1, maxLength: 2000 },
+    evidence: {
+      type: 'object',
+      additionalProperties: false,
+      properties: { judgmentIds: { type: 'array', items: { type: 'string' } } },
+    },
   },
 };
 
-export const RollbackProposalBodySchema: JsonSchema = {
+export const EvaluateProposalBodySchema: JsonSchema = {
+  description:
+    "Compare the proposal's candidate on a test set. The first evaluation publishes the block version and derives the agent version (both serve nowhere until promoted).",
   type: 'object',
   additionalProperties: false,
-  required: ['reason'],
+  required: ['suiteId'],
   properties: {
-    reason: { type: 'string', minLength: 1 },
+    suiteId: { type: 'string', description: 'The test set: a judged eval suite.' },
+    objective: {
+      type: 'string',
+      enum: ['weightedYesShare', 'weightedPrecisionAtK'],
+      default: 'weightedYesShare',
+      description: 'The metric that says whether the candidate is better.',
+    },
+    reads: { type: 'string', enum: ['recorded', 'live'] },
+    repetitions: { type: 'integer', minimum: 1, maximum: 10 },
+    k: { type: 'integer', minimum: 1, maximum: 100 },
+    classWeights: { type: 'string', enum: ['as-recorded', 'restricted-only'] },
+    sample: { $ref: '#/components/schemas/EvalSample' },
   },
 };
 
-export const RollbackProposalResultSchema: JsonSchema = {
+export const ProposalReasonBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['proposalId', 'rolledBackAt'],
   properties: {
-    proposalId: { type: 'string', format: 'uuid' },
-    rolledBackAt: { type: 'string', format: 'date-time' },
+    reason: { type: 'string', minLength: 1, maxLength: 2000 },
   },
 };
 
@@ -3610,7 +4668,7 @@ export const WithdrawProposalBodySchema: JsonSchema = {
   additionalProperties: false,
   required: ['reason'],
   properties: {
-    reason: { type: 'string', minLength: 1 },
+    reason: { type: 'string', minLength: 1, maxLength: 2000 },
   },
 };
 
@@ -3783,16 +4841,11 @@ export const ProvenanceCollectionPageSchema: JsonSchema = {
 };
 
 export const ExportProvenanceBodySchema: JsonSchema = {
+  description: 'Optional: no body signs with the active key.',
   type: 'object',
   additionalProperties: false,
-  required: ['signingKeyId'],
   properties: {
-    signingKeyId: {
-      type: 'string',
-      minLength: 1,
-      description:
-        'The `SigningKeyId` the deployment plugs into its `signingKey` binding. Server looks up the private key via `signingKey.getPrivateKey(signingKeyId)` — 404 if unknown.',
-    },
+    signingKeyId: SIGNING_KEY_ID_PROPERTY,
     includeMessages: {
       type: 'boolean',
       description:
@@ -3802,53 +4855,14 @@ export const ExportProvenanceBodySchema: JsonSchema = {
   },
 };
 
-export const ExportProvenanceResultSchema: JsonSchema = {
+export const ExportProvenanceResultSchema: JsonSchema = signedExportEnvelope({
   description:
-    'Signed exportable bundle. `bundle` is base64 of the exact bytes that were signed (sorted-key canonical JSON, no whitespace); verifiers can pass those bytes directly to `verifyEd25519`. The bundle body itself includes `bundleSchemaVersion`, `runId`, `tenantId`, `dag: { nodes, edges }`, `messages?` (if requested), `callUsage?` (the usage of the model calls, from the cost ledger), etc. See `canonicalization` for the deterministic serialization algorithm.',
-  type: 'object',
-  additionalProperties: false,
-  required: [
-    'runId',
-    'bundle',
-    'bundleSchemaVersion',
-    'algorithm',
-    'signingKeyId',
-    'signature',
-    'publicKey',
-    'canonicalization',
-    'exportedAt',
-  ],
-  properties: {
-    runId: { type: 'string', format: 'uuid' },
-    bundle: {
-      type: 'string',
-      description: 'Base64-encoded canonical JSON of the bundle body.',
-    },
-    bundleSchemaVersion: {
-      type: 'string',
-      description:
-        "Semver for the shape of the bundle body. Currently `1.1.0`, which adds `callUsage`: each model call's usage from the cost ledger, by call id, as it stood when signed.",
-    },
-    algorithm: { type: 'string', const: 'ed25519' },
-    signingKeyId: { type: 'string' },
-    signature: {
-      type: 'string',
-      description: 'Base64-encoded Ed25519 signature bytes over `bundle` (after base64-decode).',
-    },
-    publicKey: {
-      type: 'string',
-      description:
-        'PEM-encoded Ed25519 public key (DER SPKI envelope). Callers can pass this straight into `parsePublicKeyPem` for verification.',
-    },
-    canonicalization: {
-      type: 'string',
-      const: 'sorted-key-json',
-      description:
-        'Canonicalization algorithm — sorted-key JSON, no whitespace. Same algorithm as `canonicalize`.',
-    },
-    exportedAt: { type: 'string', format: 'date-time' },
-  },
-};
+    "A run's signed provenance. Body: `{ bundleSchemaVersion, provenanceId, runId, tenantId, version, createdAt, flowRef?, dag: { nodes, edges }, messages?, callUsage?, exportedAt }`; `callUsage` is each model call's usage from the cost ledger, as it stood when signed.",
+  kind: 'provenance',
+  subject: ['runId', { type: 'string', format: 'uuid' }],
+  versionDescription:
+    "The body's version, semver. `1.2.0` adds `exportedAt` to the signed body; `1.1.0` added `callUsage`.",
+});
 
 // ---------------- registry (exported to the generator) ----------------
 
@@ -3888,6 +4902,15 @@ export const BlobMetaSchema: JsonSchema = {
       format: 'uuid',
       description: 'Optional back-ref to the RunId that produced this blob.',
     },
+    projectId: {
+      type: 'string',
+      description:
+        "The project the artifact belongs to: its owner run's, else the upload's `projectId`, else the tenant's default project. Reading it needs `read` there; deleting it, `write`. Absent on blobs stored before projects were recorded.",
+    },
+    createdBy: {
+      type: 'string',
+      description: 'Who uploaded it: `user:<id>` or `service_account:<id>`.',
+    },
     createdAt: { type: 'string', format: 'date-time' },
   },
 };
@@ -3917,6 +4940,11 @@ export const UploadArtifactBodySchema: JsonSchema = {
       description: 'JSON-encoded `Record<string, string>` — parsed server-side.',
     },
     ownerRunId: { type: 'string', format: 'uuid' },
+    projectId: {
+      type: 'string',
+      description:
+        "The project it belongs to, when there's no `ownerRunId` (with one, the run's project, and this must agree). Default: the tenant's default project.",
+    },
     expectedHash: {
       type: 'string',
       pattern: '^[0-9a-f]{64}$',
@@ -3999,6 +5027,23 @@ export const CapabilityDescriptorSchema: JsonSchema = {
       description:
         'Optional JSON Schema fragment describing the parameters an agent may attach to `{ feature, params }` in a `Requirement`.',
     },
+    providers: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/CapabilityProvider' },
+      description:
+        "The tenant's registered providers with a model that has the feature, and those models. Absent from servers that don't read the provider registry; `[]` when no provider of the tenant has one.",
+    },
+  },
+};
+
+export const CapabilityProviderSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['providerId', 'models'],
+  description: 'A provider of the tenant with a model that has the feature.',
+  properties: {
+    providerId: { type: 'string' },
+    models: { type: 'array', items: { type: 'string' }, description: 'Its models that have it.' },
   },
 };
 
@@ -4220,6 +5265,11 @@ export const RegisterProviderBodySchema: JsonSchema = {
       description:
         "The adapter's connection settings: flat, non-secret values (a cloud project, a base URL). Each adapter documents its keys. Credentials go in `secret_ref`, never here.",
     },
+    send_traceparent: {
+      type: 'boolean',
+      description:
+        "Send each model call's W3C `traceparent` to this provider, as a request header, so its request logs can be matched to the run. Ids only, never content. Default `false`: nothing about a run's trace leaves the deployment unless a registration opts in. The runtime enforces it; an older runtime ignores the field and sends none.",
+    },
   },
 };
 
@@ -4239,6 +5289,47 @@ export const UnregisterProviderResultSchema: JsonSchema = {
   properties: {
     providerId: { type: 'string' },
     unregistered: { type: 'boolean', const: true },
+  },
+};
+
+/**
+ * One thing an adapter's check finds wrong with a provider registration,
+ * in the shape of the API's validation issues.
+ */
+export const AdapterConfigProblemSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['path', 'message'],
+  properties: {
+    path: {
+      type: 'string',
+      description:
+        'The setting at fault, as a JSON pointer into the registration: `/adapter_config/<key>`, `/secret_ref`, `/metadata/region`, `/metadata/models/<i>/name`, or `/adapter_id` (an adapter this runtime does not have).',
+    },
+    message: {
+      type: 'string',
+      description:
+        "What's wrong with that setting and what it takes (e.g. `adapter_config.api must be one of responses, chat-completions.`). The error's `message` names the provider and its adapter.",
+    },
+  },
+};
+
+export const ProviderCheckResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['providerId', 'adapterId', 'checked', 'issues'],
+  properties: {
+    providerId: { type: 'string' },
+    adapterId: { type: 'string' },
+    checked: {
+      type: 'boolean',
+      description:
+        "False when this runtime has no check for the provider's adapter; `issues` is then empty.",
+    },
+    issues: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/AdapterConfigProblem' },
+    },
   },
 };
 
@@ -4352,6 +5443,11 @@ export const MCPEndpointSchema: JsonSchema = {
       type: 'object',
       additionalProperties: true,
       description: 'Optional caller-defined metadata bag.',
+    },
+    sendTraceparent: {
+      type: 'boolean',
+      description:
+        "Send the W3C `traceparent` of the run calling a tool to this endpoint, as a request header, so the server's logs can be matched to the run. Ids only, never content. Default `false`. HTTP transports only: `true` on a `stdio` endpoint is refused (`invalid-mcp-endpoint`, reason `invalid-send-traceparent`). An older runtime ignores it and sends none.",
     },
   },
 };
@@ -5040,6 +6136,8 @@ export const ReinstatePolicyVersionResultSchema: JsonSchema = {
 export const RetentionDomainSchema: JsonSchema = {
   type: 'string',
   enum: [...RETENTION_DOMAINS],
+  description:
+    "The kind of record a retention policy covers. `*` covers every domain without a policy of its own, except `memory` and `conversation`: they hold people's words, so only a policy naming them purges them.",
 };
 
 /**
@@ -5517,6 +6615,43 @@ export const EvalBaselineSchema: JsonSchema = {
   ],
 };
 
+export const EvalOverridesSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "For an agent candidate: block content its replays run instead of the version's pinned content (an improvement pass's search). `settings`: values by settings block id, each a block the version pins, satisfying its schema. `prompts`: a template for the prompt block the version pins, which reads and names only what the agent has (its parameters, the variables the current template reads, the settings blocks it pins, its tools' and blocks' ids) and is at most twice as long. Anything else is `400 validation-failed`. A comparison with overrides can't gate a promotion.",
+  properties: {
+    settings: {
+      type: 'object',
+      maxProperties: 20,
+      additionalProperties: { type: 'object', additionalProperties: true },
+    },
+    prompts: {
+      type: 'object',
+      maxProperties: 1,
+      additionalProperties: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['template'],
+        properties: { template: { type: 'string' } },
+      },
+    },
+  },
+};
+
+export const EvalSampleSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['part', 'seed', 'holdOutShare'],
+  description:
+    'Only part of the test set\'s cases: split once into a hold-out part (about `holdOutShare` of them) and a search part (the rest), stratified by judgment (the cases with a "no" and the others are split on their own, a stratum of two or more giving each part at least one), in the order of a hash of each case id and `seed`. The same seed always splits the same test set the same way. A promotion gate refuses a comparison on the search part (`comparison.sample`).',
+  properties: {
+    part: { type: 'string', enum: ['search', 'hold-out'] },
+    seed: { type: 'string', minLength: 1, maxLength: 200 },
+    holdOutShare: { type: 'number', minimum: 0.1, maximum: 0.9 },
+  },
+};
+
 export const EvalComparisonSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -5539,6 +6674,8 @@ export const EvalComparisonSchema: JsonSchema = {
       description:
         "Which judgments count: each at its class's weight (`as-recorded`, the default), or only those recorded while their class was restricted (`Judgment.restricted`), the others weighing 0 (`restricted-only`).",
     },
+    overrides: { $ref: '#/components/schemas/EvalOverrides' },
+    sample: { $ref: '#/components/schemas/EvalSample' },
   },
 };
 
@@ -5598,6 +6735,16 @@ export const ComparisonCandidateSchema: JsonSchema = {
           type: 'string',
           description:
             "The version's pinsDigest: what it ran, as a promotion gate checks. Absent for a version published before pins, and from a comparison recorded before it.",
+        },
+        overrides: {
+          type: 'object',
+          additionalProperties: false,
+          description:
+            "The blocks whose content the replays replaced (`overrides`): no published version ran, so it can't gate a promotion. Absent otherwise.",
+          properties: {
+            settings: { type: 'array', items: { type: 'string' } },
+            prompts: { type: 'array', items: { type: 'string' } },
+          },
         },
       },
     },
@@ -5707,6 +6854,12 @@ export const JudgedComparisonSummarySchema: JsonSchema = {
       description: 'Tool calls refused across the cases (what the candidate would have done).',
     },
     errors: { type: 'integer', minimum: 0, description: 'Cases none of whose repetitions ran.' },
+    erased: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "Cases an erasure cleared (a person's words were erased): left out of the run and the metrics. Absent: none.",
+    },
     stopped: {
       type: 'integer',
       minimum: 0,
@@ -5719,6 +6872,10 @@ export const JudgedComparisonSummarySchema: JsonSchema = {
       enum: ['as-recorded', 'restricted-only'],
       description:
         'Which judgments counted. Absent from a comparison recorded before restricted classes: `as-recorded`.',
+    },
+    sample: {
+      $ref: '#/components/schemas/EvalSample',
+      description: 'The part of the test set it ran. Absent: every case.',
     },
     sampling: {
       type: 'object',
@@ -5857,6 +7014,11 @@ export const ComparisonCaseResultSchema: JsonSchema = {
           toolVersion: { type: 'string' },
           arguments: {},
           source: { type: 'string', enum: ['live', 'recorded', 'refused'] },
+          recomputed: {
+            type: 'boolean',
+            description:
+              "With `source: 'live'`: the call ran again from the same arguments because the compared version pins other settings, and the tool reads from nowhere, so it didn't diverge. Absent from older servers, and otherwise.",
+          },
           reason: { type: 'string' },
         },
       },
@@ -5957,6 +7119,8 @@ export const StartEvalRunBodySchema: JsonSchema = {
       description:
         "Which judgments count: each at its class's weight (`as-recorded`, the default), or only those recorded while their class was restricted (`Judgment.restricted`), the others weighing 0 (`restricted-only`).",
     },
+    overrides: { $ref: '#/components/schemas/EvalOverrides' },
+    sample: { $ref: '#/components/schemas/EvalSample' },
   },
   description:
     "Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `judged` suite (a test set), the run is a comparison: `agentRef` or `flowRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't (a flow stops at a write the replay refuses); `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how. With `flowRef`, `versions` runs the flow with some of its agents or tools at other versions; an id the flow doesn't use, or a version that isn't published, is refused (`400 validation-failed`, each under `details.issues`).",
@@ -5976,7 +7140,9 @@ export const StartEvalRunResultSchema: JsonSchema = {
 
 export const IdentityProviderKindSchema: JsonSchema = {
   type: 'string',
-  enum: ['oauth2', 'oidc'],
+  enum: ['oauth2', 'oidc', 'saml'],
+  description:
+    "`oidc`: an OpenID Connect identity provider people sign in with (Okta, Entra ID, Google, Keycloak…); its endpoints come from its discovery document. `saml`: a SAML 2.0 identity provider people sign in with. `oauth2`: a plain OAuth 2.0 provider that isn't OpenID Connect (e.g. GitHub), with its endpoints given; pick `oidc` for any provider that speaks OpenID Connect.",
 };
 
 export const ClaimMappingScopesSpecSchema: JsonSchema = {
@@ -6005,9 +7171,144 @@ export const ClaimMappingSpecSchema: JsonSchema = {
   },
 };
 
-export const IdentityProviderConfigSchema: JsonSchema = {
+const IDENTITY_PROVIDER_BASE_PROPERTIES = {
+  providerId: { type: 'string', minLength: 1 },
+  displayName: {
+    type: 'string',
+    minLength: 1,
+    description: 'The name a sign-in page shows ("Sign in with …"). Default: `providerId`.',
+  },
+  domains: {
+    type: 'array',
+    items: { type: 'string', minLength: 1 },
+    description:
+      'The email domains whose people sign in with this provider (lowercase, e.g. `acme.com`): how an email-first sign-in page finds it.',
+  },
+  join: {
+    type: 'string',
+    enum: ['invite', 'domain'],
+    description:
+      'Who may sign in the first time: `invite` (default) only people a tenant admin added; `domain` also anyone from one of `domains`, once the deployment has verified them.',
+  },
+  signIn: { $ref: '#/components/schemas/IdentityProviderSignIn' },
+  metadata: { type: 'object', additionalProperties: true },
+} as const;
+
+const CLIENT_SECRET_REF = {
+  type: 'string',
+  minLength: 1,
+  description: 'Opaque reference resolved server-side. Never a plaintext secret.',
+} as const;
+
+const ALLOWED_REDIRECT_URIS = {
+  type: 'array',
+  items: { type: 'string', minLength: 1 },
   description:
-    'OAuth 2.0 / OIDC provider configuration registered on a tenant. `clientSecretRef` is a REFERENCE resolved server-side (env-var key, secrets-manager path, KMS handle) — the plaintext client secret never crosses the wire.',
+    'OAuth 2.1 BCP redirect-URI allowlist. Exact-string match required at /v1/auth/login. Absent/empty means no redirect-URI allowlist check (pass-through).',
+} as const;
+
+export const IdentityProviderSignInSchema: JsonSchema = {
+  description:
+    'What to give the identity provider so it can send people back: set by the deployment on what it returns, ignored on registration. OIDC / OAuth 2.0: `redirectUri`. SAML: `spEntityId`, `acsUrl`, `spMetadataUrl`.',
+  oneOf: [
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['redirectUri'],
+      properties: { redirectUri: { type: 'string', format: 'uri' } },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['spEntityId', 'acsUrl', 'spMetadataUrl'],
+      properties: {
+        spEntityId: { type: 'string', minLength: 1 },
+        acsUrl: { type: 'string', format: 'uri' },
+        spMetadataUrl: { type: 'string', format: 'uri' },
+      },
+    },
+  ],
+};
+
+export const OidcIdentityProviderConfigSchema: JsonSchema = {
+  description:
+    "An OpenID Connect identity provider people sign in with. The endpoints come from the issuer's discovery document when absent, and are returned once the deployment has them.",
+  type: 'object',
+  additionalProperties: false,
+  required: ['providerId', 'kind', 'issuer', 'clientId', 'clientSecretRef'],
+  properties: {
+    ...IDENTITY_PROVIDER_BASE_PROPERTIES,
+    kind: { type: 'string', const: 'oidc' },
+    issuer: { type: 'string', format: 'uri' },
+    clientId: { type: 'string', minLength: 1 },
+    clientSecretRef: CLIENT_SECRET_REF,
+    scopes: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'Default `openid email profile`.',
+    },
+    authorizationEndpoint: { type: 'string', format: 'uri' },
+    tokenEndpoint: { type: 'string', format: 'uri' },
+    userinfoEndpoint: { type: 'string', format: 'uri' },
+    jwksEndpoint: { type: 'string', format: 'uri' },
+    allowedRedirectUris: ALLOWED_REDIRECT_URIS,
+    claimMapping: { $ref: '#/components/schemas/ClaimMappingSpec' },
+  },
+};
+
+export const SamlIdentityProviderConfigSchema: JsonSchema = {
+  description:
+    'A SAML 2.0 identity provider people sign in with: its metadata XML, or its entity ID, single sign-on URL and signing certificates. Keys are given as references, never as keys.',
+  type: 'object',
+  additionalProperties: false,
+  required: ['providerId', 'kind'],
+  properties: {
+    ...IDENTITY_PROVIDER_BASE_PROPERTIES,
+    kind: { type: 'string', const: 'saml' },
+    idpMetadataXml: { type: 'string', minLength: 1 },
+    idpEntityId: { type: 'string', minLength: 1 },
+    idpSsoUrl: {
+      type: 'string',
+      format: 'uri',
+      description: "The IdP's single sign-on URL (HTTP-Redirect binding).",
+    },
+    idpCertificates: {
+      type: 'array',
+      items: { type: 'string', minLength: 1 },
+      description: "The IdP's signing certificates (PEM); several during a rollover.",
+    },
+    spSigningKeyRef: {
+      type: 'string',
+      minLength: 1,
+      description:
+        "Opaque reference to the service provider's signing key, for IdPs that require signed AuthnRequests. Never a plaintext key.",
+    },
+    spDecryptionKeyRef: {
+      type: 'string',
+      minLength: 1,
+      description:
+        'Opaque reference to the key that decrypts encrypted assertions. Never a plaintext key.',
+    },
+    wantAssertionsSigned: {
+      type: 'boolean',
+      description: 'Require signed assertions. Default `true`.',
+    },
+    attributeMapping: {
+      type: 'object',
+      additionalProperties: false,
+      description: 'Assertion attribute names. Defaults: `userId` = the NameID, `email` = `email`.',
+      properties: {
+        userId: { type: 'string', minLength: 1 },
+        email: { type: 'string', minLength: 1 },
+        displayName: { type: 'string', minLength: 1 },
+      },
+    },
+  },
+};
+
+export const OAuth2IdentityProviderConfigSchema: JsonSchema = {
+  description:
+    "A plain OAuth 2.0 provider that isn't OpenID Connect (e.g. GitHub), run by this API's own OAuth flow (`/v1/auth/login` + callback). For a provider that speaks OpenID Connect, use `oidc`.",
   type: 'object',
   additionalProperties: false,
   required: [
@@ -6020,26 +7321,75 @@ export const IdentityProviderConfigSchema: JsonSchema = {
     'scopes',
   ],
   properties: {
-    providerId: { type: 'string', minLength: 1 },
-    kind: IdentityProviderKindSchema,
+    ...IDENTITY_PROVIDER_BASE_PROPERTIES,
+    kind: { type: 'string', const: 'oauth2' },
     clientId: { type: 'string', minLength: 1 },
-    clientSecretRef: {
-      type: 'string',
-      minLength: 1,
-      description: 'Opaque reference resolved server-side. Never a plaintext secret.',
-    },
+    clientSecretRef: CLIENT_SECRET_REF,
     authorizationEndpoint: { type: 'string', format: 'uri' },
     tokenEndpoint: { type: 'string', format: 'uri' },
     userinfoEndpoint: { type: 'string', format: 'uri' },
     scopes: { type: 'array', items: { type: 'string' } },
-    allowedRedirectUris: {
-      type: 'array',
-      items: { type: 'string', minLength: 1 },
-      description:
-        'OAuth 2.1 BCP redirect-URI allowlist. Exact-string match required at /v1/auth/login. Absent/empty means no redirect-URI allowlist check (pass-through).',
-    },
+    allowedRedirectUris: ALLOWED_REDIRECT_URIS,
     claimMapping: { $ref: '#/components/schemas/ClaimMappingSpec' },
-    metadata: { type: 'object', additionalProperties: true },
+  },
+};
+
+export const IdentityProviderConfigSchema: JsonSchema = {
+  description:
+    'An identity provider registered on a tenant, one shape per `kind` (narrow on `kind` before reading kind-specific fields). Secrets are always REFERENCES resolved server-side (`clientSecretRef`, `spSigningKeyRef`, `spDecryptionKeyRef`); a plaintext secret never crosses the wire, and a `clientSecret` field is refused.',
+  oneOf: [
+    { $ref: '#/components/schemas/OidcIdentityProviderConfig' },
+    { $ref: '#/components/schemas/SamlIdentityProviderConfig' },
+    { $ref: '#/components/schemas/OAuth2IdentityProviderConfig' },
+  ],
+  discriminator: {
+    propertyName: 'kind',
+    mapping: {
+      oidc: '#/components/schemas/OidcIdentityProviderConfig',
+      saml: '#/components/schemas/SamlIdentityProviderConfig',
+      oauth2: '#/components/schemas/OAuth2IdentityProviderConfig',
+    },
+  },
+};
+
+// Its own schema, used only as the request body: a union that other
+// schemas also name gets inlined away by the Python generator, so a body
+// naming `IdentityProviderConfig` would fail at call time (the same as
+// `ServiceAccountGrantBody`).
+export const RegisterIdentityProviderBodySchema: JsonSchema = {
+  description:
+    'The identity provider to register, one shape per `kind`: `oidc`, `saml` or `oauth2`. Secrets by reference only (`clientSecretRef`, `spSigningKeyRef`, `spDecryptionKeyRef`); a `clientSecret` field is refused.',
+  oneOf: [
+    { $ref: '#/components/schemas/OidcIdentityProviderConfig' },
+    { $ref: '#/components/schemas/SamlIdentityProviderConfig' },
+    { $ref: '#/components/schemas/OAuth2IdentityProviderConfig' },
+  ],
+  discriminator: {
+    propertyName: 'kind',
+    mapping: {
+      oidc: '#/components/schemas/OidcIdentityProviderConfig',
+      saml: '#/components/schemas/SamlIdentityProviderConfig',
+      oauth2: '#/components/schemas/OAuth2IdentityProviderConfig',
+    },
+  },
+};
+
+// Its own schema too, used only as the answer (see `RegisterIdentityProviderBody`).
+export const GetIdentityProviderResultSchema: JsonSchema = {
+  description:
+    'An identity provider as stored, one shape per `kind`, with `signIn` when the deployment sets it. Secrets appear only as references.',
+  oneOf: [
+    { $ref: '#/components/schemas/OidcIdentityProviderConfig' },
+    { $ref: '#/components/schemas/SamlIdentityProviderConfig' },
+    { $ref: '#/components/schemas/OAuth2IdentityProviderConfig' },
+  ],
+  discriminator: {
+    propertyName: 'kind',
+    mapping: {
+      oidc: '#/components/schemas/OidcIdentityProviderConfig',
+      saml: '#/components/schemas/SamlIdentityProviderConfig',
+      oauth2: '#/components/schemas/OAuth2IdentityProviderConfig',
+    },
   },
 };
 
@@ -6056,12 +7406,88 @@ export const IdentityProviderCollectionPageSchema: JsonSchema = {
   },
 };
 
+export const SignInOptionSchema: JsonSchema = {
+  description: 'One way to sign in, as a sign-in page shows it.',
+  type: 'object',
+  additionalProperties: false,
+  required: ['providerId', 'displayName', 'signInUrl'],
+  properties: {
+    providerId: { type: 'string', minLength: 1 },
+    displayName: { type: 'string', minLength: 1, description: '"Sign in with …".' },
+    signInUrl: {
+      type: 'string',
+      description: 'Where the browser goes to start signing in with this provider.',
+    },
+    owner: {
+      type: 'string',
+      enum: ['tenant', 'deployment'],
+      description:
+        'Whose it is: a workspace\'s own identity provider (`tenant`), or one the deployment offers everyone it has added ("Continue with Google", `deployment`). A sign-in page shows a workspace\'s own first. Absent: `tenant`.',
+    },
+  },
+};
+
+export const SignInOptionsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/SignInOption' } },
+    methods: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['identityProviders', 'apiToken'],
+      description:
+        'The ways in this deployment allows, for a sign-in page to show. Absent from older servers.',
+      properties: {
+        identityProviders: {
+          type: 'boolean',
+          description: "Sign-in with an organization's identity provider (email first).",
+        },
+        apiToken: {
+          type: 'boolean',
+          description: 'Sign-in to the console with an API token (`POST /v1/auth/token-sign-in`).',
+        },
+        emailLink: {
+          type: 'object',
+          additionalProperties: false,
+          description:
+            'Present when the deployment emails sign-in links: a sign-in page offers "Email me a sign-in link". With `captchaSiteKey`, the request needs a Cloudflare Turnstile token (`x-captcha-response`).',
+          properties: {
+            captchaSiteKey: { type: 'string', minLength: 1 },
+          },
+        },
+      },
+    },
+  },
+};
+
+export const TokenSignInResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['userId', 'expiresAt'],
+  properties: {
+    userId: { type: 'string', minLength: 1, description: 'The person now signed in.' },
+    expiresAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        "When the session ends at the latest: its lifetime, or the key's expiry if sooner.",
+    },
+  },
+};
+
 export const RegisterIdentityProviderResultSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['providerId'],
   properties: {
     providerId: { type: 'string', minLength: 1 },
+    provider: {
+      $ref: '#/components/schemas/IdentityProviderConfig',
+      description:
+        'The provider as stored: discovered endpoints, and `signIn` (what to give the identity provider). Absent from older servers.',
+    },
   },
 };
 
@@ -6072,6 +7498,91 @@ export const UnregisterIdentityProviderResultSchema: JsonSchema = {
   properties: {
     providerId: { type: 'string', minLength: 1 },
     unregistered: { type: 'boolean', const: true },
+  },
+};
+
+const NULLABLE_STRING = { type: ['string', 'null'], minLength: 1 } as const;
+const NULLABLE_URI = { type: ['string', 'null'], format: 'uri' } as const;
+const NULLABLE_STRINGS = {
+  oneOf: [{ type: 'array', items: { type: 'string', minLength: 1 } }, { type: 'null' }],
+} as const;
+
+export const UpdateIdentityProviderBodySchema: JsonSchema = {
+  description:
+    "Changes to a registered identity provider: a field given replaces the stored one, `null` removes an optional one, and anything not given stays. The result must still be a whole provider of its `kind` (the fields `IdentityProviderConfig` requires for it), checked as a registration is. `providerId` and `kind` can't change; `signIn` is the deployment's and is ignored. A new `issuer` drops the endpoints discovered from the old one.",
+  type: 'object',
+  additionalProperties: false,
+  minProperties: 1,
+  properties: {
+    providerId: { type: 'string', minLength: 1, description: 'Must match the path when given.' },
+    kind: { $ref: '#/components/schemas/IdentityProviderKind' },
+    displayName: NULLABLE_STRING,
+    domains: NULLABLE_STRINGS,
+    join: { oneOf: [{ type: 'string', enum: ['invite', 'domain'] }, { type: 'null' }] },
+    metadata: { oneOf: [{ type: 'object', additionalProperties: true }, { type: 'null' }] },
+    issuer: { type: 'string', format: 'uri' },
+    clientId: { type: 'string', minLength: 1 },
+    clientSecretRef: CLIENT_SECRET_REF,
+    scopes: { oneOf: [{ type: 'array', items: { type: 'string' } }, { type: 'null' }] },
+    authorizationEndpoint: NULLABLE_URI,
+    tokenEndpoint: NULLABLE_URI,
+    userinfoEndpoint: NULLABLE_URI,
+    jwksEndpoint: NULLABLE_URI,
+    allowedRedirectUris: NULLABLE_STRINGS,
+    claimMapping: {
+      oneOf: [{ $ref: '#/components/schemas/ClaimMappingSpec' }, { type: 'null' }],
+    },
+    idpMetadataXml: NULLABLE_STRING,
+    idpEntityId: NULLABLE_STRING,
+    idpSsoUrl: NULLABLE_URI,
+    idpCertificates: NULLABLE_STRINGS,
+    spSigningKeyRef: NULLABLE_STRING,
+    spDecryptionKeyRef: NULLABLE_STRING,
+    wantAssertionsSigned: { type: ['boolean', 'null'] },
+    attributeMapping: {
+      oneOf: [
+        {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            userId: { type: 'string', minLength: 1 },
+            email: { type: 'string', minLength: 1 },
+            displayName: { type: 'string', minLength: 1 },
+          },
+        },
+        { type: 'null' },
+      ],
+    },
+  },
+};
+
+export const UpdateIdentityProviderResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['providerId', 'provider'],
+  properties: {
+    providerId: { type: 'string', minLength: 1 },
+    provider: {
+      $ref: '#/components/schemas/IdentityProviderConfig',
+      description: 'The provider as stored now; its `signIn` is unchanged.',
+    },
+  },
+};
+
+export const IdentityProviderSignInUrlsSchema: JsonSchema = {
+  description:
+    "What to give the identity provider so it can send people back, for a provider under this `providerId`: the same before it's registered, after, and after an unregister and a new registration, so the identity provider's side can be set up first. Not secrets: they're in every sign-in's browser redirects.",
+  type: 'object',
+  additionalProperties: false,
+  required: ['providerId', 'kind', 'signIn', 'registered'],
+  properties: {
+    providerId: { type: 'string', minLength: 1 },
+    kind: { $ref: '#/components/schemas/IdentityProviderKind' },
+    signIn: { $ref: '#/components/schemas/IdentityProviderSignIn' },
+    registered: {
+      type: 'boolean',
+      description: 'Whether a provider is registered under this `providerId` now.',
+    },
   },
 };
 
@@ -6120,7 +7631,7 @@ export const CallbackResultSchema: JsonSchema = {
     sessionToken: {
       type: 'string',
       description:
-        'Opaque framework-issued session token (`kgi_sk_<sessionId>`). Send as `Authorization: Bearer <sessionToken>` on subsequent requests. The underlying provider access-token never leaves the server.',
+        'Opaque session token (`kgi_sk_…`), shown once: the server keeps only a hash of it. Never parse it. Send as `Authorization: Bearer <sessionToken>` on subsequent requests. The underlying provider access-token never leaves the server.',
     },
     sessionId: { type: 'string' },
     expiresAt: { type: 'string', format: 'date-time' },
@@ -6141,7 +7652,7 @@ export const LogoutResultSchema: JsonSchema = {
 
 export const WhoamiResultSchema: JsonSchema = {
   description:
-    "Introspection of the caller's current authentication context. Always carries `tenantId` and `scopes` (empty for static bearer tokens), plus `userId` when the token carries one; session-token callers additionally see `sessionId`, `providerId`, and `expiresAt`. `user` is the caller's directory record, present when the deployment wires an identity directory and it knows the `userId`. `reviewerRole` is set when the caller is a reviewer — its token carries a reviewer role, or its user is a registered reviewer — so clients can gate reviewer-only UI (the approvals surface) without a second round trip.",
+    "Introspection of the caller's current authentication context. Always carries `tenantId` and `scopes` (empty for static bearer tokens), plus `userId` when the token carries one; `principal` says whom the caller acts as, and an API key adds `tokenId`, its `role` and the `projectId` it is limited to; session-token callers additionally see `sessionId`, `providerId`, and `expiresAt`. `user` is the caller's directory record, present when the deployment wires an identity directory and it knows the `userId`. `reviewerRole` is set when the caller is a reviewer — its token carries a reviewer role, or its user is a registered reviewer — so clients can gate reviewer-only UI (the approvals surface) without a second round trip.",
   type: 'object',
   additionalProperties: false,
   required: ['tenantId', 'scopes'],
@@ -6154,6 +7665,21 @@ export const WhoamiResultSchema: JsonSchema = {
     expiresAt: { type: 'string', format: 'date-time' },
     reviewerRole: ReviewerRoleSchema,
     user: { $ref: '#/components/schemas/UserRecord' },
+    principal: { $ref: '#/components/schemas/ApiKeyPrincipal' },
+    tokenId: { type: 'string', description: "The caller's API key, when it is one." },
+    role: {
+      ...ApiTokenRoleSchema,
+      description: "The caller's API key role, when the key has one.",
+    },
+    projectId: {
+      type: 'string',
+      description: "The project the caller's API key is limited to, when it is.",
+    },
+    tenantAdmin: {
+      type: 'boolean',
+      description:
+        'Whether the caller is a tenant admin, decided as the admin routes decide it: `admin` on the tenant when the runtime authorizes, otherwise the `tenant-admin` scope of a full key (never a `member` key or one limited to a project). A console shows its admin pages by it. Absent from older servers: read `scopes`.',
+    },
   },
 };
 
@@ -6170,8 +7696,109 @@ export const UserRecordSchema: JsonSchema = {
     displayName: { type: 'string' },
     createdAt: { type: 'string', format: 'date-time' },
     lastActiveAt: { type: 'string', format: 'date-time' },
+    unregisteredAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'When they were removed from the tenant (`POST /v1/identity/users/{userId}/unregister`); absent while they are here.',
+    },
     metadata: { type: 'object', additionalProperties: true },
   },
+};
+
+export const UnregisterUserResultSchema: JsonSchema = {
+  description:
+    'A removed person, and what removing them took away (each 0 when they were already removed).',
+  type: 'object',
+  additionalProperties: false,
+  required: ['user', 'keysRevoked', 'sessionsRevoked', 'grantsRemoved'],
+  properties: {
+    user: { $ref: '#/components/schemas/UserRecord' },
+    keysRevoked: { type: 'integer', minimum: 0 },
+    sessionsRevoked: { type: 'integer', minimum: 0 },
+    grantsRemoved: { type: 'integer', minimum: 0 },
+  },
+};
+
+export const CreateUserBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['displayName'],
+  properties: {
+    displayName: { type: 'string', minLength: 1, maxLength: 200 },
+    primaryEmail: { type: 'string', description: "Unique among the tenant's people." },
+  },
+};
+
+export const PersonGrantsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "What a person may do, as granted directly: tenant admin, a role on a project (its memberships), a role in a team, and the reviewer roster. What a team's or an org's grants imply is not expanded.",
+  required: ['userId', 'projects', 'teams'],
+  properties: {
+    userId: { type: 'string' },
+    tenantAdmin: {
+      type: 'boolean',
+      description:
+        'Whether the person is a tenant admin. Absent when the runtime has no authorization store: nothing grants it then.',
+    },
+    tenantMember: {
+      type: 'boolean',
+      description:
+        "Whether the person is a tenant member: they read the tenant's settings (providers, policies, adapters, signing keys, deployments), not its projects. A person is one from being added. Absent when the runtime has no authorization store, or doesn't report it.",
+    },
+    projects: {
+      type: 'array',
+      description: 'Direct project memberships.',
+      items: { $ref: '#/components/schemas/PersonProjectRole' },
+    },
+    teams: {
+      type: 'array',
+      description: 'Team memberships.',
+      items: { $ref: '#/components/schemas/PersonTeamRole' },
+    },
+    reviewer: { $ref: '#/components/schemas/PersonReviewerRole' },
+  },
+};
+
+export const PersonProjectRoleSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['projectId', 'role'],
+  description: "A person's direct role on a project.",
+  properties: {
+    projectId: { type: 'string' },
+    role: { $ref: '#/components/schemas/ProjectRole' },
+  },
+};
+
+export const PersonTeamRoleSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['teamId', 'role'],
+  description: "A person's role in a team.",
+  properties: {
+    teamId: { type: 'string' },
+    role: { $ref: '#/components/schemas/TeamRole' },
+  },
+};
+
+export const PersonReviewerRoleSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['role'],
+  description: "A person's active entry on the reviewer roster.",
+  properties: { role: { $ref: '#/components/schemas/ReviewerRole' } },
+};
+
+export const PersonGrantBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind'],
+  description:
+    "The grant to give or take: tenant admin. A person's project and team roles have their own membership routes.",
+  properties: { kind: { type: 'string', enum: ['tenant-admin'] } },
 };
 
 export const UserCollectionPageSchema: JsonSchema = {
@@ -6678,63 +8305,22 @@ export const ExportComplianceEvidenceFilterSchema: JsonSchema = {
 };
 
 export const ExportComplianceEvidenceBodySchema: JsonSchema = {
+  description: 'Optional: no body exports every exportable kind, signed with the active key.',
   type: 'object',
   additionalProperties: false,
-  required: ['signingKeyId'],
   properties: {
-    signingKeyId: {
-      type: 'string',
-      minLength: 1,
-      description:
-        'The `SigningKeyId` the deployment plugs into its `signingKey` binding. Server looks up the private key via `signingKey.getPrivateKey(signingKeyId)` — 404 `signing-key-not-found` if unknown.',
-    },
+    signingKeyId: SIGNING_KEY_ID_PROPERTY,
     filter: ExportComplianceEvidenceFilterSchema,
   },
 };
 
-export const SignedComplianceEvidenceBundleSchema: JsonSchema = {
+export const SignedComplianceEvidenceBundleSchema: JsonSchema = signedExportEnvelope({
   description:
-    'Signed exportable bundle. `bundle` is base64 of the exact bytes that were signed (sorted-key canonical JSON, no whitespace); verifiers can pass those bytes directly to `verifyEd25519`. Bundle body: `{ bundleSchemaVersion, tenantId, filter, records, recordCount, exportedAt }`. Envelope shape identical to `ExportProvenanceResult` + audit-bundle — verifiers reuse one `verifyEd25519` wrapper across all three surfaces.',
-  type: 'object',
-  additionalProperties: false,
-  required: [
-    'bundleSchemaVersion',
-    'tenantId',
-    'bundle',
-    'algorithm',
-    'signingKeyId',
-    'signature',
-    'publicKey',
-    'canonicalization',
-    'exportedAt',
-  ],
-  properties: {
-    bundleSchemaVersion: { type: 'string', const: '1.0.0' },
-    tenantId: { type: 'string', format: 'uuid' },
-    bundle: {
-      type: 'string',
-      description: 'Base64-encoded canonical JSON of the bundle body.',
-    },
-    algorithm: { type: 'string', const: 'ed25519' },
-    signingKeyId: { type: 'string' },
-    signature: {
-      type: 'string',
-      description: 'Base64-encoded Ed25519 signature bytes over `bundle` (after base64-decode).',
-    },
-    publicKey: {
-      type: 'string',
-      description:
-        'PEM-encoded Ed25519 public key (DER SPKI envelope). Callers can pass this straight into `parsePublicKeyPem` for verification.',
-    },
-    canonicalization: {
-      type: 'string',
-      const: 'sorted-key-json',
-      description:
-        'Canonicalization algorithm — sorted-key JSON, no whitespace. Same algorithm as `canonicalize`.',
-    },
-    exportedAt: { type: 'string', format: 'date-time' },
-  },
-};
+    'Signed compliance evidence. Body: `{ bundleSchemaVersion, tenantId, filter, records, recordCount, exportedAt }`.',
+  kind: 'compliance',
+  subject: ['tenantId', { type: 'string', format: 'uuid' }],
+  versionDescription: "The body's version, semver: `1.0.0`.",
+});
 
 // ---------------- platform hierarchy ----------------
 
@@ -7001,11 +8587,17 @@ export const ProjectMembershipCollectionPageSchema: JsonSchema = {
 };
 
 export const AddProjectMembershipBodySchema: JsonSchema = {
+  description: 'Exactly one of `userId` and `email` names the person.',
   type: 'object',
   additionalProperties: false,
-  required: ['userId', 'role'],
+  required: ['role'],
   properties: {
     userId: { type: 'string', minLength: 1 },
+    email: {
+      type: 'string',
+      minLength: 1,
+      description: "The person's email, as the tenant has it.",
+    },
     role: { $ref: '#/components/schemas/ProjectRole' },
   },
 };
@@ -7598,11 +9190,11 @@ export const TriggerStatusSchema: JsonSchema = {
 export const ScheduleRecordSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
+  description:
+    'A schedule: what it runs (a flow at a version, or an agent), when (a cron expression in a timezone), as whom (its owner), and what it does after a gap or while a run is still going.',
   required: [
     'scheduleId',
     'triggerId',
-    'flowId',
-    'flowVersion',
     'cronExpression',
     'label',
     'status',
@@ -7618,8 +9210,34 @@ export const ScheduleRecordSchema: JsonSchema = {
         'Domain-friendly alias for `triggerId` — the trigger id (a UUID). Use interchangeably in admin URLs.',
     },
     triggerId: { type: 'string' },
-    flowId: { type: 'string', minLength: 1 },
+    flowId: {
+      type: 'string',
+      minLength: 1,
+      description: 'A schedule that runs a flow: the flow, at `flowVersion`.',
+    },
     flowVersion: { type: 'string', minLength: 1 },
+    agentId: {
+      type: 'string',
+      minLength: 1,
+      description:
+        "A schedule that runs an agent: the agent, at `agentVersion`, else its version live for the schedule's project (else the latest), as a run that names none.",
+    },
+    agentVersion: { type: 'string', minLength: 1 },
+    improve: {
+      $ref: '#/components/schemas/ImproveScheduleTarget',
+      description:
+        'A schedule that starts improvement passes: on this agent, for this scope, when enough new trusted "no" judgments have come in (`input`: the threshold, the monthly cap and the pass options).',
+    },
+    projectId: {
+      type: 'string',
+      format: 'uuid',
+      description: "The schedule's project: its runs are this project's.",
+    },
+    owner: {
+      $ref: '#/components/schemas/TriggerOwner',
+      description:
+        'Who its runs act as: whoever registered it, until an admin takes it over (`POST …/owner`). Checked again at every fire.',
+    },
     cronExpression: {
       type: 'string',
       minLength: 1,
@@ -7631,19 +9249,171 @@ export const ScheduleRecordSchema: JsonSchema = {
       description: 'IANA timezone (e.g. `UTC`, `America/New_York`). Absent → `UTC`.',
     },
     input: {
-      description: 'Static input handed to the flow on every fire. Absent → `{}`.',
+      description: 'Static input handed to the run on every fire. Absent → `{}`.',
+    },
+    catchUp: {
+      type: 'string',
+      enum: ['latest', 'skip'],
+      description:
+        'After a gap (the runtime was down, or a fire is later than `startingDeadlineSeconds`): `latest` runs once, for the latest missed occurrence, and its fire says how many it missed; `skip` drops the missed occurrences. Never a run per missed occurrence.',
+    },
+    overlap: {
+      type: 'string',
+      enum: ['skip', 'allow'],
+      description:
+        'When an occurrence comes while the previous run of this schedule is still running: `skip` records the fire as skipped; `allow` starts another run.',
+    },
+    startingDeadlineSeconds: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        'How late a fire may start and still count as on time; past it, `catchUp` applies.',
     },
     label: { type: ['string', 'null'] },
     status: { $ref: '#/components/schemas/TriggerStatus' },
+    statusReason: {
+      type: 'string',
+      description:
+        'Why the runtime paused it: repeated fires that were refused (the owner lost access) or failed. Skipped fires (an overlap, an erasure in progress) never count.',
+    },
     nextFireAt: {
       type: ['string', 'null'],
       format: 'date-time',
       description:
         'Wall-clock time of the next scheduled fire. `null` on paused rows if the cron scheduler never re-armed.',
     },
+    upcoming: {
+      type: 'array',
+      items: { type: 'string', format: 'date-time' },
+      description: 'The next occurrences, when the request asked for them (`?upcoming=N`).',
+    },
     lastFiredAt: { type: ['string', 'null'], format: 'date-time' },
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const TriggerOwnerSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'id'],
+  properties: {
+    kind: { type: 'string', enum: ['user', 'service'] },
+    id: { type: 'string' },
+  },
+};
+
+export const ImproveScheduleTargetSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['agentId', 'scope'],
+  description:
+    'What an improve schedule works on: the agent, and the live scope its passes propose for and count judgments in.',
+  properties: {
+    agentId: { type: 'string', minLength: 1 },
+    scope: { $ref: '#/components/schemas/LiveScope' },
+  },
+};
+
+export const ImproveScheduleInputSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    'An improve schedule\'s `config.input`. Each fire counts the trusted "no" judgments (recorded under a restricted judge class) on the agent\'s runs in the scope since its last pass. When there are enough, across enough runs and judges, it starts a pass on a fresh test set of those runs; otherwise the fire is `skipped`, saying which count was short. A pass that proposes asks for the review at once.',
+  properties: {
+    tiers: { type: 'array', items: { type: 'string', enum: ['settings', 'prompt'] } },
+    objective: { type: 'string', enum: ['weightedYesShare', 'weightedPrecisionAtK'] },
+    classWeights: { type: 'string', enum: ['restricted-only', 'as-recorded'] },
+    model: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['providerId', 'model'],
+      properties: { providerId: { type: 'string' }, model: { type: 'string' } },
+    },
+    candidates: { type: 'integer', minimum: 1, maximum: 5 },
+    budget: {
+      type: 'object',
+      additionalProperties: false,
+      description:
+        "Each pass's budget (default $5 and 30 candidates), never more than what's left of the month's cap.",
+      properties: {
+        maxCostUsd: { type: 'number', exclusiveMinimum: 0, maximum: 100 },
+        maxCandidates: { type: 'integer', minimum: 1, maximum: 200 },
+      },
+    },
+    threshold: {
+      type: 'object',
+      additionalProperties: false,
+      description: 'Default 5 judgments, across 3 runs, from 2 judges.',
+      properties: {
+        judgments: { type: 'integer', minimum: 1, maximum: 1000 },
+        runs: { type: 'integer', minimum: 1, maximum: 1000 },
+        judges: { type: 'integer', minimum: 1, maximum: 1000 },
+      },
+    },
+    monthlyCapUsd: {
+      type: 'number',
+      exclusiveMinimum: 0,
+      maximum: 1000,
+      description: 'The most its passes may cost in a calendar month (UTC). Default 20.',
+    },
+  },
+};
+
+export const ScheduleFireSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    'One fire of a schedule (an occurrence, or a `run-now`) and what came of it. `pending` while its run is being started.',
+  required: ['fireId', 'scheduleId', 'triggerId', 'firedAt', 'outcome'],
+  properties: {
+    fireId: { type: 'string' },
+    scheduleId: { type: 'string' },
+    triggerId: { type: 'string' },
+    scheduledFor: {
+      type: 'string',
+      format: 'date-time',
+      description: 'The occurrence it is for; absent on a `run-now` fire.',
+    },
+    firedAt: { type: 'string', format: 'date-time' },
+    outcome: {
+      type: 'string',
+      enum: [
+        'pending',
+        'started',
+        'skipped-overlap',
+        'skipped-erasure',
+        'skipped',
+        'refused',
+        'failed',
+      ],
+      description:
+        "`skipped-overlap`: the previous fire's run was still going (`overlap: skip`). `skipped-erasure`: the person the fire acts for is being erased, so no new run starts for them until the erasure completes. `skipped`: what an improve schedule waits for wasn't there (its threshold, or its monthly cap), as `detail` says. None of the skipped outcomes counts toward the auto-pause; `refused` and `failed` do.",
+    },
+    runId: { type: 'string', format: 'uuid', description: 'The run it started.' },
+    passId: {
+      type: 'string',
+      format: 'uuid',
+      description: 'The improvement pass it started (an improve schedule).',
+    },
+    detail: { type: 'string', description: 'Why it was refused, skipped or failed.' },
+    missedCount: {
+      type: 'integer',
+      minimum: 1,
+      description: 'Occurrences this fire stood in for after a gap (`catchUp: latest`).',
+    },
+    manual: { type: 'boolean', description: 'A `run-now` fire, outside the schedule.' },
+  },
+};
+
+export const ScheduleFirePageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/ScheduleFire' } },
+    hasMore: { type: 'boolean' },
+    nextCursor: { type: 'string' },
   },
 };
 
@@ -7661,10 +9431,28 @@ export const ScheduleCollectionPageSchema: JsonSchema = {
 export const RegisterScheduleBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['flowId', 'flowVersion', 'config'],
+  description:
+    'Name what it runs: `flowId` with `flowVersion`, `agentId` (with an optional `agentVersion`), or `improve` (improvement passes). Registering needs `write` on the project and `execute` on what it runs (`publish` on the agent for `improve`); its runs act as the caller.',
+  required: ['config'],
   properties: {
-    flowId: { type: 'string', minLength: 1 },
+    flowId: { type: 'string', minLength: 1, description: 'Run a flow (with `flowVersion`).' },
     flowVersion: { type: 'string', minLength: 1 },
+    agentId: {
+      type: 'string',
+      minLength: 1,
+      description: 'Run an agent (instead of a flow): at `agentVersion`, else its live version.',
+    },
+    agentVersion: { type: 'string', minLength: 1 },
+    improve: {
+      $ref: '#/components/schemas/ImproveScheduleTarget',
+      description:
+        'Start an improvement pass instead of a run (instead of `flowId` or `agentId`). Its `config.input` is the pass options; registering needs `publish` on the agent.',
+    },
+    projectId: {
+      type: 'string',
+      format: 'uuid',
+      description: "The schedule's project. Absent → the tenant's default project.",
+    },
     config: {
       type: 'object',
       additionalProperties: false,
@@ -7672,8 +9460,19 @@ export const RegisterScheduleBodySchema: JsonSchema = {
       properties: {
         cronExpression: { type: 'string', minLength: 1 },
         timezone: { type: 'string' },
-        input: {},
+        input: {
+          description:
+            "What each run gets. An agent schedule's runs take the agent payload, `{ userMessage, parameters? }`, so it needs `userMessage`; a flow's take the flow's input. An improve schedule's is `ImproveScheduleInput`, kept with its defaults applied.",
+        },
       },
+    },
+    catchUp: { type: 'string', enum: ['latest', 'skip'], description: 'Default `latest`.' },
+    overlap: { type: 'string', enum: ['skip', 'allow'], description: 'Default `skip`.' },
+    startingDeadlineSeconds: {
+      type: 'integer',
+      minimum: 1,
+      maximum: 86400,
+      description: 'Default 600.',
     },
     label: { type: 'string' },
   },
@@ -7682,21 +9481,46 @@ export const RegisterScheduleBodySchema: JsonSchema = {
 export const PatchScheduleBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
+  description:
+    'Change what it runs (the target fields, as at registration, which also needs `execute` on the new target), when, or its policies.',
   properties: {
+    flowId: { type: 'string', minLength: 1, description: 'Run a flow (with `flowVersion`).' },
+    flowVersion: { type: 'string', minLength: 1 },
+    agentId: {
+      type: 'string',
+      minLength: 1,
+      description: 'Run an agent (instead of a flow): at `agentVersion`, else its live version.',
+    },
+    agentVersion: { type: 'string', minLength: 1 },
+    improve: {
+      $ref: '#/components/schemas/ImproveScheduleTarget',
+      description:
+        'Start an improvement pass instead of a run (instead of `flowId` or `agentId`). Its `config.input` is the pass options; registering needs `publish` on the agent.',
+    },
     config: {
       type: 'object',
       additionalProperties: false,
       properties: {
         cronExpression: { type: 'string' },
         timezone: { type: 'string' },
-        input: {},
+        input: {
+          description:
+            "What each run gets. An agent schedule's runs take the agent payload, `{ userMessage, parameters? }`, so it needs `userMessage`; a flow's take the flow's input. An improve schedule's is `ImproveScheduleInput`, kept with its defaults applied.",
+        },
       },
+    },
+    catchUp: { type: 'string', enum: ['latest', 'skip'], description: 'Default `latest`.' },
+    overlap: { type: 'string', enum: ['skip', 'allow'], description: 'Default `skip`.' },
+    startingDeadlineSeconds: {
+      type: 'integer',
+      minimum: 1,
+      maximum: 86400,
+      description: 'Default 600.',
     },
     label: {
       type: ['string', 'null'],
       description: '`null` clears the label; omit to leave unchanged.',
     },
-    flowVersion: { type: 'string' },
   },
 };
 
@@ -7923,7 +9747,7 @@ export const WebhookTriggerUnregisterResultSchema: JsonSchema = {
 
 export const WebhookEventTypeSchema: JsonSchema = {
   type: 'string',
-  enum: ['run.finished'],
+  enum: ['run.finished', 'improvement-pass.finished'],
   description: 'An event type an endpoint can subscribe to.',
 };
 
@@ -8130,6 +9954,33 @@ export const RunFinishedEventSchema: JsonSchema = {
   },
 };
 
+export const ImprovementPassFinishedEventSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'type', 'createdAt', 'data'],
+  description:
+    'An improvement pass ended (`completed`, `failed` or `cancelled`): one a person started, or one an `improve` schedule did. Its outcome names the proposal it wrote, if it wrote one.',
+  properties: {
+    id: {
+      type: 'string',
+      description: 'Event id, also sent as the `webhook-id` header; the same on every retry.',
+    },
+    type: { type: 'string', const: 'improvement-pass.finished' },
+    createdAt: { type: 'string', format: 'date-time' },
+    data: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['pass'],
+      properties: {
+        pass: {
+          $ref: '#/components/schemas/ImprovementPass',
+          description: 'The pass, as `GET /v1/improvement-passes/{passId}` shows it.',
+        },
+      },
+    },
+  },
+};
+
 export const WebhookTestEventSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -8151,12 +10002,14 @@ export const WebhookEventSchema: JsonSchema = {
   description: 'The JSON body of every webhook request.',
   oneOf: [
     { $ref: '#/components/schemas/RunFinishedEvent' },
+    { $ref: '#/components/schemas/ImprovementPassFinishedEvent' },
     { $ref: '#/components/schemas/WebhookTestEvent' },
   ],
   discriminator: {
     propertyName: 'type',
     mapping: {
       'run.finished': '#/components/schemas/RunFinishedEvent',
+      'improvement-pass.finished': '#/components/schemas/ImprovementPassFinishedEvent',
       'webhook.test': '#/components/schemas/WebhookTestEvent',
     },
   },
@@ -8255,6 +10108,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['HealthResult', HealthResultSchema],
   ['RunStatus', RunStatusSchema],
   ['RunAgent', RunAgentSchema],
+  ['RunTrigger', RunTriggerSchema],
   ['ScopeSegment', ScopeSegmentSchema],
   ['LiveScopeTenant', LiveScopeTenantSchema],
   ['LiveScopeOrg', LiveScopeOrgSchema],
@@ -8279,6 +10133,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['RollbackBody', RollbackBodySchema],
   ['UnpinBody', UnpinBodySchema],
   ['Run', RunSchema],
+  ['RunFailure', RunFailureSchema],
   ['StartRunOptions', StartRunOptionsSchema],
   ['StartRunBody', StartRunBodySchema],
   ['ResumeRunBody', ResumeRunBodySchema],
@@ -8293,6 +10148,17 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['MintTokenResult', MintTokenResultSchema],
   ['ApiToken', ApiTokenSchema],
   ['ApiTokenPage', ApiTokenPageSchema],
+  ['ApiKeyPrincipal', ApiKeyPrincipalSchema],
+  ['ServiceAccountGrantTenantAdmin', ServiceAccountGrantTenantAdminSchema],
+  ['ServiceAccountGrantTenantMember', ServiceAccountGrantTenantMemberSchema],
+  ['ServiceAccountGrantProject', ServiceAccountGrantProjectSchema],
+  ['ServiceAccountGrant', ServiceAccountGrantSchema],
+  ['ServiceAccountGrantBody', ServiceAccountGrantBodySchema],
+  ['ServiceAccountUngrantProject', ServiceAccountUngrantProjectSchema],
+  ['ServiceAccountUngrantBody', ServiceAccountUngrantBodySchema],
+  ['ServiceAccount', ServiceAccountSchema],
+  ['ServiceAccountPage', ServiceAccountPageSchema],
+  ['CreateServiceAccountBody', CreateServiceAccountBodySchema],
   ['RevokeTokenResult', RevokeTokenResultSchema],
   ['TrustedSigningKey', TrustedSigningKeySchema],
   ['TrustSigningKeyBody', TrustSigningKeyBodySchema],
@@ -8314,6 +10180,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ReviewerCollectionPage', ReviewerCollectionPageSchema],
   ['RegisterReviewerBody', RegisterReviewerBodySchema],
   ['UnregisterReviewerResult', UnregisterReviewerResultSchema],
+  ['ExportSigningKey', ExportSigningKeySchema],
+  ['ExportSigningKeyList', ExportSigningKeyListSchema],
   ['ExportAuditBundleBody', ExportAuditBundleBodySchema],
   ['ExportAuditBundleResult', ExportAuditBundleResultSchema],
   ['ObservationStatus', ObservationStatusSchema],
@@ -8343,6 +10211,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['BuildJudgedSuiteResult', BuildJudgedSuiteResultSchema],
   ['PromptParameter', PromptParameterSchema],
   ['RetrievalIntent', RetrievalIntentSchema],
+  ['AgentMemoryPolicy', AgentMemoryPolicySchema],
   ['ConversationPolicy', ConversationPolicySchema],
   ['TurnBudget', TurnBudgetSchema],
   ['Capability', CapabilitySchema],
@@ -8411,30 +10280,49 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['SourceFreshness', SourceFreshnessSchema],
   ['SourceRefresh', SourceRefreshSchema],
   ['FactSource', FactSourceSchema],
+  ['FactSubject', FactSubjectSchema],
+  ['FactAttribution', FactAttributionSchema],
+  ['FactGeneratedBy', FactGeneratedBySchema],
   ['Fact', FactSchema],
   ['FactCollectionPage', FactCollectionPageSchema],
   ['WriteFactBody', WriteFactBodySchema],
-  ['SupersedeFactResult', SupersedeFactResultSchema],
+  ['SupersedeFactBody', SupersedeFactBodySchema],
+  ['VerifyFactBody', VerifyFactBodySchema],
+  ['FactRevisionList', FactRevisionListSchema],
   ['RetrieveIntent', RetrieveIntentSchema],
   ['RetrieveMemoryBody', RetrieveMemoryBodySchema],
   ['RetrievalHit', RetrievalHitSchema],
   ['RetrieveMemoryResult', RetrieveMemoryResultSchema],
+  ['MemoryErasureFactSelector', MemoryErasureFactSelectorSchema],
+  ['MemoryErasureSubjectSelector', MemoryErasureSubjectSelectorSchema],
+  ['MemoryErasureConversationSelector', MemoryErasureConversationSelectorSchema],
+  ['MemoryErasureSelector', MemoryErasureSelectorSchema],
+  ['CreateMemoryErasureBody', CreateMemoryErasureBodySchema],
+  ['MemoryErasure', MemoryErasureSchema],
+  ['MemoryErasureCreated', MemoryErasureCreatedSchema],
+  ['MemoryErasurePage', MemoryErasurePageSchema],
+  ['MemoryErasureLedgerEntry', MemoryErasureLedgerEntrySchema],
+  ['MemoryErasureLedger', MemoryErasureLedgerSchema],
+  ['ReplayMemoryErasuresBody', ReplayMemoryErasuresBodySchema],
+  ['ResumeMemoryErasureBody', ResumeMemoryErasureBodySchema],
+  ['ReplayMemoryErasuresResult', ReplayMemoryErasuresResultSchema],
   ['ProposalTier', ProposalTierSchema],
   ['FixProposalStatus', FixProposalStatusSchema],
-  ['PatternRef', PatternRefSchema],
-  ['ProposedChange', ProposedChangeSchema],
+  ['ProposalChange', ProposalChangeSchema],
+  ['ProposalDrafter', ProposalDrafterSchema],
+  ['ProposalCandidate', ProposalCandidateSchema],
+  ['ProposalEvaluation', ProposalEvaluationSchema],
+  ['ProposalPromotion', ProposalPromotionSchema],
   ['FixProposal', FixProposalSchema],
   ['FixProposalCollectionPage', FixProposalCollectionPageSchema],
-  ['PassCriterion', PassCriterionSchema],
-  ['DraftProposalBody', DraftProposalBodySchema],
-  ['DryRunProposalBody', DryRunProposalBodySchema],
-  ['DryRunProposalResult', DryRunProposalResultSchema],
-  ['SubmitReviewProposalBody', SubmitReviewProposalBodySchema],
-  ['SubmitReviewProposalResult', SubmitReviewProposalResultSchema],
-  ['ApplyProposalBody', ApplyProposalBodySchema],
-  ['ApplyProposalResult', ApplyProposalResultSchema],
-  ['RollbackProposalBody', RollbackProposalBodySchema],
-  ['RollbackProposalResult', RollbackProposalResultSchema],
+  ['ImprovementBudget', ImprovementBudgetSchema],
+  ['ImprovementPassOutcome', ImprovementPassOutcomeSchema],
+  ['ImprovementPass', ImprovementPassSchema],
+  ['ImprovementPassCollectionPage', ImprovementPassCollectionPageSchema],
+  ['ImproveBody', ImproveBodySchema],
+  ['CreateProposalBody', CreateProposalBodySchema],
+  ['EvaluateProposalBody', EvaluateProposalBodySchema],
+  ['ProposalReasonBody', ProposalReasonBodySchema],
   ['WithdrawProposalBody', WithdrawProposalBodySchema],
   ['ProvenanceNodeKind', ProvenanceNodeKindSchema],
   ['ProvenanceEdgeKind', ProvenanceEdgeKindSchema],
@@ -8453,6 +10341,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['DeleteArtifactResult', DeleteArtifactResultSchema],
   ['Feature', FeatureSchema],
   ['CapabilityDescriptor', CapabilityDescriptorSchema],
+  ['CapabilityProvider', CapabilityProviderSchema],
   ['CapabilityCollectionPage', CapabilityCollectionPageSchema],
   ['ModelThinking', ModelThinkingSchema],
   ['ProviderCost', ProviderCostSchema],
@@ -8463,6 +10352,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['RegisterProviderResult', RegisterProviderResultSchema],
   ['UnregisterProviderResult', UnregisterProviderResultSchema],
   ['ProviderCapabilitiesResult', ProviderCapabilitiesResultSchema],
+  ['AdapterConfigProblem', AdapterConfigProblemSchema],
+  ['ProviderCheckResult', ProviderCheckResultSchema],
   ['MCPTransport', MCPTransportSchema],
   ['MCPEndpoint', MCPEndpointSchema],
   ['MCPEndpointSecretRef', MCPEndpointSecretRefSchema],
@@ -8529,6 +10420,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['EvalRunAgentRef', EvalRunAgentRefSchema],
   ['EvalRunFlowRef', EvalRunFlowRefSchema],
   ['EvalBaseline', EvalBaselineSchema],
+  ['EvalOverrides', EvalOverridesSchema],
+  ['EvalSample', EvalSampleSchema],
   ['EvalComparison', EvalComparisonSchema],
   ['ComparisonMetric', ComparisonMetricSchema],
   ['ComparisonCandidate', ComparisonCandidateSchema],
@@ -8542,10 +10435,22 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['IdentityProviderKind', IdentityProviderKindSchema],
   ['ClaimMappingScopesSpec', ClaimMappingScopesSpecSchema],
   ['ClaimMappingSpec', ClaimMappingSpecSchema],
+  ['IdentityProviderSignIn', IdentityProviderSignInSchema],
+  ['OidcIdentityProviderConfig', OidcIdentityProviderConfigSchema],
+  ['SamlIdentityProviderConfig', SamlIdentityProviderConfigSchema],
+  ['OAuth2IdentityProviderConfig', OAuth2IdentityProviderConfigSchema],
   ['IdentityProviderConfig', IdentityProviderConfigSchema],
+  ['RegisterIdentityProviderBody', RegisterIdentityProviderBodySchema],
+  ['GetIdentityProviderResult', GetIdentityProviderResultSchema],
   ['IdentityProviderCollectionPage', IdentityProviderCollectionPageSchema],
+  ['SignInOption', SignInOptionSchema],
+  ['SignInOptions', SignInOptionsSchema],
+  ['TokenSignInResult', TokenSignInResultSchema],
   ['RegisterIdentityProviderResult', RegisterIdentityProviderResultSchema],
   ['UnregisterIdentityProviderResult', UnregisterIdentityProviderResultSchema],
+  ['UpdateIdentityProviderBody', UpdateIdentityProviderBodySchema],
+  ['UpdateIdentityProviderResult', UpdateIdentityProviderResultSchema],
+  ['IdentityProviderSignInUrls', IdentityProviderSignInUrlsSchema],
   ['LoginBody', LoginBodySchema],
   ['AuthorizationResponse', AuthorizationResponseSchema],
   ['CallbackBody', CallbackBodySchema],
@@ -8554,6 +10459,13 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['LogoutResult', LogoutResultSchema],
   ['WhoamiResult', WhoamiResultSchema],
   ['UserRecord', UserRecordSchema],
+  ['UnregisterUserResult', UnregisterUserResultSchema],
+  ['CreateUserBody', CreateUserBodySchema],
+  ['PersonGrants', PersonGrantsSchema],
+  ['PersonProjectRole', PersonProjectRoleSchema],
+  ['PersonTeamRole', PersonTeamRoleSchema],
+  ['PersonReviewerRole', PersonReviewerRoleSchema],
+  ['PersonGrantBody', PersonGrantBodySchema],
   ['UserCollectionPage', UserCollectionPageSchema],
   ['IdentitySessionSummary', IdentitySessionSummarySchema],
   ['IdentitySessionCollectionPage', IdentitySessionCollectionPageSchema],
@@ -8641,6 +10553,9 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   // Trigger surface.
   ['TriggerStatus', TriggerStatusSchema],
   ['ScheduleRecord', ScheduleRecordSchema],
+  ['TriggerOwner', TriggerOwnerSchema],
+  ['ScheduleFire', ScheduleFireSchema],
+  ['ScheduleFirePage', ScheduleFirePageSchema],
   ['ScheduleCollectionPage', ScheduleCollectionPageSchema],
   ['RegisterScheduleBody', RegisterScheduleBodySchema],
   ['PatchScheduleBody', PatchScheduleBodySchema],
@@ -8668,6 +10583,9 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['RunTreeUsage', RunTreeUsageSchema],
   ['FinishedRun', FinishedRunSchema],
   ['RunFinishedEvent', RunFinishedEventSchema],
+  ['ImprovementPassFinishedEvent', ImprovementPassFinishedEventSchema],
+  ['ImproveScheduleTarget', ImproveScheduleTargetSchema],
+  ['ImproveScheduleInput', ImproveScheduleInputSchema],
   ['WebhookTestEvent', WebhookTestEventSchema],
   ['WebhookEvent', WebhookEventSchema],
   ['WebhookDeliveryStatus', WebhookDeliveryStatusSchema],

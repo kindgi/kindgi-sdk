@@ -29,7 +29,7 @@ export interface Transport {
   request<T>(input: TransportRequest): Promise<T>;
   /**
    * Fetch implementation the transport is bound to. Exposed so streaming
-   * callers (`runs.stream`, `evalRuns.events`, `adapters.prepare`, the
+   * callers (`runs.follow`, `evalRuns.events`, `adapters.prepare`, the
    * secrets rotation event stream) can hand it to `readSse` without
    * going through `request` (SSE is a `text/event-stream` body, not JSON).
    */
@@ -241,7 +241,7 @@ function authTokenFor(auth: AuthConfig): string {
  * malformed still produce a synthetic entry so `fromWire` returns a
  * meaningful `ServerError`.
  */
-function unwrapErrorEnvelope(body: unknown, status: number): unknown {
+export function unwrapErrorEnvelope(body: unknown, status: number): unknown {
   if (body !== null && typeof body === 'object' && !Array.isArray(body)) {
     const inner = (body as Record<string, unknown>).error;
     if (inner !== null && typeof inner === 'object' && !Array.isArray(inner)) {

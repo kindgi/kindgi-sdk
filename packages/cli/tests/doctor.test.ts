@@ -63,6 +63,9 @@ const TOOLS: Readonly<Record<string, string | null>> = {
   npm: '10.9.2',
   python3: 'Python 3.12.4',
   uv: 'uv 0.5.11 (Homebrew 2024-12-19)',
+  java: 'openjdk version "21.0.6" 2025-01-21 LTS',
+  mvn: 'Apache Maven 3.9.16 (abc)',
+  sbt: '1.12.15',
 };
 
 function seam(
@@ -105,6 +108,8 @@ async function doctor(
     env?: Record<string, string>;
     fetchImpl?: typeof fetch;
     providers?: unknown[] | Error;
+    /** `providers.check` per provider id: its issues (default none), or an error it throws. */
+    checks?: Record<string, { path: string; message: string }[]> | Error;
     json?: boolean;
   } = {},
 ) {
@@ -121,6 +126,11 @@ async function doctor(
           list: async () => {
             if (options.providers instanceof Error) throw options.providers;
             return { data: options.providers ?? [], hasMore: false };
+          },
+          check: async (providerId: string) => {
+            if (options.checks instanceof Error) throw options.checks;
+            const issues = options.checks?.[providerId] ?? [];
+            return { providerId, adapterId: '@acme/adapter', checked: true, issues };
           },
         },
       }) as never,
@@ -155,22 +165,32 @@ describe('outside a project', () => {
       'npm',
       'python',
       'uv',
+      'java',
+      'maven',
+      'sbt',
       'docker',
       'registry',
+      'console-sign-in',
       'project',
       'dependencies',
       'model-key',
       'runtime',
       'provider',
+      'erasures',
     ]);
+    expect(check('console-sign-in')).toMatchObject({ status: 'skip' });
+    expect(check('console-sign-in')?.message).toContain('no runtime to ask');
     expect(check('node')).toMatchObject({ status: 'pass', message: 'Node 22.12.0.' });
     expect(check('python')).toMatchObject({ status: 'skip' });
     expect(check('python')?.message).toContain('Python 3.12.4 is installed');
     expect(check('uv')?.message).toContain('uv 0.5.11 is installed');
+    expect(check('java')).toMatchObject({ status: 'skip' });
+    expect(check('java')?.message).toContain('Java 21.0.6 is installed');
+    expect(check('maven')?.message).toContain('Maven 3.9.16 is installed');
     expect(check('registry')).toMatchObject({ status: 'pass' });
     expect(check('project')).toMatchObject({ status: 'skip' });
     expect(check('project')?.fix).toMatch(/^Create one: npx @kindgi\/cli@\S+ init <name> /);
-    for (const id of ['dependencies', 'model-key', 'runtime', 'provider']) {
+    for (const id of ['dependencies', 'model-key', 'runtime', 'provider', 'erasures']) {
       expect(check(id)).toMatchObject({
         status: 'skip',
         message: 'Not checked: it needs a project.',
@@ -285,6 +305,35 @@ describe('a TypeScript project', () => {
     expect(out.stdout).not.toContain(SECRET);
   });
 
+  test("erasures: replayable passes; without the AAD key it says so, never failing; an older runtime doesn't say", async () => {
+    await tsProject({ installed: true, rc: RC, envLocal: `ANTHROPIC_API_KEY=${SECRET}\n` });
+    const ready =
+      (erasures?: string): typeof fetch =>
+      async (input) =>
+        String(input).endsWith('/ready')
+          ? new Response(
+              JSON.stringify({ ok: true, ...(erasures !== undefined && { erasures }) }),
+              {
+                status: 200,
+              },
+            )
+          : new Response('{"status":"ok"}', { status: 200 });
+    const replayable = await doctor({
+      fetchImpl: ready('replayable'),
+      providers: [{ id: 'anthropic' }],
+    });
+    expect(replayable.check('erasures')).toMatchObject({ status: 'pass' });
+    const unreplayable = await doctor({
+      fetchImpl: ready('unreplayable'),
+      providers: [{ id: 'anthropic' }],
+    });
+    expect(unreplayable.check('erasures')).toMatchObject({ status: 'skip' });
+    expect(unreplayable.check('erasures')?.message).toContain('no KINDGI_ERASURE_LEDGER_KEY');
+    expect(unreplayable.out.exitCode).toBe(0);
+    const older = await doctor({ fetchImpl: ready(), providers: [{ id: 'anthropic' }] });
+    expect(older.check('erasures')?.message).toContain("this runtime doesn't say");
+  });
+
   test('a running runtime with a provider: everything passes, exit 0', async () => {
     await tsProject({ installed: true, rc: RC, envLocal: `ANTHROPIC_API_KEY=${SECRET}\n` });
     const { out, report, check } = await doctor({
@@ -296,12 +345,31 @@ describe('a TypeScript project', () => {
     expect(check('project')?.message).toContain('kindgi dev has run here (.kindgirc.json)');
     expect(check('runtime')).toMatchObject({
       status: 'pass',
-      message: 'The runtime answers at http://127.0.0.1:4999.',
+      message:
+        'The runtime answers at http://127.0.0.1:4999; its console is at http://127.0.0.1:4999/console/.',
     });
+    expect(report?.consoleUrl).toBe('http://127.0.0.1:4999/console/');
     expect(check('provider')).toMatchObject({
       status: 'pass',
       message: 'A provider is registered: anthropic.',
     });
+  });
+
+  test('a runtime that serves no console: said so, and no console URL', async () => {
+    await tsProject({ installed: true, rc: RC, envLocal: `ANTHROPIC_API_KEY=${SECRET}\n` });
+    const headless: typeof fetch = async (input) =>
+      String(input).endsWith('/console/')
+        ? new Response('{"error":{"code":"route-not-found"}}', { status: 404 })
+        : new Response('{"status":"ok"}', { status: 200 });
+    const { report, check } = await doctor({
+      fetchImpl: headless,
+      providers: [{ id: 'anthropic' }],
+    });
+    expect(check('runtime')).toMatchObject({
+      status: 'pass',
+      message: 'The runtime answers at http://127.0.0.1:4999 (it serves no console).',
+    });
+    expect(report?.consoleUrl).toBeUndefined();
   });
 
   test("only kindgi dev's dev-echo: a failure, since it isn't a model", async () => {
@@ -330,6 +398,162 @@ describe('a TypeScript project', () => {
   });
 });
 
+describe("a registration the runtime can't build: its problems, from GET /v1/providers/{id}/check", () => {
+  const withPresets = (): DoctorSeam => ({ ...seam(), presets: () => loadProviderPresets() });
+  const run = async (
+    providers: unknown[],
+    checks: Record<string, { path: string; message: string }[]> | Error,
+    json = true,
+  ) => {
+    await tsProject({ installed: true, rc: RC, envLocal: `ANTHROPIC_API_KEY=${SECRET}\n` });
+    return doctor({ fetchImpl: healthy, providers, checks, seam: withPresets(), json });
+  };
+  const API = {
+    path: '/adapter_config/api',
+    message: 'api must be one of responses, chat-completions.',
+  };
+
+  test('one of two: a warning naming it, each problem, and how to register it again; exit 0', async () => {
+    const { out, report, check } = await run([{ id: 'openai' }, { id: 'anthropic' }], {
+      openai: [API],
+    });
+    expect(out.exitCode).toBe(0);
+    expect(report?.ok).toBe(true);
+    expect(check('provider')).toMatchObject({
+      status: 'warn',
+      message:
+        "2 providers are registered: openai, anthropic. The runtime can't build openai from its registration, so agents only get the others.",
+      details: ['openai: /adapter_config/api: api must be one of responses, chat-completions.'],
+    });
+    expect(check('provider')?.fix).toMatch(
+      /^Unregister openai \(.*providers unregister openai\), then register it again: .*providers register --preset=openai/,
+    );
+  });
+
+  test('every model provider: a failure, exit 1, each problem listed', async () => {
+    const { out, report, check } = await run(
+      [{ id: 'openai' }, { id: 'acme-llm' }, { id: 'dev-echo' }],
+      {
+        openai: [API],
+        'acme-llm': [
+          {
+            path: '/adapter_id',
+            message:
+              'This runtime has no adapter "@acme/llm", so it can\'t build provider "acme-llm".',
+          },
+          { path: '/secret_ref', message: 'secret_ref is required.' },
+        ],
+      },
+    );
+    expect(out.exitCode).toBe(1);
+    expect(report?.ok).toBe(false);
+    expect(check('provider')).toMatchObject({
+      status: 'fail',
+      message:
+        "No usable provider: the runtime can't build any of openai, acme-llm from their registration, so an agent has no model to call.",
+      details: [
+        'openai: /adapter_config/api: api must be one of responses, chat-completions.',
+        'acme-llm: /adapter_id: This runtime has no adapter "@acme/llm", so it can\'t build provider "acme-llm".',
+        'acme-llm: /secret_ref: secret_ref is required.',
+      ],
+    });
+    // Not from a preset: its own spec, with the setting fixed.
+    expect(check('provider')?.fix).toContain(
+      'providers register --spec=@<file>. (its spec with the setting fixed)',
+    );
+  });
+
+  test('the human report: each problem under the check, marked ✗', async () => {
+    const { out } = await run([{ id: 'openai' }, { id: 'anthropic' }], { openai: [API] }, false);
+    expect(out.stdout).toContain(
+      "  ! Provider: 2 providers are registered: openai, anthropic. The runtime can't build openai",
+    );
+    expect(out.stdout).toContain(
+      '\n      ✗ openai: /adapter_config/api: api must be one of responses, chat-completions.\n',
+    );
+    expect(out.stdout).toMatch(/\n {6}Fix: Unregister openai /);
+  });
+
+  test('a runtime without the route (before 0.1.5): the check is skipped, the rest as before', async () => {
+    const missing = Object.assign(
+      new Error('No route registered for GET /v1/providers/openai/check.'),
+      {
+        code: 'not-found',
+        serverCode: 'route-not-found',
+      },
+    );
+    const { check } = await run([{ id: 'openai' }], missing);
+    expect(check('provider')).toMatchObject({
+      status: 'pass',
+      message: 'A provider is registered: openai.',
+    });
+    expect(check('provider')?.details).toBeUndefined();
+  });
+
+  test('a provider gone between the list and its check is left out, not reported', async () => {
+    const gone = Object.assign(new Error('Provider "openai" not found'), {
+      code: 'not-found',
+      serverCode: 'provider-not-found',
+    });
+    const { check } = await run([{ id: 'openai' }], gone);
+    expect(check('provider')).toMatchObject({ status: 'pass' });
+  });
+});
+
+describe('a Vertex provider and the Google credentials kindgi dev gives the runtime', () => {
+  const vertex = [
+    { id: 'gemini', models: [{ name: 'gemini-3.8-flash' }], defaultModel: 'gemini-3.8-flash' },
+  ];
+
+  test('none (KINDGI_DEV_GOOGLE_CREDENTIALS unset): a warning that says how to give them', async () => {
+    await tsProject({ installed: true, rc: RC, envLocal: `ANTHROPIC_API_KEY=${SECRET}\n` });
+    const { out, check } = await doctor({ fetchImpl: healthy, providers: vertex });
+    expect(out.exitCode).toBe(0);
+    expect(check('provider')).toMatchObject({
+      status: 'warn',
+      message:
+        'A provider is registered: gemini. gemini is Vertex AI, and kindgi dev gives the runtime no Google credentials (KINDGI_DEV_GOOGLE_CREDENTIALS is unset).',
+      fix: "Provider gemini (Vertex AI) has no Google credentials: set KINDGI_DEV_GOOGLE_CREDENTIALS=adc (or a credentials file), in the pack's .env or the shell, and restart kindgi dev.",
+    });
+  });
+
+  test('named in the shell or the env files: a pass', async () => {
+    const creds = join(dir, 'vertex-sa.json');
+    await writeFile(
+      creds,
+      JSON.stringify({ type: 'service_account', client_email: 'v@acme.iam.gserviceaccount.com' }),
+    );
+    await tsProject({ installed: true, rc: RC, envLocal: `ANTHROPIC_API_KEY=${SECRET}\n` });
+    const shell = await doctor({
+      fetchImpl: healthy,
+      providers: vertex,
+      env: { KINDGI_DEV_GOOGLE_CREDENTIALS: creds },
+    });
+    expect(shell.check('provider')).toMatchObject({
+      status: 'pass',
+      message: 'A provider is registered: gemini.',
+    });
+    await tsProject({
+      installed: true,
+      rc: RC,
+      envLocal: `ANTHROPIC_API_KEY=${SECRET}\nKINDGI_DEV_GOOGLE_CREDENTIALS=${creds}\n`,
+    });
+    const files = await doctor({ fetchImpl: healthy, providers: vertex });
+    expect(files.check('provider')).toMatchObject({ status: 'pass' });
+  });
+
+  test('a value kindgi dev would refuse: the warning says why', async () => {
+    await tsProject({ installed: true, rc: RC, envLocal: `ANTHROPIC_API_KEY=${SECRET}\n` });
+    const { check } = await doctor({
+      fetchImpl: healthy,
+      providers: vertex,
+      env: { KINDGI_DEV_GOOGLE_CREDENTIALS: 'relative.json' },
+    });
+    expect(check('provider')).toMatchObject({ status: 'warn' });
+    expect(check('provider')?.message).toContain('KINDGI_DEV_GOOGLE_CREDENTIALS must be `adc`');
+  });
+});
+
 describe('a registration whose default model the preset no longer gives: a warning', () => {
   const models = (...names: string[]) => names.map((name) => ({ name }));
   /** The bundled presets, as `kindgi providers register --preset` reads them. */
@@ -348,7 +572,7 @@ describe('a registration whose default model the preset no longer gives: a warni
     expect(check('provider')).toMatchObject({
       status: 'warn',
       message:
-        'A provider is registered: gemini. On gemini, an agent that names no model gets gemini-2.5-flash, which the gemini preset no longer lists.',
+        'A provider is registered: gemini. On gemini, an agent that names no model gets gemini-2.5-flash, which the gemini preset no longer lists. gemini is Vertex AI, and kindgi dev gives the runtime no Google credentials (KINDGI_DEV_GOOGLE_CREDENTIALS is unset).',
     });
     expect(check('provider')?.fix).toContain(
       'kindgi providers register --preset=gemini --project=<project>',
@@ -394,7 +618,9 @@ describe('a registration whose default model the preset no longer gives: a warni
     expect(check('provider')?.message).toMatch(
       /^2 providers are registered: anthropic, gemini\. On anthropic, .* On gemini, /,
     );
-    expect(check('provider')?.fix).toMatch(/Re-register anthropic: .* Re-register gemini /);
+    expect(check('provider')?.fix).toMatch(
+      /Unregister anthropic \(.*providers unregister anthropic\), then register it again: .* Unregister gemini \(/,
+    );
   });
 
   test('a --json reader that knows only pass, fail and skip still reads it as ready', async () => {
@@ -418,7 +644,10 @@ describe('a registration whose default model the preset no longer gives: a warni
     expect(out.stdout).toContain(
       '  ! Provider: A provider is registered: gemini. On gemini, an agent that names no model gets gemini-2.5-flash',
     );
-    expect(out.stdout).toMatch(/\n {6}Fix: Re-register gemini for the preset's current models: /);
+    // A registered id is taken: the fix unregisters it first (registering it again is a 409).
+    expect(out.stdout).toMatch(
+      /\n {6}Fix: Unregister gemini \(.*providers unregister gemini\), then register it again: .*--preset=gemini/,
+    );
     expect(out.stdout).toContain('Everything checked is ready, with 1 warning.\n');
   });
 
@@ -544,6 +773,111 @@ describe('a Python project', () => {
   });
 });
 
+describe('a Java project (kindgi.config.json)', () => {
+  const POM_WITH_KINDGI = `<project><dependencies><dependency>
+      <groupId>com.kindgi</groupId>
+      <artifactId>kindgi-pack</artifactId>
+      <version>0.1.6</version>
+    </dependency></dependencies></project>`;
+
+  async function javaProject(options: { pom?: string; wrapper?: boolean } = {}): Promise<void> {
+    await writeFile(
+      join(dir, 'kindgi.config.json'),
+      JSON.stringify({ language: 'java', pack: { id: 'acme', version: '1.0.0' } }),
+    );
+    if (options.pom !== undefined) await writeFile(join(dir, 'pom.xml'), options.pom);
+    if (options.wrapper === true) await writeFile(join(dir, 'mvnw'), '#!/bin/sh\n');
+  }
+
+  test('a JDK 17+, the Maven wrapper and kindgi-pack in pom.xml pass', async () => {
+    await javaProject({ pom: POM_WITH_KINDGI, wrapper: true });
+    const { report, check } = await doctor();
+    expect(report?.project).toEqual({ dir, language: 'java' });
+    expect(check('project')?.message).toContain('A Java project (kindgi.config.json)');
+    expect(check('java')).toMatchObject({
+      status: 'pass',
+      message: 'Java 21.0.6 (the java on your PATH).',
+    });
+    expect(check('maven')).toMatchObject({
+      status: 'pass',
+      message: 'The project has the Maven wrapper (mvnw).',
+    });
+    expect(check('dependencies')).toMatchObject({ status: 'pass' });
+    expect(check('python')?.message).toContain('Not needed (a Java project)');
+  });
+
+  test("JAVA_HOME's JDK is the one checked; older than 17 fails, with the fix", async () => {
+    await javaProject({ pom: POM_WITH_KINDGI });
+    const { check } = await doctor({
+      env: { JAVA_HOME: '/opt/jdk-11' },
+      seam: seam({ tools: { '/opt/jdk-11/bin/java': 'openjdk version "11.0.22" 2024-01-16' } }),
+    });
+    expect(check('java')).toMatchObject({ status: 'fail' });
+    expect(check('java')?.message).toBe(
+      'Java 11.0.22 (JAVA_HOME, /opt/jdk-11); a Kindgi Java project needs 17 or later.',
+    );
+    expect(check('java')?.fix).toContain('adoptium.net');
+    expect(check('maven')).toMatchObject({ status: 'pass', message: 'Maven 3.9.16.' });
+  });
+
+  test('no JDK, no Maven, no kindgi-pack: each fails with its fix', async () => {
+    await javaProject({ pom: '<project></project>' });
+    const { check } = await doctor({ seam: seam({ tools: { java: null, mvn: null } }) });
+    expect(check('java')).toMatchObject({ status: 'fail' });
+    expect(check('maven')).toMatchObject({ status: 'fail' });
+    expect(check('maven')?.fix).toContain('mvn wrapper:wrapper');
+    expect(check('dependencies')).toMatchObject({
+      status: 'fail',
+      fix: 'Add the com.kindgi:kindgi-pack dependency to pom.xml.',
+    });
+  });
+});
+
+describe('a Scala project (kindgi.config.json, "language": "scala")', () => {
+  async function scalaProject(build?: string): Promise<void> {
+    await writeFile(
+      join(dir, 'kindgi.config.json'),
+      JSON.stringify({ language: 'scala', pack: { id: 'acme', version: '1.0.0' } }),
+    );
+    if (build !== undefined) await writeFile(join(dir, 'build.sbt'), build);
+  }
+
+  test('a JDK 17+, sbt and kindgi-pack-scala in the build pass; Maven is not needed', async () => {
+    await scalaProject('libraryDependencies ++= Dependencies.all\n');
+    // The dependency may live in project/*.scala.
+    await mkdir(join(dir, 'project'), { recursive: true });
+    await writeFile(
+      join(dir, 'project', 'Dependencies.scala'),
+      'object Dependencies { val all = Seq("com.kindgi" %% "kindgi-pack-scala" % "0.1.6") }\n',
+    );
+    const { report, check } = await doctor();
+    expect(report?.project).toEqual({ dir, language: 'scala' });
+    expect(check('project')?.message).toContain('A Scala project (kindgi.config.json)');
+    expect(check('java')).toMatchObject({ status: 'pass' });
+    expect(check('sbt')).toMatchObject({ status: 'pass' });
+    expect(check('sbt')?.message).toContain('sbt 1.12.15');
+    expect(check('maven')?.message).toContain('Not needed (a Scala project)');
+    expect(check('dependencies')).toMatchObject({ status: 'pass' });
+  });
+
+  test('no sbt and no kindgi-pack-scala: each fails with its fix', async () => {
+    await scalaProject('scalaVersion := "3.3.8"\n');
+    const { check } = await doctor({ seam: seam({ tools: { sbt: null } }) });
+    expect(check('sbt')).toMatchObject({ status: 'fail' });
+    expect(check('sbt')?.fix).toContain('scala-sbt.org');
+    expect(check('dependencies')).toMatchObject({
+      status: 'fail',
+      fix: 'Add "com.kindgi" %% "kindgi-pack-scala" % "<version>" to libraryDependencies in build.sbt.',
+    });
+  });
+
+  test('outside a Scala project, sbt is a skip that says whether it is installed', async () => {
+    const { check } = await doctor();
+    expect(check('sbt')).toMatchObject({ status: 'skip' });
+    expect(check('sbt')?.message).toContain('sbt 1.12.15 is installed, for a Scala project');
+  });
+});
+
 describe('under kindgi-cli, the PyPI build (T127)', () => {
   const PYPI = { KINDGI_CLI_INSTALL: 'pypi' };
 
@@ -594,4 +928,79 @@ test('MIN_NODE is the CLI package’s engines.node', async () => {
   expect(atLeast('22.12.0', MIN_NODE)).toBe(true);
   expect(atLeast('22.11.9', MIN_NODE)).toBe(false);
   expect(atLeast('v23.0.0', MIN_NODE)).toBe(true);
+});
+
+describe('console sign-in: can anyone sign in to the console of the runtime the CLI points at', () => {
+  const RUNTIME = 'https://kindgi.acme.example';
+  const env = { KINDGI_API_URL: RUNTIME, KINDGI_API_TOKEN: 'kgi_admin' };
+  const answering =
+    (signInOptions: unknown, providers: unknown[] = [], status = 200): typeof fetch =>
+    async (input) => {
+      const url = String(input);
+      if (url === `${RUNTIME}/v1/auth/sign-in-options`) {
+        return new Response(JSON.stringify(signInOptions), { status });
+      }
+      if (url === `${RUNTIME}/v1/auth/providers`) {
+        return new Response(JSON.stringify({ data: providers }), { status: 200 });
+      }
+      return new Response('{}', { status: 404 });
+    };
+
+  test('token sign-in on: pass', async () => {
+    const { check } = await doctor({
+      env,
+      fetchImpl: answering({ data: [], methods: { identityProviders: false, apiToken: true } }),
+    });
+    expect(check('console-sign-in')).toMatchObject({ status: 'pass' });
+  });
+
+  test('token sign-in off and no identity provider: a warning naming the setting, exit 0', async () => {
+    const { out, check } = await doctor({
+      env,
+      fetchImpl: answering({ data: [], methods: { identityProviders: false, apiToken: false } }),
+    });
+    expect(out.exitCode).toBe(0);
+    const found = check('console-sign-in');
+    expect(found?.status).toBe('warn');
+    expect(found?.message).toContain(`Nobody can sign in to the console at ${RUNTIME}`);
+    expect(found?.fix).toContain('KINDGI_CONSOLE_TOKEN_SIGN_IN=on');
+  });
+
+  test('identity providers on but none registered, token sign-in off: a warning', async () => {
+    const { check } = await doctor({
+      env,
+      fetchImpl: answering({ data: [], methods: { identityProviders: true, apiToken: false } }, []),
+    });
+    const found = check('console-sign-in');
+    expect(found?.status).toBe('warn');
+    expect(found?.message).toContain('none is registered');
+    expect(found?.fix).toContain('kindgi sso providers start');
+    expect(found?.fix).toContain('KINDGI_CONSOLE_TOKEN_SIGN_IN=on');
+  });
+
+  test('identity providers on and one registered: pass', async () => {
+    const { check } = await doctor({
+      env,
+      fetchImpl: answering({ data: [], methods: { identityProviders: true, apiToken: false } }, [
+        { providerId: 'acme-okta' },
+      ]),
+    });
+    expect(check('console-sign-in')).toMatchObject({ status: 'pass' });
+  });
+
+  test('a runtime older than 0.1.5: not checked', async () => {
+    const { check } = await doctor({ env, fetchImpl: answering({}, [], 404) });
+    expect(check('console-sign-in')).toMatchObject({ status: 'skip' });
+    expect(check('console-sign-in')?.message).toContain('older than 0.1.5');
+  });
+
+  test('the text output: the warning and its fix', async () => {
+    const { out } = await doctor({
+      env,
+      json: false,
+      fetchImpl: answering({ data: [], methods: { identityProviders: false, apiToken: false } }),
+    });
+    expect(out.stdout).toContain('! Console sign-in: Nobody can sign in to the console');
+    expect(out.stdout).toContain('Fix: Set KINDGI_CONSOLE_TOKEN_SIGN_IN=on on the runtime');
+  });
 });
