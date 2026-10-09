@@ -8,7 +8,7 @@ import { describe, expect, test } from 'vitest';
 import type { AuditEvent, AuditEventBinding } from '@kindgi/audit-events';
 import type { ApiTokenId, SessionId, TenantId, Timestamp, UserId } from '@kindgi/types';
 
-import { createStubAppBindings } from '@kindgi/testing';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { SESSION_COOKIE_NAME, SESSION_TOKEN_PREFIX, createApp } from '../src/index.js';
 import type {
