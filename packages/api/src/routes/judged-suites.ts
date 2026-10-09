@@ -22,6 +22,7 @@ import type {
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
+import { projectMismatch } from './project-mismatch.js';
 import { parseSegmentsBody } from './segments.js';
 
 /** The most cases a test set built from judgments holds. */
@@ -85,11 +86,7 @@ export function judgedSuitesRouter(
       return fail(c, 'bad-input', `\`projectId\` "${body.projectId}" is not a project here.`);
     }
     if (outcome.kind === 'project-mismatch') {
-      return fail(
-        c,
-        'eval-suite-project-mismatch',
-        `Eval suite "${suiteId}" belongs to project "${outcome.projectId as unknown as string}"; build its versions there.`,
-      );
+      return projectMismatch(c, 'eval-suite', suiteId, outcome.projectId, 'build');
     }
     c.status(201);
     return c.json({

@@ -113,12 +113,28 @@ export async function publishDeployedFlow(
   input: PublishDeployedFlowInput,
 ): Promise<DeployedVersionOutcome> {
   const { flows, tenantId, projectId, flow, pins, enqueueTuples } = input;
+  const existing = await allFlowVersions(flows, tenantId, flow.id);
+  // A flow never moves, even by a deploy that writes nothing (an unchanged
+  // or reused version): one of another project is refused. A registry
+  // that doesn't record the project refuses only a write.
+  const held = existing[0];
+  if (held !== undefined) {
+    const record = await flows.getVersion({ tenantId, flowId: flow.id, version: held.version });
+    if (record?.projectId !== undefined && record.projectId !== projectId) {
+      throw new PublishRefused('flow', `${flow.id}@${flow.version}`, {
+        kind: 'project-mismatch',
+        flowId: flow.id,
+        version: flow.version,
+        projectId: record.projectId,
+      });
+    }
+  }
   return deployVersion<Flow>({
     label: `flow "${flow.id as unknown as string}"`,
     definition: flow,
     pins,
     pinsDigest: flowPinsDigest(pins),
-    existing: await allFlowVersions(flows, tenantId, flow.id),
+    existing,
     publish: async (version) => {
       const outcome = await flows.publish({ tenantId, projectId, flow: version, enqueueTuples });
       if (outcome.kind === 'ok') return 'ok';

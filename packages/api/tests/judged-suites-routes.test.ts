@@ -434,7 +434,10 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
     const res = await h.call('POST', BUILD, elsewhere);
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe('eval-suite-project-mismatch');
-    expect(res.body.error.message).toContain(`belongs to project "${project}"`);
+    expect(res.body.error.message).toContain(
+      'belongs to another project; build its versions there',
+    );
+    expect(JSON.stringify(res.body)).not.toContain(project);
     expect(h.suites.published.map((s) => s.version)).toEqual(['1.0.0']);
   });
 

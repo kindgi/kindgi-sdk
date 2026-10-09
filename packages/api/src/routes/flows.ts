@@ -18,6 +18,7 @@ import { refuseWritesWhenReadOnly } from '../registry-read-only.js';
 import type { ToolRegistryBinding } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
+import { projectMismatch } from './project-mismatch.js';
 import { parseScopeParams } from './scope-params.js';
 
 /**
@@ -342,20 +343,7 @@ export function flowsRouter(
       );
     }
     if (outcome.kind === 'project-mismatch') {
-      // A flow belongs to the project its first version went to, and
-      // never moves (as a block): its versions are published there.
-      c.status(statusFor('flow-project-mismatch') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'flow-project-mismatch',
-            message: `Flow "${outcome.flowId as unknown as string}" belongs to project "${outcome.projectId as unknown as string}"; publish its versions there`,
-            flowId: outcome.flowId as unknown as string,
-            projectId: outcome.projectId as unknown as string,
-          },
-          requestId,
-        ),
-      );
+      return projectMismatch(c, 'flow', outcome.flowId as unknown as string, outcome.projectId);
     }
     if (outcome.kind === 'project-not-found') {
       // Caller supplied a `projectId` that does not resolve within

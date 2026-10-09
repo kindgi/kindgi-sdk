@@ -6,8 +6,10 @@
  * tool or eval suite belongs to the project its first version went to,
  * as a block does (`block-project-mismatch`): a version published under
  * another project is refused with `409 <kind>-project-mismatch`, even
- * for an admin of both projects, and nothing is written. The same
- * project keeps its check (`admin` there), and a new id is unchanged.
+ * for an admin of both projects, and nothing is written. The answer
+ * doesn't name the project the id belongs to (the caller may not read
+ * it); the request's log does. The same project keeps its check (`admin`
+ * there), and a new id is unchanged.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -15,6 +17,7 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, test } from 'vitest';
 
 import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
+import { createLogger } from '@kindgi/log';
 import type { TenantId, UserId } from '@kindgi/types';
 import { createStubAppBindings } from '../src/testing/index.js';
 
@@ -149,8 +152,10 @@ async function harness(k: (typeof KINDS)[number], grants: readonly string[]) {
       evidence: { action, relation: '', resource: `${r.type}:${r.id}`, actorSubject: '' },
     };
   };
+  const lines: string[] = [];
   const app = createApp({
     ...createStubAppBindings(),
+    logger: createLogger({ write: (line) => lines.push(line) }),
     resolveToken,
     runHandler: {} as RunHandlerBinding,
     [k.registry]: registry.binding as never,
@@ -168,24 +173,29 @@ async function harness(k: (typeof KINDS)[number], grants: readonly string[]) {
       headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
       body: JSON.stringify(body),
     });
+    const text = await res.text();
     return {
       status: res.status,
-      body: (await res.json()) as {
+      text,
+      body: JSON.parse(text) as {
         error?: { code: string; message: string; details?: Record<string, unknown> };
       },
     };
   };
-  return { publish, asked, written: registry.written };
+  return { publish, asked, written: registry.written, lines };
 }
 
 describe.each(KINDS)('publishing an existing $kind id keeps it in its project', (k) => {
   test(`another project's id → 409 ${k.kind}-project-mismatch, and nothing is written`, async () => {
-    const { publish, asked, written } = await harness(k, [projectB]);
+    const { publish, asked, written, lines } = await harness(k, [projectB]);
     const moved = await publish({ ...k.body('2.0.0'), projectId: projectB });
     expect(moved.status).toBe(409);
     expect(moved.body.error?.code).toBe(`${k.kind}-project-mismatch`);
-    expect(moved.body.error?.message).toContain(`belongs to project "${projectA}"`);
-    expect(moved.body.error?.details).toMatchObject({ [k.idField]: k.id, projectId: projectA });
+    expect(moved.body.error?.message).toContain('belongs to another project');
+    expect(moved.body.error?.details).toEqual({ [k.idField]: k.id });
+    // The project it belongs to stays off the wire; the log keeps it.
+    expect(moved.text).not.toContain(projectA);
+    expect(lines.some((line) => line.includes(`"ownerProjectId":"${projectA}"`))).toBe(true);
     // The destination's check ran first, as before.
     expect(asked).toContain(`admin project:${projectB}`);
     expect(written).toEqual([`${k.id}@1.0.0 in ${projectA}`]);

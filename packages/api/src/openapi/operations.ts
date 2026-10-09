@@ -2045,7 +2045,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'The derived agent version.', schema: ref('Agent') },
       ...CommonMutationErrors,
       '409': ErrorResponse(
-        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `agent-project-mismatch`: the agent belongs to another project than the body's `projectId` (agents never move; `details.projectId` is its project). Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `agent-project-mismatch`: the agent belongs to another project than the body's `projectId` (agents never move; the message doesn't name the project). Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
       ),
       '400': ErrorResponse(
         "`validation-failed`: `from` has no pins, a swap names a block it doesn't reference, or a version that isn't published, active or the right kind (see `details.issues`); or `projectId` isn't a project id (a UUID).",
@@ -2089,7 +2089,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID).",
       ),
       '409': ErrorResponse(
-        "`agent-already-registered`: that (id, version) is taken. Or `agent-project-mismatch`: the agent's versions live in another project (an agent belongs to the project its first version was published into and never moves; `details.projectId` is that project). Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+        "`agent-already-registered`: that (id, version) is taken. Or `agent-project-mismatch`: the agent's versions live in another project (an agent belongs to the project its first version was published into and never moves; the message doesn't name the project). Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
       ),
       '404': ErrorResponse(
         "The body's `projectId` names no project of this tenant (`project-not-found`).",
@@ -2546,7 +2546,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID).",
       ),
       '409': ErrorResponse(
-        "`flow-already-registered`: that (id, version) is taken. Or `flow-project-mismatch`: the flow's versions live in another project (a flow belongs to the project its first version was published into and never moves; `details.projectId` is that project). Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+        "`flow-already-registered`: that (id, version) is taken. Or `flow-project-mismatch`: the flow's versions live in another project (a flow belongs to the project its first version was published into and never moves; the message doesn't name the project). Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
       ),
       '404': ErrorResponse(
         "The body's `projectId` names no project of this tenant (`project-not-found`).",
@@ -2686,7 +2686,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID).",
       ),
       '409': ErrorResponse(
-        "`tool-already-registered`: that (id, version) is taken. Or `tool-project-mismatch`: the tool's versions live in another project (a tool belongs to the project its first version was published into and never moves; `details.projectId` is that project). Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+        "`tool-already-registered`: that (id, version) is taken. Or `tool-project-mismatch`: the tool's versions live in another project (a tool belongs to the project its first version was published into and never moves; the message doesn't name the project). Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
       ),
       '404': ErrorResponse(
         "The body's `projectId` names no project of this tenant (`project-not-found`).",
@@ -4706,7 +4706,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID).",
       ),
       '409': ErrorResponse(
-        "`eval-suite-already-registered`: that (id, version) is taken. Or `eval-suite-project-mismatch`: the suite's versions live in another project (a suite belongs to the project its first version was published into and never moves; `details.projectId` is that project).",
+        "`eval-suite-already-registered`: that (id, version) is taken. Or `eval-suite-project-mismatch`: the suite's versions live in another project (a suite belongs to the project its first version was published into and never moves; the message doesn't name the project).",
       ),
       '404': ErrorResponse(
         "The body's `projectId` names no project of this tenant (`project-not-found`).",
@@ -5592,7 +5592,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       '409': ErrorResponse(
-        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `tool-project-mismatch`, `agent-project-mismatch` or `flow-project-mismatch`: one of the image's tools, agents or flows belongs to another project (`details.primitive`, `details.id`, and `details.projectId`, its project); nothing was deployed. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `tool-project-mismatch`, `agent-project-mismatch` or `flow-project-mismatch`: one of the image's tools, agents or flows belongs to another project (`details.primitive`, `details.id`; the message doesn't name the project); nothing was deployed, even when it was unchanged. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
       ),
       '400': ErrorResponse(
         'Signature invalid, image unverifiable, or deployment-validation-failed with per-primitive `details[]`.',

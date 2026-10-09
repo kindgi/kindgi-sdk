@@ -16,6 +16,7 @@ import {
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
+import { projectMismatch } from './project-mismatch.js';
 import { parseScopeParams } from './scope-params.js';
 
 /**
@@ -326,20 +327,7 @@ export function evalSuitesRouter(
       );
     }
     if (outcome.kind === 'project-mismatch') {
-      // An eval suite belongs to the project its first version went to, and
-      // never moves (as a block): its versions are published there.
-      c.status(statusFor('eval-suite-project-mismatch') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'eval-suite-project-mismatch',
-            message: `Eval suite "${outcome.suiteId}" belongs to project "${outcome.projectId as unknown as string}"; publish its versions there`,
-            suiteId: outcome.suiteId,
-            projectId: outcome.projectId as unknown as string,
-          },
-          requestId,
-        ),
-      );
+      return projectMismatch(c, 'eval-suite', outcome.suiteId, outcome.projectId);
     }
     if (outcome.kind === 'project-not-found') {
       // Caller supplied a `projectId` that does not resolve within

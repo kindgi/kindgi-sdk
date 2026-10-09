@@ -605,6 +605,8 @@ function makeApp(opts: {
   extraImages?: readonly FakeImage[];
   fixture?: SignedDeploy;
   writes?: string[];
+  /** The project the deploy lands in. Default `DEFAULT_PROJECT_ID`. */
+  projectId?: ProjectId;
 }) {
   const deploymentRegistry = opts.deploymentRegistry ?? makeInMemoryDeploymentBinding();
   const trust: TrustEntry[] = [
@@ -653,7 +655,9 @@ function makeApp(opts: {
     // Content-scope anchor — the deployments router's agents publish
     // loop resolves Default project through this binding. Opt out via
     // `omitProjectBinding: true` for the negative-path test.
-    ...(opts.omitProjectBinding === true ? {} : { projectBinding: makeMockProjectBinding() }),
+    ...(opts.omitProjectBinding === true
+      ? {}
+      : { projectBinding: makeMockProjectBinding(opts.projectId) }),
     ...(opts.writes !== undefined && {
       onToolWrite: ({ toolId, version, kind }) => {
         opts.writes?.push(`tool ${toolId as unknown as string}@${version} ${kind}`);
@@ -1409,18 +1413,17 @@ describe('POST /v1/deployments — rollback', () => {
       body: JSON.stringify(fixture.wire),
     });
     expect(res.status).toBe(409);
-    const body = (await res.json()) as {
+    const text = await res.text();
+    const body = JSON.parse(text) as {
       error: { code: string; message: string; details?: Record<string, unknown> };
     };
     expect(body.error.code).toBe('agent-project-mismatch');
     expect(body.error.message).toBe(
-      `The agent acme.drafting@1.0.0 wasn't published: it belongs to project "${ELSEWHERE_PROJECT_ID}"; nothing was deployed`,
+      "The agent acme.drafting@1.0.0 wasn't published: it belongs to another project; nothing was deployed",
     );
-    expect(body.error.details).toEqual({
-      primitive: 'agent',
-      id: 'acme.drafting@1.0.0',
-      projectId: ELSEWHERE_PROJECT_ID,
-    });
+    expect(body.error.details).toEqual({ primitive: 'agent', id: 'acme.drafting@1.0.0' });
+    // The project it belongs to stays off the wire.
+    expect(text).not.toContain(ELSEWHERE_PROJECT_ID);
     // A deploy never moves it: what it published before is rolled back.
     expect(
       await toolRegistry.get({ tenantId, toolId: 'acme.verify-citation' as never }),
@@ -2698,11 +2701,15 @@ function makeVersionedToolRegistry(): ToolRegistryBinding & { versions: (id: str
 }
 
 /** An agent registry that lists and reads its versions back, as the runtime's does. */
-function makeVersionedAgentRegistry(): AgentRegistryBinding & {
+function makeVersionedAgentRegistry(
+  opts: { recordsProject?: boolean } = {},
+): AgentRegistryBinding & {
   versions: () => Agent[];
   seed: (agent: Agent) => void;
 } {
   const rows = new Map<string, Agent>();
+  // With `recordsProject`, the agent stays in its first version's project.
+  let owner: ProjectId | undefined;
   return {
     versions: () => [...rows.values()],
     seed: (agent) => rows.set(agent.version as unknown as string, agent),
@@ -2714,7 +2721,9 @@ function makeVersionedAgentRegistry(): AgentRegistryBinding & {
       return latest === undefined ? null : (rows.get(latest) ?? null);
     },
     async getVersion({ version }) {
-      return rows.get(version as unknown as string) ?? null;
+      const row = rows.get(version as unknown as string);
+      if (row === undefined) return null;
+      return owner === undefined ? row : { ...row, projectId: owner };
     },
     async headExists() {
       return rows.size > 0;
@@ -2722,11 +2731,20 @@ function makeVersionedAgentRegistry(): AgentRegistryBinding & {
     async listVersions() {
       return { data: [...rows.values()] };
     },
-    async publish({ agent }) {
+    async publish({ agent, projectId }) {
+      if (owner !== undefined && owner !== projectId) {
+        return {
+          kind: 'project-mismatch',
+          agentId: agent.id,
+          version: agent.version,
+          projectId: owner,
+        };
+      }
       if (rows.has(agent.version as unknown as string)) {
         return { kind: 'already-registered', agentId: agent.id, version: agent.version };
       }
       rows.set(agent.version as unknown as string, agent);
+      if (opts.recordsProject === true) owner = projectId;
       return { kind: 'ok', agentId: agent.id, version: agent.version };
     },
     async unregister({ version }) {
@@ -2739,8 +2757,12 @@ function makeVersionedAgentRegistry(): AgentRegistryBinding & {
 }
 
 /** A flow registry that lists and reads its versions back, as the runtime's does. */
-function makeVersionedFlowRegistry(): FlowRegistryBinding & { versions: () => Flow[] } {
+function makeVersionedFlowRegistry(
+  opts: { recordsProject?: boolean } = {},
+): FlowRegistryBinding & { versions: () => Flow[] } {
   const rows = new Map<string, Flow>();
+  // With `recordsProject`, the flow stays in its first version's project.
+  let owner: ProjectId | undefined;
   return {
     versions: () => [...rows.values()],
     async list() {
@@ -2750,7 +2772,9 @@ function makeVersionedFlowRegistry(): FlowRegistryBinding & { versions: () => Fl
       return null;
     },
     async getVersion({ version }: Parameters<FlowRegistryBinding['getVersion']>[0]) {
-      return rows.get(version as unknown as string) ?? null;
+      const row = rows.get(version as unknown as string);
+      if (row === undefined) return null;
+      return owner === undefined ? row : { ...row, projectId: owner };
     },
     async headExists() {
       return rows.size > 0;
@@ -2758,11 +2782,20 @@ function makeVersionedFlowRegistry(): FlowRegistryBinding & { versions: () => Fl
     async listVersions() {
       return { data: [...rows.values()] };
     },
-    async publish({ flow }: Parameters<FlowRegistryBinding['publish']>[0]) {
+    async publish({ flow, projectId }: Parameters<FlowRegistryBinding['publish']>[0]) {
+      if (owner !== undefined && owner !== projectId) {
+        return {
+          kind: 'project-mismatch',
+          flowId: flow.id,
+          version: flow.version,
+          projectId: owner,
+        };
+      }
       if (rows.has(flow.version)) {
         return { kind: 'already-registered', flowId: flow.id, version: flow.version };
       }
       rows.set(flow.version, flow);
+      if (opts.recordsProject === true) owner = projectId;
       return { kind: 'ok', flowId: flow.id, version: flow.version };
     },
     async unregister({ version }: Parameters<FlowRegistryBinding['unregister']>[0]) {
@@ -2946,6 +2979,86 @@ describe('POST /v1/deployments — agents are pinned, and a deploy never keeps o
         .map((a) => a.version)
         .sort(),
     ).toEqual(['1.4.0', '1.4.1']);
+  });
+
+  /** A deploy of each pack into `projectId`, against the same registries. */
+  function deployInto(
+    registries: {
+      tools: ToolRegistryBinding;
+      agents: AgentRegistryBinding;
+      flows: FlowRegistryBinding;
+    },
+    projectId: ProjectId,
+    deploymentRegistry: DeploymentBinding,
+    ...packs: SignedDeploy[]
+  ) {
+    const { app } = makeApp({
+      toolRegistry: registries.tools,
+      agentRegistry: registries.agents,
+      flowRegistry: registries.flows,
+      deploymentRegistry,
+      projectId,
+      extraTrust: packs.map(trustOf),
+      extraImages: packs.map(imageOf),
+    });
+    return async (f: SignedDeploy) => {
+      const res = await app.request('/v1/deployments', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify(f.wire),
+      });
+      const text = await res.text();
+      return { status: res.status, text, body: JSON.parse(text) as Record<string, any> };
+    };
+  }
+
+  test('an unchanged agent of another project is refused: 409 agent-project-mismatch, nothing deployed', async () => {
+    const pack = pinnedPack({ toolVersion: '1.0.0', agentVersion: '1.4.0' });
+    const registries = {
+      tools: makeVersionedToolRegistry(),
+      agents: makeVersionedAgentRegistry({ recordsProject: true }),
+      flows: makeVersionedFlowRegistry({ recordsProject: true }),
+    };
+    const projectB = randomUUID() as ProjectId;
+    const recordedB = makeInMemoryDeploymentBinding();
+    const intoA = deployInto(registries, DEFAULT_PROJECT_ID, makeInMemoryDeploymentBinding(), pack);
+    const intoB = deployInto(registries, projectB, recordedB, pack);
+
+    expect((await intoA(pack)).status).toBe(201);
+    // The same pack again, unchanged, into another project: it would write nothing.
+    const moved = await intoB(pack);
+    expect(moved.status).toBe(409);
+    expect(moved.body.error.code).toBe('agent-project-mismatch');
+    expect(moved.body.error.details).toEqual({ primitive: 'agent', id: 'acme.matcher@1.4.0' });
+    expect(moved.text).not.toContain(DEFAULT_PROJECT_ID);
+    expect((await recordedB.list({ tenantId, limit: 10 })).data).toEqual([]);
+    // The same project, unchanged: as before.
+    const again = deployInto(registries, DEFAULT_PROJECT_ID, makeInMemoryDeploymentBinding(), pack);
+    const same = await again(pack);
+    expect(same.status).toBe(201);
+    expect(same.body.contents.agents).toEqual([{ id: 'acme.matcher', version: '1.4.0' }]);
+  });
+
+  test('an unchanged flow of another project is refused: 409 flow-project-mismatch, nothing deployed', async () => {
+    const pack = pinnedPack({ toolVersion: '1.0.0', agentVersion: '1.4.0', flowVersion: '1.0.0' });
+    const registries = {
+      tools: makeVersionedToolRegistry(),
+      // The agent's registry records no project: only the flow is held to its project here.
+      agents: makeVersionedAgentRegistry(),
+      flows: makeVersionedFlowRegistry({ recordsProject: true }),
+    };
+    const projectB = randomUUID() as ProjectId;
+    const recordedB = makeInMemoryDeploymentBinding();
+    const intoA = deployInto(registries, DEFAULT_PROJECT_ID, makeInMemoryDeploymentBinding(), pack);
+    const intoB = deployInto(registries, projectB, recordedB, pack);
+
+    expect((await intoA(pack)).status).toBe(201);
+    const moved = await intoB(pack);
+    expect(moved.status).toBe(409);
+    expect(moved.body.error.code).toBe('flow-project-mismatch');
+    expect(moved.body.error.details).toEqual({ primitive: 'flow', id: 'acme.review@1.0.0' });
+    expect(moved.text).not.toContain(DEFAULT_PROJECT_ID);
+    expect((await recordedB.list({ tenantId, limit: 10 })).data).toEqual([]);
   });
 
   test('a version taken by a different definition registers the next free one in its line', async () => {

@@ -27,15 +27,16 @@ type RefusedOutcome = Exclude<
  * skipped, and the deployment was recorded without that primitive.
  *
  * A primitive whose id belongs to another project answers
- * `<primitive>-project-mismatch`, with the project it belongs to, as
- * publishing it on its own does: a deploy never moves it.
+ * `<primitive>-project-mismatch`, as publishing it on its own does: a
+ * deploy never moves it. The project it belongs to (`projectId`) is for
+ * the log, never the answer.
  */
 export class PublishRefused extends Error {
   /** The code the deploy answers with. */
   readonly code:
     | Exclude<RefusedOutcome['kind'], 'project-mismatch'>
     | `${PublishedPrimitive}-project-mismatch`;
-  /** With `…-project-mismatch`: the project the primitive belongs to. */
+  /** With `…-project-mismatch`: the project the primitive belongs to, for the log only. */
   readonly projectId?: ProjectId;
 
   constructor(
@@ -49,7 +50,7 @@ export class PublishRefused extends Error {
         : outcome.kind;
     super(
       outcome.kind === 'project-mismatch'
-        ? `The ${primitive} ${id} wasn't published: it belongs to project "${outcome.projectId as unknown as string}"`
+        ? `The ${primitive} ${id} wasn't published: it belongs to another project`
         : `The ${primitive} ${id} wasn't published: ${code}`,
     );
     this.name = 'PublishRefused';

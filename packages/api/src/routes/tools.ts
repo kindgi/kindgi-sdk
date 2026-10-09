@@ -13,6 +13,7 @@ import { refuseWritesWhenReadOnly } from '../registry-read-only.js';
 import type { ToolRegistryBinding } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
+import { projectMismatch } from './project-mismatch.js';
 import { parseScopeParams } from './scope-params.js';
 
 /**
@@ -337,20 +338,7 @@ export function toolsRouter(
       );
     }
     if (outcome.kind === 'project-mismatch') {
-      // A tool belongs to the project its first version went to, and
-      // never moves (as a block): its versions are published there.
-      c.status(statusFor('tool-project-mismatch') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'tool-project-mismatch',
-            message: `Tool "${outcome.toolId as unknown as string}" belongs to project "${outcome.projectId as unknown as string}"; publish its versions there`,
-            toolId: outcome.toolId as unknown as string,
-            projectId: outcome.projectId as unknown as string,
-          },
-          requestId,
-        ),
-      );
+      return projectMismatch(c, 'tool', outcome.toolId as unknown as string, outcome.projectId);
     }
     if (outcome.kind === 'project-not-found') {
       // Caller supplied a `projectId` that does not resolve within

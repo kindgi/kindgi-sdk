@@ -651,6 +651,13 @@ export function deploymentsRouter(
       // A primitive refused with a typed outcome is the caller's to fix:
       // that outcome's own status and code. Anything thrown is a 500.
       if (cause instanceof PublishRefused) {
+        if (cause.projectId !== undefined) {
+          c.get('log').info(`${cause.message}: deploy refused`, {
+            primitive: cause.primitive,
+            id: cause.id,
+            ownerProjectId: cause.projectId as unknown as string,
+          });
+        }
         c.status(statusFor(cause.code) as never);
         return c.json(
           toWireError(
@@ -659,9 +666,6 @@ export function deploymentsRouter(
               message: `${cause.message}; nothing was deployed`,
               primitive: cause.primitive,
               id: cause.id,
-              ...(cause.projectId !== undefined && {
-                projectId: cause.projectId as unknown as string,
-              }),
             },
             requestId,
           ),

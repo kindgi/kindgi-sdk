@@ -95,6 +95,11 @@ export interface FlowRegistryBinding {
 export type FlowVersionRecord = Flow & {
   /** ISO-8601; present only on an unregistered version. */
   readonly unregisteredAt?: string;
+  /**
+   * The project the version belongs to, when the store records it: a
+   * deploy into another project is refused even when it writes nothing.
+   */
+  readonly projectId?: ProjectId;
 };
 
 export interface FlowListInput {

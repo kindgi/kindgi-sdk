@@ -295,7 +295,10 @@ describe('POST /v1/agents/:agentId/versions derives a version', () => {
     );
     expect(res.status).toBe(409);
     expect(res.body.error.code).toBe('agent-project-mismatch');
-    expect(res.body.error.details).toEqual({ agentId: 'acme.intake', projectId });
+    expect(res.body.error.message).toContain(
+      'belongs to another project; derive its versions there',
+    );
+    expect(res.body.error.details).toEqual({ agentId: 'acme.intake' });
   });
 });
 
