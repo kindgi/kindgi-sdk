@@ -198,7 +198,11 @@ function fileSamples(markdown) {
 
 function run(command, args, cwd) {
   const result = spawnSync(command, args, { cwd, encoding: 'utf8' });
-  return { ok: result.status === 0, output: `${result.stdout ?? ''}${result.stderr ?? ''}` };
+  return {
+    ok: result.status === 0,
+    output: `${result.stdout ?? ''}${result.stderr ?? ''}`,
+    stdout: result.stdout ?? '',
+  };
 }
 
 const work = mkdtempSync(join(tmpdir(), 'kindgi-samples-'));
@@ -320,9 +324,14 @@ function indexJvmPack(dir, classpath) {
     ],
     dir,
   );
+  // The indexer's outcome is its stdout's JSON line; stderr may carry the JVM's own lines.
   const outcome = (() => {
     try {
-      return JSON.parse(index.output.slice(index.output.indexOf('{')));
+      const line = index.stdout
+        .split('\n')
+        .filter((l) => l.trim().startsWith('{'))
+        .at(-1);
+      return line === undefined ? undefined : JSON.parse(line);
     } catch {
       return undefined;
     }
@@ -369,11 +378,18 @@ function checkScala(files) {
     mkdirSync(dirname(target), { recursive: true });
     writeFileSync(target, file.content);
   }
-  // sbt compiles the pack and prints its runtime classpath as the last line.
+  // sbt compiles the pack and prints its runtime classpath as the last line of its stdout. Its
+  // stderr can carry a line of its own after it (the JVM's "Picked up JAVA_TOOL_OPTIONS: …", a
+  // launcher's warning), which isn't the classpath.
   const exported = run('sbt', ['-batch', '-error', 'export Runtime/fullClasspath'], dir);
   if (!exported.ok) return exported.output;
-  const classpath = exported.output.trim().split('\n').at(-1);
-  return indexJvmPack(dir, classpath);
+  const classpath = exported.stdout
+    .trim()
+    .split('\n')
+    .filter((line) => line.includes('.jar'))
+    .at(-1);
+  if (classpath === undefined) return `sbt printed no classpath:\n${exported.output}`;
+  return indexJvmPack(dir, classpath.trim());
 }
 
 function check(language, files, packDir) {
