@@ -4,6 +4,7 @@ A Terraform root module that runs Kindgi in one GCP project:
 - the runtime (the API, agent and flow execution) as a Cloud Run service;
 - your pack's code as a second, IAM-protected Cloud Run service;
 - Kindgi's own Cloud SQL (Postgres 16) instance;
+- optionally, a Cloud Run job that renews the license key on a schedule (step 8);
 - everything they stand on: service accounts, an Artifact Registry repository, a KMS key for the runtime's secrets (unless `secrets_backend = "none"`, below), and Secret Manager containers.
 
 **Two network shapes** (`network_mode`):
@@ -240,9 +241,51 @@ Pin each secret to a version, as above, rather than `latest`: a new version then
   - in `server_secret_env`: each `…_CLIENT_SECRET` and `KINDGI_AUTH_TURNSTILE_SECRET`.
   - The `…_PATH` forms read a file, which this module doesn't mount, so use the value forms.
 
+## 8. Renew the license key
+
+The license key has an end date: 45 days for a key from access.kindgi.com, or the end of the contract term for a production key. A deployment renews its own key with `kindgi license renew`, when you run it: by hand, or on a schedule this module adds. Nothing calls Kindgi until you do.
+
+**Once per deployment, enroll it:**
+
+```sh
+terraform output -raw license_enroll_command
+# kindgi license enroll --for <your GitHub login> --renewer gcp:projects/<project>/secrets/<prefix>-license-renewer
+```
+
+Run that command with your GitHub login filled in.
+- It makes the deployment's renewer key and keeps it in `<prefix>-license-renewer`. The module creates that secret empty, and only the renewal job may read it; the key is never printed.
+- It prints a line to add at access.kindgi.com, signed in as that login. A production licensee sends the line to Kindgi instead, with the key's subject for `--for`.
+- Outside Cloud Run the CLI uses your gcloud credentials (`gcloud auth print-access-token`), which must be able to add versions to that secret.
+
+**By hand:**
+
+```sh
+kindgi license renew --key gcp:projects/<project>/secrets/$N-license-key --renewer gcp:projects/<project>/secrets/$N-license-renewer
+```
+
+It writes a new version of the license key only when Kindgi answers with a new key. It prints one line, `renewed: …` or `unchanged: …`, plus `⚠ It expires in <days> days` in the key's last 30 days. The server's expiry warning names this command too.
+
+**On a schedule:** set `license_renewal_schedule`, a 5-field cron in UTC:
+
+```hcl
+license_renewal_schedule = "17 6 * * *" # daily at 06:17 UTC
+```
+
+- **The job:** a Cloud Run job on the runtime image runs the same command, started by Cloud Scheduler. Where `region` has no Cloud Scheduler ([its locations](https://docs.cloud.google.com/scheduler/docs/locations)), set `license_renewal_scheduler_region`; the job still runs in `region`.
+- **The image:** it needs the `kindgi` CLI with `license renew`, which the runtime image carries from 0.1.6.
+- **Its identity:** a service account of its own, `<prefix>-renew`. It can read the license key and the renewer key, and add versions to the license key, and nothing else: it can't restart or change the server.
+- **Its network:** in `direct` it leaves through Cloud NAT, like the server; in `connector`, through Cloud Run's own egress. It calls access.kindgi.com only.
+- **Alerts:** a renewal that failed or was refused, and a key under 7 days from its end while renewals answer `unchanged`. Each opens an incident; `alert_notification_channels` sends them on.
+
+**When the server uses a renewed key:** at its next start, when it reads the secret's latest version. A running server keeps the key it started with and never stops over its key, so nothing breaks in between. Until then, its expiry warning still reads from the key it started with. To use the new key now, start a new revision:
+
+```sh
+gcloud run services update $N-server --region <region> --update-labels=license-renewed=$(date +%s)
+```
+
 ## Testing the module
 
-`terraform init -backend=false && terraform test` runs `tests/module.tftest.hcl` with a mock Google provider. No credentials are used and no cloud calls are made. It plans the module with each option and checks what it would create: the default secrets backend and repository, `secrets_backend = "none"`, the AAD key's pin, an existing repository in the same project and in another, the pack's invoker grants, the client-address setting, and the server's own settings (sign-in).
+`terraform init -backend=false && terraform test` runs `tests/module.tftest.hcl` with a mock Google provider. No credentials are used and no cloud calls are made. It plans the module with each option and checks what it would create: the default secrets backend and repository, `secrets_backend = "none"`, the AAD key's pin, an existing repository in the same project and in another, the pack's invoker grants, the client-address setting, the server's own settings (sign-in), and the license renewal (by hand by default; the scheduled job, its grants and its alerts).
 
 ## Upgrading
 
