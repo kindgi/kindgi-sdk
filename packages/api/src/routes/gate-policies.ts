@@ -4,7 +4,7 @@
 import { type Context, Hono } from 'hono';
 
 import { ref } from '@kindgi/authz';
-import type { Cursor, TenantId } from '@kindgi/types';
+import type { Cursor, LiveScope, TenantId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import type { GatePolicyBinding, GatePolicyError } from '../gate-policy-binding.js';
@@ -30,7 +30,10 @@ const ID_RE = /^[a-z0-9][a-z0-9._-]{0,127}$/;
  *   POST /:policyId/versions/:version/unregister|reinstate
  *
  * Writes need `admin` on the tenant: whoever may promote mustn't be able
- * to loosen the gate on their own promotion.
+ * to loosen the gate on their own promotion. Reads need `read` on the
+ * policy's scope (a segment's: its project), as judge classes do: one the
+ * caller can't read answers 404, as if it weren't there, and the list
+ * shows only those they can.
  */
 export function gatePoliciesRouter(
   binding: GatePolicyBinding,
@@ -46,6 +49,11 @@ export function gatePoliciesRouter(
     });
   }
 
+  /** Whether the caller may read a policy: `read` on its scope. */
+  const canRead = async (c: Ctx, policy: { readonly scope: LiveScope }): Promise<boolean> =>
+    authorizer === undefined ||
+    authorizer.can(c, 'read', scopeRef(c.get('tenantId') as TenantId, policy.scope));
+
   r.get('/', async (c) => {
     const requestId = c.get('requestId');
     const scope = scopeFromQuery((n) => c.req.query(n), c.req.queries('segment') ?? []);
@@ -59,8 +67,14 @@ export function gatePoliciesRouter(
       ...(scope.scope !== undefined && { scope: scope.scope }),
       ...(cursor !== undefined && cursor.length > 0 && { cursor: cursor as Cursor }),
     });
+    const visible =
+      authorizer === undefined
+        ? page.data
+        : await authorizer.filterByCan(c, 'read', page.data, (p) =>
+            scopeRef(c.get('tenantId') as TenantId, p.scope),
+          );
     return c.json({
-      data: page.data.map(serializeGatePolicy),
+      data: visible.map(serializeGatePolicy),
       hasMore: page.nextCursor !== undefined,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });
@@ -71,7 +85,7 @@ export function gatePoliciesRouter(
       tenantId: c.get('tenantId') as TenantId,
       id: c.req.param('policyId'),
     });
-    if (found === null) return notFound(c, c.req.param('policyId'));
+    if (found === null || !(await canRead(c, found))) return notFound(c, c.req.param('policyId'));
     return c.json(serializeGatePolicy(found));
   });
 
@@ -80,7 +94,11 @@ export function gatePoliciesRouter(
       tenantId: c.get('tenantId') as TenantId,
       id: c.req.param('policyId'),
     });
-    if (versions.length === 0) return notFound(c, c.req.param('policyId'));
+    // A policy's versions share its scope (`gate-policy-scope-changed`).
+    const first = versions[0];
+    if (first === undefined || !(await canRead(c, first))) {
+      return notFound(c, c.req.param('policyId'));
+    }
     return c.json({ data: versions.map(serializeGatePolicy), hasMore: false });
   });
 
@@ -90,7 +108,7 @@ export function gatePoliciesRouter(
       id: c.req.param('policyId'),
       version: c.req.param('version'),
     });
-    if (found === null) {
+    if (found === null || !(await canRead(c, found))) {
       return notFound(c, c.req.param('policyId'), c.req.param('version'));
     }
     return c.json(serializeGatePolicy(found));
@@ -143,6 +161,19 @@ export function gatePoliciesRouter(
 }
 
 type Ctx = Context<AppEnv>;
+
+/** The resource a gate policy's scope is: what reading it needs `read` on. */
+function scopeRef(tenantId: TenantId, scope: LiveScope) {
+  switch (scope.kind) {
+    case 'tenant':
+      return ref('tenant', tenantId as unknown as string);
+    case 'org':
+      return ref('org', scope.orgId as unknown as string);
+    case 'project':
+    case 'segment':
+      return ref('project', scope.projectId as unknown as string);
+  }
+}
 
 function badInput(c: Ctx, requestId: string, message: string) {
   c.status(statusFor('bad-input') as never);
