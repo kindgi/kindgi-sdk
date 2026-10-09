@@ -11,8 +11,10 @@ end to end on runtime 0.1.1, the first apply takes about ten minutes (most of
 it Cloud SQL), and a tool call from the runtime to your pack takes 42 ms at the
 median (100 ms at p95).
 
-:::note[Private preview]
-The runtime image is in private preview: request access at contact@kindgi.com
+:::note[Access to the runtime image]
+Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub for the
+runtime image's pull credentials, and log in once with `kindgi auth registry`
+(see [Install](../../start/install/#access-to-the-runtime-image)). Questions or trouble: contact@kindgi.com.
 :::
 
 ## What you'll have
@@ -132,8 +134,8 @@ built for:
 ```sh
 REPO=$(terraform output -raw image_repository)
 gcloud auth configure-docker "${REPO%%/*}"
-docker buildx imagetools create --tag "$REPO/runtime:0.1.3" \
-  quay.io/kindgi/runtime:0.1.3@sha256:<the release's digest>
+docker buildx imagetools create --tag "$REPO/runtime:0.1.4" \
+  quay.io/kindgi/runtime:0.1.4@sha256:<the release's digest>
 ```
 
 The copy keeps the release's digest. (A plain `docker pull`, `tag` and `push`
@@ -177,11 +179,22 @@ openssl rand -hex 32 | tr -d '\n' | gcloud secrets versions add $N-pack-service-
 
 # The first API token, and the two keys, base64.
 printf 'kgi_bt_%s' "$(openssl rand -hex 32)" | gcloud secrets versions add $N-api-token --data-file=-
-openssl rand 32 | base64 | gcloud secrets versions add $N-secrets-aad-key --data-file=-
+openssl rand 32 | base64 | gcloud secrets versions add $N-secrets-aad-key --data-file=-   # version 1
 openssl genpkey -algorithm ed25519 | base64 | gcloud secrets versions add $N-public-token-key --data-file=-
+# Only with export_signing = "secret": the key that signs exports.
+openssl genpkey -algorithm ed25519 | base64 | gcloud secrets versions add $N-export-signing-key --data-file=-
 
 # The license key, pasted, never echoed.
 read -rs LICENSE_KEY && printf '%s' "$LICENSE_KEY" | gcloud secrets versions add $N-license-key --data-file=- && unset LICENSE_KEY
+```
+
+The server reads the AAD key's version that `secrets_aad_key_version` names in
+`prod.tfvars`: `"1"`, the one just added (the example files have it). Every
+secret stored in Postgres is bound to that key, so the module pins it and
+refuses `latest`:
+
+```text
+secrets_aad_key_version is a version number ("1" for a new deployment), never "latest": every secret stored in Postgres is bound to the key it names.
 ```
 
 **The database user** is a built-in Cloud SQL user. It isn't a superuser, but
@@ -204,13 +217,33 @@ terraform apply -var-file=prod.tfvars
 ```
 
 The pack's service comes up first (22 seconds), and is ready only when every
-module loaded and every required variable is set. Then the runtime. Its
-startup log names the pack's service it reached, and how it calls it:
+module loaded and every required variable is set. Then the runtime. On Cloud
+Run it logs JSON, so its startup lines are the `lines` of one log record,
+`Kindgi runtime ready`:
+
+```sh
+gcloud logging read 'resource.labels.service_name="'$N'-server" AND jsonPayload.message="Kindgi runtime ready"' \
+  --limit=1 --format=json | jq -r '.[0].jsonPayload.lines[]'
+```
+
+They name the pack's service it reached, and how it calls it:
 
 ```text
-Pack service: https://kindgi-pack-…a.run.app — acme (artifact 20261004.1), protocol 2, 3 tools, 1 check
+Pack service: https://kindgi-pack-…a.run.app — acme (artifact …), protocol 2, 3 tools, 1 check
 Pack service auth: a Google ID token per call (KINDGI_PACK_SERVICE_AUTH)
 ```
+
+**On the first apply,** the pack service line can read instead:
+
+```text
+⚠ Pack service at https://… isn't answering (pack-service-unauthorized: The platform in front of the pack service refused the call: check the identity token (KINDGI_PACK_SERVICE_AUTH) and that the server may invoke the service). The server is up; pack tools and checks fail until it answers.
+```
+
+The runtime's permission to call the pack's service is seconds old then, and
+Google Cloud is still applying it. It clears without a restart: in our run,
+the first tool call, 3½ minutes after the warning, worked. If tool calls still
+fail after that, check that the runtime's service account has
+`roles/run.invoker` on the pack's service.
 
 ### How the runtime calls your pack's service
 
@@ -240,7 +273,7 @@ pnpm exec kindgi deploy --env prod --endpoint "$(terraform output -raw server_ur
 
 ```text
 ✓ POST /v1/deployments  →  201 Created
-  artifactVersion: 20261004.1
+  artifactVersion: …
   primitives:      3 tools, 1 guardrail, 1 agent, 2 flows
 Deploy complete.
 ```
@@ -274,6 +307,7 @@ service in about 5.
 | | `roles/cloudsql.client` | the project, conditioned on Kindgi's instance |
 | | `roles/secretmanager.secretAccessor` | each of its secrets |
 | | `roles/aiplatform.user`, only with `vertex_ai = true` | the project: [Gemini](#use-gemini) |
+| | `roles/cloudkms.signerVerifier` and `roles/cloudkms.publicKeyViewer`, only with `export_signing = "kms"` | the export signing key: [signed exports](../../guides/observability/export-signed-evidence/) |
 | The pack's service account | `roles/secretmanager.secretAccessor` | the pack token and your pack's secrets |
 | | what your tools need | your own resources |
 
@@ -285,14 +319,15 @@ on the Vertex AI API and grants the runtime's service account
 `roles/aiplatform.user`. Then register the preset:
 
 ```sh
-pnpm exec kindgi providers register --preset=gemini --project=<project> --models=gemini-2.5-flash --url … --token …
+pnpm exec kindgi providers register --preset=gemini --project=<project> --models=gemini-3.8-flash --url … --token …
 ```
 
 ```text
-✓ Registered gemini: gemini-2.5-flash
+✓ Registered gemini: gemini-3.8-flash (default)
 ```
 
-Without the role, every model call fails:
+Without the role, every model call fails (this one was captured with
+`gemini-2.5-flash`; another model's call names that model):
 
 ```text
 Model call to gemini (gemini-2.5-flash) failed: {"error":{"code":403,"message":"Permission 'aiplatform.endpoints.predict' denied on resource '//aiplatform.googleapis.com/projects/<project>/locations/global/publishers/google/models/gemini-2.5-flash' (or it may not exist). …
@@ -305,12 +340,22 @@ A new grant can take a minute or two to apply.
 - **Upgrade:** back up Cloud SQL, copy the new runtime image by digest, set
   `server_image`, and apply. The new revision takes all the traffic.
   Migrations only go forward: never run two runtime versions on one
-  database, and go back by restoring the backup.
+  database, and go back by restoring the backup. From a module copy older
+  than `secrets_aad_key_version`, add it to `prod.tfvars` first, set to the
+  version your server reads now (`gcloud secrets versions list $N-secrets-aad-key`,
+  normally `1`); without it, `terraform plan` stops with
+  `No value for required variable`.
 - **Rotate a secret:** add a version, then roll a new revision of each service
   that reads it (`gcloud run services update … --update-labels=rotated=$(date +%s)`).
-  Never rotate the AAD key this way: every stored secret is bound to it.
-- **Logs:** Cloud Logging, per service. The runtime's startup lines are in
-  [Operate](../operate/#the-startup-log).
+- **The AAD key is never rotated.** Every stored secret is bound to the
+  version the server reads, so a new version is a key change that needs every
+  stored secret re-encrypted first. The pin keeps a version added by mistake
+  away from the server.
+- **Logs:** Cloud Logging, per service. The runtime logs JSON there, one
+  record per line, and Cloud Logging reads each record's `severity`; filter by
+  `jsonPayload.traceId` to follow one request or run. The startup lines are
+  the `lines` of its `boot` record, as in
+  [Operate](../operate/#the-startup-log). See [Logs](../logs/).
 
 ## Tear it down
 

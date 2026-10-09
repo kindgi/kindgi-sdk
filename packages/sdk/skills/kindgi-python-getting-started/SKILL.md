@@ -14,7 +14,7 @@ description: >
   kindgi-python-authoring-agents; models by kindgi-authoring-providers.
 type: core
 library: "kindgi (Python)"
-version: "0.1.6"
+version: "0.1.7"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -123,9 +123,12 @@ uv run kindgi runs start --agent=my-pack.echo-agent --input='{"userMessage":"Ada
 ```
 
 The answer comes from `dev-echo`, a **fallback** provider a new pack
-gets: no model, no key — it calls the first tool and replies "Tool
-responded: …", and the turn carries a `fallback-provider` warning. For
-a real model, put the key in `.env` and register a provider:
+gets: no model, no key — it calls the first tool and replies "⚠
+dev-echo isn't a real model: …" then "Tool responded: …", and the turn
+carries the `fallback-provider` and `dev-echo-not-a-model` warnings. For a
+real model, put an LLM provider's key in `.env` and register its preset
+(Anthropic below; `kindgi providers presets` lists OpenAI, Gemini, Groq and
+OpenRouter too):
 
 ```sh
 uv run kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant   # no-echo prompt
@@ -186,7 +189,7 @@ from kindgi.client import Kindgi
 client = Kindgi()  # KINDGI_API_URL + KINDGI_API_TOKEN, or Kindgi(url, token=…)
 run = client.runs.start(agent="my-pack.echo-agent", input={"userMessage": "Ada"})
 print(run.status, run.output["response"]["content"])
-for event in client.runs.stream(str(run.id)):
+for event in client.runs.follow(run.id):  # to the run's end, reconnecting
     print(event.kind)
 ```
 

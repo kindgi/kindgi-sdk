@@ -10,10 +10,14 @@ import type {
   ModelProvider,
   ProviderMetadata,
 } from '@kindgi/capabilities';
+import { samplingFor } from '@kindgi/capabilities';
 import { createAttemptCounter } from '@kindgi/capabilities/attempts';
+import { nameToolsAsSent } from '@kindgi/capabilities/tool-names';
 
-import { computeCostUsd, toFrameworkUsage } from './cost.js';
+import { withPromptCache } from './cache.js';
+import { type CostRates, computeCostUsd, toFrameworkUsage } from './cost.js';
 import {
+  encodeToolName,
   fromAnthropicResponse,
   mapStopReason,
   toAnthropicMessages,
@@ -24,16 +28,14 @@ import {
  * Anthropic-specific `ModelInfo` extension. Widens the framework's
  * `ModelInfo.cost` with the two Anthropic prompt-cache multipliers
  * (`promptCacheCreationMultiplier`, `promptCacheReadMultiplier`) that
- * `computeCostUsd` uses to bill cache activity per invocation.
+ * `computeCostUsd` uses to bill cache activity per invocation, and a
+ * `longContext` tier for a model that prices long prompts higher.
  *
  * When either multiplier is omitted the framework falls back to
  * Anthropic's 5-minute-tier defaults (1.25 / 0.1) inside `cost.ts`.
  */
 export interface AnthropicModelInfo extends ModelInfo {
-  readonly cost: ModelInfo['cost'] & {
-    readonly promptCacheCreationMultiplier?: number;
-    readonly promptCacheReadMultiplier?: number;
-  };
+  readonly cost: ModelInfo['cost'] & Omit<CostRates, keyof ModelInfo['cost']>;
 }
 
 /**
@@ -156,15 +158,32 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
       const startedAt = Date.now();
       const client = await resolveClient();
 
-      const { system, messages } = toAnthropicMessages(input.messages);
-      const tools =
-        input.tools !== undefined && input.tools.length > 0
-          ? toAnthropicTools(input.tools)
-          : undefined;
+      const translated = toAnthropicMessages(input.messages);
+      // The system prompt names the call's tools as they're sent (`acme__lookup_order`):
+      // a model told to call `acme.lookup_order` calls a name it wasn't given (T311).
+      const toolNames = input.tools?.map((t) => t.name) ?? [];
+      // Cache breakpoints on the tools, the agent's prompt and, when the call
+      // can continue, the conversation so far (`withPromptCache`).
+      const { system, tools, messages } = withPromptCache({
+        systemParts: translated.systemParts.map((part) =>
+          nameToolsAsSent(part, toolNames, encodeToolName),
+        ),
+        tools:
+          input.tools !== undefined && input.tools.length > 0
+            ? toAnthropicTools(input.tools)
+            : undefined,
+        messages: translated.messages,
+      });
 
-      const requestOptions: Record<string, unknown> =
-        input.abortSignal !== undefined ? { signal: input.abortSignal } : {};
+      // `traceparent` is a header on this request only, when the caller
+      // sets it (the provider's registration opted in); never logged.
+      const requestOptions: Record<string, unknown> = {
+        ...(input.abortSignal !== undefined && { signal: input.abortSignal }),
+        ...(input.traceparent !== undefined && { headers: { traceparent: input.traceparent } }),
+      };
       const maxTokens = input.maxOutputTokens ?? modelInfo.maxOutputTokens ?? DEFAULT_MAX_TOKENS;
+      const sampling = samplingFor(modelInfo, input);
+      const thinking = input.thinking === 'lowest' ? lowestThinking(modelInfo) : {};
 
       const counted = await attempts.count(() =>
         client.messages.create(
@@ -172,9 +191,10 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
             model: input.model,
             max_tokens: maxTokens,
             ...(system !== undefined && { system }),
-            messages: [...messages],
-            ...(tools !== undefined && { tools: [...tools] }),
-            ...(input.temperature !== undefined && { temperature: input.temperature }),
+            messages,
+            ...(tools !== undefined && { tools }),
+            ...(sampling.temperature !== undefined && { temperature: sampling.temperature }),
+            ...thinking,
           },
           requestOptions,
         ),
@@ -200,7 +220,25 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
         // An injected client sends with its own fetch: nothing was counted.
         ...(counted.attempts > 0 && { attempts: counted.attempts }),
         rawUsage: { ...response.usage },
+        ...(sampling.warnings.length > 0 && { warnings: sampling.warnings }),
       };
     },
   };
+}
+
+/**
+ * The request fields for a model's least thinking (`ModelCallInput.thinking:
+ * 'lowest'`). A thinking type that turns it off (Haiku 5.5's `disabled`,
+ * Sonnet 5.5's `between_tools`) is taken only at effort `high` or below,
+ * so it goes with effort `low`; a model that always thinks (Opus 5.5) gets
+ * the effort alone. The SDK's types predate both fields; the API takes them
+ * as sent.
+ */
+function lowestThinking(model: ModelInfo): Record<string, unknown> {
+  const lowest = model.thinking?.lowest;
+  if (lowest === undefined) return {};
+  if (lowest === 'disabled' || lowest === 'between_tools') {
+    return { thinking: { type: lowest }, output_config: { effort: 'low' } };
+  }
+  return { output_config: { effort: lowest } };
 }

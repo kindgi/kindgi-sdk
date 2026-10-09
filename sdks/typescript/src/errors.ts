@@ -38,6 +38,8 @@ export interface NetworkError {
   readonly code: 'network';
   readonly message: string;
   readonly cause?: unknown;
+  /** Set when the client's own timeout ended the request: that timeout, in milliseconds. */
+  readonly timeoutMs?: number;
 }
 
 export interface AuthError {
@@ -71,6 +73,8 @@ export interface ConflictError {
   readonly serverCode?: string;
   readonly message: string;
   readonly reason: string;
+  /** The server's details (`currentVersion` for a `secret-write-conflict`, …), when it sent any. */
+  readonly fields?: Readonly<Record<string, unknown>>;
 }
 
 export interface InvalidRequestError {
@@ -120,8 +124,8 @@ export interface GuardrailViolation {
  * variant (for example `KernelError` or `MemoryError` codes). `fromWire`
  * maps a wire `code` it doesn't list to `{ code: 'server', serverCode:
  * <wire code>, message, fields: <wire details> }` — unless its HTTP
- * status names a family (404/410 not-found, 401/403 auth, 429
- * rate-limited, 400 invalid request; 409 and 422 stay `server`).
+ * status names a family (404/410 not-found, 401/403 auth, 409 conflict,
+ * 429 rate-limited, 400/413 invalid request; 422 stays `server`).
  *
  * Callers match `err.code === 'server' && err.serverCode === '...'` to
  * handle specific primitive errors. Every error from the server carries
@@ -187,10 +191,11 @@ export function notYetWired(method: string, reason: string): NotYetWiredError {
  * function reads `code` and projects the rest of the object (including
  * `details`) into the matching variant. A code this client doesn't list
  * (a newer server's) is read by the HTTP `status` instead: 404/410 a
- * not-found, 400 an invalid request, 401/403 an auth error, 429
- * rate-limited. 409 and 422 stay `ServerError`: the docs match their
- * codes there (`budget-exceeded`, `agent-version-mismatch`). Every
- * error from the server keeps the raw code as `serverCode`.
+ * not-found, 400/413 an invalid request, 401/403 an auth error, 409 a
+ * conflict, 429 rate-limited. 422 stays `ServerError`: the docs match its
+ * codes there (`budget-exceeded`, `output-schema-violation`). Every error
+ * from the server keeps the raw code as `serverCode`. A test holds this
+ * to the API's own list (`x-error-codes` in openapi.json).
  *
  * `code` is the discriminant.
  */
@@ -239,6 +244,8 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'auth-revoked':
       return { code: 'auth', message, reason: 'unauthenticated' };
     case 'permission-denied':
+    case 'role-exceeds-principal':
+    case 'key-project-mismatch':
       return { code: 'auth', message, reason: 'forbidden' };
     case 'rate-limited':
     case 'rate-limit-exceeded':
@@ -267,11 +274,14 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'token-not-found':
     case 'agent-version-not-found':
     case 'promotion-not-found':
+    case 'principal-not-found':
+    case 'service-account-not-found':
       return notFound(code, message, details);
     case 'conflict':
     case 'already-terminal':
     case 'run-already-terminal':
     case 'idempotency-key-body-mismatch':
+    case 'idempotency-key-in-flight':
     case 'hitl-required':
     case 'agent-already-registered':
     case 'tool-already-registered':
@@ -303,8 +313,17 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'gate-policy-scope-changed':
     case 'gate-policy-scope-unpinned':
     case 'gate-policy-needs-pin':
+    case 'fact-changed':
+    case 'legal-hold':
     case 'gate-policy-descendant-unpinned':
-      return { code: 'conflict', message, reason: code };
+    case 'service-account-name-taken':
+    case 'service-account-unregistered':
+    case 'identity-user-email-taken':
+    case 'last-tenant-admin':
+    case 'seed-user-admin':
+    case 'identity-user-unregister-refused':
+    case 'identity-user-unregistered':
+      return conflict(code, message, details);
     case 'invalid-request':
     case 'validation-failed':
     case 'unknown-field':
@@ -318,8 +337,11 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'unknown-effect':
     case 'invalid-guardrail':
     case 'invalid-provider':
+    case 'guardrail-config-invalid':
+    case 'provider-config-invalid':
     case 'supervisor-header-missing':
     case 'scope-invalid':
+    case 'artifact-too-large':
       return invalidRequest(message, obj, details);
     case 'guardrail-violation':
       return {
@@ -335,6 +357,15 @@ function classify(body: unknown, status: number | undefined): KindgiError {
 
 type WireFields = Readonly<Record<string, unknown>>;
 
+function conflict(code: string, message: string, details: WireFields | undefined): ConflictError {
+  return {
+    code: 'conflict',
+    message,
+    reason: code,
+    ...(details !== undefined ? { fields: details } : {}),
+  };
+}
+
 /** A code this client doesn't list, read by its HTTP status. */
 function byStatus(
   status: number | undefined,
@@ -348,7 +379,10 @@ function byStatus(
     case 410:
       return notFound(code, message, details);
     case 400:
+    case 413:
       return invalidRequest(message, obj, details);
+    case 409:
+      return conflict(code, message, details);
     case 401:
       return { code: 'auth', message, reason: 'unauthenticated' };
     case 403:

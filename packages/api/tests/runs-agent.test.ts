@@ -13,7 +13,7 @@ import { describe, expect, test } from 'vitest';
 
 import type { KernelRunRecord, ListRunsInput, RunBinding } from '@kindgi/runtime';
 import { createStubAppBindings } from '@kindgi/testing';
-import type { ConversationId, ProjectId, RunId, TenantId, Timestamp } from '@kindgi/types';
+import type { ConversationId, ProjectId, RunId, TenantId, Timestamp, UserId } from '@kindgi/types';
 
 import { createApp } from '../src/index.js';
 import type { InvokeAgentBindingInput, RunHandlerBinding, TokenResolver } from '../src/index.js';
@@ -220,5 +220,29 @@ describe('POST /v1/runs — segments', () => {
     const res = await start({ agent: 'acme.desk.echo-agent', input: 'hi', segments });
     expect(res.status).toBe(400);
     expect(started).toEqual([]);
+  });
+});
+
+describe('POST /v1/runs — whom the run acts for', () => {
+  test('the authenticated caller reaches the run handler as the principal', async () => {
+    const started: InvokeAgentBindingInput[] = [];
+    const runHandler = {
+      invokeAgent: async (input: InvokeAgentBindingInput) => {
+        started.push(input);
+        return { kind: 'err', error: { code: 'bad-input', message: 'recorded' } };
+      },
+    } as unknown as RunHandlerBinding;
+    const built = createApp({
+      ...createStubAppBindings(),
+      resolveToken: async (token) =>
+        token === 'person-token' ? { tenantId, userId: 'u-1' as UserId } : null,
+      runHandler,
+    });
+    await built.request('/v1/runs', {
+      method: 'POST',
+      headers: { authorization: 'Bearer person-token', 'content-type': 'application/json' },
+      body: JSON.stringify({ agent: 'acme.desk.echo-agent', input: { userMessage: 'hi' } }),
+    });
+    expect(started[0]?.principal?.actor).toMatchObject({ kind: 'user', id: 'u-1', tenantId });
   });
 });

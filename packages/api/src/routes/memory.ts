@@ -1,14 +1,33 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { Hono } from 'hono';
+import { type Context, Hono } from 'hono';
 
-import type { Fact, MemoryScope, Retention } from '@kindgi/memory';
+import type { Fact, MemoryReaders, MemoryScope } from '@kindgi/memory';
 import type { FactId, TenantId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
-import type { MemoryBinding, MemoryRetrievalHit, MemoryRetrieveIntent } from '../memory-binding.js';
+import type {
+  MemoryBinding,
+  MemoryFactChangeOutcome,
+  MemoryRetrievalHit,
+} from '../memory-binding.js';
 import type { AppEnv } from '../types.js';
+import {
+  type MemoryAccessDeps,
+  callerAttribution,
+  callerRef,
+  memoryReadersFor,
+  memoryWriteProblem,
+} from './memory-access.js';
+import {
+  parseScopeParam,
+  parseTime,
+  parseVersion,
+  validateRetrieveIntent,
+  validateSupersedeBody,
+  validateWriteFactBody,
+} from './memory-parse.js';
 import { clampLimit } from './pagination.js';
 import { parseScopeParams } from './scope-params.js';
 
@@ -16,14 +35,18 @@ import { parseScopeParams } from './scope-params.js';
  * Memory resource routes.
  *
  * Storage is caller-plugged via `MemoryBinding`. The API package does
- * not own memory persistence, retrieval, or embeddings — deployments
+ * not own memory persistence, retrieval, or embeddings: deployments
  * wire a binding that wraps the memory subsystem alongside their own
  * `EmbeddingProviderRegistry` and per-type retrieval policies.
  *
- * Facts are append-only: supersession replaces delete. Physical removal
- * is left to the retention sweep.
+ * A fact keeps its id across revisions: supersede writes the next one,
+ * delete tombstones it (the retention sweep removes it later), verify
+ * marks it verified. Every read sees only what the caller may
+ * (`memory-access.ts`): the binding applies it inside its query, and a
+ * fact the caller can't see is not found. Every write is checked against
+ * the scope it names.
  */
-export function memoryRouter(binding: MemoryBinding): Hono<AppEnv> {
+export function memoryRouter(binding: MemoryBinding, access: MemoryAccessDeps = {}): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
   // ---------- GET /facts (list, cursor-paginated) ----------
@@ -31,7 +54,6 @@ export function memoryRouter(binding: MemoryBinding): Hono<AppEnv> {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const limit = clampLimit(c.req.query('limit'));
-
     const cursorRaw = c.req.query('cursor');
     const typeRaw = c.req.query('type');
     const scopeRaw = c.req.query('scope');
@@ -40,25 +62,16 @@ export function memoryRouter(binding: MemoryBinding): Hono<AppEnv> {
     if (scopeRaw !== undefined && scopeRaw.length > 0) {
       const parsed = parseScopeParam(scopeRaw);
       if (parsed === null) {
-        c.status(statusFor('bad-input') as never);
-        return c.json(
-          toWireError(
-            { code: 'bad-input', message: 'Query parameter `scope` must be a JSON object' },
-            requestId,
-          ),
-        );
+        return fail(c, 'bad-input', 'Query parameter `scope` must be a JSON object');
       }
       scope = parsed;
     }
-    if (scopeNamesOtherTenant(scope, tenantId)) {
-      c.status(statusFor('scope-mismatch') as never);
-      return c.json(toWireError(SCOPE_MISMATCH, requestId));
-    }
+    if (scopeNamesOtherTenant(scope, tenantId)) return failScopeMismatch(c);
+    const asOf = parseTime(c.req.query('asOf'), 'asOf');
+    if (asOf.kind === 'err') return fail(c, 'bad-input', asOf.message);
 
-    // Thread the ?scopeKind + ?scopeId + ?inherit
-    // triplet into `platformScope` (NOT `scope`). The JSON-encoded
-    // `?scope=` query param + `scope: Partial<MemoryScope>` field above
-    // are a separate filter — both coexist by design.
+    // `?scopeKind` + `?scopeId` + `?inherit` narrow by the platform scope
+    // (`platformScope`); `?scope=` is the memory scope. Both coexist.
     const scopeParsed = parseScopeParams(c.req.query(), { tenantId });
     if (scopeParsed.kind === 'err') {
       c.status(statusFor('scope-invalid') as never);
@@ -69,7 +82,9 @@ export function memoryRouter(binding: MemoryBinding): Hono<AppEnv> {
 
     const page = await binding.listFacts({
       tenantId,
+      readers: await memoryReadersFor(c, access),
       limit,
+      ...(asOf.value !== undefined && { asOf: asOf.value }),
       ...(cursorRaw !== undefined &&
         cursorRaw.length > 0 && {
           cursor: cursorRaw as import('@kindgi/types').Cursor,
@@ -86,154 +101,232 @@ export function memoryRouter(binding: MemoryBinding): Hono<AppEnv> {
     });
   });
 
-  // ---------- GET /facts/:factId ----------
+  // ---------- GET /facts/:factId (?version | ?asOf) ----------
   r.get('/facts/:factId', async (c) => {
-    const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const factId = c.req.param('factId') as FactId;
-
-    const fact = await binding.getFact({ tenantId, factId });
-    if (fact === null) {
-      c.status(statusFor('fact-not-found') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'fact-not-found',
-            message: `No fact with id "${factId as unknown as string}"`,
-            factId: factId as unknown as string,
-          },
-          requestId,
-        ),
-      );
-    }
+    const version = parseVersion(c.req.query('version'), 'version');
+    if (version.kind === 'err') return fail(c, 'bad-input', version.message);
+    const asOf = parseTime(c.req.query('asOf'), 'asOf');
+    if (asOf.kind === 'err') return fail(c, 'bad-input', asOf.message);
+    const fact = await binding.getFact({
+      tenantId,
+      factId,
+      readers: await memoryReadersFor(c, access),
+      ...(version.value !== undefined && { version: version.value }),
+      ...(asOf.value !== undefined && { asOf: asOf.value }),
+    });
+    if (fact === null) return failNotFound(c, factId);
     return c.json(serializeFact(fact));
+  });
+
+  // ---------- GET /facts/:factId/revisions ----------
+  r.get('/facts/:factId/revisions', async (c) => {
+    const tenantId = c.get('tenantId') as TenantId;
+    const factId = c.req.param('factId') as FactId;
+    if (binding.listRevisions === undefined) return unsupported(c, 'fact history');
+    const revisions = await binding.listRevisions({
+      tenantId,
+      factId,
+      readers: await memoryReadersFor(c, access),
+    });
+    if (revisions === null) return failNotFound(c, factId);
+    return c.json({ data: revisions.map(serializeFact) });
   });
 
   // ---------- POST /facts (write) ----------
   r.post('/facts', async (c) => {
-    const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
-
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
-      c.status(statusFor('bad-input') as never);
-      return c.json(
-        toWireError({ code: 'bad-input', message: 'Request body must be valid JSON' }, requestId),
-      );
-    }
-    if (body === null || typeof body !== 'object') {
-      c.status(statusFor('bad-input') as never);
-      return c.json(
-        toWireError({ code: 'bad-input', message: 'Request body must be an object' }, requestId),
-      );
-    }
-
-    const validation = validateWriteFactBody(body as Record<string, unknown>);
-    if (validation.kind === 'err') {
-      c.status(statusFor('bad-input') as never);
-      return c.json(toWireError({ code: 'bad-input', message: validation.message }, requestId));
-    }
-    const { type, scope, content, retention, contentHash } = validation.value;
-    if (scopeNamesOtherTenant(scope, tenantId)) {
-      c.status(statusFor('scope-mismatch') as never);
-      return c.json(toWireError(SCOPE_MISMATCH, requestId));
-    }
+    const body = await readObject(c);
+    if (typeof body === 'string') return fail(c, 'bad-input', body);
+    const validation = validateWriteFactBody(body);
+    if (validation.kind === 'err') return fail(c, 'bad-input', validation.message);
+    const { scope, ...rest } = validation.value;
+    if (scopeNamesOtherTenant(scope, tenantId)) return failScopeMismatch(c);
+    const refused = await memoryWriteProblem(c, access, scope);
+    if (refused !== undefined) return fail(c, 'permission-denied', refused);
 
     const outcome = await binding.writeFact({
       tenantId,
-      type,
       scope,
-      content,
-      ...(retention !== undefined && { retention }),
-      ...(contentHash !== undefined && { contentHash }),
+      ...rest,
+      attributedTo: callerAttribution(c),
     });
-    if (outcome.kind === 'embedding-unavailable') {
-      c.status(statusFor('bad-input') as never);
-      return c.json(toWireError({ code: 'bad-input', message: outcome.message }, requestId));
-    }
-    if (outcome.kind === 'error') {
-      c.status(statusFor(outcome.code) as never);
-      return c.json(toWireError({ code: outcome.code, message: outcome.message }, requestId));
-    }
+    if (outcome.kind === 'embedding-unavailable') return fail(c, 'bad-input', outcome.message);
+    if (outcome.kind === 'error') return fail(c, outcome.code, outcome.message);
     c.status(201);
     return c.json(serializeFact(outcome.fact));
   });
 
   // ---------- POST /facts/:factId/supersede ----------
   r.post('/facts/:factId/supersede', async (c) => {
-    const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const factId = c.req.param('factId') as FactId;
-
-    const outcome = await binding.supersedeFact({ tenantId, factId });
-    if (!outcome.superseded) {
-      c.status(statusFor('fact-not-found') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'fact-not-found',
-            message: `No fact with id "${factId as unknown as string}" to supersede`,
-            factId: factId as unknown as string,
-          },
-          requestId,
-        ),
-      );
-    }
-    return c.json({
-      factId: factId as unknown as string,
-      superseded: true,
+    const body = await readObject(c);
+    if (typeof body === 'string') return fail(c, 'bad-input', body);
+    const validation = validateSupersedeBody(body);
+    if (validation.kind === 'err') return fail(c, 'bad-input', validation.message);
+    const target = await writableFact(c, factId);
+    if (target.kind === 'response') return target.response;
+    const outcome = await binding.supersedeFact({
+      tenantId,
+      factId,
+      readers: target.readers,
+      ...validation.value,
+      attributedTo: callerAttribution(c),
     });
+    return changeResponse(c, factId, outcome);
+  });
+
+  // ---------- DELETE /facts/:factId (tombstone) ----------
+  r.delete('/facts/:factId', async (c) => {
+    const tenantId = c.get('tenantId') as TenantId;
+    const factId = c.req.param('factId') as FactId;
+    if (binding.deleteFact === undefined) return unsupported(c, 'deleting facts');
+    const expectVersion = parseVersion(c.req.query('expectVersion'), 'expectVersion');
+    if (expectVersion.kind === 'err') return fail(c, 'bad-input', expectVersion.message);
+    const target = await writableFact(c, factId);
+    if (target.kind === 'response') return target.response;
+    const outcome = await binding.deleteFact({
+      tenantId,
+      factId,
+      readers: target.readers,
+      by: callerRef(c),
+      ...(expectVersion.value !== undefined && { expectVersion: expectVersion.value }),
+    });
+    return changeResponse(c, factId, outcome);
+  });
+
+  // ---------- POST /facts/:factId/verify ----------
+  r.post('/facts/:factId/verify', async (c) => {
+    const tenantId = c.get('tenantId') as TenantId;
+    const factId = c.req.param('factId') as FactId;
+    if (binding.verifyFact === undefined) return unsupported(c, 'verifying facts');
+    const body = await readObject(c, { emptyIsObject: true });
+    if (typeof body === 'string') return fail(c, 'bad-input', body);
+    const expectVersion = parseVersion(body.expectVersion, 'expectVersion');
+    if (expectVersion.kind === 'err') return fail(c, 'bad-input', expectVersion.message);
+    const target = await writableFact(c, factId);
+    if (target.kind === 'response') return target.response;
+    const outcome = await binding.verifyFact({
+      tenantId,
+      factId,
+      readers: target.readers,
+      by: callerRef(c),
+      ...(expectVersion.value !== undefined && { expectVersion: expectVersion.value }),
+    });
+    return changeResponse(c, factId, outcome);
   });
 
   // ---------- POST /retrieve ----------
   r.post('/retrieve', async (c) => {
-    const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
-
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
-      c.status(statusFor('bad-input') as never);
-      return c.json(
-        toWireError({ code: 'bad-input', message: 'Request body must be valid JSON' }, requestId),
-      );
-    }
-    if (body === null || typeof body !== 'object') {
-      c.status(statusFor('bad-input') as never);
-      return c.json(
-        toWireError({ code: 'bad-input', message: 'Request body must be an object' }, requestId),
-      );
-    }
-
-    const validation = validateRetrieveIntent(body as Record<string, unknown>);
-    if (validation.kind === 'err') {
-      c.status(statusFor('bad-input') as never);
-      return c.json(toWireError({ code: 'bad-input', message: validation.message }, requestId));
-    }
-
-    if (scopeNamesOtherTenant(validation.value.scope, tenantId)) {
-      c.status(statusFor('scope-mismatch') as never);
-      return c.json(toWireError(SCOPE_MISMATCH, requestId));
-    }
-
-    const outcome = await binding.retrieve({ tenantId, intent: validation.value });
-    if (outcome.kind === 'embedding-unavailable') {
-      c.status(statusFor('bad-input') as never);
-      return c.json(toWireError({ code: 'bad-input', message: outcome.message }, requestId));
-    }
-    if (outcome.kind === 'error') {
-      c.status(statusFor(outcome.code) as never);
-      return c.json(toWireError({ code: outcome.code, message: outcome.message }, requestId));
-    }
-    return c.json({
-      results: outcome.results.map(serializeRetrievalHit),
+    const body = await readObject(c);
+    if (typeof body === 'string') return fail(c, 'bad-input', body);
+    const validation = validateRetrieveIntent(body);
+    if (validation.kind === 'err') return fail(c, 'bad-input', validation.message);
+    if (scopeNamesOtherTenant(validation.value.scope, tenantId)) return failScopeMismatch(c);
+    const outcome = await binding.retrieve({
+      tenantId,
+      intent: validation.value,
+      readers: await memoryReadersFor(c, access),
     });
+    // Search by meaning on a deployment without embeddings: not the
+    // request's fault, and never an empty success.
+    if (outcome.kind === 'embedding-unavailable') {
+      return fail(c, 'semantic-unavailable', outcome.message);
+    }
+    if (outcome.kind === 'error') return fail(c, outcome.code, outcome.message);
+    return c.json({ results: outcome.results.map(serializeRetrievalHit) });
   });
 
+  /**
+   * The fact the caller may see and change: its current revision is read
+   * (as the caller sees it), and the caller must be allowed to write in
+   * its scope.
+   */
+  async function writableFact(
+    c: Context<AppEnv>,
+    factId: FactId,
+  ): Promise<
+    | { readonly kind: 'ok'; readonly readers: MemoryReaders }
+    | { readonly kind: 'response'; readonly response: Response }
+  > {
+    const tenantId = c.get('tenantId') as TenantId;
+    const readers = await memoryReadersFor(c, access);
+    const current = await binding.getFact({ tenantId, factId, readers });
+    if (current === null) return { kind: 'response', response: failNotFound(c, factId) };
+    const refused = await memoryWriteProblem(c, access, current.scope);
+    if (refused !== undefined) {
+      return { kind: 'response', response: fail(c, 'permission-denied', refused) };
+    }
+    return { kind: 'ok', readers };
+  }
+
   return r;
+}
+
+// -------------------- responses --------------------
+
+function fail(c: Context<AppEnv>, code: string, message: string, extra = {}): Response {
+  c.status(statusFor(code) as never);
+  return c.json(toWireError({ code, message, ...extra }, c.get('requestId')));
+}
+
+function failNotFound(c: Context<AppEnv>, factId: FactId): Response {
+  return fail(c, 'fact-not-found', `No fact with id "${factId as unknown as string}"`, {
+    factId: factId as unknown as string,
+  });
+}
+
+function failScopeMismatch(c: Context<AppEnv>): Response {
+  return fail(c, 'scope-mismatch', '`scope.tenantId` does not match the caller tenant.');
+}
+
+function unsupported(c: Context<AppEnv>, what: string): Response {
+  return fail(c, 'memory-operation-unsupported', `This runtime's memory doesn't support ${what}.`);
+}
+
+function changeResponse(
+  c: Context<AppEnv>,
+  factId: FactId,
+  outcome: MemoryFactChangeOutcome,
+): Response {
+  switch (outcome.kind) {
+    case 'ok':
+      return c.json(serializeFact(outcome.fact));
+    case 'not-found':
+      return failNotFound(c, factId);
+    case 'fact-changed':
+      return fail(
+        c,
+        'fact-changed',
+        `Fact "${factId as unknown as string}" is at revision ${outcome.current.version} now: read it again, then retry.`,
+        { factId: factId as unknown as string, currentVersion: outcome.current.version },
+      );
+    case 'legal-hold':
+      return fail(c, 'legal-hold', outcome.message, { factId: factId as unknown as string });
+    case 'error':
+      return fail(c, outcome.code, outcome.message);
+  }
+}
+
+async function readObject(
+  c: Context<AppEnv>,
+  options: { readonly emptyIsObject?: boolean } = {},
+): Promise<Record<string, unknown> | string> {
+  const text = await c.req.text();
+  if (text.trim() === '' && options.emptyIsObject === true) return {};
+  let body: unknown;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    return 'Request body must be valid JSON';
+  }
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+    return 'Request body must be an object';
+  }
+  return body as Record<string, unknown>;
 }
 
 // -------------------- serialization --------------------
@@ -241,6 +334,7 @@ export function memoryRouter(binding: MemoryBinding): Hono<AppEnv> {
 function serializeFact(f: Fact): Record<string, unknown> {
   return {
     id: f.id as unknown as string,
+    ...(f.revisionId !== undefined && { revisionId: f.revisionId }),
     type: f.type,
     scope: f.scope,
     version: f.version,
@@ -255,6 +349,19 @@ function serializeFact(f: Fact): Record<string, unknown> {
     ...(f.source !== undefined && { source: f.source }),
     ...(f.causedByLogId !== undefined && { causedByLogId: f.causedByLogId }),
     ...(f.supersedes !== undefined && { supersedes: f.supersedes as unknown as string }),
+    ...(f.trust !== undefined && { trust: f.trust }),
+    ...(f.verifiedBy !== undefined && { verifiedBy: f.verifiedBy }),
+    ...(f.verifiedAt !== undefined && { verifiedAt: f.verifiedAt }),
+    ...(f.attributedTo !== undefined && { attributedTo: f.attributedTo }),
+    ...(f.generatedBy !== undefined && { generatedBy: f.generatedBy }),
+    ...(f.subjects !== undefined && { subjects: f.subjects }),
+    ...(f.validFrom !== undefined && { validFrom: f.validFrom }),
+    ...(f.validUntil !== undefined && { validUntil: f.validUntil }),
+    ...(f.observedAt !== undefined && { observedAt: f.observedAt }),
+    ...(f.invalidatedAt !== undefined && { invalidatedAt: f.invalidatedAt }),
+    ...(f.invalidatedBy !== undefined && { invalidatedBy: f.invalidatedBy }),
+    ...(f.invalidationReason !== undefined && { invalidationReason: f.invalidationReason }),
+    ...(f.review !== undefined && { review: f.review }),
   };
 }
 
@@ -267,164 +374,14 @@ function serializeRetrievalHit(h: MemoryRetrievalHit): Record<string, unknown> {
 
 // -------------------- request parsing --------------------
 
-const SCOPE_MISMATCH = {
-  code: 'scope-mismatch',
-  message: '`scope.tenantId` does not match the caller tenant.',
-} as const;
-
 /**
  * A memory scope in a request may name a tenant; it must be the caller's
  * (derived from the token). Same rule as the secrets, env and policy
- * routes — a request can never read or write another tenant's memory.
+ * routes: a request can never read or write another tenant's memory.
  */
 function scopeNamesOtherTenant(
   scope: Partial<MemoryScope> | undefined,
   tenantId: TenantId,
 ): boolean {
   return scope?.tenantId !== undefined && scope.tenantId !== tenantId;
-}
-
-function parseScopeParam(raw: string): Partial<MemoryScope> | null {
-  try {
-    const decoded = JSON.parse(raw) as unknown;
-    if (decoded === null || typeof decoded !== 'object' || Array.isArray(decoded)) return null;
-    return decoded as Partial<MemoryScope>;
-  } catch {
-    return null;
-  }
-}
-
-// -------------------- validators --------------------
-
-type ValidationResult<T> =
-  | { readonly kind: 'ok'; readonly value: T }
-  | { readonly kind: 'err'; readonly message: string };
-
-interface ValidatedWriteFactBody {
-  readonly type: string;
-  readonly scope: MemoryScope;
-  readonly content: unknown;
-  readonly retention?: Retention;
-  readonly contentHash?: string;
-}
-
-function validateWriteFactBody(
-  body: Record<string, unknown>,
-): ValidationResult<ValidatedWriteFactBody> {
-  const type = body.type;
-  if (typeof type !== 'string' || type.length === 0) {
-    return { kind: 'err', message: 'Field `type` must be a non-empty string' };
-  }
-  const rawScope = body.scope;
-  if (rawScope === null || typeof rawScope !== 'object' || Array.isArray(rawScope)) {
-    return { kind: 'err', message: 'Field `scope` must be an object' };
-  }
-  const scope = rawScope as MemoryScope;
-  if (typeof (scope as { tenantId?: unknown }).tenantId !== 'string') {
-    return { kind: 'err', message: 'Field `scope.tenantId` must be a string' };
-  }
-  if (!('content' in body)) {
-    return { kind: 'err', message: 'Field `content` is required' };
-  }
-  const rawRetention = body.retention;
-  let retention: Retention | undefined;
-  if (rawRetention !== undefined) {
-    if (rawRetention === null || typeof rawRetention !== 'object' || Array.isArray(rawRetention)) {
-      return { kind: 'err', message: 'Field `retention` must be an object when present' };
-    }
-    retention = rawRetention as Retention;
-  }
-  const rawContentHash = body.contentHash;
-  let contentHash: string | undefined;
-  if (rawContentHash !== undefined) {
-    if (typeof rawContentHash !== 'string' || rawContentHash.length === 0) {
-      return {
-        kind: 'err',
-        message: 'Field `contentHash` must be a non-empty string when present',
-      };
-    }
-    contentHash = rawContentHash;
-  }
-  return {
-    kind: 'ok',
-    value: {
-      type,
-      scope,
-      content: body.content,
-      ...(retention !== undefined && { retention }),
-      ...(contentHash !== undefined && { contentHash }),
-    },
-  };
-}
-
-function validateRetrieveIntent(
-  body: Record<string, unknown>,
-): ValidationResult<MemoryRetrieveIntent> {
-  const mode = body.mode;
-  if (mode !== 'list' && mode !== 'keyword' && mode !== 'semantic' && mode !== 'both') {
-    return {
-      kind: 'err',
-      message: 'Field `mode` must be one of "list", "keyword", "semantic", "both"',
-    };
-  }
-  let query: string | undefined;
-  const rawQuery = body.query;
-  if (rawQuery !== undefined) {
-    if (typeof rawQuery !== 'string') {
-      return { kind: 'err', message: 'Field `query` must be a string when present' };
-    }
-    query = rawQuery;
-  }
-  if ((mode === 'keyword' || mode === 'semantic' || mode === 'both') && query === undefined) {
-    return {
-      kind: 'err',
-      message: `Field \`query\` is required when \`mode\` is "${mode}"`,
-    };
-  }
-  let type: string | undefined;
-  const rawType = body.type;
-  if (rawType !== undefined) {
-    if (typeof rawType !== 'string' || rawType.length === 0) {
-      return { kind: 'err', message: 'Field `type` must be a non-empty string when present' };
-    }
-    type = rawType;
-  }
-  let scope: Partial<MemoryScope> | undefined;
-  const rawScope = body.scope;
-  if (rawScope !== undefined) {
-    if (rawScope === null || typeof rawScope !== 'object' || Array.isArray(rawScope)) {
-      return { kind: 'err', message: 'Field `scope` must be an object when present' };
-    }
-    scope = rawScope as Partial<MemoryScope>;
-  }
-  let limit: number | undefined;
-  const rawLimit = body.limit;
-  if (rawLimit !== undefined) {
-    if (typeof rawLimit !== 'number' || !Number.isFinite(rawLimit) || rawLimit < 1) {
-      return { kind: 'err', message: 'Field `limit` must be a positive number when present' };
-    }
-    limit = Math.floor(rawLimit);
-  }
-  let embeddingModel: string | undefined;
-  const rawEmbeddingModel = body.embeddingModel;
-  if (rawEmbeddingModel !== undefined) {
-    if (typeof rawEmbeddingModel !== 'string' || rawEmbeddingModel.length === 0) {
-      return {
-        kind: 'err',
-        message: 'Field `embeddingModel` must be a non-empty string when present',
-      };
-    }
-    embeddingModel = rawEmbeddingModel;
-  }
-  return {
-    kind: 'ok',
-    value: {
-      mode,
-      ...(query !== undefined && { query }),
-      ...(type !== undefined && { type }),
-      ...(scope !== undefined && { scope }),
-      ...(limit !== undefined && { limit }),
-      ...(embeddingModel !== undefined && { embeddingModel }),
-    },
-  };
 }

@@ -14,8 +14,8 @@
  * has a value. Nothing else from an env file reaches the process.
  *
  * Distinct from `needsSpec.env` / `ctx.env`, the per-call values the
- * runtime resolves for a call's tenant, and from `needsSpec.secrets` /
- * `ctx.secrets`.
+ * runtime resolves for a call (its project's, else its org's, else its
+ * tenant's, from `/v1/env`), and from `needsSpec.secrets` / `ctx.secrets`.
  */
 
 /** A pack's declared process environment, as `index.json` carries it. */

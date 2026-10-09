@@ -3,6 +3,8 @@
 
 export { GUARDRAIL_SCHEMA_URI, defineGuardrail, validateGuardrailSpec } from './define.js';
 export { defineCheck } from './define-check.js';
+export { describeGuardrailConfigProblems, guardrailConfigProblems } from './config-problems.js';
+export type { GuardrailConfigProblem, GuardrailConfigProblemsInput } from './config-problems.js';
 export type { DefineCheckSpec, DefinedCheck, InferCheckConfig } from './define-check.js';
 export { BUILT_IN_CHECK_IDS, createCheckRegistry } from './checks.js';
 export {
@@ -35,7 +37,7 @@ export type {
   StrategyError,
   StrategyResult,
 } from './execution-strategy.js';
-export { invokeJudge } from './judge.js';
+export { JUDGE_THINKING_TOKENS, JUDGE_VERDICT_TOKENS, invokeJudge } from './judge.js';
 export type { LlmJudgeConfig } from './judge.js';
 export type {
   Action,
