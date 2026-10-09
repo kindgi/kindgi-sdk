@@ -23,6 +23,7 @@
 
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
+import { LICENSE_WARN_DAYS } from '../license/expiry.js';
 import type { LicenseClaims } from '../license/license-key.js';
 import {
   KINDGI_ACCESS_ORIGIN,
@@ -44,8 +45,6 @@ import type { CommandResult, GroupCommand, LeafCommand } from './types.js';
 /** A GitHub login: letters, digits and single hyphens, up to 39. */
 const GITHUB_LOGIN = /^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/;
 const DAY_MS = 86_400_000;
-/** From this many days before it expires, the runtime warns, and so does `renew`. */
-const WARN_DAYS = 30;
 
 function store(ctx: CommandContext, flag: string, ref: string): SecretStore {
   try {
@@ -213,7 +212,7 @@ const renew: LeafCommand = {
       const daysLeft = Math.floor((outcome.claims.expiresAt.getTime() - now) / DAY_MS);
       const lines = [
         `${outcome.kind}: ${describeKey(outcome.claims)} (renewer ${outcome.renewerId})`,
-        ...(daysLeft <= WARN_DAYS
+        ...(daysLeft <= LICENSE_WARN_DAYS
           ? [
               `⚠ It expires in ${daysLeft} days. If renew keeps answering unchanged, sign in at ${origin} for a new key.`,
             ]
