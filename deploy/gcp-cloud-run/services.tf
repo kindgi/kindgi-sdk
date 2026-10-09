@@ -6,7 +6,22 @@
 
 locals {
   sql_connection = google_sql_database_instance.kindgi.connection_name
-  registry_host  = "${var.region}-docker.pkg.dev"
+  registry_host  = "${local.own_repository ? var.region : var.image_repository.location}-docker.pkg.dev"
+
+  # Every name the module sets on the server (some only with an option on),
+  # plus KINDGI_DEV: server_env and server_secret_env can't set these.
+  # KINDGI_PUBLIC_URL comes from var.public_url.
+  server_module_env = toset([
+    "KINDGI_API_TOKEN", "KINDGI_CORS_ORIGINS", "KINDGI_DATABASE_URL", "KINDGI_DEV", "KINDGI_ENV",
+    "KINDGI_EXPORT_SIGNING_KEY", "KINDGI_EXPORT_SIGNING_KMS_KEY", "KINDGI_IMAGE_REGISTRY_AUTH",
+    "KINDGI_IMAGE_REGISTRY_HOST", "KINDGI_LICENSE_KEY", "KINDGI_OPENFGA_API_URL",
+    "KINDGI_PACK_CALL_TIMEOUT_MS", "KINDGI_PACK_SERVICE_AUTH", "KINDGI_PACK_SERVICE_TOKEN",
+    "KINDGI_PACK_SERVICE_URL", "KINDGI_PUBLIC_TOKEN_SIGNING_KEY", "KINDGI_PUBLIC_URL",
+    "KINDGI_SECRETS_AAD_KEY", "KINDGI_SECRETS_BACKEND", "KINDGI_SECRETS_BACKEND_KMS",
+    "KINDGI_SECRETS_GCP_KEY_ID", "KINDGI_SECRETS_GCP_KEY_RING_ID", "KINDGI_SECRETS_GCP_LOCATION_ID",
+    "KINDGI_SECRETS_GCP_PROJECT_ID", "KINDGI_SEED_USER_ID", "KINDGI_TENANT_ID", "KINDGI_TRUSTED_PROXIES",
+  ])
+  server_extra_env = setunion(keys(var.server_env), keys(var.server_secret_env))
 }
 
 # ---- the pack service ---------------------------------------------------------
@@ -233,6 +248,16 @@ resource "google_cloud_run_v2_service" "server" {
         name  = "KINDGI_ENV"
         value = var.kindgi_env
       }
+      # The client's address, for rate limits and audit records: Cloud Run's
+      # front end appends the client to X-Forwarded-For (measured live), so
+      # one trusted hop by default.
+      dynamic "env" {
+        for_each = var.trusted_proxies == "" ? [] : [var.trusted_proxies]
+        content {
+          name  = "KINDGI_TRUSTED_PROXIES"
+          value = env.value
+        }
+      }
       dynamic "env" {
         for_each = var.pack_call_timeout_ms == null ? [] : [var.pack_call_timeout_ms]
         content {
@@ -267,42 +292,43 @@ resource "google_cloud_run_v2_service" "server" {
         }
       }
 
-      # Secrets set through the API: envelope-encrypted in Postgres under the KMS key.
-      env {
-        name  = "KINDGI_SECRETS_BACKEND"
-        value = "postgres"
+      # Secrets set through the API (secrets_backend = "postgres"):
+      # envelope-encrypted in Postgres under the KMS key. With "none", no
+      # KINDGI_SECRETS_* variable is set: the runtime stores no secrets.
+      # The order is the one these had before secrets_backend existed.
+      dynamic "env" {
+        for_each = local.kms ? [["KINDGI_SECRETS_BACKEND", "postgres"], ["KINDGI_SECRETS_BACKEND_KMS", "gcp"]] : []
+        content {
+          name  = env.value[0]
+          value = env.value[1]
+        }
       }
-      env {
-        name  = "KINDGI_SECRETS_BACKEND_KMS"
-        value = "gcp"
-      }
-      env {
-        name = "KINDGI_SECRETS_AAD_KEY"
-        value_source {
-          # Pinned (var.secrets_aad_key_version): every secret stored in
-          # Postgres is bound to this key, so a version added by mistake
-          # must never reach the server.
-          secret_key_ref {
-            secret  = google_secret_manager_secret.server["secrets_aad_key"].secret_id
-            version = var.secrets_aad_key_version
+      dynamic "env" {
+        for_each = local.kms ? [1] : []
+        content {
+          name = "KINDGI_SECRETS_AAD_KEY"
+          value_source {
+            # Pinned (var.secrets_aad_key_version): every secret stored in
+            # Postgres is bound to this key, so a version added by mistake
+            # must never reach the server.
+            secret_key_ref {
+              secret  = google_secret_manager_secret.server["secrets_aad_key"].secret_id
+              version = var.secrets_aad_key_version
+            }
           }
         }
       }
-      env {
-        name  = "KINDGI_SECRETS_GCP_PROJECT_ID"
-        value = var.project_id
-      }
-      env {
-        name  = "KINDGI_SECRETS_GCP_LOCATION_ID"
-        value = var.region
-      }
-      env {
-        name  = "KINDGI_SECRETS_GCP_KEY_RING_ID"
-        value = google_kms_key_ring.kindgi.name
-      }
-      env {
-        name  = "KINDGI_SECRETS_GCP_KEY_ID"
-        value = google_kms_crypto_key.secrets.name
+      dynamic "env" {
+        for_each = local.kms ? [
+          ["KINDGI_SECRETS_GCP_PROJECT_ID", var.project_id],
+          ["KINDGI_SECRETS_GCP_LOCATION_ID", var.region],
+          ["KINDGI_SECRETS_GCP_KEY_RING_ID", google_kms_key_ring.kindgi[0].name],
+          ["KINDGI_SECRETS_GCP_KEY_ID", google_kms_crypto_key.secrets[0].name],
+        ] : []
+        content {
+          name  = env.value[0]
+          value = env.value[1]
+        }
       }
 
       # The pack service: its internal URL, the shared token, and a Google
@@ -389,6 +415,36 @@ resource "google_cloud_run_v2_service" "server" {
           value = env.value
         }
       }
+      dynamic "env" {
+        for_each = var.public_url != "" ? [var.public_url] : []
+        content {
+          name  = "KINDGI_PUBLIC_URL"
+          value = env.value
+        }
+      }
+
+      # The operator's own settings (sign-in, among others): plain values,
+      # then Secret Manager references, read with the server's identity at
+      # instance start.
+      dynamic "env" {
+        for_each = var.server_env
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
+      dynamic "env" {
+        for_each = var.server_secret_env
+        content {
+          name = env.key
+          value_source {
+            secret_key_ref {
+              secret  = env.value.project == null ? env.value.secret : "projects/${env.value.project}/secrets/${env.value.secret}"
+              version = env.value.version
+            }
+          }
+        }
+      }
 
       startup_probe {
         http_get {
@@ -419,6 +475,10 @@ resource "google_cloud_run_v2_service" "server" {
       error_message = "network_mode = \"connector\" needs pack_ingress = \"INGRESS_TRAFFIC_ALL\": a private-ranges-only server can't reach an internal-only pack service (IAM still guards it)."
     }
     precondition {
+      condition     = !local.kms || var.secrets_aad_key_version != null
+      error_message = "secrets_backend = \"postgres\" needs secrets_aad_key_version: the version of <prefix>-secrets-aad-key the server reads (\"1\" for a new deployment), never \"latest\"."
+    }
+    precondition {
       condition     = var.export_signing != "kms" || var.export_signing_kms_key != ""
       error_message = "export_signing = \"kms\" needs export_signing_kms_key: the key version that signs."
     }
@@ -426,10 +486,23 @@ resource "google_cloud_run_v2_service" "server" {
       condition     = !(var.server_public && var.server_invoker_iam_disabled)
       error_message = "server_public (an allUsers invoker binding) and server_invoker_iam_disabled are two ways to the same thing: pick one."
     }
+    precondition {
+      condition     = length(setintersection(local.server_module_env, local.server_extra_env)) == 0
+      error_message = "server_env and server_secret_env can't set a name this module sets itself (its variables do: public_url for KINDGI_PUBLIC_URL, trusted_proxies, cors_origins, ...), nor KINDGI_DEV, which is for `kindgi dev` only."
+    }
+    precondition {
+      condition     = length(setintersection(keys(var.server_env), keys(var.server_secret_env))) == 0
+      error_message = "A name is in both server_env and server_secret_env: keep it in one."
+    }
+    precondition {
+      condition     = length(setintersection(local.server_extra_env, toset(["KINDGI_AUTH_SECRET", "KINDGI_AUTH_SECRET_PATH"]))) == 0 || var.public_url != ""
+      error_message = "Sign-in with identity providers (KINDGI_AUTH_SECRET) needs public_url: the URL people open the console at, where identity providers send them back. The server won't start without it."
+    }
   }
 
   depends_on = [
     google_secret_manager_secret_iam_member.server_reads,
+    google_secret_manager_secret_iam_member.server_reads_its_secrets,
     google_kms_crypto_key_iam_member.server_wraps,
     google_kms_crypto_key_iam_member.server_reads_key,
     google_secret_manager_secret_iam_member.server_reads_export_key,

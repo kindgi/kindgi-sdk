@@ -1,0 +1,812 @@
+{
+  "$comment": "The Java validator's corpus: each schema, and values to run through it. scripts/ajv-oracle.mjs runs them through Ajv into oracle.json.",
+  "cases": [
+    {
+      "name": "echo (a closed record)",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": ["message"],
+        "additionalProperties": false
+      },
+      "values": [
+        {
+          "message": "hi"
+        },
+        {},
+        {
+          "message": ""
+        },
+        {
+          "message": "hi",
+          "extra": 1
+        },
+        {
+          "message": 7
+        },
+        "text",
+        null,
+        [],
+        {
+          "message": 7,
+          "a": 1,
+          "b": 2
+        }
+      ]
+    },
+    {
+      "name": "numbers",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "n": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10
+          },
+          "x": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "exclusiveMaximum": 1,
+            "multipleOf": 0.25
+          }
+        }
+      },
+      "values": [
+        {
+          "n": 1
+        },
+        {
+          "n": -1
+        },
+        {
+          "n": 11
+        },
+        {
+          "n": 1.5
+        },
+        {
+          "n": 2.0
+        },
+        {
+          "x": 0
+        },
+        {
+          "x": 0.3
+        },
+        {
+          "x": 0.5
+        },
+        {
+          "x": 1
+        },
+        {
+          "n": "1"
+        }
+      ]
+    },
+    {
+      "name": "string limits and patterns",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_-]{0,63}$",
+            "maxLength": 8
+          },
+          "emoji": {
+            "type": "string",
+            "maxLength": 2
+          }
+        }
+      },
+      "values": [
+        {
+          "code": "abc"
+        },
+        {
+          "code": "Abc"
+        },
+        {
+          "code": "abcdefghij"
+        },
+        {
+          "emoji": "😀😀"
+        },
+        {
+          "emoji": "😀😀😀"
+        }
+      ]
+    },
+    {
+      "name": "formats",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "when": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "day": {
+            "type": "string",
+            "format": "date"
+          },
+          "at": {
+            "type": "string",
+            "format": "time"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "mail": {
+            "type": "string",
+            "format": "email"
+          },
+          "link": {
+            "type": "string",
+            "format": "uri"
+          },
+          "host": {
+            "type": "string",
+            "format": "hostname"
+          },
+          "v4": {
+            "type": "string",
+            "format": "ipv4"
+          },
+          "v6": {
+            "type": "string",
+            "format": "ipv6"
+          }
+        }
+      },
+      "values": [
+        {
+          "when": "2026-10-07T12:00:00Z",
+          "day": "2026-10-07",
+          "at": "12:00:00Z",
+          "id": "6f1c2e1a-1111-4222-8333-944455556666",
+          "mail": "a@acme.com",
+          "link": "https://acme.com/x",
+          "host": "acme.com",
+          "v4": "10.0.0.1",
+          "v6": "::1"
+        },
+        {
+          "when": "2026-10-07",
+          "day": "2026-02-30",
+          "at": "25:00:00Z",
+          "id": "nope",
+          "mail": "nope",
+          "link": "nope",
+          "host": "-bad-",
+          "v4": "300.1.1.1",
+          "v6": "nope"
+        }
+      ]
+    },
+    {
+      "name": "arrays",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "tags": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 1,
+            "maxItems": 3,
+            "uniqueItems": true
+          }
+        }
+      },
+      "values": [
+        {
+          "tags": ["a"]
+        },
+        {
+          "tags": []
+        },
+        {
+          "tags": ["a", "b", "c", "d"]
+        },
+        {
+          "tags": ["a", "a"]
+        },
+        {
+          "tags": ["a", ""]
+        },
+        {
+          "tags": ["a", "b", "a", "b"]
+        }
+      ]
+    },
+    {
+      "name": "enum and const",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": ["fast", "slow"]
+          },
+          "kind": {
+            "const": "widget"
+          }
+        }
+      },
+      "values": [
+        {
+          "mode": "fast",
+          "kind": "widget"
+        },
+        {
+          "mode": "medium"
+        },
+        {
+          "kind": "gadget"
+        },
+        {
+          "mode": 1
+        }
+      ]
+    },
+    {
+      "name": "nullable by type list",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": ["string", "null"],
+            "maxLength": 3
+          }
+        }
+      },
+      "values": [
+        {
+          "label": null
+        },
+        {
+          "label": "ab"
+        },
+        {
+          "label": "abcd"
+        },
+        {
+          "label": 1
+        }
+      ]
+    },
+    {
+      "name": "tagged union (oneOf by const)",
+      "schema": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "const": "circle"
+              },
+              "r": {
+                "type": "number",
+                "minimum": 0
+              }
+            },
+            "required": ["kind", "r"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "const": "square"
+              },
+              "side": {
+                "type": "number"
+              }
+            },
+            "required": ["kind", "side"],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "values": [
+        {
+          "kind": "circle",
+          "r": 1
+        },
+        {
+          "kind": "square",
+          "side": 2
+        },
+        {
+          "kind": "circle",
+          "r": -1
+        },
+        {
+          "kind": "triangle"
+        },
+        {}
+      ]
+    },
+    {
+      "name": "oneOf that two branches pass",
+      "schema": {
+        "oneOf": [
+          {
+            "type": "number"
+          },
+          {
+            "type": "integer"
+          }
+        ]
+      },
+      "values": [1.5, 1, "x"]
+    },
+    {
+      "name": "anyOf and allOf and not",
+      "schema": {
+        "allOf": [
+          {
+            "type": "object",
+            "properties": {
+              "a": {
+                "type": "string"
+              }
+            },
+            "required": ["a"]
+          },
+          {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "b": {
+                    "type": "integer"
+                  }
+                },
+                "required": ["b"]
+              },
+              {
+                "type": "object",
+                "properties": {
+                  "c": {
+                    "type": "integer"
+                  }
+                },
+                "required": ["c"]
+              }
+            ]
+          },
+          {
+            "not": {
+              "type": "object",
+              "properties": {
+                "d": {
+                  "const": true
+                }
+              },
+              "required": ["d"]
+            }
+          }
+        ]
+      },
+      "values": [
+        {
+          "a": "x",
+          "b": 1
+        },
+        {
+          "a": "x",
+          "c": 1
+        },
+        {
+          "a": 1
+        },
+        {
+          "a": "x"
+        },
+        {
+          "a": "x",
+          "b": 1,
+          "d": true
+        }
+      ]
+    },
+    {
+      "name": "$ref and $defs",
+      "schema": {
+        "$defs": {
+          "point": {
+            "type": "object",
+            "properties": {
+              "x": {
+                "type": "integer"
+              },
+              "y": {
+                "type": "integer"
+              }
+            },
+            "required": ["x", "y"],
+            "additionalProperties": false
+          }
+        },
+        "type": "object",
+        "properties": {
+          "from": {
+            "$ref": "#/$defs/point"
+          },
+          "to": {
+            "$ref": "#/$defs/point"
+          }
+        },
+        "required": ["from"]
+      },
+      "values": [
+        {
+          "from": {
+            "x": 1,
+            "y": 2
+          }
+        },
+        {
+          "from": {
+            "x": 1
+          }
+        },
+        {
+          "from": {
+            "x": 1,
+            "y": 2,
+            "z": 3
+          },
+          "to": {
+            "x": "a",
+            "y": 1
+          }
+        }
+      ]
+    },
+    {
+      "name": "maps: propertyNames, additionalProperties schema, sizes",
+      "schema": {
+        "type": "object",
+        "propertyNames": {
+          "pattern": "^[a-z]+$"
+        },
+        "additionalProperties": {
+          "type": "string",
+          "maxLength": 3
+        },
+        "maxProperties": 2,
+        "minProperties": 1
+      },
+      "values": [
+        {
+          "ab": "x"
+        },
+        {},
+        {
+          "a": "x",
+          "b": "y",
+          "c": "z"
+        },
+        {
+          "Ab": "x"
+        },
+        {
+          "ab": "long"
+        }
+      ]
+    },
+    {
+      "name": "nullable by oneOf null",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "owner": {
+            "oneOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  }
+                },
+                "required": ["id"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "values": [
+        {
+          "owner": null
+        },
+        {
+          "owner": {
+            "id": "a"
+          }
+        },
+        {
+          "owner": {}
+        },
+        {
+          "owner": 1
+        }
+      ]
+    },
+    {
+      "name": "defaults (validation ignores them)",
+      "schema": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "greeting": {
+            "type": "string",
+            "default": "Hello"
+          },
+          "options": {
+            "type": "object",
+            "properties": {
+              "loud": {
+                "type": "boolean",
+                "default": false
+              }
+            },
+            "default": {}
+          }
+        },
+        "required": ["name"]
+      },
+      "values": [
+        {
+          "name": "Ada"
+        },
+        {
+          "greeting": "Hi"
+        }
+      ]
+    },
+    {
+      "name": "integers as JSON writes them",
+      "schema": {
+        "type": "integer",
+        "minimum": -2
+      },
+      "values": [0, -2, -3, 3.0, 2.5, 100.0]
+    },
+    {
+      "name": "unique objects (pairwise)",
+      "schema": {
+        "type": "array",
+        "uniqueItems": true
+      },
+      "values": [
+        [
+          {
+            "a": 1
+          },
+          {
+            "a": 1
+          }
+        ],
+        [
+          1,
+          {
+            "a": 1
+          },
+          2,
+          1.0
+        ],
+        [[1], [2], [1]],
+        ["x", "y"]
+      ]
+    },
+    {
+      "name": "derived: Greet",
+      "schemaFrom": "Greet",
+      "values": [
+        {
+          "name": "Ada"
+        },
+        {
+          "name": "Ada",
+          "title": null
+        },
+        {
+          "name": ""
+        },
+        {
+          "name": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        },
+        {
+          "title": "Dr"
+        },
+        {
+          "name": "Ada",
+          "extra": true
+        }
+      ]
+    },
+    {
+      "name": "derived: Invoice",
+      "schemaFrom": "Invoice",
+      "values": [
+        {
+          "id": "0f8fad5b-d9cb-469f-a165-70867728950e",
+          "lines": [
+            {
+              "item": "pen",
+              "quantity": 2,
+              "price": 1.5
+            }
+          ],
+          "currency": "gbp",
+          "tags": ["a", "b"],
+          "totals": {
+            "a": 1
+          },
+          "issuedAt": "2026-10-07T12:00:00Z",
+          "contact": "a@acme.test",
+          "link": "https://acme.test/x",
+          "reference": "AB12",
+          "month": 10,
+          "discount": 0,
+          "metadata": {
+            "k": [1]
+          }
+        },
+        {
+          "id": "nope",
+          "lines": [],
+          "currency": "GBP",
+          "priority": "medium",
+          "tags": ["a", "a"],
+          "totals": {
+            "a": 1.5
+          },
+          "issuedAt": "yesterday",
+          "due": "2026-13-01",
+          "contact": "no",
+          "link": "not a uri",
+          "reference": "ab",
+          "month": 13,
+          "discount": -1,
+          "metadata": null
+        },
+        {
+          "id": "0f8fad5b-d9cb-469f-a165-70867728950e",
+          "lines": [
+            {
+              "item": "   ",
+              "quantity": 0,
+              "price": 100000,
+              "note": null
+            }
+          ],
+          "currency": "EUR",
+          "priority": null,
+          "tags": [],
+          "totals": {},
+          "issuedAt": "2026-10-07T12:00:00+02:00",
+          "due": null,
+          "contact": "a@acme.test",
+          "link": "urn:x",
+          "reference": "ZZ1",
+          "month": 1,
+          "discount": 0.5,
+          "metadata": "any"
+        }
+      ]
+    },
+    {
+      "name": "derived: Drawing",
+      "schemaFrom": "Drawing",
+      "values": [
+        {
+          "shapes": [
+            {
+              "kind": "circle",
+              "radius": 1
+            },
+            {
+              "kind": "rect",
+              "width": 1,
+              "height": 2
+            }
+          ]
+        },
+        {
+          "shapes": [
+            {
+              "kind": "square",
+              "side": 1
+            }
+          ],
+          "focus": {
+            "kind": "circle",
+            "radius": 0
+          }
+        },
+        {
+          "shapes": [],
+          "focus": null
+        },
+        {
+          "shapes": [
+            {
+              "radius": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "derived: WithDefaults",
+      "schemaFrom": "WithDefaults",
+      "values": [
+        {
+          "max_items": null
+        },
+        {},
+        {
+          "max_items": 1,
+          "minLength": "1",
+          "strict": "yes"
+        }
+      ]
+    },
+    {
+      "name": "derived: Open and Bean",
+      "schemaFrom": "Open",
+      "values": [
+        {
+          "id": "x",
+          "more": 1
+        },
+        {
+          "more": 1
+        }
+      ]
+    }
+  ],
+  "canonical": [
+    "0",
+    "-0",
+    "1",
+    "100",
+    "1.5",
+    "0.1",
+    "0.3",
+    "1e21",
+    "1e20",
+    "1e-7",
+    "0.000001",
+    "1234.5678",
+    "-2.5e-8",
+    "5e-324",
+    "1.7976931348623157e308",
+    "123456789012345678901",
+    "9007199254740993",
+    "2.0",
+    "1E+3",
+    "\"a\\u0007b\\\"c\\\\\\u2028 é 😀\"",
+    "{\"b\":1,\"a\":[2,{\"d\":null,\"c\":true}],\"é\":{},\"Z\":[]}"
+  ]
+}

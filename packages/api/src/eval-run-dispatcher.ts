@@ -89,6 +89,13 @@ export interface EvalRunSubjectInvokeOutcome {
     readonly arguments: unknown;
     readonly reason?: string;
   };
+  /**
+   * The past run was erased after the case was read (a person's words
+   * were removed): nothing was replayed. Not an error: the dispatcher
+   * leaves the case out and counts it, like a case erased before. A
+   * runtime that predates erasure never sets it.
+   */
+  readonly erased?: true;
 }
 
 /**
