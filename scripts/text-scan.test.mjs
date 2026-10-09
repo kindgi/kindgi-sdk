@@ -137,6 +137,7 @@ describe("internal tracking references, in a pull request's text", () => {
     assert.deepEqual(whats(`live check ${ref('L-A', 5)} and ${ref('L-B', 10)}`), [
       'internal step id',
     ]);
+    assert.deepEqual(whats(`an ${ref('L-A', 5, '-style')} check`), ['internal step id']);
     assert.deepEqual(whats(`additive (${ref('protocol ', 16)})`), ['internal process rule']);
     assert.deepEqual(whats(`asked first (${ref('protocol ', 4)})`), ['internal process rule']);
     assert.deepEqual(whats(`found by ${ref('w', 3)}, reviewed`), ['internal session name']);
