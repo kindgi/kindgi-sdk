@@ -599,7 +599,7 @@ final class Indexer {
 
   /**
    * A warning when a guardrail's check id (its {@code checkId}, or its own id) doesn't start with
-   * the pack's id ({@code <pack id>.}): packs on one runtime share one space of check names, so a
+   * the pack's id ({@code <pack id>.}): packs in one tenant share one space of check names, so a
    * check named for its pack can't collide with another pack's. Never a refusal: the pack builds
    * as it did.
    */
@@ -611,7 +611,7 @@ final class Indexer {
     }
     Map<String, Object> w = fileError("check-id-unprefixed", rel + ": check \"" + checkId
         + "\" doesn't start with this pack's id (\"" + packId + ".\"). Name it \"" + packId
-        + ".checks.<name>\" so it can't collide with another pack's check on the same runtime."
+        + ".checks.<name>\" so it can't collide with another pack's check in the same tenant."
         + " The pack builds as it is.", rel, null);
     w.put("field", "check");
     return w;

@@ -449,7 +449,7 @@ def _file_error(code: str, message: str, rel_path: str, **extra: Any) -> dict[st
 def _unprefixed_check(guardrail: Guardrail, rel_path: str, pack_id: str) -> dict[str, Any] | None:
     """A warning when a guardrail's check id doesn't start with the pack's id (`<pack id>.`).
 
-    Packs on one runtime share one space of check names, so a check named for its pack can't
+    Packs in one tenant share one space of check names, so a check named for its pack can't
     collide with another pack's. Never a refusal: the pack builds as it did.
     """
     if guardrail.check_id.startswith(f"{pack_id}."):
@@ -458,7 +458,7 @@ def _unprefixed_check(guardrail: Guardrail, rel_path: str, pack_id: str) -> dict
         "check-id-unprefixed",
         f"{rel_path}: check \"{guardrail.check_id}\" doesn't start with this pack's id "
         f'("{pack_id}."). Name it "{pack_id}.checks.<name>" so it can\'t collide with another '
-        "pack's check on the same runtime. The pack builds as it is.",
+        "pack's check in the same tenant. The pack builds as it is.",
         rel_path,
         field="check",
     )

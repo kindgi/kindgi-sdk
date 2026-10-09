@@ -424,8 +424,8 @@ def _warning(check_id: str) -> dict[str, Any]:
         "code": "check-id-unprefixed",
         "message": (
             f'guardrails/extra.py: check "{check_id}" doesn\'t start with this pack\'s id ("acme.").'
-            " Name it \"acme.checks.<name>\" so it can't collide with another pack's check on the"
-            " same runtime. The pack builds as it is."
+            " Name it \"acme.checks.<name>\" so it can't collide with another pack's check in the"
+            " same tenant. The pack builds as it is."
         ),
         "filePath": "guardrails/extra.py",
         "field": "check",

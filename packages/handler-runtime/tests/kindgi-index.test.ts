@@ -391,7 +391,7 @@ describe("check ids without the pack's prefix (a warning)", () => {
     code: 'check-id-unprefixed',
     filePath: 'guardrails/cites.mjs',
     field: 'check',
-    message: `guardrails/cites.mjs: check "${id}" doesn't start with this pack's id ("acme.pack."). Name it "acme.pack.checks.<name>" so it can't collide with another pack's check on the same runtime. The pack builds as it is.`,
+    message: `guardrails/cites.mjs: check "${id}" doesn't start with this pack's id ("acme.pack."). Name it "acme.pack.checks.<name>" so it can't collide with another pack's check in the same tenant. The pack builds as it is.`,
   });
 
   test.each([

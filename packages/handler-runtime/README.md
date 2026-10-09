@@ -143,7 +143,7 @@ Some things the pack should change don't stop the build. The report lists them a
 
 | Code | When |
 |---|---|
-| `check-id-unprefixed` | A check the pack ships (its `id`, as a guardrail's `check` or any check its module exports) doesn't start with the pack's id (`<pack id>.`). Packs on one runtime share one space of check names, so name it `<pack id>.checks.<name>`. A built-in named by its id isn't the pack's check, so it isn't flagged. |
+| `check-id-unprefixed` | A check the pack ships (its `id`, as a guardrail's `check` or any check its module exports) doesn't start with the pack's id (`<pack id>.`). Packs in one tenant share one space of check names, so name it `<pack id>.checks.<name>`. A built-in named by its id isn't the pack's check, so it isn't flagged. |
 
 ### Loading `kindgi.config.*` on its own
 
