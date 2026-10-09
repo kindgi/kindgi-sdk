@@ -7,17 +7,20 @@
  * (retries, typed errors, the reasoning state across a pause, usage and cost).
  *
  * Pinned, each with a test:
+ *   - It signs in before each attempt (`beforeAttempt`), with the call's abort signal, and the
+ *     attempt's request reads what it got (`attemptPrepared()`): calls at once never share one,
+ *     and a failure is typed there (the library would report a credential failure as a plain
+ *     error, and retry it).
  *   - `auth: aws-identity` (the default): requests signed with SigV4, with credentials from the
- *     runtime's AWS identity (`AdapterFactoryInput.identities.aws`), asked for every request (it
+ *     runtime's AWS identity (`AdapterFactoryInput.identities.aws`), asked for every attempt (it
  *     refreshes them itself), within 10 seconds. `apiKey: ''` keeps a stray
  *     `AWS_BEARER_TOKEN_BEDROCK` from switching the provider to a bearer key. Only Bedrock's
  *     runtime in the region gets them (`isBedrockRuntimeHost`): any other host is refused.
- *   - A failed sign-in (no credentials, no key) is an `auth` error, never retried. The library
- *     reports a credential failure as a plain error, so they're asked for before each attempt
- *     (`beforeAttempt`), where the failure is typed.
- *   - `auth: api-key`: the key `secret_ref` names, read for every request and sent as the
+ *   - `auth: api-key`: the key `secret_ref` names, read for every attempt and sent as the
  *     bearer token, so a rotated key takes effect on the next call. No SigV4, so no AWS
  *     credentials are looked for.
+ *   - A failed sign-in (no credentials, no key, a blank one) is an `auth` error, never retried.
+ *   - No request follows a redirect: the credential goes to the endpoint, nowhere else.
  *   - The region is the registration's (`metadata.region`), never `AWS_REGION`, and the endpoint
  *     is always given (the region's own, or `adapter_config.baseURL`), so
  *     `AWS_ENDPOINT_URL_BEDROCK_RUNTIME` and `AWS_ENDPOINT_URL` are never read.
@@ -25,7 +28,7 @@
 
 import { createAmazonBedrock } from '@ai-sdk/amazon-bedrock';
 import { ModelProviderError, tokenCostUsd } from '@kindgi/adapter-model-shared';
-import { createAiSdkModelProvider } from '@kindgi/adapter-model-shared/ai-sdk';
+import { attemptPrepared, createAiSdkModelProvider } from '@kindgi/adapter-model-shared/ai-sdk';
 import {
   type AdapterConfigCheckInput,
   type AdapterConfigProblem,
@@ -73,47 +76,35 @@ export const bedrockAdapterFactory: AdapterFactory = (input) => {
     );
   }
   const { region, baseURL, auth } = read.config;
-
-  const credentials =
-    auth === 'aws-identity' ? signedIn(input.identities?.aws as AwsCredentialClient) : undefined;
-  // Asked for before each attempt (`beforeAttempt`), then handed to the library's own ask for
-  // that attempt, so each attempt asks the identity once. Calls running at once may take each
-  // other's: they're the same identity's, all valid.
-  let prefetched: AwsCredentials | undefined;
-  const credentialProvider: AwsCredentialClient = async () => {
-    const ready = prefetched;
-    prefetched = undefined;
-    return ready ?? (credentials as AwsCredentialClient)();
-  };
+  const identity = input.identities?.aws;
   const resolveApiKey = input.resolveApiKey;
 
   const provider = createAiSdkModelProvider({
     metadata,
     ...(input.fetch !== undefined && { fetch: input.fetch }),
-    languageModel: (name, fetch) =>
-      createAmazonBedrock({
+    beforeAttempt: (signal): Promise<SignedIn> =>
+      auth === 'aws-identity'
+        ? awsCredentials(identity as AwsCredentialClient, signal).then((credentials) => ({
+            credentials,
+          }))
+        : bedrockKey(resolveApiKey as () => Promise<string>).then((key) => ({ key })),
+    languageModel: (name, fetch) => {
+      const send = withoutRedirects(fetch);
+      return createAmazonBedrock({
         region,
         baseURL,
         ...(auth === 'aws-identity'
           ? {
               apiKey: '',
-              credentialProvider,
-              fetch,
+              // This attempt's, asked for in `beforeAttempt`: the library's own ask never fails.
+              credentialProvider: async () => signedIn().credentials as AwsCredentials,
+              fetch: send,
             }
-          : {
-              apiKey: KEY_SET_PER_REQUEST,
-              fetch: withBearerKey(fetch, resolveApiKey as () => Promise<string>),
-            }),
-      })(name),
+          : { apiKey: KEY_SET_PER_REQUEST, fetch: withBearerKey(send) }),
+      })(name);
+    },
     cost: (model, usage) => tokenCostUsd(model, usage),
-    // The library would wrap a credential failure in a plain error (and so retry it): asked
-    // for here first, a failure is `auth` at once.
-    ...(credentials !== undefined && {
-      beforeAttempt: async () => {
-        prefetched = await credentials();
-      },
-    }),
-    explain: (error) => (error.status === 403 ? accessHint(region) : undefined),
+    explain: (error) => (error.status === 403 ? accessHint(auth, region) : undefined),
   });
   // Nova's chain of thought, written into its answer, is taken out (`nova-thinking.ts`).
   return {
@@ -133,72 +124,110 @@ export const bedrockAdapterEntry: AdapterFactoryEntry = {
   checkConfig: bedrockCheckConfig,
 };
 
-/** What a 403 from Bedrock can mean, beyond its own words. */
-function accessHint(region: string): string {
-  return `Bedrock refuses when the identity's policy lacks bedrock:InvokeModel on the model (for an inference profile, on the profile and on the foundation model in each of its Regions), when the account has no access to the model in ${region} (model access, or a Marketplace agreement still being made: retry in 15 minutes), or when the credentials have expired.`;
+/** What a 403 from Bedrock can mean, beyond its own words, for how the adapter signed in. */
+function accessHint(auth: 'aws-identity' | 'api-key', region: string): string {
+  const noAccess = `when the account has no access to the model in ${region} (model access, or a Marketplace agreement still being made: retry in 15 minutes)`;
+  return auth === 'aws-identity'
+    ? `Bedrock refuses when the runtime's identity's policy lacks bedrock:InvokeModel on the model (for an inference profile, on the profile and on the foundation model in each of its Regions), ${noAccess}, or when the credentials have expired.`
+    : `Bedrock refuses when the IAM user the API key belongs to lacks bedrock:InvokeModel on the model (for an inference profile, on the profile and on the foundation model in each of its Regions), ${noAccess}, or when the key has expired or been revoked.`;
 }
 
-/** The runtime's AWS credentials, bounded, and `auth` when there are none. */
-function signedIn(identity: AwsCredentialClient): AwsCredentialClient {
-  return async () => {
-    let credentials: AwsCredentials;
-    try {
-      credentials = await withTimeout(identity(), IDENTITY_TIMEOUT_MS);
-    } catch (error) {
-      throw new ModelProviderError(
-        'auth',
-        undefined,
-        `The runtime's AWS identity gave no credentials: ${messageOf(error)}. KINDGI_AWS_IDENTITY says where they come from.`,
-        { cause: error },
-      );
-    }
-    if (credentials?.accessKeyId === undefined || credentials.accessKeyId === '') {
-      throw new ModelProviderError(
-        'auth',
-        undefined,
-        "The runtime's AWS identity returned no credentials. KINDGI_AWS_IDENTITY says where they come from.",
-      );
-    }
-    return credentials;
-  };
+/** What an attempt signed in with: the identity's credentials, or a key. */
+interface SignedIn {
+  readonly credentials?: AwsCredentials;
+  readonly key?: string;
 }
 
-/** The bearer token set on every request from the current key; `auth` when there's none. */
-function withBearerKey(
-  fetch: typeof globalThis.fetch,
-  resolveApiKey: () => Promise<string>,
-): typeof globalThis.fetch {
+/** This attempt's sign-in, read by its request. */
+function signedIn(): SignedIn {
+  const signed = attemptPrepared<SignedIn>();
+  if (signed === undefined) {
+    throw new ModelProviderError('auth', undefined, 'The request has no sign-in of its own.');
+  }
+  return signed;
+}
+
+/** The runtime's AWS credentials for an attempt: bounded, stopped with the call, `auth` when none. */
+async function awsCredentials(
+  identity: AwsCredentialClient,
+  signal: AbortSignal | undefined,
+): Promise<AwsCredentials> {
+  let credentials: AwsCredentials;
+  try {
+    credentials = await bounded(identity(), IDENTITY_TIMEOUT_MS, signal);
+  } catch (error) {
+    // (A call stopped meanwhile ends with its own reason: the retries check the signal first.)
+    throw new ModelProviderError(
+      'auth',
+      undefined,
+      `The runtime's AWS identity gave no credentials: ${messageOf(error)}. KINDGI_AWS_IDENTITY says where they come from.`,
+      { cause: error },
+    );
+  }
+  if (credentials?.accessKeyId === undefined || credentials.accessKeyId === '') {
+    throw new ModelProviderError(
+      'auth',
+      undefined,
+      "The runtime's AWS identity returned no credentials. KINDGI_AWS_IDENTITY says where they come from.",
+    );
+  }
+  return credentials;
+}
+
+/** The current key `secret_ref` names, for an attempt; `auth` when there's none. */
+async function bedrockKey(resolveApiKey: () => Promise<string>): Promise<string> {
+  let key: string;
+  try {
+    key = await resolveApiKey();
+  } catch (error) {
+    throw new ModelProviderError(
+      'auth',
+      undefined,
+      `The Bedrock API key secret_ref names couldn't be read: ${messageOf(error)}.`,
+      { cause: error },
+    );
+  }
+  // Whitespace around a key (a stored file's newline) is never the key's.
+  const trimmed = key.trim();
+  if (trimmed === '') {
+    throw new ModelProviderError(
+      'auth',
+      undefined,
+      'The Bedrock API key secret_ref names is empty.',
+    );
+  }
+  return trimmed;
+}
+
+/** The bearer token on the request, from this attempt's key. */
+function withBearerKey(fetch: typeof globalThis.fetch): typeof globalThis.fetch {
   return async (url, init) => {
-    let key: string;
-    try {
-      key = await resolveApiKey();
-    } catch (error) {
-      throw new ModelProviderError(
-        'auth',
-        undefined,
-        `The Bedrock API key secret_ref names couldn't be read: ${messageOf(error)}.`,
-        { cause: error },
-      );
-    }
-    if (key === '') {
-      throw new ModelProviderError(
-        'auth',
-        undefined,
-        'The Bedrock API key secret_ref names is empty.',
-      );
-    }
     const headers = new Headers(init?.headers);
-    headers.set('authorization', `Bearer ${key}`);
+    headers.set('authorization', `Bearer ${signedIn().key as string}`);
     return fetch(url, { ...init, headers });
   };
 }
 
-function withTimeout<T>(promise: PromiseLike<T>, ms: number): Promise<T> {
+/** No request follows a redirect, so its credential reaches the endpoint and nothing else. */
+function withoutRedirects(fetch: typeof globalThis.fetch): typeof globalThis.fetch {
+  return (url, init) => fetch(url, { ...init, redirect: 'error' });
+}
+
+/** The promise, or a failure after `ms`, or the signal's reason when the call stops first. */
+function bounded<T>(promise: PromiseLike<T>, ms: number, signal?: AbortSignal): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<never>((_, reject) => {
+  let onAbort: (() => void) | undefined;
+  const stop = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new Error(`no answer in ${ms / 1000} s`)), ms);
+    if (signal !== undefined) {
+      onAbort = () => reject(signal.reason);
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
   });
-  return Promise.race([Promise.resolve(promise), timeout]).finally(() => clearTimeout(timer));
+  return Promise.race([Promise.resolve(promise), stop]).finally(() => {
+    clearTimeout(timer);
+    if (onAbort !== undefined) signal?.removeEventListener('abort', onAbort);
+  });
 }
 
 const messageOf = (error: unknown): string =>

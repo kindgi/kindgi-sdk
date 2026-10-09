@@ -42,12 +42,14 @@ It's built on [`@kindgi/adapter-model-shared`](../model-shared/): the retries, t
 
 ## How it signs in
 
-Each of these has a test:
-- **`auth: aws-identity`:** SigV4, with credentials from the runtime's AWS identity (`AdapterFactoryInput.identities.aws`), asked for every attempt, within 10 seconds. The identity refreshes them itself, so short-lived role credentials renew. A runtime with no AWS identity refuses the registration when it registers, naming `KINDGI_AWS_IDENTITY`.
+Each of these has a test. It signs in before each attempt, with the call's abort signal, and the attempt's request carries what that sign-in got, so calls running at once never share credentials and each attempt asks the identity once.
+- **`auth: aws-identity`:** SigV4, with credentials from the runtime's AWS identity (`AdapterFactoryInput.identities.aws`), asked for every attempt, within 10 seconds; a call stopped meanwhile ends at once, with its own reason. The identity refreshes them itself, so short-lived role credentials renew. A runtime with no AWS identity refuses the registration when it registers, naming `KINDGI_AWS_IDENTITY`.
   - **Only Bedrock's runtime in the region gets them:** `bedrock-runtime.<region>`, `bedrock-runtime-fips.<region>`, or an interface VPC endpoint's own name (`vpce-….bedrock-runtime.<region>.vpce`), in the region's partition. A signed request carries the session token, so another host is refused at registration (and by the factory), naming it. A VPC endpoint with private DNS needs no `baseURL` at all. AWS lists the endpoints on [Amazon Bedrock endpoints and quotas](https://docs.aws.amazon.com/general/latest/gr/bedrock.html) and [interface VPC endpoints](https://docs.aws.amazon.com/bedrock/latest/userguide/vpc-interface-endpoints.html).
   - **Its policy:** `bedrock:InvokeModel` on each model. For an inference profile, on the profile and on the foundation model in each Region the profile routes to; AWS shows these policies, a global profile's included, on [Prerequisites for inference profiles](https://docs.aws.amazon.com/bedrock/latest/userguide/inference-profiles-prereq.html). The account also needs access to the model in the region.
-- **`auth: api-key`:** the key `secret_ref` names, read for every request and sent as the bearer token, so a rotated key takes effect on the next call. No AWS credentials are looked for.
-- **A failed sign-in** (the identity gives no credentials, the key can't be read or is empty) ends the call as an `auth` error at once, never retried. A 403 from Bedrock says what to check: the policy, the account's access to the model, or expired credentials.
+- **`auth: api-key`:** the key `secret_ref` names, read for every attempt and sent as the bearer token (whitespace around it dropped), so a rotated key takes effect on the next call. No AWS credentials are looked for.
+- **A failed sign-in** (the identity gives no credentials, the key can't be read, even with the secret store down, or is empty or blank) ends the call as an `auth` error at once, never retried.
+- **A 403 from Bedrock says what to check**, for how it signed in: the identity's policy or the IAM user's the key belongs to, the account's access to the model, or expired credentials or an expired or revoked key.
+- **No request follows a redirect** (`redirect: 'error'`): the credentials reach the endpoint and nothing else.
 - **Never the environment:** `AWS_BEARER_TOKEN_BEDROCK`, `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` / `AWS_SESSION_TOKEN`, `AWS_REGION`, `AWS_ENDPOINT_URL_BEDROCK_RUNTIME` and `AWS_ENDPOINT_URL` are never read. The provider is always given its region, its endpoint and its credentials.
 
 ## What it sends

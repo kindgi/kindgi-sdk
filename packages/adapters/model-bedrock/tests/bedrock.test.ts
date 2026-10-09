@@ -368,12 +368,19 @@ describe('a failed sign-in is auth, once, never retried', () => {
     }
   });
 
-  test('the key can’t be read, or is empty: auth, nothing sent', async () => {
+  test('the key can’t be read, or is empty or blank: auth, nothing sent', async () => {
     for (const resolveApiKey of [
       async () => {
         throw new Error('secret store unreachable');
       },
+      // A store that's down: the library would take this cause for a dropped connection.
+      async () => {
+        throw new Error('connect ECONNREFUSED 127.0.0.1:5432', {
+          cause: Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' }),
+        });
+      },
       async () => '',
+      async () => ' \n',
     ]) {
       const sent: Sent[] = [];
       const read = vi.fn(resolveApiKey);
@@ -387,6 +394,70 @@ describe('a failed sign-in is auth, once, never retried', () => {
       expect(read).toHaveBeenCalledTimes(1);
       expect(sent).toEqual([]);
     }
+  });
+});
+
+describe('each attempt signs in for itself', () => {
+  test('calls at once: one ask of the identity each, each request signed with its own', async () => {
+    const sent: Sent[] = [];
+    const aws = identity();
+    const provider = build({}, { fetch: capturingFetch(sent), identities: { aws } });
+    await Promise.all(Array.from({ length: 20 }, () => provider.invoke(ask())));
+    expect(aws).toHaveBeenCalledTimes(20);
+    const keys = sent.map(
+      (s) => /Credential=(ASIATESTKEY\d+)\//.exec(s.headers.get('authorization') ?? '')?.[1],
+    );
+    expect(new Set(keys).size).toBe(20);
+    // Each request's session token is its own credentials'.
+    for (const s of sent) {
+      const n = /ASIATESTKEY(\d+)/.exec(s.headers.get('authorization') ?? '')?.[1];
+      expect(s.headers.get('x-amz-security-token')).toBe(`session-${n}`);
+    }
+  });
+
+  test('an abort while the identity is asked ends the call at once, its reason', async () => {
+    // No timer fires here: only the abort can end the wait for an identity that never answers.
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      const controller = new AbortController();
+      const aws = vi.fn(() => new Promise<never>(() => {}));
+      const pending = build({}, { fetch: capturingFetch([]), identities: { aws } })
+        .invoke({ ...ask(), abortSignal: controller.signal })
+        .catch((e: unknown) => e);
+      while (aws.mock.calls.length === 0) {
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+      const reason = new Error('turn stopped');
+      controller.abort(reason);
+      expect(await pending).toBe(reason);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test('a key with whitespace around it is sent without', async () => {
+    const sent: Sent[] = [];
+    await build(
+      { auth: 'api-key' },
+      { fetch: capturingFetch(sent), resolveApiKey: async () => 'bedrock-key\n' },
+    ).invoke(ask());
+    expect(sent[0]?.headers.get('authorization')).toBe('Bearer bedrock-key');
+  });
+
+  test.each([
+    ['aws-identity', {}, { identities: { aws: identity() } }],
+    ['api-key', { auth: 'api-key' }, { resolveApiKey: async () => 'k' }],
+  ] as const)('%s: no request follows a redirect', async (_auth, config, extra) => {
+    const redirects: RequestInit['redirect'][] = [];
+    const fetch = capturingFetch([]);
+    await build(config, {
+      ...extra,
+      fetch: (async (input: string | URL | Request, init?: RequestInit) => {
+        redirects.push(init?.redirect);
+        return fetch(input, init);
+      }) as typeof globalThis.fetch,
+    }).invoke(ask());
+    expect(redirects).toEqual(['error']);
   });
 });
 
@@ -453,8 +524,25 @@ describe('more of what it sends', () => {
     expect(attemptsOf(err)).toBe(1);
     const message = (err as Error).message;
     expect(message).toContain('is expired');
-    expect(message).toContain('bedrock:InvokeModel');
+    expect(message).toContain("the runtime's identity's policy lacks bedrock:InvokeModel");
     expect(message).toContain('access to the model in us-east-2');
+  });
+
+  test('a 403 with a Bedrock API key: what to check is the key’s', async () => {
+    const err = await build(
+      { auth: 'api-key' },
+      {
+        fetch: capturingFetch([], 403, { message: 'Authentication failed' }),
+        resolveApiKey: async () => 'k',
+      },
+    )
+      .invoke(ask())
+      .catch((e: unknown) => e);
+    expect(err).toMatchObject({ kind: 'auth', status: 403 });
+    const message = (err as Error).message;
+    expect(message).toContain('the IAM user the API key belongs to lacks bedrock:InvokeModel');
+    expect(message).toContain('the key has expired or been revoked');
+    expect(message).not.toContain('identity');
   });
 
   test('a 408 (the model timed out) is unavailable, retried, never context-too-long', async () => {
