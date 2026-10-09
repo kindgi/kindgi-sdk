@@ -334,9 +334,10 @@ prints the dependency to add to it:
 </dependency>
 ```
 
-kindgi-pack comes from Maven Central, at the CLI's version. An app with both a
-`package.json` and a `pom.xml` gets a TypeScript pack unless you pass
-`--template=java`.
+kindgi-pack comes from Maven Central, at the CLI's version. It needs Jackson
+2.18 or later in your app (it declares 2.18.11): in a Spring Boot app, Spring
+Boot 3.4 or later. An app with both a `package.json` and a `pom.xml` gets a
+TypeScript pack unless you pass `--template=java`.
 
 `kindgi dev` runs the app's own Maven (its `mvnw`, else `mvn`; `dev.maven` in
 `kindgi.config.json` names another, such as `["mvn", "-s", "settings.xml"]`)
@@ -406,7 +407,7 @@ libraryDependencies += "com.kindgi" %% "kindgi-pack-scala" % "…"
 ```
 
 kindgi-pack-scala, and kindgi-pack under it, come from Maven Central at the
-CLI's version. An app with a `build.sbt` next to a `package.json` or a
+CLI's version. Like kindgi-pack, it needs Jackson 2.18 or later in your app. An app with a `build.sbt` next to a `package.json` or a
 `pom.xml` gets a TypeScript or Java pack unless you pass `--template=scala`.
 
 `kindgi dev` builds through the app's sbt server (`sbt --client`): it starts
