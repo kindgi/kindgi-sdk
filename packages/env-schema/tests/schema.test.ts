@@ -87,6 +87,7 @@ describe('envVarsForTarget', () => {
     ['azure', 'KINDGI_SECRETS_AZURE_VAULT_URL'],
     ['gcp', 'KINDGI_SECRETS_GCP_PROJECT_ID'],
     ['aws', 'KINDGI_SECRETS_AWS_REGION'],
+    ['vault', 'KINDGI_SECRETS_VAULT_ADDR'],
   ] as const)('secret-manager + %s needs %s, and nothing of the KMS', (manager, needed) => {
     const vars = envVarsForTarget({ secretsBackend: 'secret-manager', secretsManager: manager });
     const byName = new Map(vars.map((v) => [v.name, v]));

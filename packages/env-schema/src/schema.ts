@@ -113,6 +113,7 @@ export const ENV_GROUPS = {
   gcp: 'GCP vendor config (postgres + gcp KMS; secret-manager + gcp)',
   azure:
     "Azure vendor config (the server's managed identity; postgres + azure KMS; secret-manager + azure)",
+  vault: 'HashiCorp Vault / OpenBao (secret-manager + vault)',
   aws: 'AWS vendor config (secret-manager + aws)',
   'local-key': 'Local key (postgres + libsodium: a key this runtime holds, single-node)',
   'pack-service': 'Pack service (runs the pack code: tools and guardrail checks)',
@@ -402,7 +403,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_SECRETS_MANAGER',
     description:
-      "Which secret manager the `secret-manager` backend keeps secrets in: `azure` (Azure Key Vault, see `KINDGI_SECRETS_AZURE_VAULT_URL`). Kindgi reads and writes them with the server's own platform identity and keeps only their names and version numbers in its database. Reserved: `gcp` (Google Secret Manager, in `KINDGI_SECRETS_GCP_PROJECT_ID`), `aws`, `vault`.",
+      "Which secret manager the `secret-manager` backend keeps secrets in: `azure` (Azure Key Vault, see `KINDGI_SECRETS_AZURE_VAULT_URL`) or `vault` (HashiCorp Vault or OpenBao, see `KINDGI_SECRETS_VAULT_ADDR`). Kindgi reads and writes them with the server's own identity and keeps only their names and version numbers in its database. Reserved: `gcp` (Google Secret Manager, in `KINDGI_SECRETS_GCP_PROJECT_ID`), `aws`.",
     example: 'azure',
     required: true,
     appliesTo: appliesToSecretManagerBackend,
@@ -518,6 +519,71 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     required: true,
     appliesTo: appliesToSecretManager('azure'),
     group: 'azure',
+  },
+
+  // ---- HashiCorp Vault / OpenBao (`KINDGI_SECRETS_MANAGER=vault`) ----
+  {
+    name: 'KINDGI_SECRETS_VAULT_ADDR',
+    description:
+      "The Vault (or OpenBao) that holds the secrets set through Kindgi's API (`secret-manager` backend, manager `vault`): its address. `https://`, or plain `http://` only to a Vault Agent on the same machine (`http://127.0.0.1:8100`) or in development. The server's token needs, on its kv version 2 mount (`KINDGI_SECRETS_VAULT_MOUNT`): `create`, `read`, `update` on `<mount>/data/*`; `read`, `delete`, `list` on `<mount>/metadata/*`; `update` on `<mount>/delete/*` and `<mount>/destroy/*`. A custom CA: `NODE_EXTRA_CA_CERTS`.",
+    example: 'https://vault.example.com:8200',
+    required: true,
+    appliesTo: appliesToSecretManager('vault'),
+    group: 'vault',
+  },
+  {
+    name: 'KINDGI_SECRETS_VAULT_MOUNT',
+    description:
+      'The kv version 2 mount Kindgi keeps its secrets in. Use one for these alone. Default `secret`.',
+    example: 'kindgi',
+    required: false,
+    appliesTo: appliesToSecretManager('vault'),
+    group: 'vault',
+  },
+  {
+    name: 'KINDGI_SECRETS_VAULT_NAMESPACE',
+    description:
+      'The Vault Enterprise or HCP Vault namespace (`admin`, `admin/team`). Unset: none.',
+    example: 'admin',
+    required: false,
+    appliesTo: appliesToSecretManager('vault'),
+    group: 'vault',
+  },
+  {
+    name: 'KINDGI_SECRETS_VAULT_TOKEN_FILE',
+    description:
+      "A file holding the server's Vault token, kept fresh by the platform: Vault Agent's sink, or a mounted secret. Read again every minute, and when Vault refuses the token. Set this or `KINDGI_SECRETS_VAULT_K8S_ROLE`. Kindgi never reads `VAULT_TOKEN` or `~/.vault-token`.",
+    example: '/vault/secrets/token',
+    required: false,
+    appliesTo: appliesToSecretManager('vault'),
+    group: 'vault',
+  },
+  {
+    name: 'KINDGI_SECRETS_VAULT_K8S_ROLE',
+    description:
+      "The role of Vault's Kubernetes auth method the server logs in with, using its pod's service account token. Its token is renewed by logging in again before its lease ends. Set this or `KINDGI_SECRETS_VAULT_TOKEN_FILE`.",
+    example: 'kindgi-runtime',
+    required: false,
+    appliesTo: appliesToSecretManager('vault'),
+    group: 'vault',
+  },
+  {
+    name: 'KINDGI_SECRETS_VAULT_K8S_MOUNT',
+    description:
+      "Where Vault's Kubernetes auth method is mounted, with `KINDGI_SECRETS_VAULT_K8S_ROLE`. Default `kubernetes`.",
+    example: 'kubernetes-prod',
+    required: false,
+    appliesTo: appliesToSecretManager('vault'),
+    group: 'vault',
+  },
+  {
+    name: 'KINDGI_SECRETS_VAULT_K8S_TOKEN_FILE',
+    description:
+      'The service account token the Kubernetes login sends, with `KINDGI_SECRETS_VAULT_K8S_ROLE`. Default `/var/run/secrets/kubernetes.io/serviceaccount/token`; set it for a projected token with its own audience.',
+    example: '/var/run/secrets/vault/token',
+    required: false,
+    appliesTo: appliesToSecretManager('vault'),
+    group: 'vault',
   },
 
   // ---- AWS vendor -------------------------------------------------
