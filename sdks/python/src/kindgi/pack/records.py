@@ -75,7 +75,8 @@ def pack_service_logs(
     """
     environ = {k: v for k, v in env.items() if k != "KINDGI_DEV"}
     sink = write or _stderr
-    root, problems = logger_from_env(environ, write=sink, is_tty=is_tty, subsystems=["pack"])
+    # No unknown-subsystem check: pack code logs under its own names too.
+    root, problems = logger_from_env(environ, write=sink, is_tty=is_tty)
     fmt = resolve_log_format(environ.get("KINDGI_LOG_FORMAT"), is_tty=is_tty) or "json"
     always = create_logger(
         write=sink,

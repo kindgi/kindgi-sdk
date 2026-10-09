@@ -537,6 +537,9 @@ importers:
       '@kindgi/handler-runtime':
         specifier: workspace:*
         version: link:../handler-runtime
+      '@kindgi/log':
+        specifier: workspace:*
+        version: link:../log
       '@kindgi/platform':
         specifier: workspace:*
         version: link:../platform

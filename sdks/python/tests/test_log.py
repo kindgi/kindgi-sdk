@@ -21,6 +21,7 @@ from kindgi.log import (
     child_span,
     configure,
     create_logger,
+    format_pretty,
     get_logger,
     logger_from_env,
     noop_logger,
@@ -52,7 +53,7 @@ def test_the_shared_vectors(case: dict[str, Any]) -> None:
         if "code" in spec:
             err.code = spec["code"]  # type: ignore[attr-defined]
         fields["err"] = err
-    getattr(log, case["level"])(case["message"], fields)
+    getattr(log, case["level"])(case["message"], fields, in_message=case.get("inMessage"))
     if case["expected"] is None:
         assert lines == []
         return
@@ -60,6 +61,24 @@ def test_the_shared_vectors(case: dict[str, Any]) -> None:
     got = json.loads(lines[0])
     assert got == case["expected"]
     assert list(got) == list(case["expected"])  # keys in the same order
+
+
+def test_stated_fields_are_left_out_of_a_pretty_line_and_named_in_json() -> None:
+    fields = {"method": "POST", "route": "/v1/runs", "status": 201, "durationMs": 12}
+    stated = ["method", "route", "status", "durationMs"]
+    pretty: list[str] = []
+    create_logger(write=pretty.append, format="pretty", now=lambda: NOW).child(
+        subsystem="http"
+    ).info("POST /v1/runs 201 12ms", {**fields, "tenantId": "t-1"}, in_message=stated)
+    assert pretty == ["12:00:00.000 INFO  [http] POST /v1/runs 201 12ms tenantId=t-1"]
+    lines: list[str] = []
+    create_logger(write=lines.append, now=lambda: NOW).child(subsystem="http").info(
+        "POST /v1/runs 201 12ms", {**fields, "tenantId": "t-1"}, in_message=stated
+    )
+    record = json.loads(lines[0])
+    assert record["inMessage"] == stated
+    # Read back from JSON, the record renders as it did at the source.
+    assert format_pretty(record) == pretty[0]
 
 
 def test_a_bad_setting_is_refused_naming_it() -> None:

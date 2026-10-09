@@ -36,6 +36,7 @@ const FIXED: ReadonlySet<string> = new Set([
   'subsystem',
   'message',
   'err',
+  'inMessage',
 ]);
 
 function pretty(value: unknown): string {
@@ -67,8 +68,9 @@ function errorLines(err: SerializedError): string[] {
  * The pretty format, for a person at a terminal:
  * `HH:MM:SS.mmm LEVEL [subsystem] message key=value …`, an error's
  * frames on the lines after. Colours only when `color` is set (a
- * terminal, and `NO_COLOR` unset). `omit`: fields the message already
- * states (`LogOptions.inMessage`), left out of the line.
+ * terminal, and `NO_COLOR` unset). The fields the message already states
+ * (the record's `inMessage`, and any in `omit`) are left out of the line,
+ * so a record read back from JSON renders as it would have at the source.
  */
 export function formatPretty(
   record: LogRecord,
@@ -77,7 +79,7 @@ export function formatPretty(
   const color = options.color === true;
   const time = record.time.slice(11, 23);
   const label = LEVEL_LABEL[record.level];
-  const omit = options.omit ?? [];
+  const omit = [...(options.omit ?? []), ...(record.inMessage ?? [])];
   const fields = Object.entries(record)
     .filter(([key, value]) => !FIXED.has(key) && value !== undefined && !omit.includes(key))
     .map(([key, value]) => `${key}=${pretty(value)}`);
