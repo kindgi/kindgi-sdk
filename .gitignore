@@ -10,6 +10,8 @@ build/
 out/
 *.tsbuildinfo
 .turbo/
+# Maven (sdks/java)
+sdks/java/**/target/
 
 # Test + coverage
 coverage/
