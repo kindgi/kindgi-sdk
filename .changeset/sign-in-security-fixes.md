@@ -2,7 +2,7 @@
 "@kindgi/api": patch
 ---
 
-Sign-in security fixes from the SSO review:
+Sign-in security fixes:
 - **CSRF:** a deployment without `KINDGI_PUBLIC_URL` (the same-origin check) now accepts a cookie-authenticated change only from an `https:` Origin, or plain `http:` on loopback. A plain-http page on the same host, an on-path attacker's, is refused `403 csrf-origin-mismatch`.
 - **Session stores:** `createApp` refuses cookie sessions over a session store without `resolveToken`. The cookie would otherwise hold the session id, which isn't secret (whoami and the audit trail show it).
 - **Audit trail:**

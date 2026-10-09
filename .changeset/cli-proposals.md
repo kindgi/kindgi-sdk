@@ -2,7 +2,7 @@
 "@kindgi/cli": patch
 ---
 
-`kindgi proposals` works with improvement proposals (it was unwired):
+`kindgi proposals` works with improvement proposals (before, it wasn't implemented):
 - **`draft`:** new content for one data block an agent version pins, for one scope.
   - `--values=<json>|@<file>` for a settings block, or `--template=<text>|@<file>` for a prompt block.
   - It takes `--hypothesis` and repeatable `--judgment` evidence.
