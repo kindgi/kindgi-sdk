@@ -6774,6 +6774,12 @@ export const SignInOptionSchema: JsonSchema = {
       type: 'string',
       description: 'Where the browser goes to start signing in with this provider.',
     },
+    owner: {
+      type: 'string',
+      enum: ['tenant', 'deployment'],
+      description:
+        'Whose it is: a workspace\'s own identity provider (`tenant`), or one the deployment offers everyone it has added ("Continue with Google", `deployment`). A sign-in page shows a workspace\'s own first. Absent: `tenant`.',
+    },
   },
 };
 
@@ -6797,6 +6803,15 @@ export const SignInOptionsSchema: JsonSchema = {
         apiToken: {
           type: 'boolean',
           description: 'Sign-in to the console with an API token (`POST /v1/auth/token-sign-in`).',
+        },
+        emailLink: {
+          type: 'object',
+          additionalProperties: false,
+          description:
+            'Present when the deployment emails sign-in links: a sign-in page offers "Email me a sign-in link". With `captchaSiteKey`, the request needs a Cloudflare Turnstile token (`x-captcha-response`).',
+          properties: {
+            captchaSiteKey: { type: 'string', minLength: 1 },
+          },
         },
       },
     },
@@ -7015,6 +7030,11 @@ export const WhoamiResultSchema: JsonSchema = {
     projectId: {
       type: 'string',
       description: "The project the caller's API key is limited to, when it is.",
+    },
+    tenantAdmin: {
+      type: 'boolean',
+      description:
+        'Whether the caller is a tenant admin, decided as the admin routes decide it: `admin` on the tenant when the runtime authorizes, otherwise the `tenant-admin` scope of a full key (never a `member` key or one limited to a project). A console shows its admin pages by it. Absent from older servers: read `scopes`.',
     },
   },
 };

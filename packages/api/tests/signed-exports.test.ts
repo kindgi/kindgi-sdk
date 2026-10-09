@@ -37,8 +37,8 @@ import {
 } from '@kindgi/crypto';
 import type { ExportSigningBinding } from '@kindgi/crypto';
 import { compileInlineSchema } from '@kindgi/schema';
-import { createStubAppBindings } from '@kindgi/testing';
 import type { SigningKeyId, TenantId, UserId } from '@kindgi/types';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type {

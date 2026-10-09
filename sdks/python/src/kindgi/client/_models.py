@@ -6321,6 +6321,22 @@ class SignInOption(BaseModel):
     """
     Where the browser goes to start signing in with this provider.
     """
+    owner: Literal["tenant", "deployment"] | None = None
+    """
+    Whose it is: a workspace's own identity provider (`tenant`), or one the deployment offers everyone it has added ("Continue with Google", `deployment`). A sign-in page shows a workspace's own first. Absent: `tenant`.
+    """
+
+
+class EmailLink(BaseModel):
+    """
+    Present when the deployment emails sign-in links: a sign-in page offers "Email me a sign-in link". With `captchaSiteKey`, the request needs a Cloudflare Turnstile token (`x-captcha-response`).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    captcha_site_key: Annotated[str | None, Field(alias="captchaSiteKey", min_length=1)] = None
 
 
 class Methods(BaseModel):
@@ -6339,6 +6355,10 @@ class Methods(BaseModel):
     api_token: Annotated[bool, Field(alias="apiToken")]
     """
     Sign-in to the console with an API token (`POST /v1/auth/token-sign-in`).
+    """
+    email_link: Annotated[EmailLink | None, Field(alias="emailLink")] = None
+    """
+    Present when the deployment emails sign-in links: a sign-in page offers "Email me a sign-in link". With `captchaSiteKey`, the request needs a Cloudflare Turnstile token (`x-captcha-response`).
     """
 
 
@@ -9885,6 +9905,10 @@ class WhoamiResult(BaseModel):
     project_id: Annotated[str | None, Field(alias="projectId")] = None
     """
     The project the caller's API key is limited to, when it is.
+    """
+    tenant_admin: Annotated[bool | None, Field(alias="tenantAdmin")] = None
+    """
+    Whether the caller is a tenant admin, decided as the admin routes decide it: `admin` on the tenant when the runtime authorizes, otherwise the `tenant-admin` scope of a full key (never a `member` key or one limited to a project). A console shows its admin pages by it. Absent from older servers: read `scopes`.
     """
 
 

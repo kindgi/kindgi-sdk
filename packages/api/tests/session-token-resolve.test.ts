@@ -7,7 +7,7 @@ import { describe, expect, test } from 'vitest';
 
 import type { SessionId, TenantId, Timestamp } from '@kindgi/types';
 
-import { createStubAppBindings } from '@kindgi/testing';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { MULTI_TENANT_LOOKUP, SESSION_TOKEN_PREFIX, createApp } from '../src/index.js';
 import type {
