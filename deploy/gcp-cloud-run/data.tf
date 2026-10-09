@@ -110,6 +110,16 @@ resource "google_secret_manager_secret_iam_member" "server_reads" {
   member    = "serviceAccount:${google_service_account.server.email}"
 }
 
+# The server's own secret settings (var.server_secret_env, e.g. sign-in's):
+# the operator created them; the server gets read access to exactly these.
+# One in another project is granted there, not here (README).
+resource "google_secret_manager_secret_iam_member" "server_reads_its_secrets" {
+  for_each  = { for name, ref in var.server_secret_env : name => ref if ref.project == null }
+  secret_id = "projects/${var.project_id}/secrets/${each.value.secret}"
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.server.email}"
+}
+
 # ---- export signing (opt-in: var.export_signing) ----------------------------
 
 # "secret": the key in Secret Manager. Its own container, created only
