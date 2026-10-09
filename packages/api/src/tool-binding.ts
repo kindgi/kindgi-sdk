@@ -96,6 +96,8 @@ export interface ToolRegistryBinding {
    * same `(toolId, version)` is re-published; the route maps that to
    * `409`. Semver hygiene: version numbers are single-use even after
    * unregister — reinstate instead of republishing the same bytes.
+   * A version of a tool whose versions live in another project is
+   * `project-mismatch` (tools never move between projects; `409 tool-project-mismatch`).
    */
   publish(input: ToolPublishInput): Promise<ToolPublishOutcome>;
   /**
@@ -235,6 +237,18 @@ export type ToolPublishOutcome =
       readonly kind: 'project-not-found';
       readonly toolId: ToolId;
       readonly version: Semver;
+      readonly projectId: ProjectId;
+    }
+  | {
+      /**
+       * The tool's versions live in another project: a tool belongs to
+       * the project its first version was published into, and never
+       * moves. Nothing is written (the route answers `409 tool-project-mismatch`).
+       */
+      readonly kind: 'project-mismatch';
+      readonly toolId: ToolId;
+      readonly version: Semver;
+      /** The project the tool belongs to. */
       readonly projectId: ProjectId;
     };
 
