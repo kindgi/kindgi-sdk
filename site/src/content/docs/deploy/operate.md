@@ -459,6 +459,11 @@ and what's different after:
   end, as in Python, which gains `runs.follow` too. `runs.stream` and
   `runs.streamProgress` are deprecated
   ([Follow a run](../../guides/runs/follow-a-run/)).
+- **Paging conversations, approvals and runs no longer skips rows.** A row
+  created in the same millisecond as a page's last row (for approvals, at the
+  same instant) could be left out of the next page. Cursors you hold keep
+  working. A cursor whose time isn't a time is now `400 bad-input` on
+  conversations and runs, as it already was on approvals.
 - **The CLI:**
   - a usage error (a missing argument, a bad flag value) exits `2`; `1` is
     for a call that failed;
@@ -471,7 +476,11 @@ and what's different after:
     `KINDGI_DEV_GOOGLE_CREDENTIALS` names them: a pack that uses Vertex AI
     adds `KINDGI_DEV_GOOGLE_CREDENTIALS=adc` to its `.env`
     ([Gemini on Vertex AI](../../guides/models/gemini-on-vertex-ai/));
-  - `kindgi console` opens the console, and so does `kindgi dev --open`.
+  - `kindgi console` opens the console, and so does `kindgi dev --open`;
+  - under `kindgi dev`, **Sign in as seeded user** shows only when the console
+    is at a loopback address (`localhost`, `127.0.0.1` or `[::1]`); from
+    another address, sign in with the dev token. A deployed console no longer
+    asks for it.
 - **New in 0.1.5:**
   - **Sign-in** with your organization's identity provider
     ([Set up SSO](../../guides/sso/)), and with Google, Microsoft or GitHub
