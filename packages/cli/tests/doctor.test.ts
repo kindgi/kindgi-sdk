@@ -240,6 +240,9 @@ describe('the machine', () => {
     expect(check('registry')?.fix).toMatch(
       /npx @kindgi\/cli@\S+ auth registry --username <robot name> --password-stdin/,
     );
+    expect(check('registry')?.fix).toContain(
+      'come from https://access.kindgi.com, signed in with GitHub',
+    );
   });
 
   test("a credential helper Docker can't run: named, with the fix, not a network problem", async () => {

@@ -26,6 +26,7 @@ import {
   RUNTIME_PACK_DIR,
   RUNTIME_PUBLIC_TOKEN_KEY,
 } from './runtime-env.js';
+import { RUNTIME_ACCESS_URL } from './runtime-image.js';
 import {
   credentialHelperFailure,
   credentialHelperHint,
@@ -151,7 +152,7 @@ export async function ensureRuntimeImage(
     helper !== undefined
       ? `\n  ${credentialHelperHint(helper.helper)}`
       : isRegistryAuthFailure(pulled.stderr)
-        ? `\n  The runtime image is in private preview: request access at contact@kindgi.com, log in with the pull credentials you receive (${registryLoginCommand(image)}), then run kindgi dev again.`
+        ? `\n  The runtime image is in private preview: get pull credentials at ${RUNTIME_ACCESS_URL} (sign in with GitHub), log in (${registryLoginCommand(image)}), then run kindgi dev again.`
         : '';
   return { kind: 'error', message: `Couldn't pull ${image}: ${detail}${auth}` };
 }

@@ -6,6 +6,7 @@ import type { CommandContext } from '../context.js';
 import { type DockerRunner, docker } from '../dev/runtime-container.js';
 import {
   DEFAULT_RUNTIME_IMAGE,
+  RUNTIME_ACCESS_URL,
   RUNTIME_IMAGE_REGISTRY,
   imageOnRegistry,
   registryOf,
@@ -188,7 +189,7 @@ function registryArgs(ctx: CommandContext): RegistryArgs | (CommandResult & { ki
   }
   if (!check && (typeof username !== 'string' || username === '')) {
     return usageError(
-      'Missing --username=<name>: the robot name you were given with your pull token (request access at contact@kindgi.com).\nTo check access without logging in: kindgi auth registry --check.',
+      `Missing --username=<name>: the robot name that comes with your pull token (get yours at ${RUNTIME_ACCESS_URL}, signed in with GitHub).\nTo check access without logging in: kindgi auth registry --check.`,
     );
   }
   return {
@@ -279,8 +280,8 @@ function accessFailure(
     return [
       `  ✗ No access to ${image}: ${access.detail}`,
       args.username === undefined
-        ? `    The runtime image is in private preview: request access at contact@kindgi.com, then log in with the pull credentials you receive: ${registryLoginCommand(image)}.`
-        : `    ${args.username} is logged in to ${args.host} but can't pull it: request access at contact@kindgi.com.`,
+        ? `    The runtime image is in private preview: get pull credentials at ${RUNTIME_ACCESS_URL} (sign in with GitHub), then log in: ${registryLoginCommand(image)}.`
+        : `    ${args.username} is logged in to ${args.host} but can't pull it: sign in at ${RUNTIME_ACCESS_URL} for current pull credentials.`,
     ];
   }
   if (access.kind === 'credential-helper') {
