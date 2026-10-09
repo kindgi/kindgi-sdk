@@ -109,7 +109,7 @@ class ToolContext:
     The pack service's own environment stays in `os.environ`."""
     secrets: Mapping[str, Any] = field(default_factory=_empty, repr=False)
     """The secrets the tool declares (`needs_spec["secrets"]`), resolved for this call's tenant.
-    An optional one (its schema accepts null: `{"type": ["string", "null"]}`) is absent when the
+    An optional one (its schema names null: `{"type": ["string", "null"]}`) is absent when the
     env doesn't have it, or has it empty: read it with `.get` (runtime 0.1.6 or later; an older
     runtime requires it). Never in the context's `repr`, so printing a context never prints a
     secret."""

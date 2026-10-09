@@ -267,7 +267,17 @@ export interface SecretRevokeOutcome {
 }
 
 export type SecretError =
-  | { readonly code: 'secret-not-found'; readonly message: string; readonly name: string }
+  | {
+      readonly code: 'secret-not-found';
+      readonly message: string;
+      readonly name: string;
+      /**
+       * Why it isn't there, when it's more than "never stored": `deleted-at-provider` when the
+       * secret is mapped but its provider has no value for it (deleted there). Absent: it was
+       * never stored. A tool's optional secret is "not set" only when it was never stored.
+       */
+      readonly reason?: 'deleted-at-provider';
+    }
   | { readonly code: 'secret-revoked'; readonly message: string; readonly name: string }
   | {
       readonly code: 'secret-version-not-found';

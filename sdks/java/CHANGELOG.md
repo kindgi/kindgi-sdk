@@ -7,7 +7,7 @@ heading into its version.
 
 ## Unreleased
 
-- `kindgi-pack`, `kindgi-pack-scala`: **a secret whose schema accepts null is
+- `kindgi-pack`, `kindgi-pack-scala`: **a secret whose schema names null is
   optional** (`.set("needsSpec", …)` with `"type": ["string", "null"]`): with
   runtime 0.1.6 or later, one the env doesn't have, or has empty, is absent
   from `ctx.secrets()`, and the call goes on. The index keeps the schema as

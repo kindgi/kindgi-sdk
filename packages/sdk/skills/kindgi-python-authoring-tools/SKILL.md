@@ -141,7 +141,7 @@ The runtime resolves every declared secret on every call — for the
 call's tenant, in its env (`KINDGI_ENV`; in `kindgi dev`, `local`: the
 pack's `.env` and `.env.local`) — checks it against its schema, and
 fails the call, naming the secret, when it is missing or doesn't match.
-A declared secret is required, unless its schema accepts null
+A declared secret is required, unless its schema names null
 (`{"type": ["string", "null"]}`): an optional one the env doesn't have, or
 has empty, is absent from `ctx.secrets` (read it with `.get`), and the call
 goes on (runtime 0.1.6 or later; an older runtime requires it). In a test, pass them:
