@@ -13,14 +13,15 @@ Today's engine for sending the requests is the [AI SDK](https://ai-sdk.dev)'s pr
   - A vendor asking for more than 60 s ends the call at once, its wait in the message (`… (the vendor asks to wait 120 s)`), rather than retrying early into a limit it named.
   - An answer the library can't read (a malformed 200, an empty body) is tried once more, not twice: each answer may be billed.
   - Each attempt is counted (`@kindgi/capabilities/attempts`): a result's `attempts`, or `attemptsOf(error)` for a failed call.
-  - An abort, in flight or during a wait, rejects with the caller's reason.
+  - An abort, before the first attempt, in flight or during a wait, rejects with the caller's reason.
 - **Errors are typed.** A failed call throws `ModelProviderError` with a `kind`:
   - `auth`: 401, 403;
   - `rate-limited`: 429;
   - `unavailable`: 408 (the vendor timing out), 409, 424 (Bedrock's model failure), 5xx, and an answer the library can't read;
   - `context-too-long` and `content-filter`, read from the vendor's words on a 400, 413 or 422 ("maximum context length", "prompt is too long", not any mention of "context");
   - `invalid-request`, including a request the library refuses before sending it;
-  - `network`: no response at all (`fetch failed`, a connection reset or refused, DNS, a socket timeout).
+  - `network`: no response at all (`fetch failed`, a connection reset or refused, DNS, a socket timeout). A host refused before any connection (a system-style code that isn't a dropped connection's, such as the runtime's egress refusal `EKINDGIEGRESS`) is `network` too, never retried.
+  - A redirect the request won't follow (an adapter's credential goes to its endpoint only) is `unavailable`, never retried.
   It also has the HTTP `status`. Its message is the vendor's own words after the status (`401 {"message":"…"}`), as other adapters' failed calls read.
   - An adapter's own `ModelProviderError` (its sign-in failed, say) ends the call as it is, never retried, even when the library re-wrapped it as a connection failure.
   - Anything else (a bug, ours or the library's) propagates as it is, not retried and not dressed as the vendor's answer.

@@ -556,6 +556,61 @@ describe('errors and retries', () => {
     expect(attemptsOf(err)).toBe(3);
   });
 
+  test('a redirect the request won’t follow: unavailable, once, saying why', async () => {
+    // As undici rejects it, and the AI SDK re-wraps it as a connection failure it would retry.
+    const redirect = new APICallError({
+      message: 'Cannot connect to API: unexpected redirect',
+      url: 'https://llm.example.invalid/v1/generate',
+      requestBodyValues: {},
+      cause: new Error('unexpected redirect'),
+      isRetryable: true,
+    });
+    const err = await provider([{ throws: redirect }, ANSWER])
+      .invoke(ask)
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ModelProviderError);
+    expect(err).toMatchObject({ kind: 'unavailable', status: undefined });
+    expect((err as Error).message).toContain("a redirect, which isn't followed");
+    expect(attemptsOf(err)).toBe(1);
+  });
+
+  test('a host refused by the runtime’s egress rules (a system-style code): network, once', async () => {
+    const refused = Object.assign(
+      new Error('egress refused: 169.254.169.254 is link-local, which this deployment forbids'),
+      { code: 'EKINDGIEGRESS' },
+    );
+    for (const thrown of [
+      refused,
+      new APICallError({
+        message: `Cannot connect to API: ${refused.message}`,
+        url: 'https://llm.example.invalid/v1/generate',
+        requestBodyValues: {},
+        cause: refused,
+        isRetryable: true,
+      }),
+    ]) {
+      const err = await provider([{ throws: thrown }, ANSWER])
+        .invoke(ask)
+        .catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(ModelProviderError);
+      expect(err).toMatchObject({ kind: 'network', message: refused.message });
+      expect(attemptsOf(err)).toBe(1);
+    }
+  });
+
+  test('a call stopped before it starts: its reason, no sign-in, no request', async () => {
+    const controller = new AbortController();
+    const reason = new Error('turn stopped');
+    controller.abort(reason);
+    const beforeAttempt = vi.fn(async () => 'token');
+    const err = await provider([ANSWER], [], { beforeAttempt })
+      .invoke({ ...ask, abortSignal: controller.signal })
+      .catch((e: unknown) => e);
+    expect(err).toBe(reason);
+    expect(beforeAttempt).not.toHaveBeenCalled();
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
   test('an answer the library can’t read is unavailable, retried once', async () => {
     const unreadable = new JSONParseError({ text: '<html>', cause: new Error('Unexpected <') });
     const err = await withoutWaiting(provider([{ throws: unreadable }]).invoke(ask));

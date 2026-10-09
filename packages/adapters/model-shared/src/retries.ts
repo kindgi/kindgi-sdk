@@ -37,13 +37,17 @@ export async function withRetries<T, F extends RetryableFailure = RetryableFailu
   policy: RetryPolicy<F>,
 ): Promise<T> {
   const { signal } = policy;
+  // A call, not a narrowed property: the signal can abort during any await.
+  const stopped = () => signal?.aborted === true;
   for (let attempt = 1; ; attempt += 1) {
+    // Stopped before this attempt (already, or during the wait): no attempt at all.
+    if (stopped()) throw signal?.reason;
     try {
       return await send();
     } catch (error) {
       // Stopped by the caller: its reason, whether the abort landed in flight or between
       // attempts.
-      if (signal?.aborted === true) throw signal.reason ?? error;
+      if (stopped()) throw signal?.reason ?? error;
       if ((error as Error)?.name === 'AbortError') throw error;
       const failure = policy.describe(error);
       const attempts = Math.min(policy.attempts, failure.maxAttempts ?? policy.attempts);
