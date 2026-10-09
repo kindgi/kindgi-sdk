@@ -118,8 +118,12 @@ can't be routed to a model, or the check throws: pack code that crashed, a
 pack service that couldn't be reached) never counts as passed:
 
 - With `halt`, the turn fails with `guardrail-violation`. Its `violations`
-  is empty, and `evaluationErrors` names the guardrail and says why:
-  `Turn blocked: guardrail 'my-pack.answer-length' couldn't run its check (unknown-check: …)`.
+  is empty, `evaluationErrors` names the guardrail, and the message says
+  why. Here a guardrail names a pack check that nothing deployed:
+
+  ```text
+  Error [guardrail-violation]: Turn blocked: guardrail 'acme.pack-only' couldn't run its check (unknown-check: Guardrail "acme.pack-only" references unregistered check "acme.checks.not-deployed")
+  ```
 - With any other action, the turn completes.
 
 Either way, the error is recorded in the run's provenance (the guardrail's
