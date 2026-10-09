@@ -44,6 +44,12 @@ export interface AppEnv {
     tokenId?: ApiTokenId;
     /** The service account an API key acts for. */
     serviceAccountId?: string;
+    /**
+     * Set by a route whose answer carries a secret (`withholdFromReplay`):
+     * the Idempotency-Key middleware keeps that the request succeeded, not
+     * its answer.
+     */
+    idempotencyWithhold?: boolean;
     /** An API key's role ceiling (`member` keys can't administer the tenant). */
     tokenRole?: 'admin' | 'member';
     /** The project an API key is narrowed to. */

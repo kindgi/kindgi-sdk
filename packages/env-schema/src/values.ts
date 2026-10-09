@@ -37,6 +37,9 @@ export const AUTH_SECRET_VAR = 'KINDGI_AUTH_SECRET';
 /** Identity provider origins on a private network the operator allows. */
 export const AUTH_PRIVATE_IDP_ORIGINS_VAR = 'KINDGI_AUTH_PRIVATE_IDP_ORIGINS';
 
+/** Email domains the operator verified, each for one tenant: `domain:tenant,…`. */
+export const AUTH_VERIFIED_DOMAINS_VAR = 'KINDGI_AUTH_VERIFIED_DOMAINS';
+
 /** A browser session's absolute lifetime, in milliseconds. */
 export const SESSION_TTL_MS_VAR = 'KINDGI_SESSION_TTL_MS';
 

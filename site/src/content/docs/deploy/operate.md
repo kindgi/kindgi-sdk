@@ -14,7 +14,7 @@ The runtime reads its settings when it starts, so most changes on this page take
 ```sh
 docker stop --time 30 kindgi-server
 docker rm kindgi-server
-docker run -d --name kindgi-server --network kindgi \
+docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
   --add-host registry.localhost:host-gateway \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
   quay.io/kindgi/runtime:0.1.4
@@ -203,7 +203,7 @@ pnpm exec kindgi runs get <run id> --url http://localhost:4000 --token "$KINDGI_
    docker pull quay.io/kindgi/runtime:<version>
    docker stop --time 30 kindgi-server
    docker rm kindgi-server
-   docker run -d --name kindgi-server --network kindgi \
+   docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
      --add-host registry.localhost:host-gateway \
      -p 127.0.0.1:4000:4000 --env-file kindgi.env \
      quay.io/kindgi/runtime:<version>
@@ -434,7 +434,7 @@ KINDGI_PUBLIC_TOKEN_SIGNING_KEY_PATH=/etc/kindgi/public-token-signing.pem
 ```
 
 ```sh
-docker run -d --name kindgi-server --network kindgi \
+docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
   --add-host registry.localhost:host-gateway \
   -v "$PWD/public-token-signing.pem:/etc/kindgi/public-token-signing.pem:ro" \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \

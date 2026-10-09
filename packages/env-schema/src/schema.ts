@@ -317,6 +317,15 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_AUTH_VERIFIED_DOMAINS',
+    description:
+      "Comma-separated `domain:tenant` pairs (the tenant by id, or by a unique slug): email domains whose sign-in routes to that tenant's identity providers. A runtime that serves one tenant routes that tenant's domains without this. One that serves several routes a domain only once it's listed here: otherwise a tenant could list another company's domain and catch its people. An unlisted domain's people can still use their provider's own sign-in link (`kindgi sso providers test` prints it). A malformed entry, or a tenant this runtime doesn't serve, stops the runtime at start.",
+    example: 'acme.com:3f8e2c1a-0b7d-4e9a-9c5f-2d1e6b8a7c40',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_SESSION_TTL_MS',
     description:
       "A browser session's absolute lifetime, in milliseconds: the person signs in again after it. Default 43200000 (12 hours); at least 60000.",

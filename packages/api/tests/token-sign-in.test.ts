@@ -189,6 +189,21 @@ describe('POST /v1/auth/token-sign-in', () => {
     expect(((await whoami.json()) as { userId: string }).userId).toBe(alice);
   });
 
+  test('a repeat with the same Idempotency-Key: 409 replay-withheld, no cookie, no second session', async () => {
+    const { app, created } = makeApp();
+    const send = () =>
+      app.request('/v1/auth/token-sign-in', {
+        method: 'POST',
+        headers: { authorization: 'Bearer kgi_person_full', 'idempotency-key': 'sign-in-1' },
+      });
+    expect((await send()).status).toBe(200);
+    const again = await send();
+    expect(again.status).toBe(409);
+    expect(again.headers.get('set-cookie')).toBeNull();
+    expect((await codeOf(again)).code).toBe('idempotency-key-replay-withheld');
+    expect(created).toHaveLength(1);
+  });
+
   test('with no identity providers, the console can still sign out', async () => {
     const { app } = makeApp();
     const res = await signIn(app, 'kgi_person_full');
