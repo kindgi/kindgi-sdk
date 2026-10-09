@@ -7,16 +7,22 @@
  *
  * - `file:<path>`: the whole file is the value (a mounted secret, a key file);
  * - `env-file:<path>#<NAME>`: one `NAME=value` line of an env file
- *   (`kindgi.env`), the rest kept as it is.
+ *   (`kindgi.env`), the rest kept as it is;
+ * - `gcp:projects/<project>/secrets/<name>` and
+ *   `azure:https://<vault>.vault.azure.net/secrets/<name>`: a cloud secret
+ *   manager (`cloud.ts`).
  *
  * A write replaces the file atomically (a temporary file beside it, then a
  * rename) and keeps its mode; a new file is created `0600`. Nothing here
  * ever prints a value: `describe` says where, never what.
  */
 
+import { execFile } from 'node:child_process';
 import { randomBytes } from 'node:crypto';
 import { chmod, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
+
+import { type CloudDeps, azureSecretStore, gcpSecretStore } from './cloud.js';
 
 export interface SecretStore {
   /** The value, trimmed; `undefined` when there's none yet (no file, no line, empty). */
@@ -31,21 +37,57 @@ export class SecretRefError extends Error {}
 
 const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
+/** What a cloud store uses, by default: `fetch`, the environment, and `gcloud` / `az` when there. */
+const DEFAULT_CLOUD: CloudDeps = {
+  fetch: (...args) => fetch(...args),
+  env: process.env,
+  run: (command, args) =>
+    new Promise((done, fail) => {
+      execFile(command, [...args], { timeout: 30_000 }, (error, stdout) =>
+        error === null ? done(stdout) : fail(error),
+      );
+    }),
+};
+
+/** Each scheme's store, from what follows its `:`; `undefined` when that isn't one. */
+const SCHEMES: Readonly<
+  Record<
+    string,
+    (
+      rest: string,
+      context: { readonly cwd: string; readonly cloud: CloudDeps },
+    ) => SecretStore | undefined
+  >
+> = {
+  file: (rest, { cwd }) => (rest === '' ? undefined : fileStore(resolve(cwd, rest))),
+  'env-file': (rest, { cwd }) => envFileStoreFor(rest, cwd),
+  gcp: (rest, { cloud }) => gcpSecretStore(rest, cloud),
+  azure: (rest, { cloud }) => azureSecretStore(rest, cloud),
+};
+
 /** The store a reference names. Throws `SecretRefError`, saying what a reference looks like. */
-export function secretStoreFor(ref: string, cwd: string = process.cwd()): SecretStore {
+export function secretStoreFor(
+  ref: string,
+  options: { readonly cwd?: string; readonly cloud?: CloudDeps } = {},
+): SecretStore {
+  const cwd = options.cwd ?? process.cwd();
   const colon = ref.indexOf(':');
   const scheme = colon === -1 ? '' : ref.slice(0, colon);
   const rest = ref.slice(colon + 1);
-  if (scheme === 'file' && rest !== '') return fileStore(resolve(cwd, rest));
-  if (scheme === 'env-file') {
-    const hash = rest.lastIndexOf('#');
-    const path = hash === -1 ? '' : rest.slice(0, hash);
-    const name = hash === -1 ? '' : rest.slice(hash + 1);
-    if (path !== '' && ENV_NAME.test(name)) return envFileStore(resolve(cwd, path), name);
-  }
+  const context = { cwd, cloud: options.cloud ?? DEFAULT_CLOUD };
+  const store = Object.hasOwn(SCHEMES, scheme) ? SCHEMES[scheme]?.(rest, context) : undefined;
+  if (store !== undefined) return store;
   throw new SecretRefError(
-    `"${ref}" isn't a place to keep a secret. Use file:<path> or env-file:<path>#<NAME> (for example env-file:kindgi.env#KINDGI_LICENSE_KEY).`,
+    `"${ref}" isn't a place to keep a secret. Use file:<path>, env-file:<path>#<NAME> (for example env-file:kindgi.env#KINDGI_LICENSE_KEY), gcp:projects/<project>/secrets/<name>, or azure:https://<vault>.vault.azure.net/secrets/<name>.`,
   );
+}
+
+/** `<path>#<NAME>`: the env file and the variable; `undefined` when it isn't that. */
+function envFileStoreFor(rest: string, cwd: string): SecretStore | undefined {
+  const hash = rest.lastIndexOf('#');
+  const path = hash === -1 ? '' : rest.slice(0, hash);
+  const name = hash === -1 ? '' : rest.slice(hash + 1);
+  return path !== '' && ENV_NAME.test(name) ? envFileStore(resolve(cwd, path), name) : undefined;
 }
 
 async function readText(path: string): Promise<string | undefined> {
