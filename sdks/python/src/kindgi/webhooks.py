@@ -93,7 +93,8 @@ VerifyFailure = Literal[
 ]
 
 WebhookEvent: TypeAlias = Annotated[
-    models.RunFinishedEvent | models.WebhookTestEvent, Field(discriminator="type")
+    models.RunFinishedEvent | models.ImprovementPassFinishedEvent | models.WebhookTestEvent,
+    Field(discriminator="type"),
 ]
 """The JSON body of a webhook request; `type` says which event it is."""
 

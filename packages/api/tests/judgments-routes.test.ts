@@ -205,6 +205,22 @@ describe('POST /v1/judgments', () => {
     });
   });
 
+  test('the run copy keeps the segment path the run was started with (none: empty)', async () => {
+    const acme = row({ segments: [{ key: 'company', value: 'acme' }] });
+    const plain = row();
+    const h = harness([acme, plain]);
+    for (const run of [acme, plain]) {
+      const res = await h.call('POST', '/v1/judgments', {
+        runId: run.runId,
+        item: { key: 'c1' },
+        verdict: 'no',
+      });
+      expect(res.status).toBe(201);
+      const got = await h.call('GET', `/v1/judgments/${res.body.id}`);
+      expect(got.body.run.segments).toEqual(run.segments ?? []);
+    }
+  });
+
   test('a run that has not finished: 409 run-not-finished', async () => {
     const run = row({ status: 'running', output: undefined });
     const h = harness([run]);

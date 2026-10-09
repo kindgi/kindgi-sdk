@@ -249,6 +249,59 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
     expect(cases.body.data[1].context).toBeUndefined();
   });
 
+  test('segments keep only runs started in that segment or below it: a judgment in globex never counts for acme', async () => {
+    const at = (company: string, more: { key: string; value: string }[] = []) => [
+      { key: 'company', value: company },
+      ...more,
+    ];
+    const record = (runId: string, segments: { key: string; value: string }[] | undefined) =>
+      h.judgments.record({
+        tenantId,
+        projectId: project,
+        runId,
+        run: {
+          subject: subject(),
+          input: { query: runId },
+          output: { matches: [{ id: 'x' }] },
+          ...(segments !== undefined && { segments }),
+        },
+        item: { key: 'x' },
+        verdict: 'no',
+        reason: `wrong for ${runId}`,
+        assertedBy: { kind: 'user', id: 'u1' },
+      });
+    await record('acme-run', at('acme'));
+    await record('acme-cfo-run', at('acme', [{ key: 'role', value: 'cfo' }]));
+    await record('globex-run', at('globex'));
+    await record('plain-run', []);
+    const ids = async (version: string, segments: unknown) => {
+      const res = await h.call('POST', BUILD, { ...base, version, segments });
+      expect(res.status, JSON.stringify(res.body)).toBe(201);
+      const cases = await h.call('GET', `/v1/eval-suites/acme.matches/versions/${version}/cases`);
+      return cases.body.data.map((c: { caseId: string }) => c.caseId).sort();
+    };
+    expect(await ids('2.0.0', at('acme'))).toEqual(['acme-cfo-run', 'acme-run']);
+    expect(await ids('2.1.0', at('acme', [{ key: 'role', value: 'cfo' }]))).toEqual([
+      'acme-cfo-run',
+    ]);
+    expect(await ids('2.2.0', at('globex'))).toEqual(['globex-run']);
+    // Runs judged before segments were recorded (seed's run-1..3) and runs with none are in no segment.
+    expect(await ids('2.3.0', at('initech'))).toEqual([]);
+    // The test set says what it was narrowed to.
+    expect(h.suites.published.find((s) => s.version === '2.0.0')?.spec).toMatchObject({
+      query: { segments: at('acme') },
+    });
+    expect(
+      (
+        await h.call('POST', BUILD, {
+          ...base,
+          version: '3.0.0',
+          segments: [{ key: 'Company', value: 'acme' }],
+        })
+      ).status,
+    ).toBe(400);
+  });
+
   test('agentVersion narrows to one version of the agent', async () => {
     const res = await h.call('POST', BUILD, { ...base, agentVersion: '3.0.0' });
     expect(res.body.caseCount).toBe(1);
