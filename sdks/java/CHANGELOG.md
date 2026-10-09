@@ -7,6 +7,15 @@ heading into its version.
 
 ## Unreleased
 
+- `kindgi-pack`, `kindgi-pack-scala`: **a guardrail can't ship its check under
+  a built-in check's id** (`must-cite`, `never-call-tool`, `max-tool-calls`,
+  `output-matches`, `tool-order`, `required-substring`,
+  `forbidden-substring`). The runtime runs the built-in for a guardrail naming
+  one, so the pack's check would be silently replaced. `Guardrail.Builder.check`
+  (Scala: `check`) refuses it, saying to rename the check; the indexer reports
+  the file. `Guardrail.RESERVED_CHECK_IDS` lists them, and a test holds it
+  equal to `@kindgi/guardrails`' built-in checks, as the TypeScript and Python
+  pack SDKs do. (#PR)
 - `kindgi-pack`, `kindgi-pack-scala`: **the Java pack service writes log
   records**, the same as the TypeScript and Python services' and the
   runtime's: one per call (`tool acme.lookup ok 12ms`) with the call's ids and

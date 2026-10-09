@@ -6,6 +6,7 @@ package com.kindgi.pack;
 import com.kindgi.pack.internal.SchemaDeriver;
 import java.lang.reflect.Type;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import org.jspecify.annotations.Nullable;
@@ -24,9 +25,27 @@ import org.jspecify.annotations.Nullable;
  *         ? CheckResult.pass() : CheckResult.fail("too short"));
  * }</pre>
  *
+ * A guardrail always ships its check, so its check id can't be one of the built-in checks' ({@link
+ * #RESERVED_CHECK_IDS}): the runtime runs the built-in for a guardrail naming one, and would
+ * silently replace the pack's.
+ *
  * @param <C> the config type
  */
 public final class Guardrail<C> {
+  /**
+   * The built-in checks' ids ({@code BUILT_IN_CHECK_IDS} in the TypeScript {@code
+   * @kindgi/guardrails}; a test holds the two equal). The runtime runs the built-in for a guardrail
+   * naming one, so a pack can't ship its own check under one: {@link Builder#check} refuses it.
+   */
+  public static final List<String> RESERVED_CHECK_IDS = List.of(
+      "must-cite",
+      "never-call-tool",
+      "max-tool-calls",
+      "output-matches",
+      "tool-order",
+      "required-substring",
+      "forbidden-substring");
+
   private final String id;
   private final @Nullable String checkId;
   private final Map<String, Object> entry;
@@ -242,10 +261,18 @@ public final class Guardrail<C> {
     /**
      * @param check the check
      * @return the guardrail
+     * @throws IllegalStateException when nothing says what a failing check does, or the check's id
+     *     ({@code checkId}, else the guardrail's) is a built-in check's ({@link Guardrail#RESERVED_CHECK_IDS})
      */
     public Guardrail<C> check(CheckHandler<C> check) {
       if (!entry.containsKey("action")) {
         throw new IllegalStateException("guardrail " + id + ": say what a failing check does (onViolation or action)");
+      }
+      String resolved = checkId != null ? checkId : id;
+      if (RESERVED_CHECK_IDS.contains(resolved)) {
+        throw new IllegalStateException("guardrail " + id + ": its check id \"" + resolved + "\" is a built-in check's, and"
+            + " a pack can't replace a built-in. Rename your check (checkId(\"<pack>.checks." + resolved + "\"))"
+            + (checkId != null ? "" : ", or rename the guardrail") + ".");
       }
       return new Guardrail<>(this, check);
     }
