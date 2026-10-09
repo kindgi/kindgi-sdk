@@ -62,13 +62,14 @@ resource "google_sql_database" "kindgi" {
 
 locals {
   # Secret containers, by role. Each value is added out of band.
-  server_secrets = {
+  server_secrets = merge({
     database_url     = "${var.name_prefix}-database-url"     # postgres://…@/kindgi?host=/cloudsql/<connection name>, or …@<private ip>:5432/kindgi?sslmode=require
     api_token        = "${var.name_prefix}-api-token"        # KINDGI_API_TOKEN, the seeded bearer
-    secrets_aad_key  = "${var.name_prefix}-secrets-aad-key"  # 32 random bytes, base64: KINDGI_SECRETS_AAD_KEY
     public_token_key = "${var.name_prefix}-public-token-key" # Ed25519 PKCS#8 PEM, base64: KINDGI_PUBLIC_TOKEN_SIGNING_KEY
     license_key      = "${var.name_prefix}-license-key"      # KINDGI_LICENSE_KEY (kgi_lk_…), issued by Kindgi
-  }
+    }, local.kms ? {
+    secrets_aad_key = "${var.name_prefix}-secrets-aad-key" # 32 random bytes, base64: KINDGI_SECRETS_AAD_KEY (secrets_backend = "postgres" only)
+  } : {})
   shared_secrets = {
     pack_service_token = "${var.name_prefix}-pack-service-token" # KINDGI_PACK_SERVICE_TOKEN, both services
   }

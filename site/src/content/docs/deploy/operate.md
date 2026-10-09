@@ -14,7 +14,7 @@ The runtime reads its settings when it starts, so most changes on this page take
 ```sh
 docker stop --time 30 kindgi-server
 docker rm kindgi-server
-docker run -d --name kindgi-server --network kindgi \
+docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
   --add-host registry.localhost:host-gateway \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
   quay.io/kindgi/runtime:0.1.4
@@ -203,7 +203,7 @@ pnpm exec kindgi runs get <run id> --url http://localhost:4000 --token "$KINDGI_
    docker pull quay.io/kindgi/runtime:<version>
    docker stop --time 30 kindgi-server
    docker rm kindgi-server
-   docker run -d --name kindgi-server --network kindgi \
+   docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
      --add-host registry.localhost:host-gateway \
      -p 127.0.0.1:4000:4000 --env-file kindgi.env \
      quay.io/kindgi/runtime:<version>
@@ -222,6 +222,41 @@ Migrations only go forward, and an older runtime isn't guaranteed to work on a d
   ([Turn on sign-in](../sign-in/)). Otherwise the console's sign-in page
   offers no way in, and the runtime's startup output says so too. API tokens
   keep working for the API, the CLI and the SDKs either way.
+
+### Runtime 0.1.4.2
+
+Runtime 0.1.4.2 fixes one bug in 0.1.4 and 0.1.4.1, for every deployment:
+when the database drops its connections (a restart, a failover, a network
+blip), the runtime could exit instead of reconnecting. Its log then ends like
+this:
+
+```text
+file:///app/node_modules/.pnpm/postgres@3.4.9/node_modules/postgres/src/connection.js:255
+    const x = socket.write(chunk, fn)
+                     ^
+
+TypeError: Cannot read properties of null (reading 'write')
+    at Immediate.nextWrite (file:///app/node_modules/.pnpm/postgres@3.4.9/node_modules/postgres/src/connection.js:255:22)
+```
+
+On 0.1.4.2, requests that need the database fail while it's down, and the
+runtime keeps running and answers again once it's back. Only the runtime
+changes: the 0.1.4 CLI and SDKs (npm, PyPI) stay as they are. `kindgi dev`
+keeps its pinned 0.1.4 runtime, so if your local database restarts under it,
+restart `kindgi dev`.
+
+Run 0.1.4.2, pulled by its digest, with the same `kindgi.env`. It has no
+migration, and it carries 0.1.4.1's fix ([Runtime 0.1.4.1](#runtime-0141)).
+Keep `--restart unless-stopped` on the runtime's container either way
+([Restart the runtime](#restart-the-runtime)):
+
+```sh
+docker pull quay.io/kindgi/runtime:0.1.4.2@sha256:420826ad9bac0c2fdb021c49517aabebeac1ff7ec236e02af47e90a31f5b825e
+```
+
+On Cloud Run, copy it into your repository the same way as 0.1.4 (see
+[The images into Artifact Registry](../cloud-run/#2-the-images-into-artifact-registry))
+and set `server_image` to its digest.
 
 ### Runtime 0.1.4.1
 
@@ -447,7 +482,7 @@ KINDGI_PUBLIC_TOKEN_SIGNING_KEY_PATH=/etc/kindgi/public-token-signing.pem
 ```
 
 ```sh
-docker run -d --name kindgi-server --network kindgi \
+docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
   --add-host registry.localhost:host-gateway \
   -v "$PWD/public-token-signing.pem:/etc/kindgi/public-token-signing.pem:ro" \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \

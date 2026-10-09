@@ -7,7 +7,7 @@ import { describe, expect, test } from 'vitest';
 
 import type { TenantId } from '@kindgi/types';
 
-import { createStubAppBindings } from '@kindgi/testing';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type {
@@ -34,6 +34,11 @@ function makeApp(
   opts: {
     withSignInOptions?: boolean;
     rateLimit?: SignInOptionsRateLimit;
+    signInOptions?: IdentityProviderBinding['signInOptions'];
+    emailLink?: {
+      captchaSiteKey?: string;
+      allowedFor?: (emailDomain: string) => Promise<boolean>;
+    };
   } = {},
 ) {
   const calls: SignInOptionsInput[] = [];
@@ -42,21 +47,23 @@ function makeApp(
     get: async () => null,
     register: async ({ config }) => ({ kind: 'ok', providerId: config.providerId }),
     unregister: async () => ({ unregistered: false }),
-    ...(opts.withSignInOptions !== false && {
-      signInOptions: async (input: SignInOptionsInput) => {
-        calls.push(input);
-        if (input.emailDomain === 'acme.com' || input.emailDomain === undefined) {
-          return [
-            {
-              providerId: 'acme-okta',
-              displayName: 'Acme Okta',
-              signInUrl: '/auth/start/idp_7f3a',
-            },
-          ];
-        }
-        return [];
-      },
-    }),
+    ...(opts.signInOptions !== undefined && { signInOptions: opts.signInOptions }),
+    ...(opts.withSignInOptions !== false &&
+      opts.signInOptions === undefined && {
+        signInOptions: async (input: SignInOptionsInput) => {
+          calls.push(input);
+          if (input.emailDomain === 'acme.com' || input.emailDomain === undefined) {
+            return [
+              {
+                providerId: 'acme-okta',
+                displayName: 'Acme Okta',
+                signInUrl: '/auth/start/idp_7f3a',
+              },
+            ];
+          }
+          return [];
+        },
+      }),
   };
   const app = createApp({
     ...createStubAppBindings(),
@@ -64,6 +71,7 @@ function makeApp(
     runHandler: {} as RunHandlerBinding,
     identityProvider,
     ...(opts.rateLimit !== undefined && { signInOptionsRateLimit: opts.rateLimit }),
+    ...(opts.emailLink !== undefined && { signInEmailLink: opts.emailLink }),
   });
   return { app, calls };
 }
@@ -150,5 +158,57 @@ describe('sign-in options', () => {
     );
     expect(Number(third.headers.get('retry-after'))).toBeGreaterThan(0);
     expect((await lookup(app, 'a@acme.com', '198.51.100.9')).status).toBe(200);
+  });
+
+  test("the deployment's own ways in come after a workspace's; the emailed link is a method", async () => {
+    const { app } = makeApp({
+      signInOptions: async () => [
+        { providerId: 'acme-okta', displayName: 'Acme Okta', signInUrl: '/auth/start/idp-x' },
+        {
+          providerId: 'google',
+          displayName: 'Google',
+          signInUrl: '/auth/kindgi/social/start/google',
+          owner: 'deployment',
+        },
+      ],
+      emailLink: { captchaSiteKey: 'site-key' },
+    });
+    const body = (await (await lookup(app, 'a@acme.com')).json()) as {
+      data: Array<Record<string, unknown>>;
+      methods: Record<string, unknown>;
+    };
+    expect(body.data.map((o) => [o.providerId, o.owner])).toEqual([
+      ['acme-okta', undefined],
+      ['google', 'deployment'],
+    ]);
+    expect(body.methods.emailLink).toEqual({ captchaSiteKey: 'site-key' });
+  });
+
+  test('the emailed link can be left out for a domain (a workspace that signs its people in with its own identity provider)', async () => {
+    const asked: string[] = [];
+    const { app } = makeApp({
+      signInOptions: async () => [],
+      emailLink: {
+        captchaSiteKey: 'site-key',
+        allowedFor: async (domain) => {
+          asked.push(domain);
+          return domain !== 'acme.com';
+        },
+      },
+    });
+    const methodsFor = async (email: string) =>
+      ((await (await lookup(app, email)).json()) as { methods: Record<string, unknown> }).methods;
+    expect((await methodsFor('a@acme.com')).emailLink).toBeUndefined();
+    expect((await methodsFor('guest@gmail.com')).emailLink).toEqual({ captchaSiteKey: 'site-key' });
+    expect(asked).toEqual(['acme.com', 'gmail.com']);
+  });
+
+  test('a spoofed leftmost X-Forwarded-For hop never changes the bucket', async () => {
+    const { app } = makeApp({ rateLimit: { limit: 2, windowMs: 60_000 } });
+    // The client writes whatever it likes on the left; the proxy appends its peer.
+    for (const spoofed of ['10.9.9.1', '10.9.9.2']) {
+      expect((await lookup(app, 'a@acme.com', `${spoofed}, 203.0.113.50`)).status).toBe(200);
+    }
+    expect((await lookup(app, 'a@acme.com', '10.9.9.3, 203.0.113.50')).status).toBe(429);
   });
 });

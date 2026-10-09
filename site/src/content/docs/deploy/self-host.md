@@ -187,11 +187,14 @@ Every setting is in the [environment variable reference](../../reference/env-var
 Start the runtime:
 
 ```sh
-docker run -d --name kindgi-server --network kindgi \
+docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
   --add-host registry.localhost:host-gateway \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
   quay.io/kindgi/runtime:0.1.4
 ```
+
+`--restart unless-stopped` brings the runtime back by itself after a crash,
+or after its database was unreachable for a while.
 
 ## 6. Check it
 
@@ -242,6 +245,44 @@ Kindgi API server listening on http://localhost:4000 (reached at https://kindgi.
   Docs:    https://kindgi.example.com/docs
   …
 ```
+
+### Behind a load balancer or ingress
+
+The runtime limits how often one client can ask for some things, such as a page that starts sign-in. It also records the client's address in its sign-in records. For both, it needs to know which address is the client's.
+
+**Unset, it uses the address of whatever connects to it.** It ignores `X-Forwarded-For`, because any client can send that header with any address in it. That's right when clients connect directly. Behind a proxy, every request comes from the proxy, so every client shares one limit, and the runtime warns once:
+
+```text
+Requests arrive through a proxy (X-Forwarded-For), but KINDGI_TRUSTED_PROXIES is unset: every client counts as the proxy, so rate limits are shared by everyone. Set it to the number of proxies in front (e.g. 1) or their IP ranges.
+```
+
+Tell it which proxies to trust with `KINDGI_TRUSTED_PROXIES` in `kindgi.env`, in one of two forms:
+
+- **How many proxies are in front:** `1` behind one load balancer or ingress, `2` behind two (Azure Front Door in front of a Container Apps ingress, for example).
+
+  ```sh
+  KINDGI_TRUSTED_PROXIES=1
+  ```
+
+- **Your proxies' addresses:** IPs or CIDR ranges, comma-separated.
+
+  ```sh
+  KINDGI_TRUSTED_PROXIES=10.0.0.0/8, 192.168.0.0/16
+  ```
+
+Each proxy appends the address it got the request from to the right of `X-Forwarded-For`. So the runtime reads that header from the right, skips the proxies you trust, and takes the next address as the client's. It never takes the leftmost address on its own: that's the one a client can write.
+
+Count only the proxies that are really in front. One too many, and a client can choose its own address; one too few, and every client counts as your outermost proxy.
+
+The start log says which it uses, with one of these lines:
+
+```text
+  Client address: the connection's peer (KINDGI_TRUSTED_PROXIES unset; behind a proxy, set it)
+  Client address: X-Forwarded-For behind 1 trusted proxy hop (KINDGI_TRUSTED_PROXIES)
+  Client address: X-Forwarded-For behind trusted proxies 10.0.0.0/8, 192.168.0.0/16 (KINDGI_TRUSTED_PROXIES)
+```
+
+Point the load balancer's health check at `/ready` (see [Operate](../operate/#check-health-and-logs)).
 
 ## 7. Trust your key and deploy
 

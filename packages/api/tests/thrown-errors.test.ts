@@ -15,7 +15,7 @@ import { describe, expect, test } from 'vitest';
 import type { RunBinding } from '@kindgi/runtime';
 import type { TenantId } from '@kindgi/types';
 
-import { createStubAppBindings } from '@kindgi/testing';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type { RunHandlerBinding, TokenResolver } from '../src/index.js';
@@ -75,6 +75,21 @@ describe('a thrown exception on the wire', () => {
       code: 'internal-server-error',
       message: 'Unhandled server error',
     });
+  });
+
+  test("a failed query's SQL and values stay in the log, not the answer", async () => {
+    const failed = new Error(
+      'Failed query: select "id" from "people" where "email" = $1\nparams: alice@acme.example',
+    );
+    failed.name = 'DrizzleQueryError';
+    const { res, text } = await get(appWhoseRunReadsThrow(failed), '/v1/runs');
+    expect(res.status).toBe(500);
+    expect(JSON.parse(text).error).toMatchObject({
+      code: 'internal-server-error',
+      message: 'A database query failed.',
+    });
+    expect(text).not.toContain('alice@acme.example');
+    expect(text).not.toContain('select');
   });
 
   test('an exception that carries its own response answers with it', async () => {

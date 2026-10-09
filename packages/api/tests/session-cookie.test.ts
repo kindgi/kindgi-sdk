@@ -7,7 +7,7 @@ import { describe, expect, test } from 'vitest';
 
 import type { SessionId, TenantId, Timestamp } from '@kindgi/types';
 
-import { createStubAppBindings } from '@kindgi/testing';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { SESSION_COOKIE_NAME, SESSION_TOKEN_PREFIX, createApp } from '../src/index.js';
 import type {
@@ -216,11 +216,25 @@ describe('same origin: a deployment that does not know its public URL', () => {
   const logout = (app: ReturnType<typeof makeApp>['app'], headers: Record<string, string>) =>
     app.request('http://kindgi.internal:8080/v1/auth/logout', { method: 'POST', headers });
 
-  test('an Origin naming the host the request went to passes', async () => {
+  test('an https Origin naming the host the request went to passes', async () => {
     const { app, store } = makeApp(sameOrigin);
     const { cookie } = await signedIn(store);
-    const res = await logout(app, { cookie, origin: 'http://kindgi.internal:8080' });
+    const res = await logout(app, { cookie, origin: 'https://kindgi.internal:8080' });
     expect(res.status).toBe(200);
+  });
+
+  test("a plain-http Origin on that host is refused (the page could be an on-path attacker's); loopback http passes", async () => {
+    const { app, store } = makeApp(sameOrigin);
+    const { cookie } = await signedIn(store);
+    const plain = await logout(app, { cookie, origin: 'http://kindgi.internal:8080' });
+    expect(plain.status).toBe(403);
+    expect(await codeOf(plain)).toBe('csrf-origin-mismatch');
+    const again = await signedIn(store);
+    const local = await app.request('http://localhost:4000/v1/auth/logout', {
+      method: 'POST',
+      headers: { cookie: again.cookie, origin: 'http://localhost:4000' },
+    });
+    expect(local.status).toBe(200);
   });
 
   test('behind a TLS proxy: the host matches whatever the scheme', async () => {
