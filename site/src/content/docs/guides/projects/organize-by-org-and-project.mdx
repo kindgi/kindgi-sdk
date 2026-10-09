@@ -17,9 +17,11 @@ a conversation stays in the conversation's project.
 An agent, flow, tool or test set belongs to the project its first version
 was published into, and never moves. Publishing a version of it into another
 project is refused with a `409`, such as `agent-project-mismatch`
-(`flow-…`, `tool-…`, `eval-suite-project-mismatch`), naming the project it
-belongs to, and nothing is written; a deploy that tries it is rolled back
-whole. Publish new versions in its own project.
+(`flow-…`, `tool-…`, `eval-suite-project-mismatch`), and nothing is written.
+The refusal doesn't name the project it belongs to, since you may not be
+able to read that project. A deploy that includes one is refused whole and
+deploys nothing, even when that agent or flow is unchanged. Publish new
+versions in its own project.
 
 ## Give a customer an org and a project
 
