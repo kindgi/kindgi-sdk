@@ -93,6 +93,7 @@ class Operation:
     response: str | None  # model class name
     response_kind: str  # json | sse | binary | empty
     status: int
+    follow: bool = False  # a FOLLOWS method: `_follow`, not `_stream`
 
     @property
     def resource(self) -> tuple[str, ...]:
@@ -157,6 +158,22 @@ def hoist(doc: dict[str, Any], schema: dict[str, Any], name: str) -> str:
 ALIASES: dict[str, tuple[str, ...]] = {
     "evalSuites.versions.unregister": ("evalSuites.unregister",),
 }
+
+# A run stream's follow method, generated beside it: the same call, through
+# to the run's terminal event. The server ends a run's stream after 5 minutes
+# while the run goes on; `_follow` reconnects after the last event. Named as
+# the Java client names them (`runs().follow`, `runs().followProgress`).
+FOLLOWS: dict[str, tuple[str, str]] = {
+    "runs.stream": ("runs.follow", "Follow a run's events to its end"),
+    "runs.progressStream": ("runs.followProgress", "Follow a run's progress to its end"),
+}
+FOLLOW_DESCRIPTION = (
+    "`{stream}`, through to the run's terminal event (`run.completed`, `run.failed` or "
+    "`run.cancelled`), each event once. The server ends a run's stream after 5 minutes "
+    "while the run goes on; this reconnects with `Last-Event-Id` and goes on. A dropped "
+    "connection, a 429 or a 502-504 is retried with backoff; any other error is raised. "
+    "Ends after the terminal event."
+)
 
 
 # Operations a patch release removed from the API: each stays a method that
@@ -282,7 +299,23 @@ def operations(source: dict[str, Any]) -> tuple[dict[str, Any], list[Operation]]
                 )
             )
     ops += [replace(op, id=alias) for op in list(ops) for alias in ALIASES.get(op.id, ())]
+    ops += [
+        replace(
+            op,
+            id=FOLLOWS[op.id][0],
+            follow=True,
+            summary=FOLLOWS[op.id][1],
+            description=FOLLOW_DESCRIPTION.format(stream=snake_path(op.id)),
+        )
+        for op in list(ops)
+        if op.id in FOLLOWS
+    ]
     return doc, ops
+
+
+def snake_path(op_id: str) -> str:
+    """`runs.progressStream` → `runs.progress_stream`, as the client names it."""
+    return ".".join(snake(part) for part in op_id.split("."))
 
 
 def tree(ops: list[Operation]) -> Resource:
@@ -363,7 +396,7 @@ def call(op: Operation, asynchronous: bool) -> str:
     args.append("timeout=timeout")
     inner = ", ".join(args)
     if op.response_kind == "sse":
-        return f"        return self._client._stream({inner})"
+        return f"        return self._client._{'follow' if op.follow else 'stream'}({inner})"
     keyword_await = "await " if asynchronous else ""
     return f"        return {keyword_await}self._client._request({inner})"
 

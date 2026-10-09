@@ -14,6 +14,8 @@ one connection, to a vendor's API or to an endpoint you serve, with the models
 it offers: each model's features, context window and price.
 
 - [Connect Anthropic](anthropic/): Claude, from a preset.
+- [Connect OpenAI, Gemini, Groq or OpenRouter](api-key-presets/): from a
+  preset each, with the provider's API key.
 - [Connect Gemini on Vertex AI](gemini-on-vertex-ai/): Gemini, from a preset,
   with your Google Cloud credentials.
 - [Connect an OpenAI-compatible endpoint](openai-compatible/): Ollama or a
@@ -24,10 +26,18 @@ it offers: each model's features, context window and price.
 How a turn picks among them is on
 [Choose the model an agent uses](../agents/choose-a-model/).
 
+A model call that fails with a temporary error (a timeout, `408`; a rate
+limit, `429`; an overloaded or failing server, `500`, `502`, `503` or `504`)
+is tried again, waiting longer each time, three attempts in all, before the
+turn fails. Every adapter does this: the Gemini adapter sets it, and the
+Anthropic and OpenAI-compatible ones keep their SDKs' defaults. The waits
+count against the turn's time budget (`maxWallMs`).
+
 ## Before you register one
 
 A new pack's tenant has `dev-echo`, a stand-in that answers without a model
-(it calls the agent's first tool and replies with what the tool returned). It's
+(it calls the agent's first tool and replies with what the tool returned,
+after a first line saying it isn't a real model). It's
 a **fallback**: it answers only while no other provider fits the agent, so a
 provider you register takes over at the next turn, with nothing to switch off
 and no restart.
@@ -38,35 +48,17 @@ and no restart.
 kindgi providers presets
 ```
 
-```json
-[
-  {
-    "name": "anthropic",
-    "description": "Claude on the Anthropic API (key: ANTHROPIC_API_KEY).",
-    "adapterId": "@kindgi/adapter-model-anthropic",
-    "models": [
-      "claude-opus-5-5",
-      "claude-sonnet-5-5",
-      "claude-haiku-4-5"
-    ],
-    "secret": "ANTHROPIC_API_KEY",
-    "pricesCheckedAt": "2026-10-01"
-  },
-  {
-    "name": "gemini",
-    "description": "Gemini on Vertex AI (Google Application Default Credentials; --project=<gcp-project>).",
-    "adapterId": "@kindgi/adapter-model-gemini",
-    "models": [
-      "gemini-2.5-pro",
-      "gemini-2.5-flash"
-    ],
-    "needs": [
-      "--project"
-    ],
-    "pricesCheckedAt": "2026-10-01"
-  }
-]
-```
+It prints each preset as JSON: its adapter, models, key and when its prices
+were checked. They are:
+
+| Preset | What | Key |
+| --- | --- | --- |
+| `anthropic` | Claude on the Anthropic API | `ANTHROPIC_API_KEY` |
+| `gemini-api` | Gemini on the Gemini Developer API, with an API key from Google AI Studio | `GEMINI_API_KEY` |
+| `gemini` | Gemini on Vertex AI, with Google Application Default Credentials (`--project=<gcp-project>`; in `kindgi dev`, set `KINDGI_DEV_GOOGLE_CREDENTIALS=adc`) | none |
+| `groq` | Open-weight models on Groq's fast inference | `GROQ_API_KEY` |
+| `openai` | GPT on the OpenAI API | `OPENAI_API_KEY` |
+| `openrouter` | A hosted service in front of several vendors: your prompts pass through OpenRouter | `OPENROUTER_API_KEY` |
 
 A preset carries its models' features, context windows, output limits and
 prices. `pricesCheckedAt` is when the prices were last compared with the
@@ -99,10 +91,22 @@ Anything that isn't a preset registers from a spec: a JSON file you pass with
 - **`secret_ref`** names the secret that holds the key:
   `{ "envName": "local", "name": "GROQ_API_KEY" }`. Leave it out for an
   endpoint that takes none.
+- **`send_traceparent`** (optional, `true` or `false`) sends each model call's
+  W3C `traceparent` to the provider as a request header, so its request logs
+  can be matched to the run that made the call
+  ([Follow a request or a run](../../deploy/logs/#follow-a-request-or-a-run)).
+  Only the ids go: the trace id and a span id, never a prompt or an answer.
+  It's off by default: nothing about a run's trace leaves your deployment
+  unless you turn it on (see below).
 - **`metadata.id`** names the connection; agents prefer it by this id.
   **`metadata.models`** lists the models, by the name the endpoint knows them
   by, each with its `contextWindow`, its `features` (what agents can require)
-  and its `cost`.
+  and its `cost`; optionally its `maxOutputTokens`, `sampling` and `thinking`
+  (see [Temperature and thinking](#temperature-and-thinking)).
+- **`metadata.defaultModel`** (optional) is the model an agent gets when
+  nothing else decides: no preference, and equal weights. Without it, the
+  first model by name. Another name is refused:
+  `provider "ollama" defaultModel must be one of its models (llama3.1), got "llama3.2"`.
 - **`metadata.attributes`** (optional) are labels agents can rank by, such as
   `"local"`; **`metadata.fallback: true`** makes the provider a fallback, like
   `dev-echo`.
@@ -113,12 +117,96 @@ Anything that isn't a preset registers from a spec: a JSON file you pass with
   to 256 characters. Another key is refused:
   `provider "ollama" labels key "Team Name" must be 1-63 lowercase letters and digits, with ".", "-", "_" or "/" inside`.
 
+With `send_traceparent: true`, a model call's request to the provider carries
+the run's trace id and a span of its own:
+
+```text
+traceparent: 00-57fb198d8afd340a2b81454221085849-6fef3833e512d758-01
+```
+
+`kindgi runs get <run-id>` shows the same trace id as the run's `traceId`. A
+value other than `true` or `false` is refused, and nothing is registered:
+
+```text
+Error [invalid-request]: Provider "acme-vendor": send_traceparent must be true or false.
+  ✗ /send_traceparent: send_traceparent must be true or false.
+```
+
 :::caution[Prices are per thousand tokens]
 `promptUsdPer1kTokens` and `completionUsdPer1kTokens` are per **thousand**
 tokens; vendors quote per million. Divide their price by 1000: "$2 per million
 input tokens" is `0.002`. Agents' cost budgets are computed from these prices,
-so copy them from the vendor's page when you register.
+so copy them from the vendor's page when you register. Kindgi's costs are
+estimates from them; your provider's invoice is what you pay.
 :::
+
+### A spec its adapter can't use
+
+The runtime checks a spec against its adapter when you register it, without
+calling the endpoint or reading the key. A setting the adapter can't use is
+refused, with each problem on a line of its own, and nothing is registered.
+Here, the spec above without its `baseURL`, and with an `api` it doesn't
+take:
+
+```text
+Error [invalid-request]: Provider "ollama" doesn't fit adapter @kindgi/adapter-model-openai-compat: needs adapter_config.baseURL, an http(s) URL (e.g. https://api.openai.com/v1) (and 1 more).
+  ✗ /adapter_config/baseURL: needs adapter_config.baseURL, an http(s) URL (e.g. https://api.openai.com/v1).
+  ✗ /adapter_config/api: adapter_config.api must be one of responses, chat-completions.
+```
+
+- **A key it needs:** an adapter that takes a key refuses a spec without
+  `secret_ref`:
+  `✗ /secret_ref: needs secret_ref: its Anthropic API key.`
+- **An adapter the runtime doesn't have:**
+  `This runtime has no adapter "@kindgi/adapter-model-nope", so it can't build provider "ollama".`
+- **What isn't checked:** whether the key works, the endpoint answers, or it
+  serves the models you list. The first turn finds that out.
+- **From the API:** `POST /v1/providers` answers `422`
+  `provider-config-invalid`, with each problem in `details.issues`: its
+  `path`, a JSON pointer into the spec, and its `message`. The clients read it
+  as an invalid request with those `issues` (TypeScript
+  `code: 'invalid-request'`, Python `InvalidRequestError`).
+
+## Temperature and thinking
+
+Some models take no `temperature`: the Claude 5.5 models and OpenAI's GPT-6
+models reject one. Their registrations say `"sampling": false`, and Kindgi
+sends their calls without it. The turn then carries a `sampling-unsupported`
+warning instead of failing, and `kindgi runs start` prints it. Here from a
+local `llama3.1` registered with `"sampling": false` and a model-settings
+block asking for `0.2`:
+
+```text
+⚠ llama3.1 doesn't take a temperature, so the call went without one (it asked for 0.2).
+```
+
+Some models think before they answer. A model's `thinking` says how:
+`"mode": "adaptive"` (on unless turned down) or `"always"`, and `lowest`, the
+vendor's own setting for the least thinking. Thinking counts against the
+model's output limit (`maxOutputTokens`) and bills as output, so it's in a
+turn's tokens and cost. A guardrail's model judge asks for the least thinking,
+and allows 2,048 tokens for it on top of the 256 its verdict gets.
+
+| Preset | Model | Takes a temperature | Thinks | Least thinking |
+| --- | --- | --- | --- | --- |
+| `anthropic` | `claude-opus-5-5` | no | always | `low` |
+| | `claude-sonnet-5-5` | no | adaptive | `between_tools` |
+| | `claude-haiku-5-5` | no | adaptive | `disabled` |
+| | `claude-haiku-4-5` | yes | not set | |
+| `openai` | `gpt-6.1-sol` | no | adaptive | `low` |
+| | `gpt-6-astra` | no | adaptive | `low` |
+| | `gpt-6-luna` | no | adaptive | `none` |
+| `gemini`, `gemini-api` | `gemini-3.8-flash` | yes | adaptive | `low` |
+| | `gemini-3.5-flash-lite` | yes | adaptive | `minimal` |
+| `gemini-api` | `gemini-3.1-pro-preview` | yes | not set | |
+
+`groq`'s models take a temperature and set no thinking. On `openrouter`,
+`anthropic/claude-sonnet-5.5`, `openai/gpt-6.1-sol` and `openai/gpt-6-luna`
+take no temperature. A model without `thinking` gets nothing sent for it: it
+thinks, or not, as its vendor's default.
+
+A preset registered before 0.1.4 has none of these marks: register it again
+to pick them up.
 
 ## Declare them in your pack's config
 
@@ -133,8 +221,8 @@ worktree, after `--reset`, and on a teammate's machine.
 ```ts
 // in kindgi.config.ts
 providers: [
-  { preset: 'anthropic', models: ['claude-haiku-4-5'] }, // its key, ANTHROPIC_API_KEY, from the env files
-  { preset: 'gemini', project: 'acme-gcp', models: ['gemini-2.5-flash'] },
+  { preset: 'anthropic', models: ['claude-sonnet-5-5'] }, // its key, ANTHROPIC_API_KEY, from the env files
+  { preset: 'gemini', project: 'acme-gcp', models: ['gemini-3.8-flash'] },
   { spec: { /* what --spec takes */ } },
 ],
 ```
@@ -146,12 +234,12 @@ providers: [
 # in pyproject.toml
 [[tool.kindgi.providers]]
 preset = "anthropic"
-models = ["claude-haiku-4-5"]   # its key, ANTHROPIC_API_KEY, from the env files
+models = ["claude-sonnet-5-5"]  # its key, ANTHROPIC_API_KEY, from the env files
 
 [[tool.kindgi.providers]]
 preset = "gemini"
 project = "acme-gcp"
-models = ["gemini-2.5-flash"]
+models = ["gemini-3.8-flash"]
 ```
 
 </TabItem>
@@ -227,3 +315,20 @@ Error [not-found]: No provider registered with id "ollama"
 ```text
 Error [conflict]: Provider "ollama" is already registered
 ```
+
+### Check a registration
+
+A registration stored before 0.1.5 wasn't checked when it was registered.
+`GET /v1/providers/{providerId}/check` (`providers.check(id)` in the clients)
+runs the same check over a stored one. Here, an Ollama registration whose
+`api` doesn't fit:
+
+```json
+{"providerId":"ollama","adapterId":"@kindgi/adapter-model-openai-compat","checked":true,"issues":[{"path":"/adapter_config/api","message":"adapter_config.api must be one of responses, chat-completions."}]}
+```
+
+An empty `issues` means the runtime can build the provider. `checked` is
+`false` for an adapter this runtime has no check for, such as `dev-echo`'s.
+`kindgi doctor` asks this for every provider and names each problem
+([Check this machine](../../start/install/#check-this-machine)). To fix one,
+unregister it and register it again with a spec that fits.

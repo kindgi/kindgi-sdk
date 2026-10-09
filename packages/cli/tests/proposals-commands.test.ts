@@ -169,7 +169,7 @@ describe('kindgi proposals draft', () => {
     const out = await run(['proposals', 'draft', ...flags], {
       proposals: { create: rec('create') },
     });
-    expect(out.exitCode).toBe(1);
+    expect(out.exitCode).toBe(2); // a usage error
     expect(out.stderr).toContain(message);
     expect(calls).toEqual([]);
   });
@@ -235,7 +235,7 @@ describe('kindgi proposals evaluate', () => {
       const out = await run(['proposals', 'evaluate', 'prop-1', '--test-set=s', flag], {
         proposals: { evaluate: rec('evaluate') },
       });
-      expect(out.exitCode).toBe(1);
+      expect(out.exitCode).toBe(2); // a usage error
       expect(out.stderr).toContain('must be one of');
     }
     expect(calls).toEqual([]);
@@ -281,7 +281,7 @@ describe('kindgi proposals request / rollback / withdraw', () => {
     const { calls, rec } = recorder();
     const client = { proposals: { withdraw: rec('withdraw') } };
     const missing = await run(['proposals', 'withdraw', 'prop-1'], client);
-    expect(missing.exitCode).toBe(1);
+    expect(missing.exitCode).toBe(2); // a usage error
     expect(missing.stderr).toContain('--reason is required');
     await run(['proposals', 'withdraw', 'prop-1', '--reason=Superseded by a better idea'], client);
     expect(calls).toEqual([['withdraw', 'prop-1', { reason: 'Superseded by a better idea' }]]);
@@ -344,7 +344,7 @@ describe('kindgi proposals list / get', () => {
     const { calls, rec } = recorder();
     for (const flag of ['--status=approved', '--tier=prompt']) {
       const out = await run(['proposals', 'list', flag], { proposals: { list: rec('list') } });
-      expect(out.exitCode).toBe(1);
+      expect(out.exitCode).toBe(2); // a usage error
     }
     expect(calls).toEqual([]);
   });

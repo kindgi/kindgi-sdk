@@ -48,6 +48,7 @@ const COMPLETION = {
 interface Seen {
   readonly url: string;
   readonly authorization: string | null;
+  readonly traceparent: string | null;
   readonly body: {
     readonly messages?: unknown;
     readonly temperature?: unknown;
@@ -63,6 +64,7 @@ function fakeEndpoint(): { readonly seen: Seen[]; readonly fetch: typeof fetch }
     seen.push({
       url: String(url),
       authorization: new Headers(init?.headers).get('authorization'),
+      traceparent: new Headers(init?.headers).get('traceparent'),
       body: JSON.parse(String(init?.body)) as Seen['body'],
     });
     return new Response(JSON.stringify(COMPLETION), {
@@ -96,7 +98,7 @@ describe('openAICompatAdapterFactory', () => {
       { baseURL: 42 },
     ]) {
       expect(() => openAICompatAdapterFactory({ metadata, ...(config && { config }) })).toThrow(
-        `${OPENAI_COMPAT_ADAPTER_ID}: provider "openai" needs adapter_config.baseURL, an http(s) URL`,
+        `${OPENAI_COMPAT_ADAPTER_ID}: provider "openai": needs adapter_config.baseURL, an http(s) URL`,
       );
     }
   });
@@ -150,6 +152,21 @@ describe('invoke', () => {
     });
     await provider.invoke(call);
     expect(endpoint.seen[0]?.authorization).toBe('Bearer unused');
+  });
+
+  test('a call with a traceparent sends it as a header, never in the body; without, none', async () => {
+    const endpoint = fakeEndpoint();
+    const provider = createOpenAICompatModelProvider({
+      baseURL: 'http://llm.test/v1',
+      apiKey: 'k',
+      metadata,
+      clientOptions: { fetch: endpoint.fetch, maxRetries: 0 },
+    });
+    const traceparent = '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01';
+    await provider.invoke({ ...call, traceparent });
+    await provider.invoke(call);
+    expect(endpoint.seen.map((s) => s.traceparent)).toEqual([traceparent, null]);
+    expect(JSON.stringify(endpoint.seen[0]?.body)).not.toContain('traceparent');
   });
 
   test("the turn's abort signal reaches the request", async () => {
@@ -402,5 +419,66 @@ describe('what the endpoint says about the call', () => {
       server.closeAllConnections();
       await new Promise((resolve) => server.close(resolve));
     }
+  });
+});
+
+describe("a model that doesn't take sampling", () => {
+  // OpenAI's GPT-6 models: remove temperature at any reasoning effort but `none`.
+  const noSampling: ProviderMetadata = {
+    ...metadata,
+    models: [
+      ...metadata.models,
+      { ...metadata.models[0], name: 'gpt-reasoning', sampling: false } as never,
+    ],
+  };
+
+  test('the call goes without the temperature, and the answer says so; others still get it', async () => {
+    const endpoint = fakeEndpoint();
+    const provider = createOpenAICompatModelProvider({
+      baseURL: 'http://llm.test/v1',
+      apiKey: 'k',
+      metadata: noSampling,
+      clientOptions: { fetch: endpoint.fetch, maxRetries: 0 },
+    });
+    const without = await provider.invoke({ ...call, model: 'gpt-reasoning', temperature: 0.2 });
+    const withIt = await provider.invoke({ ...call, temperature: 0.2 });
+    expect(endpoint.seen[0]?.body).not.toHaveProperty('temperature');
+    expect(without.warnings).toEqual([
+      {
+        code: 'sampling-unsupported',
+        message:
+          "gpt-reasoning doesn't take a temperature, so the call went without one (it asked for 0.2).",
+      },
+    ]);
+    expect(endpoint.seen[1]?.body.temperature).toBe(0.2);
+    expect(withIt).not.toHaveProperty('warnings');
+  });
+});
+
+describe("thinking: 'lowest'", () => {
+  test("sends the model's lowest reasoning effort; nothing without the hint or the data", async () => {
+    const endpoint = fakeEndpoint();
+    const provider = createOpenAICompatModelProvider({
+      baseURL: 'http://llm.test/v1',
+      apiKey: 'k',
+      metadata: {
+        ...metadata,
+        models: [
+          ...metadata.models,
+          {
+            ...metadata.models[0],
+            name: 'gpt-reasoning',
+            thinking: { mode: 'adaptive', lowest: 'low' },
+          } as never,
+        ],
+      },
+      clientOptions: { fetch: endpoint.fetch, maxRetries: 0 },
+    });
+    await provider.invoke({ ...call, model: 'gpt-reasoning', thinking: 'lowest' });
+    await provider.invoke({ ...call, model: 'gpt-reasoning' });
+    await provider.invoke({ ...call, thinking: 'lowest' });
+    expect(endpoint.seen[0]?.body.reasoning_effort).toBe('low');
+    expect(endpoint.seen[1]?.body).not.toHaveProperty('reasoning_effort');
+    expect(endpoint.seen[2]?.body).not.toHaveProperty('reasoning_effort');
   });
 });

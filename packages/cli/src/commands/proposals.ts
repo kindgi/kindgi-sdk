@@ -6,6 +6,7 @@ import { readFile } from 'node:fs/promises';
 import type { FixProposal, FixProposalStatus, ListPage, ProposalContent } from '@kindgi/client';
 
 import type { CommandContext } from '../context.js';
+import { UsageError } from '../errors.js';
 import { SCOPE_FLAGS, SCOPE_USAGE, scopeCell, scopeFrom } from './agents.js';
 import { CLASS_WEIGHTS, READS, followEvalRun, oneOfFlag } from './eval-runs.js';
 import {
@@ -86,7 +87,7 @@ function reasonFlag(ctx: CommandContext): { reason?: string } {
 
 function required(ctx: CommandContext, flag: string): string {
   const value = stringFlag(ctx, flag);
-  if (value === undefined) throw new Error(`--${flag} is required`);
+  if (value === undefined) throw new UsageError(`--${flag} is required`);
   return value;
 }
 
@@ -149,7 +150,7 @@ async function contentFrom(
   if (values !== undefined && template === undefined) {
     const parsed = await readJsonInput(values);
     if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      throw new Error("--values must be a JSON object: the settings block's new values");
+      throw new UsageError("--values must be a JSON object: the settings block's new values");
     }
     return {
       tier: 'settings-block',
@@ -160,7 +161,7 @@ async function contentFrom(
     const text = template.startsWith('@') ? await readFile(template.slice(1), 'utf8') : template;
     return { tier: 'prompt-block', content: { template: text } };
   }
-  throw new Error(
+  throw new UsageError(
     'Give the new content, one of: --values=<json>|@<file> (a settings block) or --template=<text>|@<file> (a prompt block)',
   );
 }

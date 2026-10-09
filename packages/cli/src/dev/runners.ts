@@ -64,17 +64,22 @@ export interface StartApiServerOptions {
   readonly packDir: string;
   /** `dev.envFiles` from `kindgi.config.ts`; default `.env`, `.env.local`. */
   readonly localEnvFiles?: readonly string[];
-  /**
-   * The CLI's environment: values for `${VAR}` references the env files
-   * don't define, and `HOME` (Google credentials).
-   */
+  /** The CLI's environment: values for `${VAR}` references the env files don't define. */
   readonly hostEnv: Readonly<Record<string, string | undefined>>;
   /** The local pack service's front, which the runtime calls the pack's code through. */
   readonly packService: { readonly url: string; readonly token: string };
   /** `KINDGI_PUBLIC_TOKEN_SIGNING_KEY_PATH`: the developer's key file, if set. Otherwise the runtime makes one. */
   readonly publicRunTokenKeyPath?: string;
+  /** `KINDGI_EXPORT_SIGNING_KEY_PATH`: the developer's export key file, if set. Otherwise the runtime makes one. */
+  readonly exportSigningKeyPath?: string;
   /** `KINDGI_CORS_ORIGINS`: the browser app's origins, allowed on the run progress routes. */
   readonly corsOrigins?: readonly string[];
+  /**
+   * The Google credentials file `KINDGI_DEV_GOOGLE_CREDENTIALS` names
+   * (`dev/google-credentials.ts`), mounted read-only for Vertex AI.
+   * Absent: none reach the runtime.
+   */
+  readonly googleCredentialsPath?: string;
   /** The runtime image (`--runtime-image`). */
   readonly runtimeImage: string;
   /**
