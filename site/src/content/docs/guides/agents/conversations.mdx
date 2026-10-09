@@ -292,6 +292,28 @@ Over HTTP, these are `POST /v1/conversations`, `GET /v1/conversations`,
 kindgi conversations unregister <conversation-id>
 ```
 
+It prints the conversation, now with `unregisteredAt`:
+
+```json
+{
+  "id": "a74b27e5-9166-4b16-badd-258424f5ae20",
+  "tenantId": "9f1543c9-7b93-46ff-a5ff-205093a148bb",
+  "agentId": "acme.desk",
+  "agentVersion": "1.0.0",
+  "title": "acme.desk",
+  "participantId": "end-7",
+  "projectId": "aa0cf701-a8f7-40e5-b5d9-bec1a1cb1723",
+  "scope": {
+    "tenantId": "9f1543c9-7b93-46ff-a5ff-205093a148bb"
+  },
+  "status": "open",
+  "openedAt": "2026-10-09T13:30:24.826Z",
+  "unregisteredAt": "2026-10-09T13:30:39.043Z",
+  "turnCount": 1,
+  "lastMessageAt": "2026-10-09T13:30:32.233Z"
+}
+```
+
 From then on, no read, list or [recall](../give-an-agent-memory/#recall-earlier-conversations)
 returns it, and it takes no more turns. Its messages stay in the database
 until a retention policy on `conversation` purges them

@@ -28,16 +28,41 @@ your organization's work, not their personal data. The API refuses it with a
 ## Start one and follow it
 
 ```sh
-kindgi memory erasures create --participant=customer-4411
+kindgi memory erasures create --participant=end-7
+```
+
+`create` answers at once (`202`) with the erasure, and the work goes on in
+the background:
+
+```json
+{
+  "id": "b8516687-01dc-4855-86ed-816455bf3bf8",
+  "selectorKind": "participant",
+  "selector": {
+    "subject": {
+      "id": "end-7",
+      "kind": "participant"
+    }
+  },
+  "status": "pending",
+  "phase": "seed",
+  "requestedBy": "user:60328bcc-a6e4-4854-9442-fbdcc460838c",
+  "matchable": true,
+  "counts": {},
+  "attempts": 0,
+  "createdAt": "2026-10-09T13:30:39.645Z"
+}
+```
+
+```sh
 kindgi memory erasures get <erasure-id>
 kindgi memory erasures list
 ```
 
-`create` answers at once (`202`) with the erasure, and the work goes on in
-the background. `get` shows its `status` (`pending`, `running`,
-`waiting-on-run`, `completed` or `failed`), its `phase` (`seed`, `expand`,
-`settle`, `erase`, then `done`), what each store cleared so far (`counts`),
-and the last error it will retry (`lastError`).
+`get` shows its `status` (`pending`, `running`, `waiting-on-run`,
+`completed` or `failed`), its `phase` (`seed`, `expand`, `settle`, `erase`,
+then `done`), what each store cleared so far (`counts`), and the last error
+it will retry (`lastError`).
 
 From your app: `memory.erasures.create`, `get`, `list`, `resume`, `export`
 and `replay` in TypeScript; `memory.create_erasure`, `get_erasure`,
@@ -114,6 +139,36 @@ And the same erasure, completed. It keeps no trace of whom it erased: the
 }
 ```
 
+The turn it cancelled ends its journal like this, with nothing left of
+what it held:
+
+```sh
+kindgi runs journal <run-id>
+```
+
+```json
+{
+  "data": [
+    …
+    {
+      "sequence": 4,
+      "kind": "wait.suspended",
+      "nodeId": "setup",
+      "timestamp": "2026-10-09T12:45:28.617Z"
+    },
+    {
+      "sequence": 5,
+      "kind": "run.cancelled",
+      "payload": {
+        "reason": "erased"
+      },
+      "timestamp": "2026-10-09T12:45:41.565Z"
+    }
+  ],
+  …
+}
+```
+
 Once it completes, new turns for the person start again.
 
 ## What it clears
@@ -170,8 +225,18 @@ erasure ledger back too. So export the ledger off-box regularly, and replay
 it after a restore:
 
 ```sh
-kindgi memory erasures export --out=erasures.json
-kindgi memory erasures replay erasures.json
+kindgi memory erasures export --out=erasure-ledger.json
+```
+
+```json
+{
+  "wrote": "erasure-ledger.json",
+  "erasures": 1
+}
+```
+
+```sh
+kindgi memory erasures replay erasure-ledger.json
 ```
 
 The ledger keeps no identifier, only a keyed hash of whom each erasure

@@ -215,10 +215,37 @@ erasures still run, but each answers with an `erasure-unmatchable` warning,
 and a replay can't find whom it erased.
 
 Three places say whether erasures can be replayed:
-- **the startup log's `Erasures` line;**
+- **the startup log's `Erasures` line**, with the key:
+
+  ```text
+  …
+    Erasures: on; the ledger is replayable after a backup restore (key from KINDGI_ERASURE_LEDGER_KEY)
+  …
+  ```
+
+  and without it:
+
+  ```text
+  …
+    Erasures: on, but NOT replayable after a backup restore: no KINDGI_ERASURE_LEDGER_KEY, so the ledger can't keep a keyed hash
+  …
+  ```
+
 - **`/ready`'s `erasures`:** `replayable` or `unreplayable`;
-- **`kindgi doctor`'s `erasures` check:** it never fails, since a runtime
-  without the key is fine for development.
+- **`kindgi doctor`'s `erasures` check.** It never fails, since a runtime
+  without the key is fine for development. With the key, then without it:
+
+  ```text
+  …
+    ✓ Erasures: Erasures can be replayed after a backup restore: the runtime has the erasure ledger key.
+  …
+  ```
+
+  ```text
+  …
+    – Erasures: Erasures run, but a replay after a backup restore can't find whom they erased: the runtime has no KINDGI_ERASURE_LEDGER_KEY. Fine for development; set it where you run in production.
+  …
+  ```
 
 Then:
 
