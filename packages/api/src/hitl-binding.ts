@@ -88,17 +88,41 @@ export interface ListApprovalsBindingInput {
   readonly status?: ApprovalStatus;
   readonly requiredRole?: ReviewerRole;
   readonly since?: Timestamp;
+  /** A bare time: approvals created before it. Milliseconds, no tie-breaker; `after` replaces it. */
   readonly cursor?: Cursor;
   /**
    * Only approvals whose `waitTokenId` is one of these: the approvals a
    * run's open waits belong to (T272). Absent: no filter.
    */
   readonly waitTokenIds?: readonly string[];
+  /**
+   * Only approvals after this one in the list's order (`createdAt` desc,
+   * then `id` desc): where a page that ended on it continues. Its
+   * `createdAt` is the binding's `exactCreatedAt` for it.
+   */
+  readonly after?: ApprovalPosition;
+}
+
+/**
+ * Where a page of approvals ends: an approval's `createdAt` as stored
+ * (Postgres keeps microseconds), and its id. A JS `Date` keeps
+ * milliseconds: a position built from one skips the approvals created
+ * earlier in the same millisecond.
+ */
+export interface ApprovalPosition {
+  readonly createdAt: string;
+  readonly id: ApprovalId;
 }
 
 export interface ListApprovalsBindingResult {
   readonly approvals: readonly Approval[];
   readonly nextCursor?: Cursor;
+  /**
+   * Each listed approval's `createdAt` as stored (microseconds), by id:
+   * with the id, the `after` that continues past it. Absent from a binding
+   * that doesn't give it; a caller then continues by `cursor`.
+   */
+  readonly exactCreatedAt?: Readonly<Record<string, string>>;
 }
 
 export interface SubmitReviewBindingInput {

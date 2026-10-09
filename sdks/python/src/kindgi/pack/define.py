@@ -322,6 +322,22 @@ def _compact(value: Mapping[str, Any]) -> dict[str, Any]:
 
 CheckFn = Callable[..., Any]
 
+#: The built-in checks' ids (`BUILT_IN_CHECK_IDS` in the TypeScript `@kindgi/guardrails`). The
+#: runtime runs the built-in for a guardrail naming one, so a pack can't ship its own check under
+#: one: a `@guardrail` always ships its check, so its check id (`check_id=`, or the guardrail's
+#: own id) can't be one of these.
+RESERVED_CHECK_IDS = frozenset(
+    {
+        "must-cite",
+        "never-call-tool",
+        "max-tool-calls",
+        "output-matches",
+        "tool-order",
+        "required-substring",
+        "forbidden-substring",
+    }
+)
+
 
 @dataclass(frozen=True, eq=False)
 class Guardrail:
@@ -391,6 +407,15 @@ def guardrail(
     def decorate(check: CheckFn) -> Guardrail:
         where = f'Guardrail "{id}"'
         _require_id(id, where)
+        resolved_check_id = check_id or id
+        if resolved_check_id in RESERVED_CHECK_IDS:
+            raise DefinitionError(
+                f'{where}: its check id "{resolved_check_id}" is a built-in check\'s, and a pack '
+                f"can't replace a built-in. Rename your check "
+                f'(check_id="<pack>.checks.{resolved_check_id}")'
+                + ("" if check_id else ", or rename the guardrail")
+                + "."
+            )
         if (on_violation is None) == (action is None):
             raise DefinitionError(f"{where}: pass exactly one of on_violation= or action=")
         resolved_action: Mapping[str, Any] = (
@@ -417,7 +442,7 @@ def guardrail(
         return Guardrail(
             id=id,
             check=check,
-            check_id=check_id or id,
+            check_id=resolved_check_id,
             kind=kind,
             action=dict(resolved_action),
             name=name,
