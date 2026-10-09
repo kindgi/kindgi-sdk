@@ -405,6 +405,9 @@ function inMemoryPasses() {
         suiteId: input.suiteId,
         tiers: input.tiers,
         objective: input.objective,
+        classWeights: input.classWeights,
+        ...(input.model !== undefined && { model: input.model }),
+        ...(input.candidates !== undefined && { candidates: input.candidates }),
         budget: input.budget,
         requestedBy: `${input.requestedBy.kind}:${input.requestedBy.id}`,
         status: 'running',
@@ -442,6 +445,8 @@ async function harness(
     readOnly?: boolean;
     tunable?: boolean;
     passes?: ImprovementPassBinding;
+    /** Instructions inline, not from a pinned prompt block. */
+    inlineInstructions?: boolean;
   } = {},
 ) {
   const agents = agentBinding();
@@ -488,7 +493,7 @@ async function harness(
   });
   const pinned = {
     tools: {},
-    prompts: { 'acme.scorer-prompt': '1.0.0' },
+    prompts: opts.inlineInstructions === true ? {} : { 'acme.scorer-prompt': '1.0.0' },
     settings: { [WEIGHTS]: '1.0.0' },
   };
   await agents.publish({
@@ -498,7 +503,10 @@ async function harness(
       id: AGENT,
       version: '1.0.0',
       name: 'Scorer',
-      instructions: { prompt: 'acme.scorer-prompt', version: '^1.0.0' },
+      instructions:
+        opts.inlineInstructions === true
+          ? 'Score it.'
+          : { prompt: 'acme.scorer-prompt', version: '^1.0.0' },
       settings: [{ id: WEIGHTS, version: '^1.0.0' }],
       capabilities: [],
       tools: [],
@@ -1090,7 +1098,13 @@ describe('improvement passes', () => {
       status: 'running',
       requestedBy: 'user:user-1',
     });
-    expect(passes.started[0]).toMatchObject({ projectId, fromVersion: '1.0.0' });
+    expect(passes.started[0]).toMatchObject({
+      projectId,
+      fromVersion: '1.0.0',
+      // K4: a pass learns from trusted judgments only, by default.
+      classWeights: 'restricted-only',
+    });
+    expect(res.body.classWeights).toBe('restricted-only');
     const read = await h.call('GET', `/v1/improvement-passes/${res.body.id}`);
     expect(read.body.id).toBe(res.body.id);
     const listed = await h.call('GET', `/v1/improvement-passes?agentId=${AGENT}`);
@@ -1100,6 +1114,89 @@ describe('improvement passes', () => {
     const again = await h.call('POST', `/v1/improvement-passes/${res.body.id}/cancel`, {});
     expect(again.status).toBe(409);
     expect(again.body.error.code).toBe('improvement-pass-finished');
+  });
+
+  test("a pass's comparisons show a refused template's issues and each drafted template's hypothesis", async () => {
+    const passes = inMemoryPasses();
+    const h = await harness({ passes: passes.binding });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const started = await h.call('POST', '/v1/proposals/improve', {
+      ...IMPROVE,
+      tiers: ['prompt'],
+      model: { providerId: 'acme-llm', model: 'm-1' },
+    });
+    const refused = [
+      { path: '/template', message: 'it names "acme.export", which the agent doesn\'t use' },
+    ];
+    const comparisons = [
+      { role: 'reference', part: 'search', evalRunId: randomUUID(), score: 0.5 },
+      {
+        role: 'candidate',
+        part: 'search',
+        blockId: 'acme.scorer-prompt',
+        changed: { template: 'Score it, then call acme.export.' },
+        failed: 'The drafted template was refused: it names "acme.export".',
+        refused,
+        hypothesis: 'As the reviewer asked.',
+      },
+    ];
+    const id = started.body.id as string;
+    passes.rows.set(id, {
+      ...(passes.rows.get(id) as ImprovementPass),
+      comparisons,
+    } as ImprovementPass);
+    const read = await h.call('GET', `/v1/improvement-passes/${id}`);
+    expect(read.body.comparisons[1]).toMatchObject({
+      refused,
+      hypothesis: 'As the reviewer asked.',
+    });
+  });
+
+  test('a prompt pass needs a model, drafts 3 templates by default, and needs a prompt block', async () => {
+    const passes = inMemoryPasses();
+    const h = await harness({ passes: passes.binding });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const noModel = await h.call('POST', '/v1/proposals/improve', {
+      ...IMPROVE,
+      tiers: ['prompt'],
+    });
+    expect(noModel.status).toBe(400);
+    expect(noModel.body.error.message).toContain('`model` is required for a prompt pass');
+    const model = { providerId: 'acme-llm', model: 'm-1' };
+    const res = await h.call('POST', '/v1/proposals/improve', {
+      ...IMPROVE,
+      tiers: ['prompt'],
+      model,
+    });
+    expect(res.status, JSON.stringify(res.body)).toBe(202);
+    expect(res.body).toMatchObject({ tiers: ['prompt'], model, candidates: 3 });
+    expect(passes.started[0]).toMatchObject({ tiers: ['prompt'], model, candidates: 3 });
+    const settingsWithModel = await h.call('POST', '/v1/proposals/improve', { ...IMPROVE, model });
+    expect(settingsWithModel.status).toBe(400);
+    expect(
+      (
+        await h.call('POST', '/v1/proposals/improve', {
+          ...IMPROVE,
+          tiers: ['prompt'],
+          model,
+          candidates: 9,
+        })
+      ).status,
+    ).toBe(400);
+  });
+
+  test('a prompt pass on a version with inline instructions is refused (400)', async () => {
+    const passes = inMemoryPasses();
+    const h = await harness({ passes: passes.binding, inlineInstructions: true });
+    h.releases.pin({ kind: 'tenant' }, '1.0.0');
+    const res = await h.call('POST', '/v1/proposals/improve', {
+      ...IMPROVE,
+      tiers: ['prompt'],
+      model: { providerId: 'acme-llm', model: 'm-1' },
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toContain('pinned prompt block');
+    expect(passes.started).toHaveLength(0);
   });
 
   test('a version that pins nothing tunable is refused (400), saying how to mark keys', async () => {
@@ -1158,6 +1255,7 @@ describe('improvement passes', () => {
       suiteId: 's',
       tiers: ['settings'],
       objective: 'weightedYesShare',
+      classWeights: 'restricted-only',
       budget: { maxCostUsd: 1, maxCandidates: 1 },
       requestedBy: { kind: 'user', id: 'u' },
     });

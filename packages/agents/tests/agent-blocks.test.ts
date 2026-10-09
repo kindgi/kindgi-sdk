@@ -159,9 +159,9 @@ describe('a turn loads the blocks it references', () => {
           ...ctx.bindings,
           replay: {
             decideTool: async () => ({ kind: 'live' as const }),
-            settings: async (input: unknown) => {
+            overrides: async (input: unknown) => {
               asked.push(input);
-              return overrides;
+              return overrides === undefined ? undefined : { settings: overrides };
             },
           },
         },
@@ -182,6 +182,28 @@ describe('a turn loads the blocks it references', () => {
     ).rejects.toThrow(/with the replay's values/);
   });
 
+  test("a replay turn takes the replay's prompt template, keeping the block's parameters", async () => {
+    const ctx = turn(agent(), reader());
+    const blocks = await resolveTurnBlocks({
+      ...ctx,
+      input: { ...ctx.input, replay: { of: 'run-past', evalRunId: 'eval-1' } },
+      bindings: {
+        ...ctx.bindings,
+        replay: {
+          decideTool: async () => ({ kind: 'live' as const }),
+          overrides: async () => ({
+            prompts: { 'acme.intake-prompt': { template: 'Sort it, {{ firm }}.' } },
+          }),
+        },
+      },
+    } as unknown as TurnContext);
+    expect(blocks?.prompt).toMatchObject({
+      id: 'acme.intake-prompt',
+      version: '1.1.0',
+      content: { template: 'Sort it, {{ firm }}.', parameters: [{ name: 'firm' }] },
+    });
+  });
+
   test('a turn that is not a replay never asks for replay settings', async () => {
     let asked = 0;
     const ctx = turn(agent(), reader());
@@ -191,9 +213,9 @@ describe('a turn loads the blocks it references', () => {
         ...ctx.bindings,
         replay: {
           decideTool: async () => ({ kind: 'live' as const }),
-          settings: async () => {
+          overrides: async () => {
             asked += 1;
-            return { 'acme.weights': { recency: 0.9 } };
+            return { settings: { 'acme.weights': { recency: 0.9 } } };
           },
         },
       },

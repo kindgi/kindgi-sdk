@@ -106,15 +106,22 @@ export interface ReplayBinding {
    */
   sessionApproval?(input: ReplayTurnRef): Promise<ReplayApproval | undefined>;
   /**
-   * Settings values the replay runs instead of the agent version's pinned
-   * ones, by settings block id (a comparison's `overrides`: an improvement
-   * pass's search). The same for every turn of a replay, on resume too.
-   * `undefined` (or absent): the pinned values.
+   * Block content the replay runs instead of the agent version's pinned
+   * content (a comparison's `overrides`: an improvement pass's search):
+   * settings values and prompt templates, by block id. The same for every
+   * turn of a replay, on resume too. `undefined` (or absent): the pinned
+   * content.
    */
-  settings?(input: {
+  overrides?(input: {
     readonly tenantId: TenantId;
     readonly replay: RunReplayRef;
-  }): Promise<Readonly<Record<string, Readonly<Record<string, unknown>>>> | undefined>;
+  }): Promise<ReplayOverrides | undefined>;
+}
+
+/** Block content a replay runs instead of the pinned content, by block id. */
+export interface ReplayOverrides {
+  readonly settings?: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+  readonly prompts?: Readonly<Record<string, { readonly template: string }>>;
 }
 
 /** One tool call of a replay turn, and what happened to it. */

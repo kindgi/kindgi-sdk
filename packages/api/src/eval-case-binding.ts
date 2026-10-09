@@ -39,7 +39,17 @@ export interface JudgedItemSummary extends JudgedItem {
    */
   readonly restricted?: { readonly yesWeight: number; readonly totalWeight: number };
   /** The reasons given, newest first. */
-  readonly reasons: readonly { readonly verdict: 'yes' | 'no'; readonly reason: string }[];
+  readonly reasons: readonly JudgedReason[];
+}
+
+/** One judgment's reason, and whose judgment it was. */
+export interface JudgedReason {
+  readonly verdict: 'yes' | 'no';
+  readonly reason: string;
+  /** The judgment's class, when it had one. */
+  readonly judgeClassId?: string;
+  /** Set when the judgment was recorded while its class was restricted (`Judgment.restricted`). */
+  readonly restricted?: true;
 }
 
 /** One case of a `judged` suite: a copy of a judged run and what people said about it. */

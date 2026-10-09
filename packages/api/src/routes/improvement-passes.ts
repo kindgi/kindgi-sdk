@@ -10,8 +10,10 @@ import type { Cursor, Semver, TenantId } from '@kindgi/types';
 import type { AgentRegistryBinding, AgentVersionRecord } from '../agent-binding.js';
 import type { BlockRegistryBinding } from '../block-binding.js';
 import { statusFor, toWireError } from '../errors.js';
+import type { EvalClassWeights } from '../eval-run-binding.js';
 import type {
   ImprovementBudget,
+  ImprovementModel,
   ImprovementPass,
   ImprovementPassBinding,
   ImprovementTier,
@@ -81,11 +83,11 @@ export function mountImproveRoute(r: Hono<AppEnv>, deps: ImproveDeps, authorizer
         message: `${parsed.agentId} has no active version ${fromVersion ?? '(none is registered)'}`,
       });
     }
-    const tunable = await tunableBlocks(deps.blocks, tenantId, from);
-    if (tunable.length === 0) {
+    const nothing = await nothingToTune(deps.blocks, tenantId, from, parsed.tiers[0]);
+    if (nothing !== undefined) {
       return fail(c, 'validation-failed', {
         code: 'validation-failed',
-        message: `${parsed.agentId} ${from.version as unknown as string} pins no settings block with keys marked "x-kindgi-tunable": there's nothing for a pass to tune. Mark the keys it may tune in the block's schema (a number or integer with a minimum and maximum, or an enum) and publish it.`,
+        message: nothing,
         issues: [],
       });
     }
@@ -104,6 +106,9 @@ export function mountImproveRoute(r: Hono<AppEnv>, deps: ImproveDeps, authorizer
       suiteId: parsed.suiteId,
       tiers: parsed.tiers,
       objective: parsed.objective,
+      classWeights: parsed.classWeights,
+      ...(parsed.model !== undefined && { model: parsed.model }),
+      ...(parsed.candidates !== undefined && { candidates: parsed.candidates }),
       budget: parsed.budget,
       requestedBy: actorOf(c),
     });
@@ -218,21 +223,29 @@ async function servingVersion(
   return latest?.version as unknown as string | undefined;
 }
 
-/** The settings blocks a version pins whose schema marks keys tunable. */
-async function tunableBlocks(
+/** Why a pass of this tier has nothing to work on in this version; `undefined` when it has. */
+async function nothingToTune(
   blocks: BlockRegistryBinding,
   tenantId: TenantId,
   version: AgentVersionRecord,
-): Promise<string[]> {
-  const found: string[] = [];
+  tier: ImprovementTier | undefined,
+): Promise<string | undefined> {
+  const named = `${version.id as unknown as string} ${version.version as unknown as string}`;
+  if (tier === 'prompt') {
+    const prompt =
+      typeof version.instructions === 'object' ? version.instructions.prompt : undefined;
+    return prompt !== undefined && version.pins?.prompts[prompt] !== undefined
+      ? undefined
+      : `${named} doesn't take its instructions from a pinned prompt block: there's no template for a prompt pass to draft. Move the instructions into a prompt block and publish the agent again.`;
+  }
   for (const [blockId, pinned] of Object.entries(version.pins?.settings ?? {})) {
     if (version.modelSettings?.id === blockId) continue;
     const block = await blocks.getVersion({ tenantId, blockId, version: pinned });
     if (block?.kind === 'settings' && tunableKeys(block.content.schema).length > 0) {
-      found.push(blockId);
+      return undefined;
     }
   }
-  return found;
+  return `${named} pins no settings block with keys marked "x-kindgi-tunable": there's nothing for a pass to tune. Mark the keys it may tune in the block's schema (a number or integer with a minimum and maximum, or an enum) and publish it.`;
 }
 
 export function serializePass(p: ImprovementPass): Record<string, unknown> {
@@ -244,6 +257,9 @@ export function serializePass(p: ImprovementPass): Record<string, unknown> {
     suiteId: p.suiteId,
     tiers: p.tiers,
     objective: p.objective,
+    classWeights: p.classWeights,
+    ...(p.model !== undefined && { model: p.model }),
+    ...(p.candidates !== undefined && { candidates: p.candidates }),
     budget: p.budget,
     requestedBy: p.requestedBy,
     status: p.status,
@@ -266,7 +282,44 @@ interface ImproveBody {
   readonly suiteId: string;
   readonly tiers: readonly ImprovementTier[];
   readonly objective: ProposalObjective;
+  readonly classWeights: EvalClassWeights;
+  readonly model?: ImprovementModel;
+  readonly candidates?: number;
   readonly budget: ImprovementBudget;
+}
+
+const MAX_DRAFTED = 5;
+
+/** `model` and `candidates`, for a prompt pass only; an error message otherwise. */
+function parsePromptOptions(
+  b: Record<string, unknown>,
+  tier: ImprovementTier,
+): { model?: ImprovementModel; candidates?: number } | string {
+  if (tier !== 'prompt') {
+    return b.model !== undefined || b.candidates !== undefined
+      ? "`model` and `candidates` are for a prompt pass (`tiers: ['prompt']`)"
+      : {};
+  }
+  const m = b.model as Record<string, unknown> | undefined;
+  if (
+    typeof m !== 'object' ||
+    m === null ||
+    !nonEmpty(m.providerId) ||
+    !nonEmpty(m.model) ||
+    Object.keys(m).length !== 2
+  ) {
+    return "`model` is required for a prompt pass: { providerId, model }, the tenant's provider and model that drafts the templates";
+  }
+  const candidates = b.candidates ?? 3;
+  if (
+    typeof candidates !== 'number' ||
+    !Number.isInteger(candidates) ||
+    candidates < 1 ||
+    candidates > MAX_DRAFTED
+  ) {
+    return `\`candidates\` is how many templates to draft: 1 to ${MAX_DRAFTED}`;
+  }
+  return { model: { providerId: m.providerId, model: m.model }, candidates };
 }
 
 function nonEmpty(value: unknown): value is string {
@@ -295,7 +348,18 @@ function parseBudget(raw: unknown): ImprovementBudget | string {
 }
 
 function parseImproveBody(b: Record<string, unknown>): ImproveBody | string {
-  const known = ['agentId', 'fromVersion', 'scope', 'suiteId', 'tiers', 'objective', 'budget'];
+  const known = [
+    'agentId',
+    'fromVersion',
+    'scope',
+    'suiteId',
+    'tiers',
+    'objective',
+    'classWeights',
+    'model',
+    'candidates',
+    'budget',
+  ];
   const extra = Object.keys(b).find((k) => !known.includes(k));
   if (extra !== undefined) return `\`${extra}\` isn't a field of improve: { ${known.join(', ')} }`;
   if (!nonEmpty(b.agentId)) return '`agentId` is required';
@@ -306,12 +370,23 @@ function parseImproveBody(b: Record<string, unknown>): ImproveBody | string {
   if (scope.kind === 'err') return scope.message;
   if (!nonEmpty(b.suiteId)) return '`suiteId` is required: the test set to search and prove on';
   const tiers = b.tiers ?? ['settings'];
-  if (!Array.isArray(tiers) || tiers.length !== 1 || tiers[0] !== 'settings') {
-    return "`tiers` is ['settings']: a pass tunes settings blocks";
+  if (
+    !Array.isArray(tiers) ||
+    tiers.length !== 1 ||
+    (tiers[0] !== 'settings' && tiers[0] !== 'prompt')
+  ) {
+    return "`tiers` is ['settings'] (tunable settings values) or ['prompt'] (a drafted prompt template)";
   }
+  const tier = tiers[0] as ImprovementTier;
   if (b.objective !== undefined && !OBJECTIVES.includes(b.objective as ProposalObjective)) {
     return `\`objective\` must be one of ${OBJECTIVES.join(', ')}`;
   }
+  const classWeights = b.classWeights ?? 'restricted-only';
+  if (classWeights !== 'restricted-only' && classWeights !== 'as-recorded') {
+    return "`classWeights` is 'restricted-only' (trusted judgments, the default) or 'as-recorded'";
+  }
+  const prompt = parsePromptOptions(b, tier);
+  if (typeof prompt === 'string') return prompt;
   const budget = parseBudget(b.budget);
   if (typeof budget === 'string') return budget;
   return {
@@ -319,8 +394,10 @@ function parseImproveBody(b: Record<string, unknown>): ImproveBody | string {
     ...(typeof b.fromVersion === 'string' && { fromVersion: b.fromVersion }),
     scope: scope.scope,
     suiteId: b.suiteId,
-    tiers: ['settings'],
+    tiers: [tier],
     objective: (b.objective as ProposalObjective | undefined) ?? 'weightedYesShare',
+    classWeights,
+    ...prompt,
     budget,
   };
 }

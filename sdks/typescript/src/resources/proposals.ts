@@ -103,8 +103,15 @@ export interface ImproveInput {
   readonly scope: LiveScope;
   /** The test set to search and prove on. */
   readonly suiteId: string;
-  readonly tiers?: readonly 'settings'[];
+  /** `['settings']` (the default): tunable settings values; `['prompt']`: drafted templates (needs `model`). */
+  readonly tiers?: readonly ('settings' | 'prompt')[];
   readonly objective?: ProposalObjective;
+  /** Which judgments it learns from. Default `restricted-only`: trusted ones. */
+  readonly classWeights?: 'restricted-only' | 'as-recorded';
+  /** For a prompt pass: the tenant's provider and model that drafts the templates. */
+  readonly model?: { readonly providerId: string; readonly model: string };
+  /** For a prompt pass: how many templates it drafts (1–5, default 3). */
+  readonly candidates?: number;
   /** Default: $5 and 30 candidates. */
   readonly budget?: { readonly maxCostUsd?: number; readonly maxCandidates?: number };
   readonly idempotencyKey?: string;
