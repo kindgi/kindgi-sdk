@@ -15,7 +15,7 @@ description: >
   kindgi-authoring-agents.
 type: core
 library: "@kindgi/sdk"
-version: "0.3.6"
+version: "0.3.7"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -55,7 +55,11 @@ before the response is stored.
 - **Built-in checks** (`BUILT_IN_CHECK_IDS` in `@kindgi/guardrails`):
   `must-cite`, `never-call-tool`, `max-tool-calls`, `output-matches`,
   `tool-order`, `required-substring`, `forbidden-substring`. A guardrail
-  can name one of these instead of shipping its own check.
+  can name one of these (`check: 'forbidden-substring'`) instead of
+  shipping its own check, and the runtime runs the built-in. Their ids
+  are reserved: a pack that ships its own check under one is refused
+  (`reserved-check-id`), so name yours `<pack>.checks.<name>`. See
+  "Using a built-in check" below for each one's `config`.
 
 `@kindgi/sdk` exports `defineCheck` but no helper for the guardrail
 itself: a pack file default-exports the declaration as a plain object.
@@ -118,6 +122,44 @@ How the pack tooling reads this file:
   schema resolves: the schema's defaults applied (a guardrail that
   declares no config gets them all), and a config that doesn't fit
   refused, naming where.
+
+## Using a built-in check
+
+Name the built-in as the guardrail's `check`, give its `config`, and ship
+no check implementation:
+
+```ts
+// guardrails/no-guarantees/index.ts
+export default {
+  id: 'acme.no-guarantees',
+  name: 'Never promise a guarantee',
+  kind: 'zero-llm',
+  check: 'forbidden-substring',
+  config: { patterns: ['guaranteed', 'we promise'] },
+  action: { 'on-violation': 'halt' },
+  severity: 'error',
+};
+```
+
+Each built-in's `config` (tool lists hold tool ids, as in
+`acme.fetch-precedent`):
+
+| Check | Fails when | `config` |
+| --- | --- | --- |
+| `must-cite` | the answer is empty, or has fewer than `minCitations` matches of `sourcePattern` | `minCitations?: number` (1), `sourcePattern?: string` (a regex; `[…]`-style citations by default) |
+| `never-call-tool` | the turn called any tool in `tools` | `tools: string[]` |
+| `max-tool-calls` | the turn made more than `max` tool calls | `max?: number` (10) |
+| `output-matches` | the answer doesn't match `pattern` (with `negate: true`, it does) | `pattern: string` (a regex), `flags?: string`, `negate?: boolean` |
+| `tool-order` | the tools in `sequence` weren't called in that order (others may come between) | `sequence: string[]` |
+| `required-substring` | the answer is empty, or lacks any of `patterns` | `patterns: string[]` (plain text), `caseSensitive?: boolean` (false) |
+| `forbidden-substring` | the answer contains any of `patterns` | `patterns: string[]` (plain text), `caseSensitive?: boolean` (false) |
+
+**The built-ins don't check their `config` yet.** Nothing refuses a
+wrong shape: a setting of the wrong type is ignored, and the check falls
+back to its default or to nothing. `never-call-tool` with
+`tools: 'acme.refund'` (a string, not a list) forbids nothing and passes
+every turn; `output-matches` without a `pattern` fails every turn. Copy
+the shapes above exactly.
 
 ## Validating a declaration in-process
 
