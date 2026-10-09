@@ -631,7 +631,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_AWS_STS_REGION',
     description:
-      "With `KINDGI_AWS_ROLE_ARN`: the region whose STS endpoint the role is assumed through (regional STS, never the global endpoint). Default: `AWS_REGION`, which ECS, Lambda and EKS set. Neither: the role isn't assumed, and the server refuses to start.",
+      'With `KINDGI_AWS_ROLE_ARN` or `KINDGI_AWS_IDENTITY=web-identity`: the region whose STS endpoint is used (regional STS, never the global endpoint). Default: `AWS_REGION`, which ECS, Lambda and EKS set. Neither: the server refuses to start.',
     example: 'us-east-2',
     required: false,
     appliesTo: appliesToServer,
