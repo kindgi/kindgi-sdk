@@ -34,12 +34,23 @@ const resolveToken: TokenResolver = async (token) =>
 
 const runHandler = {} as RunHandlerBinding;
 
-/** An eval-suite registry that only knows how to publish. */
+/** An eval-suite registry that only knows how to publish; a suite stays in its first project. */
 function suiteRegistry(): EvalSuiteRegistryBinding & { readonly published: EvalSuite[] } {
   const published: EvalSuite[] = [];
+  const owners = new Map<string, string>();
   return {
     published,
-    async publish({ suite }: { suite: EvalSuite }) {
+    async publish({ suite, projectId }: { suite: EvalSuite; projectId: string }) {
+      const owner = owners.get(suite.id);
+      if (owner !== undefined && owner !== projectId) {
+        return {
+          kind: 'project-mismatch',
+          suiteId: suite.id,
+          version: suite.version,
+          projectId: owner,
+        };
+      }
+      owners.set(suite.id, projectId);
       if (published.some((s) => s.id === suite.id && s.version === suite.version)) {
         return { kind: 'already-registered', suiteId: suite.id, version: suite.version };
       }
@@ -415,6 +426,19 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
     const again = await h.call('POST', BUILD, base);
     expect(again.status).toBe(409);
     expect(again.body.error.code).toBe('eval-suite-already-registered');
+  });
+
+  test('a suite of another project: 409 eval-suite-project-mismatch, and nothing is built', async () => {
+    expect((await h.call('POST', BUILD, base)).status).toBe(201);
+    const elsewhere = { ...base, version: '2.0.0', projectId: randomUUID() };
+    const res = await h.call('POST', BUILD, elsewhere);
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('eval-suite-project-mismatch');
+    expect(res.body.error.message).toContain(
+      'belongs to another project; build its versions there',
+    );
+    expect(JSON.stringify(res.body)).not.toContain(project);
+    expect(h.suites.published.map((s) => s.version)).toEqual(['1.0.0']);
   });
 
   test('a binding that cannot list judged runs: 501', async () => {

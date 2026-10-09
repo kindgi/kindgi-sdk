@@ -826,6 +826,9 @@ importers:
         specifier: ^1.9.0
         version: 1.9.0
     devDependencies:
+      '@kindgi/guardrails':
+        specifier: workspace:*
+        version: link:../guardrails
       '@kindgi/specs':
         specifier: workspace:*
         version: link:../specs
