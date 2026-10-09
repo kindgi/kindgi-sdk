@@ -45,6 +45,7 @@ import {
 import type { AppEnv } from '../types.js';
 import { clampLimit, decodeCursor, encodeCursor, isCursorTime } from './pagination.js';
 import { parseListScope } from './scope-params.js';
+import { parseTimeInput } from './time-input.js';
 
 const APPROVAL_STATUSES: ReadonlySet<ApprovalStatus> = new Set([
   'pending',
@@ -244,8 +245,8 @@ export function approvalsRouter(
     const createdAfterRaw = c.req.query('createdAfter');
     let createdAfterIso: string | undefined;
     if (createdAfterRaw !== undefined && createdAfterRaw.length > 0) {
-      const parsed = new Date(createdAfterRaw);
-      if (Number.isNaN(parsed.getTime())) {
+      const parsed = parseTimeInput(createdAfterRaw);
+      if (parsed === null) {
         c.status(statusFor('bad-input') as never);
         return c.json(
           toWireError(
