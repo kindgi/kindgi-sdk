@@ -549,15 +549,8 @@ const noopSecretsBinding: SecretBinding = {
 const noopSupervisor: SupervisorBinding = {
   listProposals: async () => ({ data: [] }),
   getProposal: async () => null,
-  draftProposal: async () => ({
-    kind: 'ok',
-    proposal: {} as never,
-  }),
-  dryRunProposal: async ({ proposalId }) => ({ kind: 'not-found', proposalId }),
-  submitReview: async ({ proposalId }) => ({ kind: 'not-found', proposalId }),
-  applyProposal: async ({ proposalId }) => ({ kind: 'not-found', proposalId }),
-  rollbackProposal: async ({ proposalId }) => ({ kind: 'not-found', proposalId }),
-  withdrawProposal: async ({ proposalId }) => ({ kind: 'not-found', proposalId }),
+  createProposal: async () => ({ kind: 'ok', proposal: {} as never }),
+  recordProposal: async () => ({ kind: 'not-found' }),
   queryObservations: async () => ({ kind: 'ok', page: { data: [] } }),
 };
 

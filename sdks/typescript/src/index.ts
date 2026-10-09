@@ -50,13 +50,21 @@ export type {
   DraftProposalsInput,
   ProposalDryRunInput,
   ProposalListInput,
-  ProposalsClient,
   ReflectReviewInput,
   RollbackProposalInput,
   SubmitForReviewInput,
   SupervisorClient,
+  SupervisorProposalsClient,
   WithdrawProposalInput,
 } from './resources/supervisor.js';
+export type {
+  CreateProposalInput,
+  EvaluateProposalInput,
+  ProposalReasonInput,
+  ProposalsClient,
+  ProposalsListInput,
+  WithdrawInput,
+} from './resources/proposals.js';
 export type {
   ObservationFilter,
   ObservationsClient,
@@ -492,6 +500,9 @@ export type {
   FixProposal,
   FixProposalId,
   FixProposalStatus,
+  ProposalContent,
+  ProposalObjective,
+  ProposalTier,
   Flow,
   FlowEdge,
   FlowId,
