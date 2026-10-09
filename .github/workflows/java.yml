@@ -3,8 +3,8 @@ name: Java SDK
 # The Java SDK (sdks/java): the code generator, kindgi-models, kindgi-client and kindgi-pack, built
 # and tested on Java 17, then the client inside Spring Boot 3 and 4 apps. It reports on every pull
 # request and merge-queue group, so it can be a required check, and does its work only when the
-# Java SDK, the API document the client is generated from, or the specs kindgi-pack bundles change
-# (the `changes` job). (The pack conformance suite runs kindgi-pack in ci.yml.) What would go to
+# Java SDK, the API document the client is generated from, the specs kindgi-pack bundles, or a
+# file its tests read change (the `changes` job). (The pack conformance suite runs kindgi-pack in ci.yml.) What would go to
 # Maven Central is staged unsigned and checked as the release checks it (scripts/check-jars.mjs).
 on:
   push:
@@ -36,10 +36,13 @@ jobs:
           fetch-depth: 0
       - id: paths
         # VersionOrderTest holds Maven to the version spelling sync-jvm-version.mjs writes; what
-        # goes to Maven Central is checked here (check-jars and its libraries).
+        # goes to Maven Central is checked here (check-jars and its libraries). The tests read the
+        # built-in checks and the log vectors too, and scripts/jvm-test-reads.test.mjs fails when
+        # a file a test reads isn't here.
         run: >-
           node scripts/changed-paths.mjs
           'sdks/java/**' packages/api/openapi.json 'packages/specs/schemas/**'
+          packages/guardrails/src/checks.ts packages/log/tests/vectors/records.json
           .github/workflows/java.yml scripts/changed-paths.mjs scripts/sync-jvm-version.mjs
           scripts/check-jars.mjs scripts/lib/zip.mjs scripts/lib/pom-xml.mjs scripts/text-scan.mjs
           scripts/forbidden-names.json
