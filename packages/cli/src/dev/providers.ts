@@ -39,6 +39,7 @@ import {
   type PresetSettingKey,
   type ProviderPreset,
   isMapSetting,
+  mapSettingOf,
   presetRegistration,
   presetSettingFlag,
   presetSettingMapValue,
@@ -130,7 +131,10 @@ function fromPreset(
     return invalid(`no provider preset "${name}"; there are ${Object.keys(presets).join(', ')}.`);
   }
   const own = (preset.adapterConfig ?? []).map((s) => s.key as PresetSettingKey);
-  const problem = presetEntryProblem(entry, preset, own, presets);
+  const problem =
+    presetEntryProblem(entry, preset, own, presets) ??
+    missingSettings(entry, preset, own) ??
+    mapKeysProblem(entry, preset, own);
   if (problem !== undefined) return invalid(problem);
   const { models, secret, maxOutputTokens } = entry;
   const built = presetRegistration(preset, {
@@ -150,6 +154,51 @@ function fromPreset(
     );
   }
   return { kind: 'ok', provider: { id: built.input.metadata.id, input: built.input } };
+}
+
+/**
+ * The preset's settings the entry leaves out, named by key with what each takes, as a
+ * declaration writes it (a map setting's example, not the flag's `key=value,…`).
+ */
+function missingSettings(
+  entry: Readonly<Record<string, unknown>>,
+  preset: ProviderPreset,
+  own: readonly PresetSettingKey[],
+): string | undefined {
+  const missing = own.filter((key) => entry[key] === undefined);
+  if (missing.length === 0) return undefined;
+  const help = (key: PresetSettingKey) => {
+    const map = mapSettingOf(key);
+    if (map !== undefined) {
+      return `a map, e.g. ${map.example}; a [tool.kindgi.providers.${key}] table in pyproject.toml`;
+    }
+    return (preset.adapterConfig ?? []).find((s) => s.key === key)?.description ?? '';
+  };
+  return `preset "${preset.name}" needs ${missing.map((key) => `\`${key}\` (${help(key)})`).join(', ')}.`;
+}
+
+/**
+ * A map whose keys are models (`deployments`) names exactly the models the entry registers:
+ * the preset's, or its `models`. A typo'd model, or one left out, is said here, by the config.
+ */
+function mapKeysProblem(
+  entry: Readonly<Record<string, unknown>>,
+  preset: ProviderPreset,
+  own: readonly PresetSettingKey[],
+): string | undefined {
+  const registered =
+    (entry.models as readonly string[] | undefined) ?? preset.metadata.models.map((m) => m.name);
+  for (const key of own) {
+    if (mapSettingOf(key)?.keysAreModels !== true) continue;
+    const named = Object.keys(entry[key] as Readonly<Record<string, string>>);
+    const extra = named.filter((name) => !registered.includes(name));
+    if (extra.length > 0) {
+      return `\`${key}\` names ${extra.join(', ')}, which this entry doesn't register (it registers ${registered.join(', ')}).`;
+    }
+    const without = registered.filter((name) => !named.includes(name));
+    if (without.length > 0) return `\`${key}\` has no entry for ${without.join(', ')}.`;
+  }
+  return undefined;
 }
 
 /** A declared setting as the flag takes it: a `map` setting's map as `key=value,…`. */
@@ -226,6 +275,10 @@ function mapProblem(key: string, value: unknown): string | undefined {
   const entries = Object.entries(value);
   if (entries.length === 0) return `\`${key}\` must name at least one model.`;
   for (const [name, target] of entries) {
+    if (isRecord(target)) {
+      // TOML reads an unquoted `gpt-6.1-sol = …` as nested tables, at each `.`.
+      return `\`${key}.${name}\` is a table, not a name: in pyproject.toml, quote a model name that holds a \`.\` ("gpt-6.1-sol" = "…").`;
+    }
     if (name === '' || /[,=]/.test(name)) {
       return `\`${key}\`: "${name}" isn't a model name (no \`,\` or \`=\`).`;
     }

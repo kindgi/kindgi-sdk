@@ -77,14 +77,25 @@ export const PRESET_SETTINGS = {
     flag: 'deployments',
     description:
       'For `azure-openai`: the deployment serving each model, `model=deployment,…` (e.g. `gpt-6.1-sol=gpt-6-1-sol`).',
-    map: true,
+    map: { keysAreModels: true, example: '{ "gpt-6.1-sol": "gpt-6-1-sol" }' },
   },
   region: {
     flag: 'region',
     description: 'For `bedrock`: the AWS region Bedrock runs in (e.g. `us-east-2`).',
   },
 } as const satisfies Readonly<
-  Record<string, { readonly flag: string; readonly description: string; readonly map?: true }>
+  Record<
+    string,
+    {
+      readonly flag: string;
+      readonly description: string;
+      /**
+       * A map in a declaration: `keysAreModels` when each key is a model the declaration
+       * registers (every one of them, and no other); `example`, for the messages.
+       */
+      readonly map?: { readonly keysAreModels: boolean; readonly example: string };
+    }
+  >
 >;
 
 export type PresetSettingKey = keyof typeof PRESET_SETTINGS;
@@ -92,8 +103,16 @@ export type PresetSettingKey = keyof typeof PRESET_SETTINGS;
 const isPresetSettingKey = (key: string): key is PresetSettingKey =>
   Object.hasOwn(PRESET_SETTINGS, key);
 
+/** A map setting's rule in a declaration (`deployments`), `key=value,…` on the flag; else undefined. */
+export const mapSettingOf = (
+  key: PresetSettingKey,
+): { readonly keysAreModels: boolean; readonly example: string } | undefined => {
+  const setting = PRESET_SETTINGS[key];
+  return 'map' in setting ? setting.map : undefined;
+};
+
 /** Whether a setting is a map in a declaration (`deployments`), `key=value,…` on the flag. */
-export const isMapSetting = (key: PresetSettingKey): boolean => 'map' in PRESET_SETTINGS[key];
+export const isMapSetting = (key: PresetSettingKey): boolean => mapSettingOf(key) !== undefined;
 
 /** A `map` setting's declared map as its flag's and the wire's `key=value,…`. */
 export const presetSettingMapValue = (map: Readonly<Record<string, string>>): string =>

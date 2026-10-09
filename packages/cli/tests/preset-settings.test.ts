@@ -79,7 +79,7 @@ describe('one table', () => {
   test('every setting is a key of a pack’s preset declaration, a map where the table says so', () => {
     expectTypeOf<PresetSettingKey>().toEqualTypeOf<keyof KindgiPresetSettingValues>();
     type MapKeys = {
-      [K in PresetSettingKey]: (typeof PRESET_SETTINGS)[K] extends { readonly map: true }
+      [K in PresetSettingKey]: (typeof PRESET_SETTINGS)[K] extends { readonly map: object }
         ? K
         : never;
     }[PresetSettingKey];
@@ -290,6 +290,59 @@ describe('a pack’s providers declarations (kindgi dev)', () => {
   ])('azure-openai %j: refused', (settings, words) => {
     const out = parse([{ preset: 'azure-openai', resourceName: 'acme-openai', ...settings }]);
     expect(out.kind === 'invalid' && out.message).toContain(words);
+  });
+
+  test('a missing map setting is named with the form a declaration writes', () => {
+    const out = parse([{ preset: 'azure-openai', resourceName: 'acme-openai' }]);
+    expect(out.kind === 'invalid' && out.message).toContain(
+      'preset "azure-openai" needs `deployments` (a map, e.g. { "gpt-6.1-sol": "gpt-6-1-sol" }; a [tool.kindgi.providers.deployments] table in pyproject.toml).',
+    );
+  });
+
+  test('deployments names exactly the models the entry registers', () => {
+    const typo = parse([
+      {
+        preset: 'azure-openai',
+        resourceName: 'acme-openai',
+        deployments: { ...DEPLOYMENTS_MAP, 'gpt-6.1-sool': 'x' },
+      },
+    ]);
+    expect(typo.kind === 'invalid' && typo.message).toContain(
+      "`deployments` names gpt-6.1-sool, which this entry doesn't register (it registers gpt-6.1-sol, gpt-6-luna).",
+    );
+    const short = parse([
+      {
+        preset: 'azure-openai',
+        resourceName: 'acme-openai',
+        deployments: { 'gpt-6.1-sol': 'sol' },
+      },
+    ]);
+    expect(short.kind === 'invalid' && short.message).toContain(
+      '`deployments` has no entry for gpt-6-luna.',
+    );
+    // With `models`, only those.
+    const one = parse([
+      {
+        preset: 'azure-openai',
+        resourceName: 'acme-openai',
+        models: ['gpt-6.1-sol'],
+        deployments: { 'gpt-6.1-sol': 'sol' },
+      },
+    ]);
+    expect(one.kind).toBe('ok');
+  });
+
+  test('an unquoted dotted name in pyproject.toml (nested tables) is said plainly', () => {
+    const out = parse([
+      {
+        preset: 'azure-openai',
+        resourceName: 'acme-openai',
+        deployments: { 'gpt-6': { '1-sol': 'sol' } },
+      },
+    ]);
+    expect(out.kind === 'invalid' && out.message).toContain(
+      '`deployments.gpt-6` is a table, not a name: in pyproject.toml, quote a model name that holds a `.`',
+    );
   });
 
   test('another preset’s setting is refused, naming whose it is', () => {

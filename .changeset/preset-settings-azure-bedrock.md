@@ -14,4 +14,5 @@
 - a preset's own settings are required: `{ preset: 'bedrock', region: 'us-east-2' }`, `{ preset: 'gemini', project: 'acme-gcp' }`;
 - another preset's are refused, by the type and by `kindgi dev`, which names whose setting it is;
 - `deployments` is a map, model to deployment: `{ preset: 'azure-openai', resourceName: 'acme-openai', deployments: { 'gpt-6.1-sol': 'gpt-6-1-sol' } }`, a table in `pyproject.toml`. The `--deployments` flag keeps `model=deployment,…`, which is also what the runtime receives. An empty map is refused, and so is a name holding `,` or `=`.
-Also new: `KindgiPresetName`, `KindgiPresetChoices` and `KindgiPresetSettingValues`. A preset whose region comes from `--region` (`bedrock`) carries none of its own.
+- `deployments` names exactly the models the entry registers (the preset's, or its `models`): a typo'd model, or one without a deployment, is refused by the config's key.
+Also new: `KindgiPresetName`, `KindgiPresetChoices` and `KindgiPresetSettingValues`. **`preset` is now one of the preset names** (`KindgiPresetName`), not any string: a name computed at run time needs `as KindgiPresetName`. A preset whose region comes from `--region` (`bedrock`) carries none of its own.

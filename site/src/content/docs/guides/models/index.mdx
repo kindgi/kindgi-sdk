@@ -266,7 +266,8 @@ A preset entry takes `models`, the settings its preset asks for (`project` for
 `bedrock`), `maxOutputTokens`, and `secret`: the key's name, in place of the
 preset's own. Its own settings are required, and another preset's are refused.
 `deployments` is a map of model to deployment here (a table in
-`pyproject.toml`), where the `--deployments` flag takes `model=deployment,…`.
+`pyproject.toml`, with each model name quoted), where the `--deployments` flag
+takes `model=deployment,…`. It names exactly the models the entry registers.
 The keys are spelled the same in `pyproject.toml`. `kindgi dev` checks each
 entry against its preset when it starts, and a `kindgi.config.ts` that
 `satisfies KindgiConfig` (`@kindgi/handler-runtime`) gets the same check from
