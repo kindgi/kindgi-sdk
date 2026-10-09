@@ -137,6 +137,7 @@ if (outcome.kind === 'ok') {
 | `zod-conversion-failed` | `z.toJSONSchema()` threw for a specific schema. |
 | `manifest-validation-failed` | Inner manifest didn't match the expected shape (or was a `Result`-wrapped error). |
 | `output-write-failed` | Filesystem write error. |
+| `reserved-check-id` | A guardrail ships its own check (an `id` and an `evaluate`, as its `check` or any check its module exports) under a built-in check's id (`RESERVED_CHECK_IDS`: `must-cite`, `never-call-tool`, …), which the runtime would replace with the built-in. Naming a built-in (`check: 'must-cite'`) is fine: that's how to use it. |
 
 ### Loading `kindgi.config.*` on its own
 
