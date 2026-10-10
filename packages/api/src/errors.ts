@@ -202,6 +202,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'eval-suite-project-mismatch': 409,
   // Admin plane — eval-run dispatch.
   'eval-run-not-found': 404,
+  'eval-run-not-rescorable': 409,
   // Judgments (yes/no on a run's output items) and judge classes.
   'judgment-not-found': 404,
   'judge-class-not-found': 404,

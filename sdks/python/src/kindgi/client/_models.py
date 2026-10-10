@@ -1571,6 +1571,10 @@ class JudgedRunContext(BaseModel):
     """
     The env values each tool's calls were sent (`needsSpec.env`), by tool id: its first call's, as the run recorded them. A replay sends them to a read-only tool it runs live, so the tool reads the config the run saw, not today's. Absent for a run from before env was recorded.
     """
+    replay_of: Annotated[str | None, Field(alias="replayOf")] = None
+    """
+    When the judged run is a comparison's replay: the run it re-ran, stamped at its first judgment. A test set built from judgments leaves replays out.
+    """
 
 
 class JudgedRunCopy(BaseModel):
@@ -6184,6 +6188,10 @@ class EvalComparison(BaseModel):
     """
     overrides: EvalOverrides | None = None
     sample: EvalSample | None = None
+    rescore_of: Annotated[str | None, Field(alias="rescoreOf")] = None
+    """
+    Rescore that comparison eval run instead of replaying: its replays' outputs are scored again, with the judgments recorded on them since (a changed answer judged on the replay itself). Nothing runs, and the run rescored stays as it was. Set by `POST /v1/eval-runs/{runId}/rescore`.
+    """
 
 
 class ComparisonMetric(BaseModel):
@@ -6210,6 +6218,10 @@ class ComparisonMetric(BaseModel):
     spread: float | None = None
     """
     With more than one repetition: the candidate's max − min across them.
+    """
+    fresh_weight: Annotated[float | None, Field(alias="freshWeight", ge=0.0)] = None
+    """
+    Of `weight`, the part judged on the candidate's replays themselves (a rescore, after people judged a changed answer there). Absent when none. Not on `weightedPrecisionAtK`.
     """
 
 
@@ -6397,6 +6409,14 @@ class JudgedComparisonSummary(BaseModel):
     """
     Cases an erasure cleared (a person's words were erased): left out of the run and the metrics. Absent: none.
     """
+    rescore_of: Annotated[str | None, Field(alias="rescoreOf")] = None
+    """
+    A rescore: the comparison eval run whose replays it scored again.
+    """
+    not_rescored: Annotated[int | None, Field(alias="notRescored", ge=1)] = None
+    """
+    A rescore: cases whose replays couldn't be read again (a retention purge, say), kept at their earlier scores. Absent: none.
+    """
     stopped: Annotated[int, Field(ge=0)]
     """
     Flow cases that stopped at a write the replay refused: no output to score, so they're left out of the metrics.
@@ -6426,6 +6446,20 @@ class TopK(BaseModel):
     total_weight: Annotated[float, Field(alias="totalWeight")]
 
 
+class Fresh(BaseModel):
+    """
+    The part of these sums judged on this output itself (a replay judged after it ran). Absent when none was.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    yes_weight: Annotated[float, Field(alias="yesWeight")]
+    total_weight: Annotated[float, Field(alias="totalWeight")]
+    items: Annotated[int, Field(ge=1)]
+
+
 class Baseline2(BaseModel):
     """
     An output's score: Σ yesWeight and Σ totalWeight over its judged items, and over those among the first `k` ranked items.
@@ -6440,6 +6474,10 @@ class Baseline2(BaseModel):
     items: Annotated[int, Field(ge=0)]
     judged_items: Annotated[int, Field(alias="judgedItems", ge=0)]
     top_k: Annotated[TopK, Field(alias="topK")]
+    fresh: Fresh | None = None
+    """
+    The part of these sums judged on this output itself (a replay judged after it ran). Absent when none was.
+    """
 
 
 class CandidateItem(BaseModel):
@@ -6456,6 +6494,10 @@ class CandidateItem(BaseModel):
     items: Annotated[int, Field(ge=0)]
     judged_items: Annotated[int, Field(alias="judgedItems", ge=0)]
     top_k: Annotated[TopK, Field(alias="topK")]
+    fresh: Fresh | None = None
+    """
+    The part of these sums judged on this output itself (a replay judged after it ran). Absent when none was.
+    """
 
 
 class KeptItem(BaseModel):
@@ -6477,6 +6519,19 @@ class DroppedItem(BaseModel):
     rank_before: Annotated[int | None, Field(alias="rankBefore")] = None
 
 
+class Judged(BaseModel):
+    """
+    What people said about this item on the replay itself, once they judged it there.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    yes_weight: Annotated[float, Field(alias="yesWeight")]
+    total_weight: Annotated[float, Field(alias="totalWeight")]
+
+
 class NewItem(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -6485,6 +6540,10 @@ class NewItem(BaseModel):
     key: str
     pointer: str
     rank: int | None = None
+    judged: Judged | None = None
+    """
+    What people said about this item on the replay itself, once they judged it there.
+    """
 
 
 class Changes(BaseModel):
@@ -6572,6 +6631,10 @@ class ComparisonCaseResult(BaseModel):
     """
     Set when the replay stopped at a refused write: what it would have done.
     """
+    rescored: Literal[False] | None = None
+    """
+    Set in a rescore when this case's replays can't be read again: its scores are the run rescored's.
+    """
 
 
 class JudgedComparisonResult(BaseModel):
@@ -6657,6 +6720,21 @@ class StartEvalRunBody(BaseModel):
     """
     overrides: EvalOverrides | None = None
     sample: EvalSample | None = None
+
+
+class RescoreEvalRunBody(BaseModel):
+    """
+    Body of `POST /v1/eval-runs/{runId}/rescore`: optional.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    project_id: Annotated[str | None, Field(alias="projectId")] = None
+    """
+    The run's project, needed only from a runtime that doesn't record it on the run.
+    """
 
 
 class StartEvalRunResult(BaseModel):

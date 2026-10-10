@@ -3261,6 +3261,11 @@ export const JudgedRunContextSchema: JsonSchema = {
       description:
         "The env values each tool's calls were sent (`needsSpec.env`), by tool id: its first call's, as the run recorded them. A replay sends them to a read-only tool it runs live, so the tool reads the config the run saw, not today's. Absent for a run from before env was recorded.",
     },
+    replayOf: {
+      type: 'string',
+      description:
+        "When the judged run is a comparison's replay: the run it re-ran, stamped at its first judgment. A test set built from judgments leaves replays out.",
+    },
   },
 };
 
@@ -6676,6 +6681,11 @@ export const EvalComparisonSchema: JsonSchema = {
     },
     overrides: { $ref: '#/components/schemas/EvalOverrides' },
     sample: { $ref: '#/components/schemas/EvalSample' },
+    rescoreOf: {
+      type: 'string',
+      description:
+        "Rescore that comparison eval run instead of replaying: its replays' outputs are scored again, with the judgments recorded on them since (a changed answer judged on the replay itself). Nothing runs, and the run rescored stays as it was. Set by `POST /v1/eval-runs/{runId}/rescore`.",
+    },
   },
 };
 
@@ -6715,6 +6725,12 @@ export const ComparisonMetricSchema: JsonSchema = {
     spread: {
       type: 'number',
       description: "With more than one repetition: the candidate's max − min across them.",
+    },
+    freshWeight: {
+      type: 'number',
+      minimum: 0,
+      description:
+        "Of `weight`, the part judged on the candidate's replays themselves (a rescore, after people judged a changed answer there). Absent when none. Not on `weightedPrecisionAtK`.",
     },
   },
 };
@@ -6860,6 +6876,16 @@ export const JudgedComparisonSummarySchema: JsonSchema = {
       description:
         "Cases an erasure cleared (a person's words were erased): left out of the run and the metrics. Absent: none.",
     },
+    rescoreOf: {
+      type: 'string',
+      description: 'A rescore: the comparison eval run whose replays it scored again.',
+    },
+    notRescored: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "A rescore: cases whose replays couldn't be read again (a retention purge, say), kept at their earlier scores. Absent: none.",
+    },
     stopped: {
       type: 'integer',
       minimum: 0,
@@ -6930,6 +6956,18 @@ const outputScore = {
       required: ['yesWeight', 'totalWeight'],
       properties: { yesWeight: { type: 'number' }, totalWeight: { type: 'number' } },
     },
+    fresh: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['yesWeight', 'totalWeight', 'items'],
+      description:
+        'The part of these sums judged on this output itself (a replay judged after it ran). Absent when none was.',
+      properties: {
+        yesWeight: { type: 'number' },
+        totalWeight: { type: 'number' },
+        items: { type: 'integer', minimum: 1 },
+      },
+    },
   },
 } as const;
 
@@ -6995,6 +7033,14 @@ export const ComparisonCaseResultSchema: JsonSchema = {
               key: { type: 'string' },
               pointer: { type: 'string' },
               rank: { type: 'integer' },
+              judged: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['yesWeight', 'totalWeight'],
+                description:
+                  'What people said about this item on the replay itself, once they judged it there.',
+                properties: { yesWeight: { type: 'number' }, totalWeight: { type: 'number' } },
+              },
             },
           },
         },
@@ -7034,6 +7080,25 @@ export const ComparisonCaseResultSchema: JsonSchema = {
       required: ['toolId', 'arguments'],
       description: 'Set when the replay stopped at a refused write: what it would have done.',
       properties: { toolId: { type: 'string' }, arguments: {}, reason: { type: 'string' } },
+    },
+    rescored: {
+      type: 'boolean',
+      enum: [false],
+      description:
+        "Set in a rescore when this case's replays can't be read again: its scores are the run rescored's.",
+    },
+  },
+};
+
+export const RescoreEvalRunBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: 'Body of `POST /v1/eval-runs/{runId}/rescore`: optional.',
+  properties: {
+    projectId: {
+      type: 'string',
+      description:
+        "The run's project, needed only from a runtime that doesn't record it on the run.",
     },
   },
 };
@@ -10349,6 +10414,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['EvalRun', EvalRunSchema],
   ['EvalRunCollectionPage', EvalRunCollectionPageSchema],
   ['StartEvalRunBody', StartEvalRunBodySchema],
+  ['RescoreEvalRunBody', RescoreEvalRunBodySchema],
   ['StartEvalRunResult', StartEvalRunResultSchema],
   ['IdentityProviderKind', IdentityProviderKindSchema],
   ['ClaimMappingScopesSpec', ClaimMappingScopesSpecSchema],
