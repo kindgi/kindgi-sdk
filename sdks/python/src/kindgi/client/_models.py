@@ -7315,6 +7315,190 @@ class PersonGrantBody(BaseModel):
     kind: Literal["tenant-admin"]
 
 
+class AccessPathDirect(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["direct"]
+    role: Literal["owner", "admin", "editor", "viewer"]
+    """
+    A project role, as the authorization model holds it: `owner` > `admin` > `editor` > `viewer` (a membership stored as `member` is `viewer`).
+    """
+    since: AwareDatetime | None = None
+    """
+    When the membership was added, when the runtime keeps it.
+    """
+
+
+class AccessPathTeam(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["team"]
+    team_id: Annotated[str, Field(alias="teamId")]
+    team_name: Annotated[str, Field(alias="teamName")]
+    role: Literal["owner", "admin", "editor", "viewer"]
+    """
+    The role the team holds on the project.
+    """
+    since: AwareDatetime | None = None
+    """
+    When the caller joined the team, when the runtime keeps it.
+    """
+
+
+class AccessPathOrgAdmin(BaseModel):
+    """
+    An admin of the org the project sits in: admin on the project.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["org-admin"]
+    org_id: Annotated[str, Field(alias="orgId")]
+    org_name: Annotated[str, Field(alias="orgName")]
+
+
+class AccessPathTenantAdmin(BaseModel):
+    """
+    A tenant admin: admin on every project.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["tenant-admin"]
+
+
+class MyProjectAccess(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    project_id: Annotated[str, Field(alias="projectId")]
+    name: str
+    role: Literal["owner", "admin", "editor", "viewer"]
+    """
+    The highest role the caller holds on the project, whichever way.
+    """
+    via: list[
+        Annotated[
+            AccessPathDirect | AccessPathTeam | AccessPathOrgAdmin | AccessPathTenantAdmin,
+            Field(discriminator="kind"),
+        ]
+    ]
+    """
+    Every way the caller holds a role on it (for "My access").
+    """
+
+
+class MyOrgAccess(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    org_id: Annotated[str, Field(alias="orgId")]
+    name: str
+    role: Literal["admin", "member"]
+
+
+class MyReviewerAccess(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    role: Literal["standard", "senior", "admin"]
+    """
+    Reviewer role class. Hierarchy: standard < senior < admin.
+    """
+    decides: list[Literal["standard", "senior", "admin"]]
+    """
+    The approvals' required roles the caller may decide: its own rank and below, lowest first.
+    """
+    can_decide: Annotated[bool, Field(alias="canDecide")]
+    """
+    Whether the caller can decide at all: deciding also needs its user and its row on the reviewer roster. False for a token that carries a reviewer role without them.
+    """
+
+
+class RoleActions(BaseModel):
+    """
+    What a project role allows on the project and on every object of each type in it, by object type.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    project: list[Literal["read", "write", "admin", "delete"]]
+    agent: list[Literal["read", "write", "delete", "admin", "execute", "publish", "promote"]]
+    flow: list[Literal["read", "write", "delete", "admin", "execute", "publish"]]
+    tool: list[Literal["read", "write", "delete", "admin", "invoke"]]
+    guardrail: list[Literal["read", "write", "delete", "admin"]]
+    eval_suite: list[Literal["read", "write", "delete", "admin", "execute", "publish"]]
+    trigger: list[Literal["read", "write", "delete", "admin", "fire"]]
+    conversation: list[Literal["read", "write", "delete", "admin"]]
+    secret: list[Literal["read", "write", "delete", "admin", "rotate"]]
+    env: list[Literal["read", "write", "delete", "admin"]]
+    mcp_endpoint: list[Literal["read", "write", "delete", "admin"]]
+    run: list[Literal["read", "cancel", "delete"]]
+
+
+class RoleCapabilities(BaseModel):
+    """
+    What each project role allows, worked out by the runtime from its authorization model. A client decides an action as `capabilities[project.role][type]` holding it; the server still checks every call. An object can grant more on itself (an agent's own editor), never less, so this is what the caller may do at the least.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    owner: RoleActions
+    admin: RoleActions
+    editor: RoleActions
+    viewer: RoleActions
+
+
+class MyTenantAccess(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    admin: bool
+    """
+    Tenant admin, decided as the admin routes decide it (a `member` key's never is).
+    """
+    member: bool | None = None
+    """
+    Tenant member: reads the tenant's settings. Absent when the runtime doesn't report it.
+    """
+
+
+class MyKeyLimits(BaseModel):
+    """
+    The caller's API key, when it is one, and what it limits.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    token_id: Annotated[str, Field(alias="tokenId")]
+    role: Literal["admin", "member"] | None = None
+    """
+    The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action on the tenant, whoever it's for; below it, its principal's roles hold (a project admin's member key administers that project).
+    """
+    project_id: Annotated[str | None, Field(alias="projectId")] = None
+    """
+    The project the key is limited to: `projects` holds it alone, and no org or team is administered through it.
+    """
+
+
 class UserCollectionPage(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -10676,6 +10860,54 @@ class PersonTeamRole(BaseModel):
     """
     Role on a team membership.
     """
+
+
+class MyTeamAccess(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    team_id: Annotated[str, Field(alias="teamId")]
+    name: str
+    role: Literal["member", "admin"]
+    """
+    Role on a team membership.
+    """
+
+
+class MyPermissions(BaseModel):
+    """
+    What the caller may do, with its API key's limits applied: tenant admin and member, its reviewer role, its key's limits and capabilities, the projects it may read with its role in each and how it holds it, its orgs and teams, and what each project role allows. Only what the caller may see: nothing names a project it can't read, or anyone else's role.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    tenant: MyTenantAccess
+    reviewer: MyReviewerAccess | None = None
+    """
+    Present when the caller is a reviewer.
+    """
+    key: MyKeyLimits | None = None
+    token_capabilities: Annotated[list[str], Field(alias="tokenCapabilities")]
+    """
+    The framework capabilities the caller's token carries (`env:write`, `secrets:write`, `secrets:rotate`, …), which secret, env and signing-key writes require on top of admin at their scope. Sign-in sessions and API keys carry none today.
+    """
+    projects: list[MyProjectAccess]
+    """
+    The projects the caller may read, by name.
+    """
+    orgs: list[MyOrgAccess]
+    """
+    The orgs the caller is a member or admin of, by name.
+    """
+    teams: list[MyTeamAccess]
+    """
+    The teams the caller is a member or admin of, by name.
+    """
+    capabilities: RoleCapabilities
 
 
 class DeploymentSecretsSyncRequest(BaseModel):
