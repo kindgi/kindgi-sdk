@@ -4914,7 +4914,7 @@ class ModelInfo(BaseModel):
     )
     name: Annotated[str, Field(min_length=1)]
     """
-    Vendor-facing model id passed to the SDK (e.g. `claude-sonnet-4-6`).
+    Vendor-facing model id passed to the SDK (e.g. `claude-sonnet-5-5`).
     """
     context_window: Annotated[int, Field(alias="contextWindow", ge=1)]
     """
@@ -10354,7 +10354,7 @@ class Agent(BaseModel):
     """
     preferred_model: Annotated[str | None, Field(alias="preferredModel", min_length=1)] = None
     """
-    Soft hint at the model level (`ModelInfo.name`, e.g. `claude-sonnet-4-6`). Combined with `preferredProvider`: both set → promote the exact tuple; only `preferredModel` → promote any provider exposing that model; only `preferredProvider` → promote every model of that provider.
+    Soft hint at the model level (`ModelInfo.name`, e.g. `claude-sonnet-5-5`). Combined with `preferredProvider`: both set → promote the exact tuple; only `preferredModel` → promote any provider exposing that model; only `preferredProvider` → promote every model of that provider.
     """
     conversation_policy: Annotated[ConversationPolicy | None, Field(alias="conversationPolicy")] = (
         None
