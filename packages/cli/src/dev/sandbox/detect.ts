@@ -19,8 +19,12 @@
 
 import { spawn } from 'node:child_process';
 
-/** The page that says how to set the sandbox up, and what it does. */
-export const DEV_SANDBOX_DOCS = 'https://docs.kindgi.com/guides/secrets/dev-sandbox/';
+import { docsUrl } from '@kindgi/client/sso-handoff';
+
+import { CLI_VERSION } from '../../version-info.js';
+
+/** The page that says how to set the sandbox up, and what it does, on this CLI's release line. */
+export const DEV_SANDBOX_DOCS = docsUrl('guides/secrets/dev-sandbox/', CLI_VERSION);
 
 export type SandboxEngine = 'seatbelt' | 'bwrap';
 
@@ -125,7 +129,10 @@ function bwrapAvailability(probe: ProbeResult): SandboxAvailability {
       `In a container, the container is the boundary; elsewhere see ${DEV_SANDBOX_DOCS}#where-it-runs.`,
     );
   }
-  return unavailable(`bwrap failed: ${firstLine(probe.stderr)}`, `See ${DEV_SANDBOX_DOCS}#where-it-runs.`);
+  return unavailable(
+    `bwrap failed: ${firstLine(probe.stderr)}`,
+    `See ${DEV_SANDBOX_DOCS}#where-it-runs.`,
+  );
 }
 
 function firstLine(text: string): string {
