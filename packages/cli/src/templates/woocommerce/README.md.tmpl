@@ -205,4 +205,6 @@ filters in a small plugin. Never on a real store.
 
 WooCommerce never resends a delivery, and it turns a webhook off after 7
 refused deliveries in a row. `{{KINDGI}} webhooks list` and the trigger's
-fire history show what arrived.
+fire history show what arrived. So change the signing secret when the store
+is quiet: until WooCommerce has the new one, Kindgi refuses its deliveries,
+and those orders aren't reviewed.
