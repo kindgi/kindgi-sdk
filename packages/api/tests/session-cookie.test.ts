@@ -88,10 +88,7 @@ function makeStore() {
   return store;
 }
 
-function makeApp(
-  session: SessionConfig | null = { cookie: { allowedOrigins: [CONSOLE] } },
-  { withExchange = true }: { withExchange?: boolean } = {},
-) {
+function makeApp(session: SessionConfig | null = { cookie: { allowedOrigins: [CONSOLE] } }) {
   const store = makeStore();
   const app = createApp({
     ...createStubAppBindings(),
@@ -99,11 +96,6 @@ function makeApp(
     runHandler: {} as RunHandlerBinding,
     sessionStore: store,
     identityProvider: noProviders,
-    ...(withExchange && {
-      exchangeCode: async () => {
-        throw new Error('not used');
-      },
-    }),
     ...(session !== null && { session }),
   });
   return { app, store };
@@ -313,9 +305,9 @@ describe('cookie sessions: logout and refresh', () => {
   });
 });
 
-describe('without exchangeCode (sign-in runs elsewhere)', () => {
-  test('the provider catalog, refresh and logout mount; the OAuth flow does not', async () => {
-    const { app, store } = makeApp(undefined, { withExchange: false });
+describe('sign-in runs in the deployment', () => {
+  test('the provider catalog, refresh and logout mount; no OAuth flow of this package does', async () => {
+    const { app, store } = makeApp();
     const list = await app.request('/v1/auth/providers', {
       headers: { authorization: `Bearer ${BEARER}` },
     });
@@ -325,8 +317,8 @@ describe('without exchangeCode (sign-in runs elsewhere)', () => {
       headers: { authorization: `Bearer ${BEARER}` },
     });
     expect(login.status).toBe(404);
-    // Not mounted outside the auth chain any more: unauthenticated it's a
-    // 401 like any /v1 path, and with a token there's no such route.
+    // No such route: unauthenticated it's a 401 like any /v1 path, and with
+    // a token a 404.
     const callback = await app.request('/v1/auth/callback/acme-sso', {
       method: 'POST',
       headers: { authorization: `Bearer ${BEARER}`, 'content-type': 'application/json' },

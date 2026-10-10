@@ -9,12 +9,10 @@ import type { Cursor, SessionId, TenantId, Timestamp, UserId } from '@kindgi/typ
  * package does NOT own session persistence. Deployments plug in a
  * durable store.
  *
- * Sessions are the byproduct of a successful OAuth callback:
- * `POST /v1/auth/callback/:providerId` exchanges the authorization code
- * for provider tokens, fetches the userinfo, and calls
- * `SessionStoreBinding.create` to persist the resulting session; the
- * route then hands the caller an opaque session token (`kgi_sk_…`) that
- * never leaks the provider access-token or refresh-token to the client.
+ * Sessions are what a sign-in leaves: the deployment's sign-in flow (or
+ * `POST /v1/auth/token-sign-in`, `POST /v1/auth/refresh`) calls
+ * `SessionStoreBinding.create`, and the caller gets an opaque session
+ * token (`kgi_sk_…`) that never leaks a provider token to the client.
  *
  * A store that implements `resolveToken` owns the token: `create` mints it
  * (returned once, as `token`), the store keeps only a hash, and the

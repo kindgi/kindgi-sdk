@@ -5044,7 +5044,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'auth.providers.list',
     summary: 'List identity providers configured for the tenant',
     description:
-      "Returns the tenant's identity providers (OIDC, SAML, OAuth 2.0), each with `signIn` when the deployment sets it. Secrets appear only as REFERENCES (`clientSecretRef`, `spSigningKeyRef`…); a plaintext secret is never on the wire.",
+      "Returns the tenant's identity providers (OIDC, SAML), each with `signIn` when the deployment sets it. Secrets appear only as REFERENCES (`clientSecretRef`, `spSigningKeyRef`…); a plaintext secret is never on the wire.",
     tags: ['auth'],
     security: 'bearer',
     responses: {
@@ -5112,9 +5112,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/auth/providers',
     openapiPath: '/v1/auth/providers',
     operationId: 'auth.providers.register',
-    summary: 'Register an identity provider (OIDC, SAML or OAuth 2.0)',
+    summary: 'Register an identity provider (OIDC or SAML)',
     description:
-      'Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered`; change it with `PATCH /v1/auth/providers/{providerId}`, which keeps its sign-in URLs. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`. The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.',
+      'Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered`; change it with `PATCH /v1/auth/providers/{providerId}`, which keeps its sign-in URLs. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`, as is `allowedRedirectUris`, which nothing would enforce (sign-in runs in the deployment, at its own callback URL). The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.',
     tags: ['auth'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -5126,7 +5126,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       '422': ErrorResponse(
-        'The deployment could not use the configuration (`identity-provider-invalid`).',
+        'The deployment could not use the configuration, or `kind` is `oauth2`, a plain OAuth 2.0 provider, which sign-in does not use (`identity-provider-invalid`).',
       ),
     },
   },
@@ -5243,60 +5243,6 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       '404': ErrorResponse('No identity provider registered with that id under this tenant.'),
-    },
-  },
-  {
-    method: 'post',
-    honoPath: '/v1/auth/login/:providerId',
-    openapiPath: '/v1/auth/login/{providerId}',
-    operationId: 'auth.login',
-    summary: 'Initiate OAuth/OIDC login',
-    description:
-      'Framework generates `state` + PKCE `code_verifier` (S256 challenge). Caller redirects the user-agent to `authorizationUrl`. Provider redirects back to `redirectUri` with `code` + `state`; caller POSTs those to `/v1/auth/callback/:providerId` to complete the flow. When the provider config populated `allowedRedirectUris`, the effective redirect_uri MUST be an exact match — otherwise `400 redirect-uri-not-allowed`.',
-    tags: ['auth'],
-    security: 'bearer',
-    parameters: [
-      {
-        name: 'providerId',
-        in: 'path',
-        required: true,
-        schema: { type: 'string', minLength: 1 },
-      },
-      IdempotencyKeyParam,
-    ],
-    requestBody: { required: false, schema: ref('LoginBody') },
-    responses: {
-      '200': {
-        description: 'Authorization URL + PKCE parameters.',
-        schema: ref('AuthorizationResponse'),
-      },
-      ...CommonMutationErrors,
-      '404': ErrorResponse('No identity provider registered with that id under this tenant.'),
-    },
-  },
-  {
-    method: 'post',
-    honoPath: '/v1/auth/callback/:providerId',
-    openapiPath: '/v1/auth/callback/{providerId}',
-    operationId: 'auth.callback',
-    summary: 'Complete an OAuth/OIDC callback',
-    description:
-      "Public — the caller has not yet obtained a session token. Verifies `state`, exchanges `code` for provider tokens via the deployment's `exchangeCode`, fetches userinfo, and persists a session via `SessionStoreBinding`. Returns an opaque `kgi_sk_*` session token the caller uses on subsequent requests. The underlying provider access-token never leaves the server. When the provider config populated `allowedRedirectUris`, the stored redirect_uri is re-checked against the current allowlist — a mismatch (allowlist tightened between login and callback) returns `400 redirect-uri-mismatch`.",
-    tags: ['auth'],
-    security: 'public',
-    parameters: [
-      {
-        name: 'providerId',
-        in: 'path',
-        required: true,
-        schema: { type: 'string', minLength: 1 },
-      },
-    ],
-    requestBody: { required: true, schema: ref('CallbackBody') },
-    responses: {
-      '201': { description: 'Session created.', schema: ref('CallbackResult') },
-      '400': ErrorResponse('Malformed body or `state` unknown/expired/consumed.'),
-      '422': ErrorResponse('Code exchange with the provider failed.'),
     },
   },
   {

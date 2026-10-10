@@ -420,8 +420,6 @@ export type {
 export type {
   AuthClient,
   AuthProvidersClient,
-  CallbackInput,
-  CallbackResultShape,
   IdentityProviderPage,
   IdentityProviderRegisterInput,
   IdentityProviderRegisterOutcome,
@@ -429,8 +427,6 @@ export type {
   IdentityProviderUnregisterOutcome,
   IdentityProviderUpdateInput,
   IdentityProviderUpdateOutcome,
-  LoginInput,
-  LoginResult,
   LogoutResultShape,
   SignInOptionsResult,
   TokenSignInResultShape,

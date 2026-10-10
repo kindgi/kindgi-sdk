@@ -7140,9 +7140,9 @@ export const StartEvalRunResultSchema: JsonSchema = {
 
 export const IdentityProviderKindSchema: JsonSchema = {
   type: 'string',
-  enum: ['oauth2', 'oidc', 'saml'],
+  enum: ['oidc', 'saml'],
   description:
-    "`oidc`: an OpenID Connect identity provider people sign in with (Okta, Entra ID, Google, Keycloak…); its endpoints come from its discovery document. `saml`: a SAML 2.0 identity provider people sign in with. `oauth2`: a plain OAuth 2.0 provider that isn't OpenID Connect (e.g. GitHub), with its endpoints given; pick `oidc` for any provider that speaks OpenID Connect.",
+    '`oidc`: an OpenID Connect identity provider people sign in with (Okta, Entra ID, Google, Keycloak…); its endpoints come from its discovery document. `saml`: a SAML 2.0 identity provider people sign in with.',
 };
 
 export const ClaimMappingScopesSpecSchema: JsonSchema = {
@@ -7200,16 +7200,9 @@ const CLIENT_SECRET_REF = {
   description: 'Opaque reference resolved server-side. Never a plaintext secret.',
 } as const;
 
-const ALLOWED_REDIRECT_URIS = {
-  type: 'array',
-  items: { type: 'string', minLength: 1 },
-  description:
-    'OAuth 2.1 BCP redirect-URI allowlist. Exact-string match required at /v1/auth/login. Absent/empty means no redirect-URI allowlist check (pass-through).',
-} as const;
-
 export const IdentityProviderSignInSchema: JsonSchema = {
   description:
-    'What to give the identity provider so it can send people back: set by the deployment on what it returns, ignored on registration. OIDC / OAuth 2.0: `redirectUri`. SAML: `spEntityId`, `acsUrl`, `spMetadataUrl`.',
+    'What to give the identity provider so it can send people back: set by the deployment on what it returns, ignored on registration. OIDC: `redirectUri`. SAML: `spEntityId`, `acsUrl`, `spMetadataUrl`.',
   oneOf: [
     {
       type: 'object',
@@ -7251,7 +7244,6 @@ export const OidcIdentityProviderConfigSchema: JsonSchema = {
     tokenEndpoint: { type: 'string', format: 'uri' },
     userinfoEndpoint: { type: 'string', format: 'uri' },
     jwksEndpoint: { type: 'string', format: 'uri' },
-    allowedRedirectUris: ALLOWED_REDIRECT_URIS,
     claimMapping: { $ref: '#/components/schemas/ClaimMappingSpec' },
   },
 };
@@ -7306,48 +7298,18 @@ export const SamlIdentityProviderConfigSchema: JsonSchema = {
   },
 };
 
-export const OAuth2IdentityProviderConfigSchema: JsonSchema = {
-  description:
-    "A plain OAuth 2.0 provider that isn't OpenID Connect (e.g. GitHub), run by this API's own OAuth flow (`/v1/auth/login` + callback). For a provider that speaks OpenID Connect, use `oidc`.",
-  type: 'object',
-  additionalProperties: false,
-  required: [
-    'providerId',
-    'kind',
-    'clientId',
-    'clientSecretRef',
-    'authorizationEndpoint',
-    'tokenEndpoint',
-    'scopes',
-  ],
-  properties: {
-    ...IDENTITY_PROVIDER_BASE_PROPERTIES,
-    kind: { type: 'string', const: 'oauth2' },
-    clientId: { type: 'string', minLength: 1 },
-    clientSecretRef: CLIENT_SECRET_REF,
-    authorizationEndpoint: { type: 'string', format: 'uri' },
-    tokenEndpoint: { type: 'string', format: 'uri' },
-    userinfoEndpoint: { type: 'string', format: 'uri' },
-    scopes: { type: 'array', items: { type: 'string' } },
-    allowedRedirectUris: ALLOWED_REDIRECT_URIS,
-    claimMapping: { $ref: '#/components/schemas/ClaimMappingSpec' },
-  },
-};
-
 export const IdentityProviderConfigSchema: JsonSchema = {
   description:
     'An identity provider registered on a tenant, one shape per `kind` (narrow on `kind` before reading kind-specific fields). Secrets are always REFERENCES resolved server-side (`clientSecretRef`, `spSigningKeyRef`, `spDecryptionKeyRef`); a plaintext secret never crosses the wire, and a `clientSecret` field is refused.',
   oneOf: [
     { $ref: '#/components/schemas/OidcIdentityProviderConfig' },
     { $ref: '#/components/schemas/SamlIdentityProviderConfig' },
-    { $ref: '#/components/schemas/OAuth2IdentityProviderConfig' },
   ],
   discriminator: {
     propertyName: 'kind',
     mapping: {
       oidc: '#/components/schemas/OidcIdentityProviderConfig',
       saml: '#/components/schemas/SamlIdentityProviderConfig',
-      oauth2: '#/components/schemas/OAuth2IdentityProviderConfig',
     },
   },
 };
@@ -7358,18 +7320,16 @@ export const IdentityProviderConfigSchema: JsonSchema = {
 // `ServiceAccountGrantBody`).
 export const RegisterIdentityProviderBodySchema: JsonSchema = {
   description:
-    'The identity provider to register, one shape per `kind`: `oidc`, `saml` or `oauth2`. Secrets by reference only (`clientSecretRef`, `spSigningKeyRef`, `spDecryptionKeyRef`); a `clientSecret` field is refused.',
+    'The identity provider to register, one shape per `kind`: `oidc` or `saml`. Secrets by reference only (`clientSecretRef`, `spSigningKeyRef`, `spDecryptionKeyRef`); a `clientSecret` field is refused.',
   oneOf: [
     { $ref: '#/components/schemas/OidcIdentityProviderConfig' },
     { $ref: '#/components/schemas/SamlIdentityProviderConfig' },
-    { $ref: '#/components/schemas/OAuth2IdentityProviderConfig' },
   ],
   discriminator: {
     propertyName: 'kind',
     mapping: {
       oidc: '#/components/schemas/OidcIdentityProviderConfig',
       saml: '#/components/schemas/SamlIdentityProviderConfig',
-      oauth2: '#/components/schemas/OAuth2IdentityProviderConfig',
     },
   },
 };
@@ -7381,14 +7341,12 @@ export const GetIdentityProviderResultSchema: JsonSchema = {
   oneOf: [
     { $ref: '#/components/schemas/OidcIdentityProviderConfig' },
     { $ref: '#/components/schemas/SamlIdentityProviderConfig' },
-    { $ref: '#/components/schemas/OAuth2IdentityProviderConfig' },
   ],
   discriminator: {
     propertyName: 'kind',
     mapping: {
       oidc: '#/components/schemas/OidcIdentityProviderConfig',
       saml: '#/components/schemas/SamlIdentityProviderConfig',
-      oauth2: '#/components/schemas/OAuth2IdentityProviderConfig',
     },
   },
 };
@@ -7528,7 +7486,6 @@ export const UpdateIdentityProviderBodySchema: JsonSchema = {
     tokenEndpoint: NULLABLE_URI,
     userinfoEndpoint: NULLABLE_URI,
     jwksEndpoint: NULLABLE_URI,
-    allowedRedirectUris: NULLABLE_STRINGS,
     claimMapping: {
       oneOf: [{ $ref: '#/components/schemas/ClaimMappingSpec' }, { type: 'null' }],
     },
@@ -7586,44 +7543,7 @@ export const IdentityProviderSignInUrlsSchema: JsonSchema = {
   },
 };
 
-export const LoginBodySchema: JsonSchema = {
-  description:
-    'Optional body for `POST /v1/auth/login/:providerId`. `redirectUri` overrides `metadata.defaultRedirectUri` on the provider config; at least one MUST be supplied.',
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    redirectUri: { type: 'string', format: 'uri' },
-  },
-};
-
-export const AuthorizationResponseSchema: JsonSchema = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['authorizationUrl', 'state', 'codeChallenge', 'codeChallengeMethod'],
-  properties: {
-    authorizationUrl: {
-      type: 'string',
-      format: 'uri',
-      description:
-        'URL the caller redirects the user-agent to. Includes `client_id`, `redirect_uri`, `scope`, `state`, `code_challenge`, `code_challenge_method=S256`.',
-    },
-    state: { type: 'string', minLength: 1 },
-    codeChallenge: { type: 'string', minLength: 1 },
-    codeChallengeMethod: { type: 'string', enum: ['S256'] },
-  },
-};
-
-export const CallbackBodySchema: JsonSchema = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['code', 'state'],
-  properties: {
-    code: { type: 'string', minLength: 1 },
-    state: { type: 'string', minLength: 1 },
-  },
-};
-
-export const CallbackResultSchema: JsonSchema = {
+export const RefreshResultSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['sessionToken', 'sessionId', 'expiresAt'],
@@ -7637,8 +7557,6 @@ export const CallbackResultSchema: JsonSchema = {
     expiresAt: { type: 'string', format: 'date-time' },
   },
 };
-
-export const RefreshResultSchema: JsonSchema = CallbackResultSchema;
 
 export const LogoutResultSchema: JsonSchema = {
   type: 'object',
@@ -10438,7 +10356,6 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['IdentityProviderSignIn', IdentityProviderSignInSchema],
   ['OidcIdentityProviderConfig', OidcIdentityProviderConfigSchema],
   ['SamlIdentityProviderConfig', SamlIdentityProviderConfigSchema],
-  ['OAuth2IdentityProviderConfig', OAuth2IdentityProviderConfigSchema],
   ['IdentityProviderConfig', IdentityProviderConfigSchema],
   ['RegisterIdentityProviderBody', RegisterIdentityProviderBodySchema],
   ['GetIdentityProviderResult', GetIdentityProviderResultSchema],
@@ -10451,10 +10368,6 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['UpdateIdentityProviderBody', UpdateIdentityProviderBodySchema],
   ['UpdateIdentityProviderResult', UpdateIdentityProviderResultSchema],
   ['IdentityProviderSignInUrls', IdentityProviderSignInUrlsSchema],
-  ['LoginBody', LoginBodySchema],
-  ['AuthorizationResponse', AuthorizationResponseSchema],
-  ['CallbackBody', CallbackBodySchema],
-  ['CallbackResult', CallbackResultSchema],
   ['RefreshResult', RefreshResultSchema],
   ['LogoutResult', LogoutResultSchema],
   ['WhoamiResult', WhoamiResultSchema],

@@ -104,18 +104,15 @@ export interface SignInOption {
  *   (Okta, Entra ID, Google, Keycloak…): an `issuer`, the endpoints come
  *   from its discovery document.
  * - `saml`: a SAML 2.0 identity provider people sign in with.
- * - `oauth2`: a plain OAuth 2.0 provider that isn't OpenID Connect (e.g.
- *   GitHub), with its endpoints given. Pick `oidc` for any provider that
- *   speaks OpenID Connect.
  */
-export type IdentityProviderKind = 'oauth2' | 'oidc' | 'saml';
+export type IdentityProviderKind = 'oidc' | 'saml';
 
 /**
  * An identity provider's configuration: one shape per `kind`. Narrow on
  * `kind` before reading kind-specific fields (`clientId`,
  * `tokenEndpoint`, `idpMetadataXml`…).
  */
-export type ProviderConfig = OAuth2ProviderConfig | OidcProviderConfig | SamlProviderConfig;
+export type ProviderConfig = OidcProviderConfig | SamlProviderConfig;
 
 /** What every kind of identity provider has. */
 export interface ProviderConfigBase {
@@ -173,7 +170,6 @@ export interface OidcProviderConfig extends ProviderConfigBase {
   readonly tokenEndpoint?: string;
   readonly userinfoEndpoint?: string;
   readonly jwksEndpoint?: string;
-  readonly allowedRedirectUris?: readonly string[];
   readonly claimMapping?: ClaimMappingSpec;
 }
 
@@ -204,52 +200,6 @@ export interface SamlAttributeMapping {
   readonly userId?: string;
   readonly email?: string;
   readonly displayName?: string;
-}
-
-/**
- * A plain OAuth 2.0 provider that isn't OpenID Connect (e.g. GitHub), run
- * by this package's own OAuth flow (`/v1/auth/login` + callback, with the
- * deployment's `exchangeCode`). For a provider that speaks OpenID Connect,
- * use `oidc`.
- */
-export interface OAuth2ProviderConfig extends ProviderConfigBase {
-  readonly kind: 'oauth2';
-  readonly clientId: string;
-  /**
-   * Opaque pointer resolved server-side. Never a plaintext secret. The
-   * shape (env-var name / secrets-manager path / KMS handle) is a
-   * deployment convention, not a framework one.
-   */
-  readonly clientSecretRef: string;
-  readonly authorizationEndpoint: string;
-  readonly tokenEndpoint: string;
-  readonly userinfoEndpoint?: string;
-  readonly scopes: readonly string[];
-  /**
-   * OAuth 2.1 BCP redirect-URI allowlist. When present and non-empty,
-   * `POST /v1/auth/login/:providerId` rejects any `redirectUri` (whether
-   * supplied in the body or resolved from `metadata.defaultRedirectUri`)
-   * that is not an exact match to a list entry — 400
-   * `redirect-uri-not-allowed`. `POST /v1/auth/callback/:providerId`
-   * cross-checks the state row's stored `redirect_uri` against the same
-   * list — 400 `redirect-uri-mismatch` if the allowlist was tightened
-   * between login and callback. Absent or empty → any redirect_uri is
-   * accepted (pass-through; deployments MUST populate
-   * this to reach OAuth 2.1 BCP compliance).
-   *
-   * Exact-string match, not prefix or regex — the OAuth 2.1 BCP
-   * mandates literal comparison to prevent redirect-URI injection.
-   */
-  readonly allowedRedirectUris?: readonly string[];
-  /**
-   * Optional per-provider claim mapping. When present, the `ExchangeCodeFn`
-   * / `RefreshTokenFn` implementations translate provider claims into the
-   * Kindgi `Session` shape according to this spec. Absent → pass-
-   * through (provider `sub` → `userId`, `email` → `email`, `name` →
-   * `displayName`, scopes come from the token response). A deployment's
-   * own `ExchangeCodeFn` MAY honor this field the same way.
-   */
-  readonly claimMapping?: ClaimMappingSpec;
 }
 
 /**
@@ -350,19 +300,10 @@ export interface IdentityProviderUnregisterOutcome {
 }
 
 /**
- * Result of the OAuth code→session exchange the callback route delegates
- * to the identity provider. Distinct from `SessionCreateInput` because
- * the framework decides the `SessionId` (opaque), while the provider
- * decides `userId` / `accessToken` / `scopes`.
+ * What a provider's token endpoint answered (`RefreshTokenFn`). Distinct
+ * from `SessionCreateInput` because the framework decides the `SessionId`
+ * (opaque), while the provider decides `userId` / `accessToken` / `scopes`.
  */
-export interface ExchangeCodeInput {
-  readonly tenantId: TenantId;
-  readonly providerId: string;
-  readonly code: string;
-  readonly codeVerifier: string;
-  readonly redirectUri: string;
-}
-
 export interface ExchangeCodeOutcome {
   readonly userId: string;
   readonly accessToken: string;
@@ -371,16 +312,6 @@ export interface ExchangeCodeOutcome {
   readonly scopes: readonly string[];
   readonly claims?: Record<string, unknown>;
 }
-
-/**
- * Optional companion binding used by `POST /v1/auth/callback` and
- * `POST /v1/auth/refresh`. Deployments that only implement provider
- * registry CRUD (and want to run the exchange themselves) can inline
- * this closure via `CreateAppInput.exchangeCode`. A typical
- * implementation calls the provider `tokenEndpoint` with PKCE +
- * client-secret client authentication.
- */
-export type ExchangeCodeFn = (input: ExchangeCodeInput) => Promise<ExchangeCodeOutcome>;
 
 /**
  * Optional refresh-token exchange. When present, `POST /v1/auth/refresh`
