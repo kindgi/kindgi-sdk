@@ -15,6 +15,10 @@ heading into its version.
   values, and won't start while an undeclared variable still reaches it.
   `KINDGI_PACK_ENV_FILTER=off` keeps every variable.
 
+## 0.1.5
+
+No JVM changes; the version moves with the npm packages.
+
 ## 0.1.5-rc.0
 
 - `kindgi-pack`: **on SIGTERM, the service stops taking calls before it writes
