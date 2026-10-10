@@ -340,10 +340,27 @@ module, and [Simple OAuth](https://www.drupal.org/project/simple_oauth) for
 the token endpoint: a consumer with the client credentials grant, and the
 user its tokens act as.
 
+### A secret that isn't set
+
+With either scheme, a secret that isn't set fails the tool call with
+`mcp-auth-unresolved`. The log names the secret and where it looked, never a
+value:
+
+```text
+21:02:11.089 WARN  [mcp] MCP endpoint "cms-nosecret" sync failed: mcp-auth-unresolved: MCP endpoint "cms-nosecret": its auth client secret local/CMS_SECRET_NEVER_SET did not resolve: No secret "CMS_SECRET_NEVER_SET" for env "local" in .env, .env.local, .kindgi/secrets.env at … endpointId=cms-nosecret
+```
+
 ### Signed in, but no tools
 
-A sync whose counts are all 0 (`synced — 0 published, 0 reinstated,
-0 unchanged, 0 retired`) signed in, and the server listed no tools to that
+A sync that signed in says what it found:
+
+```text
+21:00:51.837 INFO  [mcp] MCP endpoint "shop" synced — 3 published, 0 reinstated, 0 unchanged, 0 retired endpointId=shop published=3 reinstated=0 unchanged=0 retired=0
+21:00:52.218 INFO  [mcp] MCP endpoint "cms" synced — 1 published, 0 reinstated, 0 unchanged, 0 retired endpointId=cms published=1 reinstated=0 unchanged=0 retired=0
+```
+
+One whose counts are all 0 (`synced — 0 published, 0 reinstated,
+0 unchanged, 0 retired`) signed in too, but the server listed no tools to that
 account. Which tools a server lists, and to whom, is set on the server's
 side: check that the account the credentials stand for may use them.
 
