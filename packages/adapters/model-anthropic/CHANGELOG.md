@@ -1,5 +1,28 @@
 # @kindgi/adapter-model-anthropic
 
+## 0.1.5-rc.0
+
+### Patch Changes
+
+- 9426193: Claude agents use Anthropic's prompt cache. Before, the Anthropic adapter marked nothing for caching, so every call paid the full input price for a prompt the previous call had just sent. Now it marks up to three breakpoints with the 5-minute cache: the last tool, the agent's prompt (the first system block; each system message is now its own block), and the conversation so far when another call will send it again (a call with tools, or a conversation with an earlier answer). The next call in a turn reads that prefix at 5% of the input price on Claude Opus 5.5 and Sonnet 5.5 (10% on Haiku) and writes only what's new; the first write costs 125%. Live, a three-call turn with a 7,700-token prompt cost 53% less on both Sonnet 5.5 and Opus 5.5. A prompt below the model's minimum isn't cached and costs nothing extra. The `anthropic` preset now carries Anthropic's cache rates (writes 1.25x; reads 0.05x on Opus and Sonnet 5.5, 0.1x on Haiku). A registration from an earlier preset keeps the 0.1x read rate on every model: register the preset again to get 0.05x. New exports: `withPromptCache`, `PROMPT_CACHE`; `toAnthropicMessages` also returns `systemParts`.
+- 88953c7: **A model call can carry a `traceparent`, and the three model adapters send it to the vendor.**
+  - **`ModelCallInput.traceparent?`** (optional) is a W3C `traceparent` for the call.
+  - **The adapters** send it as the `traceparent` header on that request, and only when it's set:
+    - anthropic, through its request options (on the SDK's retries too);
+    - openai-compat, on both the Chat Completions and Responses paths;
+    - gemini, through the request's `httpOptions.headers`.
+    It's never in the body and never logged, and an adapter never makes one up.
+  - **A runtime sets it only for a provider whose registration opts in.** Trace ids leave the process only on opt-in.
+  - **`ResumeRunBindingInput.trace?`:** the approval that resumes a run passes its request's trace context, as starting a run does.
+- 0fe157e: A provider registration the runtime couldn't build is refused when it registers, naming the setting. Before, a bad `adapter_config` (an unknown `api`, a missing `baseURL`, a Vertex registration without `project`, …) registered fine, and the provider was skipped at the first model call with the reason only in the runtime's log.
+  - **`POST /v1/providers`** runs the adapter's own check before storing: `422 provider-config-invalid`, with each problem in `details.issues` (`path`, a JSON pointer such as `/adapter_config/api`, and `message`), the shape other validation errors use; the clients read it as an invalid-request error. Without the runtime's adapter factories (an older runtime), nothing changes.
+  - **`GET /v1/providers/{providerId}/check`** runs the same check over a registered provider (`{ providerId, adapterId, checked, issues }`); TS `providers.check(id)`, Python `providers.check(provider_id)`.
+  - **Adapters:** `AdapterFactoryEntry.checkConfig` (static: no network, no secret read): `{ path, message }` problems, the message naming the setting and what it takes; the factory throws the same problems as `adapterConfigError` words them (`<adapter>: provider "<id>": <message>`). The 422's own message is one sentence naming the provider, its adapter and the first problem, with a count of the rest. Each adapter exports its entry: `openAICompatAdapterEntry`, `geminiAdapterEntry`, `anthropicAdapterEntry` (new `anthropicAdapterFactory`: needs `secret_ref`) and `inProcessAdapterEntry` (new `inProcessAdapterFactory`).
+- Updated dependencies [490d083]
+- Updated dependencies [88953c7]
+- Updated dependencies [0fe157e]
+  - @kindgi/capabilities@0.1.5-rc.0
+
 ## 0.1.4
 
 ### Patch Changes
