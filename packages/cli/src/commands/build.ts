@@ -33,6 +33,7 @@ import {
   type PackLanguage,
   findKindgiConfig,
   resolveDiscovery,
+  resolvePackEnv,
 } from '@kindgi/handler-runtime';
 
 import { checkAptPackages } from '../build/apt.js';
@@ -1060,6 +1061,16 @@ async function prepareJvmContext(
         .join('\n')}\n`,
     );
   }
+  // The launcher keeps these names in the image, and drops the rest.
+  const declared = resolvePackEnv(
+    (JSON.parse(await readFile(expectedIndexPath, 'utf8')) as { readonly env?: unknown }).env,
+  );
+  if (declared.kind === 'err')
+    return failure(`kindgi build: the index's env: ${declared.message}\n`);
+  const declaredEnv = [
+    ...(declared.value?.required ?? []),
+    ...(declared.value?.optional ?? []),
+  ].sort();
   const tool = code.language === 'java' ? code.maven : code.sbt;
   lines(`  Indexing (${name} — ${code.javaHome ?? code.java}; ${tool.join(' ')})`);
   lines(
@@ -1091,6 +1102,7 @@ async function prepareJvmContext(
       language === 'java' ? DEFAULT_JAVA_BUILD_IMAGE_REF : DEFAULT_SCALA_BUILD_IMAGE_REF,
     runtimeImageRef: DEFAULT_JAVA_RUNTIME_IMAGE_REF,
     systemPackages: system.packages,
+    declaredEnv,
   });
   const contextDir = join(args.outDir, 'context');
   await java.writeContext({

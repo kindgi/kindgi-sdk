@@ -15,7 +15,7 @@ description: >
   kindgi-authoring-agents.
 type: core
 library: "@kindgi/sdk"
-version: "0.3.7"
+version: "0.3.8"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -142,24 +142,26 @@ export default {
 ```
 
 Each built-in's `config` (tool lists hold tool ids, as in
-`acme.fetch-precedent`):
+`acme.fetch-precedent`; a setting without `?` is required):
 
 | Check | Fails when | `config` |
 | --- | --- | --- |
-| `must-cite` | the answer is empty, or has fewer than `minCitations` matches of `sourcePattern` | `minCitations?: number` (1), `sourcePattern?: string` (a regex; `[…]`-style citations by default) |
-| `never-call-tool` | the turn called any tool in `tools` | `tools: string[]` |
-| `max-tool-calls` | the turn made more than `max` tool calls | `max?: number` (10) |
-| `output-matches` | the answer doesn't match `pattern` (with `negate: true`, it does) | `pattern: string` (a regex), `flags?: string`, `negate?: boolean` |
-| `tool-order` | the tools in `sequence` weren't called in that order (others may come between) | `sequence: string[]` |
-| `required-substring` | the answer is empty, or lacks any of `patterns` | `patterns: string[]` (plain text), `caseSensitive?: boolean` (false) |
-| `forbidden-substring` | the answer contains any of `patterns` | `patterns: string[]` (plain text), `caseSensitive?: boolean` (false) |
+| `must-cite` | the answer is empty, or has fewer than `minCitations` matches of `sourcePattern` | `minCitations?: integer ≥ 1` (1), `sourcePattern?: string` (a regex; `[…]`-style citations by default) |
+| `never-call-tool` | the turn called any tool in `tools` | `tools: (string \| { id, version? })[]`, one or more |
+| `max-tool-calls` | the turn made more than `max` tool calls | `max?: integer ≥ 0` (10) |
+| `output-matches` | the answer doesn't match `pattern` (with `negate: true`, it does) | `pattern: string` (a regex), `flags?: string` (letters `dgimsuyv`), `negate?: boolean` |
+| `tool-order` | the tools in `sequence` weren't called in that order (others may come between) | `sequence: string[]`, one or more |
+| `required-substring` | the answer is empty, or lacks any of `patterns` | `patterns: string[]`, one or more non-empty (plain text), `caseSensitive?: boolean` (false) |
+| `forbidden-substring` | the answer contains any of `patterns` | `patterns: string[]`, one or more non-empty (plain text), `caseSensitive?: boolean` (false) |
 
-**The built-ins don't check their `config` yet.** Nothing refuses a
-wrong shape: a setting of the wrong type is ignored, and the check falls
-back to its default or to nothing. `never-call-tool` with
-`tools: 'acme.refund'` (a string, not a list) forbids nothing and passes
-every turn; `output-matches` without a `pattern` fails every turn. Copy
-the shapes above exactly.
+A config the check doesn't take is refused: a required setting left out,
+the wrong type, a setting the check doesn't know, or a regex that doesn't
+compile. Registering it answers `422 guardrail-config-invalid` (each
+problem in `details.issues`); deploying a pack with one fails with
+`deployment-validation-failed`; one that still reaches a turn is a check
+that can't run (`invalid-check-config`), so a `halt` guardrail stops the
+turn. Each built-in's JSON Schema is its registered check's
+`configSchema`.
 
 ## Validating a declaration in-process
 

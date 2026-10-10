@@ -182,8 +182,10 @@ there by hand, or with `./kindgiw secrets set NAME --env=local --scope=tenant`
 (a no-echo prompt), and keep the env files out of git. A deployed service
 names the variables it needs in `kindgi.config.json`:
 `"env": {"required": ["DATABASE_URL"], "optional": ["SENTRY_DSN"]}`. Without
-a required one it isn't ready. `KINDGI_*` names are Kindgi's own and never
-reach pack code.
+a required one it isn't ready, and every variable it doesn't declare is
+dropped before your code loads (`kindgi dev` keeps them), so an undeclared
+one works locally and is unset once deployed. `KINDGI_*` names are Kindgi's
+own: a pack can't declare one.
 
 ## Errors and output
 

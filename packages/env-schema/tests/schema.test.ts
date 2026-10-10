@@ -194,9 +194,15 @@ describe('envVarsForTarget — the executor lease', () => {
       group: 'core',
       example: '60000',
     });
+    expect(server.get('KINDGI_RUN_ENDED_CHECK_MS')).toMatchObject({
+      required: false,
+      group: 'core',
+      example: '5000',
+    });
     const packService = envVarsForTarget({ component: 'pack-service' }).map((v) => v.name);
     expect(packService).not.toContain('KINDGI_RUN_LEASE_MS');
     expect(packService).not.toContain('KINDGI_RUN_SWEEP_INTERVAL_MS');
+    expect(packService).not.toContain('KINDGI_RUN_ENDED_CHECK_MS');
   });
 });
 
@@ -247,6 +253,8 @@ describe('envVarsForTarget — the pack service', () => {
     'KINDGI_PACK_INDEX',
     'KINDGI_PACK_SERVICE_MAX_CONCURRENCY',
     'KINDGI_PACK_ENV_CHECK',
+    'KINDGI_PACK_ENV_FILTER',
+    'KINDGI_PACK_ENV_DECLARED',
   ];
 
   test("component=pack-service is the pack service's vars and none of the server's", () => {
