@@ -1585,6 +1585,8 @@ class ApprovalsResource:
         required_role: Literal["standard", "senior", "admin"] | None = None,
         created_after: str | None = None,
         wait_token_id: list[str | UUID] | None = None,
+        run_id: str | UUID | None = None,
+        include_descendants: bool | None = None,
         timeout: float | None = None,
     ) -> _models.ApprovalCollectionPage:
         """List approvals visible to the caller. `GET /v1/approvals`
@@ -1603,6 +1605,8 @@ class ApprovalsResource:
                 "requiredRole": required_role,
                 "createdAfter": created_after,
                 "waitTokenId": wait_token_id,
+                "runId": run_id,
+                "includeDescendants": include_descendants,
             },
             headers={},
             response=_models.ApprovalCollectionPage,
@@ -8296,6 +8300,8 @@ class AsyncApprovalsResource:
         required_role: Literal["standard", "senior", "admin"] | None = None,
         created_after: str | None = None,
         wait_token_id: list[str | UUID] | None = None,
+        run_id: str | UUID | None = None,
+        include_descendants: bool | None = None,
         timeout: float | None = None,
     ) -> _models.ApprovalCollectionPage:
         """List approvals visible to the caller. `GET /v1/approvals`
@@ -8314,6 +8320,8 @@ class AsyncApprovalsResource:
                 "requiredRole": required_role,
                 "createdAfter": created_after,
                 "waitTokenId": wait_token_id,
+                "runId": run_id,
+                "includeDescendants": include_descendants,
             },
             headers={},
             response=_models.ApprovalCollectionPage,

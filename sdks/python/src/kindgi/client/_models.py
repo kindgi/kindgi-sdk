@@ -10100,7 +10100,29 @@ class Approval(BaseModel):
     expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
     decision: ApprovalDecisionRecord | None = None
     """
-    The reviewer's decision, once one is recorded. Absent while the approval is open, and when it ended without one (it expired, or a timeout escalated it).
+    The reviewer's decision, once one is recorded. Absent while the approval is open, and when it ended without one (it expired, a timeout escalated it, or its run's end withdrew it).
+    """
+    requested_by: Annotated[str | None, Field(alias="requestedBy")] = None
+    """
+    Who asked for it, when recorded: `user:<id>`, `service_account:<id>` or `system:<what>`.
+    """
+    separate_approver: Annotated[bool | None, Field(alias="separateApprover")] = None
+    """
+    Whether the person who asked may not approve it (four eyes). A runtime that knows it always sends it, `false` included.
+    """
+    withdrawn_because: Annotated[
+        Literal["run-cancelled", "run-ended"] | None, Field(alias="withdrawnBecause")
+    ] = None
+    """
+    Why it was withdrawn, when its run's end withdrew it (a reviewer's withdrawal has its `decision` instead).
+    """
+    escalated_from: Annotated[UUID | None, Field(alias="escalatedFrom")] = None
+    """
+    The approval this one was escalated from.
+    """
+    escalated_to: Annotated[UUID | None, Field(alias="escalatedTo")] = None
+    """
+    The approval this one was escalated to.
     """
 
 
@@ -10118,6 +10140,10 @@ class ApprovalCollectionPage(BaseModel):
 
 
 class CompleteApprovalResult(BaseModel):
+    """
+    A recorded decision, and what it did to the run waiting on the approval. `runStatus` is the run's status when the decision couldn't resolve its waitpoint because the run had already ended (e.g. `cancelled` after the decision was recorded); the decision stands.
+    """
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -10131,8 +10157,12 @@ class CompleteApprovalResult(BaseModel):
     """
     waitpoint_resolved: Annotated[bool, Field(alias="waitpointResolved")]
     """
-    True when the approval had a `waitTokenId` + terminal accept/reject and the run waitpoint was completed as part of this call.
+    True when the approval had a `waitTokenId` and this call resolved the run's waitpoint: approve and reject complete it; withdraw cancels it, so the run ends (`failed`, `hitl-withdrawn`).
     """
+    run_status: Annotated[
+        Literal["pending", "running", "suspended", "completed", "failed", "cancelled"] | None,
+        Field(alias="runStatus"),
+    ] = None
     resume: Resume | Resume1 | None = None
     """
     How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone. The decision stands either way.
@@ -10626,6 +10656,10 @@ class WhoamiResult(BaseModel):
         populate_by_name=True,
     )
     tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    actor: str | None = None
+    """
+    The caller as approvals name a person: `user:<id>` or `service_account:<id>`, the same string as an approval's `requestedBy` and a decision's `decidedBy`.
+    """
     user_id: Annotated[str | None, Field(alias="userId")] = None
     session_id: Annotated[str | None, Field(alias="sessionId")] = None
     provider_id: Annotated[str | None, Field(alias="providerId")] = None

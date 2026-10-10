@@ -4,7 +4,11 @@
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 
-import { AGENT_GATE_SUBJECTS, TOOL_CALL_GATE_SUBJECT } from '@kindgi/agents';
+import {
+  AGENT_GATE_SUBJECTS,
+  APPROVAL_WITHDRAWN_REASON,
+  TOOL_CALL_GATE_SUBJECT,
+} from '@kindgi/agents';
 import type { ConversationBinding, GateDecisionValue } from '@kindgi/agents';
 import type { AuditEventBinding } from '@kindgi/audit-events';
 import { REVIEWER_ROLE_RANK, type ResourceRef, type ReviewerRole, ref } from '@kindgi/authz';
@@ -46,6 +50,7 @@ import type { AppEnv } from '../types.js';
 import { refused } from './denied.js';
 import { clampLimit, decodeCursor, encodeCursor, isCursorTime } from './pagination.js';
 import { parseListScope } from './scope-params.js';
+import { UUID_RE } from './uuid-param.js';
 
 const APPROVAL_STATUSES: ReadonlySet<ApprovalStatus> = new Set([
   'pending',
@@ -266,6 +271,28 @@ export function approvalsRouter(
       );
     }
 
+    // `runId`: the approvals one run asked for; with `includeDescendants=true`,
+    // also those its child runs asked for, at any depth (a flow's agent
+    // steps). The same pair the cost routes take.
+    const runIdRaw = c.req.query('runId');
+    const descendantsRaw = c.req.query('includeDescendants');
+    const runFilterError =
+      runIdRaw !== undefined && !UUID_RE.test(runIdRaw)
+        ? '`runId` must be a run id (a UUID)'
+        : descendantsRaw !== undefined && descendantsRaw !== 'true' && descendantsRaw !== 'false'
+          ? '`includeDescendants` must be `true` or `false`'
+          : descendantsRaw === 'true' && runIdRaw === undefined
+            ? '`includeDescendants` needs a `runId`'
+            : undefined;
+    if (runFilterError !== undefined) {
+      c.status(statusFor('bad-input') as never);
+      return c.json(toWireError({ code: 'bad-input', message: runFilterError }, requestId));
+    }
+    const runFilter =
+      runIdRaw === undefined
+        ? undefined
+        : { runId: runIdRaw as RunId, includeDescendants: descendantsRaw === 'true' };
+
     // The cursor: where the last page ended (an approval's exact
     // `createdAt` and its id), or a bare time from before that (milliseconds,
     // no tie-breaker), which still answers as it did.
@@ -300,6 +327,7 @@ export function approvalsRouter(
       ...(after !== undefined && { after }),
       ...(cursor !== undefined && { cursor: cursor as Cursor }),
       ...(waitTokenIds.length > 0 && { waitTokenIds }),
+      ...(runFilter !== undefined && { run: runFilter }),
     };
     const listed = await hitlBinding.listApprovals(listInput);
     if (listed.kind === 'err') {
@@ -479,11 +507,12 @@ export function approvalsRouter(
       return c.json(toWireError(submitted.error as never, requestId));
     }
 
-    // If the approval carries a waitpoint reference AND the decision is
-    // a terminal accept/reject, resolve the run's waitpoint so the
-    // suspended run resumes. Escalate/withdraw don't resume — the run
-    // stays suspended until the new (escalated) approval terminates,
-    // or the run is cancelled explicitly.
+    // An approval that carries a waitpoint reference resolves the run's
+    // waitpoint on a terminal decision, so the suspended run goes on:
+    // approve and reject complete it with the decision; withdraw cancels
+    // it (`approval-withdrawn`), so the run ends saying why (the gates
+    // fail the turn with `hitl-withdrawn`). Escalate doesn't: the new
+    // approval carries the same waitpoint.
     //
     // Resume value shape: `GateDecisionValue`, `{ decided, rationale?,
     // decidedBy, approvalId }`, the shape the agent's approval gate
@@ -491,32 +520,51 @@ export function approvalsRouter(
     // another subject, the caller CAN supply an explicit `value` to
     // override it, when the resume payload must carry more than the
     // decision (an agent gate refuses one, above).
+    //
+    // The decision is recorded first, and stands. A run that ended in
+    // between (a cancel that landed after it) isn't an error: the answer
+    // says the waitpoint wasn't resolved, and the run's status.
     let waitpointResolved = false;
+    let runStatus: string | undefined;
     let resume: ResumeReport | undefined;
+    const decision = parsed.value.decision;
     if (
       approval.waitTokenId !== undefined &&
       approval.provenanceRef?.runId !== undefined &&
-      (parsed.value.decision === 'approve' || parsed.value.decision === 'reject')
+      (decision === 'approve' || decision === 'reject' || decision === 'withdraw')
     ) {
-      const decided: GateDecisionValue = {
-        decided: parsed.value.decision,
-        ...(parsed.value.rationale !== undefined && { rationale: parsed.value.rationale }),
-        decidedBy: `user:${userId as unknown as string}`,
-        approvalId: approval.id as unknown as string,
-      };
-      const resumeValue = parsed.value.value !== undefined ? parsed.value.value : decided;
-      const resolved = await runBinding.completeToken(
-        tenantId,
-        approval.provenanceRef.runId as RunId,
-        approval.waitTokenId,
-        resumeValue,
-      );
-      if (resolved.kind === 'err') {
+      const runId = approval.provenanceRef.runId as RunId;
+      let resolved: Awaited<ReturnType<RunBinding['completeToken']>>;
+      if (decision === 'withdraw') {
+        resolved = await runBinding.cancelToken(
+          tenantId,
+          runId,
+          approval.waitTokenId,
+          APPROVAL_WITHDRAWN_REASON,
+        );
+      } else {
+        const decided: GateDecisionValue = {
+          decided: decision,
+          ...(parsed.value.rationale !== undefined && { rationale: parsed.value.rationale }),
+          decidedBy: `user:${userId as unknown as string}`,
+          approvalId: approval.id as unknown as string,
+        };
+        const resumeValue = parsed.value.value !== undefined ? parsed.value.value : decided;
+        resolved = await runBinding.completeToken(
+          tenantId,
+          runId,
+          approval.waitTokenId,
+          resumeValue,
+        );
+      }
+      if (resolved.kind === 'err' && resolved.error.code === 'run-already-terminal') {
+        runStatus = resolved.error.status;
+      } else if (resolved.kind === 'err') {
         c.status(statusFor(resolved.error.code) as never);
         return c.json(toWireError(resolved.error as never, requestId));
+      } else {
+        waitpointResolved = true;
       }
-      waitpointResolved = true;
-
       // Inline resume — when a runHandler is wired,
       // drive resumeRun synchronously in the same request. The runtime
       // replays from the journal; the parked run reaches its next
@@ -531,12 +579,12 @@ export function approvalsRouter(
       // The response says how the resume went (`resume`), so a decision
       // whose run couldn't go on (a tool version it started with is gone,
       // say) isn't reported as plain success.
-      if (runHandler !== undefined) {
+      if (waitpointResolved && runHandler !== undefined) {
         const trace = c.get('trace');
         resume = await resumeInline(
           runHandler,
           tenantId,
-          approval.provenanceRef.runId as RunId,
+          runId,
           trace !== undefined ? { traceId: trace.traceId, spanId: trace.spanId } : undefined,
         );
       }
@@ -551,6 +599,7 @@ export function approvalsRouter(
         nextApproval: serializeApproval(result.nextApproval),
       }),
       waitpointResolved,
+      ...(runStatus !== undefined && { runStatus }),
       ...(resume !== undefined && { resume }),
     });
   });
@@ -727,6 +776,11 @@ function serializeApproval(a: Approval): Record<string, unknown> {
     decidedAt: a.decidedAt,
     expiresAt: a.expiresAt,
     decision: a.decision === undefined ? undefined : serializeApprovalDecision(a.decision),
+    ...(a.requestedBy !== undefined && { requestedBy: a.requestedBy }),
+    ...(a.separateApprover !== undefined && { separateApprover: a.separateApprover }),
+    ...(a.withdrawnBecause !== undefined && { withdrawnBecause: a.withdrawnBecause }),
+    ...(a.escalatedFrom !== undefined && { escalatedFrom: a.escalatedFrom }),
+    ...(a.escalatedTo !== undefined && { escalatedTo: a.escalatedTo }),
   };
 }
 

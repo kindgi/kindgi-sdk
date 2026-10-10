@@ -42,9 +42,11 @@ export type { DefineAgentSpec } from './define.js';
 export { resolveEffectiveHitlPolicy } from './hitl-policy.js';
 export {
   AGENT_GATE_SUBJECTS,
+  APPROVAL_WITHDRAWN_REASON,
   SESSION_GATE_SUBJECT,
   TOOL_CALL_GATE_SUBJECT,
   readGateDecision,
+  withdrawnGateFailure,
 } from './handlers/gate-decision.js';
 export type { GateDecision, GateDecisionValue } from './handlers/gate-decision.js';
 export type { EffectiveHitlPolicy } from './hitl-policy.js';

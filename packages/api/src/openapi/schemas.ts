@@ -1258,8 +1258,34 @@ export const ApprovalSchema: JsonSchema = {
     expiresAt: { type: 'string', format: 'date-time' },
     decision: {
       description:
-        "The reviewer's decision, once one is recorded. Absent while the approval is open, and when it ended without one (it expired, or a timeout escalated it).",
+        "The reviewer's decision, once one is recorded. Absent while the approval is open, and when it ended without one (it expired, a timeout escalated it, or its run's end withdrew it).",
       $ref: '#/components/schemas/ApprovalDecisionRecord',
+    },
+    requestedBy: {
+      type: 'string',
+      description:
+        'Who asked for it, when recorded: `user:<id>`, `service_account:<id>` or `system:<what>`.',
+    },
+    separateApprover: {
+      type: 'boolean',
+      description:
+        'Whether the person who asked may not approve it (four eyes). A runtime that knows it always sends it, `false` included.',
+    },
+    withdrawnBecause: {
+      type: 'string',
+      enum: ['run-cancelled', 'run-ended'],
+      description:
+        "Why it was withdrawn, when its run's end withdrew it (a reviewer's withdrawal has its `decision` instead).",
+    },
+    escalatedFrom: {
+      type: 'string',
+      format: 'uuid',
+      description: 'The approval this one was escalated from.',
+    },
+    escalatedTo: {
+      type: 'string',
+      format: 'uuid',
+      description: 'The approval this one was escalated to.',
     },
   },
 };
@@ -1533,6 +1559,8 @@ export const ExportAuditBundleResultSchema: JsonSchema = signedExportEnvelope({
 export const CompleteApprovalResultSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
+  description:
+    "A recorded decision, and what it did to the run waiting on the approval. `runStatus` is the run's status when the decision couldn't resolve its waitpoint because the run had already ended (e.g. `cancelled` after the decision was recorded); the decision stands.",
   required: ['kind', 'approval', 'decision', 'waitpointResolved'],
   properties: {
     kind: { type: 'string', enum: ['terminal', 'escalated'] },
@@ -1545,8 +1573,11 @@ export const CompleteApprovalResultSchema: JsonSchema = {
     waitpointResolved: {
       type: 'boolean',
       description:
-        'True when the approval had a `waitTokenId` + terminal accept/reject and the run waitpoint was completed as part of this call.',
+        "True when the approval had a `waitTokenId` and this call resolved the run's waitpoint: approve and reject complete it; withdraw cancels it, so the run ends (`failed`, `hitl-withdrawn`).",
     },
+    // As `Run.status` has it: the schema inline (a `$ref` to `RunStatus`
+    // folds the generated Python client's `RunStatus` class away).
+    runStatus: RunStatusSchema,
     resume: {
       description:
         "How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone. The decision stands either way.",
@@ -7641,6 +7672,11 @@ export const WhoamiResultSchema: JsonSchema = {
   required: ['tenantId', 'scopes'],
   properties: {
     tenantId: { type: 'string', format: 'uuid' },
+    actor: {
+      type: 'string',
+      description:
+        "The caller as approvals name a person: `user:<id>` or `service_account:<id>`, the same string as an approval's `requestedBy` and a decision's `decidedBy`.",
+    },
     userId: { type: 'string' },
     sessionId: { type: 'string' },
     providerId: { type: 'string' },
