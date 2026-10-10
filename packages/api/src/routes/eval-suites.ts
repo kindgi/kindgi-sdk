@@ -76,8 +76,12 @@ export function evalSuitesRouter(
       return mw(c, next);
     });
     r.use('/:suiteId/*', async (c, next) => {
-      const action = c.req.method === 'GET' ? 'read' : 'admin';
       const suiteId = c.req.param('suiteId') ?? '';
+      // Starting a run doesn't change the suite: it needs `read` on it, and
+      // the start route checks `write` on the project and `execute` on the
+      // agent or flow it runs, so a project editor can run the test set.
+      const startsRun = c.req.method === 'POST' && c.req.path.endsWith(`/${suiteId}/runs`);
+      const action = c.req.method === 'GET' || startsRun ? 'read' : 'admin';
       // A test set built from judgments under a suite id never registered
       // (no head row) has no suite to check yet: the build checks `admin`
       // on the project it names, the project the new suite belongs to. A

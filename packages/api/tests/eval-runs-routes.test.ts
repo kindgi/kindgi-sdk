@@ -5,7 +5,8 @@ import { randomUUID } from 'node:crypto';
 
 import { describe, expect, test } from 'vitest';
 
-import type { Cursor, TenantId } from '@kindgi/types';
+import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
+import type { Cursor, TenantId, UserId } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
 
@@ -50,6 +51,10 @@ const resolveToken: TokenResolver = async (token) => {
   if (token === TOKEN) return { tenantId };
   return null;
 };
+
+/** The same token as a person, for the suites that check authorization. */
+const resolveUserToken: TokenResolver = async (token) =>
+  token === TOKEN ? { tenantId, userId: 'user-editor' as UserId } : null;
 
 const runHandler: RunHandlerBinding = {
   invokeAgent: async () => ({
@@ -207,6 +212,8 @@ function makeApp(
     behavior?: 'pass' | 'fail' | 'mixed';
     kinds?: readonly EvalKind[];
     subject?: EvalSubjectInvoker;
+    /** With authorization on: what the caller holds, as `<action> <type>:<id>`. */
+    grants?: readonly string[];
   } = {},
 ): AppSetup {
   const registry = makeInMemoryRegistry();
@@ -223,12 +230,37 @@ function makeApp(
   });
   const app = createApp({
     ...createStubAppBindings(),
-    resolveToken,
+    resolveToken: options.grants === undefined ? resolveToken : resolveUserToken,
     runHandler,
     evalSuiteRegistry: registry,
     evalRunBinding: binding,
+    ...(options.grants !== undefined && { authz: grantsAuthz(options.grants) }),
   });
   return { app, registry, binding };
+}
+
+/** An authorizer that allows exactly `grants` (`<action> <type>:<id>`). */
+function grantsAuthz(grants: readonly string[]) {
+  const decision = (action: Action, resource: ResourceRef): Decision => {
+    const allowed = grants.includes(`${action} ${resource.type}:${resource.id}`);
+    return {
+      allowed,
+      reason: allowed ? 'test: granted' : 'test: not granted',
+      evidence: {
+        action,
+        relation: '',
+        resource: `${resource.type}:${resource.id}`,
+        actorSubject: '',
+      },
+    };
+  };
+  return {
+    fgaApiUrl: 'http://fga.invalid',
+    authzCheckBinding: {
+      check: async (_p, action, resource) => decision(action, resource),
+      checkBatch: async (_p, action, resources) => resources.map((r) => decision(action, r)),
+    } satisfies AuthzCheckBinding,
+  };
 }
 
 async function waitForRun(
@@ -258,6 +290,72 @@ const accuracySpec: Readonly<Record<string, unknown>> = {
   ],
   grader: { adapterId: 'stub:eq' },
 };
+
+describe('API — eval-runs start: who may start one', () => {
+  // An editor of the project (write on it, execute on the agent, read on
+  // the suite) runs the test set: the improve loop's step. Starting a run
+  // doesn't change the suite, so it doesn't need admin on it.
+  const editor = (suiteId: string) => [
+    `read eval_suite:${suiteId}`,
+    `read project:${TEST_PROJECT_ID}`,
+    `write project:${TEST_PROJECT_ID}`,
+    'execute agent:acme.drafting',
+  ];
+  const start = (app: ReturnType<typeof createApp>, suiteId: string) =>
+    app.request(`/v1/eval-suites/${suiteId}/runs`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        projectId: TEST_PROJECT_ID,
+        agentRef: { agentId: 'acme.drafting', version: '1.0.0' },
+      }),
+    });
+
+  test('a project editor starts a run: 201, without admin on the suite', async () => {
+    const { app, registry } = makeApp({ grants: editor('acme.editor-run') });
+    await seedSuite(registry, { id: 'acme.editor-run', kind: 'accuracy', spec: accuracySpec });
+    const res = await start(app, 'acme.editor-run');
+    expect(res.status, await res.text()).toBe(201);
+  });
+
+  test("without execute on the agent: 403, the route's own check", async () => {
+    const grants = editor('acme.no-exec').filter((g) => !g.startsWith('execute'));
+    const { app, registry } = makeApp({ grants });
+    await seedSuite(registry, { id: 'acme.no-exec', kind: 'accuracy', spec: accuracySpec });
+    const res = await start(app, 'acme.no-exec');
+    expect(res.status).toBe(403);
+    expect(await res.text()).toContain('agent:acme.drafting');
+  });
+
+  test('a viewer (read only) is refused: 403', async () => {
+    const grants = ['read eval_suite:acme.viewer', `read project:${TEST_PROJECT_ID}`];
+    const { app, registry } = makeApp({ grants });
+    await seedSuite(registry, { id: 'acme.viewer', kind: 'accuracy', spec: accuracySpec });
+    const res = await start(app, 'acme.viewer');
+    expect(res.status).toBe(403);
+    expect(await res.text()).toContain(`project:${TEST_PROJECT_ID}`);
+  });
+
+  test("without read on the suite: 403, the suite's check still applies", async () => {
+    const grants = editor('acme.no-read').filter((g) => !g.startsWith('read eval_suite'));
+    const { app, registry } = makeApp({ grants });
+    await seedSuite(registry, { id: 'acme.no-read', kind: 'accuracy', spec: accuracySpec });
+    const res = await start(app, 'acme.no-read');
+    expect(res.status).toBe(403);
+    expect(await res.text()).toContain('eval_suite:acme.no-read');
+  });
+
+  test('changing the suite still needs admin on it: an editor unregistering a version gets 403', async () => {
+    const { app, registry } = makeApp({ grants: editor('acme.editor-unreg') });
+    await seedSuite(registry, { id: 'acme.editor-unreg', kind: 'accuracy', spec: accuracySpec });
+    const res = await app.request('/v1/eval-suites/acme.editor-unreg/versions/1.0.0/unregister', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(res.status).toBe(403);
+    expect(await res.text()).toContain('"action":"admin"');
+  });
+});
 
 describe('API — eval-runs start (accuracy happy path)', () => {
   test('POST /v1/eval-suites/:suiteId/runs → 201, runId; run completes with aggregate result', async () => {
