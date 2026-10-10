@@ -25,9 +25,9 @@
 
 import { spawn } from 'node:child_process';
 import { readFile, readdir, stat } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 
-import { findKindgiConfig } from '@kindgi/handler-runtime';
+import { KINDGI_CONFIG_FILENAMES, findKindgiConfig } from '@kindgi/handler-runtime';
 import {
   LOCAL_ENV_NAME,
   describeUnreadable,
@@ -238,7 +238,7 @@ export async function runDoctor(ctx: CommandContext, dir: string): Promise<Docto
     checks.push({
       id: 'project',
       status: 'skip',
-      message: `No Kindgi project in ${dir}: no kindgi.config.ts, no pyproject.toml with [tool.kindgi], and no kindgi.config.json.`,
+      message: `No Kindgi project in ${dir}: no ${KINDGI_CONFIG_FILENAMES.join(', ')}, no pyproject.toml with [tool.kindgi], and no kindgi.config.json.`,
       fix: createProjectFix(kindgi, pypi),
     });
     for (const id of ['dependencies', 'model-key', 'runtime', 'provider', 'erasures'] as const) {
@@ -248,7 +248,7 @@ export async function runDoctor(ctx: CommandContext, dir: string): Promise<Docto
   }
 
   const rc = await readKindgirc(dir);
-  checks.push(projectCheck(dir, language, rc));
+  checks.push(projectCheck(dir, language, basename(config.path), rc));
   checks.push(await dependenciesCheck(dir, language, tool));
   checks.push(await modelKeyCheck(ctx, dir, seam, kindgi));
   const runtime = await runtimeCheck(ctx, rc, kindgi);
@@ -671,15 +671,24 @@ async function readKindgirc(dir: string): Promise<Kindgirc> {
   }
 }
 
-function projectCheck(dir: string, language: ProjectLanguage, rc: Kindgirc): DoctorCheck {
-  const kind =
+/** The project check, naming the config file `findKindgiConfig` found (`kindgi.config.mts`, …). */
+function projectCheck(
+  dir: string,
+  language: ProjectLanguage,
+  configFile: string,
+  rc: Kindgirc,
+): DoctorCheck {
+  const name =
     language === 'python'
-      ? 'A Python project (pyproject.toml)'
+      ? 'Python'
       : language === 'java'
-        ? 'A Java project (kindgi.config.json)'
+        ? 'Java'
         : language === 'scala'
-          ? 'A Scala project (kindgi.config.json)'
-          : 'A TypeScript project (kindgi.config.ts)';
+          ? 'Scala'
+          : /\.m?ts$/.test(configFile)
+            ? 'TypeScript'
+            : 'JavaScript';
+  const kind = `A ${name} project (${configFile})`;
   if (rc.malformed !== undefined) {
     return fail(
       'project',
