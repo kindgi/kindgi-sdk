@@ -137,7 +137,8 @@ A project's members have a role: `owner`, `admin`, `editor` or `viewer`. Each
 includes the next ones: an owner is also an admin, an editor and a viewer.
 A role given as `member` before it was retired still reads back as `member`
 and grants what `viewer` does; giving it now is a 400 that says to use
-`viewer`.
+`viewer`. (An API key's `member` role is unchanged: see
+[People, API keys and service accounts](../people-and-keys/).)
 Adding, changing or removing a membership changes OpenFGA too:
 
 ```sh
