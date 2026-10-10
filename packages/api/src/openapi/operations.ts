@@ -2818,7 +2818,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "The body's `projectId` names no project of this tenant (`project-not-found`).",
       ),
       '422': ErrorResponse(
-        "`guardrail-config-invalid`: the guardrail's `config` breaks the `configSchema` of the pack check it names, which the pack service would refuse on every call. `details.issues` lists each problem, `{ path, message }` with `path` a JSON pointer into the guardrail (`/config/maxChars`); the message names the guardrail, the check and the setting. Checked when the check's deployment carries its schema.",
+        "`guardrail-config-invalid`: the guardrail's `config` breaks the `configSchema` of the check it names (a pack check's, or a built-in's), which would refuse it on every call. `details.issues` lists each problem, `{ path, message }` with `path` a JSON pointer into the guardrail (`/config/maxChars`); the message names the guardrail, the check and the setting. Checked when the check's deployment carries its schema.",
       ),
     },
   },

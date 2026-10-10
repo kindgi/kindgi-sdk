@@ -961,7 +961,7 @@ describe('POST /v1/deployments — happy path', () => {
     });
   });
 
-  test("an index guardrail carrying fields this runtime doesn't know (a newer CLI) deploys: they are dropped, not refused", async () => {
+  test("an index guardrail carrying a field this runtime doesn't know (a newer CLI) deploys: it's dropped, not refused; the built-in marker is kept", async () => {
     const fixture = buildSignedDeploy({
       index: {
         v: 1,
@@ -998,7 +998,9 @@ describe('POST /v1/deployments — happy path', () => {
       guardrailId: 'acme.cites' as never,
     })) as unknown as Record<string, unknown>;
     expect(guardrail).toMatchObject({ check: 'must-cite', config: { minCitations: 1 } });
-    expect(guardrail.checkBuiltIn).toBeUndefined();
+    // The marker the runtime reads to tell a guardrail merely naming a built-in from an older
+    // CLI's pack that may ship its own check under one.
+    expect(guardrail.checkBuiltIn).toBe(true);
     expect(guardrail.someLaterField).toBeUndefined();
   });
 
