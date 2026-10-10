@@ -81,7 +81,7 @@ already ended.
 Cancelling a run withdraws the approvals it was waiting for, and those of the
 runs inside it (a flow's agent steps), in the same step. They leave the
 pending list as `withdrawn`, with `withdrawnBecause: "run-cancelled"`. A
-reviewer who opens one can no longer decide it.
+reviewer who opens one can no longer decide it (`409 approval-terminal`).
 
 To see them before you cancel, list the run's approvals with the runs inside
 it: `approvals.list({ runId, includeDescendants: true })` in TypeScript,

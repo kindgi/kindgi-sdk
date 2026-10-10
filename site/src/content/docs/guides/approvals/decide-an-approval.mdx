@@ -163,8 +163,16 @@ kindgi approvals complete <approval-id> --decision=approve --rationale="Confirme
 | `withdraw` | `withdrawn` | Ends: its turn fails with `hitl-withdrawn`. |
 
 An approve, reject or withdraw resolves the run within the same call, so the
-run has moved on by the time the command returns. A decided approval can't be
-decided again.
+run has moved on by the time the command returns.
+
+An approval that's no longer waiting (decided, expired, or withdrawn by a
+reviewer or by its run's end) can't be decided again. The decision is
+refused with `409 approval-terminal`, saying how the approval ended, and
+nothing is recorded:
+
+```text
+Approval … was withdrawn: its run was cancelled
+```
 
 A turn that ends at its approval fails with one of these codes, each a
 person's outcome, not an error:
@@ -177,8 +185,9 @@ person's outcome, not an error:
 
 A run cancelled while it waits ends `cancelled`, with no failure code.
 
-An approval whose run has ended can't be decided: the decision is refused
-with `409 run-already-terminal`, and nothing is recorded. Its `details` name
+An approval still waiting when its run, or a run it's a step of, has already
+ended can't be decided either: the decision is refused with
+`409 run-already-terminal`, and nothing is recorded. Its `details` name
 the run that ended (it may be the run the approval's run is a step of) and
 its `status`. A decision recorded just before its run ended stands: the
 answer has `waitpointResolved: false` and the run's `runStatus`.
