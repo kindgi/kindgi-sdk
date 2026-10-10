@@ -1,0 +1,142 @@
+name: AI SDK candidate
+
+# The model adapters' tests against a candidate release of an AI SDK package
+# they pin, before anyone bumps the pin. Dispatched by hand
+# (`gh workflow run ai-sdk-candidate.yml -f packages='@ai-sdk/amazon-bedrock@5.0.120'`)
+# or by the release-watch agent, with `packages`: space-separated
+# `@ai-sdk/<name>@<major>.<minor>.<patch>` pairs.
+#
+# It reads nothing secret and changes nothing: no repository secrets, a
+# read-only token that isn't kept in the checkout, no push or comment. The
+# input reaches the scripts only through `env:`, and
+# `scripts/ai-sdk-candidate.mjs validate` refuses anything but a pinned
+# package at a stable version before it's used.
+#
+# Two jobs. `bump` moves the pins and resolves the lockfile without
+# running any candidate code (no install, scripts off), and uploads the
+# files the candidates changed (each moved adapter `package.json` and
+# `pnpm-lock.yaml`) as `ai-sdk-candidate-bump`. `candidate` installs exactly
+# those files, frozen, and runs the adapters' tests on them: its artifact,
+# `ai-sdk-candidate`, holds `result.json`. A pin bump proposes the first
+# artifact's files, which the tests ran on and candidate code never wrote.
+#
+# An optional `request_id` (8 to 64 lowercase hex characters, validated
+# too) goes in the run's name, so a caller that lost the dispatch's answer
+# finds its run instead of starting a second one.
+
+on:
+  workflow_dispatch:
+    inputs:
+      packages:
+        description: "Space-separated @ai-sdk/<name>@<major>.<minor>.<patch> pairs (packages a model adapter pins)"
+        required: true
+        type: string
+      request_id:
+        description: "Optional: the caller's id for this run, shown in its name (8 to 64 lowercase hex characters)"
+        required: false
+        type: string
+        default: ""
+
+run-name: AI SDK candidate ${{ inputs.request_id }}
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "22"
+
+jobs:
+  bump:
+    # The pins moved and the lockfile resolved for them, with no candidate
+    # code run: nothing installed (`--lockfile-only`), install scripts off.
+    # Its artifact is what a pin bump proposes, uploaded before anything of
+    # the candidates' runs; the `candidate` job then tests exactly it.
+    name: The pins moved and resolved
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CANDIDATES: ${{ inputs.packages }}
+      REQUEST_ID: ${{ inputs.request_id }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Validate the candidates
+        run: node scripts/ai-sdk-candidate.mjs validate
+      - name: Move the pins and resolve them (no install, no scripts)
+        run: |
+          node scripts/ai-sdk-candidate.mjs apply
+          pnpm install --lockfile-only --ignore-scripts --no-frozen-lockfile
+      - name: Keep the files the candidates changed
+        run: |
+          mkdir -p .ai-sdk-candidate-bump
+          git diff --name-only -- pnpm-lock.yaml 'packages/adapters/*/package.json' |
+            while IFS= read -r file; do
+              mkdir -p ".ai-sdk-candidate-bump/$(dirname "$file")"
+              cp "$file" ".ai-sdk-candidate-bump/$file"
+            done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ai-sdk-candidate-bump
+          path: .ai-sdk-candidate-bump/
+          if-no-files-found: error
+          retention-days: 30
+
+  candidate:
+    name: The adapters on the candidate
+    needs: bump
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CANDIDATES: ${{ inputs.packages }}
+      REQUEST_ID: ${{ inputs.request_id }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Validate the candidates
+        run: node scripts/ai-sdk-candidate.mjs validate
+      # This run's own bump artifact (no run-id: the same run).
+      - uses: actions/download-artifact@v4
+        with:
+          name: ai-sdk-candidate-bump
+          path: ${{ runner.temp }}/bump
+      - name: Use the bump, exactly
+        # The files the bump job resolved, in place, and an install frozen to
+        # them: the tests run on exactly what a pin bump proposes.
+        run: |
+          cp -R "$RUNNER_TEMP/bump/." .
+          pnpm install --frozen-lockfile
+      - name: Build the adapters
+        run: pnpm --filter "./packages/adapters/model-*..." run build
+      - name: Test the adapters
+        # Each adapter's vitest writes a JSON report; one that writes none
+        # (it crashed before reporting) counts as failed. `report` decides.
+        run: |
+          mkdir -p .ai-sdk-candidate
+          for dir in packages/adapters/model-*; do
+            name=$(basename "$dir")
+            out="$PWD/.ai-sdk-candidate/$name.json"
+            (cd "$dir" && pnpm exec vitest run --reporter=default --reporter=json --outputFile="$out") || true
+            if [ ! -s "$out" ]; then
+              printf '{"testResults":[{"name":"%s","status":"failed","message":"vitest wrote no report"}]}\n' "$name" > "$out"
+            fi
+          done
+      - name: Report
+        run: node scripts/ai-sdk-candidate.mjs report
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ai-sdk-candidate
+          path: .ai-sdk-candidate/
+          retention-days: 30
