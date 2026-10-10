@@ -16,18 +16,27 @@
  * receiver's own record: a receiver answers all of them the same way.
  */
 
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { type KeyObject, createHmac, createSecretKey, timingSafeEqual } from 'node:crypto';
 
 import type { WebhookSignatureScheme } from '@kindgi/types';
 
-import { type WebhookRequestHeaders, readHeader, verifyWebhook } from './webhook.js';
+import {
+  type WebhookRequestHeaders,
+  parseWebhookSecret,
+  readHeader,
+  verifyWebhookWith,
+} from './webhook.js';
 
 const SHA256_BYTES = 32;
 
 export interface VerifyInboundSignatureInput {
   readonly scheme: WebhookSignatureScheme;
-  /** The shared secret: its UTF-8 bytes for `hmac-sha256`; `whsec_…` for `standard-webhooks`. */
-  readonly secret: string;
+  /**
+   * The shared secret (its UTF-8 bytes for `hmac-sha256`; `whsec_…` for
+   * `standard-webhooks`), or the key {@link inboundSigningKey} derived
+   * from it for the same scheme.
+   */
+  readonly secret: string | KeyObject;
   readonly headers: WebhookRequestHeaders;
   /** The raw request body, exactly as received — never a re-serialized JSON value. */
   readonly body: string | Uint8Array;
@@ -57,19 +66,49 @@ export type VerifyInboundSignatureResult =
     }
   | { readonly kind: 'err'; readonly reason: VerifyInboundSignatureFailure };
 
+/**
+ * A trigger's signing key, derived from its secret for its scheme: the
+ * secret's UTF-8 bytes for `hmac-sha256`, the key a `whsec_…` secret
+ * encodes for `standard-webhooks`. A `KeyObject`, so a receiver that keeps
+ * it for a while holds no string of the secret, and nothing logs or
+ * serializes it by accident (`JSON.stringify` gives `{}`).
+ */
+export function inboundSigningKey(
+  scheme: WebhookSignatureScheme,
+  secret: string,
+):
+  | { readonly kind: 'ok'; readonly key: KeyObject }
+  | { readonly kind: 'err'; readonly reason: 'secret-invalid' } {
+  const bytes =
+    scheme.kind === 'standard-webhooks'
+      ? parseWebhookSecret(secret)
+      : secret.length === 0
+        ? null
+        : Buffer.from(secret, 'utf-8');
+  if (bytes === null) return { kind: 'err', reason: 'secret-invalid' };
+  const key = createSecretKey(bytes);
+  // The key keeps its own copy.
+  bytes.fill(0);
+  return { kind: 'ok', key };
+}
+
 /** Verify a received request against its trigger's signature scheme. */
 export function verifyInboundSignature(
   input: VerifyInboundSignatureInput,
 ): VerifyInboundSignatureResult {
   const { scheme } = input;
   if (scheme.kind === 'standard-webhooks') {
-    const verified = verifyWebhook({
-      secret: input.secret,
-      headers: input.headers,
-      body: input.body,
-      ...(scheme.toleranceSeconds !== undefined && { toleranceSeconds: scheme.toleranceSeconds }),
-      ...(input.now !== undefined && { now: input.now }),
-    });
+    const verified = verifyWebhookWith(
+      {
+        headers: input.headers,
+        body: input.body,
+        ...(scheme.toleranceSeconds !== undefined && {
+          toleranceSeconds: scheme.toleranceSeconds,
+        }),
+        ...(input.now !== undefined && { now: input.now }),
+      },
+      input.secret,
+    );
     if (verified.kind === 'ok') return { kind: 'ok', signedId: verified.id };
     switch (verified.reason) {
       case 'missing-headers':
@@ -83,14 +122,20 @@ export function verifyInboundSignature(
     }
   }
 
-  if (input.secret.length === 0) return { kind: 'err', reason: 'secret-invalid' };
+  const { secret } = input;
+  if (typeof secret === 'string' && secret.length === 0) {
+    return { kind: 'err', reason: 'secret-invalid' };
+  }
   const raw = readHeader(input.headers, scheme.header.toLowerCase());
   if (raw === undefined) return { kind: 'err', reason: 'signature-missing' };
   const prefix = scheme.prefix ?? '';
   if (!raw.startsWith(prefix)) return { kind: 'err', reason: 'signature-invalid' };
   const provided = decodeDigest(raw.slice(prefix.length).trim(), scheme.encoding);
   if (provided === undefined) return { kind: 'err', reason: 'signature-invalid' };
-  const expected = createHmac('sha256', Buffer.from(input.secret, 'utf-8'))
+  const expected = createHmac(
+    'sha256',
+    typeof secret === 'string' ? Buffer.from(secret, 'utf-8') : secret,
+  )
     .update(typeof input.body === 'string' ? Buffer.from(input.body, 'utf-8') : input.body)
     .digest();
   return timingSafeEqual(provided, expected)

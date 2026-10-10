@@ -227,14 +227,15 @@ says what else a delivery leaves: the sender's address on a refusal).
   came from. `secret-unavailable` (the runtime can't read the trigger's
   secret) is yours to fix, so it's on the fires only. Past 20 refusals and
   skipped deliveries a minute, a trigger's are counted instead of recorded
-  (`suppressedRefusals` on the trigger). Past 60 a minute from one address,
-  that address is answered `429`. **This per-address limit needs
-  [`KINDGI_TRUSTED_PROXIES`](../../../deploy/self-host/#behind-a-load-balancer-or-ingress):**
-  behind a load balancer or ingress, set it to the proxies in front. Without
-  it, the runtime can't tell senders apart through a proxy, so the limit is
-  off for any request that carries `X-Forwarded-For` (rather than one
-  sender's refusals shutting out the rest), and a sender can turn it off for
-  itself by sending that header.
+  (`suppressedRefusals` on the trigger). Past 60 refusals a minute from one
+  address, that address's further refusals are answered `429` and not
+  recorded. **The limit slows only requests that fail verification:** a
+  validly signed delivery is never refused because of anyone's refusals, its
+  own address's included. It keys on the connection's address (with
+  [`KINDGI_TRUSTED_PROXIES`](../../../deploy/self-host/#behind-a-load-balancer-or-ingress),
+  the client the proxies vouch for); behind a load balancer or ingress
+  without it, every sender has the proxy's address, so the limit is shared
+  too. Set it to the proxies in front.
 - **A delivery repeated** (the same delivery id and the same body) starts
   nothing new: `200`, with the first fire's id, which counts it as a repeat.
   WooCommerce's delivery id changes only once a second, so two orders in one
@@ -260,7 +261,9 @@ says what else a delivery leaves: the sender's address on a refusal).
   flow. To rotate the secret's value, use `kindgi secrets rotate`, then paste
   the new value into the sender. Deliveries in between are refused (`401`),
   WooCommerce never resends them, and 7 in a row switch its webhook off, so
-  rotate when the store is quiet.
+  rotate when the store is quiet. The runtime keeps a trigger's signing key
+  for up to 10 seconds: the old secret stops verifying at once on the
+  instance that took the rotation, and within 10 seconds on the others.
 - **`kindgi webhooks take-ownership <trigger-id>`:** for a trigger whose owner
   left. Its runs act as you from the next delivery. This needs `admin` on the
   project.

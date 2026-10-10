@@ -7,14 +7,17 @@
  * sender gets the same 401, with the reason only in the trigger's history
  * (and the access audit); a delivery repeated starts nothing; WooCommerce's
  * unsigned save-time ping gets its 200; a paused trigger takes the delivery
- * and starts nothing; the limits answer 413 and 429.
+ * and starts nothing; the limits answer 413 and 429, and a delivery that
+ * proves its sender is never held back by anyone's refusals. A trigger's
+ * signing key is kept for a few seconds, as a key, never logged.
  */
 
 import { createHmac, randomUUID } from 'node:crypto';
 
-import { describe, expect, test } from 'vitest';
+import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import { generateWebhookSecret, webhookHeaders } from '@kindgi/crypto';
+import { createLogger } from '@kindgi/log';
 import type { EnvName, TenantId, UserId } from '@kindgi/types';
 
 import { createApp } from '../src/index.js';
@@ -24,12 +27,14 @@ import type {
   SecretBinding,
   TokenResolver,
 } from '../src/index.js';
+import { WEBHOOK_SIGNING_KEY_TTL_MS } from '../src/routes/hooks.js';
 import { createInMemoryTriggerRegistry, createStubAppBindings } from '../src/testing/index.js';
 
 const TENANT = randomUUID() as TenantId;
 const OTHER_TENANT = randomUUID() as TenantId;
 const TOKEN = 'hooks-receive';
 const OTHER_TOKEN = 'hooks-receive-other';
+const SECRETS_TOKEN = 'hooks-receive-secrets';
 const PROJECT = '00000000-0000-4000-8000-0000000000a1';
 // Letters and digits only: WooCommerce HTML-decodes its secret before signing.
 const WOO_SECRET = 'acmeWooSecret42';
@@ -41,7 +46,9 @@ const resolveToken: TokenResolver = async (token) =>
     ? { tenantId: TENANT, userId: 'user-1' as UserId }
     : token === OTHER_TOKEN
       ? { tenantId: OTHER_TENANT, userId: 'user-2' as UserId }
-      : null;
+      : token === SECRETS_TOKEN
+        ? { tenantId: TENANT, capabilities: ['secrets:write'] }
+        : null;
 
 function setup(options: { publicUrl?: string } = {}) {
   const registry = createInMemoryTriggerRegistry({ defaultProjectId: PROJECT as never });
@@ -51,9 +58,24 @@ function setup(options: { publicUrl?: string } = {}) {
     ['acme-sw', generateWebhookSecret()],
     [PROVIDER_KEY, 'sk-acme-provider'],
   ]);
+  const resolved: string[] = [];
+  // While set, a read takes its value, then waits here (a slow store).
+  let held: Promise<void> | undefined;
+  const holdReads = () => {
+    let release = () => {};
+    held = new Promise<void>((resolve) => {
+      release = () => {
+        held = undefined;
+        resolve();
+      };
+    });
+    return release;
+  };
   const secrets = {
     async resolve(input: { name: string }) {
+      resolved.push(input.name);
       const value = stored.get(input.name);
+      if (held !== undefined) await held;
       return value === undefined
         ? {
             kind: 'err',
@@ -61,7 +83,25 @@ function setup(options: { publicUrl?: string } = {}) {
           }
         : { kind: 'ok', value: { name: input.name, versionId: 1, value } };
     },
+    // `POST /v1/secrets`, as the app's own write.
+    async set(input: { scope: unknown; envName: string; name: string; value: string }) {
+      stored.set(input.name, input.value);
+      const at = new Date().toISOString();
+      return {
+        kind: 'ok',
+        versionId: 2,
+        record: {
+          scope: input.scope,
+          envName: input.envName,
+          name: input.name,
+          currentVersion: 2,
+          createdAt: at,
+          updatedAt: at,
+        },
+      };
+    },
   } as unknown as SecretBinding;
+  const logLines: string[] = [];
   const providerRegistry = {
     resolveForRuntime: async () => [
       { metadata: { id: 'acme-llm' }, secretRef: { name: PROVIDER_KEY } },
@@ -69,6 +109,7 @@ function setup(options: { publicUrl?: string } = {}) {
   } as unknown as ProviderRegistryBinding;
   const app = createApp({
     ...createStubAppBindings(),
+    logger: createLogger({ level: 'debug', write: (line) => logLines.push(line) }),
     triggerRegistry: registry,
     secretsBinding: secrets,
     providerRegistry,
@@ -122,7 +163,41 @@ function setup(options: { publicUrl?: string } = {}) {
   };
   const fires = async (triggerId: string) =>
     (await admin('GET', `/${triggerId}/fires`)).body.data as Record<string, any>[];
-  return { app, registry, admin, register, deliver, fires, stored };
+  const answers: string[] = [];
+  const deliverAndKeep = async (...args: Parameters<typeof deliver>) => {
+    const res = await deliver(...args);
+    answers.push(JSON.stringify(res.body ?? null));
+    return res;
+  };
+  /** A secret written through the app's own `POST /v1/secrets`. */
+  const writeSecret = async (name: string, value: string) => {
+    const res = await app.request('/v1/secrets', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${SECRETS_TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        scope: { kind: 'tenant', tenantId: TENANT },
+        envName: 'test',
+        name,
+        value,
+        writeMode: 'add-version',
+      }),
+    });
+    expect(res.status, await res.clone().text()).toBeLessThan(300);
+  };
+  return {
+    app,
+    registry,
+    admin,
+    register,
+    deliver: deliverAndKeep,
+    fires,
+    stored,
+    resolved,
+    logLines,
+    answers,
+    writeSecret,
+    holdReads,
+  };
 }
 
 const wooSign = (body: string, secret = WOO_SECRET) =>
@@ -344,18 +419,51 @@ describe('a request that does not prove its sender', () => {
     expect(rec.suppressedRefusals).toMatchObject({ count: 5 });
   });
 
-  test('a client past 60 refusals a minute is answered 429 without a lookup', async () => {
-    const { deliver } = setup();
-    const headers = { ...wooHeaders(ORDER), 'x-test-client': '192.0.2.9' };
-    for (let i = 0; i < 61; i++) await deliver(randomUUID(), ORDER, headers);
-    const res = await deliver(randomUUID(), ORDER, headers);
+  test('a client past 60 refusals a minute: its further refusals are 429, unrecorded', async () => {
+    const { register, deliver, registry, admin } = setup();
+    const t = await register(WOO);
+    const refused = { ...wooHeaders(ORDER, 'd', 'wrong'), 'x-test-client': '192.0.2.9' };
+    for (let i = 0; i < 60; i++) {
+      expect((await deliver(t.webhookId, ORDER, refused)).status).toBe(401);
+    }
+    // 20 recorded (and audited), 40 only counted on the trigger.
+    const before = (await admin('GET', `/${t.triggerId}`)).body.suppressedRefusals;
+    expect(before).toMatchObject({ count: 40 });
+    const res = await deliver(t.webhookId, ORDER, refused);
     expect(res).toMatchObject({ status: 429, body: { error: { code: 'rate-limit-exceeded' } } });
     expect(Number(res.headers.get('retry-after'))).toBeGreaterThan(0);
-    const elsewhere = await deliver(randomUUID(), ORDER, { ...headers, 'x-test-client': 'x' });
+    // Nothing new on record: its refusals are there already.
+    expect((await admin('GET', `/${t.triggerId}`)).body.suppressedRefusals).toEqual(before);
+    expect(registry.webhookAudit).toHaveLength(20);
+    // Another address is its own.
+    const elsewhere = await deliver(t.webhookId, ORDER, { ...refused, 'x-test-client': 'x' });
     expect(elsewhere.status).toBe(401);
   });
 
-  test("clients the deployment can't tell apart share no refusal bucket: one's refusals never block another", async () => {
+  test('a signed delivery is never held back by refusals: 100 bad requests from its own address, then 202', async () => {
+    const { register, deliver } = setup();
+    // A rate of 5 a minute: if refusals used it up, the delivery would be 429.
+    const t = await register({ ...WOO, rateLimitPerMinute: 5 });
+    const shared = '203.0.113.50';
+    const statuses = new Set<number>();
+    for (let i = 0; i < 100; i++) {
+      const bad =
+        i % 3 === 0
+          ? { 'content-type': 'application/json' }
+          : wooHeaders(ORDER, `bad-${i}`, 'wrong');
+      const id = i % 5 === 0 ? randomUUID() : t.webhookId;
+      statuses.add((await deliver(id, ORDER, { ...bad, 'x-test-client': shared })).status);
+    }
+    // The address's refusals hit its limit along the way.
+    expect([...statuses].sort()).toEqual([401, 429]);
+    const store = await deliver(t.webhookId, ORDER, {
+      ...wooHeaders(ORDER),
+      'x-test-client': shared,
+    });
+    expect(store.status, JSON.stringify(store.body)).toBe(202);
+  });
+
+  test("a request with no address isn't counted per client: refused, never 429; a signed one goes through", async () => {
     const { register, deliver } = setup();
     const t = await register(WOO);
     const unproven = { ...wooHeaders(ORDER), 'x-test-client': 'unknown' };
@@ -459,5 +567,131 @@ describe('the receive URL', () => {
     const { register } = setup();
     const t = await register(WOO);
     expect(t.receiveUrl).toBeUndefined();
+  });
+});
+
+describe("the trigger's signing key", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  test('read once, then kept for a few seconds: a flood of bad signatures costs one read', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const { register, deliver, resolved } = setup();
+    const t = await register(WOO);
+    const reads = () => resolved.filter((n) => n === WOO_SECRET).length;
+    for (let i = 0; i < 30; i++) {
+      const headers = {
+        ...wooHeaders(ORDER, `k${i}`, 'wrong'),
+        'x-test-client': `198.51.100.${i}`,
+      };
+      await deliver(t.webhookId, ORDER, headers);
+    }
+    expect((await deliver(t.webhookId, ORDER, wooHeaders(ORDER, 'k-ok'))).status).toBe(202);
+    expect(reads()).toBe(1);
+    vi.setSystemTime(Date.now() + WEBHOOK_SIGNING_KEY_TTL_MS + 1);
+    const later = JSON.stringify({ id: 1 });
+    expect((await deliver(t.webhookId, later, wooHeaders(later, 'k-later'))).status).toBe(202);
+    expect(reads()).toBe(2);
+  });
+
+  test("another instance's rotation is seen within the TTL: the old secret verifies until then, not after", async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const { register, deliver, stored } = setup();
+    const t = await register(WOO);
+    expect((await deliver(t.webhookId, ORDER, wooHeaders(ORDER, 'r0'))).status).toBe(202);
+    // Rotated elsewhere: this process hears nothing of it.
+    stored.set(WOO_SECRET, 'acmeRotatedSecret7');
+    const one = JSON.stringify({ id: 1 });
+    expect((await deliver(t.webhookId, one, wooHeaders(one, 'r1'))).status).toBe(202);
+    vi.setSystemTime(Date.now() + WEBHOOK_SIGNING_KEY_TTL_MS + 1);
+    const two = JSON.stringify({ id: 2 });
+    expect((await deliver(t.webhookId, two, wooHeaders(two, 'r2'))).status).toBe(401);
+    expect(
+      (await deliver(t.webhookId, two, wooHeaders(two, 'r2', 'acmeRotatedSecret7'))).status,
+    ).toBe(202);
+  });
+
+  test('a write through this app drops it at once: the old secret stops verifying, the new one starts', async () => {
+    const { register, deliver, writeSecret } = setup();
+    const t = await register(WOO);
+    expect((await deliver(t.webhookId, ORDER, wooHeaders(ORDER, 'w0'))).status).toBe(202);
+    await writeSecret(WOO_SECRET, 'acmeWrittenSecret8');
+    const one = JSON.stringify({ id: 1 });
+    expect((await deliver(t.webhookId, one, wooHeaders(one, 'w1'))).status).toBe(401);
+    expect(
+      (await deliver(t.webhookId, one, wooHeaders(one, 'w1', 'acmeWrittenSecret8'))).status,
+    ).toBe(202);
+  });
+
+  test('a read a write overtook is used once, not kept', async () => {
+    const { register, deliver, writeSecret, holdReads } = setup();
+    const t = await register(WOO);
+    const release = holdReads();
+    // Its read takes the old secret, then the write lands before it returns.
+    const first = deliver(t.webhookId, ORDER, wooHeaders(ORDER, 'o0'));
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await writeSecret(WOO_SECRET, 'acmeOvertaken5');
+    release();
+    expect((await first).status).toBe(202);
+    const one = JSON.stringify({ id: 1 });
+    expect((await deliver(t.webhookId, one, wooHeaders(one, 'o1'))).status).toBe(401);
+    expect((await deliver(t.webhookId, one, wooHeaders(one, 'o1', 'acmeOvertaken5'))).status).toBe(
+      202,
+    );
+  });
+
+  test('never in a log line or an answer, whatever the request', async () => {
+    const { register, deliver, logLines, answers, stored, writeSecret } = setup();
+    const woo = await register(WOO);
+    const hub = await register({
+      hmacSecretName: HUB_SECRET,
+      signature: {
+        kind: 'hmac-sha256',
+        encoding: 'hex',
+        header: 'X-Hub-Signature-256',
+        prefix: 'sha256=',
+      },
+    });
+    const sw = await register({
+      hmacSecretName: 'acme-sw',
+      signature: { kind: 'standard-webhooks' },
+    });
+    const swSecret = stored.get('acme-sw') as string;
+    await deliver(woo.webhookId, ORDER, wooHeaders(ORDER, 'l0'));
+    await deliver(woo.webhookId, ORDER, wooHeaders(ORDER, 'l1', 'wrong'));
+    await deliver(woo.webhookId, ORDER, { 'content-type': 'application/json' });
+    await deliver(hub.webhookId, ORDER, {
+      'content-type': 'application/json',
+      'x-hub-signature-256': hubSign(ORDER),
+    });
+    const signed = webhookHeaders({
+      secret: swSecret,
+      id: 'msg_l2',
+      timestamp: Math.floor(Date.now() / 1000),
+      body: ORDER,
+    });
+    if (signed.kind !== 'ok') throw new Error('not signed');
+    await deliver(sw.webhookId, ORDER, { 'content-type': 'application/json', ...signed.value });
+    await deliver(randomUUID(), ORDER, wooHeaders(ORDER, 'l3'));
+    await writeSecret(WOO_SECRET, 'acmeLoggedNever9');
+    await deliver(woo.webhookId, ORDER, wooHeaders(ORDER, 'l4', 'acmeLoggedNever9'));
+    stored.delete(HUB_SECRET);
+    await deliver(hub.webhookId, ORDER, {
+      'content-type': 'application/json',
+      'x-hub-signature-256': hubSign(ORDER),
+    });
+    const seen = [...logLines, ...answers].join('\n');
+    expect(logLines.length).toBeGreaterThan(0);
+    for (const secret of [WOO_SECRET, HUB_SECRET, swSecret, 'acmeLoggedNever9']) {
+      for (const form of [
+        secret,
+        Buffer.from(secret).toString('base64'),
+        Buffer.from(secret).toString('hex'),
+      ]) {
+        expect(seen).not.toContain(form);
+      }
+    }
+    expect(seen).not.toContain(swSecret.slice('whsec_'.length));
   });
 });

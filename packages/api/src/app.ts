@@ -149,7 +149,7 @@ import { toolsRouter } from './routes/tools.js';
 import { webhookEndpointsRouter } from './routes/webhook-endpoints.js';
 import { webhooksRouter } from './routes/webhooks.js';
 import type { S3CredentialBinding } from './s3-credential-binding.js';
-import type { SecretBinding } from './secrets-binding.js';
+import { type SecretBinding, observeSecretWrites } from './secrets-binding.js';
 import type { ServiceAccountBinding } from './service-account-binding.js';
 import type { SessionStoreBinding } from './session-store-binding.js';
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from './signing-key-binding.js';
@@ -1042,6 +1042,12 @@ export interface ScalarDocsConfig {
 const DEFAULT_TOKEN_SIGN_IN_TTL_MS = 12 * 60 * 60 * 1000;
 
 export function createApp(input: CreateAppInput): Hono<AppEnv> {
+  // Every secret route and reader goes through one binding, whose writes
+  // the webhook receiver hears: it keeps a trigger's signing key for a few
+  // seconds, and drops it at once when its secret is written here.
+  const observedSecrets =
+    input.secretsBinding === undefined ? undefined : observeSecretWrites(input.secretsBinding);
+  const secretsBinding = observedSecrets?.binding;
   // A cookie session's value is the token the store minted. A store that
   // can't resolve its own tokens would put the session id there instead,
   // and the id is no secret (whoami and the audit trail show it).
@@ -1619,7 +1625,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     tenantRouter({
       tenantHierarchyBinding: input.tenantHierarchyBinding,
       ...(input.envBinding !== undefined && { envBinding: input.envBinding }),
-      ...(input.secretsBinding !== undefined && { secretsBinding: input.secretsBinding }),
+      ...(secretsBinding !== undefined && { secretsBinding }),
       ...(authorizer !== undefined && { authorizer }),
     }),
   );
@@ -1637,11 +1643,11 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   if (input.auditEvents !== undefined) {
     v1.route('/audit', auditRouter(input.auditEvents, authorizer));
   }
-  if (input.secretsBinding !== undefined) {
+  if (secretsBinding !== undefined) {
     v1.route(
       '/secrets',
       secretsRouter({
-        secretsBinding: input.secretsBinding,
+        secretsBinding,
         rotationStatusStore: input.rotationStatusStore ?? createInMemoryRotationStatusStore(),
         ...(authorizer !== undefined && { authorizer }),
         ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
@@ -1691,7 +1697,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           // POST /v1/deployments/:deploymentId/secrets needs the
           // secretsBinding. Absent binding → the route answers 500 with an
           // operator-actionable message.
-          ...(input.secretsBinding !== undefined && { secretsBinding: input.secretsBinding }),
+          ...(secretsBinding !== undefined && { secretsBinding }),
           // A deploy registers tools and guardrails: the same cache hooks
           // `POST /v1/tools` / `POST /v1/guardrails` call.
           ...(input.onToolWrite !== undefined && { onToolWrite: input.onToolWrite }),
@@ -1774,7 +1780,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   if (
     input.webhookReceiver !== undefined &&
     input.triggerRegistry !== undefined &&
-    input.secretsBinding !== undefined &&
+    secretsBinding !== undefined &&
+    observedSecrets !== undefined &&
     new Set<TriggerKind>(input.triggerKinds ?? TRIGGER_KINDS).has('webhook') &&
     input.triggerRegistry.findWebhook !== undefined &&
     input.triggerRegistry.fireWebhook !== undefined &&
@@ -1784,7 +1791,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       '/v1/hooks',
       hooksRouter({
         triggers: input.triggerRegistry,
-        secrets: input.secretsBinding,
+        secrets: secretsBinding,
+        secretWrites: observedSecrets.writes,
         envName: input.webhookReceiver.envName,
         providerKeys,
         ...(input.webhookReceiver.clientAddress !== undefined && {

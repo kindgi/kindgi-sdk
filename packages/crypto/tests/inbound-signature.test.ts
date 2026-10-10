@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import { inspect } from 'node:util';
+
 import { describe, expect, test } from 'vitest';
 
 import type { WebhookSignatureScheme } from '@kindgi/types';
 
-import { verifyInboundSignature } from '../src/index.js';
+import { inboundSigningKey, verifyInboundSignature } from '../src/index.js';
 
 // GitHub's published example ("Validating webhook deliveries"): this
 // secret and payload give `sha256=757107ea…`. The base64 form is the same
@@ -216,5 +218,94 @@ describe('verifyInboundSignature, standard-webhooks', () => {
         now: at(VECTOR.timestamp),
       }),
     ).toEqual({ kind: 'err', reason: 'secret-invalid' });
+  });
+});
+
+describe('inboundSigningKey', () => {
+  const VECTOR = {
+    secret: 'whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw',
+    id: 'msg_p5jXN8AQM9LWM0D4loKWxJek',
+    timestamp: 1614265330,
+    body: '{"test": 2432232314}',
+    signature: 'v1,g0hM9SsE+OTPJTGt/tmIKtSyZlE3uFJELVlNIOLJ1OE=',
+  };
+  const keyOf = (scheme: WebhookSignatureScheme, secret: string) => {
+    const derived = inboundSigningKey(scheme, secret);
+    if (derived.kind !== 'ok') throw new Error('no key');
+    return derived.key;
+  };
+
+  test('the key verifies what the secret does: the published vectors in each scheme', () => {
+    expect(
+      verifyInboundSignature({
+        scheme: HUB,
+        secret: keyOf(HUB, SECRET),
+        headers: { 'x-hub-signature-256': `sha256=${HEX}` },
+        body: BODY,
+      }),
+    ).toEqual({ kind: 'ok' });
+    expect(
+      verifyInboundSignature({
+        scheme: WOO,
+        secret: keyOf(WOO, SECRET),
+        headers: { 'x-wc-webhook-signature': BASE64 },
+        body: BODY,
+      }),
+    ).toEqual({ kind: 'ok' });
+    const SW: WebhookSignatureScheme = { kind: 'standard-webhooks' };
+    expect(
+      verifyInboundSignature({
+        scheme: SW,
+        secret: keyOf(SW, VECTOR.secret),
+        headers: {
+          'webhook-id': VECTOR.id,
+          'webhook-timestamp': String(VECTOR.timestamp),
+          'webhook-signature': VECTOR.signature,
+        },
+        body: VECTOR.body,
+        now: () => VECTOR.timestamp * 1000,
+      }),
+    ).toEqual({ kind: 'ok', signedId: VECTOR.id });
+  });
+
+  test("another secret's key: signature-invalid", () => {
+    expect(
+      verifyInboundSignature({
+        scheme: WOO,
+        secret: keyOf(WOO, 'acmeOtherSecret1'),
+        headers: { 'x-wc-webhook-signature': BASE64 },
+        body: BODY,
+      }),
+    ).toEqual({ kind: 'err', reason: 'signature-invalid' });
+  });
+
+  test('a secret the scheme cannot use: secret-invalid, and no key', () => {
+    expect(inboundSigningKey(WOO, '')).toEqual({ kind: 'err', reason: 'secret-invalid' });
+    expect(inboundSigningKey({ kind: 'standard-webhooks' }, 'not base64!')).toEqual({
+      kind: 'err',
+      reason: 'secret-invalid',
+    });
+  });
+
+  test('a key never shows its secret: not serialized, inspected or stringified', () => {
+    const key = keyOf(WOO, SECRET);
+    const sw = keyOf({ kind: 'standard-webhooks' }, VECTOR.secret);
+    const shown = [
+      JSON.stringify(key),
+      JSON.stringify({ key }),
+      inspect(key, { showHidden: true, depth: 5 }),
+      String(key),
+      JSON.stringify(sw),
+      inspect(sw, { showHidden: true, depth: 5 }),
+    ].join('\n');
+    for (const leak of [
+      SECRET,
+      Buffer.from(SECRET).toString('base64'),
+      Buffer.from(SECRET).toString('hex'),
+      VECTOR.secret.slice('whsec_'.length),
+    ]) {
+      expect(shown).not.toContain(leak);
+    }
+    expect(JSON.stringify(key)).toBe('{}');
   });
 });

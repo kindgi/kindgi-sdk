@@ -38,7 +38,7 @@ export type {
   WebhookRequestHeaders,
 } from './webhook.js';
 
-export { verifyInboundSignature } from './inbound-signature.js';
+export { inboundSigningKey, verifyInboundSignature } from './inbound-signature.js';
 export type {
   VerifyInboundSignatureFailure,
   VerifyInboundSignatureInput,

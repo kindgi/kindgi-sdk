@@ -95,6 +95,71 @@ export interface SecretBinding {
   readonly writesAppEnvFiles?: boolean;
 }
 
+// -------------------- observing writes --------------------
+
+/** A secret a write went to (`set`, `rotate` or `revoke`). */
+export interface SecretWritten {
+  readonly scope: Scope;
+  readonly envName: EnvName;
+  readonly name: string;
+}
+
+/** Hears of each write through the binding {@link observeSecretWrites} made. */
+export interface SecretWrites {
+  /** `listener` hears of each write from now on; the returned function stops it. */
+  subscribe(listener: (written: SecretWritten) => void): () => void;
+}
+
+/**
+ * `binding`, with each write through it (`set`, `rotate`, `revoke`) told to
+ * the listeners once it returns or throws, whatever its outcome: a listener
+ * drops what it kept of that secret, and a needless drop costs one read. A
+ * listener that throws is skipped, never the write.
+ */
+export function observeSecretWrites(binding: SecretBinding): {
+  readonly binding: SecretBinding;
+  readonly writes: SecretWrites;
+} {
+  const listeners = new Set<(written: SecretWritten) => void>();
+  const told = async <T>(input: SecretWritten, write: () => Promise<T>): Promise<T> => {
+    try {
+      return await write();
+    } finally {
+      const written = { scope: input.scope, envName: input.envName, name: input.name };
+      for (const listener of listeners) {
+        try {
+          listener(written);
+        } catch {
+          // A listener's own failure is its own.
+        }
+      }
+    }
+  };
+  return {
+    binding: {
+      list: (input) => binding.list(input),
+      get: (input) => binding.get(input),
+      resolve: (input) => binding.resolve(input),
+      getVersion: (input) => binding.getVersion(input),
+      listVersions: (input) => binding.listVersions(input),
+      set: (input) => told(input, () => binding.set(input)),
+      rotate: (input) => told(input, () => binding.rotate(input)),
+      revoke: (input) => told(input, () => binding.revoke(input)),
+      ...(binding.writesAppEnvFiles !== undefined && {
+        writesAppEnvFiles: binding.writesAppEnvFiles,
+      }),
+    },
+    writes: {
+      subscribe(listener) {
+        listeners.add(listener);
+        return () => {
+          listeners.delete(listener);
+        };
+      },
+    },
+  };
+}
+
 // -------------------- record types --------------------
 
 export interface SecretRecord {
