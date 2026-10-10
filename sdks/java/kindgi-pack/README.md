@@ -177,6 +177,12 @@ public static final Flow FLOW = Flow.define("acme.record")
     .build();
 ```
 
+A guardrail ships its check, so its check id (`checkId`, else the guardrail's
+id) can't be a built-in check's (`must-cite`, `never-call-tool`,
+`max-tool-calls`, … in `Guardrail.RESERVED_CHECK_IDS`): the runtime runs the
+built-in for a guardrail naming one. `check(…)` refuses it, saying to rename
+your check, and the indexer reports the file.
+
 An agent or a flow takes any other field of its schema with
 `set(field, value)`. A node or an edge with more than `toolNode`, `agentNode`
 or `edge(id, from, to)` say is a map, as the flow schema describes it: a node
@@ -258,12 +264,15 @@ CP="target/classes:$(cat target/classpath.txt)"
 java -cp "$CP" com.kindgi.pack.Main index --pack-dir . --output target/index.json
 java -cp "$CP" com.kindgi.pack.Main launcher > kindgi-pack-java
 export KINDGI_PACK_SERVICE_TOKEN="$(cat /run/secrets/kindgi-pack-token)"
+export KINDGI_PACK_ENV_DECLARED="ORDERS_API_TIMEOUT_MS,ORDERS_DB_URL"
 PORT=8080 sh kindgi-pack-java -cp "$CP" com.kindgi.pack.Main serve --index target/index.json
 ```
 
 The token comes from where your deployment keeps secrets (here a mounted
 secret file), never from a command line, where shell history and process
-listings would keep it.
+listings would keep it. `KINDGI_PACK_ENV_DECLARED` lists the names your
+pack's `env` declares (`required` and `optional`, comma-separated), the ones
+the launcher keeps; `kindgi build` sets it in the image.
 
 The indexer writes the same canonical `index.json` the TypeScript and Python
 indexers do: the same classes and pins give the same bytes. `--json` prints
@@ -271,9 +280,11 @@ one line for tools to read.
 
 The service runs the process contract every pack service does: `PORT`,
 `KINDGI_PACK_SERVICE_TOKEN`, `KINDGI_PACK_SERVICE_MAX_CONCURRENCY` (32),
-`KINDGI_PACK_ENV_CHECK` (`strict` or `warn`), and log records on stderr.
-SIGTERM drains in-flight calls for up to 8 seconds and exits 0. It passes the
-same conformance suite as the TypeScript and Python services
+`KINDGI_PACK_ENV_CHECK` (`strict` or `warn`), `KINDGI_PACK_ENV_FILTER` (`on`
+or `off`), and log records on stderr.
+SIGTERM drains in-flight calls for up to 8 seconds and exits 0: from the
+`draining` record on, `/readyz` and new calls answer 503 (with `Retry-After`),
+so a load balancer stops sending calls. It passes the same conformance suite as the TypeScript and Python services
 (`packages/pack-conformance`).
 
 **Logging:** the service writes the same log records as the TypeScript and
@@ -314,6 +325,17 @@ around the runtime. A JVM can't remove a variable from its own environment,
 so the launcher removes it before the JVM starts and passes the token on file
 descriptor 3. On Windows, run it under WSL.
 
+The launcher also removes every variable your pack doesn't declare, except
+`KINDGI_*` and the platform's (the process's basics, the language runtime's
+settings, `PORT`, proxies and certificates, and Cloud Run's, AWS's and Azure's
+workload identity and metadata), so a key meant for something else never
+reaches your code. It keeps the names in `KINDGI_PACK_ENV_DECLARED`, and the
+service logs the ones it removed (`env-dropped`), never their values. The
+service won't start while a variable your pack doesn't declare still reaches
+it (started without the launcher, or without `KINDGI_PACK_ENV_DECLARED`), or
+when `KINDGI_PACK_ENV_DECLARED` isn't the index's `env`.
+`KINDGI_PACK_ENV_FILTER=off` keeps every variable; `kindgi dev` sets it.
+
 **The service is an internal endpoint.** It answers only the Kindgi runtime,
 which holds its token, behind the runtime's network (a Cloud Run service with
 the runtime in front, or `kindgi dev` on your machine). Never expose it to the
@@ -328,8 +350,8 @@ public internet. Its HTTP server is deliberately small and strict:
 ## Jackson
 
 Pack code runs inside your app, with your app's classes, so `kindgi-pack`
-binds inputs and outputs with your app's own Jackson 2 (2.15 or later; your
-version wins). Your Jackson annotations, modules and custom deserializers
+binds inputs and outputs with your app's own Jackson 2 (2.18.11 or later;
+your version wins). Your Jackson annotations, modules and custom deserializers
 apply to tool inputs as they do everywhere else in the app. `kindgi-client`
 is the other way around: it shades its Jackson so the API client never meets
 yours.

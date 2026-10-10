@@ -74,6 +74,8 @@ export interface AgentRegistryBinding {
    * a well-formed `Agent`. Bindings MAY reject with `already-registered`
    * when the same `(agentId, version)` is re-published; the route
    * maps that to `409`.
+   * A version of an agent whose versions live in another project is
+   * `project-mismatch` (agents never move between projects; `409 agent-project-mismatch`).
    */
   publish(input: AgentPublishInput): Promise<AgentPublishOutcome>;
   /**
@@ -234,6 +236,18 @@ export type AgentPublishOutcome =
       readonly kind: 'project-not-found';
       readonly agentId: AgentId;
       readonly version: Semver;
+      readonly projectId: ProjectId;
+    }
+  | {
+      /**
+       * The agent's versions live in another project: an agent belongs to
+       * the project its first version was published into, and never
+       * moves. Nothing is written (the route answers `409 agent-project-mismatch`).
+       */
+      readonly kind: 'project-mismatch';
+      readonly agentId: AgentId;
+      readonly version: Semver;
+      /** The project the agent belongs to. */
       readonly projectId: ProjectId;
     };
 

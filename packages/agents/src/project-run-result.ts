@@ -93,9 +93,14 @@ export async function projectRunResult(
   }
 
   if (run.status === 'cancelled') {
+    // A step that failed because the cancel aborted it (its model or tool
+    // call) adds nothing to "cancelled", and its message is the turn's own
+    // serialized failure: never shown. Any other words are kept.
+    const why =
+      parseFailureMessage(run.failureMessage) === undefined ? run.failureMessage : undefined;
     const err: InvokeAgentError = {
       code: 'agent-turn-aborted',
-      message: `Agent turn cancelled${run.failureMessage !== undefined ? `: ${run.failureMessage}` : ''}`,
+      message: `Agent turn cancelled${why !== undefined ? `: ${why}` : ''}`,
       reason: ctx.abortReason ?? 'external',
     };
     await emitTurnEvent(ctx.bindings.onEvent, {

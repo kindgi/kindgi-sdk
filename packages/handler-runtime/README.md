@@ -63,6 +63,7 @@ A pack image runs it bundled (`dist/kindgi-pack-service.mjs`) with `--bundle-map
 - **Requests** (`@kindgi/handler-runtime/protocol`) name a tool (`{ id, version? }`) or a check (`{ id }`). The service resolves it from its own `index.json`, so a caller never chooses which module is imported.
 - **Every outcome of running pack code is a message**, answered with `200`: the result, validation failures (with `issues`), a throw, an unknown tool or check, a version mismatch, `deadline-exceeded` (from `kindgi-timeout-ms`), and `cancelled` (the caller disconnected). HTTP statuses are for the transport only: `401`, `404`, `405`, `413`, `415`, `503` with `Retry-After` when the service isn't ready, is draining, or is at its concurrency cap, and `500` if the service itself fails while handling a call.
 - **The declared process env:** a pack lists the environment variables its code reads in `kindgi.config` (`env: { required, optional }`), and the index carries them. With a `required` name unset or empty, the service isn't ready: `/readyz` and every call answer `503` with `{ "error": "missing env", "missingEnv": [...] }`, names only. `KINDGI_PACK_ENV_CHECK=warn` serves anyway and names them in the log (`missing-env`) and `/v1/info`; `kindgi dev` uses it. `resolvePackEnv` and `missingPackEnv` are the shared checks.
+- **Only the declared names reach the pack's code:** before it loads, the process entry drops from its environment every variable the pack doesn't declare, except `KINDGI_*` and the platform's (`PLATFORM_ENV_NAMES`, `PLATFORM_ENV_PREFIXES`: the process's basics, the language runtime's settings, `PORT`, proxies and certificates, and Cloud Run's, AWS's and Azure's workload identity and metadata), and logs their names once (`env-dropped`), never their values. `KINDGI_PACK_ENV_FILTER=off` keeps every variable; `kindgi dev` sets it. `undeclaredPackEnv` is the shared check; `startPackService` filters only when its config says `envFilter: 'on'`, so an in-process caller's environment is left alone.
 - **Cancellation:** the handler's `ctx.abortSignal` fires on a deadline or a disconnect. Handlers that do slow I/O should pass it on.
 - **Boot fails** (exit `1`, listing every problem) when the index can't be read, a module it names is missing, or one fails to import. SIGTERM drains in-flight calls and exits `0`.
 - **Logs** are JSON lines on stderr. The `listening` line carries the bound port, so a caller can start the service with `PORT=0`.
@@ -137,6 +138,13 @@ if (outcome.kind === 'ok') {
 | `zod-conversion-failed` | `z.toJSONSchema()` threw for a specific schema. |
 | `manifest-validation-failed` | Inner manifest didn't match the expected shape (or was a `Result`-wrapped error). |
 | `output-write-failed` | Filesystem write error. |
+| `reserved-check-id` | A guardrail ships its own check (an `id` and an `evaluate`, as its `check` or any check its module exports) under a built-in check's id (`RESERVED_CHECK_IDS`: `must-cite`, `never-call-tool`, …), which the runtime would replace with the built-in. Naming a built-in (`check: 'must-cite'`) is fine: that's how to use it. |
+
+Some things the pack should change don't stop the build. The report lists them as `warnings` (`IndexerWarning`), and the pack indexes as it would without them:
+
+| Code | When |
+|---|---|
+| `check-id-unprefixed` | A check the pack ships (its `id`, as a guardrail's `check` or any check its module exports) doesn't start with the pack's id (`<pack id>.`). Packs in one tenant share one space of check names, so name it `<pack id>.checks.<name>`. A built-in named by its id isn't the pack's check, so it isn't flagged. |
 
 ### Loading `kindgi.config.*` on its own
 

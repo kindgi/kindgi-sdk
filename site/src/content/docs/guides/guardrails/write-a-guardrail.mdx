@@ -97,7 +97,10 @@ first parameter's type is the config's schema.
   `answer-length`, `response-not-empty`.
 - **`kind: 'zero-llm'`**: the check is your code, a function of the trace. It
   can't call a model.
-- **The reason** is what the violation reports. Say what was wrong.
+- **The reason** is what the violation reports. Say what was wrong. It
+  shows wherever the failure does (the run's error, its page in the
+  console), so describe what you blocked, never quote it: "it contains a
+  card number", not the number.
 - **The trace** has the turn's final answer (`output`), its tool calls
   (`toolCalls` / `tool_calls`, each with the tool's name and arguments),
   their results, its model calls, the user's input and its cost. It also

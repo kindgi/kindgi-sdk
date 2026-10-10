@@ -18,6 +18,7 @@ import { refuseWritesWhenReadOnly } from '../registry-read-only.js';
 import type { ToolRegistryBinding } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
+import { projectMismatch } from './project-mismatch.js';
 import { parseScopeParams } from './scope-params.js';
 
 /**
@@ -340,6 +341,9 @@ export function flowsRouter(
           requestId,
         ),
       );
+    }
+    if (outcome.kind === 'project-mismatch') {
+      return projectMismatch(c, 'flow', outcome.flowId as unknown as string, outcome.projectId);
     }
     if (outcome.kind === 'project-not-found') {
       // Caller supplied a `projectId` that does not resolve within

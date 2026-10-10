@@ -17,6 +17,8 @@ export {
 } from './middleware/auth.js';
 export type { SessionCookieOptions, TokenResolution, TokenResolver } from './middleware/auth.js';
 export type { SignInOptionsRateLimit } from './routes/sign-in-options.js';
+export { createInMemoryRateLimitStore } from './rate-limit-store.js';
+export type { RateLimitStore, RateLimitTake, RateLimitTakeInput } from './rate-limit-store.js';
 export type {
   ClaimMappingScopesSpec,
   ClaimMappingSpec,
@@ -153,6 +155,7 @@ export type {
 } from './reviewer-binding.js';
 export type {
   Approval,
+  ApprovalPosition,
   ApprovalStatus,
   HitlBinding,
   HitlBindingError,
