@@ -3,13 +3,17 @@
 
 /**
  * `parseEvent`: the typed event in a verified webhook request's body. The TypeScript counterpart
- * of Python's `kindgi.webhooks.parse_event`, with no runtime dependency: each event's fields are
- * checked against its shape below, which a test holds to the API's own schemas
- * (`WebhookEvent` in `@kindgi/api`'s OpenAPI document). As in Python, a field this version
- * doesn't know is kept, so a newer runtime's additions don't break an older receiver.
+ * of Python's `kindgi.webhooks.parse_event`, with no runtime dependency. Each event's shape is
+ * generated from the API's own schema (`WebhookEvent` in `@kindgi/api`'s OpenAPI document,
+ * `scripts/gen-webhook-event-shapes.mjs`), so it checks what Python's generated models check:
+ * every field's type, the required ones, enums and consts, `uuid` and `date-time` formats,
+ * bounds, patterns, array items and the discriminated unions, at every depth. As in Python, a
+ * field the schema doesn't name is kept, so a newer runtime's additions don't break a receiver.
  */
 
 import type { WebhookEvent } from '@kindgi/client';
+
+import { WEBHOOK_EVENT_SHAPES } from './webhook-event-shapes.generated.js';
 
 /** Why a body isn't an event: not JSON, a `type` this version doesn't know, or a field wrong. */
 export type ParseWebhookEventFailure = 'not-json' | 'unknown-type' | 'invalid-event';
@@ -23,111 +27,42 @@ export type ParseWebhookEventResult =
       readonly message: string;
     };
 
-/** A field's shape, as the API's schema has it. */
-export type EventFieldShape =
-  | { readonly kind: 'string' }
-  | { readonly kind: 'string-or-null' }
-  | { readonly kind: 'boolean' }
-  | { readonly kind: 'number' }
-  | { readonly kind: 'integer' }
-  | { readonly kind: 'date-time' }
-  | { readonly kind: 'enum'; readonly values: readonly string[] }
-  | { readonly kind: 'array' }
-  | { readonly kind: 'object'; readonly required: ShapeFields; readonly optional?: ShapeFields };
+type Fields = Readonly<Record<string, EventShape>>;
 
-type ShapeFields = Readonly<Record<string, EventFieldShape>>;
-
-const string = { kind: 'string' } as const;
-const dateTime = { kind: 'date-time' } as const;
-const integer = { kind: 'integer' } as const;
-/** An object whose own fields aren't checked here (the client's type says them). */
-const object = { kind: 'object', required: {} } as const;
-
-const envelope = (type: string, data: EventFieldShape): EventFieldShape => ({
-  kind: 'object',
-  required: { id: string, type: { kind: 'enum', values: [type] }, createdAt: dateTime, data },
-});
-
-/** Each event `type` this version knows, and its shape. */
-export const WEBHOOK_EVENT_SHAPES: Readonly<Record<WebhookEvent['type'], EventFieldShape>> = {
-  'run.finished': envelope('run.finished', {
-    kind: 'object',
-    required: {
-      run: {
-        kind: 'object',
-        required: {
-          id: string,
-          projectId: string,
-          flowId: string,
-          flowVersion: string,
-          status: { kind: 'enum', values: ['completed', 'failed', 'cancelled'] },
-          dryRun: { kind: 'boolean' },
-          failureMessage: { kind: 'string-or-null' },
-          createdAt: dateTime,
-          completedAt: dateTime,
-        },
-        optional: {
-          usage: {
-            kind: 'object',
-            required: { calls: integer, costUsd: { kind: 'number' }, tokens: object },
-          },
-          agent: {
-            kind: 'object',
-            required: { id: string, version: string, conversationId: string },
-          },
-        },
-      },
-    },
-  }),
-  'improvement-pass.finished': envelope('improvement-pass.finished', {
-    kind: 'object',
-    required: {
-      pass: {
-        kind: 'object',
-        required: {
-          id: string,
-          agentId: string,
-          fromVersion: string,
-          scope: object,
-          suiteId: string,
-          tiers: { kind: 'array' },
-          objective: string,
-          budget: object,
-          requestedBy: string,
-          status: string,
-          candidatesEvaluated: integer,
-          costUsd: string,
-          createdAt: dateTime,
-          updatedAt: dateTime,
-        },
-      },
-    },
-  }),
-  'approval.requested': envelope('approval.requested', {
-    kind: 'object',
-    required: {
-      approval: {
-        kind: 'object',
-        required: {
-          approvalId: string,
-          requiredRole: { kind: 'enum', values: ['standard', 'senior', 'admin'] },
-          createdAt: dateTime,
-        },
-        optional: {
-          projectId: string,
-          title: string,
-          assignedTo: string,
-          expiresAt: dateTime,
-          url: string,
-        },
-      },
-    },
-  }),
-  'webhook.test': envelope('webhook.test', {
-    kind: 'object',
-    required: { endpointId: string },
-  }),
-};
+/** A field's shape, as the API's schema has it (generated: `webhook-event-shapes.generated.ts`). */
+export type EventShape =
+  | {
+      readonly kind: 'string';
+      readonly nullable?: boolean;
+      readonly enum?: readonly string[];
+      readonly format?: 'uuid' | 'date-time';
+      readonly minLength?: number;
+      readonly maxLength?: number;
+      readonly pattern?: string;
+    }
+  | {
+      readonly kind: 'number' | 'integer';
+      readonly nullable?: boolean;
+      readonly minimum?: number;
+      readonly maximum?: number;
+      readonly exclusiveMinimum?: number;
+      readonly exclusiveMaximum?: number;
+    }
+  | { readonly kind: 'boolean'; readonly nullable?: boolean }
+  | {
+      readonly kind: 'array';
+      readonly nullable?: boolean;
+      readonly items?: EventShape;
+      readonly minItems?: number;
+      readonly maxItems?: number;
+    }
+  | {
+      readonly kind: 'object';
+      readonly nullable?: boolean;
+      readonly required?: Fields;
+      readonly optional?: Fields;
+    }
+  | { readonly kind: 'union'; readonly discriminator: string; readonly variants: Fields };
 
 /**
  * The typed event in a webhook request's body, one of `WebhookEvent`'s by its `type`. Call it
@@ -136,7 +71,7 @@ export const WEBHOOK_EVENT_SHAPES: Readonly<Record<WebhookEvent['type'], EventFi
  * - `not-json`: the body isn't JSON;
  * - `unknown-type`: an event this version of the SDK doesn't know, as a newer runtime may send.
  *   Answer it with a 2xx and leave it, or Kindgi retries it;
- * - `invalid-event`: a known `type` with a field missing or of the wrong type; the message names it.
+ * - `invalid-event`: a known `type` with a field missing or wrong; the message names it.
  */
 export function parseEvent(body: string | Uint8Array): ParseWebhookEventResult {
   let value: unknown;
@@ -156,9 +91,7 @@ export function parseEvent(body: string | Uint8Array): ParseWebhookEventResult {
       message: `"${type.slice(0, 64)}" is an event type this version of the SDK doesn't know.`,
     };
   }
-  const shape = (WEBHOOK_EVENT_SHAPES as Readonly<Record<string, EventFieldShape>>)[
-    type
-  ] as EventFieldShape;
+  const shape = (WEBHOOK_EVENT_SHAPES as Fields)[type] as EventShape;
   const problem = check(shape, value, '');
   return problem === undefined
     ? { kind: 'ok', event: value as WebhookEvent }
@@ -166,58 +99,104 @@ export function parseEvent(body: string | Uint8Array): ParseWebhookEventResult {
 }
 
 /** The first way `value` doesn't fit `shape`, naming the field; undefined when it fits. */
-function check(shape: EventFieldShape, value: unknown, path: string): string | undefined {
+function check(shape: EventShape, value: unknown, path: string): string | undefined {
   const at = path === '' ? 'the body' : `\`${path}\``;
-  if (shape.kind === 'object') return checkObject(shape, value, path, at);
-  if (shape.kind === 'enum') {
-    return typeof value === 'string' && shape.values.includes(value)
-      ? undefined
-      : `${at} is not one of ${shape.values.map((v) => `"${v}"`).join(', ')}.`;
+  if (value === null && shape.kind !== 'union' && shape.nullable === true) return undefined;
+  switch (shape.kind) {
+    case 'string':
+      return checkString(shape, value, at);
+    case 'number':
+    case 'integer':
+      return checkNumber(shape, value, at);
+    case 'boolean':
+      return typeof value === 'boolean' ? undefined : `${at} is not true or false.`;
+    case 'array':
+      return checkArray(shape, value, path, at);
+    case 'object':
+      return checkObject(shape, value, path, at);
+    case 'union':
+      return checkUnion(shape, value, path, at);
   }
-  const [fits, problem] = PLAIN[shape.kind];
-  return fits(value) ? undefined : `${at} ${problem}`;
 }
 
-type PlainKind = Exclude<EventFieldShape['kind'], 'object' | 'enum'>;
+type Of<K extends EventShape['kind']> = Extract<EventShape, { kind: K }>;
 
-/** Each plain kind: whether a value fits it, and what's said when it doesn't. */
-const PLAIN: Readonly<Record<PlainKind, readonly [(value: unknown) => boolean, string]>> = {
-  string: [(v) => typeof v === 'string', 'is not a string.'],
-  'string-or-null': [(v) => typeof v === 'string' || v === null, 'is not a string or null.'],
-  boolean: [(v) => typeof v === 'boolean', 'is not true or false.'],
-  number: [(v) => typeof v === 'number' && Number.isFinite(v), 'is not a number.'],
-  integer: [(v) => Number.isInteger(v), 'is not a whole number.'],
-  'date-time': [
-    (v) => typeof v === 'string' && DATE_TIME.test(v) && !Number.isNaN(Date.parse(v)),
-    'is not a date-time with a time zone.',
-  ],
-  array: [(v) => Array.isArray(v), 'is not an array.'],
-};
+function checkString(shape: Of<'string'>, value: unknown, at: string): string | undefined {
+  if (typeof value !== 'string') return `${at} is not a string.`;
+  if (shape.enum !== undefined && !shape.enum.includes(value)) {
+    return `${at} is not one of ${shape.enum.map((v) => `"${v}"`).join(', ')}.`;
+  }
+  if (shape.format !== undefined && !FORMATS[shape.format](value)) {
+    return `${at} is not ${shape.format === 'uuid' ? 'a UUID' : 'a date-time with a time zone'}.`;
+  }
+  const length = [...value].length;
+  if (shape.minLength !== undefined && length < shape.minLength) {
+    return `${at} is shorter than ${shape.minLength} characters.`;
+  }
+  if (shape.maxLength !== undefined && length > shape.maxLength) {
+    return `${at} is longer than ${shape.maxLength} characters.`;
+  }
+  if (shape.pattern !== undefined && !new RegExp(shape.pattern, 'u').test(value)) {
+    return `${at} doesn't match ${shape.pattern}.`;
+  }
+  return undefined;
+}
+
+function checkNumber(
+  shape: Of<'number' | 'integer'>,
+  value: unknown,
+  at: string,
+): string | undefined {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return `${at} is not a number.`;
+  if (shape.kind === 'integer' && !Number.isInteger(value)) return `${at} is not a whole number.`;
+  const bounds: [number | undefined, (n: number) => boolean, string][] = [
+    [shape.minimum, (m) => value >= m, 'is less than'],
+    [shape.maximum, (m) => value <= m, 'is more than'],
+    [shape.exclusiveMinimum, (m) => value > m, 'is not more than'],
+    [shape.exclusiveMaximum, (m) => value < m, 'is not less than'],
+  ];
+  for (const [bound, holds, says] of bounds) {
+    if (bound !== undefined && !holds(bound)) return `${at} ${says} ${bound}.`;
+  }
+  return undefined;
+}
+
+function checkArray(
+  shape: Of<'array'>,
+  value: unknown,
+  path: string,
+  at: string,
+): string | undefined {
+  if (!Array.isArray(value)) return `${at} is not an array.`;
+  if (shape.minItems !== undefined && value.length < shape.minItems) {
+    return `${at} has fewer than ${shape.minItems} items.`;
+  }
+  if (shape.maxItems !== undefined && value.length > shape.maxItems) {
+    return `${at} has more than ${shape.maxItems} items.`;
+  }
+  if (shape.items === undefined) return undefined;
+  for (const [i, item] of value.entries()) {
+    const problem = check(shape.items, item, `${path}[${i}]`);
+    if (problem !== undefined) return problem;
+  }
+  return undefined;
+}
 
 /** An object: each required field there and fitting, each optional one fitting when it's there. */
 function checkObject(
-  shape: Extract<EventFieldShape, { kind: 'object' }>,
+  shape: Of<'object'>,
   value: unknown,
   path: string,
   at: string,
 ): string | undefined {
   if (!isRecord(value)) return `${at} is not an object.`;
-  const fields: [string, EventFieldShape, boolean][] = [
-    ...Object.entries(shape.required).map(([k, f]): [string, EventFieldShape, boolean] => [
-      k,
-      f,
-      true,
-    ]),
-    ...Object.entries(shape.optional ?? {}).map(([k, f]): [string, EventFieldShape, boolean] => [
-      k,
-      f,
-      false,
-    ]),
+  const fields = [
+    ...Object.entries(shape.required ?? {}).map(([k, f]) => [k, f, true] as const),
+    ...Object.entries(shape.optional ?? {}).map(([k, f]) => [k, f, false] as const),
   ];
   for (const [key, field, required] of fields) {
     const where = path === '' ? key : `${path}.${key}`;
-    const present = Object.hasOwn(value, key) && value[key] !== undefined;
-    if (!present) {
+    if (!Object.hasOwn(value, key) || value[key] === undefined) {
       if (required) return `\`${where}\` is missing.`;
       continue;
     }
@@ -227,8 +206,33 @@ function checkObject(
   return undefined;
 }
 
+/** A discriminated union: its tag names the variant, which is then checked. */
+function checkUnion(
+  shape: Of<'union'>,
+  value: unknown,
+  path: string,
+  at: string,
+): string | undefined {
+  if (!isRecord(value)) return `${at} is not an object.`;
+  const where = path === '' ? shape.discriminator : `${path}.${shape.discriminator}`;
+  const tag = value[shape.discriminator];
+  if (typeof tag !== 'string' || !Object.hasOwn(shape.variants, tag)) {
+    const tags = Object.keys(shape.variants)
+      .map((t) => `"${t}"`)
+      .join(', ');
+    return `\`${where}\` is not one of ${tags}.`;
+  }
+  return check(shape.variants[tag] as EventShape, value, path);
+}
+
 /** RFC 3339: a date, a time and a zone (`Z` or an offset), as the API writes them. */
 const DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/;
+/** A UUID in its usual form, any version (the API writes them so). */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const FORMATS: Readonly<Record<'uuid' | 'date-time', (value: string) => boolean>> = {
+  uuid: (v) => UUID.test(v),
+  'date-time': (v) => DATE_TIME.test(v) && !Number.isNaN(Date.parse(v)),
+};
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);

@@ -77,6 +77,7 @@ same way: pass the headers and the body's bytes.
 import os
 
 from fastapi import FastAPI, Request, Response
+from pydantic import ValidationError
 
 from kindgi import webhooks
 
@@ -97,7 +98,13 @@ async def kindgi_webhook(request: Request) -> Response:
         return Response(status_code=204)  # a retry of an event you already handled
     handled.add(delivery.id)
 
-    event = webhooks.parse_event(body)
+    try:
+        event = webhooks.parse_event(body)
+    except ValidationError as err:
+        # Signed, but this version can't read it (most likely a newer runtime's event type):
+        # take it and leave it; a retry wouldn't read any better.
+        print("skipped:", err.errors()[0]["type"])
+        return Response(status_code=204)
     if event.type == "run.finished":
         run = event.data.run
         print("run finished:", run.id, run.flow_id, run.status)
