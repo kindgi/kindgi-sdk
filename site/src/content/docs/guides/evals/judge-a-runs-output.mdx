@@ -377,6 +377,46 @@ a run does.
     it). `judgments` counts verdicts, so several people judging one run make
     several judgments but one run here: to see how much a share rests on,
     count runs, not judgments. A runtime before Kindgi 0.1.7 doesn't send it.
+
+    From a 0.1.7 runtime: a rule that wants an expert's judgment queued four
+    runs. An expert (weight 3) and a peer judged the first; a peer judged the
+    second `no`, and it's still open; a peer judged the third, which was then
+    dismissed; the fourth was never judged. So `judgments` is 4,
+    `runsWithJudgments` 3, and `yesShare` 0.83: 5 of 6 weighted verdicts.
+
+    ```json
+    {
+      "ruleId": "fd7a1785-717b-404e-bcdc-3b819806d784",
+      "groups": [
+        {
+          "ruleVersion": 1,
+          "agentVersion": "1.0.0",
+          "added": 4,
+          "open": 2,
+          "judged": 1,
+          "dismissed": 1,
+          "erased": 0,
+          "skippedByCap": 0,
+          "judgments": 4,
+          "runsWithJudgments": 3,
+          "yesShare": 0.8333333333333334,
+          "byClass": [
+            {
+              "judgeClassId": "2da17046-eb37-4157-b175-3381a926545a",
+              "judgments": 3,
+              "yes": 2
+            },
+            {
+              "judgeClassId": "787b6f6f-30cf-4bac-bf27-ac5ef32cb6d3",
+              "judgments": 1,
+              "yes": 1
+            }
+          ]
+        }
+      ]
+    }
+    ```
+
   - **`skippedByCap`** counts the runs the rule matched and sampled but
     didn't queue because `maxOpen` were waiting, even when another rule
     queued them, so `added` + `skippedByCap` is every run it matched and
@@ -385,8 +425,8 @@ a run does.
   - **Never pooled:** each version of each rule is a sample of its own
     `when`, so its results are never added to another's.
 
-That rule's results (capped at 2 waiting) after three live runs: one judged
-`yes`, one dismissed, and one skipped while both waited.
+That rule's results from a 0.1.6 runtime (capped at 2 waiting), after three
+live runs: one judged `yes`, one dismissed, and one skipped while both waited.
 
 ```json
 {
