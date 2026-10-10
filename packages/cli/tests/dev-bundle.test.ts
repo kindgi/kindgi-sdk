@@ -95,6 +95,13 @@ afterAll(async () => {
   await rm(packDir, { recursive: true, force: true });
 });
 
+/**
+ * Real esbuild, then the bundle imported in an indexer child process: about
+ * 10 s on a busy machine, past the suite's 15 s on a loaded one. A budget a
+ * passing test never waits out, not a retry.
+ */
+const BUNDLE_AND_INDEX_MS = 60_000;
+
 describe('the dev bundler', () => {
   test('bundles the alias import; keeps the node_modules dependency external', async () => {
     const build = await builder().build();
@@ -116,27 +123,30 @@ describe('the dev bundler', () => {
     expect(bundle).toContain('//# sourceMappingURL=greet.mjs.map');
   });
 
-  test('the indexer child imports the bundle with the pack env and records the source path', async () => {
-    const build = (await builder().build()) as Extract<PackBuild, { kind: 'ok' }>;
-    const out = join(packDir, '.kindgi/dev/index.test.json');
-    const indexed = await runIndexerReadReal(packDir, out, {
-      bundleMap: build.bundleMap,
-      env: async () => ({ PATH: process.env.PATH ?? '', PACK_GREETING: 'kia ora' }),
-    });
-    if (indexed.kind === 'err') throw new Error(`${indexed.code}: ${indexed.message}`);
-    const tools = (
-      indexed.index as { tools: { id: string; modulePath: string; description: string }[] }
-    ).tools;
-    expect(tools).toEqual([
-      expect.objectContaining({
-        id: 'bt.greet',
-        modulePath: 'tools/greet.ts',
-        // Read from the pack env when the module was imported.
-        description: 'Greets with kia ora',
-      }),
-    ]);
-  });
-
+  test(
+    'the indexer child imports the bundle with the pack env and records the source path',
+    { timeout: BUNDLE_AND_INDEX_MS },
+    async () => {
+      const build = (await builder().build()) as Extract<PackBuild, { kind: 'ok' }>;
+      const out = join(packDir, '.kindgi/dev/index.test.json');
+      const indexed = await runIndexerReadReal(packDir, out, {
+        bundleMap: build.bundleMap,
+        env: async () => ({ PATH: process.env.PATH ?? '', PACK_GREETING: 'kia ora' }),
+      });
+      if (indexed.kind === 'err') throw new Error(`${indexed.code}: ${indexed.message}`);
+      const tools = (
+        indexed.index as { tools: { id: string; modulePath: string; description: string }[] }
+      ).tools;
+      expect(tools).toEqual([
+        expect.objectContaining({
+          id: 'bt.greet',
+          modulePath: 'tools/greet.ts',
+          // Read from the pack env when the module was imported.
+          description: 'Greets with kia ora',
+        }),
+      ]);
+    },
+  );
   test('a syntax error is reported with its file and line', async () => {
     await write('src/lib/broken.ts', 'export const x = ;\n');
     await write('tools/broken.ts', "import { x } from '@/lib/broken';\nexport default x;\n");

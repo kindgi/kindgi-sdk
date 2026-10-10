@@ -27,6 +27,13 @@ export interface SignInOptionsRouteOptions {
   /** Whether a person may sign in to the console with an API token here. */
   readonly tokenSignIn: boolean;
   /**
+   * The browser session cookie's kind, when there are browser sessions:
+   * `secure` (the default), or `plain` (development on a loopback address;
+   * see `SessionCookieOptions.secure`). A sign-in page checks the browser
+   * keeps that kind before offering sign-in.
+   */
+  readonly sessionCookie?: 'secure' | 'plain';
+  /**
    * The emailed sign-in link, when the deployment offers it: a sign-in page
    * shows "Email me a sign-in link", with the Turnstile widget when there's
    * a site key. `allowedFor`: whether it's offered for an email's domain
@@ -148,6 +155,7 @@ export function signInOptionsRouter(options: SignInOptionsRouteOptions): Hono<Ap
       methods: {
         identityProviders: identityProvider !== undefined,
         apiToken: options.tokenSignIn,
+        ...(options.sessionCookie !== undefined && { sessionCookie: options.sessionCookie }),
         ...(linkOffered && {
           emailLink: {
             ...(emailLink.captchaSiteKey !== undefined && {

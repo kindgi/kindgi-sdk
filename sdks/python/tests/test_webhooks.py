@@ -264,6 +264,27 @@ def test_parse_event_reads_an_improvement_pass_finished() -> None:
     assert event.data.pass_.trigger.trigger_id == "1c3e9c4a-0000-4000-8000-000000000006"
 
 
+def test_parse_event_reads_an_approval_requested() -> None:
+    body = {
+        "id": "evt-approval",
+        "type": "approval.requested",
+        "createdAt": "2026-10-09T12:00:00.000Z",
+        "data": {
+            "approval": {
+                "approvalId": "3e5e9c4a-0000-4000-8000-000000000008",
+                "projectId": "4f6e9c4a-0000-4000-8000-000000000009",
+                "requiredRole": "senior",
+                "title": "Refund over the limit",
+                "createdAt": "2026-10-09T12:00:00.000Z",
+                "url": "https://kindgi.example.com/console/approvals/3e5e9c4a-0000-4000-8000-000000000008",
+            }
+        },
+    }
+    event = webhooks.parse_event(json.dumps(body))
+    assert isinstance(event, models.ApprovalRequestedEvent)
+    assert event.data.approval.required_role == "senior"
+
+
 def test_parse_event_refuses_an_unknown_type() -> None:
     with pytest.raises(pydantic.ValidationError):
         webhooks.parse_event(json.dumps({**RUN_FINISHED, "type": "run.started"}))

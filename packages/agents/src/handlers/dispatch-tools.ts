@@ -19,7 +19,7 @@ import {
   type UnresolvedToolError,
   throwAgentTurnFailure,
 } from './errors.js';
-import { TOOL_CALL_GATE_SUBJECT, readGateDecision } from './gate-decision.js';
+import { TOOL_CALL_GATE_SUBJECT, readGateDecision, withdrawnGateFailure } from './gate-decision.js';
 import { decideReplayTool } from './replay.js';
 import {
   effectiveToolErrorPolicy,
@@ -335,11 +335,13 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
           }
         } catch (cause) {
           if (cause instanceof WaitpointCancelledError) {
-            throwAgentTurnFailure({
-              code: 'hitl-cancelled',
-              message: `Tool-call HITL cancelled for ${call.name}: ${cause.reason}`,
-              reason: cause.reason,
-            } as never);
+            throwAgentTurnFailure(
+              (withdrawnGateFailure(cause.reason, `tool call ${call.name}`) ?? {
+                code: 'hitl-cancelled',
+                message: `Tool-call HITL cancelled for ${call.name}: ${cause.reason}`,
+                reason: cause.reason,
+              }) as never,
+            );
           }
           throw cause;
         }

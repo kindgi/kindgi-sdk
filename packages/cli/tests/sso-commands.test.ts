@@ -130,6 +130,37 @@ describe('kindgi sso providers start', () => {
   });
 });
 
+/**
+ * `start`'s whole output, byte for byte: the docs quote it (the SSO
+ * guides), and the console shows the same message for IT. A change to it
+ * shows up here as a snapshot diff.
+ */
+describe('kindgi sso providers start: the whole message, as the docs quote it', () => {
+  const cases: readonly (readonly [
+    string,
+    readonly string[],
+    typeof OIDC_URLS | typeof SAML_URLS,
+  ])[] = [
+    ['oidc', ['acme-google', '--kind=oidc'], OIDC_URLS],
+    ['saml', ['acme-saml', '--kind=saml'], SAML_URLS],
+    ['google', ['acme-google', '--idp=google'], OIDC_URLS],
+    ['entra', ['acme-google', '--idp=entra'], OIDC_URLS],
+    ['okta', ['acme-google', '--idp=okta'], OIDC_URLS],
+    ['keycloak', ['acme-google', '--idp=keycloak'], OIDC_URLS],
+  ];
+  for (const [name, args, urls] of cases) {
+    test(`start ${args.join(' ')}`, async () => {
+      const { rec } = recorder();
+      const out = await run(['sso', 'providers', 'start', ...args], {
+        auth: { providers: { signIn: rec('signIn', urls) } },
+      });
+      expect(out.exitCode, out.stderr).toBe(0);
+      expect(out.stderr).toBe('');
+      await expect(out.stdout).toMatchFileSnapshot(`./__snapshots__/sso-start-${name}.txt`);
+    });
+  }
+});
+
 describe('kindgi sso providers finish / update', () => {
   test('finish registers from the flags: domains comma-separated or repeated', async () => {
     const { calls, rec } = recorder();
