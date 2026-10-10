@@ -188,10 +188,10 @@ Under `kindgi dev`, the pack service gets the pack's `.env` and `.env.local`,
 and restarts when they change. Nothing else from your shell reaches it
 except `PATH`, `HOME` and `TMPDIR`; `SBT_OPTS` reaches sbt only. Put a setting
 there by hand, and keep the env files out of git. A secret stored with
-`./kindgiw secrets set NAME --env=local --scope=tenant` (a no-echo prompt), and
-any model provider's key, never reach the process environment: declare the
-secret and read it from `ctx.secrets`. A deployed service
-names the variables it needs in `kindgi.config.json`:
+`./kindgiw secrets set NAME --env=local --scope=tenant` (a no-echo prompt)
+never reaches the process environment: declare it and read it from
+`ctx.secrets`. A model provider's key reaches no tool at all: a tool that calls
+a model declares a key of its own. A deployed service names the variables it needs in `kindgi.config.json`:
 `"env": {"required": ["DATABASE_URL"], "optional": ["SENTRY_DSN"]}`. Without
 a required one it isn't ready, and every variable it doesn't declare is
 dropped before your code loads (`kindgi dev` keeps them), so an undeclared

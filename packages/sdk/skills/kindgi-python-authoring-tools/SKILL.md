@@ -197,14 +197,15 @@ that is the pack's `.env` and `.env.local` (or `[tool.kindgi.dev]
 envFiles`), restarted when they change; nothing else from your shell
 reaches it except `PATH`, `HOME` and `TMPDIR`. Put a setting there by
 hand, and keep the env files out of git. A secret stored with `kindgi
-secrets set NAME --env=local --scope=tenant` (a no-echo prompt), and any
-model provider's key, never reach the process environment: declare the
-secret and read it from `ctx.secrets`. Declare every name the code reads
-in `[tool.kindgi.env]` (`required`, `optional`): in an image the pack
-service drops every other variable before your code loads (`kindgi dev`
-keeps them), so an undeclared one works locally and is unset once
-deployed. `KINDGI_*` names are Kindgi's own settings: a pack can't
-declare one.
+secrets set NAME --env=local --scope=tenant` (a no-echo prompt) never
+reaches the process environment: declare it and read it from
+`ctx.secrets`. A model provider's key reaches no tool at all: a tool
+that calls a model declares a key of its own. Declare every name the
+code reads in `[tool.kindgi.env]` (`required`, `optional`): in an image
+the pack service drops every other variable before your code loads
+(`kindgi dev` keeps them), so an undeclared one works locally and is
+unset once deployed. `KINDGI_*` names are Kindgi's own settings: a pack
+can't declare one.
 
 ## Errors and output
 
