@@ -110,7 +110,8 @@ function specValidators(): {
   readonly info: ValidateFunction;
   readonly compile: (schema: object) => ValidateFunction;
 } {
-  const ajv = new Ajv2020({ strict: true, allErrors: true, allowUnionTypes: false });
+  // Type unions allowed, as every Kindgi schema compiler (`@kindgi/schema`'s ALLOW_UNION_TYPES).
+  const ajv = new Ajv2020({ strict: true, allErrors: true, allowUnionTypes: true });
   addFormats(ajv);
   const load = (name: string): object =>
     JSON.parse(

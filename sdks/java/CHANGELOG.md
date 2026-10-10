@@ -24,6 +24,10 @@ heading into its version.
   of check names, so the warning says to name it `<pack id>.checks.<name>`.
   It's a warning only: the pack builds and indexes as before, and
   `kindgi build` and `kindgi dev` print it.
+- `kindgi-pack`, `kindgi-pack-scala`: **a union of types validates**
+  (`"type": ["string", "number"]`, what Zod writes for a union of scalars in a
+  TypeScript tool's schema). It used to be refused as unsupported, matching the
+  TypeScript pack service's old strict mode; both take it now. (#477)
 
 ## 0.1.5
 
