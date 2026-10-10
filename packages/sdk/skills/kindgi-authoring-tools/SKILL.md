@@ -259,6 +259,10 @@ the agent-author to opt in.
 
 Put a tool's tests beside it, `tools/<tool>/index.test.ts`. Discovery skips `*.test.*` and `*.spec.*` files (`.ts`, `.js`, `.mjs`, `.cjs`), so the indexer never loads a test as a primitive: don't move tests elsewhere to keep them out. `invokeTool(tool, input, ctx)` from `@kindgi/sdk/define` calls the tool the way Kindgi does, schemas included, and returns a `Result`. `kindgi test` runs the pack's tests with vitest (`vitest run`; `--watch` keeps watching).
 
+## Shared code
+
+Code several tools share (schemas, a client, helpers) goes outside `tools/`, for example in `lib/` beside it. Discovery loads every `.ts`, `.js` and `.mjs` file under `tools/` (tests aside) as a primitive, so a helper there fails the index. Don't put it in the app's own source either: import the app's functions from where they are, and keep what's Kindgi's in the pack's folder.
+
 ## Wiring the tool onto an agent
 
 Agents reference tools via `ToolRef[]`, NOT `string[]`. Each entry is
