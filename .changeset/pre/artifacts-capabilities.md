@@ -22,7 +22,7 @@ Artifacts belong to a project, and the capability catalog says what each feature
   - A `CapabilityDescriptor` may carry `providers: [{providerId, models}]`, the tenant's providers with a model that has the feature (optional in the spec).
 - **TypeScript client:**
   - `artifacts.upload` (multipart), `download` (streamed bytes) and `head`; `list` takes `projectId`.
-  - `put` and `get` stay unwired and point at `upload`/`download`.
+  - `put` and `get` (content-addressed `BlobRef`s) have no API route: they throw, pointing to `upload` and `download`.
   - `artifact-too-large` is an invalid request.
 - **Python client:** the new fields; a 413 is an `InvalidRequestError`.
 - **Runtime settings (`@kindgi/env-schema`):**
@@ -30,5 +30,5 @@ Artifacts belong to a project, and the capability catalog says what each feature
   - `KINDGI_ARTIFACT_MAX_BYTES` sets the upload cap.
   - `kindgi dev` sets artifacts to the pack's `.kindgi/dev/artifacts`, which is gitignored.
 - **CLI:**
-  - `kindgi artifacts list|get|upload|download|delete` and `kindgi capabilities list|get` are wired; they were hidden as unwired.
+  - `kindgi artifacts list|get|upload|download|delete` and `kindgi capabilities list|get` work; before, they were hidden.
   - `artifacts head` is folded into `get`.

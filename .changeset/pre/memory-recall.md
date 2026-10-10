@@ -21,7 +21,7 @@ Agents recall earlier conversations, and a conversation can be unregistered.
 - **Other people's conversations.** `same-segment` and `same-project` recall them, in the run's own project only. Publishing such an agent warns `recall-other-people`, and in the prompt each of their messages is marked `anotherPerson`, without saying whose. Recall is always this agent's conversations, within what the run may recall (`isRecallReadableBy` in `@kindgi/memory`: a conversation is always someone's).
 - **The prompt.** Recalled messages are quoted in the `<memory>` block after the facts: the date, the message, and the messages either side. They are earlier conversation, never turns. The system message's memory line now names quotes from earlier conversations. **This changes what models see.**
 - **The turn.** `AgentTurnResult.recalled` (optional) and the journal keep what was recalled, with each message's ranks. A replay can reuse the past run's (`ReplayBinding.recalled`). The run's provenance has a `retrieval` node per recalled message (`source: conversations`), `retrieved-from` its intent's `search_memory` node.
-- **The binding contract** (protocol 16, additive):
+- **The binding contract** (additive: each new method and field is optional):
   - `MemoryQueryBinding.searchConversations?` (`SearchConversationsInput`, `RecallHit`, `RecalledMessage`). Without it, such an intent recalls nothing, and the journal says so (`degraded: no-recall`). Publishing warns `recall-unavailable` (`MemoryBinding.conversationRecall`).
   - `AppendMessageInput.recall` (the turn's user and segments, for the index).
   - `ReadMessagesInput.beforeSequence`/`last`: a turn now reads only its history window.

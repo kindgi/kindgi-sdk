@@ -153,7 +153,10 @@ export function schedulesRouter(
   });
 
   // ---------- GET / (list) ----------
-  // Tenant-scoped, as runs are: rows are not filtered per permission.
+  // The tenant's schedules, then only those whose project the caller may
+  // read (`read` on it, as reading one schedule needs): a schedule's input
+  // and target are its project's. The page and its cursor are the
+  // tenant's, so a page can hold fewer than `limit` rows and still have more.
   r.get('/', async (c) => {
     const tenantId = c.get('tenantId') as TenantId;
     const limit = clampLimit(c.req.query('limit'));
@@ -170,8 +173,15 @@ export function schedulesRouter(
       ...(cursorRaw !== undefined && cursorRaw.length > 0 && { cursor: cursorRaw as Cursor }),
       ...(statusFilter !== undefined && { status: statusFilter }),
     });
+    const rows = page.data as CronTriggerRecord[];
+    const visible =
+      authorizer === undefined
+        ? rows
+        : await authorizer.filterByCan(c, 'read', rows, (rec) =>
+            ref('project', rec.projectId as unknown as string),
+          );
     return c.json({
-      data: page.data.map((row) => serializeSchedule(row as CronTriggerRecord)),
+      data: visible.map((row) => serializeSchedule(row)),
       hasMore: page.nextCursor !== undefined,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });

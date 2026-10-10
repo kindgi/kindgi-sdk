@@ -1,5 +1,27 @@
 # @kindgi/adapter-model-gemini
 
+## 0.1.5-rc.0
+
+### Patch Changes
+
+- 88953c7: **A model call can carry a `traceparent`, and the three model adapters send it to the vendor.**
+  - **`ModelCallInput.traceparent?`** (optional) is a W3C `traceparent` for the call.
+  - **The adapters** send it as the `traceparent` header on that request, and only when it's set:
+    - anthropic, through its request options (on the SDK's retries too);
+    - openai-compat, on both the Chat Completions and Responses paths;
+    - gemini, through the request's `httpOptions.headers`.
+    It's never in the body and never logged, and an adapter never makes one up.
+  - **A runtime sets it only for a provider whose registration opts in.** Trace ids leave the process only on opt-in.
+  - **`ResumeRunBindingInput.trace?`:** the approval that resumes a run passes its request's trace context, as starting a run does.
+- 0fe157e: A provider registration the runtime couldn't build is refused when it registers, naming the setting. Before, a bad `adapter_config` (an unknown `api`, a missing `baseURL`, a Vertex registration without `project`, …) registered fine, and the provider was skipped at the first model call with the reason only in the runtime's log.
+  - **`POST /v1/providers`** runs the adapter's own check before storing: `422 provider-config-invalid`, with each problem in `details.issues` (`path`, a JSON pointer such as `/adapter_config/api`, and `message`), the shape other validation errors use; the clients read it as an invalid-request error. Without the runtime's adapter factories (an older runtime), nothing changes.
+  - **`GET /v1/providers/{providerId}/check`** runs the same check over a registered provider (`{ providerId, adapterId, checked, issues }`); TS `providers.check(id)`, Python `providers.check(provider_id)`.
+  - **Adapters:** `AdapterFactoryEntry.checkConfig` (static: no network, no secret read): `{ path, message }` problems, the message naming the setting and what it takes; the factory throws the same problems as `adapterConfigError` words them (`<adapter>: provider "<id>": <message>`). The 422's own message is one sentence naming the provider, its adapter and the first problem, with a count of the rest. Each adapter exports its entry: `openAICompatAdapterEntry`, `geminiAdapterEntry`, `anthropicAdapterEntry` (new `anthropicAdapterFactory`: needs `secret_ref`) and `inProcessAdapterEntry` (new `inProcessAdapterFactory`).
+- Updated dependencies [490d083]
+- Updated dependencies [88953c7]
+- Updated dependencies [0fe157e]
+  - @kindgi/capabilities@0.1.5-rc.0
+
 ## 0.1.4
 
 ### Patch Changes

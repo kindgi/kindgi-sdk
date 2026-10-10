@@ -9,7 +9,7 @@
   <parent>
     <groupId>com.kindgi</groupId>
     <artifactId>kindgi-java-parent</artifactId>
-    <version>0.1.4</version>
+    <version>0.1.5-rc.0</version>
   </parent>
 
   <artifactId>kindgi-pack</artifactId>
@@ -19,11 +19,13 @@
   <properties>
     <!--
       The app's own Jackson 2 binds its tools' inputs and outputs (its DTOs, with their Jackson
-      annotations). Compiled and tested against 2.15 (Spring Boot 3.2's) so the pack uses nothing
-      newer; an app's newer 2.x wins at run time. Unlike kindgi-client, nothing is shaded: pack code
-      runs inside the app, with its classes.
+      annotations). Compiled and tested against 2.18.11, the first 2.x with the fixes for the
+      advisories that reach what the pack service does (it binds model-produced input to the app's
+      types), so the pack uses nothing newer; an app's newer 2.x wins at run time. 2.18 is Spring
+      Boot 3.4's. Unlike kindgi-client, nothing is shaded: pack code runs inside the app, with its
+      classes.
     -->
-    <jackson2.version>2.15.4</jackson2.version>
+    <jackson2.version>2.18.11</jackson2.version>
   </properties>
 
   <dependencies>

@@ -346,11 +346,30 @@ and what's different after:
   changing them `admin`. Webhook endpoints and compliance evidence need
   `admin`. Starting a run needs `execute` on what it runs, and `write` on a
   project it names. Lists hold only what the caller may read. A single admin
-  sees no change ([Authorization](../authorization/)).
+  sees no change ([Authorization](../authorization/)). Unregistering a
+  conversation takes `write` on its project.
 - **With authorization on, a permission change that fails no longer holds up
   the others.** In 0.1.4, one could leave a new project unreadable by its
   creator (`403`) until an operator replayed the outbox. 0.1.5 also carries
   the fixes in runtime 0.1.4.1 and 0.1.4.2 (below).
+- **An agent, flow, tool or test set stays in the project it was first
+  published into.** Publishing a version of one under another project is
+  refused with a `409` (`agent-project-mismatch`, `flow-…`, `tool-…`,
+  `eval-suite-project-mismatch`), even for an admin of both, and nothing is
+  written; 0.1.4 accepted it. A deploy that includes one is refused whole,
+  even when it's unchanged. The refusal carries the id, not the other project
+  ([Organize work by org and project](../../guides/projects/organize-by-org-and-project/)).
+- **If your Postgres `DateStyle` is `SQL, DMY` or `German`, check the times
+  earlier releases saved.** Run `SHOW DateStyle;`
+  ([DateStyle](https://www.postgresql.org/docs/16/runtime-config-client.html#GUC-DATESTYLE)).
+  With either style, earlier releases read a date on the 1st to the 12th of a
+  month with day and month swapped, and saved some that way: session expiries,
+  approval deadlines and decision times, wait timeouts, schedule fire times,
+  memory facts' validity times and stored webhook bodies. A date after the
+  12th failed outright. With any other style, a time was read correctly or
+  failed outright, so nothing was saved wrong. 0.1.5 reads and writes times
+  correctly on any `DateStyle`, but it can't repair a swapped time, which
+  looks like a real one.
 - **Run OpenFGA v1.22.0.** Published OpenFGA advisories affect v1.9.0
   ([An OpenFGA you already run](../authorization/#an-openfga-you-already-run)).
 - **Expired rows are deleted every hour:** idempotency answers, sessions and
@@ -373,6 +392,51 @@ and what's different after:
   config fails every turn it checks; unregister it, and register it again
   with a config that fits
   ([Configure a guardrail](../../guides/guardrails/configure-a-guardrail/)).
+- **A halting guardrail whose check can't run now stops the turn; it used to
+  let it through.** That's a check that can't run, for any reason: no check
+  by that name is registered, its configuration is invalid, an `llm-judge`
+  guardrail's judge can't be routed to a model, or the check throws
+  (`check-failed`: pack code that crashed, a pack service that couldn't be
+  reached, a judge call that failed). With `halt`, the turn fails with
+  `guardrail-violation`, and `evaluationErrors` says which guardrail and why.
+  With any other action, the turn goes on; in 0.1.4 a check that threw failed
+  the turn whatever the action. Either way, the error is in the run's
+  provenance and journal
+  ([When the check can't run](../../guides/guardrails/halt-or-record/#when-the-check-cant-run)).
+- **The built-in guardrail checks run.** A guardrail that names one
+  (`must-cite`, `never-call-tool`, `max-tool-calls`, `output-matches`,
+  `tool-order`, `required-substring`, `forbidden-substring`) runs it, from a
+  pack file or `POST /v1/guardrails`. In 0.1.4 it never ran
+  ([Use a built-in check](../../guides/guardrails/use-a-built-in-check/)).
+- **A pack can't ship its own guardrail check under a built-in check's id:**
+  the runtime runs the built-in for a guardrail naming one, so a pack's
+  implementation under that id would be silently replaced. Building the pack
+  refuses it with `reserved-check-id` (Python: `DefinitionError`), saying to
+  rename the check. Rebuild your packs with the 0.1.5 CLI: a pack built with
+  an earlier one that ships such a check runs the built-in instead.
+- **Before you upgrade, check every guardrail that names a built-in check.**
+  In 0.1.4 such a guardrail never ran. In 0.1.5 the built-ins run and check
+  their config, but a guardrail registered before the upgrade isn't checked
+  again: if its config doesn't fit the built-in's settings, its check can't
+  run at any turn, and with `halt` it blocks every turn of the agents that
+  list it. The runtime warns about each one when it loads it:
+
+  ```text
+  20:40:17.669 WARN  [guardrails] guardrail config invalid traceId=… tenantId=… guardrailId=acme.tool-budget check=max-tool-calls problems="config must NOT have additional properties" fix="unregister it (kindgi guardrails unregister <id>), then register it again or redeploy, with a config that fits; with several runtime instances, restart the others"
+  ```
+
+  List your guardrails (`kindgi guardrails list`), and check each one
+  whose `check` is a built-in against
+  [its settings](../../guides/guardrails/use-a-built-in-check/#the-built-in-checks).
+  To fix one, unregister it (`kindgi guardrails unregister <id>`), then deploy
+  your pack, or register it again, with a config that fits: a deploy keeps a
+  guardrail that's already registered as it is. If you run several runtime
+  instances, restart them afterwards (below).
+- **The built-in guardrail checks check their config.** A guardrail naming one
+  with a config the check doesn't take is refused when it's registered
+  (`422 guardrail-config-invalid`, each problem in `details.issues`) or
+  deployed (`deployment-validation-failed`); one that still reaches a turn is a
+  check that can't run, so a `halt` guardrail stops the turn.
 - **The runtime signs exports** (audit bundles, provenance, compliance
   evidence) with the deployment's export key: set
   `KINDGI_EXPORT_SIGNING_KEY_PATH`, `KINDGI_EXPORT_SIGNING_KEY` or
@@ -412,6 +476,11 @@ and what's different after:
   end, as in Python, which gains `runs.follow` too. `runs.stream` and
   `runs.streamProgress` are deprecated
   ([Follow a run](../../guides/runs/follow-a-run/)).
+- **Paging conversations, approvals and runs no longer skips rows.** A row
+  created in the same millisecond as a page's last row (for approvals, at the
+  same instant) could be left out of the next page. Cursors you hold keep
+  working. A cursor whose time isn't a time is now `400 bad-input` on
+  conversations and runs, as it already was on approvals.
 - **The CLI:**
   - a usage error (a missing argument, a bad flag value) exits `2`; `1` is
     for a call that failed;
@@ -424,7 +493,11 @@ and what's different after:
     `KINDGI_DEV_GOOGLE_CREDENTIALS` names them: a pack that uses Vertex AI
     adds `KINDGI_DEV_GOOGLE_CREDENTIALS=adc` to its `.env`
     ([Gemini on Vertex AI](../../guides/models/gemini-on-vertex-ai/));
-  - `kindgi console` opens the console, and so does `kindgi dev --open`.
+  - `kindgi console` opens the console, and so does `kindgi dev --open`;
+  - under `kindgi dev`, **Sign in as seeded user** shows only when the console
+    is at a loopback address (`localhost`, `127.0.0.1` or `[::1]`); from
+    another address, sign in with the dev token. A deployed console no longer
+    asks for it.
 - **New in 0.1.5:**
   - **Sign-in** with your organization's identity provider
     ([Set up SSO](../../guides/sso/)), and with Google, Microsoft or GitHub
@@ -454,7 +527,8 @@ and what's different after:
   - **Logs:** a pack's service writes log records, `kindgi dev` shows them,
     and records from a run carry its ids; providers and MCP endpoints can opt
     in to the run's trace ([Logs](../logs/)).
-  - **Java and Scala, as a preview:**
+  - **Java and Scala, as a preview** (a Java or Scala pack needs Jackson
+    2.18 or later in your app, which is Spring Boot 3.4 or later):
     [Quickstart: Java](../../start/quickstart-java/),
     [Quickstart: Scala](../../start/quickstart-scala/) and
     [Call Kindgi from a Java app](../../start/java-app/).
@@ -470,6 +544,12 @@ and what's different after:
   `http://localhost`, where Chrome and Firefox do. Open the local console in
   Chrome or Firefox. A fix is planned. A deployment's console needs `https`
   in every browser (above).
+- **Run one runtime instance.** Several aren't supported yet (the Cloud Run
+  module runs one). For one thing, a guardrail change reaches other instances
+  only when they restart: registering, unregistering or deploying a guardrail
+  takes effect at once on the instance that took the request, and other
+  instances keep the guardrails they had. If you run several anyway, restart
+  the others after changing a guardrail. A fix is planned.
 
 ### Runtime 0.1.4.2
 
@@ -610,7 +690,13 @@ The `Token` line in the log now shows the new token's last four characters, and 
 `KINDGI_API_TOKEN` is one token: switch your CLI and apps to the new one when you restart.
 
 Console sessions signed in with the old token end at the restart, and people
-sign in again.
+sign in again. The startup log counts them:
+
+```text
+  Signed out: 1 console session an earlier token opened
+```
+
+A request with such a session afterwards answers `401`.
 
 ## Rotate the pack service token
 

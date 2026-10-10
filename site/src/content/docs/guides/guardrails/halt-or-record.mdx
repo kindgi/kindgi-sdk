@@ -110,6 +110,26 @@ The guardrail schema also accepts `retry`, `escalate` and `compensate`. In
 them: there's no second attempt, escalation or compensating tool call.
 :::
 
+## When the check can't run
+
+A guardrail whose check can't run at all (no check by that name is
+registered, its configuration is invalid, an `llm-judge` guardrail's judge
+can't be routed to a model, or the check throws: pack code that crashed, a
+pack service that couldn't be reached) never counts as passed:
+
+- With `halt`, the turn fails with `guardrail-violation`. Its `violations`
+  is empty, `evaluationErrors` names the guardrail, and the message says
+  why. Here a guardrail names a pack check that nothing deployed:
+
+  ```text
+  Error [guardrail-violation]: Turn blocked: guardrail 'acme.pack-only' couldn't run its check (unknown-check: Guardrail "acme.pack-only" references unregistered check "acme.checks.not-deployed")
+  ```
+- With any other action, the turn completes.
+
+Either way, the error is recorded in the run's provenance (the guardrail's
+node, with `evaluated: false`) and in the run journal's `evaluate-guardrails`
+step, under `errors`.
+
 ## Severity
 
 `severity` is `info`, `warn`, `error` or `critical`. It's recorded with each

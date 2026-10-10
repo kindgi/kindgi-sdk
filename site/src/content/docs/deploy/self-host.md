@@ -131,6 +131,12 @@ A Python pack's build also says where its dependencies come from:
     ✓ 22 pack file(s) in the image (the pack root, minus caches, virtualenvs and secrets); dependencies from uv.lock
 ```
 
+The build imports every tool, guardrail and flow module to index it, inside
+the image, so anything a module does when it's imported runs during the
+build too, without your app's files or services. Open files, databases and
+connections lazily, inside the handler. A module that opens a database file
+at import fails the build (`unable to open database file`).
+
 The image is for `linux/amd64` by default. On Apple silicon it runs under emulation; `--platform` picks another.
 
 ## 4. Run your pack's service
@@ -171,6 +177,9 @@ KINDGI_PACK_SERVICE_TOKEN=<the same token as in pack.env>
 KINDGI_IMAGE_REGISTRY_INSECURE_HOSTS=registry.localhost:5050
 KINDGI_LICENSE_KEY=<your license key>
 KINDGI_LOG_FORMAT=pretty
+# To try the console on your machine: sign in with the API token.
+# In a real deployment, set up single sign-on instead and remove this line.
+KINDGI_CONSOLE_TOKEN_SIGN_IN=on
 ```
 
 It holds the API token and the license key, so keep it to yourself:
@@ -180,6 +189,7 @@ Every setting is in the [environment variable reference](../../reference/env-var
 
 - **`KINDGI_ENV`** names the environment your tools' secrets resolve in.
 - **The port** is 4000 unless something sets another. The runtime takes the first that's set: `KINDGI_API_PORT`, then the platform's `PORT` (Cloud Run, Render, Heroku and Fly set it), then 4000 ([`KINDGI_API_PORT`](../../reference/env-vars/#kindgi_api_port) has the whole order).
+- **`KINDGI_CONSOLE_TOKEN_SIGN_IN=on`** lets you sign in to the console by pasting the API token from this file, so you can try the console straight away. It's off by default outside `kindgi dev`, and with it off and no single sign-on, nobody can sign in to the console. In a real deployment, [turn on sign-in](../sign-in/) with your organization's identity provider instead, and remove the line. The token works for the API, the CLI and the SDKs either way.
 - **`KINDGI_LOG_FORMAT=pretty`** makes `docker logs` readable by eye. Without it, a container logs JSON, one record per line, for a log platform to index: see [Logs](../logs/).
 - **`KINDGI_PACK_SERVICE_URL`** is the pack service's address only. A user and password in it stop the runtime at boot (exit code 2): `` KINDGI_PACK_SERVICE_URL must not carry a user or password ("https://svc:***@pack.example.com"): the server authenticates to the pack service with KINDGI_PACK_SERVICE_TOKEN. Remove the "user:password@" part. ``
 - **`KINDGI_TENANT_HOST_ACCESS`** isn't set here, so it's `deployed`, the default outside development. It refuses an MCP endpoint that would run a command on the runtime's host (`stdio`). Run MCP servers over HTTP instead. `local` allows it; set that only on a machine where everyone with an API token may run commands.
@@ -208,7 +218,7 @@ curl -s http://localhost:4000/ready
 
 `/ready` answers once the runtime is up and its database answers (`/health` checks only the process; see [Operate](../operate/#check-health-and-logs)).
 
-Open `http://localhost:4000/` in a browser: it leads to the console, at `/console/`. A runtime started without the console answers there with a short page naming what it serves (`/health`, `/ready`, the API reference at `/docs`).
+Open `http://localhost:4000/` in Chrome or Firefox: it leads to the console, at `/console/`, where you sign in with the API token from `kindgi.env`. Safari can't keep the local sign-in over http yet ([Known limitations](../operate/#known-limitations-in-015)). A runtime started without the console answers there with a short page naming what it serves (`/health`, `/ready`, the API reference at `/docs`).
 
 Its log names what it's running with:
 

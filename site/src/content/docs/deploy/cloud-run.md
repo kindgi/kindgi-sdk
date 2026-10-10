@@ -430,7 +430,7 @@ CLI and the SDKs take API tokens either way. Until then the startup lines
 say so:
 
 ```text
-⚠ Console sign-in: nobody can sign in to the console. KINDGI_CONSOLE_TOKEN_SIGN_IN=on allows an API token; KINDGI_AUTH_SECRET_PATH turns on sign-in with identity providers.
+  ⚠ Console sign-in: nobody can sign in to the console. KINDGI_CONSOLE_TOKEN_SIGN_IN=on allows an API token; KINDGI_AUTH_SECRET_PATH turns on sign-in with identity providers.
 ```
 
 The runtime's own settings go in two variables, as the pack's do:
@@ -486,6 +486,18 @@ then reaches the runtime only when you change `version`.
   each `…_CLIENT_SECRET` and `KINDGI_AUTH_TURNSTILE_SECRET` in
   `server_secret_env`. The module mounts no files, so use the value forms of
   the settings, not their `…_PATH` forms.
+
+**Check it worked:** after the apply, the new revision's startup lines say
+where it's reached, and which ways in the console has, instead of the
+warning. From a deployment with identity providers and the emailed link:
+
+```text
+Kindgi API server listening on http://localhost:4000 (reached at https://kindgi-server-…a.run.app)
+  Console sign-in: identity providers, or an API token (KINDGI_CONSOLE_TOKEN_SIGN_IN)
+  …
+  Pack service: https://kindgi-pack-…a.run.app — acme (artifact 20261009.132057), protocol 2, 4 tools, 1 check
+  Pack service auth: a Google ID token per call (KINDGI_PACK_SERVICE_AUTH)
+```
 
 What each setting does, and the ways in: [Turn on sign-in](../sign-in/).
 
@@ -554,6 +566,28 @@ A new grant can take a minute or two to apply.
   the caller. Behind an external Application Load Balancer, set `"2"`: it
   adds the client and then its own address
   ([Google: X-Forwarded-For header](https://docs.cloud.google.com/load-balancing/docs/https#x-forwarded-for_header)).
+- **Erasures, after a restore:** a memory erasure keeps a keyed hash of whom
+  it erased, so it can be replayed after you restore a backup. The key goes
+  in Secret Manager, named in `server_secret_env`:
+
+  ```sh
+  openssl rand 32 | base64 | gcloud secrets create $N-erasure-ledger-key --data-file=-
+  ```
+
+  ```hcl
+  server_secret_env = {
+    KINDGI_ERASURE_LEDGER_KEY = { secret = "kindgi-dev-erasure-ledger-key", version = "1" }
+  }
+  ```
+
+  The startup lines then say:
+
+  ```text
+    Erasures: on; the ledger is replayable after a backup restore (key from KINDGI_ERASURE_LEDGER_KEY)
+  ```
+
+  Without it, they say erasures aren't replayable. Keep the key: losing it
+  means losing replay ([Operate](../operate/)).
 - **Logs:** Cloud Logging, per service. The runtime logs JSON there, one
   record per line, and Cloud Logging reads each record's `severity`; filter by
   `jsonPayload.traceId` to follow one request or run. The startup lines are
@@ -579,6 +613,6 @@ Cloud Run hasn't released its addresses yet: run it again later.
 
 ## Limits today
 
-- **One runtime instance.** Several aren't supported yet.
-- **Sign-in with an identity provider** hasn't been checked on Cloud SQL yet;
-  API tokens work.
+- **One runtime instance.** Several aren't supported yet: for one thing, a
+  guardrail change reaches other instances only after they restart
+  ([Known limitations](../operate/#known-limitations-in-015)).
