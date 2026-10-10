@@ -425,6 +425,15 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_REVIEWER_EMAIL',
+    description:
+      "`on` emails reviewers when an approval waits for them: the people the approvals inbox would show it to (its assigned reviewer, else every active reviewer of its required role or above), and only those who may read its project. The first email goes at once; anything more for the same person within five minutes comes as one digest. Each email has the approval's title, project, required role and a link, never what it's about (that stays behind sign-in). Sent through the emailed sign-in link's server, so it needs `KINDGI_AUTH_EMAIL_SMTP_URL` (or `_PATH`) and `KINDGI_AUTH_EMAIL_FROM`; turned on without them, the runtime refuses to start. Off by default: emailing people is the operator's choice.",
+    example: 'on',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_AUTH_EMAIL_FROM',
     description:
       "The emailed sign-in link's From address, on a domain your SMTP provider may send for (SPF and DKIM set up): `Kindgi <sign-in@acme.com>`.",

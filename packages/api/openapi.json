@@ -17551,7 +17551,8 @@
         "type": "string",
         "enum": [
           "run.finished",
-          "improvement-pass.finished"
+          "improvement-pass.finished",
+          "approval.requested"
         ],
         "description": "An event type an endpoint can subscribe to."
       },
@@ -17929,6 +17930,87 @@
           }
         }
       },
+      "RequestedApproval": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "approvalId",
+          "requiredRole",
+          "createdAt"
+        ],
+        "description": "The approval an `approval.requested` event names. What it is about stays behind sign-in: no `context`, no tool call or run input.",
+        "properties": {
+          "approvalId": {
+            "type": "string"
+          },
+          "projectId": {
+            "type": "string"
+          },
+          "requiredRole": {
+            "$ref": "#/components/schemas/ReviewerRole",
+            "description": "The least reviewer role that may decide it."
+          },
+          "title": {
+            "type": "string"
+          },
+          "assignedTo": {
+            "type": "string",
+            "description": "The one reviewer it is assigned to, when it is."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "url": {
+            "type": "string",
+            "description": "Its page in the console, when the runtime knows its public address."
+          }
+        }
+      },
+      "ApprovalRequestedEventData": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "approval"
+        ],
+        "properties": {
+          "approval": {
+            "$ref": "#/components/schemas/RequestedApproval"
+          }
+        }
+      },
+      "ApprovalRequestedEvent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "type",
+          "createdAt",
+          "data"
+        ],
+        "description": "An approval was asked for: a reviewer's decision is waiting. Sent once per approval (an escalation is a new approval). `projectId` in the endpoint's filter narrows it to the approval's project.",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Event id, also sent as the `webhook-id` header; the same on every retry."
+          },
+          "type": {
+            "type": "string",
+            "const": "approval.requested"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ApprovalRequestedEventData"
+          }
+        }
+      },
       "ImproveScheduleTarget": {
         "type": "object",
         "additionalProperties": false,
@@ -18089,6 +18171,9 @@
             "$ref": "#/components/schemas/ImprovementPassFinishedEvent"
           },
           {
+            "$ref": "#/components/schemas/ApprovalRequestedEvent"
+          },
+          {
             "$ref": "#/components/schemas/WebhookTestEvent"
           }
         ],
@@ -18097,6 +18182,7 @@
           "mapping": {
             "run.finished": "#/components/schemas/RunFinishedEvent",
             "improvement-pass.finished": "#/components/schemas/ImprovementPassFinishedEvent",
+            "approval.requested": "#/components/schemas/ApprovalRequestedEvent",
             "webhook.test": "#/components/schemas/WebhookTestEvent"
           }
         }
@@ -44359,6 +44445,61 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/ImprovementPassFinishedEvent"
+              }
+            }
+          }
+        },
+        "responses": {
+          "2XX": {
+            "description": "Received. Any other answer, or none within 10 seconds, is retried."
+          }
+        }
+      }
+    },
+    "approval.requested": {
+      "post": {
+        "operationId": "webhook.approval.requested",
+        "summary": "An approval was asked for: a reviewer's decision is waiting",
+        "tags": [
+          "webhook-endpoints"
+        ],
+        "security": [],
+        "parameters": [
+          {
+            "name": "webhook-id",
+            "in": "header",
+            "required": true,
+            "description": "The event id; the same on every retry. Deduplicate on it.",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "webhook-timestamp",
+            "in": "header",
+            "required": true,
+            "description": "Unix seconds when the request was signed. Reject requests far from your clock.",
+            "schema": {
+              "type": "string",
+              "pattern": "^[0-9]+$"
+            }
+          },
+          {
+            "name": "webhook-signature",
+            "in": "header",
+            "required": true,
+            "description": "`v1,<base64 HMAC-SHA256 of \"{webhook-id}.{webhook-timestamp}.{body}\">` under the endpoint's secret; space-separated when two secrets sign during a rotation.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApprovalRequestedEvent"
               }
             }
           }

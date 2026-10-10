@@ -9194,7 +9194,8 @@ class CreateWebhookEndpointBody(BaseModel):
     Absolute https URL (http only where the deployment allows it, e.g. development). No credentials in the URL. The deployment may refuse private network addresses (`400 webhook-url-refused`).
     """
     events: Annotated[
-        list[Literal["run.finished", "improvement-pass.finished"]], Field(min_length=1)
+        list[Literal["run.finished", "improvement-pass.finished", "approval.requested"]],
+        Field(min_length=1),
     ]
     filter: WebhookEndpointFilter | None = None
     secret_ref: Annotated[WebhookSecretRef, Field(alias="secretRef")]
@@ -9212,7 +9213,8 @@ class PatchWebhookEndpointBody(BaseModel):
     )
     url: AnyUrl | None = None
     events: Annotated[
-        list[Literal["run.finished", "improvement-pass.finished"]] | None, Field(min_length=1)
+        list[Literal["run.finished", "improvement-pass.finished", "approval.requested"]] | None,
+        Field(min_length=1),
     ] = None
     filter: WebhookEndpointFilter | None = None
     secret_ref: Annotated[WebhookSecretRef | None, Field(alias="secretRef")] = None
@@ -9324,6 +9326,60 @@ class ImprovementPassFinishedEvent(BaseModel):
     type: Literal["improvement-pass.finished"]
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     data: Data1
+
+
+class RequestedApproval(BaseModel):
+    """
+    The approval an `approval.requested` event names. What it is about stays behind sign-in: no `context`, no tool call or run input.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    approval_id: Annotated[str, Field(alias="approvalId")]
+    project_id: Annotated[str | None, Field(alias="projectId")] = None
+    required_role: Annotated[Literal["standard", "senior", "admin"], Field(alias="requiredRole")]
+    """
+    The least reviewer role that may decide it.
+    """
+    title: str | None = None
+    assigned_to: Annotated[str | None, Field(alias="assignedTo")] = None
+    """
+    The one reviewer it is assigned to, when it is.
+    """
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
+    url: str | None = None
+    """
+    Its page in the console, when the runtime knows its public address.
+    """
+
+
+class ApprovalRequestedEventData(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    approval: RequestedApproval
+
+
+class ApprovalRequestedEvent(BaseModel):
+    """
+    An approval was asked for: a reviewer's decision is waiting. Sent once per approval (an escalation is a new approval). `projectId` in the endpoint's filter narrows it to the approval's project.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    """
+    Event id, also sent as the `webhook-id` header; the same on every retry.
+    """
+    type: Literal["approval.requested"]
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    data: ApprovalRequestedEventData
 
 
 class ImproveScheduleTarget(BaseModel):
@@ -9438,7 +9494,7 @@ class WebhookDelivery(BaseModel):
     delivery_id: Annotated[str, Field(alias="deliveryId")]
     endpoint_id: Annotated[str, Field(alias="endpointId")]
     event: Annotated[
-        RunFinishedEvent | ImprovementPassFinishedEvent | WebhookTestEvent,
+        RunFinishedEvent | ImprovementPassFinishedEvent | ApprovalRequestedEvent | WebhookTestEvent,
         Field(discriminator="type"),
     ]
     """
@@ -10883,7 +10939,7 @@ class WebhookEndpoint(BaseModel):
     )
     endpoint_id: Annotated[str, Field(alias="endpointId")]
     url: AnyUrl
-    events: list[Literal["run.finished", "improvement-pass.finished"]]
+    events: list[Literal["run.finished", "improvement-pass.finished", "approval.requested"]]
     filter: WebhookEndpointFilter
     description: str | None
     secret_ref: Annotated[WebhookSecretRef, Field(alias="secretRef")]

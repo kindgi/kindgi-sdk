@@ -106,8 +106,8 @@ print(endpoint.endpoint_id, endpoint.url)
   metadata addresses stay refused. A URL the deployment refuses gets
   `400 webhook-url-refused`, with the reason: `The deployment refuses this
   URL: private network addresses are not allowed`.
-- **`events`**: `run.finished` (and `improvement-pass.finished`,
-  [below](#improvement-passes)).
+- **`events`**: `run.finished` (and `improvement-pass.finished` and
+  `approval.requested`, [below](#improvement-passes)).
 - **`secretRef`** names the secret: the environment it's in (`local` in
   development) and its name. Kindgi checks that it exists and is strong
   enough, and keeps only the name:
@@ -181,6 +181,20 @@ the pass as `GET /v1/improvement-passes/<pass-id>` shows it; its outcome
 names the proposal it wrote, if it wrote one. Of the filter, only
 `projectId` (the pass's project) applies; `flowIds` and `includeDryRuns` are
 about runs. The Python client's `parse_event` reads it.
+
+## Approvals
+
+An endpoint that lists `approval.requested` gets one each time an approval
+starts waiting for a reviewer (an escalation opens a new approval, so a new
+event). Its `data.approval` says which approval and who may decide it:
+`approvalId`, `projectId`, `requiredRole`, `title`, `assignedTo` when it's
+assigned, `createdAt`, `expiresAt`, and `url`, its page in the console when
+the runtime knows its public address. It never carries what the approval is
+about (no `context`, no tool call or run input): that stays behind sign-in.
+Of the filter, only `projectId` (the approval's project) applies. An
+approval that's rolled back before it's saved sends nothing. To email the
+reviewers themselves instead, see
+[reviewer email](../../approvals/decide-an-approval/#reviewer-email).
 
 ## Delivery
 

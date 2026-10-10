@@ -9747,7 +9747,7 @@ export const WebhookTriggerUnregisterResultSchema: JsonSchema = {
 
 export const WebhookEventTypeSchema: JsonSchema = {
   type: 'string',
-  enum: ['run.finished', 'improvement-pass.finished'],
+  enum: ['run.finished', 'improvement-pass.finished', 'approval.requested'],
   description: 'An event type an endpoint can subscribe to.',
 };
 
@@ -9981,6 +9981,54 @@ export const ImprovementPassFinishedEventSchema: JsonSchema = {
   },
 };
 
+export const RequestedApprovalSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['approvalId', 'requiredRole', 'createdAt'],
+  description:
+    'The approval an `approval.requested` event names. What it is about stays behind sign-in: no `context`, no tool call or run input.',
+  properties: {
+    approvalId: { type: 'string' },
+    projectId: { type: 'string' },
+    requiredRole: {
+      $ref: '#/components/schemas/ReviewerRole',
+      description: 'The least reviewer role that may decide it.',
+    },
+    title: { type: 'string' },
+    assignedTo: { type: 'string', description: 'The one reviewer it is assigned to, when it is.' },
+    createdAt: { type: 'string', format: 'date-time' },
+    expiresAt: { type: 'string', format: 'date-time' },
+    url: {
+      type: 'string',
+      description: 'Its page in the console, when the runtime knows its public address.',
+    },
+  },
+};
+
+export const ApprovalRequestedEventDataSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['approval'],
+  properties: { approval: { $ref: '#/components/schemas/RequestedApproval' } },
+};
+
+export const ApprovalRequestedEventSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'type', 'createdAt', 'data'],
+  description:
+    "An approval was asked for: a reviewer's decision is waiting. Sent once per approval (an escalation is a new approval). `projectId` in the endpoint's filter narrows it to the approval's project.",
+  properties: {
+    id: {
+      type: 'string',
+      description: 'Event id, also sent as the `webhook-id` header; the same on every retry.',
+    },
+    type: { type: 'string', const: 'approval.requested' },
+    createdAt: { type: 'string', format: 'date-time' },
+    data: { $ref: '#/components/schemas/ApprovalRequestedEventData' },
+  },
+};
+
 export const WebhookTestEventSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -10003,6 +10051,7 @@ export const WebhookEventSchema: JsonSchema = {
   oneOf: [
     { $ref: '#/components/schemas/RunFinishedEvent' },
     { $ref: '#/components/schemas/ImprovementPassFinishedEvent' },
+    { $ref: '#/components/schemas/ApprovalRequestedEvent' },
     { $ref: '#/components/schemas/WebhookTestEvent' },
   ],
   discriminator: {
@@ -10010,6 +10059,7 @@ export const WebhookEventSchema: JsonSchema = {
     mapping: {
       'run.finished': '#/components/schemas/RunFinishedEvent',
       'improvement-pass.finished': '#/components/schemas/ImprovementPassFinishedEvent',
+      'approval.requested': '#/components/schemas/ApprovalRequestedEvent',
       'webhook.test': '#/components/schemas/WebhookTestEvent',
     },
   },
@@ -10584,6 +10634,9 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['FinishedRun', FinishedRunSchema],
   ['RunFinishedEvent', RunFinishedEventSchema],
   ['ImprovementPassFinishedEvent', ImprovementPassFinishedEventSchema],
+  ['RequestedApproval', RequestedApprovalSchema],
+  ['ApprovalRequestedEventData', ApprovalRequestedEventDataSchema],
+  ['ApprovalRequestedEvent', ApprovalRequestedEventSchema],
   ['ImproveScheduleTarget', ImproveScheduleTargetSchema],
   ['ImproveScheduleInput', ImproveScheduleInputSchema],
   ['WebhookTestEvent', WebhookTestEventSchema],
