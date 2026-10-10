@@ -1,0 +1,89 @@
+{
+  "name": "bedrock",
+  "description": "Claude, Nova and GPT on Amazon Bedrock, as the runtime's AWS identity (KINDGI_AWS_IDENTITY; --region=<a US region>). The models are US cross-region inference profiles.",
+  "adapterId": "@kindgi/adapter-model-bedrock",
+  "adapterConfig": [
+    {
+      "key": "region",
+      "description": "The US region Bedrock runs in, e.g. us-east-2: the preset's models are us. cross-region inference profiles.",
+      "in": "metadata"
+    }
+  ],
+  "pricesCheckedAt": "2026-10-09",
+  "metadata": {
+    "id": "bedrock",
+    "defaultModel": "us.anthropic.claude-sonnet-5-5",
+    "description": "Amazon Bedrock",
+    "models": [
+      {
+        "name": "us.anthropic.claude-sonnet-5-5",
+        "contextWindow": 1000000,
+        "maxOutputTokens": 16000,
+        "thinking": { "mode": "adaptive", "lowest": "between_tools" },
+        "sampling": false,
+        "features": ["tool-use", "parallel-tool-use", "structured-output", "long-context"],
+        "cost": {
+          "promptUsdPer1kTokens": 0.0022,
+          "completionUsdPer1kTokens": 0.011,
+          "cachedPromptMultiplier": 0.05,
+          "promptCacheCreationMultiplier": 1.25
+        },
+        "description": "Balanced performance and cost."
+      },
+      {
+        "name": "us.amazon.nova-pro-v1:0",
+        "contextWindow": 300000,
+        "maxOutputTokens": 10000,
+        "sampling": true,
+        "features": ["tool-use", "structured-output"],
+        "cost": {
+          "promptUsdPer1kTokens": 0.0008,
+          "completionUsdPer1kTokens": 0.0032,
+          "cachedPromptMultiplier": 0.25,
+          "promptCacheCreationMultiplier": 0
+        },
+        "description": "Amazon's own; inexpensive."
+      },
+      {
+        "name": "us.openai.gpt-6.1-sol",
+        "contextWindow": 1000000,
+        "maxOutputTokens": 128000,
+        "thinking": { "mode": "adaptive", "lowest": "low" },
+        "sampling": false,
+        "features": ["tool-use", "parallel-tool-use", "structured-output", "long-context"],
+        "cost": {
+          "promptUsdPer1kTokens": 0.0022,
+          "completionUsdPer1kTokens": 0.011,
+          "cachedPromptMultiplier": 0.05,
+          "promptCacheCreationMultiplier": 1.25,
+          "longContext": {
+            "thresholdTokens": 272000,
+            "promptUsdPer1kTokens": 0.0044,
+            "completionUsdPer1kTokens": 0.0165
+          }
+        },
+        "description": "GPT's balanced model."
+      },
+      {
+        "name": "us.openai.gpt-6-luna",
+        "contextWindow": 1050000,
+        "maxOutputTokens": 128000,
+        "thinking": { "mode": "adaptive", "lowest": "none" },
+        "sampling": false,
+        "features": ["tool-use", "parallel-tool-use", "structured-output", "long-context"],
+        "cost": {
+          "promptUsdPer1kTokens": 0.00011,
+          "completionUsdPer1kTokens": 0.00055,
+          "cachedPromptMultiplier": 0.1,
+          "promptCacheCreationMultiplier": 1.25,
+          "longContext": {
+            "thresholdTokens": 272000,
+            "promptUsdPer1kTokens": 0.00022,
+            "completionUsdPer1kTokens": 0.000825
+          }
+        },
+        "description": "Fastest and cheapest — routing, classification, simple calls."
+      }
+    ]
+  }
+}

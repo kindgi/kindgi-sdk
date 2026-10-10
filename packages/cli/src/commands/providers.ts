@@ -11,9 +11,11 @@ import { UsageError } from '../errors.js';
 import { renderJson } from '../output.js';
 import { binDisplay, detectBinRunner } from '../package-manager.js';
 import {
+  PRESET_SETTINGS,
   type ProviderPreset,
   loadProviderPresets,
   presetRegistration,
+  presetSettingFlag,
 } from '../providers/preset-loader.js';
 import {
   type TableSpec,
@@ -93,8 +95,11 @@ const register: LeafCommand = {
   kind: 'leaf',
   name: 'register',
   description: 'Register a model provider — from a spec, or a preset (`kindgi providers presets`).',
-  usage:
-    'kindgi providers register (--spec=<json-or-@file> | --preset=<name> [--models=<a,b>] [--project=<id>] [--secret=<NAME>] [--env=<name>] [--max-output-tokens=<n>])',
+  usage: `kindgi providers register (--spec=<json-or-@file> | --preset=<name> [--models=<a,b>] ${Object.values(
+    PRESET_SETTINGS,
+  )
+    .map((s) => `[--${s.flag}=<…>]`)
+    .join(' ')} [--secret=<NAME>] [--env=<name>] [--max-output-tokens=<n>])`,
   optionSpec: {
     spec: {
       type: 'string',
@@ -115,11 +120,13 @@ const register: LeafCommand = {
       description:
         'With `--preset`, register only these of its models, comma-separated (default: all).',
     },
-    project: {
-      type: 'string',
-      description:
-        'For a preset that needs one (`gemini`), the Google Cloud project Vertex AI runs and bills in.',
-    },
+    // The settings a preset can ask for, one flag each (PRESET_SETTINGS).
+    ...Object.fromEntries(
+      Object.values(PRESET_SETTINGS).map((s) => [
+        s.flag,
+        { type: 'string' as const, description: s.description },
+      ]),
+    ),
     secret: {
       type: 'string',
       description:
@@ -220,7 +227,6 @@ async function presetInput(ctx: CommandContext, name: string): Promise<RegisterP
     );
   }
   const modelsFlag = stringFlag(ctx, 'models');
-  const project = stringFlag(ctx, 'project');
   const secret = stringFlag(ctx, 'secret');
   const envName = stringFlag(ctx, 'env') ?? LOCAL_ENV_NAME;
   const maxOutput = stringFlag(ctx, 'max-output-tokens');
@@ -238,7 +244,9 @@ async function presetInput(ctx: CommandContext, name: string): Promise<RegisterP
     }),
     ...(secret !== undefined && { secret }),
     envName,
-    settings: { project },
+    settings: Object.fromEntries(
+      Object.entries(PRESET_SETTINGS).map(([key, s]) => [key, stringFlag(ctx, s.flag)]),
+    ),
     ...(maxOutput !== undefined && { maxOutputTokens: Number(maxOutput) }),
   });
   if (built.kind === 'err') throw new UsageError(built.message);
@@ -295,7 +303,7 @@ const presets: LeafCommand = {
         models: p.metadata.models.map((m) => m.name),
         ...(p.secret !== undefined && { secret: p.secret }),
         ...(p.adapterConfig !== undefined && {
-          needs: p.adapterConfig.map((s) => `--${s.key}`),
+          needs: p.adapterConfig.map((s) => presetSettingFlag(s.key)),
         }),
         pricesCheckedAt: p.pricesCheckedAt,
       }));

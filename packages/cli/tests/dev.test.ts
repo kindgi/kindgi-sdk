@@ -1166,7 +1166,7 @@ describe('kindgi dev — boot flow (no watch)', () => {
     });
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain(
-      'kindgi dev: `providers` in kindgi.config.ts: entry 1: a preset takes',
+      'kindgi dev: `providers` in kindgi.config.ts: entry 1: preset "anthropic" takes `preset`, `models`, `secret`, `maxOutputTokens`; not `model`.',
     );
     expect(spy).not.toHaveBeenCalled();
   });

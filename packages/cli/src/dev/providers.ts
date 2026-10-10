@@ -34,7 +34,16 @@ import type { Provider, RegisterProviderInput } from '@kindgi/client';
 import { LOCAL_ENV_NAME } from '@kindgi/secrets-dotenv';
 
 import { stableStringify } from '../build/envelope.js';
-import { type ProviderPreset, presetRegistration } from '../providers/preset-loader.js';
+import {
+  PRESET_SETTINGS,
+  type PresetSettingKey,
+  type ProviderPreset,
+  isMapSetting,
+  mapSettingOf,
+  presetRegistration,
+  presetSettingFlag,
+  presetSettingMapValue,
+} from '../providers/preset-loader.js';
 
 /** A provider the config declares, as it will be registered. */
 export interface DeclaredProvider {
@@ -46,13 +55,10 @@ export type DeclaredProvidersOutcome =
   | { readonly kind: 'ok'; readonly providers: readonly DeclaredProvider[] }
   | { readonly kind: 'invalid'; readonly message: string };
 
-const PRESET_KEYS: ReadonlySet<string> = new Set([
-  'preset',
-  'models',
-  'project',
-  'secret',
-  'maxOutputTokens',
-]);
+/** Every setting a preset can ask for (PRESET_SETTINGS), by key. */
+const SETTING_KEYS = Object.keys(PRESET_SETTINGS) as PresetSettingKey[];
+/** What every preset declaration takes; a preset's own settings come on top. */
+const CHOICE_KEYS = ['preset', 'models', 'secret', 'maxOutputTokens'] as const;
 
 /**
  * `adapter_config` keys that hold a credential, compared lowercase with
@@ -118,35 +124,113 @@ function fromPreset(
   presets: Readonly<Record<string, ProviderPreset>>,
 ): Built {
   const invalid = (message: string): Built => ({ kind: 'invalid', message });
-  const problem = presetEntryProblem(entry);
-  if (problem !== undefined) return invalid(problem);
-  const { preset: name, models, project, secret, maxOutputTokens } = entry;
-  const preset = presets[name as string];
+  const name = entry.preset;
+  if (typeof name !== 'string' || name === '') return invalid('`preset` must be a preset name.');
+  const preset = presets[name];
   if (preset === undefined) {
     return invalid(`no provider preset "${name}"; there are ${Object.keys(presets).join(', ')}.`);
   }
+  const own = (preset.adapterConfig ?? []).map((s) => s.key as PresetSettingKey);
+  const problem =
+    presetEntryProblem(entry, preset, own, presets) ??
+    missingSettings(entry, preset, own) ??
+    mapKeysProblem(entry, preset, own);
+  if (problem !== undefined) return invalid(problem);
+  const { models, secret, maxOutputTokens } = entry;
   const built = presetRegistration(preset, {
     ...(models !== undefined && { models: models as readonly string[] }),
     ...(secret !== undefined && { secret: secret as string }),
     envName: LOCAL_ENV_NAME,
-    settings: { project: project as string | undefined },
+    settings: Object.fromEntries(own.map((key) => [key, declaredSetting(key, entry[key])])),
     ...(maxOutputTokens !== undefined && { maxOutputTokens: maxOutputTokens as number }),
   });
   if (built.kind === 'err') {
-    // The preset's messages name the CLI flags (`--project=<…>`); the config names keys.
-    return invalid(built.message.replace(/--([a-z]+)=<…>/g, '`$1`'));
+    // The preset's messages name the CLI flags (`--resource-name=<…>`); the config names keys.
+    return invalid(
+      SETTING_KEYS.reduce(
+        (message, key) => message.replaceAll(`${presetSettingFlag(key)}=<…>`, `\`${key}\``),
+        built.message,
+      ),
+    );
   }
   return { kind: 'ok', provider: { id: built.input.metadata.id, input: built.input } };
 }
 
-/** What's wrong with a preset entry's keys and values, before the preset is looked up. */
-function presetEntryProblem(entry: Readonly<Record<string, unknown>>): string | undefined {
-  const unknown = Object.keys(entry).filter((k) => !PRESET_KEYS.has(k));
-  if (unknown.length > 0) {
-    return `a preset takes ${[...PRESET_KEYS].map((k) => `\`${k}\``).join(', ')}; not ${unknown.map((k) => `\`${k}\``).join(', ')}.`;
+/**
+ * The preset's settings the entry leaves out, named by key with what each takes, as a
+ * declaration writes it (a map setting's example, not the flag's `key=value,…`).
+ */
+function missingSettings(
+  entry: Readonly<Record<string, unknown>>,
+  preset: ProviderPreset,
+  own: readonly PresetSettingKey[],
+): string | undefined {
+  const missing = own.filter((key) => entry[key] === undefined);
+  if (missing.length === 0) return undefined;
+  const help = (key: PresetSettingKey) => {
+    const map = mapSettingOf(key);
+    if (map !== undefined) {
+      return `a map, e.g. ${map.example}; a [tool.kindgi.providers.${key}] table in pyproject.toml`;
+    }
+    return (preset.adapterConfig ?? []).find((s) => s.key === key)?.description ?? '';
+  };
+  return `preset "${preset.name}" needs ${missing.map((key) => `\`${key}\` (${help(key)})`).join(', ')}.`;
+}
+
+/**
+ * A map whose keys are models (`deployments`) names exactly the models the entry registers:
+ * the preset's, or its `models`. A typo'd model, or one left out, is said here, by the config.
+ */
+function mapKeysProblem(
+  entry: Readonly<Record<string, unknown>>,
+  preset: ProviderPreset,
+  own: readonly PresetSettingKey[],
+): string | undefined {
+  const registered =
+    (entry.models as readonly string[] | undefined) ?? preset.metadata.models.map((m) => m.name);
+  for (const key of own) {
+    if (mapSettingOf(key)?.keysAreModels !== true) continue;
+    const named = Object.keys(entry[key] as Readonly<Record<string, string>>);
+    const extra = named.filter((name) => !registered.includes(name));
+    if (extra.length > 0) {
+      return `\`${key}\` names ${extra.join(', ')}, which this entry doesn't register (it registers ${registered.join(', ')}).`;
+    }
+    const without = registered.filter((name) => !named.includes(name));
+    if (without.length > 0) return `\`${key}\` has no entry for ${without.join(', ')}.`;
   }
-  const { preset: name, models, project, secret, maxOutputTokens } = entry;
-  if (typeof name !== 'string' || name === '') return '`preset` must be a preset name.';
+  return undefined;
+}
+
+/** A declared setting as the flag takes it: a `map` setting's map as `key=value,…`. */
+function declaredSetting(key: PresetSettingKey, value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  return isMapSetting(key)
+    ? presetSettingMapValue(value as Readonly<Record<string, string>>)
+    : (value as string);
+}
+
+/**
+ * What's wrong with a preset entry's keys and values: it takes its preset's own settings (`own`)
+ * and no other preset's.
+ */
+function presetEntryProblem(
+  entry: Readonly<Record<string, unknown>>,
+  preset: ProviderPreset,
+  own: readonly PresetSettingKey[],
+  presets: Readonly<Record<string, ProviderPreset>>,
+): string | undefined {
+  const takes: readonly string[] = [...CHOICE_KEYS, ...own];
+  const unknown = Object.keys(entry).filter((k) => !takes.includes(k));
+  if (unknown.length > 0) {
+    const whose = (key: string) => {
+      const others = Object.values(presets)
+        .filter((p) => (p.adapterConfig ?? []).some((s) => s.key === key))
+        .map((p) => p.name);
+      return others.length > 0 ? `\`${key}\` (a setting of ${others.join(', ')})` : `\`${key}\``;
+    };
+    return `preset "${preset.name}" takes ${takes.map((k) => `\`${k}\``).join(', ')}; not ${unknown.map(whose).join(', ')}.`;
+  }
+  const { models, secret, maxOutputTokens } = entry;
   if (
     models !== undefined &&
     (!Array.isArray(models) ||
@@ -155,10 +239,14 @@ function presetEntryProblem(entry: Readonly<Record<string, unknown>>): string | 
   ) {
     return '`models` must be a non-empty list of model names.';
   }
+  for (const key of own.filter(isMapSetting)) {
+    const problem = mapProblem(key, entry[key]);
+    if (problem !== undefined) return problem;
+  }
   for (const [key, value] of [
-    ['project', project],
-    ['secret', secret],
-  ] as const) {
+    ...own.filter((key) => !isMapSetting(key)).map((key) => [key, entry[key]] as const),
+    ['secret', secret] as const,
+  ]) {
     if (value !== undefined && (typeof value !== 'string' || value === '')) {
       return `\`${key}\` must be a non-empty string.`;
     }
@@ -170,6 +258,33 @@ function presetEntryProblem(entry: Readonly<Record<string, unknown>>): string | 
       maxOutputTokens < 1)
   ) {
     return '`maxOutputTokens` must be a whole number of at least 1.';
+  }
+  return undefined;
+}
+
+/**
+ * What's wrong with a `map` setting's value: a map with at least one entry, each a non-empty name
+ * to a non-empty value, neither holding the flag's separators (`,` `=`).
+ */
+function mapProblem(key: string, value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  const example = '{ "gpt-6.1-sol": "gpt-6-1-sol" }';
+  if (!isRecord(value)) {
+    return `\`${key}\` must be a map of model to deployment, e.g. ${example} (a table in pyproject.toml).`;
+  }
+  const entries = Object.entries(value);
+  if (entries.length === 0) return `\`${key}\` must name at least one model.`;
+  for (const [name, target] of entries) {
+    if (isRecord(target)) {
+      // TOML reads an unquoted `gpt-6.1-sol = …` as nested tables, at each `.`.
+      return `\`${key}.${name}\` is a table, not a name: in pyproject.toml, quote a model name that holds a \`.\` ("gpt-6.1-sol" = "…").`;
+    }
+    if (name === '' || /[,=]/.test(name)) {
+      return `\`${key}\`: "${name}" isn't a model name (no \`,\` or \`=\`).`;
+    }
+    if (typeof target !== 'string' || target === '' || /[,=]/.test(target)) {
+      return `\`${key}.${name}\` must be a non-empty name, without \`,\` or \`=\`.`;
+    }
   }
   return undefined;
 }

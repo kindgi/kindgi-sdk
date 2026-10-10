@@ -295,7 +295,7 @@ export default {
 In `pyproject.toml`, each one is a `[[tool.kindgi.providers]]` table with
 the same keys. A preset takes:
 - `models`;
-- `project`;
+- the settings its preset asks for, each required: `project` for `gemini`, `resourceName` and `deployments` for `azure-openai`, `region` for `bedrock`. Another preset's setting is refused. `deployments` is a map of model to deployment (`{ 'gpt-6.1-sol': 'gpt-6-1-sol' }`, a `[tool.kindgi.providers.deployments]` table in `pyproject.toml`);
 - `secret`: the key's name, in place of the preset's own;
 - `maxOutputTokens`.
 
