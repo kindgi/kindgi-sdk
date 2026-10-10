@@ -29,7 +29,7 @@ kindgi sso providers start acme-kc --idp=keycloak
 Sign-in with "acme-kc" (OpenID Connect). Send this to whoever runs your identity provider:
 
   Create an OpenID Connect web application (a confidential client) for Kindgi.
-  Redirect URI:  http://localhost:18096/auth/sso/callback/idp-oeqqqegzfbnrlm3ewbcj33sxhu
+  Redirect URI:  http://localhost:18096/auth/sso/callback/idp-ibhu3tdkkrjjjfllbjpu2uk3gm
   Scopes:        openid email profile
   Let in only the people who should use Kindgi (assign users or groups).
 
@@ -44,7 +44,7 @@ Keycloak admin console → your realm → Clients → Create client → OpenID C
   4. Each person needs an email with "Email verified" on, or sign-in is refused.
 Issuer: https://<keycloak-host>/realms/<realm>
 
-Step by step: https://docs.kindgi.com/guides/sso/keycloak/
+Step by step: https://docs.kindgi.com/v0.1/guides/sso/keycloak/
 
 Then register it:
   kindgi sso providers finish acme-kc --kind=oidc --issuer=<issuer> --client-id=<client-id> --client-secret-ref=<NAME> --domains=<your-domain>
@@ -103,7 +103,7 @@ kindgi sso providers finish acme-kc --kind=oidc --issuer=http://127.0.0.1:18091/
       "kind": "oidc",
       "displayName": "Acme Keycloak",
       "domains": ["acme.test"],
-      "signIn": { "redirectUri": "http://localhost:18096/auth/sso/callback/idp-oeqqqegzfbnrlm3ewbcj33sxhu" },
+      "signIn": { "redirectUri": "http://localhost:18096/auth/sso/callback/idp-ibhu3tdkkrjjjfllbjpu2uk3gm" },
       "issuer": "http://127.0.0.1:18091/realms/acme",
       "clientId": "kindgi-live",
       "clientSecretRef": "ACME_KC_SECRET",
@@ -127,7 +127,7 @@ kindgi sso providers test acme-kc
 
 ```text
 Open this in a browser and sign in as a person who's been added to this tenant:
-  http://localhost:18096/auth/start/idp-oeqqqegzfbnrlm3ewbcj33sxhu
+  http://localhost:18096/auth/start/idp-ibhu3tdkkrjjjfllbjpu2uk3gm
 
 Afterwards, the console shows who you are signed in as.
 ```
