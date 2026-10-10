@@ -894,7 +894,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_AWS_IDENTITY',
     description:
-      "Where the server's AWS credentials come from, for the settings that sign in as it (such as the Bedrock adapter's `auth: aws-identity`). `container`: the task's or pod's role from the container credentials endpoint (ECS and Fargate, and EKS Pod Identity). `instance`: the EC2 instance profile, IMDSv2 only (in a container on EC2, raise the IMDS hop limit to 2, or use `container`). `web-identity`: EKS IRSA, from the projected token file and `AWS_ROLE_ARN`, which the platform sets. `profile`: development only (`KINDGI_DEV=true`), a named profile from `~/.aws` as `aws login` or SSO makes it (`KINDGI_AWS_PROFILE`). Unset: the server has no AWS identity, and a registration that needs one is refused. Never the AWS SDK's default chain or keys in the environment; Kindgi keeps no key.",
+      "Used from runtime 0.1.7; runtime 0.1.6 ignores it. Where the server's AWS credentials come from, for the settings that sign in as it (such as the Bedrock adapter's `auth: aws-identity`). `container`: the task's or pod's role from the container credentials endpoint (ECS and Fargate, and EKS Pod Identity). `instance`: the EC2 instance profile, IMDSv2 only (in a container on EC2, raise the IMDS hop limit to 2, or use `container`). `web-identity`: EKS IRSA, from the projected token file and `AWS_ROLE_ARN`, which the platform sets. `profile`: development only (`KINDGI_DEV=true`), a named profile from `~/.aws` as `aws login` or SSO makes it (`KINDGI_AWS_PROFILE`). Unset: the server has no AWS identity, and a registration that needs one is refused. Never the AWS SDK's default chain or keys in the environment; Kindgi keeps no key.",
     example: 'container',
     required: false,
     appliesTo: appliesToServer,
@@ -904,7 +904,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_AWS_PROFILE',
     description:
-      'With `KINDGI_AWS_IDENTITY=profile` (development only): the profile in `~/.aws/config` the server signs in as. Default: `default`.',
+      'Used from runtime 0.1.7; runtime 0.1.6 ignores it. With `KINDGI_AWS_IDENTITY=profile` (development only): the profile in `~/.aws/config` the server signs in as. Default: `default`.',
     example: 'kindgi-dev',
     required: false,
     appliesTo: appliesToServer,
@@ -913,7 +913,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_AWS_ROLE_ARN',
     description:
-      "An IAM role the server assumes on top of its AWS identity (STS, 1-hour sessions renewed before they expire): least privilege, or a role in another account. An IAM role's ARN, `arn:aws:iam::<account>:role/<name>`. Unset: the identity's own permissions.",
+      "Used from runtime 0.1.7; runtime 0.1.6 ignores it. An IAM role the server assumes on top of its AWS identity (STS, 1-hour sessions renewed before they expire): least privilege, or a role in another account. An IAM role's ARN, `arn:aws:iam::<account>:role/<name>`. Unset: the identity's own permissions.",
     example: 'arn:aws:iam::123456789012:role/kindgi-bedrock',
     required: false,
     appliesTo: appliesToServer,
@@ -922,7 +922,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_AWS_ROLE_SESSION_NAME',
     description:
-      "With `KINDGI_AWS_ROLE_ARN`: the role session's name, as CloudTrail shows it. Default: `kindgi-runtime`.",
+      "Used from runtime 0.1.7; runtime 0.1.6 ignores it. With `KINDGI_AWS_ROLE_ARN`: the role session's name, as CloudTrail shows it. Default: `kindgi-runtime`.",
     example: 'kindgi-runtime',
     required: false,
     appliesTo: appliesToServer,
@@ -931,7 +931,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_AWS_STS_REGION',
     description:
-      'With `KINDGI_AWS_ROLE_ARN` or `KINDGI_AWS_IDENTITY=web-identity`: the region whose STS endpoint is used (regional STS, never the global endpoint). Default: `AWS_REGION`. Neither: the server refuses to start.',
+      'Used from runtime 0.1.7; runtime 0.1.6 ignores it. With `KINDGI_AWS_ROLE_ARN` or `KINDGI_AWS_IDENTITY=web-identity`: the region whose STS endpoint is used (regional STS, never the global endpoint). Default: `AWS_REGION`. Neither: the server refuses to start.',
     example: 'us-east-2',
     required: false,
     appliesTo: appliesToServer,
