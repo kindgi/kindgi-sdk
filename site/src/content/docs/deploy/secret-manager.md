@@ -76,8 +76,20 @@ KINDGI_SECRETS_GCP_PROJECT_ID=<project id>
   Kindgi's.
 - **Revoking** a secret disables every one of its versions.
 
-At startup, the runtime checks it can list the project's secrets.
-<!-- The probe's OK line and a failed probe's exit-2 line go here, raw, from a live run. -->
+At startup, the runtime checks it can use Secret Manager in the project, and
+says where it keeps secrets:
+
+```text
+Secrets manager probe OK (gcp-secret-manager): v1 (439ms)
+  Secrets: your own secret manager, Google Secret Manager in project … (Kindgi keeps names and version numbers)
+```
+
+With the Secret Manager API off in the project, it doesn't start (exit code
+2). The middle of the message is Google's own:
+
+```text
+Secrets manager probe failed at boot: unauthorized: Secret Manager isn't turned on in this project: Secret Manager API has not been used in project … before or it is disabled. … Check KINDGI_SECRETS_GCP_PROJECT_ID, that the Secret Manager API is on in that project, and that the runtime's service account has roles/secretmanager.admin on it (it creates secrets, adds, reads and disables versions, and deletes secrets).
+```
 
 ## HashiCorp Vault or OpenBao
 
