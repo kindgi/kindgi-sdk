@@ -180,8 +180,9 @@ after 90 days and denied ones after 365 (see
 A `403` the API answers from its own checks, without asking the model, isn't
 kept here in 0.1.5. That includes a `member` key asking for a tenant admin's
 action, a key without the capability a write needs, a caller who isn't a
-reviewer on the approvals routes, a key limited to one project reaching
-another (`key-project-mismatch`), and console token sign-in's refusals
+reviewer on the approvals routes, a key limited to a project acting on
+another project's resource, a request that names a project other than its
+key's (`key-project-mismatch`), and console token sign-in's refusals
 (`token-sign-in-not-allowed`, `token-sign-in-off`). A `401` (an unknown
 caller) never is.
 
