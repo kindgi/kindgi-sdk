@@ -228,6 +228,8 @@ describe('kindgi init --template=woocommerce', () => {
     const agent = await readFile(join(root, 'agents/store-assistant/index.ts'), 'utf8');
     expect(agent).toContain("'acme-shop.woo.refund': 'never_ask'");
     expect(agent).toContain("default: 'always_ask'");
+    // A refused refund goes back to the model, which can then ask for refund-large.
+    expect(agent).toContain("retryOn: ['invalid-arguments', 'unknown-tool', 'tool-error']");
     const reviewer = await readFile(join(root, 'agents/order-reviewer/index.ts'), 'utf8');
     expect(reviewer).toContain('{{ input.order.orderNumber }}');
   });

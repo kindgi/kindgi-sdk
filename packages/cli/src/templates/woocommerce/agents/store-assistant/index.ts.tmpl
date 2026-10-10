@@ -53,6 +53,15 @@ const defined = defineAgent({
       defaultReviewerRole: 'standard',
     },
   },
+  // A refused call goes back to the model instead of failing the turn: when
+  // `{{PACK_ID}}.woo.refund` refuses a refund past the limit, its message
+  // names `{{PACK_ID}}.woo.refund-large`, and the agent can ask for that
+  // (which waits for a person). Retrying is safe here: `refund` re-reads the
+  // order's refunds on every call, so even a refund the store made but
+  // reported as failed can't take the total past the limit; `refund-large`
+  // waits for a person each time; and a price change or a publish is the same
+  // when repeated.
+  toolErrors: { maxRetries: 2, retryOn: ['invalid-arguments', 'unknown-tool', 'tool-error'] },
   budget: { maxSteps: 8, maxCostUsd: 0.25, maxWallMs: 60_000 },
 });
 

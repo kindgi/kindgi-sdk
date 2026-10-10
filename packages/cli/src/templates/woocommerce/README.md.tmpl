@@ -99,9 +99,11 @@ your own account.
    {{KINDGI}} secrets set WOO_APP_PASSWORD --env=local --scope=tenant   # no-echo prompt: paste the password
    ```
 
-   The password is a secret. Kindgi stores it encrypted and hands it only to
-   the tools that declare it (`needsSpec` in `lib/woo.ts`). It never goes in
-   this pack, its env files or the chat.
+   The password is a secret, and Kindgi hands it only to the tools that
+   declare it (`needsSpec` in `lib/woo.ts`). Under `kindgi dev` it's kept in
+   a file in this folder that only you can read and git ignores; a deployed
+   runtime keeps it in its secrets store. Never write it in the code, a
+   config file or the chat.
 
 Refunds are recorded in WooCommerce, and the money moves however your shop
 moves it. To have the payment gateway refund the money too, set
