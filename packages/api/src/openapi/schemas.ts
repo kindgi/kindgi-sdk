@@ -1403,7 +1403,7 @@ export const ApprovalCollectionPageSchema: JsonSchema = {
     nextCursor: {
       type: 'string',
       description:
-        'Opaque cursor for the next page. ISO timestamp of the tail row internally; treat as opaque on the client.',
+        'Opaque cursor for the next page; treat as opaque on the client.',
     },
     hasMore: { type: 'boolean' },
   },
@@ -3032,7 +3032,7 @@ export const ObservationCollectionPageSchema: JsonSchema = {
     data: { type: 'array', items: { $ref: '#/components/schemas/Observation' } },
     nextCursor: {
       type: 'string',
-      description: 'Opaque ISO-timestamp cursor. Treat as opaque on the client.',
+      description: 'Opaque cursor for the next page; treat as opaque on the client.',
     },
     hasMore: { type: 'boolean' },
   },

@@ -3105,7 +3105,7 @@
           },
           "nextCursor": {
             "type": "string",
-            "description": "Opaque cursor for the next page. ISO timestamp of the tail row internally; treat as opaque on the client."
+            "description": "Opaque cursor for the next page; treat as opaque on the client."
           },
           "hasMore": {
             "type": "boolean"
@@ -3606,7 +3606,7 @@
           },
           "nextCursor": {
             "type": "string",
-            "description": "Opaque ISO-timestamp cursor. Treat as opaque on the client."
+            "description": "Opaque cursor for the next page; treat as opaque on the client."
           },
           "hasMore": {
             "type": "boolean"

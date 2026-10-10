@@ -669,6 +669,7 @@ export type {
   GetProposalInput,
   ListProposalsInput,
   Observation,
+  ObservationPosition,
   ObservationStatus,
   ObservedViolation,
   ProposalCandidate,

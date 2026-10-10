@@ -1385,7 +1385,7 @@ class ObservationCollectionPage(BaseModel):
     data: list[Observation]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     """
-    Opaque ISO-timestamp cursor. Treat as opaque on the client.
+    Opaque cursor for the next page; treat as opaque on the client.
     """
     has_more: Annotated[bool, Field(alias="hasMore")]
 
@@ -10093,7 +10093,7 @@ class ApprovalCollectionPage(BaseModel):
     data: list[Approval]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     """
-    Opaque cursor for the next page. ISO timestamp of the tail row internally; treat as opaque on the client.
+    Opaque cursor for the next page; treat as opaque on the client.
     """
     has_more: Annotated[bool, Field(alias="hasMore")]
 
