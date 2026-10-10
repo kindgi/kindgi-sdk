@@ -8889,7 +8889,7 @@ class ProjectMembership(BaseModel):
     user_id: Annotated[str, Field(alias="userId")]
     role: Literal["viewer", "editor", "owner", "admin", "member"]
     """
-    Role on a project membership.
+    Role on a project, as read. `member` is only read, on a role given before it was retired: it grants what `viewer` does, and writes refuse it.
     """
     joined_at: Annotated[str, Field(alias="joinedAt")]
 
@@ -8918,9 +8918,9 @@ class AddProjectMembershipBody(BaseModel):
     """
     The person's email, as the tenant has it.
     """
-    role: Literal["viewer", "editor", "owner", "admin", "member"]
+    role: Literal["viewer", "editor", "owner", "admin"]
     """
-    Role on a project membership.
+    A role to give on a project: `owner`, `admin`, `editor` or `viewer`, each including the ones after it. `member` is refused (400): give `viewer`.
     """
 
 
@@ -8929,9 +8929,9 @@ class UpdateProjectMembershipBody(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    role: Literal["viewer", "editor", "owner", "admin", "member"]
+    role: Literal["viewer", "editor", "owner", "admin"]
     """
-    Role on a project membership.
+    A role to give on a project: `owner`, `admin`, `editor` or `viewer`, each including the ones after it. `member` is refused (400): give `viewer`.
     """
 
 
@@ -8944,7 +8944,7 @@ class AddProjectMembershipResult(BaseModel):
     user_id: Annotated[str, Field(alias="userId")]
     role: Literal["viewer", "editor", "owner", "admin", "member"]
     """
-    Role on a project membership.
+    Role on a project, as read. `member` is only read, on a role given before it was retired: it grants what `viewer` does, and writes refuse it.
     """
 
 
@@ -10387,7 +10387,24 @@ class ServiceAccountGrantProject(BaseModel):
     project_id: Annotated[UUID, Field(alias="projectId")]
     role: Literal["viewer", "editor", "owner", "admin", "member"]
     """
-    Role on a project membership.
+    Role on a project, as read. `member` is only read, on a role given before it was retired: it grants what `viewer` does, and writes refuse it.
+    """
+
+
+class ServiceAccountGrantProjectBody(BaseModel):
+    """
+    A role to give on one project; it replaces the account's role there.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["project"]
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    role: Literal["viewer", "editor", "owner", "admin"]
+    """
+    A role to give on a project: `owner`, `admin`, `editor` or `viewer`, each including the ones after it. `member` is refused (400): give `viewer`.
     """
 
 
@@ -10395,13 +10412,13 @@ class ServiceAccountGrantBody(
     RootModel[
         ServiceAccountGrantTenantAdmin
         | ServiceAccountGrantTenantMember
-        | ServiceAccountGrantProject
+        | ServiceAccountGrantProjectBody
     ]
 ):
     root: Annotated[
         ServiceAccountGrantTenantAdmin
         | ServiceAccountGrantTenantMember
-        | ServiceAccountGrantProject,
+        | ServiceAccountGrantProjectBody,
         Field(discriminator="kind"),
     ]
     """
@@ -10468,7 +10485,7 @@ class CreateServiceAccountBody(BaseModel):
             Annotated[
                 ServiceAccountGrantTenantAdmin
                 | ServiceAccountGrantTenantMember
-                | ServiceAccountGrantProject,
+                | ServiceAccountGrantProjectBody,
                 Field(discriminator="kind"),
             ]
         ]
@@ -11119,7 +11136,7 @@ class PersonProjectRole(BaseModel):
     project_id: Annotated[str, Field(alias="projectId")]
     role: Literal["viewer", "editor", "owner", "admin", "member"]
     """
-    Role on a project membership.
+    Role on a project, as read. `member` is only read, on a role given before it was retired: it grants what `viewer` does, and writes refuse it.
     """
 
 

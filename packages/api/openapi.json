@@ -2498,6 +2498,31 @@
           }
         }
       },
+      "ServiceAccountGrantProjectBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "projectId",
+          "role"
+        ],
+        "description": "A role to give on one project; it replaces the account's role there.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "project"
+            ]
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "$ref": "#/components/schemas/AssignableProjectRole"
+          }
+        }
+      },
       "ServiceAccountGrant": {
         "description": "What a service account may do: tenant admin, tenant member (read the tenant's settings), or a role on one project.",
         "oneOf": [
@@ -2525,7 +2550,7 @@
             "$ref": "#/components/schemas/ServiceAccountGrantTenantMember"
           },
           {
-            "$ref": "#/components/schemas/ServiceAccountGrantProject"
+            "$ref": "#/components/schemas/ServiceAccountGrantProjectBody"
           }
         ],
         "discriminator": {
@@ -2653,7 +2678,21 @@
           "grants": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/ServiceAccountGrant"
+              "description": "The grant to add: tenant admin, tenant member, or a role on one project.",
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/ServiceAccountGrantTenantAdmin"
+                },
+                {
+                  "$ref": "#/components/schemas/ServiceAccountGrantTenantMember"
+                },
+                {
+                  "$ref": "#/components/schemas/ServiceAccountGrantProjectBody"
+                }
+              ],
+              "discriminator": {
+                "propertyName": "kind"
+              }
             },
             "description": "Written before the account is returned, so its first key works at once."
           }
@@ -16793,7 +16832,17 @@
           "admin",
           "member"
         ],
-        "description": "Role on a project membership."
+        "description": "Role on a project, as read. `member` is only read, on a role given before it was retired: it grants what `viewer` does, and writes refuse it."
+      },
+      "AssignableProjectRole": {
+        "type": "string",
+        "enum": [
+          "viewer",
+          "editor",
+          "owner",
+          "admin"
+        ],
+        "description": "A role to give on a project: `owner`, `admin`, `editor` or `viewer`, each including the ones after it. `member` is refused (400): give `viewer`."
       },
       "Project": {
         "type": "object",
@@ -16975,7 +17024,7 @@
             "description": "The person's email, as the tenant has it."
           },
           "role": {
-            "$ref": "#/components/schemas/ProjectRole"
+            "$ref": "#/components/schemas/AssignableProjectRole"
           }
         }
       },
@@ -16987,7 +17036,7 @@
         ],
         "properties": {
           "role": {
-            "$ref": "#/components/schemas/ProjectRole"
+            "$ref": "#/components/schemas/AssignableProjectRole"
           }
         }
       },

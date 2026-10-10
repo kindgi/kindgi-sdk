@@ -1170,6 +1170,18 @@ export const ServiceAccountGrantProjectSchema: JsonSchema = {
   },
 };
 
+export const ServiceAccountGrantProjectBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'projectId', 'role'],
+  description: "A role to give on one project; it replaces the account's role there.",
+  properties: {
+    kind: { type: 'string', enum: ['project'] },
+    projectId: { type: 'string', format: 'uuid' },
+    role: { $ref: '#/components/schemas/AssignableProjectRole' },
+  },
+};
+
 export const ServiceAccountGrantSchema: JsonSchema = {
   description:
     "What a service account may do: tenant admin, tenant member (read the tenant's settings), or a role on one project.",
@@ -1186,7 +1198,7 @@ export const ServiceAccountGrantBodySchema: JsonSchema = {
   oneOf: [
     { $ref: '#/components/schemas/ServiceAccountGrantTenantAdmin' },
     { $ref: '#/components/schemas/ServiceAccountGrantTenantMember' },
-    { $ref: '#/components/schemas/ServiceAccountGrantProject' },
+    { $ref: '#/components/schemas/ServiceAccountGrantProjectBody' },
   ],
   discriminator: { propertyName: 'kind' },
 };
@@ -1260,7 +1272,9 @@ export const CreateServiceAccountBodySchema: JsonSchema = {
     description: { type: 'string', maxLength: 500 },
     grants: {
       type: 'array',
-      items: { $ref: '#/components/schemas/ServiceAccountGrant' },
+      // Inline, not a `$ref`: the Python codegen would fold the referenced
+      // union into these items and drop its `ServiceAccountGrantBody` class.
+      items: ServiceAccountGrantBodySchema,
       description: 'Written before the account is returned, so its first key works at once.',
     },
   },
@@ -9246,7 +9260,15 @@ export const AddTeamMembershipResultSchema: JsonSchema = {
 export const ProjectRoleSchema: JsonSchema = {
   type: 'string',
   enum: ['viewer', 'editor', 'owner', 'admin', 'member'],
-  description: 'Role on a project membership.',
+  description:
+    'Role on a project, as read. `member` is only read, on a role given before it was retired: it grants what `viewer` does, and writes refuse it.',
+};
+
+export const AssignableProjectRoleSchema: JsonSchema = {
+  type: 'string',
+  enum: ['viewer', 'editor', 'owner', 'admin'],
+  description:
+    'A role to give on a project: `owner`, `admin`, `editor` or `viewer`, each including the ones after it. `member` is refused (400): give `viewer`.',
 };
 
 export const ProjectSchema: JsonSchema = {
@@ -9339,7 +9361,7 @@ export const AddProjectMembershipBodySchema: JsonSchema = {
       minLength: 1,
       description: "The person's email, as the tenant has it.",
     },
-    role: { $ref: '#/components/schemas/ProjectRole' },
+    role: { $ref: '#/components/schemas/AssignableProjectRole' },
   },
 };
 
@@ -9348,7 +9370,7 @@ export const UpdateProjectMembershipBodySchema: JsonSchema = {
   additionalProperties: false,
   required: ['role'],
   properties: {
-    role: { $ref: '#/components/schemas/ProjectRole' },
+    role: { $ref: '#/components/schemas/AssignableProjectRole' },
   },
 };
 
@@ -10950,6 +10972,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ServiceAccountGrantTenantAdmin', ServiceAccountGrantTenantAdminSchema],
   ['ServiceAccountGrantTenantMember', ServiceAccountGrantTenantMemberSchema],
   ['ServiceAccountGrantProject', ServiceAccountGrantProjectSchema],
+  ['ServiceAccountGrantProjectBody', ServiceAccountGrantProjectBodySchema],
   ['ServiceAccountGrant', ServiceAccountGrantSchema],
   ['ServiceAccountGrantBody', ServiceAccountGrantBodySchema],
   ['ServiceAccountUngrantProject', ServiceAccountUngrantProjectSchema],
@@ -11335,6 +11358,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['UpdateTeamMembershipBody', UpdateTeamMembershipBodySchema],
   ['AddTeamMembershipResult', AddTeamMembershipResultSchema],
   ['ProjectRole', ProjectRoleSchema],
+  ['AssignableProjectRole', AssignableProjectRoleSchema],
   ['Project', ProjectSchema],
   ['ProjectSpec', ProjectSpecSchema],
   ['ProjectPatch', ProjectPatchSchema],

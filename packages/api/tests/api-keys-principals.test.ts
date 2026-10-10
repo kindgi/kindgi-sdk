@@ -621,6 +621,33 @@ describe('/v1/service-accounts', () => {
     }
   });
 
+  test('`member` is no project role: a 400 naming `viewer`, on create and on a grant; nothing written', async () => {
+    const h = harness();
+    const retired = "`member` isn't a project role: use `viewer`, which grants the same";
+    const member = { kind: 'project', projectId: P1, role: 'member' };
+    const created = await h.call(ALICE, 'POST', '/v1/service-accounts', {
+      name: 'acme-ci',
+      grants: [member],
+    });
+    expect(created.status).toBe(400);
+    expect(created.body.error).toMatchObject({ code: 'bad-input', message: retired });
+    expect((await h.call(ALICE, 'GET', '/v1/service-accounts')).body.data).toEqual([]);
+
+    await h.call(ALICE, 'POST', '/v1/service-accounts', { name: 'acme-ci' });
+    const granted = await h.call(ALICE, 'POST', '/v1/service-accounts/sa-acme-ci/grant', member);
+    expect(granted.status).toBe(400);
+    expect(granted.body.error).toMatchObject({ code: 'bad-input', message: retired });
+    expect((await h.call(ALICE, 'GET', '/v1/service-accounts/sa-acme-ci')).body.grants).toEqual([]);
+
+    const boss = await h.call(ALICE, 'POST', '/v1/service-accounts/sa-acme-ci/grant', {
+      ...member,
+      role: 'boss',
+    });
+    expect(boss.body.error).toMatchObject({
+      message: "A project grant's `role` must be one of: viewer, editor, owner, admin",
+    });
+  });
+
   test('tenant member is a grant of its own: on create, after, and taken back', async () => {
     const h = harness();
     const created = await h.call(ALICE, 'POST', '/v1/service-accounts', {

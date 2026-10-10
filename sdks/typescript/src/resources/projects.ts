@@ -11,6 +11,7 @@
 import type {
   AddProjectMembershipBody,
   AddProjectMembershipResult,
+  AssignableProjectRole as AssignableProjectRoleWire,
   CreateResourceResult,
   ProjectCollectionPage,
   ProjectMembershipCollectionPage,
@@ -35,7 +36,10 @@ export type UpdateProjectInput = ProjectPatchBody;
 export type ProjectMembershipPage = ProjectMembershipCollectionPage;
 export type AddProjectMembershipInput = AddProjectMembershipBody;
 export type AddProjectMembershipOutcome = AddProjectMembershipResult;
+/** A role on a project, as read: `member` only on one given before it was retired. */
 export type ProjectRoleValue = ProjectRoleWire;
+/** A role to give on a project: `member` is refused, give `viewer`. */
+export type AssignableProjectRoleValue = AssignableProjectRoleWire;
 
 export interface ListProjectsFilter {
   readonly limit?: number;
@@ -93,7 +97,7 @@ export interface ProjectMembershipsClient {
   updateRole(
     projectId: string,
     userId: string,
-    role: ProjectRoleValue,
+    role: AssignableProjectRoleValue,
     options?: { readonly idempotencyKey?: string },
   ): Promise<void>;
   /** @wire DELETE /v1/projects/:projectId/memberships/:userId */
