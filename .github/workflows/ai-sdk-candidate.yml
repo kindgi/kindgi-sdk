@@ -11,6 +11,11 @@ name: AI SDK candidate
 # input reaches the scripts only through `env:`, and
 # `scripts/ai-sdk-candidate.mjs validate` refuses anything but a pinned
 # package at a stable version before it's used.
+#
+# The `ai-sdk-candidate` artifact holds `result.json` (the adapters' tests)
+# and `bump/`: the files the candidates changed (each moved adapter
+# `package.json` and `pnpm-lock.yaml`), as tested, so a pin bump proposes
+# exactly what passed.
 
 on:
   workflow_dispatch:
@@ -49,6 +54,14 @@ jobs:
         run: |
           node scripts/ai-sdk-candidate.mjs apply
           pnpm install --no-frozen-lockfile
+      - name: Keep the files the candidates changed
+        run: |
+          mkdir -p .ai-sdk-candidate/bump
+          git diff --name-only -- pnpm-lock.yaml 'packages/adapters/*/package.json' |
+            while IFS= read -r file; do
+              mkdir -p ".ai-sdk-candidate/bump/$(dirname "$file")"
+              cp "$file" ".ai-sdk-candidate/bump/$file"
+            done
       - name: Build the adapters
         run: pnpm --filter "./packages/adapters/model-*..." run build
       - name: Test the adapters
