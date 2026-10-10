@@ -101,7 +101,7 @@ Everyone's grants come in one read: the people list takes `include=grants`
 (`users.list({ includeGrants: true })` in TypeScript,
 `identity.users.list(include="grants")` in Python). Each person then carries
 `grants`, the same shape as their own grants read. A runtime without an
-authorization store lists the people without them.
+authorization store, or one before 0.1.6, lists the people without them.
 
 Taking tenant admin away is refused in two cases:
 
