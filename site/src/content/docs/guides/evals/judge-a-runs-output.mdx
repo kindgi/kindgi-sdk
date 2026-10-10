@@ -152,15 +152,16 @@ kindgi judge-classes add --name=expert --weight=3 --tenant --min-reviewer-role=s
 - **`--principal-id`**: named users or tokens, by id.
 
 The last two repeat; a caller must meet each one you set (`assertableBy` in
-the API and the clients). Whom a class names is for the admins of its scope:
-anyone else who reads the class gets how many it names (`principalCount`),
-not their ids. Anyone else naming the class is refused with `403`, and
-nothing is recorded:
+the API and the clients). One who doesn't is refused with `403`, and nothing
+is recorded:
 
 ```text
 Error [auth]: You can't judge as "expert": it needs a senior reviewer or above; you're a standard reviewer.
 Error [auth]: You can't judge as "tokens": only service tokens may assert it.
 ```
+
+Whom a class names is for the admins of its scope: anyone else who reads the
+class gets how many it names (`principalCount`), not their ids.
 
 A judgment made under a restriction carries `"restricted": true` (in
 `kindgi judgments list` too). It's decided when the judgment is made, so:
