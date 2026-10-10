@@ -151,6 +151,13 @@ export interface IndexerRunOptions {
    * line as it comes; not the indexer's own result line.
    */
   readonly onOutput?: (line: string, stream: 'stdout' | 'stderr') => void;
+  /**
+   * The sandbox the indexer child runs in (`dev/sandbox`): it imports every
+   * primitive's module, so it runs the pack's code too. Absent, none.
+   */
+  readonly sandbox?: ActiveDevSandbox;
+  /** A notice for the user from starting the indexer in its sandbox. */
+  readonly onNotice?: (line: string) => void;
 }
 
 /** The local pack service `kindgi dev` runs the pack's code in. */

@@ -10,7 +10,17 @@
  *   fix it; the pack service runs without;
  * - required, and it can't: a refusal, before anything starts;
  * - off: one line saying so.
+ *
+ * On, with more than one Kindgi configuration in the app, it refuses: the
+ * code it runs can't change the one in use, but bubblewrap can't stop it
+ * adding another by a name looked up first, which the next start would
+ * load outside the sandbox.
  */
+
+import { existsSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+import { KINDGI_CONFIG_FILENAMES } from '@kindgi/handler-runtime';
 
 import type { PackConfigRecord } from '../../pack-config.js';
 import { DEV_SANDBOX_DOCS, type SandboxAvailability } from './detect.js';
@@ -68,6 +78,13 @@ export async function resolveDevSandbox(opts: {
       ],
     };
   }
+  const configs = kindgiConfigFiles(opts.packDir);
+  if (configs.length > 1) {
+    return {
+      kind: 'error',
+      message: `more than one Kindgi configuration in ${opts.packDir}: ${configs.join(', ')}. With the dev sandbox on, kindgi dev starts with one only: the code it runs can't change it, but could add another by a name looked up first. Keep the one you use and remove the others.`,
+    };
+  }
   const sandbox: ActiveDevSandbox = {
     engine: availability.engine,
     settings: settings.value,
@@ -77,9 +94,23 @@ export async function resolveDevSandbox(opts: {
     kind: 'ok',
     sandbox,
     lines: [
-      `✓ dev sandbox: ${sandboxLabel(availability.engine)}: your tools' code can't read your keys or files outside the app, or reach Docker; it still has the network and the app's own files`,
+      `✓ dev sandbox: ${sandboxLabel(availability.engine)}: your tools' code can't read your keys or files outside the app, write outside it, or reach Docker; it still has the network and the app's own files`,
       ...allowRead.map((p) => `  also reads ${p} (dev.sandbox.allowRead)`),
       ...allowUnixSockets.map((p) => `  also connects to ${p} (dev.sandbox.allowUnixSockets)`),
     ],
   };
+}
+
+/** The Kindgi configuration files in the app: `kindgi.config.*`, `kindgi.config.json`, a `pyproject.toml` with `[tool.kindgi]`. */
+export function kindgiConfigFiles(packDir: string): string[] {
+  const found = [...KINDGI_CONFIG_FILENAMES, 'kindgi.config.json'].filter((name) =>
+    existsSync(join(packDir, name)),
+  );
+  const pyproject = join(packDir, 'pyproject.toml');
+  try {
+    if (/^\[tool\.kindgi[\].]/m.test(readFileSync(pyproject, 'utf8'))) found.push('pyproject.toml');
+  } catch {
+    // No pyproject.toml.
+  }
+  return found;
 }

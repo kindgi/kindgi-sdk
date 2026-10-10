@@ -16,8 +16,15 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { appSecrets, bwrapArgs } from '../src/dev/sandbox/bwrap.js';
 import { type ProbeResult, detectDevSandbox } from '../src/dev/sandbox/detect.js';
-import { resolveDevSandbox } from '../src/dev/sandbox/notices.js';
-import { type SandboxPolicy, classpathEntries, sandboxPolicy } from '../src/dev/sandbox/policy.js';
+import { kindgiConfigFiles, resolveDevSandbox } from '../src/dev/sandbox/notices.js';
+import {
+  CONFIG_FILE_NAMES,
+  type SandboxPolicy,
+  classpathEntries,
+  linkedPackages,
+  sandboxPolicy,
+  symlinksOf,
+} from '../src/dev/sandbox/policy.js';
 import { seatbeltProfile } from '../src/dev/sandbox/seatbelt.js';
 import { devSandboxSettings } from '../src/dev/sandbox/settings.js';
 
@@ -148,6 +155,9 @@ const POLICY: SandboxPolicy = {
   skipped: [],
   allowUnixSockets: ['/tmp/.s.PGSQL.5432'],
   tmpDir: '/private/var/folders/xx/yy/T/kindgi-dev-abc',
+  writable: ['/work/app/.kindgi/dev/indexer'],
+  readOnly: CONFIG_FILE_NAMES.map((n) => `/work/app/${n}`),
+  links: [{ path: '/home/me/.local/share/uv/python/cpython-3.11', target: 'cpython-3.11.16' }],
 };
 
 describe('the Seatbelt profile', () => {
@@ -174,6 +184,51 @@ describe('the Seatbelt profile', () => {
     expect(profile).toContain(
       '(allow file-read* file-write* (subpath "/private/var/folders/xx/yy/T/kindgi-dev-abc"))',
     );
+  });
+
+  test('no writes anywhere but where opened: the default denies them, before every opening', () => {
+    const denyWrites = at('(deny file-write*)\n');
+    expect(at('(allow default)')).toBeLessThan(denyWrites);
+    expect(profile.indexOf('file-write*')).toBe(denyWrites + '(deny '.length);
+    expect(denyWrites).toBeLessThan(at('(subpath "/private/var/folders/xx/yy/T/kindgi-dev-abc"))'));
+    expect(denyWrites).toBeLessThan(at('(allow file-read* file-write* (subpath "/work/app"))'));
+    expect(profile).toContain('(allow file-write* (literal "/dev/null")');
+  });
+
+  test("the indexer's output folder: the one place in .kindgi it writes, opened after the secrets", () => {
+    expect(at('(regex #"/\\.kindgi(/|$)")')).toBeLessThan(
+      at('(allow file-read* file-write* (subpath "/work/app/.kindgi/dev/indexer"))'),
+    );
+  });
+
+  test("Kindgi's configuration can't be written, by any name it's looked up by, last", () => {
+    const readOnly = at('(deny file-write* (literal "/work/app/kindgi.config.ts")');
+    for (const name of ['kindgi.config.mts', 'kindgi.config.json', 'pyproject.toml']) {
+      expect(profile).toContain(`(literal "/work/app/${name}")`);
+    }
+    expect(at('(allow file-read* file-write* (subpath "/work/app"))')).toBeLessThan(readOnly);
+    expect(at('(subpath "/work/app/.kindgi/dev/indexer"))')).toBeLessThan(readOnly);
+  });
+
+  test('a link what it runs resolves through: that link only, and the folders above it to look up', () => {
+    expect(profile).toContain(
+      '(allow file-read* (literal "/home/me/.local/share/uv/python/cpython-3.11"))',
+    );
+    expect(profile).toMatch(
+      /\(allow file-read-metadata [^\n]*\(literal "\/home\/me\/\.local\/share\/uv\/python"\)/,
+    );
+    expect(profile).not.toContain('(subpath "/home/me/.local');
+  });
+
+  test('no Apple Events, LaunchServices or keychain', () => {
+    expect(profile).toContain('(deny appleevent-send)');
+    expect(profile).toContain('(global-name "com.apple.coreservices.launchservicesd")');
+    expect(profile).toContain('(global-name-regex #"^com\\.apple\\.lsd\\.")');
+    expect(profile).toContain('(global-name "com.apple.coreservices.appleevents")');
+    expect(profile).toContain('(global-name "com.apple.SecurityServer")');
+    expect(profile).toContain('(global-name-regex #"^com\\.apple\\.securityd\\.")');
+    // trustd checks TLS certificates: never closed.
+    expect(profile).not.toMatch(/global-name[^)]*trustd/);
   });
 
   test('the folders above what it runs can be looked up, not read', () => {
@@ -234,8 +289,9 @@ describe('bubblewrap', () => {
       },
     );
     const joined = args.join(' ');
-    expect(args.slice(0, 4)).toEqual([
+    expect(args.slice(0, 5)).toEqual([
       '--die-with-parent',
+      '--new-session',
       '--unshare-pid',
       '--as-pid-1',
       '--unshare-ipc',
@@ -248,6 +304,10 @@ describe('bubblewrap', () => {
     expect(joined).toContain('--bind /work/app /work/app');
     expect(joined).toContain('--ro-bind /dev/null /work/app/.env.local');
     expect(joined).toContain('--tmpfs /work/app/.git');
+    expect(joined).toContain(
+      '--symlink cpython-3.11.16 /home/me/.local/share/uv/python/cpython-3.11',
+    );
+    expect(joined.indexOf('--tmpfs /home/me')).toBeLessThan(joined.indexOf('--symlink'));
     expect(joined).not.toContain('--unshare-net');
     expect(args.slice(-5)).toEqual(['--chdir', '/work/app', '--setenv', 'TMPDIR', '/tmp']);
     expect(joined.indexOf('--tmpfs /home/me')).toBeLessThan(
@@ -256,6 +316,46 @@ describe('bubblewrap', () => {
     expect(joined.indexOf('--bind /work/app /work/app')).toBeLessThan(
       joined.indexOf('--ro-bind /dev/null'),
     );
+  });
+});
+
+describe('bubblewrap: what exists in the app', () => {
+  let root: string;
+  beforeEach(async () => {
+    root = await realpath(await mkdtemp(join(tmpdir(), 'kindgi-bwrap-binds-')));
+  });
+  afterEach(async () => {
+    await rm(root, { recursive: true, force: true });
+  });
+
+  test("the indexer's folder bound back over the closed .kindgi; the configuration that exists bound read-only", async () => {
+    const app = join(root, 'app');
+    const indexer = join(app, '.kindgi', 'dev', 'indexer');
+    await mkdir(indexer, { recursive: true });
+    await writeFile(join(app, 'kindgi.config.ts'), 'export default {};\n');
+    const policy: SandboxPolicy = {
+      ...POLICY,
+      app,
+      readRoots: [],
+      allowUnixSockets: [],
+      writable: [indexer],
+      readOnly: CONFIG_FILE_NAMES.map((n) => join(app, n)),
+    };
+    const joined = bwrapArgs(policy, {
+      files: [],
+      dirs: [join(app, '.kindgi')],
+      truncated: false,
+    }).join(' ');
+    expect(joined).toContain(`--bind ${indexer} ${indexer}`);
+    expect(joined.indexOf(`--tmpfs ${join(app, '.kindgi')}`)).toBeLessThan(
+      joined.indexOf(`--bind ${indexer}`),
+    );
+    const config = join(app, 'kindgi.config.ts');
+    expect(joined).toContain(`--ro-bind ${config} ${config}`);
+    expect(joined.indexOf(`--bind ${app} ${app}`)).toBeLessThan(
+      joined.indexOf(`--ro-bind ${config}`),
+    );
+    expect(joined).not.toContain('kindgi.config.mts');
   });
 });
 
@@ -293,6 +393,99 @@ describe('the policy', () => {
     });
     expect(policy.readRoots).toEqual([uvPython]);
     expect(policy.skipped).toEqual([home]);
+  });
+
+  test("a checkout's linked packages: each one's own folder, theirs in turn; never a parent, never a covered link", async () => {
+    const pkgs = join(root, 'checkout', 'packages');
+    const service = join(pkgs, 'service');
+    const dep = join(pkgs, 'dep');
+    const deep = join(pkgs, 'deep');
+    const store = join(root, 'checkout', 'node_modules', '.pnpm', 'zod');
+    for (const [dir, deps] of [
+      [service, { '@x/dep': 'workspace:*', zod: '^4' }],
+      [dep, { '@x/deep': 'workspace:*' }],
+      [deep, {}],
+      [store, {}],
+    ] as const) {
+      await mkdir(join(dir, 'node_modules', '@x'), { recursive: true });
+      await writeFile(join(dir, 'package.json'), JSON.stringify({ dependencies: deps }));
+    }
+    await symlink(dep, join(service, 'node_modules', '@x', 'dep'));
+    await symlink(store, join(service, 'node_modules', 'zod'));
+    await symlink(deep, join(dep, 'node_modules', '@x', 'deep'));
+    expect(
+      linkedPackages([service], [service, join(root, 'checkout', 'node_modules')]).sort(),
+    ).toEqual([deep, dep]);
+
+    const home = join(root, 'home');
+    const app = join(root, 'app');
+    await mkdir(join(service, 'dist'), { recursive: true });
+    await writeFile(join(service, 'dist', 'main.js'), '');
+    await mkdir(home, { recursive: true });
+    await mkdir(app, { recursive: true });
+    const policy = await sandboxPolicy({
+      packDir: app,
+      home,
+      code: { language: 'node' },
+      settings: ON,
+      tmpDir: join(root, 'tmp'),
+      env: {},
+      node: { execPath: process.execPath, entry: join(service, 'dist', 'main.js') },
+    });
+    expect(policy.readRoots).toEqual(expect.arrayContaining([service, dep, deep]));
+    expect(policy.readRoots).not.toContain(pkgs);
+  });
+
+  test('the links a path resolves through, in order: relative and absolute targets, links inside links', async () => {
+    const real = join(root, 'pythons', 'cpython-3.11.16');
+    await mkdir(join(real, 'bin'), { recursive: true });
+    await writeFile(join(real, 'bin', 'python3.11'), '');
+    await symlink('cpython-3.11.16', join(root, 'pythons', 'cpython-3.11'));
+    await mkdir(join(root, 'venv', 'bin'), { recursive: true });
+    await symlink(
+      join(root, 'pythons', 'cpython-3.11', 'bin', 'python3.11'),
+      join(root, 'venv', 'bin', 'python'),
+    );
+    expect(symlinksOf(join(root, 'venv', 'bin', 'python'))).toEqual([
+      {
+        path: join(root, 'venv', 'bin', 'python'),
+        target: join(root, 'pythons', 'cpython-3.11', 'bin', 'python3.11'),
+      },
+      { path: join(root, 'pythons', 'cpython-3.11'), target: 'cpython-3.11.16' },
+    ]);
+    expect(symlinksOf(join(real, 'bin', 'python3.11'))).toEqual([]);
+  });
+
+  test("Python from a venv whose interpreter is uv's: the link between them is reachable, the app's isn't listed", async () => {
+    const home = join(root, 'home');
+    const app = join(root, 'app');
+    const uv = join(home, '.local', 'share', 'uv', 'python');
+    const real = join(uv, 'cpython-3.11.16');
+    await mkdir(join(real, 'bin'), { recursive: true });
+    await writeFile(join(real, 'bin', 'python3.11'), '');
+    await symlink('cpython-3.11.16', join(uv, 'cpython-3.11'));
+    await mkdir(join(app, '.venv', 'bin'), { recursive: true });
+    await symlink(
+      join(uv, 'cpython-3.11', 'bin', 'python3.11'),
+      join(app, '.venv', 'bin', 'python'),
+    );
+    const policy = await sandboxPolicy({
+      packDir: app,
+      home,
+      code: { language: 'python', python: [join(app, '.venv', 'bin', 'python')] },
+      settings: ON,
+      tmpDir: join(root, 'tmp'),
+      env: {},
+      node: { execPath: process.execPath, entry: '/nowhere' },
+      queryPython: async () => ({
+        path: [join(real, 'lib')],
+        prefix: join(app, '.venv'),
+        basePrefix: real,
+        executable: join(app, '.venv', 'bin', 'python'),
+      }),
+    });
+    expect(policy.readRoots).toEqual([real]);
+    expect(policy.links).toEqual([{ path: join(uv, 'cpython-3.11'), target: 'cpython-3.11.16' }]);
   });
 
   test("a JVM pack's classpath, from its @argfile, wildcards and escapes included", async () => {
@@ -348,6 +541,35 @@ describe('what kindgi dev says', () => {
       message:
         "the dev sandbox is required (KINDGI_DEV_SANDBOX=required), and can't run here: bubblewrap (bwrap) isn't installed. Install bubblewrap.",
     });
+  });
+
+  test('on, with more than one Kindgi configuration in the app: refused, naming them', async () => {
+    const dir = await realpath(await mkdtemp(join(tmpdir(), 'kindgi-two-configs-')));
+    try {
+      await writeFile(join(dir, 'kindgi.config.mts'), 'export default {};\n');
+      expect(kindgiConfigFiles(dir)).toEqual(['kindgi.config.mts']);
+      expect(
+        await resolveDevSandbox({ ...base, packDir: dir, env: {}, detect: available }),
+      ).toMatchObject({ kind: 'ok' });
+      await writeFile(join(dir, 'pyproject.toml'), '[project]\nname = "app"\n');
+      expect(kindgiConfigFiles(dir)).toEqual(['kindgi.config.mts']);
+      await writeFile(join(dir, 'kindgi.config.ts'), 'export default {};\n');
+      const refused = await resolveDevSandbox({
+        ...base,
+        packDir: dir,
+        env: {},
+        detect: available,
+      });
+      expect(refused).toMatchObject({ kind: 'error' });
+      expect(refused.kind === 'error' && refused.message).toContain(
+        'kindgi.config.ts, kindgi.config.mts',
+      );
+      await rm(join(dir, 'kindgi.config.ts'));
+      await writeFile(join(dir, 'pyproject.toml'), '[tool.kindgi]\nid = "acme"\n');
+      expect(kindgiConfigFiles(dir)).toEqual(['kindgi.config.mts', 'pyproject.toml']);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 
   test('off: one line, and nothing is detected', async () => {

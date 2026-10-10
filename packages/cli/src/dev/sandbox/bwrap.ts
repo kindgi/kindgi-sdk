@@ -14,7 +14,11 @@
  * this app's `.kindgi` with a tmpfs and its dev outputs bound back). The
  * service keeps the host's network (an outbound call, its loopback
  * listener) and gets its own PID namespace, so it can't see other
- * processes (or read their environment).
+ * processes (or read their environment), and its own session, so it
+ * can't push keystrokes into the terminal `kindgi dev` runs in
+ * (`TIOCSTI`). The app's Kindgi configuration files are bound read-only
+ * (`kindgi dev` loads them, and they say how wide this is); the
+ * indexer's output folder is bound back read-write.
  *
  * bwrap doesn't forward signals, and its PID-namespace init ignores
  * SIGTERM: a reload would never let the old service drain. So the service
@@ -101,7 +105,13 @@ async function classify(
 /** bwrap's arguments for the policy, before `--` and the command. */
 export function bwrapArgs(policy: SandboxPolicy, secrets: AppSecrets): string[] {
   const { app, home } = policy;
-  const args = ['--die-with-parent', '--unshare-pid', '--as-pid-1', '--unshare-ipc'];
+  const args = [
+    '--die-with-parent',
+    '--new-session',
+    '--unshare-pid',
+    '--as-pid-1',
+    '--unshare-ipc',
+  ];
   args.push('--ro-bind', '/', '/', '--dev', '/dev', '--proc', '/proc');
   args.push('--tmpfs', home, '--tmpfs', '/tmp', '--tmpfs', '/var/tmp', '--tmpfs', '/run');
   // DNS on a systemd-resolved host: resolv.conf points into /run.
@@ -110,10 +120,16 @@ export function bwrapArgs(policy: SandboxPolicy, secrets: AppSecrets): string[] 
   if (existsSync(resolved)) args.push('--ro-bind', resolved, resolved);
   for (const socket of sockets) args.push('--bind', socket, socket);
   for (const root of policy.readRoots) args.push('--ro-bind', root, root);
+  // The links what it runs resolves through, where a tmpfs took them away (the home folder).
+  for (const link of policy.links) args.push('--symlink', link.target, link.path);
   args.push('--bind', app, app);
   for (const file of secrets.files) args.push('--ro-bind', '/dev/null', file);
   for (const dir of secrets.dirs) args.push('--tmpfs', dir);
   if (secrets.dirs.includes(join(app, '.kindgi'))) args.push(...devOutputBinds(app));
+  for (const dir of policy.writable.filter((d) => existsSync(d))) args.push('--bind', dir, dir);
+  // A missing name can't be bound without creating it in the app: those stay writable here.
+  for (const file of policy.readOnly.filter((f) => existsSync(f)))
+    args.push('--ro-bind', file, file);
   args.push('--chdir', app, '--setenv', 'TMPDIR', '/tmp');
   return args;
 }

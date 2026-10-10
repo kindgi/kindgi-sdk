@@ -17,11 +17,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { runIndexer } from '@kindgi/handler-runtime';
+import { readFile } from 'node:fs/promises';
+
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 
 import { REAL_DEV_RUNNERS } from '../src/dev/defaults.js';
-import { devIndexPath } from '../src/dev/paths.js';
 import { sandboxTmpDir } from '../src/dev/sandbox/index.js';
 
 const FIXTURE = fileURLToPath(new URL('./fixtures/dev-sandbox-probe.mjs', import.meta.url));
@@ -29,6 +29,14 @@ const FIXTURE = fileURLToPath(new URL('./fixtures/dev-sandbox-probe.mjs', import
 const PROBE = `import { readFileSync, writeFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 const outcome = (fn) => { try { fn(); return 'ok'; } catch (e) { return e.code ?? String(e.status ?? e); } };
+// Top-level code: the indexer runs it when it imports this module. It
+// records what it reached then, in the app (which it may write).
+if (process.argv.some((a) => a.includes('index-child'))) {
+  const at = JSON.parse(process.env.KINDGI_PROBE_AT_INDEX ?? '[]');
+  writeFileSync(new URL('../index-time.json', import.meta.url), JSON.stringify(
+    Object.fromEntries(at.map((p) => [p, outcome(() => readFileSync(p))])),
+  ));
+}
 export default {
   id: 'acme.probe',
   description: 'Says what this process can reach: ok or an error code, never contents.',
@@ -69,6 +77,9 @@ describe.skipIf(engine === undefined)(
     let home: string;
     let tmp: string;
     let out: ProbeOutput;
+    let atIndex: Record<string, string>;
+    /** Outside the home folder, and writable by the user (macOS). */
+    const shared = join('/Users/Shared', `kindgi-dev-sandbox-${process.pid}`);
 
     beforeAll(async () => {
       root = await realpath(await mkdtemp(join(tmpdir(), 'kindgi-dev-sandbox-')));
@@ -88,14 +99,12 @@ describe.skipIf(engine === undefined)(
       await writeFile(join(app, '.kindgi', 'secrets.env'), 'CANARY=fake-canary\n');
       await writeFile(join(home, 'canary'), 'fake-canary\n');
       await writeFile(join(root, 'other', 'canary'), 'fake-canary\n');
-      const indexed = await runIndexer({
-        packDir: app,
-        outputPath: devIndexPath(app),
-        artifactVersion: '20261010.1',
-        publishedAt: '2026-10-10T00:00:00.000Z',
-      });
-      expect(indexed.kind, JSON.stringify(indexed)).toBe('ok');
       tmp = engine === 'seatbelt' ? sandboxTmpDir(app) : '/tmp';
+      const canaries = [
+        join(home, 'canary'),
+        join(app, '.env.local'),
+        join(root, 'other', 'canary'),
+      ];
       const inputs = [
         {
           read: [
@@ -110,6 +119,8 @@ describe.skipIf(engine === undefined)(
             join(app, '.env.local'),
             join(home, 'written'),
             join(tmp, 'scratch.txt'),
+            join(app, 'kindgi.config.ts'),
+            ...(engine === 'seatbelt' ? [shared] : []),
           ],
           exec: [join(app, '.env.local'), join(home, 'canary')],
         },
@@ -120,15 +131,21 @@ describe.skipIf(engine === undefined)(
         execFile(
           process.execPath,
           [FIXTURE, app, home, engine ?? 'seatbelt', inputsPath],
-          { timeout: 60_000 },
+          {
+            timeout: 60_000,
+            env: { ...process.env, KINDGI_PROBE_AT_INDEX: JSON.stringify(canaries) },
+          },
           (err, so, se) => (err ? reject(new Error(`${err.message}\n${so}\n${se}`)) : resolve(so)),
         );
       });
       const report = JSON.parse(stdout.trim().split('\n').pop() ?? '{}') as {
+        indexed?: string;
         outputs?: { kind: string; output: ProbeOutput }[];
         error?: unknown;
       };
       expect(report.error, JSON.stringify(report.error)).toBeUndefined();
+      expect(report.indexed).toBe('ok');
+      atIndex = JSON.parse(await readFile(join(app, 'index-time.json'), 'utf8'));
       const first = report.outputs?.[0];
       expect(first?.kind, JSON.stringify(first)).toBe('result');
       out = first?.output as ProbeOutput;
@@ -136,7 +153,24 @@ describe.skipIf(engine === undefined)(
 
     afterAll(async () => {
       if (root !== undefined) await rm(root, { recursive: true, force: true });
+      await rm(shared, { force: true });
     });
+
+    test("the indexer runs the pack's code in the sandbox too: its top-level code reached none of the canaries", () => {
+      expect(Object.keys(atIndex)).toHaveLength(3);
+      for (const [path, outcome] of Object.entries(atIndex)) expect(outcome, path).not.toBe('ok');
+    });
+
+    test("Kindgi's configuration can't be written from inside (kindgi dev loads it)", () => {
+      expect(out.write[join(app, 'kindgi.config.ts')]).not.toBe('ok');
+    });
+
+    test.skipIf(engine !== 'seatbelt')(
+      'macOS: nothing is written outside the app, home or not',
+      () => {
+        expect(out.write[shared]).not.toBe('ok');
+      },
+    );
 
     test("the app's code and its own files: read and written", () => {
       expect(out.read[join(app, 'package.json')]).toBe('ok');

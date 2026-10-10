@@ -2,15 +2,18 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * `kindgi dev` runs the pack service sandboxed: the tool and module code a
- * coding agent writes can't read the user's keys, other projects, or the
- * Docker socket. It still reaches the network, and reads and writes the
- * app's own files. The guide: https://docs.kindgi.com/v0.1/guides/secrets/dev-sandbox/.
+ * `kindgi dev` runs the pack's code sandboxed, in both processes that run
+ * it: the pack service, and the indexer (which imports every primitive's
+ * module, so runs its top-level code). The tool and module code a coding
+ * agent writes can't read the user's keys, other projects, or the Docker
+ * socket, and can't write outside the app. It still reaches the network,
+ * and reads and writes the app's own files (but Kindgi's configuration).
+ * The guide: https://docs.kindgi.com/v0.1/guides/secrets/dev-sandbox/.
  *
  * At every start, {@link sandboxedCommand} works out what this start runs
  * (the runtime, the dependencies: `policy.ts`), writes the sandbox for it
  * (macOS: a Seatbelt profile; Linux: bwrap's arguments and a wrapper), and
- * returns the pack service's command inside it.
+ * returns the command inside it.
  */
 
 import { createHash } from 'node:crypto';
@@ -64,15 +67,22 @@ export function sandboxTmpDir(packDir: string): string {
   return join(base, `kindgi-dev-${hash}`);
 }
 
+/** Which process runs inside: each gets its own profile file, so the two never share one mid-write. */
+export type SandboxedProcess = 'pack-service' | 'indexer';
+
 export interface SandboxedCommandOptions {
   readonly packDir: string;
   readonly code: PackCode;
-  /** The pack service's command, unsandboxed. */
+  /** The command, unsandboxed. */
   readonly command: readonly [string, ...string[]];
-  /** The pack service's environment. */
+  /** Its environment. */
   readonly env: Readonly<Record<string, string>>;
-  /** Node: the binary and the pack service's entrypoint. */
+  /** Node: the binary and the entrypoint (the pack service's, or the indexer child's). */
   readonly node: { readonly execPath: string; readonly entry: string };
+  /** Default `pack-service`. */
+  readonly process?: SandboxedProcess;
+  /** Folders inside the app's `.kindgi` it may write (made here if missing). */
+  readonly writable?: readonly string[];
   /** A notice for the user: a root left out because it holds the home folder, a search cut short. */
   readonly onNotice?: (line: string) => void;
 }
@@ -88,6 +98,8 @@ export async function sandboxedCommand(
 ): Promise<SandboxedCommand> {
   const tmpDir = sandbox.engine === 'seatbelt' ? sandboxTmpDir(opts.packDir) : '/tmp';
   if (sandbox.engine === 'seatbelt') await mkdir(tmpDir, { recursive: true, mode: 0o700 });
+  for (const dir of opts.writable ?? []) await mkdir(dir, { recursive: true });
+  const which = opts.process ?? 'pack-service';
   const policy = await sandboxPolicy({
     packDir: opts.packDir,
     home: sandbox.home,
@@ -96,6 +108,7 @@ export async function sandboxedCommand(
     tmpDir,
     env: opts.env,
     node: opts.node,
+    ...(opts.writable !== undefined && { writable: opts.writable }),
   });
   for (const root of policy.skipped) {
     opts.onNotice?.(
@@ -105,7 +118,7 @@ export async function sandboxedCommand(
   const devDir = join(opts.packDir, '.kindgi', 'dev');
   await mkdir(devDir, { recursive: true });
   if (sandbox.engine === 'seatbelt') {
-    const profile = join(devDir, 'sandbox.sb');
+    const profile = join(devDir, which === 'indexer' ? 'sandbox-indexer.sb' : 'sandbox.sb');
     await writeFile(profile, seatbeltProfile(policy), { mode: 0o600 });
     return { command: [SANDBOX_EXEC, '-f', profile, ...opts.command], policy };
   }

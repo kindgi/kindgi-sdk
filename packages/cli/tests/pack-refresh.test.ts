@@ -136,6 +136,31 @@ describe('createPackRefresher', () => {
     expect(packIndex.tools[0].modulePath).toBe('.kindgi/dev/dist/tools/a.mjs');
   });
 
+  test("the indexer runs in kindgi dev's sandbox when there is one: it imports the pack's code too", async () => {
+    const h = harness();
+    const sandbox = {
+      engine: 'bwrap',
+      settings: { mode: 'on', source: 'default', allowRead: [], allowUnixSockets: [] },
+      home: '/home/me',
+    } as const;
+    const notices: string[] = [];
+    await createPackRefresher({
+      ...h,
+      packDir,
+      env,
+      code: NODE_PACK_CODE,
+      sandbox,
+      onNotice: (line) => notices.push(line),
+    }).refresh();
+    expect(h.indexerOptions[0]?.sandbox).toBe(sandbox);
+    h.indexerOptions[0]?.onNotice?.('a notice');
+    expect(notices).toEqual(['a notice']);
+
+    const unsandboxed = harness();
+    await createPackRefresher({ ...unsandboxed, packDir, env, code: NODE_PACK_CODE }).refresh();
+    expect(unsandboxed.indexerOptions[0]?.sandbox).toBeUndefined();
+  });
+
   test("code that doesn't bundle is reported with its locations; nothing else runs", async () => {
     const h = harness({ build: { kind: 'err', errors: ['tools/a.ts:3:7: Expected ";"'] } });
     const r = await createPackRefresher({ ...h, packDir, env, code: NODE_PACK_CODE }).refresh();

@@ -707,6 +707,9 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
     env: packEnv,
     code: code.value,
     onIndexerOutput: (line) => emitOutput(showIndexerLine(line, logView)),
+    // The indexer imports every primitive's module: the pack's code, so sandboxed too.
+    ...(devSandbox.sandbox !== undefined && { sandbox: devSandbox.sandbox }),
+    onNotice: packOptions.onNotice,
     ...(devOnly !== undefined && {
       onBuild: async (build) => {
         if (build.externals === undefined) return;
