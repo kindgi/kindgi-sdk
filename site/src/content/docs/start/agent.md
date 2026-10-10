@@ -17,6 +17,10 @@ If you are that agent: follow the steps below in order. Do everything you
 can yourself. Ask the person only for what the steps say needs them, one
 thing at a time, and wait until they say they've done it.
 
+If your fetch tool cut this page short, read it from
+<https://docs.kindgi.com/_llms-txt/start.txt>: the Start section as plain
+text, with this page under "Set up Kindgi with your coding agent".
+
 ## Rules for the whole setup
 
 - **Never let a secret into the chat or into your context.** The pull token
