@@ -940,6 +940,13 @@ class RunsResource:
         eval_run_id: str | UUID | None = None,
         trigger_id: str | UUID | None = None,
         include: Literal["output"] | None = None,
+        status: list[Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]]
+        | None = None,
+        created_after: str | None = None,
+        created_before: str | None = None,
+        agent_version: str | None = None,
+        flow_id: str | UUID | None = None,
+        flow_version: str | None = None,
         timeout: float | None = None,
     ) -> _models.RunCollectionPage:
         """List runs. `GET /v1/runs`
@@ -961,6 +968,12 @@ class RunsResource:
                 "evalRunId": eval_run_id,
                 "triggerId": trigger_id,
                 "include": include,
+                "status": status,
+                "createdAfter": created_after,
+                "createdBefore": created_before,
+                "agentVersion": agent_version,
+                "flowId": flow_id,
+                "flowVersion": flow_version,
             },
             headers={},
             response=_models.RunCollectionPage,
@@ -7726,6 +7739,13 @@ class AsyncRunsResource:
         eval_run_id: str | UUID | None = None,
         trigger_id: str | UUID | None = None,
         include: Literal["output"] | None = None,
+        status: list[Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]]
+        | None = None,
+        created_after: str | None = None,
+        created_before: str | None = None,
+        agent_version: str | None = None,
+        flow_id: str | UUID | None = None,
+        flow_version: str | None = None,
         timeout: float | None = None,
     ) -> _models.RunCollectionPage:
         """List runs. `GET /v1/runs`
@@ -7747,6 +7767,12 @@ class AsyncRunsResource:
                 "evalRunId": eval_run_id,
                 "triggerId": trigger_id,
                 "include": include,
+                "status": status,
+                "createdAfter": created_after,
+                "createdBefore": created_before,
+                "agentVersion": agent_version,
+                "flowId": flow_id,
+                "flowVersion": flow_version,
             },
             headers={},
             response=_models.RunCollectionPage,
