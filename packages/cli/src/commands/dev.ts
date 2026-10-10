@@ -1857,7 +1857,7 @@ function describeProviders(
   registerProviderCommand: string,
 ): string {
   if (providers.length === 0) {
-    return `none — agent turns fail until one is registered: ${registerProviderCommand}`;
+    return `none — this runtime has no dev-echo fallback, so agent turns fail until one is registered: ${registerProviderCommand}`;
   }
   const named = providers
     .map((p) =>
