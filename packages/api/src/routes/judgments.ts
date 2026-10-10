@@ -83,8 +83,9 @@ export function judgmentsRouter(
       reviewers,
     });
     if (prepared.kind === 'err') return fail(prepared.code, prepared.message);
-    const { run, subject, projectId, itemValue, conversationId, restricted } = prepared;
-    const context = (await isFirstJudgment(binding, tenantId, body.runId))
+    const { run, subject, projectId, itemValue, conversationId, restricted, replayOf } = prepared;
+    const first = await isFirstJudgment(binding, tenantId, body.runId);
+    const captured = first
       ? await captureContext({
           tenantId,
           runId: body.runId,
@@ -96,6 +97,9 @@ export function judgmentsRouter(
           flows,
         })
       : undefined;
+    // A comparison's replay is stamped as one with its copy (stored with the
+    // first judgment), so a test set leaves it out (`isReplayCopy`).
+    const context = first && replayOf !== undefined ? { ...(captured ?? {}), replayOf } : captured;
 
     const judgment = await binding.record({
       tenantId,
@@ -430,6 +434,8 @@ type Prepared =
       readonly conversationId?: string;
       /** The class was restricted and the caller met it. */
       readonly restricted?: true;
+      /** The run a comparison's replay re-ran, when the judged run is one. */
+      readonly replayOf?: string;
     }
   | { readonly kind: 'err'; readonly code: string; readonly message: string };
 
@@ -501,6 +507,7 @@ async function prepareJudgment(
   const extra = {
     ...(run.agent !== undefined && { conversationId: run.agent.conversationId as string }),
     ...(restricted && { restricted: true as const }),
+    ...(run.replayOf != null && { replayOf: run.replayOf as unknown as string }),
   };
   if (body.item.pointer === undefined)
     return { kind: 'ok', run: copy, subject, projectId, ...extra };

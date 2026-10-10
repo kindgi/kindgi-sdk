@@ -277,24 +277,6 @@ export type {
   UpdateScheduleInput,
 } from './resources/schedules.js';
 export type {
-  EventTrigger,
-  EventTriggerPage,
-  EventTriggersClient,
-  ListEventTriggersFilter,
-  RegisterEventTriggerInput,
-  UnregisterEventTriggerResult,
-  UpdateEventTriggerInput,
-} from './resources/event-triggers.js';
-export type {
-  ListWebhookTriggersFilter,
-  RegisterWebhookTriggerInput,
-  UnregisterWebhookTriggerResult,
-  UpdateWebhookTriggerInput,
-  WebhookTrigger,
-  WebhookTriggerPage,
-  WebhooksClient,
-} from './resources/webhooks.js';
-export type {
   CreateWebhookEndpointInput,
   ListWebhookDeliveriesFilter,
   ListWebhookEndpointsFilter,
@@ -409,19 +391,19 @@ export type {
 } from './resources/providers.js';
 export type {
   IdentityClient,
+  IdentityMeClient,
   IdentitySessionPage,
   IdentityUser,
   IdentityUserPage,
   IdentityUsersClient,
   ListIdentityUsersFilter,
+  MyPermissions,
   RevokeSessionsOutcome,
   WhoamiInfo,
 } from './resources/identity.js';
 export type {
   AuthClient,
   AuthProvidersClient,
-  CallbackInput,
-  CallbackResultShape,
   IdentityProviderPage,
   IdentityProviderRegisterInput,
   IdentityProviderRegisterOutcome,
@@ -429,8 +411,6 @@ export type {
   IdentityProviderUnregisterOutcome,
   IdentityProviderUpdateInput,
   IdentityProviderUpdateOutcome,
-  LoginInput,
-  LoginResult,
   LogoutResultShape,
   SignInOptionsResult,
   TokenSignInResultShape,

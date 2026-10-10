@@ -35,7 +35,6 @@ import type {
   EvalCaseStoreBinding,
   EvalRunBinding,
   EvalSuiteRegistryBinding,
-  ExchangeCodeFn,
   FlowRegistryBinding,
   GuardrailRegistryBinding,
   HitlBinding,
@@ -458,13 +457,6 @@ const noopServiceAccounts: ServiceAccountBinding = {
   unregister: async () => serviceAccountNotFound,
 };
 
-const noopExchangeCode: ExchangeCodeFn = async () => ({
-  userId: 'noop-user',
-  accessToken: 'noop',
-  expiresAt: new Date(Date.now() + 60_000),
-  scopes: [],
-});
-
 const noopDeploymentRegistry: DeploymentBinding = {
   register: async () => ({
     kind: 'error',
@@ -606,7 +598,6 @@ export function fullAppInput(): CreateAppInput {
     sessionStore: noopSessionStore,
     session: { cookie: { allowedOrigins: ['https://console.example.com'] }, tokenSignIn: true },
     identityProvider: noopIdentityProvider,
-    exchangeCode: noopExchangeCode,
     identityDirectory: noopIdentityDirectory,
     deploymentRegistry: noopDeploymentRegistry,
     signingKeyRegistry: noopSigningKeyRegistry,

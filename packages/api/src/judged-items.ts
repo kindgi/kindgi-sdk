@@ -158,6 +158,11 @@ export interface ItemJudgments {
 export interface MatchedItem {
   readonly item: OutputItem;
   readonly judged?: ItemJudgments;
+  /**
+   * Judgments of this output itself (a comparison's replay, judged after it
+   * ran), for an item the past output's judgments don't cover.
+   */
+  readonly fresh?: ItemJudgments;
 }
 
 /**
@@ -181,6 +186,24 @@ export function matchJudged(
   });
 }
 
+/**
+ * Judgments made on the new output itself, by item key, onto the items the
+ * past output's judgments don't cover: a replay's answer that changed is a
+ * new item, and people (or later a calibrated judge) can judge it there.
+ */
+export function withFresh(
+  matched: readonly MatchedItem[],
+  fresh: readonly ItemJudgments[],
+): readonly MatchedItem[] {
+  if (fresh.length === 0) return matched;
+  const byKey = new Map(fresh.map((j) => [j.key, j]));
+  return matched.map((m) => {
+    if (m.judged !== undefined) return m;
+    const j = byKey.get(m.item.key);
+    return j === undefined ? m : { ...m, fresh: j };
+  });
+}
+
 /** An output scored against judgments: the sums the metrics are made of. */
 export interface OutputScore {
   /** Σ yesWeight and Σ totalWeight over the output's judged items. */
@@ -190,17 +213,33 @@ export interface OutputScore {
   readonly judgedItems: number;
   /** The same sums over the judged items among the first `k` ranked items. */
   readonly topK: { readonly yesWeight: number; readonly totalWeight: number };
+  /**
+   * The part of these sums judged on this output itself (`withFresh`).
+   * Absent when none was.
+   */
+  readonly fresh?: {
+    readonly yesWeight: number;
+    readonly totalWeight: number;
+    readonly items: number;
+  };
 }
 
 export function scoreItems(matched: readonly MatchedItem[], k: number): OutputScore {
   let yesWeight = 0;
   let totalWeight = 0;
   let judgedItems = 0;
+  const fresh = { yesWeight: 0, totalWeight: 0, items: 0 };
   for (const m of matched) {
-    if (m.judged === undefined) continue;
+    const j = m.judged ?? m.fresh;
+    if (j === undefined) continue;
     judgedItems += 1;
-    yesWeight += m.judged.yesWeight;
-    totalWeight += m.judged.totalWeight;
+    yesWeight += j.yesWeight;
+    totalWeight += j.totalWeight;
+    if (m.judged === undefined) {
+      fresh.items += 1;
+      fresh.yesWeight += j.yesWeight;
+      fresh.totalWeight += j.totalWeight;
+    }
   }
   const top = matched
     .filter((m) => m.item.rank !== undefined)
@@ -208,11 +247,19 @@ export function scoreItems(matched: readonly MatchedItem[], k: number): OutputSc
     .slice(0, k);
   const topK = { yesWeight: 0, totalWeight: 0 };
   for (const m of top) {
-    if (m.judged === undefined) continue;
-    topK.yesWeight += m.judged.yesWeight;
-    topK.totalWeight += m.judged.totalWeight;
+    const j = m.judged ?? m.fresh;
+    if (j === undefined) continue;
+    topK.yesWeight += j.yesWeight;
+    topK.totalWeight += j.totalWeight;
   }
-  return { yesWeight, totalWeight, items: matched.length, judgedItems, topK };
+  return {
+    yesWeight,
+    totalWeight,
+    items: matched.length,
+    judgedItems,
+    topK,
+    ...(fresh.items > 0 && { fresh }),
+  };
 }
 
 /** How a new output's items moved against the judged ones. */
@@ -225,11 +272,16 @@ export interface ItemChanges {
   }[];
   /** Judged items the new output no longer has. */
   readonly dropped: readonly { readonly key: string; readonly rankBefore?: number }[];
-  /** The new output's items no one judged (for experts to judge). */
+  /**
+   * The new output's items the past output's judgments don't cover: for
+   * people to judge on the replay itself. `judged` sums what they said
+   * there, once they have.
+   */
   readonly new: readonly {
     readonly key: string;
     readonly pointer: string;
     readonly rank?: number;
+    readonly judged?: { readonly yesWeight: number; readonly totalWeight: number };
   }[];
 }
 
@@ -253,6 +305,9 @@ export function itemChanges(
         key: m.item.key,
         pointer: m.item.pointer,
         ...(m.item.rank !== undefined && { rank: m.item.rank }),
+        ...(m.fresh !== undefined && {
+          judged: { yesWeight: m.fresh.yesWeight, totalWeight: m.fresh.totalWeight },
+        }),
       });
     }
   }

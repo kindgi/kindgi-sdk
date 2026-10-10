@@ -1574,4 +1574,24 @@ describe('kindgi build — the artifact version and publish time', () => {
       vi.useRealTimers();
     }
   });
+
+  test('--published-at as a date is its start in UTC, as deploy takes it; a loose one is refused', async () => {
+    const fixtures = makeFixtures();
+    const argv = ['build', '--local', '--push', '--env=staging', `--path=${packDir}`];
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: [...argv, '--published-at=2026-10-08'],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    const envelope = JSON.parse(
+      await readFile(join(packDir, '.kindgi/build/deploy-envelope.json'), 'utf8'),
+    ) as Record<string, unknown>;
+    expect(envelope.publishedAt).toBe('2026-10-08T00:00:00.000Z');
+
+    const refused = makeFixtures();
+    const loose = await runCli({ ...baseInputs(refused), argv: [...argv, '--published-at=Oct 8'] });
+    expect(loose.exitCode).toBe(2);
+    expect(loose.stderr).toContain('--published-at must be an ISO 8601 time with a zone');
+    expect(refused.state.dockerBuilds).toEqual([]);
+  });
 });
