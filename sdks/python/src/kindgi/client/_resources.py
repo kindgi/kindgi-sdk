@@ -22,6 +22,7 @@ OPERATIONS: dict[str, Operation] = {
     "system.openapi": Operation("system.openapi", "GET", "/v1/openapi.json", "json", False),
     "runs.list": Operation("runs.list", "GET", "/v1/runs", "json", False),
     "runs.start": Operation("runs.start", "POST", "/v1/runs", "json", True),
+    "runs.failures": Operation("runs.failures", "GET", "/v1/runs/failures", "json", False),
     "runs.get": Operation("runs.get", "GET", "/v1/runs/{runId}", "json", False),
     "runs.cancel": Operation("runs.cancel", "POST", "/v1/runs/{runId}/cancel", "json", True),
     "runs.resume": Operation("runs.resume", "POST", "/v1/runs/{runId}/resume", "empty", True),
@@ -231,6 +232,9 @@ OPERATIONS: dict[str, Operation] = {
     "guardrails.get": Operation(
         "guardrails.get", "GET", "/v1/guardrails/{guardrailId}", "json", False
     ),
+    "guardrails.outcomes": Operation(
+        "guardrails.outcomes", "GET", "/v1/guardrails/{guardrailId}/outcomes", "json", False
+    ),
     "guardrails.unregister": Operation(
         "guardrails.unregister", "POST", "/v1/guardrails/{guardrailId}/unregister", "json", True
     ),
@@ -304,6 +308,9 @@ OPERATIONS: dict[str, Operation] = {
     "proposals.get": Operation("proposals.get", "GET", "/v1/proposals/{proposalId}", "json", False),
     "proposals.evaluate": Operation(
         "proposals.evaluate", "POST", "/v1/proposals/{proposalId}/evaluate", "json", True
+    ),
+    "proposals.rescore": Operation(
+        "proposals.rescore", "POST", "/v1/proposals/{proposalId}/rescore", "json", True
     ),
     "proposals.request": Operation(
         "proposals.request", "POST", "/v1/proposals/{proposalId}/request", "json", True
@@ -536,6 +543,9 @@ OPERATIONS: dict[str, Operation] = {
     "evalRuns.cancel": Operation(
         "evalRuns.cancel", "POST", "/v1/eval-runs/{runId}/cancel", "json", False
     ),
+    "evalRuns.rescore": Operation(
+        "evalRuns.rescore", "POST", "/v1/eval-runs/{runId}/rescore", "json", False
+    ),
     "evalRuns.events": Operation(
         "evalRuns.events", "GET", "/v1/eval-runs/{runId}/events", "empty", False
     ),
@@ -567,10 +577,6 @@ OPERATIONS: dict[str, Operation] = {
         "json",
         True,
     ),
-    "auth.login": Operation("auth.login", "POST", "/v1/auth/login/{providerId}", "json", True),
-    "auth.callback": Operation(
-        "auth.callback", "POST", "/v1/auth/callback/{providerId}", "json", False
-    ),
     "auth.refresh": Operation("auth.refresh", "POST", "/v1/auth/refresh", "json", True),
     "auth.logout": Operation("auth.logout", "POST", "/v1/auth/logout", "json", True),
     "identity.users.list": Operation(
@@ -594,6 +600,9 @@ OPERATIONS: dict[str, Operation] = {
         "/v1/identity/users/{userId}/revoke-sessions",
         "json",
         True,
+    ),
+    "identity.me.permissions": Operation(
+        "identity.me.permissions", "GET", "/v1/identity/me/permissions", "json", False
     ),
     "identity.users.grants": Operation(
         "identity.users.grants", "GET", "/v1/identity/users/{userId}/grants", "json", False
@@ -623,6 +632,9 @@ OPERATIONS: dict[str, Operation] = {
     ),
     "compliance.evidence.export": Operation(
         "compliance.evidence.export", "POST", "/v1/compliance/evidence/export", "json", True
+    ),
+    "audit.signIns.list": Operation(
+        "audit.signIns.list", "GET", "/v1/audit/sign-ins", "json", False
     ),
     "audit.authz.list": Operation("audit.authz.list", "GET", "/v1/audit/authz", "json", False),
     "orgs.list": Operation("orgs.list", "GET", "/v1/orgs", "json", False),
@@ -667,11 +679,106 @@ OPERATIONS: dict[str, Operation] = {
     "projects.delete": Operation(
         "projects.delete", "DELETE", "/v1/projects/{projectId}", "empty", True
     ),
+    "projects.judgingRules.list": Operation(
+        "projects.judgingRules.list", "GET", "/v1/projects/{projectId}/judging-rules", "json", False
+    ),
+    "projects.judgingRules.create": Operation(
+        "projects.judgingRules.create",
+        "POST",
+        "/v1/projects/{projectId}/judging-rules",
+        "json",
+        True,
+    ),
+    "projects.judgingRules.preview": Operation(
+        "projects.judgingRules.preview",
+        "GET",
+        "/v1/projects/{projectId}/judging-rules/preview",
+        "json",
+        False,
+    ),
+    "projects.judgingRules.get": Operation(
+        "projects.judgingRules.get",
+        "GET",
+        "/v1/projects/{projectId}/judging-rules/{ruleId}",
+        "json",
+        False,
+    ),
+    "projects.judgingRules.update": Operation(
+        "projects.judgingRules.update",
+        "PATCH",
+        "/v1/projects/{projectId}/judging-rules/{ruleId}",
+        "json",
+        False,
+    ),
+    "projects.judgingRules.unregister": Operation(
+        "projects.judgingRules.unregister",
+        "POST",
+        "/v1/projects/{projectId}/judging-rules/{ruleId}/unregister",
+        "json",
+        False,
+    ),
+    "projects.judgingRules.versions": Operation(
+        "projects.judgingRules.versions",
+        "GET",
+        "/v1/projects/{projectId}/judging-rules/{ruleId}/versions",
+        "json",
+        False,
+    ),
+    "projects.judgingRules.results": Operation(
+        "projects.judgingRules.results",
+        "GET",
+        "/v1/projects/{projectId}/judging-rules/{ruleId}/results",
+        "json",
+        False,
+    ),
+    "projects.judgingQueue.list": Operation(
+        "projects.judgingQueue.list", "GET", "/v1/projects/{projectId}/judging-queue", "json", False
+    ),
+    "projects.judgingQueue.dismiss": Operation(
+        "projects.judgingQueue.dismiss",
+        "POST",
+        "/v1/projects/{projectId}/judging-queue/{runId}/dismiss",
+        "json",
+        False,
+    ),
+    "projects.judgingQueue.reopen": Operation(
+        "projects.judgingQueue.reopen",
+        "POST",
+        "/v1/projects/{projectId}/judging-queue/{runId}/reopen",
+        "json",
+        False,
+    ),
     "projects.memberships.list": Operation(
         "projects.memberships.list", "GET", "/v1/projects/{projectId}/memberships", "json", False
     ),
     "projects.memberships.add": Operation(
         "projects.memberships.add", "POST", "/v1/projects/{projectId}/memberships", "json", True
+    ),
+    "projects.access.list": Operation(
+        "projects.access.list", "GET", "/v1/projects/{projectId}/access", "json", False
+    ),
+    "projects.teamGrants.list": Operation(
+        "projects.teamGrants.list", "GET", "/v1/projects/{projectId}/team-grants", "json", False
+    ),
+    "projects.teamGrants.add": Operation(
+        "projects.teamGrants.add", "POST", "/v1/projects/{projectId}/team-grants", "json", True
+    ),
+    "projects.teamGrants.updateRole": Operation(
+        "projects.teamGrants.updateRole",
+        "PATCH",
+        "/v1/projects/{projectId}/team-grants/{teamId}",
+        "empty",
+        True,
+    ),
+    "projects.teamGrants.remove": Operation(
+        "projects.teamGrants.remove",
+        "DELETE",
+        "/v1/projects/{projectId}/team-grants/{teamId}",
+        "empty",
+        True,
+    ),
+    "teams.projectGrants.list": Operation(
+        "teams.projectGrants.list", "GET", "/v1/teams/{teamId}/project-grants", "json", False
     ),
     "projects.memberships.updateRole": Operation(
         "projects.memberships.updateRole",
@@ -748,46 +855,6 @@ OPERATIONS: dict[str, Operation] = {
     ),
     "schedules.takeOwnership": Operation(
         "schedules.takeOwnership", "POST", "/v1/schedules/{triggerId}/owner", "json", True
-    ),
-    "eventTriggers.list": Operation(
-        "eventTriggers.list", "GET", "/v1/event-triggers", "json", False
-    ),
-    "eventTriggers.register": Operation(
-        "eventTriggers.register", "POST", "/v1/event-triggers", "json", True
-    ),
-    "eventTriggers.get": Operation(
-        "eventTriggers.get", "GET", "/v1/event-triggers/{triggerId}", "json", False
-    ),
-    "eventTriggers.update": Operation(
-        "eventTriggers.update", "PATCH", "/v1/event-triggers/{triggerId}", "json", True
-    ),
-    "eventTriggers.pause": Operation(
-        "eventTriggers.pause", "POST", "/v1/event-triggers/{triggerId}/pause", "json", True
-    ),
-    "eventTriggers.resume": Operation(
-        "eventTriggers.resume", "POST", "/v1/event-triggers/{triggerId}/resume", "json", True
-    ),
-    "eventTriggers.unregister": Operation(
-        "eventTriggers.unregister",
-        "POST",
-        "/v1/event-triggers/{triggerId}/unregister",
-        "json",
-        True,
-    ),
-    "webhooks.list": Operation("webhooks.list", "GET", "/v1/webhooks", "json", False),
-    "webhooks.register": Operation("webhooks.register", "POST", "/v1/webhooks", "json", True),
-    "webhooks.get": Operation("webhooks.get", "GET", "/v1/webhooks/{triggerId}", "json", False),
-    "webhooks.update": Operation(
-        "webhooks.update", "PATCH", "/v1/webhooks/{triggerId}", "json", True
-    ),
-    "webhooks.pause": Operation(
-        "webhooks.pause", "POST", "/v1/webhooks/{triggerId}/pause", "json", True
-    ),
-    "webhooks.resume": Operation(
-        "webhooks.resume", "POST", "/v1/webhooks/{triggerId}/resume", "json", True
-    ),
-    "webhooks.unregister": Operation(
-        "webhooks.unregister", "POST", "/v1/webhooks/{triggerId}/unregister", "json", True
     ),
     "webhookEndpoints.list": Operation(
         "webhookEndpoints.list", "GET", "/v1/webhook-endpoints", "json", False
@@ -903,6 +970,14 @@ class RunsResource:
         eval_run_id: str | UUID | None = None,
         trigger_id: str | UUID | None = None,
         include: Literal["output"] | None = None,
+        status: Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]
+        | list[Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]]
+        | None = None,
+        created_after: str | None = None,
+        created_before: str | None = None,
+        agent_version: str | None = None,
+        flow_id: str | UUID | None = None,
+        flow_version: str | None = None,
         timeout: float | None = None,
     ) -> _models.RunCollectionPage:
         """List runs. `GET /v1/runs`
@@ -924,6 +999,12 @@ class RunsResource:
                 "evalRunId": eval_run_id,
                 "triggerId": trigger_id,
                 "include": include,
+                "status": status,
+                "createdAfter": created_after,
+                "createdBefore": created_before,
+                "agentVersion": agent_version,
+                "flowId": flow_id,
+                "flowVersion": flow_version,
             },
             headers={},
             response=_models.RunCollectionPage,
@@ -950,6 +1031,40 @@ class RunsResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.StartRunBody, body, fields),
             response=_models.Run,
+            timeout=timeout,
+        )
+
+    def failures(
+        self,
+        /,
+        *,
+        project_id: str | UUID,
+        from_: str,
+        to: str,
+        agent_id: str | UUID | None = None,
+        flow_id: str | UUID | None = None,
+        group_by: str | None = None,
+        limit: int | None = None,
+        timeout: float | None = None,
+    ) -> _models.RunFailureGroups:
+        """A project's failed runs, grouped by cause and version. `GET /v1/runs/failures`
+
+        Counts from the server, never from a page: per group, how many runs failed, when the first and the latest failed in the window, and the latest run. People's decisions (`hitl-*`: an approval rejected, cancelled or timed out) come apart as `outcomes`, never as failures. Runs that failed before their cause was recorded come apart as `unrecorded`, by subject and version only. Replays, eval runs' runs and dry runs aren't counted; a child run counts under its own agent or flow. Failed runs go with their retention, so a window can hold fewer than happened. Needs `read` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["runs.failures"],
+            path={},
+            query={
+                "projectId": project_id,
+                "from": from_,
+                "to": to,
+                "agentId": agent_id,
+                "flowId": flow_id,
+                "groupBy": group_by,
+                "limit": limit,
+            },
+            headers={},
+            response=_models.RunFailureGroups,
             timeout=timeout,
         )
 
@@ -1487,7 +1602,7 @@ class ApprovalsReviewersResource:
     ) -> _models.ReviewerCollectionPage:
         """List reviewers registered for the caller's tenant. `GET /v1/approvals/reviewers`
 
-        Cursor-paginated. Optional `?role=` narrows to a specific role class. Reviewer-role gate does NOT apply — roster management is an admin surface, not a reviewer-only action.
+        Cursor-paginated. Optional `?role=` narrows to a specific role class. The roster names people: with authorization on, a tenant admin or a reviewer (a role on the token, or one the roster gives the user) reads it, and anyone else gets `403 permission-denied`.
         """
         return self._client._request(
             _OPERATIONS["approvals.reviewers.list"],
@@ -1522,7 +1637,10 @@ class ApprovalsReviewersResource:
         )
 
     def get(self, reviewer_id: str | UUID, /, *, timeout: float | None = None) -> _models.Reviewer:
-        """Fetch a reviewer. `GET /v1/approvals/reviewers/{reviewerId}`"""
+        """Fetch a reviewer. `GET /v1/approvals/reviewers/{reviewerId}`
+
+        With authorization on, a tenant admin or a reviewer reads it, as the roster; anyone else gets `403 permission-denied`.
+        """
         return self._client._request(
             _OPERATIONS["approvals.reviewers.get"],
             path={"reviewerId": reviewer_id},
@@ -1579,10 +1697,26 @@ class ApprovalsResource:
             "expired",
             "withdrawn",
         ]
+        | list[
+            Literal[
+                "pending",
+                "assigned",
+                "in_review",
+                "approved",
+                "rejected",
+                "escalated",
+                "expired",
+                "withdrawn",
+            ]
+        ]
         | None = None,
+        assigned_to: Literal["me"] | None = None,
+        order: Literal["asc", "desc"] | None = None,
         required_role: Literal["standard", "senior", "admin"] | None = None,
         created_after: str | None = None,
-        wait_token_id: list[str | UUID] | None = None,
+        wait_token_id: str | UUID | list[str | UUID] | None = None,
+        run_id: str | UUID | None = None,
+        include_descendants: bool | None = None,
         timeout: float | None = None,
     ) -> _models.ApprovalCollectionPage:
         """List approvals visible to the caller. `GET /v1/approvals`
@@ -1598,9 +1732,13 @@ class ApprovalsResource:
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
                 "status": status,
+                "assignedTo": assigned_to,
+                "order": order,
                 "requiredRole": required_role,
                 "createdAfter": created_after,
                 "waitTokenId": wait_token_id,
+                "runId": run_id,
+                "includeDescendants": include_descendants,
             },
             headers={},
             response=_models.ApprovalCollectionPage,
@@ -1908,11 +2046,12 @@ class AgentsResource:
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | UUID | None = None,
         inherit: bool | None = None,
+        include_retired: bool | None = None,
         timeout: float | None = None,
     ) -> _models.AgentCollectionPage:
         """List agents. `GET /v1/agents`
 
-        Cursor-paginated list of the latest version per agent id. Optional `?name=` filters by prefix on agent id.
+        Cursor-paginated list of the latest version per agent id. Optional `?name=` filters by prefix on agent id. A retired agent (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
         """
         return self._client._request(
             _OPERATIONS["agents.list"],
@@ -1924,6 +2063,7 @@ class AgentsResource:
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
                 "inherit": inherit,
+                "includeRetired": include_retired,
             },
             headers={},
             response=_models.AgentCollectionPage,
@@ -1971,16 +2111,17 @@ class AgentsResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
+        include_tombstoned: bool | None = None,
         timeout: float | None = None,
     ) -> _models.AgentCollectionPage:
         """List versions of an agent. `GET /v1/agents/{agentId}/versions`
 
-        Cursor-paginated. Sort order is binding-defined (built-in registry: semver asc).
+        Cursor-paginated. Sort order is binding-defined (built-in registry: semver asc). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired agent (every version unregistered) answers too, with its versions to reinstate.
         """
         return self._client._request(
             _OPERATIONS["agents.listVersions"],
             path={"agentId": agent_id},
-            query={"limit": limit, "cursor": cursor},
+            query={"limit": limit, "cursor": cursor, "includeTombstoned": include_tombstoned},
             headers={},
             response=_models.AgentCollectionPage,
             timeout=timeout,
@@ -2226,11 +2367,12 @@ class FlowsResource:
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | UUID | None = None,
         inherit: bool | None = None,
+        include_retired: bool | None = None,
         timeout: float | None = None,
     ) -> _models.FlowCollectionPage:
         """List flows. `GET /v1/flows`
 
-        Cursor-paginated list of the latest version per flow id. Optional `?name=` filters by prefix on flow id.
+        Cursor-paginated list of the latest version per flow id. Optional `?name=` filters by prefix on flow id. A retired flow (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
         """
         return self._client._request(
             _OPERATIONS["flows.list"],
@@ -2242,6 +2384,7 @@ class FlowsResource:
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
                 "inherit": inherit,
+                "includeRetired": include_retired,
             },
             headers={},
             response=_models.FlowCollectionPage,
@@ -2289,16 +2432,17 @@ class FlowsResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
+        include_tombstoned: bool | None = None,
         timeout: float | None = None,
     ) -> _models.FlowCollectionPage:
         """List versions of a flow. `GET /v1/flows/{flowId}/versions`
 
-        Cursor-paginated. Sort order is binding-defined (for example semver asc).
+        Cursor-paginated. Sort order is binding-defined (for example semver asc). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired flow (every version unregistered) answers too, with its versions to reinstate.
         """
         return self._client._request(
             _OPERATIONS["flows.listVersions"],
             path={"flowId": flow_id},
-            query={"limit": limit, "cursor": cursor},
+            query={"limit": limit, "cursor": cursor, "includeTombstoned": include_tombstoned},
             headers={},
             response=_models.FlowCollectionPage,
             timeout=timeout,
@@ -2375,11 +2519,12 @@ class ToolsResource:
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | UUID | None = None,
         inherit: bool | None = None,
+        include_retired: bool | None = None,
         timeout: float | None = None,
     ) -> _models.ToolCollectionPage:
         """List tools. `GET /v1/tools`
 
-        Cursor-paginated list of registered tool manifests. Optional `?name=` filters by prefix on tool id.
+        Cursor-paginated list of registered tool manifests. Optional `?name=` filters by prefix on tool id. A retired tool (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
         """
         return self._client._request(
             _OPERATIONS["tools.list"],
@@ -2391,6 +2536,7 @@ class ToolsResource:
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
                 "inherit": inherit,
+                "includeRetired": include_retired,
             },
             headers={},
             response=_models.ToolCollectionPage,
@@ -2408,7 +2554,7 @@ class ToolsResource:
     ) -> _models.RegisterToolResult:
         """Register a tool manifest. `POST /v1/tools`
 
-        Body is a `ToolManifest` (Tool minus its runtime handler). Server validates via `@kindgi/tools.validateToolManifest`. Metadata only: the handler is not uploaded through this route and must already be available to the runtime.
+        Body is a `ToolManifest` (Tool minus its runtime handler). Server validates via `@kindgi/tools.validateToolManifest`. Metadata only: the handler is not uploaded through this route and must already be available to the runtime. A tool never gets a model provider's key: one that declares (`needsSpec.secrets`) or sends (`spec.authorization.secretRef`) a secret a provider registration of the tenant names, in any env, is refused.
         """
         return self._client._request(
             _OPERATIONS["tools.register"],
@@ -2583,6 +2729,30 @@ class GuardrailsResource:
             query={},
             headers={},
             response=_models.Guardrail,
+            timeout=timeout,
+        )
+
+    def outcomes(
+        self,
+        guardrail_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID,
+        from_: str,
+        to: str,
+        recent: int | None = None,
+        timeout: float | None = None,
+    ) -> _models.GuardrailOutcomes:
+        """What a guardrail's checks came to in a project. `GET /v1/guardrails/{guardrailId}/outcomes`
+
+        Counts from the server, over a window: how many of the guardrail's checks on agent turns in the project `passed`, were `violated` (the answer went through: `log-only`, `noop`, or an action handed back), `blocked` (a `halt` failed the turn) or `errored` (the check couldn't run; a `halt` guardrail's error fails the turn too, and is counted here). The same counts per agent version, and the window's latest blocked turns, by run id and time only: a blocked answer stays behind its run's page. A guardrail whose scope didn't match a turn wasn't checked on it. Replays and dry runs aren't counted. Outcomes go with their run's retention, so a window can hold fewer than asked; `recordedSince` says how far back they go. A guardrail no longer registered still has its outcomes. Needs `read` on the guardrail and on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["guardrails.outcomes"],
+            path={"guardrailId": guardrail_id},
+            query={"projectId": project_id, "from": from_, "to": to, "recent": recent},
+            headers={},
+            response=_models.GuardrailOutcomes,
             timeout=timeout,
         )
 
@@ -3206,6 +3376,27 @@ class ProposalsResource:
             timeout=timeout,
         )
 
+    def rescore(
+        self,
+        proposal_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.FixProposal:
+        """Rescore a proposal's latest evaluation. `POST /v1/proposals/{proposalId}/rescore`
+
+        After people judge a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison eval run scores the same replays again, counting those judgments, as `POST /v1/eval-runs/{runId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the proposal's evaluation, so the proposal is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.
+        """
+        return self._client._request(
+            _OPERATIONS["proposals.rescore"],
+            path={"proposalId": proposal_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.FixProposal,
+            timeout=timeout,
+        )
+
     def request(
         self,
         proposal_id: str | UUID,
@@ -3702,7 +3893,7 @@ class ProvidersResource:
     ) -> _models.RegisterProviderResult:
         """Register a model provider. `POST /v1/providers`
 
-        Body is a full `ProviderMetadata`. Server validates shape: provider-level `id` + `region` non-empty; `models[]` non-empty with unique `name` per entry; per-model `contextWindow` positive integer; per-model `features` against the closed enum; per-model `cost` non-negative; optional per-model `p95LatencyMs` / `maxOutputTokens` well-shaped; optional `labels` within their limits — same rules as `@kindgi/capabilities.createProviderRegistry`. Secrets (API keys, endpoints) are NOT part of the wire shape; deployments store them inside the binding. When the runtime has the adapter the body names, that adapter checks the registration first (its `adapter_config`, the metadata and the presence of `secret_ref`; static: no network, no secret read): a problem refuses it with `422 provider-config-invalid`.
+        Body is a full `ProviderMetadata`. Server validates shape: provider-level `id` + `region` non-empty; `models[]` non-empty with unique `name` per entry; per-model `contextWindow` positive integer; per-model `features` against the closed enum; per-model `cost` non-negative; optional per-model `p95LatencyMs` / `maxOutputTokens` well-shaped; optional `labels` within their limits — same rules as `@kindgi/capabilities.createProviderRegistry`. Secrets (API keys, endpoints) are NOT part of the wire shape; deployments store them inside the binding. When the runtime has the adapter the body names, that adapter checks the registration first (its `adapter_config`, the metadata and the presence of `secret_ref`; static: no network, no secret read): a problem refuses it with `422 provider-config-invalid`. A model provider's key is used by its provider only: a `secret_ref` naming a secret that a tool, an MCP endpoint or a webhook endpoint already uses is refused (`409 provider-key-in-use`), and from then on the name is refused to tools and endpoints.
         """
         return self._client._request(
             _OPERATIONS["providers.register"],
@@ -4148,7 +4339,7 @@ class McpEndpointsResource:
     ) -> _models.RegisterMCPEndpointResult:
         """Register an MCP endpoint. `POST /v1/mcp/endpoints`
 
-        Body is a full `MCPEndpoint` plus the scope to register it in (`scopeKind` + `scopeId`); authorization checks that scope. Server validates the closed transport enum + the `config.transport` matches `transport` guardrail + per-variant required fields (`command` for stdio; `url` for http-sse / streamable-http), and refuses unknown fields. `secretRef` names a secret in the deployment's store — plaintext secrets never cross the wire. A deployment with `KINDGI_TENANT_HOST_ACCESS=deployed` (the default outside development) refuses a `stdio` endpoint, which would run a command on the server's host: `403 host-access-denied`.
+        Body is a full `MCPEndpoint` plus the scope to register it in (`scopeKind` + `scopeId`); authorization checks that scope. Server validates the closed transport enum + the `config.transport` matches `transport` guardrail + per-variant required fields (`command` for stdio; `url` for http-sse / streamable-http), and refuses unknown fields. `secretRef` names a secret in the deployment's store — plaintext secrets never cross the wire — and never a model provider's key (`400 provider-key-refused`). A deployment with `KINDGI_TENANT_HOST_ACCESS=deployed` (the default outside development) refuses a `stdio` endpoint, which would run a command on the server's host: `403 host-access-denied`.
         """
         return self._client._request(
             _OPERATIONS["mcp.endpoints.register"],
@@ -4730,16 +4921,17 @@ class EvalSuitesVersionsResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
+        include_tombstoned: bool | None = None,
         timeout: float | None = None,
     ) -> _models.EvalSuiteCollectionPage:
         """List versions of an eval suite. `GET /v1/eval-suites/{suiteId}/versions`
 
-        Cursor-paginated. Sort order is binding-defined (for example ascending semver).
+        Cursor-paginated. Sort order is binding-defined (for example ascending semver). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired suite (every version unregistered) answers too, with its versions to reinstate.
         """
         return self._client._request(
             _OPERATIONS["evalSuites.versions.list"],
             path={"suiteId": suite_id},
-            query={"limit": limit, "cursor": cursor},
+            query={"limit": limit, "cursor": cursor, "includeTombstoned": include_tombstoned},
             headers={},
             response=_models.EvalSuiteCollectionPage,
             timeout=timeout,
@@ -4799,11 +4991,12 @@ class EvalSuitesResource:
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | UUID | None = None,
         inherit: bool | None = None,
+        include_retired: bool | None = None,
         timeout: float | None = None,
     ) -> _models.EvalSuiteCollectionPage:
         """List tenant eval suites. `GET /v1/eval-suites`
 
-        Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `EvalSuite.id`. Sort order: suite id ascending. Latest version per id.
+        Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `EvalSuite.id`. Sort order: suite id ascending. Latest version per id. A retired suite (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
         """
         return self._client._request(
             _OPERATIONS["evalSuites.list"],
@@ -4816,6 +5009,7 @@ class EvalSuitesResource:
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
                 "inherit": inherit,
+                "includeRetired": include_retired,
             },
             headers={},
             response=_models.EvalSuiteCollectionPage,
@@ -5206,6 +5400,29 @@ class EvalRunsResource:
             timeout=timeout,
         )
 
+    def rescore(
+        self,
+        run_id: str | UUID,
+        body: _models.RescoreEvalRunBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.StartEvalRunResult:
+        """Rescore a comparison eval run. `POST /v1/eval-runs/{runId}/rescore`
+
+        Starts a new comparison eval run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the judgments recorded on them since (a changed answer judged on the replay itself; `changes.new` lists the items to judge). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's suite and `write` on its project.
+        """
+        return self._client._request(
+            _OPERATIONS["evalRuns.rescore"],
+            path={"runId": run_id},
+            query={},
+            headers={},
+            body=_body(_models.RescoreEvalRunBody, body, fields),
+            response=_models.StartEvalRunResult,
+            timeout=timeout,
+        )
+
     def events(
         self,
         run_id: str | UUID,
@@ -5236,7 +5453,7 @@ class AuthProvidersResource:
     def list(self, /, *, timeout: float | None = None) -> _models.IdentityProviderCollectionPage:
         """List identity providers configured for the tenant. `GET /v1/auth/providers`
 
-        Returns the tenant's identity providers (OIDC, SAML, OAuth 2.0), each with `signIn` when the deployment sets it. Secrets appear only as REFERENCES (`clientSecretRef`, `spSigningKeyRef`…); a plaintext secret is never on the wire.
+        Returns the tenant's identity providers (OIDC, SAML), each with `signIn` when the deployment sets it. Secrets appear only as REFERENCES (`clientSecretRef`, `spSigningKeyRef`…); a plaintext secret is never on the wire.
         """
         return self._client._request(
             _OPERATIONS["auth.providers.list"],
@@ -5256,9 +5473,9 @@ class AuthProvidersResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.RegisterIdentityProviderResult:
-        """Register an identity provider (OIDC, SAML or OAuth 2.0). `POST /v1/auth/providers`
+        """Register an identity provider (OIDC or SAML). `POST /v1/auth/providers`
 
-        Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered`; change it with `PATCH /v1/auth/providers/{providerId}`, which keeps its sign-in URLs. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`. The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.
+        Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered`; change it with `PATCH /v1/auth/providers/{providerId}`, which keeps its sign-in URLs. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`, as is `allowedRedirectUris`, which nothing would enforce (sign-in runs in the deployment, at its own callback URL). The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.
         """
         return self._client._request(
             _OPERATIONS["auth.providers.register"],
@@ -5315,7 +5532,7 @@ class AuthProvidersResource:
         provider_id: str | UUID,
         /,
         *,
-        kind: Literal["oauth2", "oidc", "saml"] | None = None,
+        kind: Literal["oidc", "saml"] | None = None,
         timeout: float | None = None,
     ) -> _models.IdentityProviderSignInUrls:
         """What to give the identity provider, before or after registering. `GET /v1/auth/providers/{providerId}/sign-in`
@@ -5387,59 +5604,12 @@ class AuthResource:
             timeout=timeout,
         )
 
-    def login(
-        self,
-        provider_id: str | UUID,
-        body: _models.LoginBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.AuthorizationResponse:
-        """Initiate OAuth/OIDC login. `POST /v1/auth/login/{providerId}`
-
-        Framework generates `state` + PKCE `code_verifier` (S256 challenge). Caller redirects the user-agent to `authorizationUrl`. Provider redirects back to `redirectUri` with `code` + `state`; caller POSTs those to `/v1/auth/callback/:providerId` to complete the flow. When the provider config populated `allowedRedirectUris`, the effective redirect_uri MUST be an exact match — otherwise `400 redirect-uri-not-allowed`.
-        """
-        return self._client._request(
-            _OPERATIONS["auth.login"],
-            path={"providerId": provider_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.LoginBody, body, fields),
-            response=_models.AuthorizationResponse,
-            timeout=timeout,
-        )
-
-    def callback(
-        self,
-        provider_id: str | UUID,
-        body: _models.CallbackBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.CallbackResult:
-        """Complete an OAuth/OIDC callback. `POST /v1/auth/callback/{providerId}`
-
-        Public — the caller has not yet obtained a session token. Verifies `state`, exchanges `code` for provider tokens via the deployment's `exchangeCode`, fetches userinfo, and persists a session via `SessionStoreBinding`. Returns an opaque `kgi_sk_*` session token the caller uses on subsequent requests. The underlying provider access-token never leaves the server. When the provider config populated `allowedRedirectUris`, the stored redirect_uri is re-checked against the current allowlist — a mismatch (allowlist tightened between login and callback) returns `400 redirect-uri-mismatch`.
-        """
-        return self._client._request(
-            _OPERATIONS["auth.callback"],
-            path={"providerId": provider_id},
-            query={},
-            headers={},
-            body=_body(_models.CallbackBody, body, fields),
-            response=_models.CallbackResult,
-            timeout=timeout,
-        )
-
     def refresh(
         self, /, *, idempotency_key: str | None = None, timeout: float | None = None
     ) -> _models.RefreshResult:
         """Refresh the current session token. `POST /v1/auth/refresh`
 
-        Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. When the deployment wired a `refreshToken` callback and the provider issued a refresh token, provider tokens rotate too; otherwise only the framework session token rotates. OAuth 2.1 BCP refresh-token rotation: the OLD session token is invalidated (marked rotated) — reusing it after refresh returns `401 refresh-token-invalid` so compliant clients can retry with the fresh token instead of prompting a re-auth. A browser session (the session cookie) is not refreshed: `400 cookie-session-not-refreshable`, so a new token never reaches page scripts; it ends at its TTL.
+        Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. The session token rotates: the new session keeps the person, scopes and expiry, and the provider is not called. OAuth 2.1 BCP refresh-token rotation: the OLD session token is invalidated (marked rotated) — reusing it after refresh returns `401 refresh-token-invalid` so compliant clients can retry with the fresh token instead of prompting a re-auth. A browser session (the session cookie) is not refreshed: `400 cookie-session-not-refreshable`, so a new token never reaches page scripts; it ends at its TTL.
         """
         return self._client._request(
             _OPERATIONS["auth.refresh"],
@@ -5481,6 +5651,7 @@ class IdentityUsersResource:
         cursor: str | None = None,
         query: str | None = None,
         include_unregistered: bool | None = None,
+        include: Literal["grants"] | None = None,
         timeout: float | None = None,
     ) -> _models.UserCollectionPage:
         """List users in the tenant. `GET /v1/identity/users`
@@ -5495,6 +5666,7 @@ class IdentityUsersResource:
                 "cursor": cursor,
                 "query": query,
                 "includeUnregistered": include_unregistered,
+                "include": include,
             },
             headers={},
             response=_models.UserCollectionPage,
@@ -5661,12 +5833,34 @@ class IdentityUsersResource:
         )
 
 
+class IdentityMeResource:
+    """`client.identity.me` — the `identity.me` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def permissions(self, /, *, timeout: float | None = None) -> _models.MyPermissions:
+        """What I may do. `GET /v1/identity/me/permissions`
+
+        What the caller may do, so a client can hide what it can't: tenant admin, its reviewer role and the roles it decides, its API key's limits and capabilities, the projects it may read with its role in each and every way it holds it (directly, a team, an org it administers, tenant admin), its orgs and teams, and what each project role allows (from the runtime's authorization model). The key's limits are applied: a `member` key is never tenant admin, and a key limited to a project sees that project alone. Only what the caller may see. The server still checks every call. `501 permissions-unsupported` on a runtime without an authorization store: read whoami's `tenantAdmin` and `reviewerRole` instead.
+        """
+        return self._client._request(
+            _OPERATIONS["identity.me.permissions"],
+            path={},
+            query={},
+            headers={},
+            response=_models.MyPermissions,
+            timeout=timeout,
+        )
+
+
 class IdentityResource:
     """`client.identity` — the `identity` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
         self.users = IdentityUsersResource(client)
+        self.me = IdentityMeResource(client)
 
     def whoami(self, /, *, timeout: float | None = None) -> _models.WhoamiResult:
         """Self — the caller's user + tenant + session context. `GET /v1/identity/whoami`
@@ -5868,6 +6062,56 @@ class ComplianceResource:
         self.evidence = ComplianceEvidenceResource(client)
 
 
+class AuditSignInsResource:
+    """`client.audit.sign_ins` — the `audit.signIns` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        user_id: str | UUID | None = None,
+        kind: Literal[
+            "signed-in",
+            "signed-out",
+            "sign-in-refused",
+            "sign-in-link-sent",
+            "sign-in-link-capped",
+            "sessions-revoked",
+            "sessions-ended",
+        ]
+        | None = None,
+        from_: str | None = None,
+        to: str | None = None,
+        order: Literal["asc", "desc"] | None = None,
+        timeout: float | None = None,
+    ) -> _models.AuditSignInsListResponse:
+        """List sign-in audit events. `GET /v1/audit/sign-ins`
+
+        The tenant's sign-in history: who signed in and out, how (`method`), when and from where (`clientAddress`), what was refused and why, and emailed links sent or capped. `?userId=` narrows to one person's own sign-ins and sign-outs. Oldest first; `?order=desc` for newest first. A tenant admin's to read (403 `permission-denied` otherwise). Only mounted when `CreateAppInput.auditEvents` is wired.
+        """
+        return self._client._request(
+            _OPERATIONS["audit.signIns.list"],
+            path={},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "userId": user_id,
+                "kind": kind,
+                "from": from_,
+                "to": to,
+                "order": order,
+            },
+            headers={},
+            response=_models.AuditSignInsListResponse,
+            timeout=timeout,
+        )
+
+
 class AuditAuthzResource:
     """`client.audit.authz` — the `audit.authz` operations."""
 
@@ -5922,6 +6166,7 @@ class AuditResource:
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
+        self.sign_ins = AuditSignInsResource(client)
         self.authz = AuditAuthzResource(client)
 
 
@@ -6042,7 +6287,7 @@ class TeamsMembershipsResource:
     ) -> _models.TeamMembershipCollectionPage:
         """List memberships of a team. `GET /v1/teams/{teamId}/memberships`
 
-        Cursor-paginated. Sort order is binding-defined (for example `joinedAt` ascending).
+        Cursor-paginated. Sort order is binding-defined (for example `joinedAt` ascending). For the team's admins (and tenant admins): a plain member sees the team, not who else is in it, and reads their own roles through `GET /v1/identity/users/{userId}/grants`.
         """
         return self._client._request(
             _OPERATIONS["teams.memberships.list"],
@@ -6065,7 +6310,7 @@ class TeamsMembershipsResource:
     ) -> _models.AddTeamMembershipResult:
         """Add a user to a team. `POST /v1/teams/{teamId}/memberships`
 
-        Idempotent on `(teamId, userId)` — re-adding an existing member with a different role does NOT overwrite; use PATCH for role changes.
+        Adding a role the member already holds answers 201 with the existing record; another role, 409 `membership-exists` naming the role they hold (`details.role`), which is kept: use PATCH to change it.
         """
         return self._client._request(
             _OPERATIONS["teams.memberships.add"],
@@ -6117,12 +6362,42 @@ class TeamsMembershipsResource:
         )
 
 
+class TeamsProjectGrantsResource:
+    """`client.teams.project_grants` — the `teams.projectGrants` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        team_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.TeamProjectGrantCollectionPage:
+        """List the projects a team holds a role on. `GET /v1/teams/{teamId}/project-grants`
+
+        For the team's admins (and tenant admins). Each grant names its team and project.
+        """
+        return self._client._request(
+            _OPERATIONS["teams.projectGrants.list"],
+            path={"teamId": team_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.TeamProjectGrantCollectionPage,
+            timeout=timeout,
+        )
+
+
 class TeamsResource:
     """`client.teams` — the `teams` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
         self.memberships = TeamsMembershipsResource(client)
+        self.project_grants = TeamsProjectGrantsResource(client)
 
     def list(
         self,
@@ -6211,12 +6486,292 @@ class TeamsResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
     ) -> None:
-        """Delete a team (idempotent, cascades memberships). `DELETE /v1/teams/{teamId}`"""
+        """Delete a team (idempotent, cascades memberships). `DELETE /v1/teams/{teamId}`
+
+        With authorization on, the team's tuples go with it: its members' roles and its project grants, so nobody keeps access through a team that's gone (501 `authz-membership-unsupported` from a runtime that can't do that).
+        """
         return self._client._request(
             _OPERATIONS["teams.delete"],
             path={"teamId": team_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
+            timeout=timeout,
+        )
+
+
+class ProjectsJudgingRulesResource:
+    """`client.projects.judging_rules` — the `projects.judgingRules` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        project_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.JudgingRulePage:
+        """List a project's judging rules. `GET /v1/projects/{projectId}/judging-rules`
+
+        The live rules (their latest versions), oldest first. A rule says which of the project's runs to queue for a person's judgment when they end. Needs `read` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.judgingRules.list"],
+            path={"projectId": project_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.JudgingRulePage,
+            timeout=timeout,
+        )
+
+    def create(
+        self,
+        project_id: str | UUID,
+        body: _models.JudgingRuleSpec | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JudgingRule:
+        """Create a judging rule. `POST /v1/projects/{projectId}/judging-rules`
+
+        Version 1 of a rule. From then on, a top-level run of the project that matches `when` as it ends (and falls in `sample`, while the rule has fewer than `maxOpen` open items) is queued for a person's judgment; replays never are. A rule only lists runs: it never starts a model. Needs `write` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.judgingRules.create"],
+            path={"projectId": project_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.JudgingRuleSpec, body, fields),
+            response=_models.JudgingRule,
+            timeout=timeout,
+        )
+
+    def preview(
+        self,
+        project_id: str | UUID,
+        /,
+        *,
+        agent_ids: str | None = None,
+        flow_ids: str | None = None,
+        versions: str | None = None,
+        status: str | None = None,
+        include_dry_runs: bool | None = None,
+        sample: float | None = None,
+        last: int | None = None,
+        rule_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.JudgingRulePreview:
+        """What a rule would have queued. `GET /v1/projects/{projectId}/judging-rules/preview`
+
+        Among the project's last `last` top-level runs (not replays), how many a rule with these fields (and its `sample`) would have queued. The rule editor's "would have added N of the last 100". Lists are comma-separated. Needs `read` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.judgingRules.preview"],
+            path={"projectId": project_id},
+            query={
+                "agentIds": agent_ids,
+                "flowIds": flow_ids,
+                "versions": versions,
+                "status": status,
+                "includeDryRuns": include_dry_runs,
+                "sample": sample,
+                "last": last,
+                "ruleId": rule_id,
+            },
+            headers={},
+            response=_models.JudgingRulePreview,
+            timeout=timeout,
+        )
+
+    def get(
+        self, project_id: str | UUID, rule_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.JudgingRule:
+        """Fetch a judging rule. `GET /v1/projects/{projectId}/judging-rules/{ruleId}`
+
+        Its latest version. Needs `read` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.judgingRules.get"],
+            path={"projectId": project_id, "ruleId": rule_id},
+            query={},
+            headers={},
+            response=_models.JudgingRule,
+            timeout=timeout,
+        )
+
+    def update(
+        self,
+        project_id: str | UUID,
+        rule_id: str | UUID,
+        body: _models.JudgingRulePatch | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JudgingRule:
+        """Change a judging rule. `PATCH /v1/projects/{projectId}/judging-rules/{ruleId}`
+
+        A new version with these fields changed (`when` is replaced whole). Earlier versions are kept: `…/versions` shows who changed what, when. Needs `write` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.judgingRules.update"],
+            path={"projectId": project_id, "ruleId": rule_id},
+            query={},
+            headers={},
+            body=_body(_models.JudgingRulePatch, body, fields),
+            response=_models.JudgingRule,
+            timeout=timeout,
+        )
+
+    def unregister(
+        self, project_id: str | UUID, rule_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.JudgingRuleUnregisterResult:
+        """Stop a judging rule. `POST /v1/projects/{projectId}/judging-rules/{ruleId}/unregister`
+
+        It queues nothing more; its versions and the items it queued stay. `unregistered: false` when it was already stopped. Needs `write` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.judgingRules.unregister"],
+            path={"projectId": project_id, "ruleId": rule_id},
+            query={},
+            headers={},
+            response=_models.JudgingRuleUnregisterResult,
+            timeout=timeout,
+        )
+
+    def versions(
+        self,
+        project_id: str | UUID,
+        rule_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.JudgingRulePage:
+        """A judging rule's versions. `GET /v1/projects/{projectId}/judging-rules/{ruleId}/versions`
+
+        Every version, newest first: who wrote it, when, and what it said. Needs `read` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.judgingRules.versions"],
+            path={"projectId": project_id, "ruleId": rule_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.JudgingRulePage,
+            timeout=timeout,
+        )
+
+    def results(
+        self,
+        project_id: str | UUID,
+        rule_id: str | UUID,
+        /,
+        *,
+        since: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.JudgingRuleResults:
+        """A judging rule's results. `GET /v1/projects/{projectId}/judging-rules/{ruleId}/results`
+
+        By the rule's version and the agent's: the runs it queued (open, judged, dismissed, erased), the ones its `maxOpen` skipped, and the live judgments on them, with their class-weighted `yes` share and a count by class. Never pooled with another rule's, or across a rule's versions: each is a sample of its own `when`. Needs `read` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.judgingRules.results"],
+            path={"projectId": project_id, "ruleId": rule_id},
+            query={"since": since},
+            headers={},
+            response=_models.JudgingRuleResults,
+            timeout=timeout,
+        )
+
+
+class ProjectsJudgingQueueResource:
+    """`client.projects.judging_queue` — the `projects.judgingQueue` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        project_id: str | UUID,
+        /,
+        *,
+        state: Literal["open", "judged", "dismissed", "erased"] | None = None,
+        agent_id: str | UUID | None = None,
+        rule_id: str | UUID | None = None,
+        judge_class_id: str | UUID | None = None,
+        for_me: bool | None = None,
+        added_after: str | None = None,
+        closed_after: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.JudgingQueuePage:
+        """The project's judging queue. `GET /v1/projects/{projectId}/judging-queue`
+
+        Queued runs, oldest first: never a run's content, only what it was, which rules queued it, whose judgment they want and the judgments so far, and what the caller may do with it (`can`). An item closes as `judged` once every rule that queued it has the judgment it wants. `forMe=true`: the items any judgment closes, or that want a class the caller may assert. `limit=0` answers only the `total`. Needs `read` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.judgingQueue.list"],
+            path={"projectId": project_id},
+            query={
+                "state": state,
+                "agentId": agent_id,
+                "ruleId": rule_id,
+                "judgeClassId": judge_class_id,
+                "forMe": for_me,
+                "addedAfter": added_after,
+                "closedAfter": closed_after,
+                "limit": limit,
+                "cursor": cursor,
+            },
+            headers={},
+            response=_models.JudgingQueuePage,
+            timeout=timeout,
+        )
+
+    def dismiss(
+        self,
+        project_id: str | UUID,
+        run_id: str | UUID,
+        body: _models.JudgingDismissBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JudgingQueueItem:
+        """Dismiss a queued run. `POST /v1/projects/{projectId}/judging-queue/{runId}/dismiss`
+
+        Not worth judging: it leaves the open queue, with who dismissed it and why. `reopen` undoes it. Needs `write` on the project, as judging the run does.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.judgingQueue.dismiss"],
+            path={"projectId": project_id, "runId": run_id},
+            query={},
+            headers={},
+            body=_body(_models.JudgingDismissBody, body, fields),
+            response=_models.JudgingQueueItem,
+            timeout=timeout,
+        )
+
+    def reopen(
+        self, project_id: str | UUID, run_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.JudgingQueueItem:
+        """Reopen a dismissed run. `POST /v1/projects/{projectId}/judging-queue/{runId}/reopen`
+
+        Back in the open queue. Only a dismissed item reopens: a judged one was closed by its judgments. Needs `write` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.judgingQueue.reopen"],
+            path={"projectId": project_id, "runId": run_id},
+            query={},
+            headers={},
+            response=_models.JudgingQueueItem,
             timeout=timeout,
         )
 
@@ -6238,7 +6793,7 @@ class ProjectsMembershipsResource:
     ) -> _models.ProjectMembershipCollectionPage:
         """List direct memberships of a project. `GET /v1/projects/{projectId}/memberships`
 
-        Cursor-paginated. Direct-grant memberships only — team-mediated grants are resolved through the FGA store per tenant.
+        Cursor-paginated. Direct-grant memberships only — team-mediated grants are resolved through the FGA store per tenant. For the project's editors and admins (`write`): a viewer sees the project, not who else is in it, and reads their own roles through `GET /v1/identity/users/{userId}/grants`.
         """
         return self._client._request(
             _OPERATIONS["projects.memberships.list"],
@@ -6261,7 +6816,7 @@ class ProjectsMembershipsResource:
     ) -> _models.AddProjectMembershipResult:
         """Add a user directly to a project. `POST /v1/projects/{projectId}/memberships`
 
-        Names the person by exactly one of `userId` and `email` (matched as the runtime matches emails when it adds a person); someone who is not a person of this tenant, or was removed from it, is refused with 404 `identity-user-not-found`. Idempotent on `(projectId, userId)` — re-adding an existing member with a different role does NOT overwrite; use PATCH for role changes.
+        Names the person by exactly one of `userId` and `email` (matched as the runtime matches emails when it adds a person); someone who is not a person of this tenant, or was removed from it, is refused with 404 `identity-user-not-found`. Adding a role the member already holds answers 201 with the existing record; another role, 409 `membership-exists` naming the role they hold (`details.role`), which is kept: use PATCH to change it.
         """
         return self._client._request(
             _OPERATIONS["projects.memberships.add"],
@@ -6313,12 +6868,137 @@ class ProjectsMembershipsResource:
         )
 
 
+class ProjectsAccessResource:
+    """`client.projects.access` — the `projects.access` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        project_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ProjectAccessPage:
+        """Who has access to a project, and how. `GET /v1/projects/{projectId}/access`
+
+        Everyone the authorization store lets into the project (people and service accounts), each with their effective role and every way in: a direct role, a team's grant, an admin of the project's org, a tenant admin. For the project's editors and admins (`write`): a viewer sees the project, not who else works in it. Emails show to the project's admins only. Ordered by role (owner first), then name. 501 `project-access-unsupported` from a runtime without an authorization store.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.access.list"],
+            path={"projectId": project_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.ProjectAccessPage,
+            timeout=timeout,
+        )
+
+
+class ProjectsTeamGrantsResource:
+    """`client.projects.team_grants` — the `projects.teamGrants` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        project_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.TeamProjectGrantCollectionPage:
+        """List the teams with a role on a project. `GET /v1/projects/{projectId}/team-grants`
+
+        Every member of a team holds its role on the project. For the project's editors and admins (`write`). Each grant names its team and project.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.teamGrants.list"],
+            path={"projectId": project_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.TeamProjectGrantCollectionPage,
+            timeout=timeout,
+        )
+
+    def add(
+        self,
+        project_id: str | UUID,
+        body: _models.AddTeamProjectGrantBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.TeamProjectGrant:
+        """Give a team a role on a project. `POST /v1/projects/{projectId}/team-grants`
+
+        Every member of the team (its admins included) then holds the role on the project. Takes `admin` on the project and `read` on the team: a project is given only to a team you can read. A team's role is `viewer`, `editor` or `admin`: a team never owns a project. Adding a role the team already holds answers 201 with the existing grant; another role, 409 `team-grant-exists` naming the one it holds (`details.role`): use PATCH to change it.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.teamGrants.add"],
+            path={"projectId": project_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.AddTeamProjectGrantBody, body, fields),
+            response=_models.TeamProjectGrant,
+            timeout=timeout,
+        )
+
+    def update_role(
+        self,
+        project_id: str | UUID,
+        team_id: str | UUID,
+        body: _models.UpdateTeamProjectGrantBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> None:
+        """Change a team's role on a project. `PATCH /v1/projects/{projectId}/team-grants/{teamId}`"""
+        return self._client._request(
+            _OPERATIONS["projects.teamGrants.updateRole"],
+            path={"projectId": project_id, "teamId": team_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.UpdateTeamProjectGrantBody, body, fields),
+            timeout=timeout,
+        )
+
+    def remove(
+        self,
+        project_id: str | UUID,
+        team_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> None:
+        """Take a team's role on a project away (idempotent). `DELETE /v1/projects/{projectId}/team-grants/{teamId}`"""
+        return self._client._request(
+            _OPERATIONS["projects.teamGrants.remove"],
+            path={"projectId": project_id, "teamId": team_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            timeout=timeout,
+        )
+
+
 class ProjectsResource:
     """`client.projects` — the `projects` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
+        self.judging_rules = ProjectsJudgingRulesResource(client)
+        self.judging_queue = ProjectsJudgingQueueResource(client)
         self.memberships = ProjectsMembershipsResource(client)
+        self.access = ProjectsAccessResource(client)
+        self.team_grants = ProjectsTeamGrantsResource(client)
 
     def get_default(self, /, *, timeout: float | None = None) -> _models.Project:
         """Fetch the tenant's Default project. `GET /v1/projects/default`
@@ -6886,16 +7566,17 @@ class SchedulesResource:
         limit: int | None = None,
         cursor: str | None = None,
         status: Literal["active", "paused"] | None = None,
+        project_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.ScheduleCollectionPage:
         """List cron schedules. `GET /v1/schedules`
 
-        Cursor-paginated. Tombstoned rows excluded. Optional `?status=active|paused` filter.
+        Cursor-paginated. Tombstoned rows excluded. Optional `?status=active|paused` and `?projectId=` (one project's schedules) filters. Each schedule's `owner.displayName` is the owner's name now (the person's or the service account's), when it can be read.
         """
         return self._client._request(
             _OPERATIONS["schedules.list"],
             path={},
-            query={"limit": limit, "cursor": cursor, "status": status},
+            query={"limit": limit, "cursor": cursor, "status": status, "projectId": project_id},
             headers={},
             response=_models.ScheduleCollectionPage,
             timeout=timeout,
@@ -7090,283 +7771,6 @@ class SchedulesResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.ScheduleRecord,
-            timeout=timeout,
-        )
-
-
-class EventTriggersResource:
-    """`client.event_triggers` — the `eventTriggers` operations."""
-
-    def __init__(self, client: SyncClientBase) -> None:
-        self._client = client
-
-    def list(
-        self,
-        /,
-        *,
-        limit: int | None = None,
-        cursor: str | None = None,
-        status: Literal["active", "paused"] | None = None,
-        timeout: float | None = None,
-    ) -> _models.EventTriggerCollectionPage:
-        """List event triggers. `GET /v1/event-triggers`"""
-        return self._client._request(
-            _OPERATIONS["eventTriggers.list"],
-            path={},
-            query={"limit": limit, "cursor": cursor, "status": status},
-            headers={},
-            response=_models.EventTriggerCollectionPage,
-            timeout=timeout,
-        )
-
-    def register(
-        self,
-        body: _models.RegisterEventTriggerBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.EventTriggerRecord:
-        """Register an event trigger. `POST /v1/event-triggers`
-
-        Registers a `kind=event` trigger. The event-trigger scheduler in the runtime subscribes on the deployment event bus for the given `eventKind`; matching events start a flow run.
-        """
-        return self._client._request(
-            _OPERATIONS["eventTriggers.register"],
-            path={},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.RegisterEventTriggerBody, body, fields),
-            response=_models.EventTriggerRecord,
-            timeout=timeout,
-        )
-
-    def get(
-        self, trigger_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.EventTriggerRecord:
-        """Fetch an event trigger. `GET /v1/event-triggers/{triggerId}`"""
-        return self._client._request(
-            _OPERATIONS["eventTriggers.get"],
-            path={"triggerId": trigger_id},
-            query={},
-            headers={},
-            response=_models.EventTriggerRecord,
-            timeout=timeout,
-        )
-
-    def update(
-        self,
-        trigger_id: str | UUID,
-        body: _models.PatchEventTriggerBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.EventTriggerRecord:
-        """Update an event trigger. `PATCH /v1/event-triggers/{triggerId}`"""
-        return self._client._request(
-            _OPERATIONS["eventTriggers.update"],
-            path={"triggerId": trigger_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.PatchEventTriggerBody, body, fields),
-            response=_models.EventTriggerRecord,
-            timeout=timeout,
-        )
-
-    def pause(
-        self,
-        trigger_id: str | UUID,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-    ) -> _models.EventTriggerRecord:
-        """Pause an event trigger. `POST /v1/event-triggers/{triggerId}/pause`"""
-        return self._client._request(
-            _OPERATIONS["eventTriggers.pause"],
-            path={"triggerId": trigger_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            response=_models.EventTriggerRecord,
-            timeout=timeout,
-        )
-
-    def resume(
-        self,
-        trigger_id: str | UUID,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-    ) -> _models.EventTriggerRecord:
-        """Resume an event trigger. `POST /v1/event-triggers/{triggerId}/resume`"""
-        return self._client._request(
-            _OPERATIONS["eventTriggers.resume"],
-            path={"triggerId": trigger_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            response=_models.EventTriggerRecord,
-            timeout=timeout,
-        )
-
-    def unregister(
-        self,
-        trigger_id: str | UUID,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-    ) -> _models.EventTriggerUnregisterResult:
-        """Soft-delete an event trigger (tombstone). `POST /v1/event-triggers/{triggerId}/unregister`"""
-        return self._client._request(
-            _OPERATIONS["eventTriggers.unregister"],
-            path={"triggerId": trigger_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            response=_models.EventTriggerUnregisterResult,
-            timeout=timeout,
-        )
-
-
-class WebhooksResource:
-    """`client.webhooks` — the `webhooks` operations."""
-
-    def __init__(self, client: SyncClientBase) -> None:
-        self._client = client
-
-    def list(
-        self,
-        /,
-        *,
-        limit: int | None = None,
-        cursor: str | None = None,
-        status: Literal["active", "paused"] | None = None,
-        timeout: float | None = None,
-    ) -> _models.WebhookTriggerCollectionPage:
-        """List webhook triggers. `GET /v1/webhooks`"""
-        return self._client._request(
-            _OPERATIONS["webhooks.list"],
-            path={},
-            query={"limit": limit, "cursor": cursor, "status": status},
-            headers={},
-            response=_models.WebhookTriggerCollectionPage,
-            timeout=timeout,
-        )
-
-    def register(
-        self,
-        body: _models.RegisterWebhookTriggerBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.WebhookTriggerRecord:
-        """Register a webhook trigger. `POST /v1/webhooks`
-
-        Registers a `kind=webhook` trigger. The route mints `webhookId` (a random UUID). Caller must have written the plaintext HMAC secret to `/v1/secrets` first and passes the resulting name as `hmacSecretName` — the trigger never stores the plaintext. Rotation flows through `POST /v1/secrets/:name/rotate`.
-        """
-        return self._client._request(
-            _OPERATIONS["webhooks.register"],
-            path={},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.RegisterWebhookTriggerBody, body, fields),
-            response=_models.WebhookTriggerRecord,
-            timeout=timeout,
-        )
-
-    def get(
-        self, trigger_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.WebhookTriggerRecord:
-        """Fetch a webhook trigger. `GET /v1/webhooks/{triggerId}`"""
-        return self._client._request(
-            _OPERATIONS["webhooks.get"],
-            path={"triggerId": trigger_id},
-            query={},
-            headers={},
-            response=_models.WebhookTriggerRecord,
-            timeout=timeout,
-        )
-
-    def update(
-        self,
-        trigger_id: str | UUID,
-        body: _models.PatchWebhookTriggerBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.WebhookTriggerRecord:
-        """Update a webhook trigger. `PATCH /v1/webhooks/{triggerId}`
-
-        HMAC secret rotation is NOT here — rotate via `POST /v1/secrets/:name/rotate` on the referenced secret.
-        """
-        return self._client._request(
-            _OPERATIONS["webhooks.update"],
-            path={"triggerId": trigger_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.PatchWebhookTriggerBody, body, fields),
-            response=_models.WebhookTriggerRecord,
-            timeout=timeout,
-        )
-
-    def pause(
-        self,
-        trigger_id: str | UUID,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-    ) -> _models.WebhookTriggerRecord:
-        """Pause a webhook trigger. `POST /v1/webhooks/{triggerId}/pause`"""
-        return self._client._request(
-            _OPERATIONS["webhooks.pause"],
-            path={"triggerId": trigger_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            response=_models.WebhookTriggerRecord,
-            timeout=timeout,
-        )
-
-    def resume(
-        self,
-        trigger_id: str | UUID,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-    ) -> _models.WebhookTriggerRecord:
-        """Resume a webhook trigger. `POST /v1/webhooks/{triggerId}/resume`"""
-        return self._client._request(
-            _OPERATIONS["webhooks.resume"],
-            path={"triggerId": trigger_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            response=_models.WebhookTriggerRecord,
-            timeout=timeout,
-        )
-
-    def unregister(
-        self,
-        trigger_id: str | UUID,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-    ) -> _models.WebhookTriggerUnregisterResult:
-        """Soft-delete a webhook trigger (tombstone). `POST /v1/webhooks/{triggerId}/unregister`"""
-        return self._client._request(
-            _OPERATIONS["webhooks.unregister"],
-            path={"triggerId": trigger_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            response=_models.WebhookTriggerUnregisterResult,
             timeout=timeout,
         )
 
@@ -7613,6 +8017,14 @@ class AsyncRunsResource:
         eval_run_id: str | UUID | None = None,
         trigger_id: str | UUID | None = None,
         include: Literal["output"] | None = None,
+        status: Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]
+        | list[Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]]
+        | None = None,
+        created_after: str | None = None,
+        created_before: str | None = None,
+        agent_version: str | None = None,
+        flow_id: str | UUID | None = None,
+        flow_version: str | None = None,
         timeout: float | None = None,
     ) -> _models.RunCollectionPage:
         """List runs. `GET /v1/runs`
@@ -7634,6 +8046,12 @@ class AsyncRunsResource:
                 "evalRunId": eval_run_id,
                 "triggerId": trigger_id,
                 "include": include,
+                "status": status,
+                "createdAfter": created_after,
+                "createdBefore": created_before,
+                "agentVersion": agent_version,
+                "flowId": flow_id,
+                "flowVersion": flow_version,
             },
             headers={},
             response=_models.RunCollectionPage,
@@ -7660,6 +8078,40 @@ class AsyncRunsResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.StartRunBody, body, fields),
             response=_models.Run,
+            timeout=timeout,
+        )
+
+    async def failures(
+        self,
+        /,
+        *,
+        project_id: str | UUID,
+        from_: str,
+        to: str,
+        agent_id: str | UUID | None = None,
+        flow_id: str | UUID | None = None,
+        group_by: str | None = None,
+        limit: int | None = None,
+        timeout: float | None = None,
+    ) -> _models.RunFailureGroups:
+        """A project's failed runs, grouped by cause and version. `GET /v1/runs/failures`
+
+        Counts from the server, never from a page: per group, how many runs failed, when the first and the latest failed in the window, and the latest run. People's decisions (`hitl-*`: an approval rejected, cancelled or timed out) come apart as `outcomes`, never as failures. Runs that failed before their cause was recorded come apart as `unrecorded`, by subject and version only. Replays, eval runs' runs and dry runs aren't counted; a child run counts under its own agent or flow. Failed runs go with their retention, so a window can hold fewer than happened. Needs `read` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["runs.failures"],
+            path={},
+            query={
+                "projectId": project_id,
+                "from": from_,
+                "to": to,
+                "agentId": agent_id,
+                "flowId": flow_id,
+                "groupBy": group_by,
+                "limit": limit,
+            },
+            headers={},
+            response=_models.RunFailureGroups,
             timeout=timeout,
         )
 
@@ -8199,7 +8651,7 @@ class AsyncApprovalsReviewersResource:
     ) -> _models.ReviewerCollectionPage:
         """List reviewers registered for the caller's tenant. `GET /v1/approvals/reviewers`
 
-        Cursor-paginated. Optional `?role=` narrows to a specific role class. Reviewer-role gate does NOT apply — roster management is an admin surface, not a reviewer-only action.
+        Cursor-paginated. Optional `?role=` narrows to a specific role class. The roster names people: with authorization on, a tenant admin or a reviewer (a role on the token, or one the roster gives the user) reads it, and anyone else gets `403 permission-denied`.
         """
         return await self._client._request(
             _OPERATIONS["approvals.reviewers.list"],
@@ -8236,7 +8688,10 @@ class AsyncApprovalsReviewersResource:
     async def get(
         self, reviewer_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.Reviewer:
-        """Fetch a reviewer. `GET /v1/approvals/reviewers/{reviewerId}`"""
+        """Fetch a reviewer. `GET /v1/approvals/reviewers/{reviewerId}`
+
+        With authorization on, a tenant admin or a reviewer reads it, as the roster; anyone else gets `403 permission-denied`.
+        """
         return await self._client._request(
             _OPERATIONS["approvals.reviewers.get"],
             path={"reviewerId": reviewer_id},
@@ -8293,10 +8748,26 @@ class AsyncApprovalsResource:
             "expired",
             "withdrawn",
         ]
+        | list[
+            Literal[
+                "pending",
+                "assigned",
+                "in_review",
+                "approved",
+                "rejected",
+                "escalated",
+                "expired",
+                "withdrawn",
+            ]
+        ]
         | None = None,
+        assigned_to: Literal["me"] | None = None,
+        order: Literal["asc", "desc"] | None = None,
         required_role: Literal["standard", "senior", "admin"] | None = None,
         created_after: str | None = None,
-        wait_token_id: list[str | UUID] | None = None,
+        wait_token_id: str | UUID | list[str | UUID] | None = None,
+        run_id: str | UUID | None = None,
+        include_descendants: bool | None = None,
         timeout: float | None = None,
     ) -> _models.ApprovalCollectionPage:
         """List approvals visible to the caller. `GET /v1/approvals`
@@ -8312,9 +8783,13 @@ class AsyncApprovalsResource:
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
                 "status": status,
+                "assignedTo": assigned_to,
+                "order": order,
                 "requiredRole": required_role,
                 "createdAfter": created_after,
                 "waitTokenId": wait_token_id,
+                "runId": run_id,
+                "includeDescendants": include_descendants,
             },
             headers={},
             response=_models.ApprovalCollectionPage,
@@ -8626,11 +9101,12 @@ class AsyncAgentsResource:
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | UUID | None = None,
         inherit: bool | None = None,
+        include_retired: bool | None = None,
         timeout: float | None = None,
     ) -> _models.AgentCollectionPage:
         """List agents. `GET /v1/agents`
 
-        Cursor-paginated list of the latest version per agent id. Optional `?name=` filters by prefix on agent id.
+        Cursor-paginated list of the latest version per agent id. Optional `?name=` filters by prefix on agent id. A retired agent (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
         """
         return await self._client._request(
             _OPERATIONS["agents.list"],
@@ -8642,6 +9118,7 @@ class AsyncAgentsResource:
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
                 "inherit": inherit,
+                "includeRetired": include_retired,
             },
             headers={},
             response=_models.AgentCollectionPage,
@@ -8689,16 +9166,17 @@ class AsyncAgentsResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
+        include_tombstoned: bool | None = None,
         timeout: float | None = None,
     ) -> _models.AgentCollectionPage:
         """List versions of an agent. `GET /v1/agents/{agentId}/versions`
 
-        Cursor-paginated. Sort order is binding-defined (built-in registry: semver asc).
+        Cursor-paginated. Sort order is binding-defined (built-in registry: semver asc). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired agent (every version unregistered) answers too, with its versions to reinstate.
         """
         return await self._client._request(
             _OPERATIONS["agents.listVersions"],
             path={"agentId": agent_id},
-            query={"limit": limit, "cursor": cursor},
+            query={"limit": limit, "cursor": cursor, "includeTombstoned": include_tombstoned},
             headers={},
             response=_models.AgentCollectionPage,
             timeout=timeout,
@@ -8946,11 +9424,12 @@ class AsyncFlowsResource:
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | UUID | None = None,
         inherit: bool | None = None,
+        include_retired: bool | None = None,
         timeout: float | None = None,
     ) -> _models.FlowCollectionPage:
         """List flows. `GET /v1/flows`
 
-        Cursor-paginated list of the latest version per flow id. Optional `?name=` filters by prefix on flow id.
+        Cursor-paginated list of the latest version per flow id. Optional `?name=` filters by prefix on flow id. A retired flow (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
         """
         return await self._client._request(
             _OPERATIONS["flows.list"],
@@ -8962,6 +9441,7 @@ class AsyncFlowsResource:
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
                 "inherit": inherit,
+                "includeRetired": include_retired,
             },
             headers={},
             response=_models.FlowCollectionPage,
@@ -9009,16 +9489,17 @@ class AsyncFlowsResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
+        include_tombstoned: bool | None = None,
         timeout: float | None = None,
     ) -> _models.FlowCollectionPage:
         """List versions of a flow. `GET /v1/flows/{flowId}/versions`
 
-        Cursor-paginated. Sort order is binding-defined (for example semver asc).
+        Cursor-paginated. Sort order is binding-defined (for example semver asc). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired flow (every version unregistered) answers too, with its versions to reinstate.
         """
         return await self._client._request(
             _OPERATIONS["flows.listVersions"],
             path={"flowId": flow_id},
-            query={"limit": limit, "cursor": cursor},
+            query={"limit": limit, "cursor": cursor, "includeTombstoned": include_tombstoned},
             headers={},
             response=_models.FlowCollectionPage,
             timeout=timeout,
@@ -9095,11 +9576,12 @@ class AsyncToolsResource:
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | UUID | None = None,
         inherit: bool | None = None,
+        include_retired: bool | None = None,
         timeout: float | None = None,
     ) -> _models.ToolCollectionPage:
         """List tools. `GET /v1/tools`
 
-        Cursor-paginated list of registered tool manifests. Optional `?name=` filters by prefix on tool id.
+        Cursor-paginated list of registered tool manifests. Optional `?name=` filters by prefix on tool id. A retired tool (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
         """
         return await self._client._request(
             _OPERATIONS["tools.list"],
@@ -9111,6 +9593,7 @@ class AsyncToolsResource:
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
                 "inherit": inherit,
+                "includeRetired": include_retired,
             },
             headers={},
             response=_models.ToolCollectionPage,
@@ -9128,7 +9611,7 @@ class AsyncToolsResource:
     ) -> _models.RegisterToolResult:
         """Register a tool manifest. `POST /v1/tools`
 
-        Body is a `ToolManifest` (Tool minus its runtime handler). Server validates via `@kindgi/tools.validateToolManifest`. Metadata only: the handler is not uploaded through this route and must already be available to the runtime.
+        Body is a `ToolManifest` (Tool minus its runtime handler). Server validates via `@kindgi/tools.validateToolManifest`. Metadata only: the handler is not uploaded through this route and must already be available to the runtime. A tool never gets a model provider's key: one that declares (`needsSpec.secrets`) or sends (`spec.authorization.secretRef`) a secret a provider registration of the tenant names, in any env, is refused.
         """
         return await self._client._request(
             _OPERATIONS["tools.register"],
@@ -9303,6 +9786,30 @@ class AsyncGuardrailsResource:
             query={},
             headers={},
             response=_models.Guardrail,
+            timeout=timeout,
+        )
+
+    async def outcomes(
+        self,
+        guardrail_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID,
+        from_: str,
+        to: str,
+        recent: int | None = None,
+        timeout: float | None = None,
+    ) -> _models.GuardrailOutcomes:
+        """What a guardrail's checks came to in a project. `GET /v1/guardrails/{guardrailId}/outcomes`
+
+        Counts from the server, over a window: how many of the guardrail's checks on agent turns in the project `passed`, were `violated` (the answer went through: `log-only`, `noop`, or an action handed back), `blocked` (a `halt` failed the turn) or `errored` (the check couldn't run; a `halt` guardrail's error fails the turn too, and is counted here). The same counts per agent version, and the window's latest blocked turns, by run id and time only: a blocked answer stays behind its run's page. A guardrail whose scope didn't match a turn wasn't checked on it. Replays and dry runs aren't counted. Outcomes go with their run's retention, so a window can hold fewer than asked; `recordedSince` says how far back they go. A guardrail no longer registered still has its outcomes. Needs `read` on the guardrail and on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["guardrails.outcomes"],
+            path={"guardrailId": guardrail_id},
+            query={"projectId": project_id, "from": from_, "to": to, "recent": recent},
+            headers={},
+            response=_models.GuardrailOutcomes,
             timeout=timeout,
         )
 
@@ -9928,6 +10435,27 @@ class AsyncProposalsResource:
             timeout=timeout,
         )
 
+    async def rescore(
+        self,
+        proposal_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.FixProposal:
+        """Rescore a proposal's latest evaluation. `POST /v1/proposals/{proposalId}/rescore`
+
+        After people judge a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison eval run scores the same replays again, counting those judgments, as `POST /v1/eval-runs/{runId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the proposal's evaluation, so the proposal is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.
+        """
+        return await self._client._request(
+            _OPERATIONS["proposals.rescore"],
+            path={"proposalId": proposal_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.FixProposal,
+            timeout=timeout,
+        )
+
     async def request(
         self,
         proposal_id: str | UUID,
@@ -10424,7 +10952,7 @@ class AsyncProvidersResource:
     ) -> _models.RegisterProviderResult:
         """Register a model provider. `POST /v1/providers`
 
-        Body is a full `ProviderMetadata`. Server validates shape: provider-level `id` + `region` non-empty; `models[]` non-empty with unique `name` per entry; per-model `contextWindow` positive integer; per-model `features` against the closed enum; per-model `cost` non-negative; optional per-model `p95LatencyMs` / `maxOutputTokens` well-shaped; optional `labels` within their limits — same rules as `@kindgi/capabilities.createProviderRegistry`. Secrets (API keys, endpoints) are NOT part of the wire shape; deployments store them inside the binding. When the runtime has the adapter the body names, that adapter checks the registration first (its `adapter_config`, the metadata and the presence of `secret_ref`; static: no network, no secret read): a problem refuses it with `422 provider-config-invalid`.
+        Body is a full `ProviderMetadata`. Server validates shape: provider-level `id` + `region` non-empty; `models[]` non-empty with unique `name` per entry; per-model `contextWindow` positive integer; per-model `features` against the closed enum; per-model `cost` non-negative; optional per-model `p95LatencyMs` / `maxOutputTokens` well-shaped; optional `labels` within their limits — same rules as `@kindgi/capabilities.createProviderRegistry`. Secrets (API keys, endpoints) are NOT part of the wire shape; deployments store them inside the binding. When the runtime has the adapter the body names, that adapter checks the registration first (its `adapter_config`, the metadata and the presence of `secret_ref`; static: no network, no secret read): a problem refuses it with `422 provider-config-invalid`. A model provider's key is used by its provider only: a `secret_ref` naming a secret that a tool, an MCP endpoint or a webhook endpoint already uses is refused (`409 provider-key-in-use`), and from then on the name is refused to tools and endpoints.
         """
         return await self._client._request(
             _OPERATIONS["providers.register"],
@@ -10870,7 +11398,7 @@ class AsyncMcpEndpointsResource:
     ) -> _models.RegisterMCPEndpointResult:
         """Register an MCP endpoint. `POST /v1/mcp/endpoints`
 
-        Body is a full `MCPEndpoint` plus the scope to register it in (`scopeKind` + `scopeId`); authorization checks that scope. Server validates the closed transport enum + the `config.transport` matches `transport` guardrail + per-variant required fields (`command` for stdio; `url` for http-sse / streamable-http), and refuses unknown fields. `secretRef` names a secret in the deployment's store — plaintext secrets never cross the wire. A deployment with `KINDGI_TENANT_HOST_ACCESS=deployed` (the default outside development) refuses a `stdio` endpoint, which would run a command on the server's host: `403 host-access-denied`.
+        Body is a full `MCPEndpoint` plus the scope to register it in (`scopeKind` + `scopeId`); authorization checks that scope. Server validates the closed transport enum + the `config.transport` matches `transport` guardrail + per-variant required fields (`command` for stdio; `url` for http-sse / streamable-http), and refuses unknown fields. `secretRef` names a secret in the deployment's store — plaintext secrets never cross the wire — and never a model provider's key (`400 provider-key-refused`). A deployment with `KINDGI_TENANT_HOST_ACCESS=deployed` (the default outside development) refuses a `stdio` endpoint, which would run a command on the server's host: `403 host-access-denied`.
         """
         return await self._client._request(
             _OPERATIONS["mcp.endpoints.register"],
@@ -11456,16 +11984,17 @@ class AsyncEvalSuitesVersionsResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
+        include_tombstoned: bool | None = None,
         timeout: float | None = None,
     ) -> _models.EvalSuiteCollectionPage:
         """List versions of an eval suite. `GET /v1/eval-suites/{suiteId}/versions`
 
-        Cursor-paginated. Sort order is binding-defined (for example ascending semver).
+        Cursor-paginated. Sort order is binding-defined (for example ascending semver). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired suite (every version unregistered) answers too, with its versions to reinstate.
         """
         return await self._client._request(
             _OPERATIONS["evalSuites.versions.list"],
             path={"suiteId": suite_id},
-            query={"limit": limit, "cursor": cursor},
+            query={"limit": limit, "cursor": cursor, "includeTombstoned": include_tombstoned},
             headers={},
             response=_models.EvalSuiteCollectionPage,
             timeout=timeout,
@@ -11525,11 +12054,12 @@ class AsyncEvalSuitesResource:
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | UUID | None = None,
         inherit: bool | None = None,
+        include_retired: bool | None = None,
         timeout: float | None = None,
     ) -> _models.EvalSuiteCollectionPage:
         """List tenant eval suites. `GET /v1/eval-suites`
 
-        Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `EvalSuite.id`. Sort order: suite id ascending. Latest version per id.
+        Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `EvalSuite.id`. Sort order: suite id ascending. Latest version per id. A retired suite (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
         """
         return await self._client._request(
             _OPERATIONS["evalSuites.list"],
@@ -11542,6 +12072,7 @@ class AsyncEvalSuitesResource:
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
                 "inherit": inherit,
+                "includeRetired": include_retired,
             },
             headers={},
             response=_models.EvalSuiteCollectionPage,
@@ -11936,6 +12467,29 @@ class AsyncEvalRunsResource:
             timeout=timeout,
         )
 
+    async def rescore(
+        self,
+        run_id: str | UUID,
+        body: _models.RescoreEvalRunBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.StartEvalRunResult:
+        """Rescore a comparison eval run. `POST /v1/eval-runs/{runId}/rescore`
+
+        Starts a new comparison eval run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the judgments recorded on them since (a changed answer judged on the replay itself; `changes.new` lists the items to judge). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's suite and `write` on its project.
+        """
+        return await self._client._request(
+            _OPERATIONS["evalRuns.rescore"],
+            path={"runId": run_id},
+            query={},
+            headers={},
+            body=_body(_models.RescoreEvalRunBody, body, fields),
+            response=_models.StartEvalRunResult,
+            timeout=timeout,
+        )
+
     async def events(
         self,
         run_id: str | UUID,
@@ -11968,7 +12522,7 @@ class AsyncAuthProvidersResource:
     ) -> _models.IdentityProviderCollectionPage:
         """List identity providers configured for the tenant. `GET /v1/auth/providers`
 
-        Returns the tenant's identity providers (OIDC, SAML, OAuth 2.0), each with `signIn` when the deployment sets it. Secrets appear only as REFERENCES (`clientSecretRef`, `spSigningKeyRef`…); a plaintext secret is never on the wire.
+        Returns the tenant's identity providers (OIDC, SAML), each with `signIn` when the deployment sets it. Secrets appear only as REFERENCES (`clientSecretRef`, `spSigningKeyRef`…); a plaintext secret is never on the wire.
         """
         return await self._client._request(
             _OPERATIONS["auth.providers.list"],
@@ -11988,9 +12542,9 @@ class AsyncAuthProvidersResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.RegisterIdentityProviderResult:
-        """Register an identity provider (OIDC, SAML or OAuth 2.0). `POST /v1/auth/providers`
+        """Register an identity provider (OIDC or SAML). `POST /v1/auth/providers`
 
-        Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered`; change it with `PATCH /v1/auth/providers/{providerId}`, which keeps its sign-in URLs. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`. The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.
+        Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered`; change it with `PATCH /v1/auth/providers/{providerId}`, which keeps its sign-in URLs. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`, as is `allowedRedirectUris`, which nothing would enforce (sign-in runs in the deployment, at its own callback URL). The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.
         """
         return await self._client._request(
             _OPERATIONS["auth.providers.register"],
@@ -12047,7 +12601,7 @@ class AsyncAuthProvidersResource:
         provider_id: str | UUID,
         /,
         *,
-        kind: Literal["oauth2", "oidc", "saml"] | None = None,
+        kind: Literal["oidc", "saml"] | None = None,
         timeout: float | None = None,
     ) -> _models.IdentityProviderSignInUrls:
         """What to give the identity provider, before or after registering. `GET /v1/auth/providers/{providerId}/sign-in`
@@ -12119,59 +12673,12 @@ class AsyncAuthResource:
             timeout=timeout,
         )
 
-    async def login(
-        self,
-        provider_id: str | UUID,
-        body: _models.LoginBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.AuthorizationResponse:
-        """Initiate OAuth/OIDC login. `POST /v1/auth/login/{providerId}`
-
-        Framework generates `state` + PKCE `code_verifier` (S256 challenge). Caller redirects the user-agent to `authorizationUrl`. Provider redirects back to `redirectUri` with `code` + `state`; caller POSTs those to `/v1/auth/callback/:providerId` to complete the flow. When the provider config populated `allowedRedirectUris`, the effective redirect_uri MUST be an exact match — otherwise `400 redirect-uri-not-allowed`.
-        """
-        return await self._client._request(
-            _OPERATIONS["auth.login"],
-            path={"providerId": provider_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.LoginBody, body, fields),
-            response=_models.AuthorizationResponse,
-            timeout=timeout,
-        )
-
-    async def callback(
-        self,
-        provider_id: str | UUID,
-        body: _models.CallbackBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.CallbackResult:
-        """Complete an OAuth/OIDC callback. `POST /v1/auth/callback/{providerId}`
-
-        Public — the caller has not yet obtained a session token. Verifies `state`, exchanges `code` for provider tokens via the deployment's `exchangeCode`, fetches userinfo, and persists a session via `SessionStoreBinding`. Returns an opaque `kgi_sk_*` session token the caller uses on subsequent requests. The underlying provider access-token never leaves the server. When the provider config populated `allowedRedirectUris`, the stored redirect_uri is re-checked against the current allowlist — a mismatch (allowlist tightened between login and callback) returns `400 redirect-uri-mismatch`.
-        """
-        return await self._client._request(
-            _OPERATIONS["auth.callback"],
-            path={"providerId": provider_id},
-            query={},
-            headers={},
-            body=_body(_models.CallbackBody, body, fields),
-            response=_models.CallbackResult,
-            timeout=timeout,
-        )
-
     async def refresh(
         self, /, *, idempotency_key: str | None = None, timeout: float | None = None
     ) -> _models.RefreshResult:
         """Refresh the current session token. `POST /v1/auth/refresh`
 
-        Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. When the deployment wired a `refreshToken` callback and the provider issued a refresh token, provider tokens rotate too; otherwise only the framework session token rotates. OAuth 2.1 BCP refresh-token rotation: the OLD session token is invalidated (marked rotated) — reusing it after refresh returns `401 refresh-token-invalid` so compliant clients can retry with the fresh token instead of prompting a re-auth. A browser session (the session cookie) is not refreshed: `400 cookie-session-not-refreshable`, so a new token never reaches page scripts; it ends at its TTL.
+        Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. The session token rotates: the new session keeps the person, scopes and expiry, and the provider is not called. OAuth 2.1 BCP refresh-token rotation: the OLD session token is invalidated (marked rotated) — reusing it after refresh returns `401 refresh-token-invalid` so compliant clients can retry with the fresh token instead of prompting a re-auth. A browser session (the session cookie) is not refreshed: `400 cookie-session-not-refreshable`, so a new token never reaches page scripts; it ends at its TTL.
         """
         return await self._client._request(
             _OPERATIONS["auth.refresh"],
@@ -12213,6 +12720,7 @@ class AsyncIdentityUsersResource:
         cursor: str | None = None,
         query: str | None = None,
         include_unregistered: bool | None = None,
+        include: Literal["grants"] | None = None,
         timeout: float | None = None,
     ) -> _models.UserCollectionPage:
         """List users in the tenant. `GET /v1/identity/users`
@@ -12227,6 +12735,7 @@ class AsyncIdentityUsersResource:
                 "cursor": cursor,
                 "query": query,
                 "includeUnregistered": include_unregistered,
+                "include": include,
             },
             headers={},
             response=_models.UserCollectionPage,
@@ -12395,12 +12904,34 @@ class AsyncIdentityUsersResource:
         )
 
 
+class AsyncIdentityMeResource:
+    """`client.identity.me` — the `identity.me` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def permissions(self, /, *, timeout: float | None = None) -> _models.MyPermissions:
+        """What I may do. `GET /v1/identity/me/permissions`
+
+        What the caller may do, so a client can hide what it can't: tenant admin, its reviewer role and the roles it decides, its API key's limits and capabilities, the projects it may read with its role in each and every way it holds it (directly, a team, an org it administers, tenant admin), its orgs and teams, and what each project role allows (from the runtime's authorization model). The key's limits are applied: a `member` key is never tenant admin, and a key limited to a project sees that project alone. Only what the caller may see. The server still checks every call. `501 permissions-unsupported` on a runtime without an authorization store: read whoami's `tenantAdmin` and `reviewerRole` instead.
+        """
+        return await self._client._request(
+            _OPERATIONS["identity.me.permissions"],
+            path={},
+            query={},
+            headers={},
+            response=_models.MyPermissions,
+            timeout=timeout,
+        )
+
+
 class AsyncIdentityResource:
     """`client.identity` — the `identity` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
         self.users = AsyncIdentityUsersResource(client)
+        self.me = AsyncIdentityMeResource(client)
 
     async def whoami(self, /, *, timeout: float | None = None) -> _models.WhoamiResult:
         """Self — the caller's user + tenant + session context. `GET /v1/identity/whoami`
@@ -12602,6 +13133,56 @@ class AsyncComplianceResource:
         self.evidence = AsyncComplianceEvidenceResource(client)
 
 
+class AsyncAuditSignInsResource:
+    """`client.audit.sign_ins` — the `audit.signIns` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        user_id: str | UUID | None = None,
+        kind: Literal[
+            "signed-in",
+            "signed-out",
+            "sign-in-refused",
+            "sign-in-link-sent",
+            "sign-in-link-capped",
+            "sessions-revoked",
+            "sessions-ended",
+        ]
+        | None = None,
+        from_: str | None = None,
+        to: str | None = None,
+        order: Literal["asc", "desc"] | None = None,
+        timeout: float | None = None,
+    ) -> _models.AuditSignInsListResponse:
+        """List sign-in audit events. `GET /v1/audit/sign-ins`
+
+        The tenant's sign-in history: who signed in and out, how (`method`), when and from where (`clientAddress`), what was refused and why, and emailed links sent or capped. `?userId=` narrows to one person's own sign-ins and sign-outs. Oldest first; `?order=desc` for newest first. A tenant admin's to read (403 `permission-denied` otherwise). Only mounted when `CreateAppInput.auditEvents` is wired.
+        """
+        return await self._client._request(
+            _OPERATIONS["audit.signIns.list"],
+            path={},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "userId": user_id,
+                "kind": kind,
+                "from": from_,
+                "to": to,
+                "order": order,
+            },
+            headers={},
+            response=_models.AuditSignInsListResponse,
+            timeout=timeout,
+        )
+
+
 class AsyncAuditAuthzResource:
     """`client.audit.authz` — the `audit.authz` operations."""
 
@@ -12656,6 +13237,7 @@ class AsyncAuditResource:
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
+        self.sign_ins = AsyncAuditSignInsResource(client)
         self.authz = AsyncAuditAuthzResource(client)
 
 
@@ -12776,7 +13358,7 @@ class AsyncTeamsMembershipsResource:
     ) -> _models.TeamMembershipCollectionPage:
         """List memberships of a team. `GET /v1/teams/{teamId}/memberships`
 
-        Cursor-paginated. Sort order is binding-defined (for example `joinedAt` ascending).
+        Cursor-paginated. Sort order is binding-defined (for example `joinedAt` ascending). For the team's admins (and tenant admins): a plain member sees the team, not who else is in it, and reads their own roles through `GET /v1/identity/users/{userId}/grants`.
         """
         return await self._client._request(
             _OPERATIONS["teams.memberships.list"],
@@ -12799,7 +13381,7 @@ class AsyncTeamsMembershipsResource:
     ) -> _models.AddTeamMembershipResult:
         """Add a user to a team. `POST /v1/teams/{teamId}/memberships`
 
-        Idempotent on `(teamId, userId)` — re-adding an existing member with a different role does NOT overwrite; use PATCH for role changes.
+        Adding a role the member already holds answers 201 with the existing record; another role, 409 `membership-exists` naming the role they hold (`details.role`), which is kept: use PATCH to change it.
         """
         return await self._client._request(
             _OPERATIONS["teams.memberships.add"],
@@ -12851,12 +13433,42 @@ class AsyncTeamsMembershipsResource:
         )
 
 
+class AsyncTeamsProjectGrantsResource:
+    """`client.teams.project_grants` — the `teams.projectGrants` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        team_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.TeamProjectGrantCollectionPage:
+        """List the projects a team holds a role on. `GET /v1/teams/{teamId}/project-grants`
+
+        For the team's admins (and tenant admins). Each grant names its team and project.
+        """
+        return await self._client._request(
+            _OPERATIONS["teams.projectGrants.list"],
+            path={"teamId": team_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.TeamProjectGrantCollectionPage,
+            timeout=timeout,
+        )
+
+
 class AsyncTeamsResource:
     """`client.teams` — the `teams` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
         self.memberships = AsyncTeamsMembershipsResource(client)
+        self.project_grants = AsyncTeamsProjectGrantsResource(client)
 
     async def list(
         self,
@@ -12945,12 +13557,292 @@ class AsyncTeamsResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
     ) -> None:
-        """Delete a team (idempotent, cascades memberships). `DELETE /v1/teams/{teamId}`"""
+        """Delete a team (idempotent, cascades memberships). `DELETE /v1/teams/{teamId}`
+
+        With authorization on, the team's tuples go with it: its members' roles and its project grants, so nobody keeps access through a team that's gone (501 `authz-membership-unsupported` from a runtime that can't do that).
+        """
         return await self._client._request(
             _OPERATIONS["teams.delete"],
             path={"teamId": team_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
+            timeout=timeout,
+        )
+
+
+class AsyncProjectsJudgingRulesResource:
+    """`client.projects.judging_rules` — the `projects.judgingRules` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        project_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.JudgingRulePage:
+        """List a project's judging rules. `GET /v1/projects/{projectId}/judging-rules`
+
+        The live rules (their latest versions), oldest first. A rule says which of the project's runs to queue for a person's judgment when they end. Needs `read` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.judgingRules.list"],
+            path={"projectId": project_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.JudgingRulePage,
+            timeout=timeout,
+        )
+
+    async def create(
+        self,
+        project_id: str | UUID,
+        body: _models.JudgingRuleSpec | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JudgingRule:
+        """Create a judging rule. `POST /v1/projects/{projectId}/judging-rules`
+
+        Version 1 of a rule. From then on, a top-level run of the project that matches `when` as it ends (and falls in `sample`, while the rule has fewer than `maxOpen` open items) is queued for a person's judgment; replays never are. A rule only lists runs: it never starts a model. Needs `write` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.judgingRules.create"],
+            path={"projectId": project_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.JudgingRuleSpec, body, fields),
+            response=_models.JudgingRule,
+            timeout=timeout,
+        )
+
+    async def preview(
+        self,
+        project_id: str | UUID,
+        /,
+        *,
+        agent_ids: str | None = None,
+        flow_ids: str | None = None,
+        versions: str | None = None,
+        status: str | None = None,
+        include_dry_runs: bool | None = None,
+        sample: float | None = None,
+        last: int | None = None,
+        rule_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.JudgingRulePreview:
+        """What a rule would have queued. `GET /v1/projects/{projectId}/judging-rules/preview`
+
+        Among the project's last `last` top-level runs (not replays), how many a rule with these fields (and its `sample`) would have queued. The rule editor's "would have added N of the last 100". Lists are comma-separated. Needs `read` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.judgingRules.preview"],
+            path={"projectId": project_id},
+            query={
+                "agentIds": agent_ids,
+                "flowIds": flow_ids,
+                "versions": versions,
+                "status": status,
+                "includeDryRuns": include_dry_runs,
+                "sample": sample,
+                "last": last,
+                "ruleId": rule_id,
+            },
+            headers={},
+            response=_models.JudgingRulePreview,
+            timeout=timeout,
+        )
+
+    async def get(
+        self, project_id: str | UUID, rule_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.JudgingRule:
+        """Fetch a judging rule. `GET /v1/projects/{projectId}/judging-rules/{ruleId}`
+
+        Its latest version. Needs `read` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.judgingRules.get"],
+            path={"projectId": project_id, "ruleId": rule_id},
+            query={},
+            headers={},
+            response=_models.JudgingRule,
+            timeout=timeout,
+        )
+
+    async def update(
+        self,
+        project_id: str | UUID,
+        rule_id: str | UUID,
+        body: _models.JudgingRulePatch | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JudgingRule:
+        """Change a judging rule. `PATCH /v1/projects/{projectId}/judging-rules/{ruleId}`
+
+        A new version with these fields changed (`when` is replaced whole). Earlier versions are kept: `…/versions` shows who changed what, when. Needs `write` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.judgingRules.update"],
+            path={"projectId": project_id, "ruleId": rule_id},
+            query={},
+            headers={},
+            body=_body(_models.JudgingRulePatch, body, fields),
+            response=_models.JudgingRule,
+            timeout=timeout,
+        )
+
+    async def unregister(
+        self, project_id: str | UUID, rule_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.JudgingRuleUnregisterResult:
+        """Stop a judging rule. `POST /v1/projects/{projectId}/judging-rules/{ruleId}/unregister`
+
+        It queues nothing more; its versions and the items it queued stay. `unregistered: false` when it was already stopped. Needs `write` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.judgingRules.unregister"],
+            path={"projectId": project_id, "ruleId": rule_id},
+            query={},
+            headers={},
+            response=_models.JudgingRuleUnregisterResult,
+            timeout=timeout,
+        )
+
+    async def versions(
+        self,
+        project_id: str | UUID,
+        rule_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.JudgingRulePage:
+        """A judging rule's versions. `GET /v1/projects/{projectId}/judging-rules/{ruleId}/versions`
+
+        Every version, newest first: who wrote it, when, and what it said. Needs `read` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.judgingRules.versions"],
+            path={"projectId": project_id, "ruleId": rule_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.JudgingRulePage,
+            timeout=timeout,
+        )
+
+    async def results(
+        self,
+        project_id: str | UUID,
+        rule_id: str | UUID,
+        /,
+        *,
+        since: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.JudgingRuleResults:
+        """A judging rule's results. `GET /v1/projects/{projectId}/judging-rules/{ruleId}/results`
+
+        By the rule's version and the agent's: the runs it queued (open, judged, dismissed, erased), the ones its `maxOpen` skipped, and the live judgments on them, with their class-weighted `yes` share and a count by class. Never pooled with another rule's, or across a rule's versions: each is a sample of its own `when`. Needs `read` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.judgingRules.results"],
+            path={"projectId": project_id, "ruleId": rule_id},
+            query={"since": since},
+            headers={},
+            response=_models.JudgingRuleResults,
+            timeout=timeout,
+        )
+
+
+class AsyncProjectsJudgingQueueResource:
+    """`client.projects.judging_queue` — the `projects.judgingQueue` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        project_id: str | UUID,
+        /,
+        *,
+        state: Literal["open", "judged", "dismissed", "erased"] | None = None,
+        agent_id: str | UUID | None = None,
+        rule_id: str | UUID | None = None,
+        judge_class_id: str | UUID | None = None,
+        for_me: bool | None = None,
+        added_after: str | None = None,
+        closed_after: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.JudgingQueuePage:
+        """The project's judging queue. `GET /v1/projects/{projectId}/judging-queue`
+
+        Queued runs, oldest first: never a run's content, only what it was, which rules queued it, whose judgment they want and the judgments so far, and what the caller may do with it (`can`). An item closes as `judged` once every rule that queued it has the judgment it wants. `forMe=true`: the items any judgment closes, or that want a class the caller may assert. `limit=0` answers only the `total`. Needs `read` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.judgingQueue.list"],
+            path={"projectId": project_id},
+            query={
+                "state": state,
+                "agentId": agent_id,
+                "ruleId": rule_id,
+                "judgeClassId": judge_class_id,
+                "forMe": for_me,
+                "addedAfter": added_after,
+                "closedAfter": closed_after,
+                "limit": limit,
+                "cursor": cursor,
+            },
+            headers={},
+            response=_models.JudgingQueuePage,
+            timeout=timeout,
+        )
+
+    async def dismiss(
+        self,
+        project_id: str | UUID,
+        run_id: str | UUID,
+        body: _models.JudgingDismissBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JudgingQueueItem:
+        """Dismiss a queued run. `POST /v1/projects/{projectId}/judging-queue/{runId}/dismiss`
+
+        Not worth judging: it leaves the open queue, with who dismissed it and why. `reopen` undoes it. Needs `write` on the project, as judging the run does.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.judgingQueue.dismiss"],
+            path={"projectId": project_id, "runId": run_id},
+            query={},
+            headers={},
+            body=_body(_models.JudgingDismissBody, body, fields),
+            response=_models.JudgingQueueItem,
+            timeout=timeout,
+        )
+
+    async def reopen(
+        self, project_id: str | UUID, run_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.JudgingQueueItem:
+        """Reopen a dismissed run. `POST /v1/projects/{projectId}/judging-queue/{runId}/reopen`
+
+        Back in the open queue. Only a dismissed item reopens: a judged one was closed by its judgments. Needs `write` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.judgingQueue.reopen"],
+            path={"projectId": project_id, "runId": run_id},
+            query={},
+            headers={},
+            response=_models.JudgingQueueItem,
             timeout=timeout,
         )
 
@@ -12972,7 +13864,7 @@ class AsyncProjectsMembershipsResource:
     ) -> _models.ProjectMembershipCollectionPage:
         """List direct memberships of a project. `GET /v1/projects/{projectId}/memberships`
 
-        Cursor-paginated. Direct-grant memberships only — team-mediated grants are resolved through the FGA store per tenant.
+        Cursor-paginated. Direct-grant memberships only — team-mediated grants are resolved through the FGA store per tenant. For the project's editors and admins (`write`): a viewer sees the project, not who else is in it, and reads their own roles through `GET /v1/identity/users/{userId}/grants`.
         """
         return await self._client._request(
             _OPERATIONS["projects.memberships.list"],
@@ -12995,7 +13887,7 @@ class AsyncProjectsMembershipsResource:
     ) -> _models.AddProjectMembershipResult:
         """Add a user directly to a project. `POST /v1/projects/{projectId}/memberships`
 
-        Names the person by exactly one of `userId` and `email` (matched as the runtime matches emails when it adds a person); someone who is not a person of this tenant, or was removed from it, is refused with 404 `identity-user-not-found`. Idempotent on `(projectId, userId)` — re-adding an existing member with a different role does NOT overwrite; use PATCH for role changes.
+        Names the person by exactly one of `userId` and `email` (matched as the runtime matches emails when it adds a person); someone who is not a person of this tenant, or was removed from it, is refused with 404 `identity-user-not-found`. Adding a role the member already holds answers 201 with the existing record; another role, 409 `membership-exists` naming the role they hold (`details.role`), which is kept: use PATCH to change it.
         """
         return await self._client._request(
             _OPERATIONS["projects.memberships.add"],
@@ -13047,12 +13939,137 @@ class AsyncProjectsMembershipsResource:
         )
 
 
+class AsyncProjectsAccessResource:
+    """`client.projects.access` — the `projects.access` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        project_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ProjectAccessPage:
+        """Who has access to a project, and how. `GET /v1/projects/{projectId}/access`
+
+        Everyone the authorization store lets into the project (people and service accounts), each with their effective role and every way in: a direct role, a team's grant, an admin of the project's org, a tenant admin. For the project's editors and admins (`write`): a viewer sees the project, not who else works in it. Emails show to the project's admins only. Ordered by role (owner first), then name. 501 `project-access-unsupported` from a runtime without an authorization store.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.access.list"],
+            path={"projectId": project_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.ProjectAccessPage,
+            timeout=timeout,
+        )
+
+
+class AsyncProjectsTeamGrantsResource:
+    """`client.projects.team_grants` — the `projects.teamGrants` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        project_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.TeamProjectGrantCollectionPage:
+        """List the teams with a role on a project. `GET /v1/projects/{projectId}/team-grants`
+
+        Every member of a team holds its role on the project. For the project's editors and admins (`write`). Each grant names its team and project.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.teamGrants.list"],
+            path={"projectId": project_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.TeamProjectGrantCollectionPage,
+            timeout=timeout,
+        )
+
+    async def add(
+        self,
+        project_id: str | UUID,
+        body: _models.AddTeamProjectGrantBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.TeamProjectGrant:
+        """Give a team a role on a project. `POST /v1/projects/{projectId}/team-grants`
+
+        Every member of the team (its admins included) then holds the role on the project. Takes `admin` on the project and `read` on the team: a project is given only to a team you can read. A team's role is `viewer`, `editor` or `admin`: a team never owns a project. Adding a role the team already holds answers 201 with the existing grant; another role, 409 `team-grant-exists` naming the one it holds (`details.role`): use PATCH to change it.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.teamGrants.add"],
+            path={"projectId": project_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.AddTeamProjectGrantBody, body, fields),
+            response=_models.TeamProjectGrant,
+            timeout=timeout,
+        )
+
+    async def update_role(
+        self,
+        project_id: str | UUID,
+        team_id: str | UUID,
+        body: _models.UpdateTeamProjectGrantBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> None:
+        """Change a team's role on a project. `PATCH /v1/projects/{projectId}/team-grants/{teamId}`"""
+        return await self._client._request(
+            _OPERATIONS["projects.teamGrants.updateRole"],
+            path={"projectId": project_id, "teamId": team_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.UpdateTeamProjectGrantBody, body, fields),
+            timeout=timeout,
+        )
+
+    async def remove(
+        self,
+        project_id: str | UUID,
+        team_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> None:
+        """Take a team's role on a project away (idempotent). `DELETE /v1/projects/{projectId}/team-grants/{teamId}`"""
+        return await self._client._request(
+            _OPERATIONS["projects.teamGrants.remove"],
+            path={"projectId": project_id, "teamId": team_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            timeout=timeout,
+        )
+
+
 class AsyncProjectsResource:
     """`client.projects` — the `projects` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
+        self.judging_rules = AsyncProjectsJudgingRulesResource(client)
+        self.judging_queue = AsyncProjectsJudgingQueueResource(client)
         self.memberships = AsyncProjectsMembershipsResource(client)
+        self.access = AsyncProjectsAccessResource(client)
+        self.team_grants = AsyncProjectsTeamGrantsResource(client)
 
     async def get_default(self, /, *, timeout: float | None = None) -> _models.Project:
         """Fetch the tenant's Default project. `GET /v1/projects/default`
@@ -13622,16 +14639,17 @@ class AsyncSchedulesResource:
         limit: int | None = None,
         cursor: str | None = None,
         status: Literal["active", "paused"] | None = None,
+        project_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.ScheduleCollectionPage:
         """List cron schedules. `GET /v1/schedules`
 
-        Cursor-paginated. Tombstoned rows excluded. Optional `?status=active|paused` filter.
+        Cursor-paginated. Tombstoned rows excluded. Optional `?status=active|paused` and `?projectId=` (one project's schedules) filters. Each schedule's `owner.displayName` is the owner's name now (the person's or the service account's), when it can be read.
         """
         return await self._client._request(
             _OPERATIONS["schedules.list"],
             path={},
-            query={"limit": limit, "cursor": cursor, "status": status},
+            query={"limit": limit, "cursor": cursor, "status": status, "projectId": project_id},
             headers={},
             response=_models.ScheduleCollectionPage,
             timeout=timeout,
@@ -13826,283 +14844,6 @@ class AsyncSchedulesResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.ScheduleRecord,
-            timeout=timeout,
-        )
-
-
-class AsyncEventTriggersResource:
-    """`client.event_triggers` — the `eventTriggers` operations."""
-
-    def __init__(self, client: AsyncClientBase) -> None:
-        self._client = client
-
-    async def list(
-        self,
-        /,
-        *,
-        limit: int | None = None,
-        cursor: str | None = None,
-        status: Literal["active", "paused"] | None = None,
-        timeout: float | None = None,
-    ) -> _models.EventTriggerCollectionPage:
-        """List event triggers. `GET /v1/event-triggers`"""
-        return await self._client._request(
-            _OPERATIONS["eventTriggers.list"],
-            path={},
-            query={"limit": limit, "cursor": cursor, "status": status},
-            headers={},
-            response=_models.EventTriggerCollectionPage,
-            timeout=timeout,
-        )
-
-    async def register(
-        self,
-        body: _models.RegisterEventTriggerBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.EventTriggerRecord:
-        """Register an event trigger. `POST /v1/event-triggers`
-
-        Registers a `kind=event` trigger. The event-trigger scheduler in the runtime subscribes on the deployment event bus for the given `eventKind`; matching events start a flow run.
-        """
-        return await self._client._request(
-            _OPERATIONS["eventTriggers.register"],
-            path={},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.RegisterEventTriggerBody, body, fields),
-            response=_models.EventTriggerRecord,
-            timeout=timeout,
-        )
-
-    async def get(
-        self, trigger_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.EventTriggerRecord:
-        """Fetch an event trigger. `GET /v1/event-triggers/{triggerId}`"""
-        return await self._client._request(
-            _OPERATIONS["eventTriggers.get"],
-            path={"triggerId": trigger_id},
-            query={},
-            headers={},
-            response=_models.EventTriggerRecord,
-            timeout=timeout,
-        )
-
-    async def update(
-        self,
-        trigger_id: str | UUID,
-        body: _models.PatchEventTriggerBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.EventTriggerRecord:
-        """Update an event trigger. `PATCH /v1/event-triggers/{triggerId}`"""
-        return await self._client._request(
-            _OPERATIONS["eventTriggers.update"],
-            path={"triggerId": trigger_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.PatchEventTriggerBody, body, fields),
-            response=_models.EventTriggerRecord,
-            timeout=timeout,
-        )
-
-    async def pause(
-        self,
-        trigger_id: str | UUID,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-    ) -> _models.EventTriggerRecord:
-        """Pause an event trigger. `POST /v1/event-triggers/{triggerId}/pause`"""
-        return await self._client._request(
-            _OPERATIONS["eventTriggers.pause"],
-            path={"triggerId": trigger_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            response=_models.EventTriggerRecord,
-            timeout=timeout,
-        )
-
-    async def resume(
-        self,
-        trigger_id: str | UUID,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-    ) -> _models.EventTriggerRecord:
-        """Resume an event trigger. `POST /v1/event-triggers/{triggerId}/resume`"""
-        return await self._client._request(
-            _OPERATIONS["eventTriggers.resume"],
-            path={"triggerId": trigger_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            response=_models.EventTriggerRecord,
-            timeout=timeout,
-        )
-
-    async def unregister(
-        self,
-        trigger_id: str | UUID,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-    ) -> _models.EventTriggerUnregisterResult:
-        """Soft-delete an event trigger (tombstone). `POST /v1/event-triggers/{triggerId}/unregister`"""
-        return await self._client._request(
-            _OPERATIONS["eventTriggers.unregister"],
-            path={"triggerId": trigger_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            response=_models.EventTriggerUnregisterResult,
-            timeout=timeout,
-        )
-
-
-class AsyncWebhooksResource:
-    """`client.webhooks` — the `webhooks` operations."""
-
-    def __init__(self, client: AsyncClientBase) -> None:
-        self._client = client
-
-    async def list(
-        self,
-        /,
-        *,
-        limit: int | None = None,
-        cursor: str | None = None,
-        status: Literal["active", "paused"] | None = None,
-        timeout: float | None = None,
-    ) -> _models.WebhookTriggerCollectionPage:
-        """List webhook triggers. `GET /v1/webhooks`"""
-        return await self._client._request(
-            _OPERATIONS["webhooks.list"],
-            path={},
-            query={"limit": limit, "cursor": cursor, "status": status},
-            headers={},
-            response=_models.WebhookTriggerCollectionPage,
-            timeout=timeout,
-        )
-
-    async def register(
-        self,
-        body: _models.RegisterWebhookTriggerBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.WebhookTriggerRecord:
-        """Register a webhook trigger. `POST /v1/webhooks`
-
-        Registers a `kind=webhook` trigger. The route mints `webhookId` (a random UUID). Caller must have written the plaintext HMAC secret to `/v1/secrets` first and passes the resulting name as `hmacSecretName` — the trigger never stores the plaintext. Rotation flows through `POST /v1/secrets/:name/rotate`.
-        """
-        return await self._client._request(
-            _OPERATIONS["webhooks.register"],
-            path={},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.RegisterWebhookTriggerBody, body, fields),
-            response=_models.WebhookTriggerRecord,
-            timeout=timeout,
-        )
-
-    async def get(
-        self, trigger_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.WebhookTriggerRecord:
-        """Fetch a webhook trigger. `GET /v1/webhooks/{triggerId}`"""
-        return await self._client._request(
-            _OPERATIONS["webhooks.get"],
-            path={"triggerId": trigger_id},
-            query={},
-            headers={},
-            response=_models.WebhookTriggerRecord,
-            timeout=timeout,
-        )
-
-    async def update(
-        self,
-        trigger_id: str | UUID,
-        body: _models.PatchWebhookTriggerBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.WebhookTriggerRecord:
-        """Update a webhook trigger. `PATCH /v1/webhooks/{triggerId}`
-
-        HMAC secret rotation is NOT here — rotate via `POST /v1/secrets/:name/rotate` on the referenced secret.
-        """
-        return await self._client._request(
-            _OPERATIONS["webhooks.update"],
-            path={"triggerId": trigger_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.PatchWebhookTriggerBody, body, fields),
-            response=_models.WebhookTriggerRecord,
-            timeout=timeout,
-        )
-
-    async def pause(
-        self,
-        trigger_id: str | UUID,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-    ) -> _models.WebhookTriggerRecord:
-        """Pause a webhook trigger. `POST /v1/webhooks/{triggerId}/pause`"""
-        return await self._client._request(
-            _OPERATIONS["webhooks.pause"],
-            path={"triggerId": trigger_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            response=_models.WebhookTriggerRecord,
-            timeout=timeout,
-        )
-
-    async def resume(
-        self,
-        trigger_id: str | UUID,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-    ) -> _models.WebhookTriggerRecord:
-        """Resume a webhook trigger. `POST /v1/webhooks/{triggerId}/resume`"""
-        return await self._client._request(
-            _OPERATIONS["webhooks.resume"],
-            path={"triggerId": trigger_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            response=_models.WebhookTriggerRecord,
-            timeout=timeout,
-        )
-
-    async def unregister(
-        self,
-        trigger_id: str | UUID,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-    ) -> _models.WebhookTriggerUnregisterResult:
-        """Soft-delete a webhook trigger (tombstone). `POST /v1/webhooks/{triggerId}/unregister`"""
-        return await self._client._request(
-            _OPERATIONS["webhooks.unregister"],
-            path={"triggerId": trigger_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            response=_models.WebhookTriggerUnregisterResult,
             timeout=timeout,
         )
 
@@ -14341,8 +15082,6 @@ class Resources:
     env: EnvResource
     secrets: SecretsResource
     schedules: SchedulesResource
-    event_triggers: EventTriggersResource
-    webhooks: WebhooksResource
     webhook_endpoints: WebhookEndpointsResource
 
     def __init__(self) -> None:
@@ -14390,8 +15129,6 @@ class Resources:
         self.env = EnvResource(client)
         self.secrets = SecretsResource(client)
         self.schedules = SchedulesResource(client)
-        self.event_triggers = EventTriggersResource(client)
-        self.webhooks = WebhooksResource(client)
         self.webhook_endpoints = WebhookEndpointsResource(client)
 
 
@@ -14441,8 +15178,6 @@ class AsyncResources:
     env: AsyncEnvResource
     secrets: AsyncSecretsResource
     schedules: AsyncSchedulesResource
-    event_triggers: AsyncEventTriggersResource
-    webhooks: AsyncWebhooksResource
     webhook_endpoints: AsyncWebhookEndpointsResource
 
     def __init__(self) -> None:
@@ -14490,6 +15225,4 @@ class AsyncResources:
         self.env = AsyncEnvResource(client)
         self.secrets = AsyncSecretsResource(client)
         self.schedules = AsyncSchedulesResource(client)
-        self.event_triggers = AsyncEventTriggersResource(client)
-        self.webhooks = AsyncWebhooksResource(client)
         self.webhook_endpoints = AsyncWebhookEndpointsResource(client)

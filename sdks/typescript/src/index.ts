@@ -79,6 +79,7 @@ export type {
 export type { Transport, TransportRequest } from './transport.js';
 export type {
   ApprovalFilter,
+  ApprovalPage,
   ApprovalsClient,
   AuditClient,
   AuditExportInput,
@@ -93,6 +94,8 @@ export type {
   FlowFilter,
   FlowsClient,
   FlowValidateResult,
+  FlowVersionFilter,
+  FlowVersionRow,
   PageFilter,
 } from './resources/flows.js';
 export type {
@@ -135,6 +138,8 @@ export type {
 export type {
   AuthorGuardrailOptions,
   GuardrailFilter,
+  GuardrailOutcomes,
+  GuardrailOutcomesQuery,
   GuardrailsClient,
 } from './resources/guardrails.js';
 export type {
@@ -201,17 +206,46 @@ export type {
 export type {
   AddProjectMembershipInput,
   AddProjectMembershipOutcome,
+  AssignableProjectRoleValue,
   CreateProjectInput,
   ListProjectMembershipsFilter,
   ListProjectsFilter,
   ProjectMembershipPage,
+  ListProjectAccessFilter,
+  ListTeamGrantsFilter,
+  ProjectAccessClient,
+  ProjectAccessPage,
+  ProjectAccessShape,
   ProjectMembershipsClient,
+  ProjectTeamGrantsClient,
   ProjectPage,
   ProjectRecordShape,
   ProjectRoleValue,
+  TeamProjectGrantPage,
+  TeamProjectGrantShape,
+  TeamProjectRoleValue,
   ProjectsClient,
   UpdateProjectInput,
 } from './resources/projects.js';
+export type {
+  JudgingClassResult,
+  JudgingItemRule,
+  JudgingQueueClient,
+  JudgingQueueFilter,
+  JudgingQueueItem,
+  JudgingQueuePage,
+  JudgingQueueState,
+  JudgingRule,
+  JudgingResultGroup,
+  JudgingRulePage,
+  JudgingRulePatch,
+  JudgingRulePreview,
+  JudgingRulePreviewInput,
+  JudgingRuleResults,
+  JudgingRuleSpec,
+  JudgingRulesClient,
+  JudgingRuleWhen,
+} from './resources/judging.js';
 export type {
   CreateOrgInput,
   ListOrgsFilter,
@@ -277,24 +311,6 @@ export type {
   UpdateScheduleInput,
 } from './resources/schedules.js';
 export type {
-  EventTrigger,
-  EventTriggerPage,
-  EventTriggersClient,
-  ListEventTriggersFilter,
-  RegisterEventTriggerInput,
-  UnregisterEventTriggerResult,
-  UpdateEventTriggerInput,
-} from './resources/event-triggers.js';
-export type {
-  ListWebhookTriggersFilter,
-  RegisterWebhookTriggerInput,
-  UnregisterWebhookTriggerResult,
-  UpdateWebhookTriggerInput,
-  WebhookTrigger,
-  WebhookTriggerPage,
-  WebhooksClient,
-} from './resources/webhooks.js';
-export type {
   CreateWebhookEndpointInput,
   ListWebhookDeliveriesFilter,
   ListWebhookEndpointsFilter,
@@ -325,6 +341,7 @@ export type {
   ExportSigningKeysClient,
 } from './resources/export-signing-keys.js';
 export { SIGNED_EXPORT_ALGORITHMS, verifySignedExport } from './verify-export.js';
+export { docsUrl } from './docs-links.js';
 export type {
   SignedExportEnvelope,
   SignedExportVerification,
@@ -409,19 +426,19 @@ export type {
 } from './resources/providers.js';
 export type {
   IdentityClient,
+  IdentityMeClient,
   IdentitySessionPage,
   IdentityUser,
   IdentityUserPage,
   IdentityUsersClient,
   ListIdentityUsersFilter,
+  MyPermissions,
   RevokeSessionsOutcome,
   WhoamiInfo,
 } from './resources/identity.js';
 export type {
   AuthClient,
   AuthProvidersClient,
-  CallbackInput,
-  CallbackResultShape,
   IdentityProviderPage,
   IdentityProviderRegisterInput,
   IdentityProviderRegisterOutcome,
@@ -429,14 +446,17 @@ export type {
   IdentityProviderUnregisterOutcome,
   IdentityProviderUpdateInput,
   IdentityProviderUpdateOutcome,
-  LoginInput,
-  LoginResult,
   LogoutResultShape,
   SignInOptionsResult,
   TokenSignInResultShape,
   RefreshResultShape,
 } from './resources/auth.js';
-export type { ListRunsFilter, RunPage } from './resources/runs.js';
+export type {
+  ListRunsFilter,
+  RunFailureGroups,
+  RunFailuresQuery,
+  RunPage,
+} from './resources/runs.js';
 export type { ListPage } from './list-page.js';
 export type { ScopeRef } from './scope-wire.js';
 
@@ -529,6 +549,7 @@ export type {
   LogVerifyResult,
   JudgeClass,
   JudgeClassAssertableBy,
+  JudgeClassAssertableByView,
   JudgeClassScope,
   JudgedItem,
   JudgedRunContext,
@@ -624,6 +645,7 @@ export type {
   ScheduleSpec,
   ServiceAccount,
   ServiceAccountGrant,
+  ServiceAccountGrantInput,
   ServiceAccountGrantTarget,
   SearchInput,
   Session,

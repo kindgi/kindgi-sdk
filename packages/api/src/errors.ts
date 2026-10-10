@@ -202,9 +202,16 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'eval-suite-project-mismatch': 409,
   // Admin plane — eval-run dispatch.
   'eval-run-not-found': 404,
+  'eval-run-not-rescorable': 409,
   // Judgments (yes/no on a run's output items) and judge classes.
   'judgment-not-found': 404,
   'judge-class-not-found': 404,
+  /** A judging rule that isn't in the project (`/v1/projects/:projectId/judging-rules/:ruleId`). */
+  'judging-rule-not-found': 404,
+  /** A run that isn't in the project's judging queue. */
+  'judging-item-not-found': 404,
+  /** Dismissing a queued run that isn't open, or reopening one that wasn't dismissed. */
+  'judging-item-not-open': 409,
   'judge-class-name-taken': 409,
   'judge-class-not-applicable': 400,
   // The judge class is restricted (`assertableBy`), and the caller isn't one who may assert it.
@@ -251,6 +258,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'identity-user-unregistered': 409,
   /** A person's grants on a runtime without an authorization store. */
   'person-grants-unsupported': 501,
+  /** A caller's permissions on a runtime without an authorization store (`GET /v1/identity/me/permissions`). */
+  'permissions-unsupported': 501,
   /** Unregister: the version is live in a scope; move that pin first. */
   'agent-version-live': 409,
   /** An artifact upload over the runtime's cap (`KINDGI_ARTIFACT_MAX_BYTES`). */
@@ -259,11 +268,14 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'item-not-found': 400,
   // The judgment binding can't list judged runs, so no test sets from judgments.
   'test-sets-not-supported': 501,
+  'run-failures-not-supported': 501,
   'memory-operation-unsupported': 501,
   // The conversation binding can't unregister (a runtime built before it).
   'conversation-unregister-unsupported': 501,
   // Authorization is enforced, but a membership change can't be kept in step with it.
   'authz-membership-unsupported': 501,
+  // The guardrail registry keeps no outcome ledger.
+  'guardrail-outcomes-not-supported': 501,
   'eval-run-already-terminal': 409,
   'dispatcher-not-registered': 422,
   'dispatcher-input-invalid': 400,
@@ -291,10 +303,9 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // discovery failed, its SAML metadata didn't parse, a host it may not
   // reach): 422 with what went wrong.
   'identity-provider-invalid': 422,
-  'oauth-state-invalid': 400,
-  'oauth-code-exchange-failed': 422,
-  'oauth-refresh-failed': 422,
-  'oauth-refresh-not-supported': 422,
+  // The operator manages sign-in (KINDGI_AUTH_TENANT_PROVIDERS=off): a
+  // change to a provider takes the deployment's own token.
+  'identity-providers-operator-managed': 403,
   'invalid-provider-config': 400,
   'auth-not-session-token': 400,
   // `POST /v1/auth/refresh` with a browser session (cookie): refused, so a
@@ -325,6 +336,17 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'project-not-found': 404,
   'team-membership-not-found': 404,
   'project-membership-not-found': 404,
+  // Re-adding a member with another role: the role they hold is kept.
+  'membership-exists': 409,
+  // A team's role on a project.
+  'team-grant-not-found': 404,
+  'team-grant-exists': 409,
+  // Who has access to a project: a runtime without an authorization store can't say.
+  'project-access-unsupported': 501,
+  // A model provider's key is used by its provider only: named by a tool or
+  // an endpoint (400), or registered for a provider while one uses it (409).
+  'provider-key-refused': 400,
+  'provider-key-in-use': 409,
   // A slug another org, team or project in the tenant already has; a
   // second Default project.
   'slug-conflict': 409,

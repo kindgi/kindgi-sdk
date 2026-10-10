@@ -187,6 +187,8 @@ Response body:
 
 - `nextCursor` is absent when `hasMore: false`.
 - Cursors are opaque — SDKs treat them as strings. Server encodes whatever it needs (page number, last-id, whatever).
+- A runtime with a cursor sealer (`cursorSealer`) seals every `nextCursor` at the edge (AES-256-GCM, `k1.<kid>.<nonce>.<body>`): it shows nothing of the row it points after, even one the list hid. A sealed cursor opens only for the same tenant, caller, list (the path) and filters (the query parameters other than `cursor` and `limit`, so the page size may change mid-scan), within a day; otherwise `400 bad-input`, and the client starts again without it. A plain cursor still passes as it is.
+- A page may be empty while `hasMore` is true (every row of a window was one the caller can't read): continue with `nextCursor`.
 - Filters go as query params: `?status=running&agentId=...`.
 - Sort order is fixed per endpoint (documented per route); no `?sort=` unless explicitly supported.
 

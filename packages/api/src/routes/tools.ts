@@ -4,17 +4,19 @@
 import { Hono } from 'hono';
 
 import { type Principal, ref, tuplesForCreate } from '@kindgi/authz';
-import { type ToolManifest, validateToolManifest } from '@kindgi/tools';
+import { toolSecretNames, validateToolManifest } from '@kindgi/tools';
 import type { Cursor, ProjectId, TenantId, ToolId, UserId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
 import { refuseWritesWhenReadOnly } from '../registry-read-only.js';
-import type { ToolRegistryBinding } from '../tool-binding.js';
+import type { ToolRecord, ToolRegistryBinding, ToolVersionRow } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
 import { projectMismatch } from './project-mismatch.js';
 import { parseScopeParams } from './scope-params.js';
+import { isRegistryVersionsCursor } from './versions-cursor.js';
 
 /**
  * Tools resource routes.
@@ -47,6 +49,7 @@ export function toolsRouter(
   binding: ToolRegistryBinding,
   authorizer?: Authorizer,
   onWrite?: ToolWriteHook,
+  options: { readonly providerKeys?: ProviderKeys } = {},
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   // A read-only registry (under `kindgi dev`, the pack's files) refuses
@@ -111,6 +114,10 @@ export function toolsRouter(
 
     const cursorRaw = c.req.query('cursor');
     const nameRaw = c.req.query('name');
+    // `?includeRetired=true` lists retired items too (no active version),
+    // each as its highest version with `unregisteredAt`. Anything else →
+    // items with an active version only (the default).
+    const includeRetired = c.req.query('includeRetired') === 'true';
 
     const scopeParsed = parseScopeParams(c.req.query(), { tenantId });
     if (scopeParsed.kind === 'err') {
@@ -127,6 +134,7 @@ export function toolsRouter(
       ...(nameRaw !== undefined && nameRaw.length > 0 && { nameFilter: nameRaw }),
       ...(scopeParsed.scope !== undefined && { scope: scopeParsed.scope }),
       ...(scopeParsed.inherit !== undefined && { inherit: scopeParsed.inherit }),
+      ...(includeRetired && { includeRetired: true }),
     });
     // Only what the caller may read (T243 A), as `GET …/:id` asks.
     const visible =
@@ -136,7 +144,7 @@ export function toolsRouter(
             ref('tool', a.id as unknown as string),
           );
     return c.json({
-      data: visible.map(serializeTool),
+      data: visible.map(serializeToolVersionRow),
       hasMore: page.nextCursor !== undefined,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });
@@ -195,6 +203,12 @@ export function toolsRouter(
     // tombstoned. Absent / `false` / any other string → active-only
     // (the default).
     const includeTombstoned = c.req.query('includeTombstoned') === 'true';
+    if (cursorRaw !== undefined && cursorRaw.length > 0 && !isRegistryVersionsCursor(cursorRaw)) {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError({ code: 'bad-input', message: '`cursor` is malformed' }, requestId),
+      );
+    }
 
     // Confirm the id exists at all. Retired tools (all versions
     // tombstoned) still have a head row → 200 with a page listing the
@@ -311,6 +325,18 @@ export function toolsRouter(
           requestId,
         ),
       );
+    }
+
+    // A model provider's key is never a tool's.
+    const refusal = await refuseProviderKeys(
+      options.providerKeys,
+      tenantId,
+      toolSecretNames(validated.value),
+      'a tool',
+    );
+    if (refusal !== undefined) {
+      c.status(statusFor(refusal.code) as never);
+      return c.json(toWireError(refusal, requestId));
     }
 
     const principal = c.get('principal') as Principal | undefined;
@@ -469,11 +495,13 @@ export function toolsRouter(
  * The manifest as the wire carries it: every `ToolManifest` field the
  * `Tool` schema declares (a mirror of `@kindgi/specs/tool.schema.json`),
  * including where the code runs (`codeArtifactRef`) and the declarative
- * `spec`. A secret appears only as a reference (`secretRef`), never a value.
+ * `spec`, and the tool's project when the registry records it. A secret
+ * appears only as a reference (`secretRef`), never a value.
  */
-function serializeTool(t: ToolManifest): Record<string, unknown> {
+function serializeTool(t: ToolRecord): Record<string, unknown> {
   return {
     id: t.id as unknown as string,
+    ...(t.projectId !== undefined && { projectId: t.projectId as unknown as string }),
     description: t.description,
     ...(t.version !== undefined && { version: t.version }),
     input: t.input,
@@ -499,9 +527,7 @@ function serializeTool(t: ToolManifest): Record<string, unknown> {
  * head-level `get` / `resolve` routes don't accidentally start emitting
  * a field consumers don't expect.
  */
-function serializeToolVersionRow(
-  t: ToolManifest & { readonly unregisteredAt?: string },
-): Record<string, unknown> {
+function serializeToolVersionRow(t: ToolVersionRow): Record<string, unknown> {
   return {
     ...serializeTool(t),
     ...(t.unregisteredAt !== undefined && { unregisteredAt: t.unregisteredAt }),

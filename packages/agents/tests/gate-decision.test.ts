@@ -5,7 +5,12 @@
 
 import { describe, expect, test } from 'vitest';
 
-import { UNREADABLE_DECISION, readGateDecision } from '../src/handlers/gate-decision.js';
+import {
+  APPROVAL_WITHDRAWN_REASON,
+  UNREADABLE_DECISION,
+  readGateDecision,
+  withdrawnGateFailure,
+} from '../src/handlers/gate-decision.js';
 
 describe('readGateDecision — fails closed', () => {
   test('an explicit approve approves', () => {
@@ -69,5 +74,17 @@ describe('readGateDecision — who decided', () => {
       reason: 'unreadable',
       rationale: UNREADABLE_DECISION,
     });
+  });
+});
+
+describe('withdrawnGateFailure', () => {
+  test("a reviewer's withdrawal is hitl-withdrawn; any other cancellation isn't decided here", () => {
+    expect(withdrawnGateFailure(APPROVAL_WITHDRAWN_REASON, 'the session-HITL gate')).toEqual({
+      code: 'hitl-withdrawn',
+      message: 'The approval for the session-HITL gate was withdrawn',
+      reason: APPROVAL_WITHDRAWN_REASON,
+    });
+    expect(withdrawnGateFailure('timeout', 'the session-HITL gate')).toBeUndefined();
+    expect(withdrawnGateFailure('run-cancelled', 'the session-HITL gate')).toBeUndefined();
   });
 });

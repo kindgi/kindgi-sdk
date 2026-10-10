@@ -186,6 +186,25 @@ describe('secrets.set', () => {
     expect(body.scope.kind).toBe('project');
     expect(body.tags.owner).toBe('billing');
     expect(stub.calls[0]?.headers['idempotency-key']).toBe('idem-1');
+    expect(body).not.toHaveProperty('appEnvFile');
+  });
+
+  it("sends appEnvFile only when true (kindgi dev: the app's env file)", async () => {
+    const stub = jsonFetch({ record: WIRE_SECRET, versionId: 1 }, { status: 201 });
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    await client.secrets.set({
+      scope: PROJECT_SCOPE,
+      envName: 'local' as never,
+      name: 'ACME_WEBHOOK_SECRET',
+      value: 'whsec_x',
+      writeMode: 'create-new',
+      appEnvFile: true,
+    });
+    expect(JSON.parse(stub.calls[0]?.body!).appEnvFile).toBe(true);
   });
 
   it('returns version-conflict outcome on 409 secret-write-conflict', async () => {

@@ -188,6 +188,11 @@
         }
       ]
     },
+    "checkBuiltIn": {
+      "type": "boolean",
+      "const": true,
+      "description": "Set by the CLI on a guardrail that names a built-in check (`check`) without shipping a check of its own: its `codeArtifactRef` is only the file it's declared in. A runtime warns about a guardrail naming a built-in, with a code artifact and without this marker (built by an older CLI): its pack may ship its own check under the built-in's id, which the built-in replaces."
+    },
     "judgeCapabilities": {
       "type": "object",
       "description": "For llm-judge guardrails: capability declaration for the judge model. Routed through `@kindgi/capabilities` over the providers bound for evaluation; when the caller passes a tenant policy (an agent turn passes its own), the judge is routed under it. BYO judges supported.",

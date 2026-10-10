@@ -18,7 +18,7 @@ kindgi sso providers start acme-google --idp=google
 Sign-in with "acme-google" (OpenID Connect). Send this to whoever runs your identity provider:
 
   Create an OpenID Connect web application (a confidential client) for Kindgi.
-  Redirect URI:  http://localhost:18096/auth/sso/callback/idp-uiyrzsxrefmitdo6oxmizvyerq
+  Redirect URI:  http://localhost:18096/auth/sso/callback/idp-tetkkt72cvmszkfsa2qamru4i4
   Scopes:        openid email profile
   Let in only the people who should use Kindgi (assign users or groups).
 
@@ -34,7 +34,7 @@ Google Cloud console → Google Auth Platform:
   5. Download the client ID and secret (Google shows the secret once).
 Issuer: https://accounts.google.com
 
-Step by step: https://docs.kindgi.com/guides/sso/google/
+Step by step: https://docs.kindgi.com/v0.1/guides/sso/google/
 
 Then register it:
   kindgi sso providers finish acme-google --kind=oidc --issuer=<issuer> --client-id=<client-id> --client-secret-ref=<NAME> --domains=<your-domain>

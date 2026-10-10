@@ -2,11 +2,12 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { TupleEnqueueHook } from '@kindgi/authz';
-import type { Guardrail } from '@kindgi/guardrails';
+import type { CodeArtifactRef, Guardrail } from '@kindgi/guardrails';
 import type { Scope } from '@kindgi/platform';
-import type { Cursor, GuardrailId, ProjectId, TenantId } from '@kindgi/types';
+import type { Cursor, GuardrailId, ProjectId, RunId, TenantId, Timestamp } from '@kindgi/types';
 
 import type { RegistryReadOnly } from './registry-read-only.js';
+import type { RegistryRefreshOutcome } from './tool-binding.js';
 
 /**
  * Caller-plugged surface for the guardrail catalog. Same shape as
@@ -47,7 +48,7 @@ export interface GuardrailRegistryBinding {
    * The guardrail for the given id, or `null` if unknown. The route
    * surfaces `null` as `404 guardrail-not-found`.
    */
-  get(input: GuardrailGetInput): Promise<Guardrail | null>;
+  get(input: GuardrailGetInput): Promise<GuardrailRecord | null>;
   /**
    * Register a validated guardrail spec. The API route validates shape
    * via `validateGuardrailSpec(...)` before calling — the binding
@@ -62,7 +63,95 @@ export interface GuardrailRegistryBinding {
    * route flips the latter to `404`.
    */
   unregister(input: GuardrailUnregisterInput): Promise<GuardrailUnregisterOutcome>;
+  /**
+   * What a guardrail's checks came to in a project over a window, from
+   * the outcome ledger the agent turns write (`GuardrailOutcomeSink`,
+   * `@kindgi/guardrails`). A guardrail no longer registered still has its
+   * outcomes. Absent: the route answers `501 guardrail-outcomes-not-supported`.
+   */
+  outcomes?(input: GuardrailOutcomesInput): Promise<GuardrailOutcomes>;
+  /**
+   * Optional. Give a guardrail what a new deploy of the same pack derived
+   * for it: where its check's code is now (`codeArtifactRef`) and that
+   * check's config schema (`configSchema`). What its author declares
+   * doesn't change: a deploy keeps a guardrail only when that's equal.
+   * Without it, a kept guardrail keeps what its first deploy derived (the
+   * pointer is metadata, as pack code runs by check name; the config
+   * schema is what a config is checked against).
+   */
+  refreshDeployedFields?(input: GuardrailRefreshInput): Promise<RegistryRefreshOutcome>;
 }
+
+export interface GuardrailRefreshInput {
+  readonly tenantId: TenantId;
+  readonly guardrailId: GuardrailId;
+  /** Where the check's code is now; `null` for none. */
+  readonly codeArtifactRef: CodeArtifactRef | null;
+  /** The check's config schema now; `null` for none. */
+  readonly configSchema: Readonly<Record<string, unknown>> | null;
+  /**
+   * Compare-and-set: refresh only while the guardrail still holds these
+   * (`null`: none), else answer `{ refreshed: false }` and change nothing.
+   * A deploy's rollback passes what it wrote, so it never undoes a refresh
+   * another deploy made since.
+   */
+  readonly expected?: {
+    readonly codeArtifactRef: CodeArtifactRef | null;
+    readonly configSchema: Readonly<Record<string, unknown>> | null;
+  };
+}
+
+export interface GuardrailOutcomesInput {
+  readonly tenantId: TenantId;
+  readonly guardrailId: GuardrailId;
+  readonly projectId: ProjectId;
+  /** The window: `from` inclusive, `to` exclusive. */
+  readonly from: Timestamp;
+  readonly to: Timestamp;
+  /** How many of the window's blocked turns to name, newest first. */
+  readonly recent: number;
+}
+
+/** How many checks came to each outcome. */
+export interface GuardrailOutcomeCounts {
+  readonly passed: number;
+  readonly violated: number;
+  readonly blocked: number;
+  readonly errored: number;
+}
+
+export interface GuardrailOutcomesByAgentVersion extends GuardrailOutcomeCounts {
+  readonly agentId: string;
+  readonly agentVersion: string;
+}
+
+/** A turn the guardrail blocked. */
+export interface GuardrailBlockedRun {
+  readonly runId: RunId;
+  readonly at: Timestamp;
+  readonly agentId: string;
+  readonly agentVersion: string;
+}
+
+export interface GuardrailOutcomes {
+  readonly counts: GuardrailOutcomeCounts;
+  /**
+   * The same counts per agent version, the most checked first, at most
+   * `GUARDRAIL_OUTCOMES_MAX_AGENT_VERSIONS`.
+   */
+  readonly byAgentVersion: readonly GuardrailOutcomesByAgentVersion[];
+  /** The window's most recent blocked turns, newest first, at most `recent`. */
+  readonly recentBlocked: readonly GuardrailBlockedRun[];
+  /**
+   * The earliest outcome kept for this guardrail in this project, in any
+   * window: nothing before it is counted. Outcomes were first recorded
+   * in 0.1.6, and they go with their run's retention. Absent: none kept.
+   */
+  readonly recordedSince?: Timestamp;
+}
+
+/** The most agent versions an outcomes answer lists. */
+export const GUARDRAIL_OUTCOMES_MAX_AGENT_VERSIONS = 100;
 
 export interface GuardrailListInput {
   readonly tenantId: TenantId;
@@ -126,9 +215,18 @@ export interface GuardrailUnregisterInput {
 }
 
 export interface GuardrailPage {
-  readonly data: readonly Guardrail[];
+  readonly data: readonly GuardrailRecord[];
   readonly nextCursor?: Cursor;
 }
+
+/**
+ * A guardrail as the registry reads it (`get`, `list`): the spec, and
+ * its project when the store records it.
+ */
+export type GuardrailRecord = Guardrail & {
+  /** The guardrail's project, when the store records it. */
+  readonly projectId?: ProjectId;
+};
 
 export type GuardrailRegisterOutcome =
   | {

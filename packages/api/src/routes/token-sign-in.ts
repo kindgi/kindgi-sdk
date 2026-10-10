@@ -7,13 +7,16 @@ import { Hono } from 'hono';
 import { setCookie } from 'hono/cookie';
 
 import type { AuditEvent, AuditEventBinding } from '@kindgi/audit-events';
+import { ref } from '@kindgi/authz';
 import type { Timestamp } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import { encodeSessionToken } from '../middleware/auth.js';
+import type { Authorizer } from '../middleware/authorize.js';
 import { withholdFromReplay } from '../middleware/idempotency.js';
 import type { SessionStoreBinding } from '../session-store-binding.js';
 import type { AppEnv } from '../types.js';
+import { refused } from './denied.js';
 
 /**
  * `POST /v1/auth/token-sign-in`: a person signs in to the console with an
@@ -30,7 +33,10 @@ import type { AppEnv } from '../types.js';
  * outlives the key: it ends when the key expires, and, with a store that has
  * `revokeByProvider`, when the key is revoked (its `providerId` is
  * `api-token:<tokenId>`).
- * Refusals are audited (`sign-in-refused`), as is each sign-in.
+ * Refusals are audited (`sign-in-refused`), as is each sign-in. A 403 is
+ * also an access decision on a known caller, so it's recorded with the
+ * authorizer (`refused`), as every refusal the API decides itself is, and
+ * keeps its own code.
  */
 export type TokenSignInRouteOptions =
   /** The deployment doesn't allow it, or has no browser sessions: 403 `token-sign-in-off`. */
@@ -41,11 +47,16 @@ export type TokenSignInRouteOptions =
       /** The session's lifetime, in milliseconds. */
       readonly ttlMs: number;
       readonly cookieName: string;
+      /** Whether the cookie is `Secure`. Default `true` (see `SessionCookieOptions.secure`). */
+      readonly cookieSecure?: boolean;
       /** `signed-in` events, best effort. */
       readonly auditEvents?: AuditEventBinding;
     };
 
-export function tokenSignInRouter(options: TokenSignInRouteOptions): Hono<AppEnv> {
+export function tokenSignInRouter(
+  options: TokenSignInRouteOptions,
+  authorizer?: Authorizer,
+): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
   r.post('/', async (c) => {
@@ -67,7 +78,13 @@ export function tokenSignInRouter(options: TokenSignInRouteOptions): Hono<AppEnv
         );
       }
     };
-    const refuse = async (code: string, message: string) => {
+    /**
+     * The sign-in history's event, then the answer. `failing`, for a 403:
+     * it's an access decision too (`read` on the tenant: the console), recorded
+     * with the authorizer. `actor` when it's who the caller is, `scope` when
+     * it's what their key or the deployment allows.
+     */
+    const refuse = async (code: string, message: string, failing?: 'actor' | 'scope') => {
       const userId = c.get('userId');
       const serviceAccountId = c.get('serviceAccountId');
       await audit({
@@ -82,6 +99,15 @@ export function tokenSignInRouter(options: TokenSignInRouteOptions): Hono<AppEnv
         outcome: 'denied',
         payload: { v: 1, doc: { method: 'api-token', reason: code } },
       });
+      if (failing !== undefined) {
+        return refused(c, authorizer, {
+          action: 'read',
+          resource: ref('tenant', c.get('tenantId') as unknown as string),
+          message,
+          failing,
+          code,
+        });
+      }
       c.status(statusFor(code) as never);
       return c.json(toWireError({ code, message }, requestId));
     };
@@ -90,6 +116,7 @@ export function tokenSignInRouter(options: TokenSignInRouteOptions): Hono<AppEnv
       return refuse(
         'token-sign-in-off',
         "This deployment doesn't allow signing in to the console with an API token. Sign in with your organization's identity provider, or ask whoever runs Kindgi to allow it.",
+        'scope',
       );
     }
     if (c.get('sessionId') !== undefined) {
@@ -104,12 +131,14 @@ export function tokenSignInRouter(options: TokenSignInRouteOptions): Hono<AppEnv
       return refuse(
         'token-sign-in-not-allowed',
         "Only a person's API key can open a console session; a service account's key is for machines.",
+        'actor',
       );
     }
     if (c.get('tokenRole') === 'member' || c.get('tokenProjectId') !== undefined) {
       return refuse(
         'token-sign-in-not-allowed',
         "A narrowed key (a member role, or one project) can't open a console session: the session would carry all of your permissions. Use a full key, or sign in with your identity provider.",
+        'scope',
       );
     }
 
@@ -130,7 +159,7 @@ export function tokenSignInRouter(options: TokenSignInRouteOptions): Hono<AppEnv
     });
     setCookie(c, options.cookieName, created.token ?? encodeSessionToken(created.sessionId), {
       httpOnly: true,
-      secure: true,
+      secure: options.cookieSecure !== false,
       sameSite: 'Lax',
       path: '/',
       maxAge: Math.max(0, Math.floor((expires - Date.now()) / 1000)),
