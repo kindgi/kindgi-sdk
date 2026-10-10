@@ -112,7 +112,11 @@ describe('fromWire — live versions', () => {
     });
   });
 
-  it.each(['role-exceeds-principal', 'key-project-mismatch'])('a %s is forbidden', (code) => {
+  it.each([
+    'role-exceeds-principal',
+    'key-project-mismatch',
+    'identity-providers-operator-managed',
+  ])('a %s is forbidden', (code) => {
     expect(fromWire({ code, message: 'no' })).toMatchObject({
       code: 'auth',
       reason: 'forbidden',

@@ -33,7 +33,11 @@ const RUNS_TABLE: TableSpec<RunPage, Run> = {
   columns: [
     { header: 'ID', get: (run) => String(run.id) },
     { header: 'STATUS', get: (run) => run.status },
-    { header: 'FLOW', get: (run) => run.flowId },
+    // An agent's run is the `agent.turn` flow: name the agent instead.
+    {
+      header: 'FLOW / AGENT',
+      get: (run) => (run.agent !== undefined ? `${run.agent.id}@${run.agent.version}` : run.flowId),
+    },
     { header: 'CREATED', get: (run) => String(run.createdAt) },
   ],
 };

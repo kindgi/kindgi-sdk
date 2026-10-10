@@ -229,6 +229,10 @@ export interface ApprovalFilter extends Omit<Filter<ApprovalStatus>, 'status'> {
    * `waitTokenId`; a run's journal names its open waits). At most 50.
    */
   readonly waitTokenIds?: readonly string[];
+  /** Only the approvals this run asked for. */
+  readonly runId?: string;
+  /** With `runId`: also those its child runs asked for, at any depth (a flow's agent steps). */
+  readonly includeDescendants?: boolean;
 }
 
 /**
@@ -305,6 +309,10 @@ export function makeApprovalsClient(transport: Transport): ApprovalsClient {
           }),
           ...(filter?.waitTokenIds !== undefined &&
             filter.waitTokenIds.length > 0 && { waitTokenId: filter.waitTokenIds }),
+          ...(filter?.runId !== undefined && { runId: filter.runId }),
+          ...(filter?.includeDescendants !== undefined && {
+            includeDescendants: String(filter.includeDescendants),
+          }),
         },
       });
       const result = listPage(page);

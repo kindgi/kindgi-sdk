@@ -103,8 +103,16 @@ def verify_citation(citation: Citation, ctx: ToolContext) -> Verdict:
 - `ctx.tenant_id` — the tenant the call is for. Key any per-tenant
   state by it.
 - `ctx.run_id` — the run (an agent turn or a flow step) the call belongs to.
-- `ctx.request_id` — this call, e.g. the model's tool-call id; useful
-  for logs and idempotency keys.
+- `ctx.request_id` — this call, e.g. the model's tool-call id; for logs.
+  A model's call id is only unique within one of its answers: don't
+  dedupe on it.
+- `ctx.idempotency_key` — the same every time this call runs (resumed,
+  retried, or run again after a crash), different for every other call. A
+  step can run more than once, so a tool that writes passes it to the
+  system it writes to (an `Idempotency-Key` header, a client reference, a
+  unique column) or looks for it there first: a refund never goes out
+  twice. A UUID; `None` outside a run and from a runtime before 0.1.6.
+  Docs: https://docs.kindgi.com/v0.1/guides/tools/write-a-tool/#make-a-side-effect-happen-once
 - `ctx.project_id`, `ctx.org_id` — the run's project, and that project's
   org (`None` when it has none). The runtime sets them from the run, never
   from the input: to check an org or project id the input names, compare
@@ -149,7 +157,10 @@ The runtime resolves every declared secret on every call — for the
 call's tenant, in its env (`KINDGI_ENV`; in `kindgi dev`, `local`: the
 pack's `.env` and `.env.local`) — checks it against its schema, and
 fails the call, naming the secret, when it is missing or doesn't match.
-Every declared secret is required. In a test, pass them:
+A declared secret is required, unless its schema names null
+(`{"type": ["string", "null"]}`): an optional one the env doesn't have, or
+has empty, is absent from `ctx.secrets` (read it with `.get`), and the call
+goes on (runtime 0.1.6 or later; an older runtime requires it). In a test, pass them:
 `ToolContext.for_test(secrets={"CITATOR_KEY": "…"})`.
 
 A value that differs per tenant, org or project but isn't secret (a base URL, a region, an account id) is an **env value**: declared in `needs_spec`, read from `ctx.env`:

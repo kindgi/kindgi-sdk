@@ -26,7 +26,7 @@ import { RESERVED_CHECK_IDS, main, readBundleMap, runIndexer } from '../src/kind
 // Every index this suite writes must satisfy the spec (`@kindgi/specs/pack-index.schema.json`).
 const addFormats = ((addFormatsModule as { default?: unknown }).default ??
   addFormatsModule) as unknown as (ajv: Ajv2020) => void;
-const specAjv = new Ajv2020({ strict: true, allErrors: true, allowUnionTypes: false });
+const specAjv = new Ajv2020({ strict: true, allErrors: true, allowUnionTypes: true });
 addFormats(specAjv);
 const validateIndexSpec = specAjv.compile(
   JSON.parse(
@@ -325,7 +325,12 @@ describe('built-in check ids', () => {
     const report = await index(guardrailModule({ check: 'must-cite' }));
     expect(report.fileErrors).toEqual([]);
     const parsed = await readValidIndex(report.outputPath);
-    expect(parsed.guardrails[0]).toMatchObject({ id: 'acme.grounded', checkId: 'must-cite' });
+    // Marked: it only names the built-in (a runtime warns about an unmarked one, an older CLI's).
+    expect(parsed.guardrails[0]).toMatchObject({
+      id: 'acme.grounded',
+      checkId: 'must-cite',
+      checkBuiltIn: true,
+    });
   });
 
   test.each([
@@ -365,9 +370,11 @@ describe('built-in check ids', () => {
     expect(report.fileErrors).toEqual([]);
   });
 
-  test("an implementation under the pack's own id is fine", async () => {
+  test("an implementation under the pack's own id is fine, and unmarked", async () => {
     const report = await index(guardrailModule({ check: { id: 'acme.checks.cites', evaluate } }));
     expect(report.fileErrors).toEqual([]);
+    const parsed = await readValidIndex(report.outputPath);
+    expect(parsed.guardrails[0].checkBuiltIn).toBeUndefined();
   });
 });
 
@@ -443,6 +450,42 @@ describe("check ids without the pack's prefix (a warning)", () => {
 // -----------------------------------------------------------------------
 // Zod → JSON Schema pass
 // -----------------------------------------------------------------------
+
+describe('runIndexer — needsSpec', () => {
+  test("a tool's needsSpec is kept as written: an optional secret (its schema accepts null) included", async () => {
+    const needsSpec = {
+      secrets: {
+        ANTHROPIC_API_KEY: { type: 'string', minLength: 8 },
+        GROQ_API_KEY: { type: ['string', 'null'], minLength: 8 },
+      },
+      env: { REGION: { type: 'string', default: 'eu' } },
+    };
+    const fixture = await makeFixture({
+      files: {
+        'kindgi.config.mjs': config(),
+        'tools/sense.mjs': {
+          module: {
+            default: {
+              id: 'acme.sense',
+              input: { type: 'object' },
+              output: { type: 'object' },
+              needsSpec,
+              handler: async () => ({}),
+            },
+          },
+        },
+      },
+    });
+    const outcome = await runIndexer({
+      packDir: fixture.packDir,
+      publishedAt: FIXED_TIMESTAMP,
+      importModule: fixture.importModule,
+    });
+    if (outcome.kind !== 'ok') throw new Error(outcome.error.message);
+    const parsed = await readValidIndex(outcome.value.outputPath);
+    expect(parsed.tools[0].needsSpec).toEqual(needsSpec);
+  });
+});
 
 describe('runIndexer — Zod schemas', () => {
   test('Zod input on a tool is converted to JSON Schema', async () => {

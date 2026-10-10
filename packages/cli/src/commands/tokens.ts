@@ -14,6 +14,7 @@ import {
   runSdk,
   runSdkRendered,
   stringFlag,
+  timeFlagValue,
 } from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
 
@@ -40,7 +41,7 @@ export function principalFlag(ctx: CommandContext, name = 'for'): ApiKeyPrincipa
 const DURATION_RE = /^(\d+)([dhm])$/;
 const UNIT_MS: Readonly<Record<string, number>> = { d: 86_400_000, h: 3_600_000, m: 60_000 };
 
-/** `--expires=30d|12h|90m` (from now) or an ISO date. */
+/** `--expires=30d|12h|90m` (from now), or a time with a zone or a date (`timeFlagValue`). */
 export function expiresFlag(ctx: CommandContext, now = () => Date.now()): string | undefined {
   const raw = stringFlag(ctx, 'expires');
   if (raw === undefined) return undefined;
@@ -50,11 +51,13 @@ export function expiresFlag(ctx: CommandContext, now = () => Date.now()): string
     if (ms <= 0) throw new UsageError('--expires must be in the future');
     return new Date(now() + ms).toISOString();
   }
-  const at = new Date(raw);
-  if (Number.isNaN(at.getTime())) {
-    throw new UsageError(`--expires must be like 30d, 12h or 90m, or an ISO date; got "${raw}"`);
+  try {
+    return timeFlagValue(raw, 'expires');
+  } catch {
+    throw new UsageError(
+      `--expires must be like 30d, 12h or 90m, or a time with a zone (2026-10-09T12:00:00Z) or a date (2026-10-09); got "${raw}"`,
+    );
   }
-  return at.toISOString();
 }
 
 const principalCell = (p: ApiKeyPrincipal | undefined) =>

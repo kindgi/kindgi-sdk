@@ -19,6 +19,11 @@ export const EXPORT_SIGNING_KEY_PATH_VAR = 'KINDGI_EXPORT_SIGNING_KEY_PATH';
 export const EXPORT_SIGNING_KEY_VAR = 'KINDGI_EXPORT_SIGNING_KEY';
 export const EXPORT_SIGNING_KMS_KEY_VAR = 'KINDGI_EXPORT_SIGNING_KMS_KEY';
 
+/** Retired export public keys (PEM, concatenated): a file's absolute path, or its base64 value; at most one. */
+export const EXPORT_SIGNING_RETIRED_PUBLIC_KEYS_PATH_VAR =
+  'KINDGI_EXPORT_SIGNING_RETIRED_PUBLIC_KEYS_PATH';
+export const EXPORT_SIGNING_RETIRED_PUBLIC_KEYS_VAR = 'KINDGI_EXPORT_SIGNING_RETIRED_PUBLIC_KEYS';
+
 /** The license key the server checks at startup outside development mode. */
 export const LICENSE_KEY_VAR = 'KINDGI_LICENSE_KEY';
 
@@ -78,6 +83,9 @@ export const AUTH_TURNSTILE_SITE_KEY_VAR = 'KINDGI_AUTH_TURNSTILE_SITE_KEY';
 
 /** Which hops in front of the runtime to trust for the client's address: a hop count, or IPs/CIDRs. */
 export const TRUSTED_PROXIES_VAR = 'KINDGI_TRUSTED_PROXIES';
+
+/** Whether a tenant's admins may change its identity providers (`on` / `off`). */
+export const AUTH_TENANT_PROVIDERS_VAR = 'KINDGI_AUTH_TENANT_PROVIDERS';
 
 /** A browser session's absolute lifetime, in milliseconds. */
 export const SESSION_TTL_MS_VAR = 'KINDGI_SESSION_TTL_MS';
@@ -215,6 +223,40 @@ export function parseAzureKeyId(raw: string | undefined): AzureKeyId | undefined
   }
   const keyName = path[1] as string;
   return { keyUrl: `${url.origin}/keys/${keyName}`, vaultUrl: url.origin, keyName };
+}
+
+/** The Azure Key Vault the `secret-manager` backend keeps secrets in (manager `azure`). */
+export const AZURE_VAULT_URL_VAR = 'KINDGI_SECRETS_AZURE_VAULT_URL';
+
+/**
+ * `KINDGI_SECRETS_AZURE_VAULT_URL`: a vault's https origin
+ * (`https://<vault>.vault.azure.net`, any Azure cloud's vault host), with
+ * nothing after it but an optional `/`. Returns the origin. Unset or
+ * blank: `undefined`.
+ */
+export function parseAzureVaultUrl(raw: string | undefined): string | undefined {
+  if (raw === undefined || raw.trim() === '') return undefined;
+  const value = raw.trim();
+  let url: URL | undefined;
+  try {
+    url = new URL(value);
+  } catch {
+    url = undefined;
+  }
+  if (
+    url === undefined ||
+    url.protocol !== 'https:' ||
+    (url.pathname !== '/' && url.pathname !== '') ||
+    url.username !== '' ||
+    url.password !== '' ||
+    url.search !== '' ||
+    url.hash !== ''
+  ) {
+    throw new Error(
+      `${AZURE_VAULT_URL_VAR} must be a Key Vault's URL with nothing after the host, like https://my-kindgi-secrets.vault.azure.net. Got: ${value}.`,
+    );
+  }
+  return url.origin;
 }
 
 function isExactOrigin(value: string): boolean {

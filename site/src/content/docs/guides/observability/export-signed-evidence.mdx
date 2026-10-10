@@ -184,6 +184,24 @@ It exits 0. The TypeScript and Python verifiers give the same line in `notes`. O
 
 ## Rotate the key
 
-Replace the key (the file, the secret's version, or the KMS key version) and restart. New exports carry the new key's id, and `GET /v1/export-signing-keys` lists only the new key. An export signed before still checks out against the old public key, so keep the old key's public half wherever you pinned it.
+Replace the key (the file, the secret's version, or the KMS key version) and restart. New exports carry the new key's id.
+
+An export signed before still checks out against the old public key wherever you pinned it. For `--from-runtime` to keep trusting it, list the old key as retired. Save its public half before you replace it:
+
+```sh
+curl -s "$KINDGI_API_URL/v1/export-signing-keys" -H "Authorization: Bearer $KINDGI_API_TOKEN" \
+  | jq -r '.data[] | select(.active) | .publicKeyPem' >> export-signing-retired.pem
+```
+
+Then give the runtime the file, in one of these:
+
+| Setting | What it holds |
+|---|---|
+| `KINDGI_EXPORT_SIGNING_RETIRED_PUBLIC_KEYS_PATH` | The path of a file of retired keys' public halves: PEM (`-----BEGIN PUBLIC KEY-----`), Ed25519 or EC P-256, concatenated. |
+| `KINDGI_EXPORT_SIGNING_RETIRED_PUBLIC_KEYS` | The same file, base64 (`base64 < export-signing-retired.pem`): for a platform that gives settings as environment variables. |
+
+- **What it lists:** `GET /v1/export-signing-keys` lists the active key first and the retired ones after it, with `active: false`. So `kindgi exports verify --from-runtime` trusts what they signed.
+- **They never sign:** a request that asks for a retired key's id is `404 signing-key-not-found`. A private key in the file stops the runtime at boot, and so does a block it can't read.
+- **Any signing key:** it works whatever signs now: a file, a secret or a KMS key version.
 
 See [Provenance](../../../reference/api/operations/tags/provenance/) and [Compliance](../../../reference/api/operations/tags/compliance/) in the HTTP API.

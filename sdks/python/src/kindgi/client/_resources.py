@@ -305,6 +305,9 @@ OPERATIONS: dict[str, Operation] = {
     "proposals.evaluate": Operation(
         "proposals.evaluate", "POST", "/v1/proposals/{proposalId}/evaluate", "json", True
     ),
+    "proposals.rescore": Operation(
+        "proposals.rescore", "POST", "/v1/proposals/{proposalId}/rescore", "json", True
+    ),
     "proposals.request": Operation(
         "proposals.request", "POST", "/v1/proposals/{proposalId}/request", "json", True
     ),
@@ -536,6 +539,9 @@ OPERATIONS: dict[str, Operation] = {
     "evalRuns.cancel": Operation(
         "evalRuns.cancel", "POST", "/v1/eval-runs/{runId}/cancel", "json", False
     ),
+    "evalRuns.rescore": Operation(
+        "evalRuns.rescore", "POST", "/v1/eval-runs/{runId}/rescore", "json", False
+    ),
     "evalRuns.events": Operation(
         "evalRuns.events", "GET", "/v1/eval-runs/{runId}/events", "empty", False
     ),
@@ -567,10 +573,6 @@ OPERATIONS: dict[str, Operation] = {
         "json",
         True,
     ),
-    "auth.login": Operation("auth.login", "POST", "/v1/auth/login/{providerId}", "json", True),
-    "auth.callback": Operation(
-        "auth.callback", "POST", "/v1/auth/callback/{providerId}", "json", False
-    ),
     "auth.refresh": Operation("auth.refresh", "POST", "/v1/auth/refresh", "json", True),
     "auth.logout": Operation("auth.logout", "POST", "/v1/auth/logout", "json", True),
     "identity.users.list": Operation(
@@ -594,6 +596,9 @@ OPERATIONS: dict[str, Operation] = {
         "/v1/identity/users/{userId}/revoke-sessions",
         "json",
         True,
+    ),
+    "identity.me.permissions": Operation(
+        "identity.me.permissions", "GET", "/v1/identity/me/permissions", "json", False
     ),
     "identity.users.grants": Operation(
         "identity.users.grants", "GET", "/v1/identity/users/{userId}/grants", "json", False
@@ -623,6 +628,9 @@ OPERATIONS: dict[str, Operation] = {
     ),
     "compliance.evidence.export": Operation(
         "compliance.evidence.export", "POST", "/v1/compliance/evidence/export", "json", True
+    ),
+    "audit.signIns.list": Operation(
+        "audit.signIns.list", "GET", "/v1/audit/sign-ins", "json", False
     ),
     "audit.authz.list": Operation("audit.authz.list", "GET", "/v1/audit/authz", "json", False),
     "orgs.list": Operation("orgs.list", "GET", "/v1/orgs", "json", False),
@@ -748,46 +756,6 @@ OPERATIONS: dict[str, Operation] = {
     ),
     "schedules.takeOwnership": Operation(
         "schedules.takeOwnership", "POST", "/v1/schedules/{triggerId}/owner", "json", True
-    ),
-    "eventTriggers.list": Operation(
-        "eventTriggers.list", "GET", "/v1/event-triggers", "json", False
-    ),
-    "eventTriggers.register": Operation(
-        "eventTriggers.register", "POST", "/v1/event-triggers", "json", True
-    ),
-    "eventTriggers.get": Operation(
-        "eventTriggers.get", "GET", "/v1/event-triggers/{triggerId}", "json", False
-    ),
-    "eventTriggers.update": Operation(
-        "eventTriggers.update", "PATCH", "/v1/event-triggers/{triggerId}", "json", True
-    ),
-    "eventTriggers.pause": Operation(
-        "eventTriggers.pause", "POST", "/v1/event-triggers/{triggerId}/pause", "json", True
-    ),
-    "eventTriggers.resume": Operation(
-        "eventTriggers.resume", "POST", "/v1/event-triggers/{triggerId}/resume", "json", True
-    ),
-    "eventTriggers.unregister": Operation(
-        "eventTriggers.unregister",
-        "POST",
-        "/v1/event-triggers/{triggerId}/unregister",
-        "json",
-        True,
-    ),
-    "webhooks.list": Operation("webhooks.list", "GET", "/v1/webhooks", "json", False),
-    "webhooks.register": Operation("webhooks.register", "POST", "/v1/webhooks", "json", True),
-    "webhooks.get": Operation("webhooks.get", "GET", "/v1/webhooks/{triggerId}", "json", False),
-    "webhooks.update": Operation(
-        "webhooks.update", "PATCH", "/v1/webhooks/{triggerId}", "json", True
-    ),
-    "webhooks.pause": Operation(
-        "webhooks.pause", "POST", "/v1/webhooks/{triggerId}/pause", "json", True
-    ),
-    "webhooks.resume": Operation(
-        "webhooks.resume", "POST", "/v1/webhooks/{triggerId}/resume", "json", True
-    ),
-    "webhooks.unregister": Operation(
-        "webhooks.unregister", "POST", "/v1/webhooks/{triggerId}/unregister", "json", True
     ),
     "webhookEndpoints.list": Operation(
         "webhookEndpoints.list", "GET", "/v1/webhook-endpoints", "json", False
@@ -1597,6 +1565,8 @@ class ApprovalsResource:
         required_role: Literal["standard", "senior", "admin"] | None = None,
         created_after: str | None = None,
         wait_token_id: str | UUID | list[str | UUID] | None = None,
+        run_id: str | UUID | None = None,
+        include_descendants: bool | None = None,
         timeout: float | None = None,
     ) -> _models.ApprovalCollectionPage:
         """List approvals visible to the caller. `GET /v1/approvals`
@@ -1617,6 +1587,8 @@ class ApprovalsResource:
                 "requiredRole": required_role,
                 "createdAfter": created_after,
                 "waitTokenId": wait_token_id,
+                "runId": run_id,
+                "includeDescendants": include_descendants,
             },
             headers={},
             response=_models.ApprovalCollectionPage,
@@ -3218,6 +3190,27 @@ class ProposalsResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.EvaluateProposalBody, body, fields),
+            response=_models.FixProposal,
+            timeout=timeout,
+        )
+
+    def rescore(
+        self,
+        proposal_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.FixProposal:
+        """Rescore a proposal's latest evaluation. `POST /v1/proposals/{proposalId}/rescore`
+
+        After people judge a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison eval run scores the same replays again, counting those judgments, as `POST /v1/eval-runs/{runId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the proposal's evaluation, so the proposal is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.
+        """
+        return self._client._request(
+            _OPERATIONS["proposals.rescore"],
+            path={"proposalId": proposal_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
             response=_models.FixProposal,
             timeout=timeout,
         )
@@ -5222,6 +5215,29 @@ class EvalRunsResource:
             timeout=timeout,
         )
 
+    def rescore(
+        self,
+        run_id: str | UUID,
+        body: _models.RescoreEvalRunBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.StartEvalRunResult:
+        """Rescore a comparison eval run. `POST /v1/eval-runs/{runId}/rescore`
+
+        Starts a new comparison eval run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the judgments recorded on them since (a changed answer judged on the replay itself; `changes.new` lists the items to judge). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's suite and `write` on its project.
+        """
+        return self._client._request(
+            _OPERATIONS["evalRuns.rescore"],
+            path={"runId": run_id},
+            query={},
+            headers={},
+            body=_body(_models.RescoreEvalRunBody, body, fields),
+            response=_models.StartEvalRunResult,
+            timeout=timeout,
+        )
+
     def events(
         self,
         run_id: str | UUID,
@@ -5252,7 +5268,7 @@ class AuthProvidersResource:
     def list(self, /, *, timeout: float | None = None) -> _models.IdentityProviderCollectionPage:
         """List identity providers configured for the tenant. `GET /v1/auth/providers`
 
-        Returns the tenant's identity providers (OIDC, SAML, OAuth 2.0), each with `signIn` when the deployment sets it. Secrets appear only as REFERENCES (`clientSecretRef`, `spSigningKeyRef`…); a plaintext secret is never on the wire.
+        Returns the tenant's identity providers (OIDC, SAML), each with `signIn` when the deployment sets it. Secrets appear only as REFERENCES (`clientSecretRef`, `spSigningKeyRef`…); a plaintext secret is never on the wire.
         """
         return self._client._request(
             _OPERATIONS["auth.providers.list"],
@@ -5272,9 +5288,9 @@ class AuthProvidersResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.RegisterIdentityProviderResult:
-        """Register an identity provider (OIDC, SAML or OAuth 2.0). `POST /v1/auth/providers`
+        """Register an identity provider (OIDC or SAML). `POST /v1/auth/providers`
 
-        Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered`; change it with `PATCH /v1/auth/providers/{providerId}`, which keeps its sign-in URLs. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`. The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.
+        Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered`; change it with `PATCH /v1/auth/providers/{providerId}`, which keeps its sign-in URLs. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`, as is `allowedRedirectUris`, which nothing would enforce (sign-in runs in the deployment, at its own callback URL). The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.
         """
         return self._client._request(
             _OPERATIONS["auth.providers.register"],
@@ -5331,7 +5347,7 @@ class AuthProvidersResource:
         provider_id: str | UUID,
         /,
         *,
-        kind: Literal["oauth2", "oidc", "saml"] | None = None,
+        kind: Literal["oidc", "saml"] | None = None,
         timeout: float | None = None,
     ) -> _models.IdentityProviderSignInUrls:
         """What to give the identity provider, before or after registering. `GET /v1/auth/providers/{providerId}/sign-in`
@@ -5403,59 +5419,12 @@ class AuthResource:
             timeout=timeout,
         )
 
-    def login(
-        self,
-        provider_id: str | UUID,
-        body: _models.LoginBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.AuthorizationResponse:
-        """Initiate OAuth/OIDC login. `POST /v1/auth/login/{providerId}`
-
-        Framework generates `state` + PKCE `code_verifier` (S256 challenge). Caller redirects the user-agent to `authorizationUrl`. Provider redirects back to `redirectUri` with `code` + `state`; caller POSTs those to `/v1/auth/callback/:providerId` to complete the flow. When the provider config populated `allowedRedirectUris`, the effective redirect_uri MUST be an exact match — otherwise `400 redirect-uri-not-allowed`.
-        """
-        return self._client._request(
-            _OPERATIONS["auth.login"],
-            path={"providerId": provider_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.LoginBody, body, fields),
-            response=_models.AuthorizationResponse,
-            timeout=timeout,
-        )
-
-    def callback(
-        self,
-        provider_id: str | UUID,
-        body: _models.CallbackBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.CallbackResult:
-        """Complete an OAuth/OIDC callback. `POST /v1/auth/callback/{providerId}`
-
-        Public — the caller has not yet obtained a session token. Verifies `state`, exchanges `code` for provider tokens via the deployment's `exchangeCode`, fetches userinfo, and persists a session via `SessionStoreBinding`. Returns an opaque `kgi_sk_*` session token the caller uses on subsequent requests. The underlying provider access-token never leaves the server. When the provider config populated `allowedRedirectUris`, the stored redirect_uri is re-checked against the current allowlist — a mismatch (allowlist tightened between login and callback) returns `400 redirect-uri-mismatch`.
-        """
-        return self._client._request(
-            _OPERATIONS["auth.callback"],
-            path={"providerId": provider_id},
-            query={},
-            headers={},
-            body=_body(_models.CallbackBody, body, fields),
-            response=_models.CallbackResult,
-            timeout=timeout,
-        )
-
     def refresh(
         self, /, *, idempotency_key: str | None = None, timeout: float | None = None
     ) -> _models.RefreshResult:
         """Refresh the current session token. `POST /v1/auth/refresh`
 
-        Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. When the deployment wired a `refreshToken` callback and the provider issued a refresh token, provider tokens rotate too; otherwise only the framework session token rotates. OAuth 2.1 BCP refresh-token rotation: the OLD session token is invalidated (marked rotated) — reusing it after refresh returns `401 refresh-token-invalid` so compliant clients can retry with the fresh token instead of prompting a re-auth. A browser session (the session cookie) is not refreshed: `400 cookie-session-not-refreshable`, so a new token never reaches page scripts; it ends at its TTL.
+        Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. The session token rotates: the new session keeps the person, scopes and expiry, and the provider is not called. OAuth 2.1 BCP refresh-token rotation: the OLD session token is invalidated (marked rotated) — reusing it after refresh returns `401 refresh-token-invalid` so compliant clients can retry with the fresh token instead of prompting a re-auth. A browser session (the session cookie) is not refreshed: `400 cookie-session-not-refreshable`, so a new token never reaches page scripts; it ends at its TTL.
         """
         return self._client._request(
             _OPERATIONS["auth.refresh"],
@@ -5677,12 +5646,34 @@ class IdentityUsersResource:
         )
 
 
+class IdentityMeResource:
+    """`client.identity.me` — the `identity.me` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def permissions(self, /, *, timeout: float | None = None) -> _models.MyPermissions:
+        """What I may do. `GET /v1/identity/me/permissions`
+
+        What the caller may do, so a client can hide what it can't: tenant admin, its reviewer role and the roles it decides, its API key's limits and capabilities, the projects it may read with its role in each and every way it holds it (directly, a team, an org it administers, tenant admin), its orgs and teams, and what each project role allows (from the runtime's authorization model). The key's limits are applied: a `member` key is never tenant admin, and a key limited to a project sees that project alone. Only what the caller may see. The server still checks every call. `501 permissions-unsupported` on a runtime without an authorization store: read whoami's `tenantAdmin` and `reviewerRole` instead.
+        """
+        return self._client._request(
+            _OPERATIONS["identity.me.permissions"],
+            path={},
+            query={},
+            headers={},
+            response=_models.MyPermissions,
+            timeout=timeout,
+        )
+
+
 class IdentityResource:
     """`client.identity` — the `identity` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
         self.users = IdentityUsersResource(client)
+        self.me = IdentityMeResource(client)
 
     def whoami(self, /, *, timeout: float | None = None) -> _models.WhoamiResult:
         """Self — the caller's user + tenant + session context. `GET /v1/identity/whoami`
@@ -5884,6 +5875,56 @@ class ComplianceResource:
         self.evidence = ComplianceEvidenceResource(client)
 
 
+class AuditSignInsResource:
+    """`client.audit.sign_ins` — the `audit.signIns` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        user_id: str | UUID | None = None,
+        kind: Literal[
+            "signed-in",
+            "signed-out",
+            "sign-in-refused",
+            "sign-in-link-sent",
+            "sign-in-link-capped",
+            "sessions-revoked",
+            "sessions-ended",
+        ]
+        | None = None,
+        from_: str | None = None,
+        to: str | None = None,
+        order: Literal["asc", "desc"] | None = None,
+        timeout: float | None = None,
+    ) -> _models.AuditSignInsListResponse:
+        """List sign-in audit events. `GET /v1/audit/sign-ins`
+
+        The tenant's sign-in history: who signed in and out, how (`method`), when and from where (`clientAddress`), what was refused and why, and emailed links sent or capped. `?userId=` narrows to one person's own sign-ins and sign-outs. Oldest first; `?order=desc` for newest first. A tenant admin's to read (403 `permission-denied` otherwise). Only mounted when `CreateAppInput.auditEvents` is wired.
+        """
+        return self._client._request(
+            _OPERATIONS["audit.signIns.list"],
+            path={},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "userId": user_id,
+                "kind": kind,
+                "from": from_,
+                "to": to,
+                "order": order,
+            },
+            headers={},
+            response=_models.AuditSignInsListResponse,
+            timeout=timeout,
+        )
+
+
 class AuditAuthzResource:
     """`client.audit.authz` — the `audit.authz` operations."""
 
@@ -5938,6 +5979,7 @@ class AuditResource:
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
+        self.sign_ins = AuditSignInsResource(client)
         self.authz = AuditAuthzResource(client)
 
 
@@ -7110,283 +7152,6 @@ class SchedulesResource:
         )
 
 
-class EventTriggersResource:
-    """`client.event_triggers` — the `eventTriggers` operations."""
-
-    def __init__(self, client: SyncClientBase) -> None:
-        self._client = client
-
-    def list(
-        self,
-        /,
-        *,
-        limit: int | None = None,
-        cursor: str | None = None,
-        status: Literal["active", "paused"] | None = None,
-        timeout: float | None = None,
-    ) -> _models.EventTriggerCollectionPage:
-        """List event triggers. `GET /v1/event-triggers`"""
-        return self._client._request(
-            _OPERATIONS["eventTriggers.list"],
-            path={},
-            query={"limit": limit, "cursor": cursor, "status": status},
-            headers={},
-            response=_models.EventTriggerCollectionPage,
-            timeout=timeout,
-        )
-
-    def register(
-        self,
-        body: _models.RegisterEventTriggerBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.EventTriggerRecord:
-        """Register an event trigger. `POST /v1/event-triggers`
-
-        Registers a `kind=event` trigger. The event-trigger scheduler in the runtime subscribes on the deployment event bus for the given `eventKind`; matching events start a flow run.
-        """
-        return self._client._request(
-            _OPERATIONS["eventTriggers.register"],
-            path={},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.RegisterEventTriggerBody, body, fields),
-            response=_models.EventTriggerRecord,
-            timeout=timeout,
-        )
-
-    def get(
-        self, trigger_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.EventTriggerRecord:
-        """Fetch an event trigger. `GET /v1/event-triggers/{triggerId}`"""
-        return self._client._request(
-            _OPERATIONS["eventTriggers.get"],
-            path={"triggerId": trigger_id},
-            query={},
-            headers={},
-            response=_models.EventTriggerRecord,
-            timeout=timeout,
-        )
-
-    def update(
-        self,
-        trigger_id: str | UUID,
-        body: _models.PatchEventTriggerBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.EventTriggerRecord:
-        """Update an event trigger. `PATCH /v1/event-triggers/{triggerId}`"""
-        return self._client._request(
-            _OPERATIONS["eventTriggers.update"],
-            path={"triggerId": trigger_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.PatchEventTriggerBody, body, fields),
-            response=_models.EventTriggerRecord,
-            timeout=timeout,
-        )
-
-    def pause(
-        self,
-        trigger_id: str | UUID,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-    ) -> _models.EventTriggerRecord:
-        """Pause an event trigger. `POST /v1/event-triggers/{triggerId}/pause`"""
-        return self._client._request(
-            _OPERATIONS["eventTriggers.pause"],
-            path={"triggerId": trigger_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            response=_models.EventTriggerRecord,
-            timeout=timeout,
-        )
-
-    def resume(
-        self,
-        trigger_id: str | UUID,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-    ) -> _models.EventTriggerRecord:
-        """Resume an event trigger. `POST /v1/event-triggers/{triggerId}/resume`"""
-        return self._client._request(
-            _OPERATIONS["eventTriggers.resume"],
-            path={"triggerId": trigger_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            response=_models.EventTriggerRecord,
-            timeout=timeout,
-        )
-
-    def unregister(
-        self,
-        trigger_id: str | UUID,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-    ) -> _models.EventTriggerUnregisterResult:
-        """Soft-delete an event trigger (tombstone). `POST /v1/event-triggers/{triggerId}/unregister`"""
-        return self._client._request(
-            _OPERATIONS["eventTriggers.unregister"],
-            path={"triggerId": trigger_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            response=_models.EventTriggerUnregisterResult,
-            timeout=timeout,
-        )
-
-
-class WebhooksResource:
-    """`client.webhooks` — the `webhooks` operations."""
-
-    def __init__(self, client: SyncClientBase) -> None:
-        self._client = client
-
-    def list(
-        self,
-        /,
-        *,
-        limit: int | None = None,
-        cursor: str | None = None,
-        status: Literal["active", "paused"] | None = None,
-        timeout: float | None = None,
-    ) -> _models.WebhookTriggerCollectionPage:
-        """List webhook triggers. `GET /v1/webhooks`"""
-        return self._client._request(
-            _OPERATIONS["webhooks.list"],
-            path={},
-            query={"limit": limit, "cursor": cursor, "status": status},
-            headers={},
-            response=_models.WebhookTriggerCollectionPage,
-            timeout=timeout,
-        )
-
-    def register(
-        self,
-        body: _models.RegisterWebhookTriggerBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.WebhookTriggerRecord:
-        """Register a webhook trigger. `POST /v1/webhooks`
-
-        Registers a `kind=webhook` trigger. The route mints `webhookId` (a random UUID). Caller must have written the plaintext HMAC secret to `/v1/secrets` first and passes the resulting name as `hmacSecretName` — the trigger never stores the plaintext. Rotation flows through `POST /v1/secrets/:name/rotate`.
-        """
-        return self._client._request(
-            _OPERATIONS["webhooks.register"],
-            path={},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.RegisterWebhookTriggerBody, body, fields),
-            response=_models.WebhookTriggerRecord,
-            timeout=timeout,
-        )
-
-    def get(
-        self, trigger_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.WebhookTriggerRecord:
-        """Fetch a webhook trigger. `GET /v1/webhooks/{triggerId}`"""
-        return self._client._request(
-            _OPERATIONS["webhooks.get"],
-            path={"triggerId": trigger_id},
-            query={},
-            headers={},
-            response=_models.WebhookTriggerRecord,
-            timeout=timeout,
-        )
-
-    def update(
-        self,
-        trigger_id: str | UUID,
-        body: _models.PatchWebhookTriggerBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.WebhookTriggerRecord:
-        """Update a webhook trigger. `PATCH /v1/webhooks/{triggerId}`
-
-        HMAC secret rotation is NOT here — rotate via `POST /v1/secrets/:name/rotate` on the referenced secret.
-        """
-        return self._client._request(
-            _OPERATIONS["webhooks.update"],
-            path={"triggerId": trigger_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.PatchWebhookTriggerBody, body, fields),
-            response=_models.WebhookTriggerRecord,
-            timeout=timeout,
-        )
-
-    def pause(
-        self,
-        trigger_id: str | UUID,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-    ) -> _models.WebhookTriggerRecord:
-        """Pause a webhook trigger. `POST /v1/webhooks/{triggerId}/pause`"""
-        return self._client._request(
-            _OPERATIONS["webhooks.pause"],
-            path={"triggerId": trigger_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            response=_models.WebhookTriggerRecord,
-            timeout=timeout,
-        )
-
-    def resume(
-        self,
-        trigger_id: str | UUID,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-    ) -> _models.WebhookTriggerRecord:
-        """Resume a webhook trigger. `POST /v1/webhooks/{triggerId}/resume`"""
-        return self._client._request(
-            _OPERATIONS["webhooks.resume"],
-            path={"triggerId": trigger_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            response=_models.WebhookTriggerRecord,
-            timeout=timeout,
-        )
-
-    def unregister(
-        self,
-        trigger_id: str | UUID,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-    ) -> _models.WebhookTriggerUnregisterResult:
-        """Soft-delete a webhook trigger (tombstone). `POST /v1/webhooks/{triggerId}/unregister`"""
-        return self._client._request(
-            _OPERATIONS["webhooks.unregister"],
-            path={"triggerId": trigger_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            response=_models.WebhookTriggerUnregisterResult,
-            timeout=timeout,
-        )
-
-
 class WebhookEndpointsResource:
     """`client.webhook_endpoints` — the `webhookEndpoints` operations."""
 
@@ -8327,6 +8092,8 @@ class AsyncApprovalsResource:
         required_role: Literal["standard", "senior", "admin"] | None = None,
         created_after: str | None = None,
         wait_token_id: str | UUID | list[str | UUID] | None = None,
+        run_id: str | UUID | None = None,
+        include_descendants: bool | None = None,
         timeout: float | None = None,
     ) -> _models.ApprovalCollectionPage:
         """List approvals visible to the caller. `GET /v1/approvals`
@@ -8347,6 +8114,8 @@ class AsyncApprovalsResource:
                 "requiredRole": required_role,
                 "createdAfter": created_after,
                 "waitTokenId": wait_token_id,
+                "runId": run_id,
+                "includeDescendants": include_descendants,
             },
             headers={},
             response=_models.ApprovalCollectionPage,
@@ -9956,6 +9725,27 @@ class AsyncProposalsResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.EvaluateProposalBody, body, fields),
+            response=_models.FixProposal,
+            timeout=timeout,
+        )
+
+    async def rescore(
+        self,
+        proposal_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.FixProposal:
+        """Rescore a proposal's latest evaluation. `POST /v1/proposals/{proposalId}/rescore`
+
+        After people judge a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison eval run scores the same replays again, counting those judgments, as `POST /v1/eval-runs/{runId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the proposal's evaluation, so the proposal is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.
+        """
+        return await self._client._request(
+            _OPERATIONS["proposals.rescore"],
+            path={"proposalId": proposal_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
             response=_models.FixProposal,
             timeout=timeout,
         )
@@ -11968,6 +11758,29 @@ class AsyncEvalRunsResource:
             timeout=timeout,
         )
 
+    async def rescore(
+        self,
+        run_id: str | UUID,
+        body: _models.RescoreEvalRunBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.StartEvalRunResult:
+        """Rescore a comparison eval run. `POST /v1/eval-runs/{runId}/rescore`
+
+        Starts a new comparison eval run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the judgments recorded on them since (a changed answer judged on the replay itself; `changes.new` lists the items to judge). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's suite and `write` on its project.
+        """
+        return await self._client._request(
+            _OPERATIONS["evalRuns.rescore"],
+            path={"runId": run_id},
+            query={},
+            headers={},
+            body=_body(_models.RescoreEvalRunBody, body, fields),
+            response=_models.StartEvalRunResult,
+            timeout=timeout,
+        )
+
     async def events(
         self,
         run_id: str | UUID,
@@ -12000,7 +11813,7 @@ class AsyncAuthProvidersResource:
     ) -> _models.IdentityProviderCollectionPage:
         """List identity providers configured for the tenant. `GET /v1/auth/providers`
 
-        Returns the tenant's identity providers (OIDC, SAML, OAuth 2.0), each with `signIn` when the deployment sets it. Secrets appear only as REFERENCES (`clientSecretRef`, `spSigningKeyRef`…); a plaintext secret is never on the wire.
+        Returns the tenant's identity providers (OIDC, SAML), each with `signIn` when the deployment sets it. Secrets appear only as REFERENCES (`clientSecretRef`, `spSigningKeyRef`…); a plaintext secret is never on the wire.
         """
         return await self._client._request(
             _OPERATIONS["auth.providers.list"],
@@ -12020,9 +11833,9 @@ class AsyncAuthProvidersResource:
         timeout: float | None = None,
         **fields: Any,
     ) -> _models.RegisterIdentityProviderResult:
-        """Register an identity provider (OIDC, SAML or OAuth 2.0). `POST /v1/auth/providers`
+        """Register an identity provider (OIDC or SAML). `POST /v1/auth/providers`
 
-        Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered`; change it with `PATCH /v1/auth/providers/{providerId}`, which keeps its sign-in URLs. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`. The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.
+        Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered`; change it with `PATCH /v1/auth/providers/{providerId}`, which keeps its sign-in URLs. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`, as is `allowedRedirectUris`, which nothing would enforce (sign-in runs in the deployment, at its own callback URL). The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.
         """
         return await self._client._request(
             _OPERATIONS["auth.providers.register"],
@@ -12079,7 +11892,7 @@ class AsyncAuthProvidersResource:
         provider_id: str | UUID,
         /,
         *,
-        kind: Literal["oauth2", "oidc", "saml"] | None = None,
+        kind: Literal["oidc", "saml"] | None = None,
         timeout: float | None = None,
     ) -> _models.IdentityProviderSignInUrls:
         """What to give the identity provider, before or after registering. `GET /v1/auth/providers/{providerId}/sign-in`
@@ -12151,59 +11964,12 @@ class AsyncAuthResource:
             timeout=timeout,
         )
 
-    async def login(
-        self,
-        provider_id: str | UUID,
-        body: _models.LoginBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.AuthorizationResponse:
-        """Initiate OAuth/OIDC login. `POST /v1/auth/login/{providerId}`
-
-        Framework generates `state` + PKCE `code_verifier` (S256 challenge). Caller redirects the user-agent to `authorizationUrl`. Provider redirects back to `redirectUri` with `code` + `state`; caller POSTs those to `/v1/auth/callback/:providerId` to complete the flow. When the provider config populated `allowedRedirectUris`, the effective redirect_uri MUST be an exact match — otherwise `400 redirect-uri-not-allowed`.
-        """
-        return await self._client._request(
-            _OPERATIONS["auth.login"],
-            path={"providerId": provider_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.LoginBody, body, fields),
-            response=_models.AuthorizationResponse,
-            timeout=timeout,
-        )
-
-    async def callback(
-        self,
-        provider_id: str | UUID,
-        body: _models.CallbackBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.CallbackResult:
-        """Complete an OAuth/OIDC callback. `POST /v1/auth/callback/{providerId}`
-
-        Public — the caller has not yet obtained a session token. Verifies `state`, exchanges `code` for provider tokens via the deployment's `exchangeCode`, fetches userinfo, and persists a session via `SessionStoreBinding`. Returns an opaque `kgi_sk_*` session token the caller uses on subsequent requests. The underlying provider access-token never leaves the server. When the provider config populated `allowedRedirectUris`, the stored redirect_uri is re-checked against the current allowlist — a mismatch (allowlist tightened between login and callback) returns `400 redirect-uri-mismatch`.
-        """
-        return await self._client._request(
-            _OPERATIONS["auth.callback"],
-            path={"providerId": provider_id},
-            query={},
-            headers={},
-            body=_body(_models.CallbackBody, body, fields),
-            response=_models.CallbackResult,
-            timeout=timeout,
-        )
-
     async def refresh(
         self, /, *, idempotency_key: str | None = None, timeout: float | None = None
     ) -> _models.RefreshResult:
         """Refresh the current session token. `POST /v1/auth/refresh`
 
-        Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. When the deployment wired a `refreshToken` callback and the provider issued a refresh token, provider tokens rotate too; otherwise only the framework session token rotates. OAuth 2.1 BCP refresh-token rotation: the OLD session token is invalidated (marked rotated) — reusing it after refresh returns `401 refresh-token-invalid` so compliant clients can retry with the fresh token instead of prompting a re-auth. A browser session (the session cookie) is not refreshed: `400 cookie-session-not-refreshable`, so a new token never reaches page scripts; it ends at its TTL.
+        Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. The session token rotates: the new session keeps the person, scopes and expiry, and the provider is not called. OAuth 2.1 BCP refresh-token rotation: the OLD session token is invalidated (marked rotated) — reusing it after refresh returns `401 refresh-token-invalid` so compliant clients can retry with the fresh token instead of prompting a re-auth. A browser session (the session cookie) is not refreshed: `400 cookie-session-not-refreshable`, so a new token never reaches page scripts; it ends at its TTL.
         """
         return await self._client._request(
             _OPERATIONS["auth.refresh"],
@@ -12427,12 +12193,34 @@ class AsyncIdentityUsersResource:
         )
 
 
+class AsyncIdentityMeResource:
+    """`client.identity.me` — the `identity.me` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def permissions(self, /, *, timeout: float | None = None) -> _models.MyPermissions:
+        """What I may do. `GET /v1/identity/me/permissions`
+
+        What the caller may do, so a client can hide what it can't: tenant admin, its reviewer role and the roles it decides, its API key's limits and capabilities, the projects it may read with its role in each and every way it holds it (directly, a team, an org it administers, tenant admin), its orgs and teams, and what each project role allows (from the runtime's authorization model). The key's limits are applied: a `member` key is never tenant admin, and a key limited to a project sees that project alone. Only what the caller may see. The server still checks every call. `501 permissions-unsupported` on a runtime without an authorization store: read whoami's `tenantAdmin` and `reviewerRole` instead.
+        """
+        return await self._client._request(
+            _OPERATIONS["identity.me.permissions"],
+            path={},
+            query={},
+            headers={},
+            response=_models.MyPermissions,
+            timeout=timeout,
+        )
+
+
 class AsyncIdentityResource:
     """`client.identity` — the `identity` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
         self.users = AsyncIdentityUsersResource(client)
+        self.me = AsyncIdentityMeResource(client)
 
     async def whoami(self, /, *, timeout: float | None = None) -> _models.WhoamiResult:
         """Self — the caller's user + tenant + session context. `GET /v1/identity/whoami`
@@ -12634,6 +12422,56 @@ class AsyncComplianceResource:
         self.evidence = AsyncComplianceEvidenceResource(client)
 
 
+class AsyncAuditSignInsResource:
+    """`client.audit.sign_ins` — the `audit.signIns` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        user_id: str | UUID | None = None,
+        kind: Literal[
+            "signed-in",
+            "signed-out",
+            "sign-in-refused",
+            "sign-in-link-sent",
+            "sign-in-link-capped",
+            "sessions-revoked",
+            "sessions-ended",
+        ]
+        | None = None,
+        from_: str | None = None,
+        to: str | None = None,
+        order: Literal["asc", "desc"] | None = None,
+        timeout: float | None = None,
+    ) -> _models.AuditSignInsListResponse:
+        """List sign-in audit events. `GET /v1/audit/sign-ins`
+
+        The tenant's sign-in history: who signed in and out, how (`method`), when and from where (`clientAddress`), what was refused and why, and emailed links sent or capped. `?userId=` narrows to one person's own sign-ins and sign-outs. Oldest first; `?order=desc` for newest first. A tenant admin's to read (403 `permission-denied` otherwise). Only mounted when `CreateAppInput.auditEvents` is wired.
+        """
+        return await self._client._request(
+            _OPERATIONS["audit.signIns.list"],
+            path={},
+            query={
+                "limit": limit,
+                "cursor": cursor,
+                "userId": user_id,
+                "kind": kind,
+                "from": from_,
+                "to": to,
+                "order": order,
+            },
+            headers={},
+            response=_models.AuditSignInsListResponse,
+            timeout=timeout,
+        )
+
+
 class AsyncAuditAuthzResource:
     """`client.audit.authz` — the `audit.authz` operations."""
 
@@ -12688,6 +12526,7 @@ class AsyncAuditResource:
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
+        self.sign_ins = AsyncAuditSignInsResource(client)
         self.authz = AsyncAuditAuthzResource(client)
 
 
@@ -13862,283 +13701,6 @@ class AsyncSchedulesResource:
         )
 
 
-class AsyncEventTriggersResource:
-    """`client.event_triggers` — the `eventTriggers` operations."""
-
-    def __init__(self, client: AsyncClientBase) -> None:
-        self._client = client
-
-    async def list(
-        self,
-        /,
-        *,
-        limit: int | None = None,
-        cursor: str | None = None,
-        status: Literal["active", "paused"] | None = None,
-        timeout: float | None = None,
-    ) -> _models.EventTriggerCollectionPage:
-        """List event triggers. `GET /v1/event-triggers`"""
-        return await self._client._request(
-            _OPERATIONS["eventTriggers.list"],
-            path={},
-            query={"limit": limit, "cursor": cursor, "status": status},
-            headers={},
-            response=_models.EventTriggerCollectionPage,
-            timeout=timeout,
-        )
-
-    async def register(
-        self,
-        body: _models.RegisterEventTriggerBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.EventTriggerRecord:
-        """Register an event trigger. `POST /v1/event-triggers`
-
-        Registers a `kind=event` trigger. The event-trigger scheduler in the runtime subscribes on the deployment event bus for the given `eventKind`; matching events start a flow run.
-        """
-        return await self._client._request(
-            _OPERATIONS["eventTriggers.register"],
-            path={},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.RegisterEventTriggerBody, body, fields),
-            response=_models.EventTriggerRecord,
-            timeout=timeout,
-        )
-
-    async def get(
-        self, trigger_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.EventTriggerRecord:
-        """Fetch an event trigger. `GET /v1/event-triggers/{triggerId}`"""
-        return await self._client._request(
-            _OPERATIONS["eventTriggers.get"],
-            path={"triggerId": trigger_id},
-            query={},
-            headers={},
-            response=_models.EventTriggerRecord,
-            timeout=timeout,
-        )
-
-    async def update(
-        self,
-        trigger_id: str | UUID,
-        body: _models.PatchEventTriggerBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.EventTriggerRecord:
-        """Update an event trigger. `PATCH /v1/event-triggers/{triggerId}`"""
-        return await self._client._request(
-            _OPERATIONS["eventTriggers.update"],
-            path={"triggerId": trigger_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.PatchEventTriggerBody, body, fields),
-            response=_models.EventTriggerRecord,
-            timeout=timeout,
-        )
-
-    async def pause(
-        self,
-        trigger_id: str | UUID,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-    ) -> _models.EventTriggerRecord:
-        """Pause an event trigger. `POST /v1/event-triggers/{triggerId}/pause`"""
-        return await self._client._request(
-            _OPERATIONS["eventTriggers.pause"],
-            path={"triggerId": trigger_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            response=_models.EventTriggerRecord,
-            timeout=timeout,
-        )
-
-    async def resume(
-        self,
-        trigger_id: str | UUID,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-    ) -> _models.EventTriggerRecord:
-        """Resume an event trigger. `POST /v1/event-triggers/{triggerId}/resume`"""
-        return await self._client._request(
-            _OPERATIONS["eventTriggers.resume"],
-            path={"triggerId": trigger_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            response=_models.EventTriggerRecord,
-            timeout=timeout,
-        )
-
-    async def unregister(
-        self,
-        trigger_id: str | UUID,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-    ) -> _models.EventTriggerUnregisterResult:
-        """Soft-delete an event trigger (tombstone). `POST /v1/event-triggers/{triggerId}/unregister`"""
-        return await self._client._request(
-            _OPERATIONS["eventTriggers.unregister"],
-            path={"triggerId": trigger_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            response=_models.EventTriggerUnregisterResult,
-            timeout=timeout,
-        )
-
-
-class AsyncWebhooksResource:
-    """`client.webhooks` — the `webhooks` operations."""
-
-    def __init__(self, client: AsyncClientBase) -> None:
-        self._client = client
-
-    async def list(
-        self,
-        /,
-        *,
-        limit: int | None = None,
-        cursor: str | None = None,
-        status: Literal["active", "paused"] | None = None,
-        timeout: float | None = None,
-    ) -> _models.WebhookTriggerCollectionPage:
-        """List webhook triggers. `GET /v1/webhooks`"""
-        return await self._client._request(
-            _OPERATIONS["webhooks.list"],
-            path={},
-            query={"limit": limit, "cursor": cursor, "status": status},
-            headers={},
-            response=_models.WebhookTriggerCollectionPage,
-            timeout=timeout,
-        )
-
-    async def register(
-        self,
-        body: _models.RegisterWebhookTriggerBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.WebhookTriggerRecord:
-        """Register a webhook trigger. `POST /v1/webhooks`
-
-        Registers a `kind=webhook` trigger. The route mints `webhookId` (a random UUID). Caller must have written the plaintext HMAC secret to `/v1/secrets` first and passes the resulting name as `hmacSecretName` — the trigger never stores the plaintext. Rotation flows through `POST /v1/secrets/:name/rotate`.
-        """
-        return await self._client._request(
-            _OPERATIONS["webhooks.register"],
-            path={},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.RegisterWebhookTriggerBody, body, fields),
-            response=_models.WebhookTriggerRecord,
-            timeout=timeout,
-        )
-
-    async def get(
-        self, trigger_id: str | UUID, /, *, timeout: float | None = None
-    ) -> _models.WebhookTriggerRecord:
-        """Fetch a webhook trigger. `GET /v1/webhooks/{triggerId}`"""
-        return await self._client._request(
-            _OPERATIONS["webhooks.get"],
-            path={"triggerId": trigger_id},
-            query={},
-            headers={},
-            response=_models.WebhookTriggerRecord,
-            timeout=timeout,
-        )
-
-    async def update(
-        self,
-        trigger_id: str | UUID,
-        body: _models.PatchWebhookTriggerBody | Mapping[str, Any] | None = None,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-        **fields: Any,
-    ) -> _models.WebhookTriggerRecord:
-        """Update a webhook trigger. `PATCH /v1/webhooks/{triggerId}`
-
-        HMAC secret rotation is NOT here — rotate via `POST /v1/secrets/:name/rotate` on the referenced secret.
-        """
-        return await self._client._request(
-            _OPERATIONS["webhooks.update"],
-            path={"triggerId": trigger_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            body=_body(_models.PatchWebhookTriggerBody, body, fields),
-            response=_models.WebhookTriggerRecord,
-            timeout=timeout,
-        )
-
-    async def pause(
-        self,
-        trigger_id: str | UUID,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-    ) -> _models.WebhookTriggerRecord:
-        """Pause a webhook trigger. `POST /v1/webhooks/{triggerId}/pause`"""
-        return await self._client._request(
-            _OPERATIONS["webhooks.pause"],
-            path={"triggerId": trigger_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            response=_models.WebhookTriggerRecord,
-            timeout=timeout,
-        )
-
-    async def resume(
-        self,
-        trigger_id: str | UUID,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-    ) -> _models.WebhookTriggerRecord:
-        """Resume a webhook trigger. `POST /v1/webhooks/{triggerId}/resume`"""
-        return await self._client._request(
-            _OPERATIONS["webhooks.resume"],
-            path={"triggerId": trigger_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            response=_models.WebhookTriggerRecord,
-            timeout=timeout,
-        )
-
-    async def unregister(
-        self,
-        trigger_id: str | UUID,
-        /,
-        *,
-        idempotency_key: str | None = None,
-        timeout: float | None = None,
-    ) -> _models.WebhookTriggerUnregisterResult:
-        """Soft-delete a webhook trigger (tombstone). `POST /v1/webhooks/{triggerId}/unregister`"""
-        return await self._client._request(
-            _OPERATIONS["webhooks.unregister"],
-            path={"triggerId": trigger_id},
-            query={},
-            headers={"Idempotency-Key": idempotency_key},
-            response=_models.WebhookTriggerUnregisterResult,
-            timeout=timeout,
-        )
-
-
 class AsyncWebhookEndpointsResource:
     """`client.webhook_endpoints` — the `webhookEndpoints` operations."""
 
@@ -14373,8 +13935,6 @@ class Resources:
     env: EnvResource
     secrets: SecretsResource
     schedules: SchedulesResource
-    event_triggers: EventTriggersResource
-    webhooks: WebhooksResource
     webhook_endpoints: WebhookEndpointsResource
 
     def __init__(self) -> None:
@@ -14422,8 +13982,6 @@ class Resources:
         self.env = EnvResource(client)
         self.secrets = SecretsResource(client)
         self.schedules = SchedulesResource(client)
-        self.event_triggers = EventTriggersResource(client)
-        self.webhooks = WebhooksResource(client)
         self.webhook_endpoints = WebhookEndpointsResource(client)
 
 
@@ -14473,8 +14031,6 @@ class AsyncResources:
     env: AsyncEnvResource
     secrets: AsyncSecretsResource
     schedules: AsyncSchedulesResource
-    event_triggers: AsyncEventTriggersResource
-    webhooks: AsyncWebhooksResource
     webhook_endpoints: AsyncWebhookEndpointsResource
 
     def __init__(self) -> None:
@@ -14522,6 +14078,4 @@ class AsyncResources:
         self.env = AsyncEnvResource(client)
         self.secrets = AsyncSecretsResource(client)
         self.schedules = AsyncSchedulesResource(client)
-        self.event_triggers = AsyncEventTriggersResource(client)
-        self.webhooks = AsyncWebhooksResource(client)
         self.webhook_endpoints = AsyncWebhookEndpointsResource(client)

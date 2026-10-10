@@ -161,8 +161,16 @@ final class Citator {
 
 - `ctx.tenantId()`: the tenant the call is for. Key per-tenant state by it.
 - `ctx.runId()`: the run (an agent turn or a flow step) the call belongs to.
-- `ctx.requestId()`: this call, such as the model's tool-call id. Useful for
-  logs and idempotency keys.
+- `ctx.requestId()`: this call, such as the model's tool-call id. For logs:
+  a model's call id is only unique within one of its answers, so don't
+  dedupe on it.
+- `ctx.idempotencyKey()`: the same every time this call runs (resumed,
+  retried, or run again after a crash), different for every other call. A
+  step can run more than once, so a tool that writes passes it to the system
+  it writes to (an `Idempotency-Key` header, a client reference, a unique
+  column) or looks for it there first: a refund never goes out twice. A
+  UUID; `null` outside a run and from a runtime before 0.1.6. Docs:
+  https://docs.kindgi.com/v0.1/guides/tools/write-a-tool/#make-a-side-effect-happen-once
 - `ctx.projectId()`, `ctx.orgId()`: the run's project, and its org (`null`
   when it has none). The runtime sets them from the run, never from the
   input. To check an id the input names, compare it with these.
@@ -182,8 +190,11 @@ you, is declared with `set("needsSpec", …)` and read from `ctx.secrets()`, as
 above. The runtime resolves every declared secret on every call, for the
 call's tenant, in its env (`KINDGI_ENV`; under `kindgi dev`, `local`: the
 pack's `.env` and `.env.local`). It checks each against its schema, and fails
-the call, naming the secret, when one is missing or doesn't match. Every
-declared secret is required.
+the call, naming the secret, when one is missing or doesn't match. A
+declared secret is required, unless its schema names null
+(`"type": ["string", "null"]`): an optional one the env doesn't have, or has
+empty, is absent from `ctx.secrets`, and the call goes on (runtime 0.1.6 or
+later; an older runtime requires it).
 
 Everything else comes from the process environment: `System.getenv("CITATOR_URL")`.
 Under `kindgi dev`, the pack service gets the pack's `.env` and `.env.local`,

@@ -50,6 +50,19 @@ describe('approvals.list / get — /v1/approvals mapping', () => {
     expect(url.searchParams.get('limit')).toBe('10');
   });
 
+  it("lists a run's approvals, and its child runs'", async () => {
+    const stub = jsonFetch({ data: [], hasMore: false });
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    await client.approvals.list({ runId: 'run-1', includeDescendants: true });
+    const url = new URL(stub.calls[0]?.url);
+    expect(url.searchParams.get('runId')).toBe('run-1');
+    expect(url.searchParams.get('includeDescendants')).toBe('true');
+  });
+
   it('GETs /v1/approvals/{approvalId}', async () => {
     const stub = jsonFetch(WIRE_APPROVAL);
     const client = createClient({
