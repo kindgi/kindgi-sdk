@@ -832,12 +832,13 @@ describe('kindgi build — a Python pack', () => {
 });
 
 /** The JVM build runners, recording what they're called with (Java and Scala packs). */
-function withJvm(fixtures: Fixtures, compileErrors?: readonly string[]) {
+function withJvm(fixtures: Fixtures, compileErrors?: readonly string[], indexEnv?: unknown) {
   const calls = {
     prepared: [] as unknown[],
     indexed: [] as unknown[],
     images: [] as (readonly string[])[],
     languages: [] as string[],
+    declared: [] as (readonly string[])[],
     files: [] as (readonly string[])[],
   };
   fixtures.runners = {
@@ -851,7 +852,12 @@ function withJvm(fixtures: Fixtures, compileErrors?: readonly string[]) {
       },
       runLocalIndexer: async (o) => {
         calls.indexed.push(o.code);
-        await writeFile(o.outputPath, SAMPLE_INDEX_BYTES);
+        await writeFile(
+          o.outputPath,
+          indexEnv === undefined
+            ? SAMPLE_INDEX_BYTES
+            : JSON.stringify({ ...SAMPLE_INDEX, env: indexEnv }),
+        );
         return {
           kind: 'ok',
           packId: 'my-pack',
@@ -864,6 +870,7 @@ function withJvm(fixtures: Fixtures, compileErrors?: readonly string[]) {
       writeContainerfile: async (o) => {
         calls.images.push([o.buildImageRef, o.runtimeImageRef]);
         calls.languages.push(o.language);
+        calls.declared.push(o.declaredEnv);
         await writeFile(o.outputPath, `# ${o.language} containerfile\n`, 'utf8');
       },
       writeContext: async (o) => {
@@ -921,6 +928,7 @@ describe('kindgi build — a Java pack', () => {
     expect(calls.prepared).toEqual([code]);
     expect(calls.indexed).toEqual([code]);
     expect(calls.images).toEqual([[DEFAULT_JAVA_BUILD_IMAGE_REF, DEFAULT_JAVA_RUNTIME_IMAGE_REF]]);
+    expect(calls.declared).toEqual([[]]);
     expect(calls.files).toEqual([
       ['kindgi.config.json', 'pom.xml', 'src/main/java/acme/tools/Echo.java'],
     ]);
@@ -928,6 +936,22 @@ describe('kindgi build — a Java pack', () => {
     expect(fixtures.state.tarCalls).toBe(1);
     expect(fixtures.state.postCalls).toBe(1);
     expect(fixtures.state.signCalls).toBe(1);
+  });
+
+  test("the image's launcher keeps the names the index declares, required and optional", async () => {
+    await javaPack();
+    const env = { optional: ['CACHE_DIR'], required: ['A_URL', 'B_KEY'] };
+    // The image's index is the local one (the integrity gate).
+    const fixtures = makeFixtures({
+      serverIndexBytes: new TextEncoder().encode(JSON.stringify({ ...SAMPLE_INDEX, env })),
+    });
+    const calls = withJvm(fixtures, undefined, env);
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: {} }, { ...JAVA_CONFIG, environments: {} }),
+      argv: ['build', '--local', '--artifact-version=20261007.1', `--path=${packDir}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls.declared).toEqual([['A_URL', 'B_KEY', 'CACHE_DIR']]);
   });
 
   test("a pack that doesn't compile stops before indexing, with javac's located errors", async () => {
@@ -1140,6 +1164,29 @@ describe('kindgi build --local', () => {
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain('[file-import-failed] Failed to import tools/echo/index.ts');
     expect(fixtures.state.dockerBuilds).toHaveLength(0);
+  });
+
+  test('an indexer warning is printed and the pack still builds', async () => {
+    const message =
+      'guardrails/cites.ts: check "cites" doesn\'t start with this pack\'s id ("my-pack."). Name it "my-pack.checks.<name>" so it can\'t collide with another pack\'s check in the same tenant. The pack builds as it is.';
+    const fixtures = makeFixtures({
+      indexOutcome: {
+        kind: 'ok',
+        packId: 'my-pack',
+        packVersion: '0.1.0',
+        counts: { tools: 1, guardrails: 1, agents: 0, flows: 0 },
+        fileErrors: [],
+        warnings: [{ code: 'check-id-unprefixed', message, filePath: 'guardrails/cites.ts' }],
+        index: SAMPLE_INDEX,
+      } as LocalIndexResult,
+    });
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: {} }, { environments: {} }),
+      argv: ['build', '--local', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(0);
+    expect(`${out.stdout}${out.stderr}`).toContain(`⚠ ${message}`);
+    expect(fixtures.state.dockerBuilds).toHaveLength(1);
   });
 
   test("the app's registry config reaches the install as a build secret", async () => {
@@ -1526,5 +1573,25 @@ describe('kindgi build — the artifact version and publish time', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  test('--published-at as a date is its start in UTC, as deploy takes it; a loose one is refused', async () => {
+    const fixtures = makeFixtures();
+    const argv = ['build', '--local', '--push', '--env=staging', `--path=${packDir}`];
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: [...argv, '--published-at=2026-10-08'],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    const envelope = JSON.parse(
+      await readFile(join(packDir, '.kindgi/build/deploy-envelope.json'), 'utf8'),
+    ) as Record<string, unknown>;
+    expect(envelope.publishedAt).toBe('2026-10-08T00:00:00.000Z');
+
+    const refused = makeFixtures();
+    const loose = await runCli({ ...baseInputs(refused), argv: [...argv, '--published-at=Oct 8'] });
+    expect(loose.exitCode).toBe(2);
+    expect(loose.stderr).toContain('--published-at must be an ISO 8601 time with a zone');
+    expect(refused.state.dockerBuilds).toEqual([]);
   });
 });

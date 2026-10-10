@@ -15,6 +15,7 @@
 
 import type {
   IdentitySessionCollectionPage,
+  MyPermissions,
   RevokeSessionsResult,
   UserCollectionPage,
   UserRecord,
@@ -26,6 +27,7 @@ export type IdentityUser = UserRecord;
 export type IdentityUserPage = UserCollectionPage;
 export type IdentitySessionPage = IdentitySessionCollectionPage;
 export type WhoamiInfo = WhoamiResult;
+export type { MyPermissions };
 export type RevokeSessionsOutcome = RevokeSessionsResult;
 
 export interface ListIdentityUsersFilter {
@@ -37,7 +39,25 @@ export interface ListIdentityUsersFilter {
 export interface IdentityClient {
   /** @wire GET /v1/identity/whoami — always mounted */
   whoami(): Promise<WhoamiInfo>;
+  readonly me: IdentityMeClient;
   readonly users: IdentityUsersClient;
+}
+
+export interface IdentityMeClient {
+  /**
+   * What the caller may do, so a client hides what it can't: tenant admin,
+   * its reviewer role and the roles it decides, its key's limits and
+   * capabilities, the projects it may read with its role in each and how it
+   * holds it, its orgs and teams, and what each project role allows. On a
+   * runtime without an authorization store it throws a `KindgiApiError`
+   * whose `error` is `{ code: 'server', serverCode:
+   * 'permissions-unsupported' }` (a `not-found` one on a runtime from
+   * before this route): read `whoami()`'s `tenantAdmin` and
+   * `reviewerRole` instead.
+   *
+   * @wire GET /v1/identity/me/permissions
+   */
+  permissions(): Promise<MyPermissions>;
 }
 
 export interface IdentityUsersClient {
@@ -62,6 +82,14 @@ export function makeIdentityClient(transport: Transport): IdentityClient {
         method: 'GET',
         path: '/v1/identity/whoami',
       });
+    },
+    me: {
+      async permissions() {
+        return transport.request<MyPermissions>({
+          method: 'GET',
+          path: '/v1/identity/me/permissions',
+        });
+      },
     },
     users: {
       async list(filter) {

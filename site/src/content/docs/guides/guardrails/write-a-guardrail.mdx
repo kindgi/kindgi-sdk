@@ -142,7 +142,7 @@ Save. `kindgi dev` registers the guardrail with the rest of the pack. An
 agent that names a guardrail that isn't registered doesn't run:
 
 ```text
-Error [invalid-request]: Agent "my-pack.gated" references guardrails not in the registry: my-pack.no-such-guardrail
+Error [unresolved-guardrail]: Agent "my-pack.gated" references guardrails not in the registry: my-pack.no-such-guardrail
 ```
 
 ## Run it

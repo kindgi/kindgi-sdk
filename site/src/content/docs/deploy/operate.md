@@ -93,14 +93,15 @@ curl -s http://localhost:4000/v1/deployments -H "authorization: Bearer $KINDGI_A
 The runtime prints what it's running with when it starts (`docker logs kindgi-server`; in the JSON format they're the `lines` of its `boot` record). The lines to check after a change:
 
 ```text
-  Token:   kgi_bt_…65bb (provided)
+  Token:   kgi_bt_…3236 (provided)
   …
   Public run tokens: off (no signing key)
-  License: Docs example · non-production · until 2026-11-02
-  ⚠ The license key expires in 29 days (2026-11-02). Renew it: contact@kindgi.com.
+  …
+  License: …
+  …
   Env: production (tool secrets resolve in it)
-  Tenant host access: deployed (stdio MCP endpoints refused; KINDGI_TENANT_HOST_ACCESS)
-  Pack service: http://kindgi-pack:8080 — acme-pack (artifact …), protocol 2, 3 tools, 1 check
+  Tenant host access: deployed (stdio MCP endpoints refused; tenant-chosen hosts can't reach the metadata server or this host; KINDGI_TENANT_HOST_ACCESS)
+  Pack service: http://…:8080 — acme-pack (artifact …), protocol 2, 3 tools, 1 check
 ```
 
 - **`Token`:** the last four characters of the API token it accepts.
@@ -293,6 +294,29 @@ Two more things keep erasures complete:
 When it starts, the runtime brings the database up to date: it applies the migrations the database doesn't have yet, then serves. On a database that has them all, it applies nothing, so a restart on the same version changes nothing. The log doesn't list them: once the `Kindgi API server listening` lines appear, they're done. If one fails, the runtime exits with code 1, and its log says `kindgi-runtime: fatal: Error: migration failed for …` and why.
 
 Migrations only go forward, and an older runtime isn't guaranteed to work on a database a newer one migrated. To go back, [restore the backup](#restore-into-a-fresh-database) you took before the upgrade, and run the older version on it.
+
+### From 0.1.5 to 0.1.6
+
+What's different once you rebuild your pack with 0.1.6:
+
+- **Variables your pack doesn't declare no longer reach it.** Before your
+  pack's code loads, its service drops every variable the pack doesn't
+  declare (`env` in `kindgi.config`, `[tool.kindgi.env]` in
+  `pyproject.toml`, `env` in `kindgi.config.json`), except Kindgi's own
+  (`KINDGI_*`) and the platform's. A key left in `pack.env` for something
+  else no longer reaches your tools. After the upgrade, look in the pack
+  service's log for a `WARN` line with `"event":"env-dropped"`. It names each
+  variable the service dropped, never its value:
+
+  ```json
+  {"time":"2026-10-10T07:01:47.789Z","level":"warn","severity":"WARNING","subsystem":"pack","message":"Dropped 2 variables the pack doesn't declare: ACME_UNDECLARED_KEY, AWS_SECRET_ACCESS_KEY (declare them in the pack's env, or set KINDGI_PACK_ENV_FILTER=off)","event":"env-dropped","kind":"env-dropped","names":["ACME_UNDECLARED_KEY","AWS_SECRET_ACCESS_KEY"]}
+  ```
+
+  If your code reads one of them, declare it
+  ([Declare the environment your code reads](../../guides/secrets/pack-env/)).
+  To keep the old behaviour meanwhile, set `KINDGI_PACK_ENV_FILTER=off` on
+  the pack service. A Python pack's image always names `GPG_KEY`: its base
+  image sets it, and nothing reads it.
 
 ### Runtime 0.1.5.1
 

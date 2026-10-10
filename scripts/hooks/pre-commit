@@ -24,6 +24,18 @@
 
 set -eu
 
+# Each run keeps its check logs in its own directory, made on first use and
+# removed when the hook exits (Ctrl+C included), so commits running at the
+# same time in several worktrees never read each other's logs.
+log_dir=""
+trap '[ -z "$log_dir" ] || rm -rf "$log_dir"' EXIT
+trap 'exit 129' HUP
+trap 'exit 130' INT
+trap 'exit 143' TERM
+make_log_dir() {
+  [ -n "$log_dir" ] || log_dir=$(mktemp -d "${TMPDIR:-/tmp}/kindgi-pre-commit.XXXXXX")
+}
+
 staged_all=$(git diff --cached --name-only --diff-filter=AM || true)
 
 # ------------------------------------------------------------------- #
@@ -67,11 +79,12 @@ api_touched=$(printf '%s\n' "$staged_all" \
 
 if [ -n "$api_touched" ]; then
   printf "\033[36mpre-commit: running API drift + openapi.json freshness tests...\033[0m\n"
+  make_log_dir
   if ! pnpm --filter @kindgi/api --fail-if-no-match exec vitest run \
       tests/openapi.test.ts tests/openapi-artifact.test.ts \
-      --reporter=dot >/tmp/precommit-api-drift.log 2>&1; then
+      --reporter=dot >"$log_dir/api-drift.log" 2>&1; then
     printf "\n\033[31mpre-commit: API drift / freshness test FAILED\033[0m\n\n"
-    tail -60 /tmp/precommit-api-drift.log
+    tail -60 "$log_dir/api-drift.log"
     printf "\n\033[31m→ A mounted route is missing its OPERATIONS entry (or vice versa),\033[0m\n"
     printf "\033[31m  or packages/api/openapi.json is stale (run: pnpm --filter @kindgi/api gen:openapi).\033[0m\n"
     printf "See docs/ADDING-A-ROUTE.md for the checklist.\n\n"
@@ -92,15 +105,16 @@ sdk_touched=$(printf '%s\n' "$staged_all" \
 
 if [ -n "$api_touched" ] || [ -n "$sdk_touched" ]; then
   printf "\033[36mpre-commit: regenerating SDK wire types + running coverage drift test...\033[0m\n"
-  if ! pnpm --filter @kindgi/client --fail-if-no-match run gen >/tmp/precommit-sdk-gen.log 2>&1; then
+  make_log_dir
+  if ! pnpm --filter @kindgi/client --fail-if-no-match run gen >"$log_dir/sdk-gen.log" 2>&1; then
     printf "\n\033[31mpre-commit: SDK codegen FAILED\033[0m\n\n"
-    tail -40 /tmp/precommit-sdk-gen.log
+    tail -40 "$log_dir/sdk-gen.log"
     exit 1
   fi
   if ! pnpm --filter @kindgi/client --fail-if-no-match exec vitest run tests/coverage-drift.test.ts \
-      --reporter=dot >/tmp/precommit-sdk-drift.log 2>&1; then
+      --reporter=dot >"$log_dir/sdk-drift.log" 2>&1; then
     printf "\n\033[31mpre-commit: SDK coverage drift test FAILED\033[0m\n\n"
-    tail -60 /tmp/precommit-sdk-drift.log
+    tail -60 "$log_dir/sdk-drift.log"
     printf "\n\033[31m→ A generated wire endpoint has no resource-client wrapper.\033[0m\n"
     printf "Fix by adding the resource method (see schedules.ts / orgs.ts as templates)\n"
     printf "OR by adding the endpoint to the documented skip set in\n"
@@ -119,10 +133,11 @@ py_client_touched=$(printf '%s\n' "$staged_all" \
 if [ -n "$api_touched" ] || [ -n "$py_client_touched" ]; then
   if command -v uv >/dev/null 2>&1; then
     printf "\033[36mpre-commit: checking the Python client against openapi.json...\033[0m\n"
+    make_log_dir
     if ! uv run --quiet --project sdks/python python sdks/python/scripts/gen_client.py --check \
-        >/tmp/precommit-py-client.log 2>&1; then
+        >"$log_dir/py-client.log" 2>&1; then
       printf "\n\033[31mpre-commit: the Python client is out of step with openapi.json\033[0m\n\n"
-      tail -20 /tmp/precommit-py-client.log
+      tail -20 "$log_dir/py-client.log"
       printf "\n\033[31m→ Run: (cd sdks/python && uv run python scripts/gen_client.py)\033[0m\n\n"
       exit 1
     fi

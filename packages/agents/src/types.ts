@@ -491,7 +491,7 @@ export interface Agent {
    *   - Only `preferredProvider` set → any model of that provider is
    *     promoted.
    *
-   * The value is a `ModelInfo.name` string (e.g. `'claude-sonnet-4-6'`).
+   * The value is a `ModelInfo.name` string (e.g. `'claude-sonnet-5-5'`).
    * Enables model-level A/B'ing under one connection: register
    * Anthropic once with `models: [sonnet, opus, haiku]`, then pin
    * per-agent.

@@ -45,7 +45,12 @@ export interface EnvTarget {
    */
   readonly component?: 'server' | 'pack-service';
   readonly secretsBackend?: 'none' | 'postgres' | 'secret-manager' | 'dotenv';
-  readonly secretsBackendKms?: 'gcp' | 'aws' | 'libsodium' | 'vault';
+  readonly secretsBackendKms?: 'gcp' | 'azure' | 'aws' | 'libsodium' | 'vault';
+  /**
+   * The secret manager the `secret-manager` backend keeps secrets in
+   * (`KINDGI_SECRETS_MANAGER`). Absent: not chosen yet.
+   */
+  readonly secretsManager?: 'azure' | 'gcp' | 'aws' | 'vault';
   /**
    * How the server reaches the pack service: `http` when
    * `KINDGI_PACK_SERVICE_URL` is set. Absent: the server has no pack
@@ -105,7 +110,11 @@ export const ENV_GROUPS = {
   core: 'Core server config',
   logging: 'Logging',
   secrets: 'Secrets backend selection',
-  gcp: 'GCP vendor config (postgres + gcp KMS)',
+  gcp: 'GCP vendor config (postgres + gcp KMS; secret-manager + gcp)',
+  aws: "AWS vendor config (the server's AWS identity; secret-manager + aws)",
+  azure:
+    "Azure vendor config (the server's managed identity; postgres + azure KMS; secret-manager + azure)",
+  vault: 'HashiCorp Vault / OpenBao (secret-manager + vault)',
   'local-key': 'Local key (postgres + libsodium: a key this runtime holds, single-node)',
   'pack-service': 'Pack service (runs the pack code: tools and guardrail checks)',
   'image-registry': "Image registry (where deployments' images are read from)",
@@ -128,8 +137,19 @@ const appliesToDotenvBackend = (t: EnvTarget): boolean =>
 const appliesToPostgresGcp = (t: EnvTarget): boolean =>
   appliesToPostgresBackend(t) && t.secretsBackendKms === 'gcp';
 
+const appliesToPostgresAzure = (t: EnvTarget): boolean =>
+  appliesToPostgresBackend(t) && t.secretsBackendKms === 'azure';
+
 const appliesToPostgresLocalKey = (t: EnvTarget): boolean =>
   appliesToPostgresBackend(t) && t.secretsBackendKms === 'libsodium';
+
+const appliesToSecretManagerBackend = (t: EnvTarget): boolean =>
+  appliesToServer(t) && t.secretsBackend === 'secret-manager';
+
+const appliesToSecretManager =
+  (manager: NonNullable<EnvTarget['secretsManager']>) =>
+  (t: EnvTarget): boolean =>
+    appliesToSecretManagerBackend(t) && t.secretsManager === manager;
 
 const appliesToPackService = (t: EnvTarget): boolean => t.component === 'pack-service';
 
@@ -326,6 +346,15 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_AUTH_TENANT_PROVIDERS',
+    description:
+      "Whether a tenant's admins may add, change and remove its identity providers: `on` or `off`. Default `on`. `off` when the operator manages sign-in: then only the deployment's own token (`KINDGI_API_TOKEN`) can, and a tenant's change answers `403 identity-providers-operator-managed`. The providers already there keep signing people in either way, and anyone may still read them.",
+    example: 'off',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_AUTH_GOOGLE_CLIENT_ID',
     description:
       "Turns on \"Continue with Google\": the client id of the deployment's own Google app (an OAuth client (Web application)). People who've been added to a workspace sign in with their Google account, by its verified email. The app allows the redirect URI `<KINDGI_PUBLIC_URL>/auth/kindgi/social/callback/google`. Needs sign-in on (`KINDGI_AUTH_SECRET_PATH`) and the app's secret (`KINDGI_AUTH_GOOGLE_CLIENT_SECRET` or `…_SECRET_PATH`).",
@@ -420,6 +449,15 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     description:
       'A file (mode 0600) holding the SMTP URL with its credentials. Set this or `KINDGI_AUTH_EMAIL_SMTP_URL`, not both.',
     example: '/etc/kindgi/smtp-url',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_REVIEWER_EMAIL',
+    description:
+      "`on` emails reviewers when an approval waits for them: the people the approvals inbox would show it to (its assigned reviewer, else every active reviewer of its required role or above), and only those who may read its project. The first email goes at once; anything more for the same person within five minutes comes as one digest. Each email has the approval's title, project, required role and a link, never what it's about (that stays behind sign-in). Sent through the emailed sign-in link's server, so it needs `KINDGI_AUTH_EMAIL_SMTP_URL` (or `_PATH`) and `KINDGI_AUTH_EMAIL_FROM`; turned on without them, the runtime refuses to start. Off by default: emailing people is the operator's choice.",
+    example: 'on',
     required: false,
     appliesTo: appliesToServer,
     group: 'core',
@@ -526,9 +564,27 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_EXPORT_SIGNING_KMS_KEY',
     description:
-      "Optional: a Cloud KMS key version that signs exports, so the private key never leaves KMS: `projects/<p>/locations/<l>/keyRings/<r>/cryptoKeys/<k>/cryptoKeyVersions/<n>`. It must be an `EC_SIGN_ED25519` key (it signs `ed25519`) or an `EC_SIGN_P256_SHA256` key (`ecdsa-p256-sha256`), and the server's service account needs `roles/cloudkms.signerVerifier` on it (and `roles/cloudkms.publicKeyViewer`, to read its public key at boot).",
+      "Optional: a KMS key version that signs exports, so the private key never leaves the KMS. Its shape picks the KMS. **Cloud KMS:** `projects/<p>/locations/<l>/keyRings/<r>/cryptoKeys/<k>/cryptoKeyVersions/<n>`, an `EC_SIGN_ED25519` key (it signs `ed25519`) or an `EC_SIGN_P256_SHA256` key (`ecdsa-p256-sha256`); the server's service account needs `roles/cloudkms.signerVerifier` on it (and `roles/cloudkms.publicKeyViewer`, to read its public key at boot). **Azure Key Vault:** `https://<vault>.vault.azure.net/keys/<name>/<version>`, with its version, an EC P-256 key allowed to sign (`ecdsa-p256-sha256`: Key Vault has no Ed25519); the server's identity needs Key Vault Crypto User on it. Any other value stops the server at boot, naming both shapes.",
     example:
       'projects/acme/locations/global/keyRings/kindgi/cryptoKeys/exports/cryptoKeyVersions/1',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_EXPORT_SIGNING_RETIRED_PUBLIC_KEYS_PATH',
+    description:
+      'Absolute path to a file of one or more PEM public keys (`-----BEGIN PUBLIC KEY-----`, concatenated): export keys this deployment signed with before a rotation. `GET /v1/export-signing-keys` lists them after the active key, with `active: false`, so `kindgi exports verify --from-runtime` still trusts what they signed; they never sign. Ed25519 or EC P-256 keys, public halves only: a private key in the file stops the server at boot. Works with any signing key, file or KMS. Set this or `KINDGI_EXPORT_SIGNING_RETIRED_PUBLIC_KEYS`, not both.',
+    example: '/etc/kindgi/export-signing-retired.pem',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_EXPORT_SIGNING_RETIRED_PUBLIC_KEYS',
+    description:
+      "The same file's content, base64 (`base64 < retired.pem`): for platforms that give settings as environment variables, such as Cloud Run.",
+    example: '',
     required: false,
     appliesTo: appliesToServer,
     group: 'core',
@@ -556,6 +612,15 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     description:
       'How often each server sweeps for runs and eval runs whose executor lease ran out, in milliseconds. A run or eval run whose server stopped without a shutdown is failed within about `KINDGI_RUN_LEASE_MS` plus this. Default 60000; at least 1000, and shorter than `KINDGI_RUN_LEASE_MS`, or the server refuses to start.',
     example: '60000',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_RUN_ENDED_CHECK_MS',
+    description:
+      'How often each server stops the runs it executes that were ended from outside (cancelled, on this server or another), in milliseconds. A run stops starting steps at its next write either way; this also stops a step that writes nothing for a while, such as a long model call, within this time of a cancel. Default 5000; at least 1000, or the server refuses to start.',
+    example: '5000',
     required: false,
     appliesTo: appliesToServer,
     group: 'core',
@@ -633,6 +698,42 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_PAGINATION_KEY_PATH',
+    description:
+      "Absolute path to the 32-byte key (mode 0600) every list's page cursors are sealed with, so a cursor never shows the row it points after; the same on every instance. Unset (and no `KINDGI_PAGINATION_KEY`): a key made at boot and kept nowhere, so a cursor handed out before a restart answers 400 after it, and more than one instance behind one address needs the key set. Rotate it yearly (each cursor is sealed with a random nonce): the new key here, the old one in `KINDGI_PAGINATION_PREVIOUS_KEY_PATH` for at least a day. Its own key: never the erasure ledger's or the secrets AAD key. This or `KINDGI_PAGINATION_KEY`, not both.",
+    example: '/etc/kindgi/pagination.key',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_PAGINATION_KEY',
+    description:
+      'The page-cursor key itself, base64: for platforms that give secrets as environment variables (Cloud Run with Secret Manager). See `KINDGI_PAGINATION_KEY_PATH`; this or that, not both.',
+    example: '',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_PAGINATION_PREVIOUS_KEY_PATH',
+    description:
+      "While the page-cursor key rotates, the key before it (a 32-byte file, mode 0600): it still opens the cursors it sealed. Keep it at least a day (a cursor's life) after rotating, then remove it. Needs `KINDGI_PAGINATION_KEY(_PATH)`, and must differ from it. This or `KINDGI_PAGINATION_PREVIOUS_KEY`, not both.",
+    example: '/etc/kindgi/pagination.previous.key',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_PAGINATION_PREVIOUS_KEY',
+    description:
+      'The previous page-cursor key itself, base64. See `KINDGI_PAGINATION_PREVIOUS_KEY_PATH`; this or that, not both.',
+    example: '',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_COMPLIANCE_CLASSIFIER',
     description:
       "Turns on the audit trail's compliance features: `shipped` uses the classifier the runtime ships; or give the absolute path of your own classifier JSON. When set, the server serves `/v1/compliance/*` (audit events as compliance evidence, and their signed export) and **purges audit events by kind, as the classifier says**. With `shipped`: authorization decisions after 90 days (denials after 365), run outcomes and guardrail violations after 730 days; secret changes and approval decisions are kept (legal hold), and so are kinds the classifier doesn't list. Unset (the default): no `/v1/compliance/*`, and no audit event is ever purged.",
@@ -694,12 +795,22 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_SECRETS_BACKEND',
     description:
-      'Where secret bytes live. `none` (default; /v1/secrets/* unmounted) | `postgres` (envelope-encrypted, needs KMS) | `dotenv` (`.env` files in a directory; development only, needs `KINDGI_DEV=true`) | `secret-manager` (reserved; not supported through this variable).',
+      'Where secret bytes live. `none` (default; /v1/secrets/* unmounted) | `postgres` (envelope-encrypted, needs KMS) | `dotenv` (`.env` files in a directory; development only, needs `KINDGI_DEV=true`) | `secret-manager` (your own secret manager holds the bytes; pick it with `KINDGI_SECRETS_MANAGER`).',
     example: 'postgres',
     required: false,
     appliesTo: appliesToServer,
     group: 'secrets',
     allowedValues: ['none', 'postgres', 'dotenv', 'secret-manager'],
+  },
+  {
+    name: 'KINDGI_SECRETS_MANAGER',
+    description:
+      "Which secret manager the `secret-manager` backend keeps secrets in: `azure` (Azure Key Vault, see `KINDGI_SECRETS_AZURE_VAULT_URL`), `gcp` (Google Secret Manager, in the project `KINDGI_SECRETS_GCP_PROJECT_ID` names; the server's service account needs roles/secretmanager.admin there) `vault` (HashiCorp Vault or OpenBao, see `KINDGI_SECRETS_VAULT_ADDR`) or `aws` (AWS Secrets Manager, in the region `KINDGI_SECRETS_AWS_REGION` names, signed in as the server's AWS identity, `KINDGI_AWS_IDENTITY`). Kindgi reads and writes them with the server's own identity and keeps only their names and version numbers in its database.",
+    example: 'azure',
+    required: true,
+    appliesTo: appliesToSecretManagerBackend,
+    group: 'secrets',
+    allowedValues: ['azure', 'gcp', 'aws', 'vault'],
   },
   {
     name: 'KINDGI_SECRETS_DOTENV_DIR',
@@ -722,12 +833,12 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_SECRETS_BACKEND_KMS',
     description:
-      'Which KMS wraps DEKs (postgres backend only): `gcp` (Google Cloud KMS), or `libsodium`, a key this runtime holds (see `KINDGI_SECRETS_LOCAL_KEY_PATH`). Reserved: `aws`.',
+      'Which KMS wraps DEKs (postgres backend only): `gcp` (Google Cloud KMS), `azure` (an Azure Key Vault key, see `KINDGI_SECRETS_AZURE_KEY_ID`), or `libsodium`, a key this runtime holds (see `KINDGI_SECRETS_LOCAL_KEY_PATH`). Reserved: `aws`.',
     example: 'gcp',
     required: true,
     appliesTo: appliesToPostgresBackend,
     group: 'secrets',
-    allowedValues: ['gcp', 'aws', 'libsodium'],
+    allowedValues: ['gcp', 'azure', 'aws', 'libsodium'],
   },
   {
     name: 'KINDGI_SECRETS_AAD_KEY_PATH',
@@ -741,7 +852,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_SECRETS_AAD_KEY',
     description:
-      "The 32-byte AAD/HMAC key itself, base64: for platforms that give secrets as environment variables (Cloud Run with Secret Manager), where a key file's mode can't be 0600. The postgres backend needs this or `KINDGI_SECRETS_AAD_KEY_PATH`, not both.",
+      "The 32-byte AAD/HMAC key itself, base64: for platforms that give secrets as environment variables (Cloud Run with Secret Manager, Container Apps with Key Vault), where a key file's mode can't be 0600. Reference one fixed version of it, never the latest: a new version would make every stored secret unreadable. The postgres backend needs this or `KINDGI_SECRETS_AAD_KEY_PATH`, not both.",
     example: '',
     required: false,
     appliesTo: appliesToPostgresBackend,
@@ -749,10 +860,11 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   },
   {
     name: 'KINDGI_SECRETS_GCP_PROJECT_ID',
-    description: 'GCP project id owning the KMS keyring + key.',
+    description:
+      "GCP project id owning the KMS keyring + key (postgres backend, KMS `gcp`), or holding the secrets in its Secret Manager (`secret-manager` backend, manager `gcp`; the server's service account needs to create, add versions to and disable them, e.g. Secret Manager Admin, in a project used for Kindgi's secrets alone).",
     example: 'my-proj',
     required: true,
-    appliesTo: appliesToPostgresGcp,
+    appliesTo: (t) => appliesToPostgresGcp(t) || appliesToSecretManager('gcp')(t),
     group: 'gcp',
   },
   {
@@ -779,6 +891,166 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     appliesTo: appliesToPostgresGcp,
     group: 'gcp',
   },
+  {
+    name: 'KINDGI_AWS_IDENTITY',
+    description:
+      "Where the server's AWS credentials come from, for the settings that sign in as it (such as the Bedrock adapter's `auth: aws-identity`). `container`: the task's or pod's role from the container credentials endpoint (ECS and Fargate, and EKS Pod Identity). `instance`: the EC2 instance profile, IMDSv2 only (in a container on EC2, raise the IMDS hop limit to 2, or use `container`). `web-identity`: EKS IRSA, from the projected token file and `AWS_ROLE_ARN`, which the platform sets. `profile`: development only (`KINDGI_DEV=true`), a named profile from `~/.aws` as `aws login` or SSO makes it (`KINDGI_AWS_PROFILE`). Unset: the server has no AWS identity, and a registration that needs one is refused. Never the AWS SDK's default chain or keys in the environment; Kindgi keeps no key.",
+    example: 'container',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'aws',
+    allowedValues: ['container', 'instance', 'web-identity', 'profile'],
+  },
+  {
+    name: 'KINDGI_AWS_PROFILE',
+    description:
+      'With `KINDGI_AWS_IDENTITY=profile` (development only): the profile in `~/.aws/config` the server signs in as. Default: `default`.',
+    example: 'kindgi-dev',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'aws',
+  },
+  {
+    name: 'KINDGI_AWS_ROLE_ARN',
+    description:
+      "An IAM role the server assumes on top of its AWS identity (STS, 1-hour sessions renewed before they expire): least privilege, or a role in another account. An IAM role's ARN, `arn:aws:iam::<account>:role/<name>`. Unset: the identity's own permissions.",
+    example: 'arn:aws:iam::123456789012:role/kindgi-bedrock',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'aws',
+  },
+  {
+    name: 'KINDGI_AWS_ROLE_SESSION_NAME',
+    description:
+      "With `KINDGI_AWS_ROLE_ARN`: the role session's name, as CloudTrail shows it. Default: `kindgi-runtime`.",
+    example: 'kindgi-runtime',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'aws',
+  },
+  {
+    name: 'KINDGI_AWS_STS_REGION',
+    description:
+      'With `KINDGI_AWS_ROLE_ARN` or `KINDGI_AWS_IDENTITY=web-identity`: the region whose STS endpoint is used (regional STS, never the global endpoint). Default: `AWS_REGION`. Neither: the server refuses to start.',
+    example: 'us-east-2',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'aws',
+  },
+  {
+    name: 'KINDGI_AZURE_CLIENT_ID',
+    description:
+      "Client id of the user-assigned managed identity the server signs in to Azure with, for its Azure settings (`KINDGI_SECRETS_BACKEND_KMS=azure`, `KINDGI_SECRETS_MANAGER=azure`, `KINDGI_IMAGE_REGISTRY_AUTH=azure`). Unset: the service's system-assigned identity. With `KINDGI_DEV=true` (a laptop), the Azure CLI's sign-in (`az login`) first, then the managed identity. Kindgi keeps no key or secret for it.",
+    example: '11111111-2222-3333-4444-555555555555',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'azure',
+  },
+  {
+    name: 'KINDGI_SECRETS_AZURE_KEY_ID',
+    description:
+      "The Azure Key Vault key that wraps DEKs (postgres backend, KMS `azure`): its URL without a version, `https://<vault>.vault.azure.net/keys/<name>`. New secrets are wrapped with the key's current version and remember it, so rotating the key needs no rewrite. A URL with a version is refused. The server's identity needs wrap and unwrap on the key (the Key Vault Crypto Service Encryption User role).",
+    example: 'https://my-vault.vault.azure.net/keys/kindgi-secrets',
+    required: true,
+    appliesTo: appliesToPostgresAzure,
+    group: 'azure',
+  },
+  {
+    name: 'KINDGI_SECRETS_AZURE_VAULT_URL',
+    description:
+      "The Azure Key Vault that holds the secrets set through Kindgi's API (`secret-manager` backend, manager `azure`): its URL, `https://<vault>.vault.azure.net`. Use a vault for these alone, not the one your deployment's own secrets are in: the server's identity needs the Key Vault Secrets Officer role on it, to create, version, disable and recover secrets.",
+    example: 'https://my-kindgi-secrets.vault.azure.net',
+    required: true,
+    appliesTo: appliesToSecretManager('azure'),
+    group: 'azure',
+  },
+
+  // ---- HashiCorp Vault / OpenBao (`KINDGI_SECRETS_MANAGER=vault`) ----
+  {
+    name: 'KINDGI_SECRETS_VAULT_ADDR',
+    description:
+      "The Vault (or OpenBao) that holds the secrets set through Kindgi's API (`secret-manager` backend, manager `vault`): its address. `https://`, or plain `http://` only to a Vault Agent on the same machine (`http://127.0.0.1:8100`) or in development. The server's token needs, on its kv version 2 mount (`KINDGI_SECRETS_VAULT_MOUNT`): `create`, `read`, `update` on `<mount>/data/*`; `read`, `delete`, `list` on `<mount>/metadata/*`; `update` on `<mount>/delete/*` and `<mount>/destroy/*`. A custom CA: `NODE_EXTRA_CA_CERTS`.",
+    example: 'https://vault.example.com:8200',
+    required: true,
+    appliesTo: appliesToSecretManager('vault'),
+    group: 'vault',
+  },
+  {
+    name: 'KINDGI_SECRETS_VAULT_MOUNT',
+    description:
+      'The kv version 2 mount Kindgi keeps its secrets in. Use one for these alone. Default `secret`.',
+    example: 'kindgi',
+    required: false,
+    appliesTo: appliesToSecretManager('vault'),
+    group: 'vault',
+  },
+  {
+    name: 'KINDGI_SECRETS_VAULT_NAMESPACE',
+    description:
+      'The Vault Enterprise or HCP Vault namespace (`admin`, `admin/team`). Unset: none.',
+    example: 'admin',
+    required: false,
+    appliesTo: appliesToSecretManager('vault'),
+    group: 'vault',
+  },
+  {
+    name: 'KINDGI_SECRETS_VAULT_TOKEN_FILE',
+    description:
+      "A file holding the server's Vault token, kept fresh by the platform: Vault Agent's sink, or a mounted secret. Read again every minute, and when Vault refuses the token. Set this or `KINDGI_SECRETS_VAULT_K8S_ROLE`. Kindgi never reads `VAULT_TOKEN` or `~/.vault-token`.",
+    example: '/vault/secrets/token',
+    required: false,
+    appliesTo: appliesToSecretManager('vault'),
+    group: 'vault',
+  },
+  {
+    name: 'KINDGI_SECRETS_VAULT_K8S_ROLE',
+    description:
+      "The role of Vault's Kubernetes auth method the server logs in with, using its pod's service account token. Its token is renewed by logging in again before its lease ends. Set this or `KINDGI_SECRETS_VAULT_TOKEN_FILE`.",
+    example: 'kindgi-runtime',
+    required: false,
+    appliesTo: appliesToSecretManager('vault'),
+    group: 'vault',
+  },
+  {
+    name: 'KINDGI_SECRETS_VAULT_K8S_MOUNT',
+    description:
+      "Where Vault's Kubernetes auth method is mounted, with `KINDGI_SECRETS_VAULT_K8S_ROLE`. Default `kubernetes`.",
+    example: 'kubernetes-prod',
+    required: false,
+    appliesTo: appliesToSecretManager('vault'),
+    group: 'vault',
+  },
+  {
+    name: 'KINDGI_SECRETS_VAULT_K8S_TOKEN_FILE',
+    description:
+      'The service account token the Kubernetes login sends, with `KINDGI_SECRETS_VAULT_K8S_ROLE`. Default `/var/run/secrets/kubernetes.io/serviceaccount/token`; set it for a projected token with its own audience.',
+    example: '/var/run/secrets/vault/token',
+    required: false,
+    appliesTo: appliesToSecretManager('vault'),
+    group: 'vault',
+  },
+
+  // ---- AWS vendor -------------------------------------------------
+  {
+    name: 'KINDGI_SECRETS_AWS_REGION',
+    description:
+      "The AWS region whose Secrets Manager holds the secrets set through Kindgi's API (`secret-manager` backend, manager `aws`). The server signs in as its AWS identity (`KINDGI_AWS_IDENTITY`), never with `AWS_*` keys or the SDK's default chain. That identity needs, on `arn:aws:secretsmanager:<region>:<account>:secret:kindgi/*` only: `secretsmanager:CreateSecret`, `TagResource`, `PutSecretValue`, `GetSecretValue`, `DescribeSecret` and `DeleteSecret`. Secrets are named `kindgi/<hash>`, with the scope in their tags.",
+    example: 'ca-central-1',
+    required: true,
+    appliesTo: appliesToSecretManager('aws'),
+    group: 'aws',
+  },
+  {
+    name: 'KINDGI_SECRETS_AWS_KMS_KEY_ID',
+    description:
+      "The KMS key AWS Secrets Manager encrypts Kindgi's secrets with (`secret-manager` backend, manager `aws`): a key ARN, key id or `alias/…`. The server's AWS identity then needs `kms:GenerateDataKey` and `kms:Decrypt` on it. Unset: AWS's own `aws/secretsmanager` key.",
+    example: 'alias/kindgi-secrets',
+    required: false,
+    appliesTo: appliesToSecretManager('aws'),
+    group: 'aws',
+  },
+
+  // ---- local key (libsodium) --------------------------------------
   {
     name: 'KINDGI_SECRETS_LOCAL_KEY_PATH',
     description:
@@ -873,6 +1145,25 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     allowedValues: ['strict', 'warn'],
   },
   {
+    name: 'KINDGI_PACK_ENV_FILTER',
+    description:
+      "Whether the pack service keeps only the names its pack declares (`env.required`, `env.optional`). `on` (default): before the pack's code loads, it drops every other variable from its environment but `KINDGI_*` and the platform's own (the process's basics, the language runtime's settings, `PORT`, proxies and certificates, and Cloud Run's, AWS's and Azure's workload identity and metadata), and logs the dropped names, never their values (`WARN env-dropped`). `off`: every variable reaches the pack's code. `kindgi dev` uses `off`.",
+    example: 'on',
+    required: false,
+    appliesTo: appliesToPackService,
+    group: 'pack-service',
+    allowedValues: ['on', 'off'],
+  },
+  {
+    name: 'KINDGI_PACK_ENV_DECLARED',
+    description:
+      "A Java or Scala pack service's declared names, comma-separated: the ones its launcher (`kindgi-pack-java`) keeps when `KINDGI_PACK_ENV_FILTER` is on, since a JVM can't drop a variable from its own environment. `kindgi build` sets it in the image from the pack's index; the service won't start when it differs from the index's `env`. Without it, the launcher drops nothing, and the service won't start while a name the pack doesn't declare reaches it.",
+    example: 'DATABASE_URL,CACHE_DIR',
+    required: false,
+    appliesTo: appliesToPackService,
+    group: 'pack-service',
+  },
+  {
     name: 'KINDGI_IMAGE_REGISTRY_HOST',
     description:
       'The registry host the credentials below are for, with its port when it has one (e.g. `registry.example`, `ghcr.io`). Other registries are read anonymously.',
@@ -911,12 +1202,12 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_IMAGE_REGISTRY_AUTH',
     description:
-      "How the server signs in to `KINDGI_IMAGE_REGISTRY_HOST`. `static` (default): `KINDGI_IMAGE_REGISTRY_USERNAME` and `_PASSWORD`. `google`: the server's own Google identity (Application Default Credentials: the service's identity on Cloud Run), for Artifact Registry; no username or password is set, and Kindgi keeps no key file.",
+      "How the server signs in to `KINDGI_IMAGE_REGISTRY_HOST`. `static` (default): `KINDGI_IMAGE_REGISTRY_USERNAME` and `_PASSWORD`. `google`: the server's own Google identity (Application Default Credentials: the service's identity on Cloud Run), for Artifact Registry; no username or password is set, and Kindgi keeps no key file. `azure`: the server's own managed identity (see `KINDGI_AZURE_CLIENT_ID`), for Azure Container Registry, where it needs the AcrPull role; no username or password is set either.",
     example: 'static',
     required: false,
     appliesTo: appliesToServer,
     group: 'image-registry',
-    allowedValues: ['static', 'google'],
+    allowedValues: ['static', 'google', 'azure'],
   },
   {
     name: 'KINDGI_PACK_DIR',
