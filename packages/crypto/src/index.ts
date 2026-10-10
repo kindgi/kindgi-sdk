@@ -48,6 +48,7 @@ export {
   ecdsaDerToP1363,
   exportSigningKey,
 } from './export-signing.js';
+export { parseRetiredExportKeys, withRetiredExportKeys } from './retired-export-keys.js';
 export type {
   ExportSignature,
   ExportSigningAlgorithm,
