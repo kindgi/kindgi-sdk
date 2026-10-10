@@ -77,6 +77,13 @@ export interface OperationSpec {
     readonly encoding?: Readonly<Record<string, Record<string, unknown>>>;
   };
   readonly responses: Readonly<Record<string, ResponseSpec>>;
+  /**
+   * Why the runtime doesn't serve this operation yet. Set, it stays
+   * registered (its route mounts where a runtime supplies what it needs,
+   * and the drift tests see it), but the public document leaves it out,
+   * with the schemas only it uses, so no client offers it.
+   */
+  readonly unserved?: string;
 }
 
 // ---------------- shared parameters ----------------
@@ -7341,6 +7348,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/event-triggers',
     openapiPath: '/v1/event-triggers',
     operationId: 'eventTriggers.register',
+    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
     summary: 'Register an event trigger',
     description:
       'Registers a `kind=event` trigger. The event-trigger scheduler in the runtime subscribes on the deployment event bus for the given `eventKind`; matching events start a flow run.',
@@ -7358,6 +7366,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/event-triggers',
     openapiPath: '/v1/event-triggers',
     operationId: 'eventTriggers.list',
+    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
     summary: 'List event triggers',
     tags: ['event-triggers'],
     security: 'bearer',
@@ -7372,6 +7381,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/event-triggers/:triggerId',
     openapiPath: '/v1/event-triggers/{triggerId}',
     operationId: 'eventTriggers.get',
+    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
     summary: 'Fetch an event trigger',
     tags: ['event-triggers'],
     security: 'bearer',
@@ -7387,6 +7397,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/event-triggers/:triggerId',
     openapiPath: '/v1/event-triggers/{triggerId}',
     operationId: 'eventTriggers.update',
+    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
     summary: 'Update an event trigger',
     tags: ['event-triggers'],
     security: 'bearer',
@@ -7403,6 +7414,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/event-triggers/:triggerId/pause',
     openapiPath: '/v1/event-triggers/{triggerId}/pause',
     operationId: 'eventTriggers.pause',
+    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
     summary: 'Pause an event trigger',
     tags: ['event-triggers'],
     security: 'bearer',
@@ -7418,6 +7430,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/event-triggers/:triggerId/resume',
     openapiPath: '/v1/event-triggers/{triggerId}/resume',
     operationId: 'eventTriggers.resume',
+    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
     summary: 'Resume an event trigger',
     tags: ['event-triggers'],
     security: 'bearer',
@@ -7433,6 +7446,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/event-triggers/:triggerId/unregister',
     openapiPath: '/v1/event-triggers/{triggerId}/unregister',
     operationId: 'eventTriggers.unregister',
+    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
     summary: 'Soft-delete an event trigger (tombstone)',
     tags: ['event-triggers'],
     security: 'bearer',
@@ -7449,6 +7463,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/webhooks',
     openapiPath: '/v1/webhooks',
     operationId: 'webhooks.register',
+    unserved: "Inbound webhooks aren't served yet: the runtime fires schedules only.",
     summary: 'Register a webhook trigger',
     description:
       'Registers a `kind=webhook` trigger. The route mints `webhookId` (a random UUID). Caller must have written the plaintext HMAC secret to `/v1/secrets` first and passes the resulting name as `hmacSecretName` — the trigger never stores the plaintext. Rotation flows through `POST /v1/secrets/:name/rotate`.',
@@ -7467,6 +7482,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/webhooks',
     openapiPath: '/v1/webhooks',
     operationId: 'webhooks.list',
+    unserved: "Inbound webhooks aren't served yet: the runtime fires schedules only.",
     summary: 'List webhook triggers',
     tags: ['webhooks'],
     security: 'bearer',
@@ -7484,6 +7500,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/webhooks/:triggerId',
     openapiPath: '/v1/webhooks/{triggerId}',
     operationId: 'webhooks.get',
+    unserved: "Inbound webhooks aren't served yet: the runtime fires schedules only.",
     summary: 'Fetch a webhook trigger',
     tags: ['webhooks'],
     security: 'bearer',
@@ -7499,6 +7516,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/webhooks/:triggerId',
     openapiPath: '/v1/webhooks/{triggerId}',
     operationId: 'webhooks.update',
+    unserved: "Inbound webhooks aren't served yet: the runtime fires schedules only.",
     summary: 'Update a webhook trigger',
     description:
       'HMAC secret rotation is NOT here — rotate via `POST /v1/secrets/:name/rotate` on the referenced secret.',
@@ -7517,6 +7535,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/webhooks/:triggerId/pause',
     openapiPath: '/v1/webhooks/{triggerId}/pause',
     operationId: 'webhooks.pause',
+    unserved: "Inbound webhooks aren't served yet: the runtime fires schedules only.",
     summary: 'Pause a webhook trigger',
     tags: ['webhooks'],
     security: 'bearer',
@@ -7532,6 +7551,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/webhooks/:triggerId/resume',
     openapiPath: '/v1/webhooks/{triggerId}/resume',
     operationId: 'webhooks.resume',
+    unserved: "Inbound webhooks aren't served yet: the runtime fires schedules only.",
     summary: 'Resume a webhook trigger',
     tags: ['webhooks'],
     security: 'bearer',
@@ -7547,6 +7567,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/webhooks/:triggerId/unregister',
     openapiPath: '/v1/webhooks/{triggerId}/unregister',
     operationId: 'webhooks.unregister',
+    unserved: "Inbound webhooks aren't served yet: the runtime fires schedules only.",
     summary: 'Soft-delete a webhook trigger (tombstone)',
     tags: ['webhooks'],
     security: 'bearer',
