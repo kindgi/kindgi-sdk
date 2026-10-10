@@ -200,6 +200,14 @@ export interface SecretSetInput {
   readonly rotationDueAt?: string;
   readonly ifVersion?: number;
   /**
+   * The request's `Idempotency-Key`, when it had one. A binding that
+   * writes to an external store in a second step (the secret-manager
+   * backend) uses it to finish a retried write instead of starting a new
+   * version: a retry with the same key completes the version the first
+   * attempt began. Bindings that write in one transaction may ignore it.
+   */
+  readonly idempotencyKey?: string;
+  /**
    * REQUIRED. Called inside the binding's write tx on FRESH insert
    * (writeMode: 'create-new' → new secret identity). Receives the new
    * secret's id as the FGA subject id. Returns tuples for
@@ -212,7 +220,17 @@ export interface SecretSetInput {
 }
 
 export type SecretSetOutcome =
-  | { readonly kind: 'ok'; readonly record: SecretRecord; readonly versionId: number }
+  | {
+      readonly kind: 'ok';
+      readonly record: SecretRecord;
+      readonly versionId: number;
+      /**
+       * Setting a revoked secret again deleted its revoked values for good,
+       * ending the backend's recovery window early (AWS Secrets Manager:
+       * `SecretProviderPutOutput.revokedValuesPurged`). Absent otherwise.
+       */
+      readonly revokedValuesPurged?: true;
+    }
   | { readonly kind: 'already-exists'; readonly record: SecretRecord }
   | { readonly kind: 'version-conflict'; readonly currentVersion: number }
   | { readonly kind: 'error'; readonly code: string; readonly message: string };
@@ -223,6 +241,8 @@ export interface SecretRotateInput {
   readonly name: string;
   readonly newValue?: string;
   readonly revokeOldAfterMs?: number;
+  /** The request's `Idempotency-Key`, when it had one: as `SecretSetInput.idempotencyKey`. */
+  readonly idempotencyKey?: string;
 }
 
 /**
@@ -267,7 +287,17 @@ export interface SecretRevokeOutcome {
 }
 
 export type SecretError =
-  | { readonly code: 'secret-not-found'; readonly message: string; readonly name: string }
+  | {
+      readonly code: 'secret-not-found';
+      readonly message: string;
+      readonly name: string;
+      /**
+       * Why it isn't there, when it's more than "never stored": `deleted-at-provider` when the
+       * secret is mapped but its provider has no value for it (deleted there). Absent: it was
+       * never stored. A tool's optional secret is "not set" only when it was never stored.
+       */
+      readonly reason?: 'deleted-at-provider';
+    }
   | { readonly code: 'secret-revoked'; readonly message: string; readonly name: string }
   | {
       readonly code: 'secret-version-not-found';

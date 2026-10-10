@@ -57,7 +57,28 @@ export function buildHandlers(ctx: TurnContext): HandlerRegistry {
   if (entries.some(([id]) => id === (AGENT_LOOP_NODE as NodeId))) {
     throw new Error('agent-loop must not have a handler — it is dispatched by the kernel');
   }
-  return new Map(entries);
+  return new Map(entries.map(([id, handler]) => [id, followingTheRun(ctx, handler)]));
 }
 
 export type { TurnContext };
+
+/**
+ * The handler, with the turn stopping when its run is stopped: the kernel
+ * aborts a node's `abortSignal` when the run ends from outside (a cancel,
+ * a shutdown), and the turn's own work (a model call, a tool call)
+ * listens to the turn's abort. Linked as each node starts, once.
+ */
+function followingTheRun(ctx: TurnContext, handler: NodeHandler): NodeHandler {
+  return (input, kctx) => {
+    const run = kctx.abortSignal;
+    if (run !== undefined && !ctx.turnAbort.signal.aborted) {
+      const stop = (): void => {
+        ctx.abortReason ??= 'external';
+        ctx.turnAbort.abort(run.reason);
+      };
+      if (run.aborted) stop();
+      else run.addEventListener('abort', stop, { once: true });
+    }
+    return handler(input, kctx);
+  };
+}

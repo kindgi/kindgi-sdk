@@ -164,17 +164,25 @@ describe('createPackServiceSupervisor — children', () => {
         'env.mjs':
           'export async function handler() { return { names: Object.keys(process.env).sort() }; }',
       });
-      const running = await supervisor({ DATABASE_URL: 'postgres://pack-db' });
+      // As `kindgi dev` gives it: the app's env files, with the filter off
+      // (an undeclared name like this one reaches the pack's code).
+      const running = await supervisor({
+        DATABASE_URL: 'postgres://pack-db',
+        KINDGI_PACK_ENV_FILTER: 'off',
+      });
       expect((await running.supervisor.start(index)).kind).toBe('ok');
       const { names } = (await output(running, 'env')) as { names: string[] };
       expect(names).toContain('DATABASE_URL');
       expect(names).not.toContain('PARENT_SENTINEL');
       // The token authenticates the service's callers; the service takes
-      // it out of the environment before it loads the pack's code. The one
-      // KINDGI_ name left is the supervisor's: the service writes JSON
-      // records for it to read.
+      // it out of the environment before it loads the pack's code. The
+      // KINDGI_ names left are the supervisor's: the service writes JSON
+      // records for it to read, and keeps every name.
       expect(names).not.toContain('KINDGI_PACK_SERVICE_TOKEN');
-      expect(names.filter((n) => n.startsWith('KINDGI_'))).toEqual(['KINDGI_LOG_FORMAT']);
+      expect(names.filter((n) => n.startsWith('KINDGI_'))).toEqual([
+        'KINDGI_LOG_FORMAT',
+        'KINDGI_PACK_ENV_FILTER',
+      ]);
     } finally {
       Reflect.deleteProperty(process.env, 'PARENT_SENTINEL');
     }

@@ -38,8 +38,9 @@ field is optional:
   (the default) or the `pack-service`, the separate process that runs
   a pack's code (its tools and guardrail checks). The pack service's
   target lists `KINDGI_PACK_SERVICE_TOKEN`, `KINDGI_PACK_INDEX`,
-  `KINDGI_PACK_SERVICE_MAX_CONCURRENCY` and `KINDGI_PACK_ENV_CHECK`, and
-  none of the server's vars.
+  `KINDGI_PACK_SERVICE_MAX_CONCURRENCY`, `KINDGI_PACK_ENV_CHECK`,
+  `KINDGI_PACK_ENV_FILTER` and `KINDGI_PACK_ENV_DECLARED`, and none of the
+  server's vars.
   It also listens on `PORT` (default 8080), the platform convention,
   which isn't a Kindgi variable.
 - **`secretsBackend`**, **`secretsBackendKms`**: the server's secrets

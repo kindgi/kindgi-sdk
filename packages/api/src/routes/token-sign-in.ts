@@ -41,6 +41,8 @@ export type TokenSignInRouteOptions =
       /** The session's lifetime, in milliseconds. */
       readonly ttlMs: number;
       readonly cookieName: string;
+      /** Whether the cookie is `Secure`. Default `true` (see `SessionCookieOptions.secure`). */
+      readonly cookieSecure?: boolean;
       /** `signed-in` events, best effort. */
       readonly auditEvents?: AuditEventBinding;
     };
@@ -130,7 +132,7 @@ export function tokenSignInRouter(options: TokenSignInRouteOptions): Hono<AppEnv
     });
     setCookie(c, options.cookieName, created.token ?? encodeSessionToken(created.sessionId), {
       httpOnly: true,
-      secure: true,
+      secure: options.cookieSecure !== false,
       sameSite: 'Lax',
       path: '/',
       maxAge: Math.max(0, Math.floor((expires - Date.now()) / 1000)),

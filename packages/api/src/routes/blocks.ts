@@ -13,7 +13,9 @@ import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
+import { projectMismatch } from './project-mismatch.js';
 import { parseScopeParams } from './scope-params.js';
+import { isRegistryVersionsCursor } from './versions-cursor.js';
 
 /**
  * Data blocks: versioned prompts and settings that agent versions pin
@@ -112,6 +114,12 @@ export function blocksRouter(binding: BlockRegistryBinding, authorizer?: Authori
     const tenantId = c.get('tenantId') as TenantId;
     const blockId = c.req.param('blockId');
     const cursor = c.req.query('cursor');
+    if (cursor !== undefined && cursor.length > 0 && !isRegistryVersionsCursor(cursor)) {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError({ code: 'bad-input', message: '`cursor` is malformed' }, c.get('requestId')),
+      );
+    }
     const page = await binding.listVersions({
       tenantId,
       blockId,
@@ -265,18 +273,7 @@ function published(c: Context<AppEnv>, outcome: BlockPublishOutcome) {
         ),
       );
     case 'project-mismatch':
-      c.status(statusFor('block-project-mismatch') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'block-project-mismatch',
-            message: `Block "${outcome.blockId}" belongs to project "${outcome.projectId as unknown as string}"; publish its versions there`,
-            blockId: outcome.blockId,
-            projectId: outcome.projectId as unknown as string,
-          },
-          requestId,
-        ),
-      );
+      return projectMismatch(c, 'block', outcome.blockId, outcome.projectId);
     case 'project-not-found':
       c.status(statusFor('bad-input') as never);
       return c.json(

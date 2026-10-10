@@ -2,28 +2,85 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright (C) 2026 Kindgi Inc.
 #
-# kindgi-pack-java: starts a Java pack service with its token out of the
-# environment. The token authenticates the service's callers; the pack's code,
-# loaded into the same JVM, has no use for it, and a dependency that read it
-# could call the pack's tools around the runtime. A JVM can't drop a variable
-# from its own environment, so this script does before the JVM starts, and
-# hands the token over on file descriptor 3 (a pipe, read once).
+# kindgi-pack-java: starts a Java pack service with only the environment its
+# pack's code may see. A JVM can't drop a variable from its own environment,
+# so this script does before the JVM starts:
+#
+# - The service token. It authenticates the service's callers; the pack's
+#   code, loaded into the same JVM, has no use for it, and a dependency that
+#   read it could call the pack's tools around the runtime. The script hands
+#   it over on file descriptor 3 (a pipe, read once).
+# - Every variable the pack doesn't declare, unless KINDGI_PACK_ENV_FILTER is
+#   `off`. It keeps the names in KINDGI_PACK_ENV_DECLARED (the pack's
+#   env.required and env.optional, comma-separated; a `kindgi build` image
+#   sets it), KINDGI_*, and the platform's (the lists below, the pack
+#   service's own). The JVM gets the dropped names to log (env-dropped), and
+#   fails its boot when a name the pack doesn't declare still reaches it:
+#   without KINDGI_PACK_ENV_DECLARED, this script drops nothing.
 #
 #   kindgi-pack-java [JVM options] -cp <classpath> com.kindgi.pack.Main serve [serve options]
 #
-# Runs $JAVA_HOME/bin/java, else the java on PATH. POSIX sh; on Windows, run it
-# under WSL.
+# Runs $JAVA_HOME/bin/java, else the java on PATH. POSIX sh, awk, and an env
+# that takes -u (GNU, BSD and BusyBox do); on Windows, run it under WSL.
 set -eu
 java=java
 if [ -n "${JAVA_HOME:-}" ]; then
   java="$JAVA_HOME/bin/java"
 fi
-if [ -z "${KINDGI_PACK_SERVICE_TOKEN+set}" ]; then
-  # No token: the service says so (config-invalid).
-  exec "$java" "$@"
+token=
+has_token=
+if [ -n "${KINDGI_PACK_SERVICE_TOKEN+set}" ]; then
+  token=$KINDGI_PACK_SERVICE_TOKEN
+  has_token=yes
+  unset KINDGI_PACK_SERVICE_TOKEN
+  set -- -Dkindgi.pack.tokenFd=3 "$@"
 fi
-token=$KINDGI_PACK_SERVICE_TOKEN
-unset KINDGI_PACK_SERVICE_TOKEN
-exec "$java" -Dkindgi.pack.tokenFd=3 "$@" 3<<KINDGI_TOKEN
+undeclared=
+if [ "${KINDGI_PACK_ENV_FILTER:-on}" = on ] && [ -n "${KINDGI_PACK_ENV_DECLARED+set}" ]; then
+  # awk's ENVIRON is what this script's children get. gawk adds AWKPATH and
+  # AWKLIBPATH to it when they're unset: -v says which really are set.
+  undeclared=$(awk -v awkpath="${AWKPATH+set}" -v awklibpath="${AWKLIBPATH+set}" 'BEGIN {
+    n = split(ENVIRON["KINDGI_PACK_ENV_DECLARED"], names, ",")
+    for (i = 1; i <= n; i++) keep[names[i]] = 1
+    n = split("PATH HOME HOSTNAME USER LANG LANGUAGE TZ TMPDIR TMP TEMP PWD SHLVL _ __CF_USER_TEXT_ENCODING" \
+      " NODE_ENV NODE_VERSION YARN_VERSION NODE_OPTIONS NODE_EXTRA_CA_CERTS JAVA_HOME JAVA_VERSION JAVA_TOOL_OPTIONS" \
+      " JDK_JAVA_OPTIONS _JAVA_OPTIONS VIRTUAL_ENV" \
+      " PORT" \
+      " HTTP_PROXY HTTPS_PROXY NO_PROXY http_proxy https_proxy no_proxy SSL_CERT_FILE SSL_CERT_DIR REQUESTS_CA_BUNDLE CURL_CA_BUNDLE" \
+      " K_SERVICE K_REVISION K_CONFIGURATION" \
+      " AWS_REGION AWS_DEFAULT_REGION AWS_EXECUTION_ENV AWS_CONTAINER_CREDENTIALS_RELATIVE_URI AWS_CONTAINER_CREDENTIALS_FULL_URI" \
+      " AWS_CONTAINER_AUTHORIZATION_TOKEN AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE AWS_WEB_IDENTITY_TOKEN_FILE AWS_ROLE_ARN" \
+      " ECS_CONTAINER_METADATA_URI ECS_CONTAINER_METADATA_URI_V4" \
+      " IDENTITY_ENDPOINT IDENTITY_HEADER MSI_ENDPOINT MSI_SECRET AZURE_CLIENT_ID AZURE_TENANT_ID" \
+      " AZURE_FEDERATED_TOKEN_FILE AZURE_AUTHORITY_HOST", names, " ")
+    for (i = 1; i <= n; i++) keep[names[i]] = 1
+    for (name in ENVIRON) {
+      if (name in keep || name ~ /^(KINDGI_|LC_|PYTHON|OTEL_|CLOUD_RUN_|CONTAINER_APP_)/) continue
+      if ((name == "AWKPATH" && awkpath == "") || (name == "AWKLIBPATH" && awklibpath == "")) continue
+      if (name ~ /[\n,]/) {
+        print "kindgi-pack-java: a variable name holds a line break or a comma; not starting" > "/dev/stderr"
+        exit 1
+      }
+      print name
+    }
+  }')
+fi
+if [ -n "$undeclared" ]; then
+  set -- "$java" "-Dkindgi.pack.envDropped=$(printf '%s' "$undeclared" | tr '\n' ',')" "$@"
+  set -f
+  IFS='
+'
+  for name in $undeclared; do
+    set -- -u "$name" "$@"
+  done
+  set -- env "$@"
+else
+  set -- "$java" "$@"
+fi
+if [ -z "$has_token" ]; then
+  # No token: the service says so (config-invalid).
+  exec "$@"
+fi
+exec "$@" 3<<KINDGI_TOKEN
 $token
 KINDGI_TOKEN

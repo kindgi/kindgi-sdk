@@ -264,6 +264,12 @@ export interface Guardrail {
    */
   readonly codeArtifactRef?: CodeArtifactRef;
   /**
+   * Set by the CLI on a guardrail that names a built-in check without shipping a check of its
+   * own (its `codeArtifactRef` is only the file it's declared in). A runtime warns about a
+   * guardrail naming a built-in, with a code artifact and without it (built by an older CLI).
+   */
+  readonly checkBuiltIn?: true;
+  /**
    * JSON Schema of the check's `config`, for a check that is pack code:
    * the pack index's `configSchema`, kept by a deployment on the
    * guardrails it registers. A runtime checks any guardrail naming this

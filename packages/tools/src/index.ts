@@ -25,6 +25,7 @@ export { invokeTool } from './invoke.js';
 export { toolSecretNames } from './secret-names.js';
 export { ToolPreconditionError, isToolPreconditionError } from './precondition.js';
 export { TOOL_ENV_RECORD_KEY, toolCallRecordKey } from './record-keys.js';
+export { TOOL_IDEMPOTENCY_NAMESPACE, toolIdempotencyKey } from './idempotency-key.js';
 export type { InvokeToolOptions } from './invoke.js';
 export { createToolRegistry } from './registry.js';
 export type { ToolRegisterOptions, ToolRegistry, ToolResolution } from './registry.js';
