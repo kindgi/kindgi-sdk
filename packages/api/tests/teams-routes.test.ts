@@ -191,7 +191,7 @@ describe('API — team memberships', () => {
     expect(list2Body.data).toEqual([]);
   });
 
-  test('add is idempotent — re-add with different role does NOT overwrite', async () => {
+  test('re-add keeps the role held: the same role 201 again, another a 409 naming it', async () => {
     const { app } = makeApp();
     const teamId = await createTeam(app, TOKEN_A, { name: 'x', slug: 'x' });
     const userId = randomUUID();
@@ -200,13 +200,23 @@ describe('API — team memberships', () => {
       headers: { authorization: `Bearer ${TOKEN_A}`, 'content-type': 'application/json' },
       body: JSON.stringify({ userId, role: 'member' }),
     });
-    // Re-add with role: 'admin' — per binding contract this is a no-op.
+    const again = await app.request(`/v1/teams/${teamId}/memberships`, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN_A}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ userId, role: 'member' }),
+    });
+    expect(again.status).toBe(201);
+    // Another role: refused, naming the role held, which is kept.
     const readd = await app.request(`/v1/teams/${teamId}/memberships`, {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN_A}`, 'content-type': 'application/json' },
       body: JSON.stringify({ userId, role: 'admin' }),
     });
-    expect(readd.status).toBe(201);
+    expect(readd.status).toBe(409);
+    expect(((await readd.json()) as { error: unknown }).error).toMatchObject({
+      code: 'membership-exists',
+      details: { role: 'member' },
+    });
     const list = await app.request(`/v1/teams/${teamId}/memberships`, {
       headers: { authorization: `Bearer ${TOKEN_A}` },
     });

@@ -21,6 +21,7 @@ import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
 import {
+  membershipExistsError,
   membershipNotKeptInStepError,
   orgNotFoundError,
   slugConflictError,
@@ -118,16 +119,16 @@ export function teamsRouter(
       const mw = authorizer.authorize(action, () => ref('team', teamId));
       return mw(c, next);
     });
+    // Who's in a team is for its admins (and tenant admins), reading as
+    // well as changing: a plain member sees the team, not the others in it.
     r.use('/:teamId/memberships', async (c, next) => {
       const teamId = c.req.param('teamId');
-      const action = c.req.method === 'GET' ? 'read' : 'admin';
-      const mw = authorizer.authorize(action, () => ref('team', teamId));
+      const mw = authorizer.authorize('admin', () => ref('team', teamId));
       return mw(c, next);
     });
     r.use('/:teamId/memberships/:userId', async (c, next) => {
       const teamId = c.req.param('teamId');
-      const action = c.req.method === 'GET' ? 'read' : 'admin';
-      const mw = authorizer.authorize(action, () => ref('team', teamId));
+      const mw = authorizer.authorize('admin', () => ref('team', teamId));
       return mw(c, next);
     });
   }
@@ -350,6 +351,10 @@ export function teamsRouter(
         ),
       );
     }
+    const exists = (role: string) => {
+      c.status(statusFor('membership-exists') as never);
+      return c.json(toWireError(membershipExistsError(role), requestId));
+    };
     // Racy — the team can be deleted between the preliminary get and the add.
     const teamGone = () => {
       c.status(statusFor('team-not-found') as never);
@@ -373,6 +378,7 @@ export function teamsRouter(
       });
       if (res.kind === 'err') {
         if (res.error.code === 'team-not-found') return teamGone();
+        if (res.error.code === 'membership-exists') return exists(res.error.role);
         throw new Error(res.error.message, { cause: res.error });
       }
     } else {
@@ -382,6 +388,7 @@ export function teamsRouter(
         role: b.role,
       });
       if (outcome.kind === 'team-not-found') return teamGone();
+      if (outcome.kind === 'membership-exists') return exists(outcome.role);
     }
     c.status(201);
     return c.json({
@@ -613,7 +620,19 @@ export function teamsRouter(
   r.delete('/:teamId', async (c) => {
     const tenantId = c.get('tenantId') as TenantId;
     const teamId = c.req.param('teamId') as TeamId;
-    await binding.delete(tenantId, teamId);
+    // With an authorizer, the team's tuples go with it (its members' roles
+    // and its project grants), or nobody would lose the access it gave.
+    if (authorizer !== undefined) {
+      const deleteTeam = tenantHierarchy.deleteTeam?.bind(tenantHierarchy);
+      if (deleteTeam === undefined) {
+        c.status(statusFor('authz-membership-unsupported') as never);
+        return c.json(toWireError(membershipNotKeptInStepError('deleteTeam'), c.get('requestId')));
+      }
+      const res = await deleteTeam({ tenantId, teamId });
+      if (res.kind === 'err') throw new Error(res.error.message, { cause: res.error });
+    } else {
+      await binding.delete(tenantId, teamId);
+    }
     c.status(204);
     return c.body(null);
   });

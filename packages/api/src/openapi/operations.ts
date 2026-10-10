@@ -130,6 +130,22 @@ const CursorQueryParam: ParameterSpec = {
   schema: { type: 'string' },
 };
 
+const ProjectIdPathParam: ParameterSpec = {
+  name: 'projectId',
+  in: 'path',
+  required: true,
+  description: 'ProjectId — opaque branded string.',
+  schema: { type: 'string' },
+};
+
+const TeamIdPathParam: ParameterSpec = {
+  name: 'teamId',
+  in: 'path',
+  required: true,
+  description: 'TeamId — opaque branded string.',
+  schema: { type: 'string' },
+};
+
 const LimitQueryParam: ParameterSpec = {
   name: 'limit',
   in: 'query',
@@ -6164,6 +6180,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/teams/{teamId}',
     operationId: 'teams.delete',
     summary: 'Delete a team (idempotent, cascades memberships)',
+    description:
+      "With authorization on, the team's tuples go with it: its members' roles and its project grants, so nobody keeps access through a team that's gone (501 `authz-membership-unsupported` from a runtime that can't do that).",
     tags: ['teams'],
     security: 'bearer',
     parameters: [
@@ -6188,7 +6206,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'teams.memberships.list',
     summary: 'List memberships of a team',
     description:
-      'Cursor-paginated. Sort order is binding-defined (for example `joinedAt` ascending).',
+      "Cursor-paginated. Sort order is binding-defined (for example `joinedAt` ascending). For the team's admins (and tenant admins): a plain member sees the team, not who else is in it, and reads their own roles through `GET /v1/identity/users/{userId}/grants`.",
     tags: ['teams'],
     security: 'bearer',
     parameters: [
@@ -6218,7 +6236,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'teams.memberships.add',
     summary: 'Add a user to a team',
     description:
-      'Idempotent on `(teamId, userId)` — re-adding an existing member with a different role does NOT overwrite; use PATCH for role changes.',
+      'Re-adding a member with the role they hold answers 201 again; with another role, 409 `membership-exists` names the role they hold (`details.role`), which is kept: use PATCH to change it.',
     tags: ['teams'],
     security: 'bearer',
     parameters: [
@@ -6236,6 +6254,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Membership added.', schema: ref('AddTeamMembershipResult') },
       ...CommonMutationErrors,
       '404': ErrorResponse('No team with that id under this tenant.'),
+      '409': ErrorResponse(
+        'A member already, with another role (`membership-exists`, `details.role`); or an Idempotency-Key reused with another body.',
+      ),
     },
   },
   {
@@ -6463,7 +6484,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.memberships.list',
     summary: 'List direct memberships of a project',
     description:
-      'Cursor-paginated. Direct-grant memberships only — team-mediated grants are resolved through the FGA store per tenant.',
+      "Cursor-paginated. Direct-grant memberships only — team-mediated grants are resolved through the FGA store per tenant. For the project's editors and admins (`write`): a viewer sees the project, not who else is in it, and reads their own roles through `GET /v1/identity/users/{userId}/grants`.",
     tags: ['projects'],
     security: 'bearer',
     parameters: [
@@ -6493,7 +6514,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.memberships.add',
     summary: 'Add a user directly to a project',
     description:
-      'Names the person by exactly one of `userId` and `email` (matched as the runtime matches emails when it adds a person); someone who is not a person of this tenant, or was removed from it, is refused with 404 `identity-user-not-found`. Idempotent on `(projectId, userId)` — re-adding an existing member with a different role does NOT overwrite; use PATCH for role changes.',
+      'Names the person by exactly one of `userId` and `email` (matched as the runtime matches emails when it adds a person); someone who is not a person of this tenant, or was removed from it, is refused with 404 `identity-user-not-found`. Re-adding a member with the role they hold answers 201 again; with another role, 409 `membership-exists` names the role they hold (`details.role`), which is kept: use PATCH to change it.',
     tags: ['projects'],
     security: 'bearer',
     parameters: [
@@ -6516,6 +6537,108 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse(
         'No project with that id under this tenant (`project-not-found`), or the person named is not a member of this tenant (`identity-user-not-found`).',
       ),
+      '409': ErrorResponse(
+        'A member already, with another role (`membership-exists`, `details.role`); or an Idempotency-Key reused with another body.',
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/projects/:projectId/team-grants',
+    openapiPath: '/v1/projects/{projectId}/team-grants',
+    operationId: 'projects.teamGrants.list',
+    summary: 'List the teams with a role on a project',
+    description:
+      "Every member of a team holds its role on the project. For the project's editors and admins (`write`). Each grant names its team and project.",
+    tags: ['projects'],
+    security: 'bearer',
+    parameters: [ProjectIdPathParam, LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': { description: 'Page of team grants.', schema: ref('TeamProjectGrantCollectionPage') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No project with that id under this tenant.'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/projects/:projectId/team-grants',
+    openapiPath: '/v1/projects/{projectId}/team-grants',
+    operationId: 'projects.teamGrants.add',
+    summary: 'Give a team a role on a project',
+    description:
+      "Every member of the team (its admins included) then holds the role on the project. Takes `admin` on the project and `read` on the team: a project is given only to a team you can read. A team's role is `viewer`, `editor` or `admin`: a team never owns a project. Repeating the role the team holds answers 200; another role, 409 `team-grant-exists` naming the one it holds (`details.role`): use PATCH to change it.",
+    tags: ['projects'],
+    security: 'bearer',
+    parameters: [ProjectIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('AddTeamProjectGrantBody') },
+    responses: {
+      '201': { description: 'The team was given the role.', schema: ref('TeamProjectGrant') },
+      '200': { description: 'The team holds that role already.', schema: ref('TeamProjectGrant') },
+      ...CommonMutationErrors,
+      '404': ErrorResponse(
+        'No project (`project-not-found`) or team (`team-not-found`) with that id under this tenant.',
+      ),
+      '409': ErrorResponse(
+        'The team holds another role on the project (`team-grant-exists`, `details.role`); or an Idempotency-Key reused with another body.',
+      ),
+      '501': ErrorResponse(
+        "The runtime can't keep permissions in step with the change (`authz-membership-unsupported`).",
+      ),
+    },
+  },
+  {
+    method: 'patch',
+    honoPath: '/v1/projects/:projectId/team-grants/:teamId',
+    openapiPath: '/v1/projects/{projectId}/team-grants/{teamId}',
+    operationId: 'projects.teamGrants.updateRole',
+    summary: "Change a team's role on a project",
+    tags: ['projects'],
+    security: 'bearer',
+    parameters: [ProjectIdPathParam, TeamIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('UpdateTeamProjectGrantBody') },
+    responses: {
+      '204': { description: 'Changed. No body.' },
+      ...CommonMutationErrors,
+      '404': ErrorResponse(
+        'No project with that id (`project-not-found`), or the team has no role on it (`team-grant-not-found`).',
+      ),
+      '501': ErrorResponse(
+        "The runtime can't keep permissions in step with the change (`authz-membership-unsupported`).",
+      ),
+    },
+  },
+  {
+    method: 'delete',
+    honoPath: '/v1/projects/:projectId/team-grants/:teamId',
+    openapiPath: '/v1/projects/{projectId}/team-grants/{teamId}',
+    operationId: 'projects.teamGrants.remove',
+    summary: "Take a team's role on a project away (idempotent)",
+    tags: ['projects'],
+    security: 'bearer',
+    parameters: [ProjectIdPathParam, TeamIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '204': { description: 'Removed (or there was none). No body.' },
+      ...CommonAuthErrors,
+      '501': ErrorResponse(
+        "The runtime can't keep permissions in step with the change (`authz-membership-unsupported`).",
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/teams/:teamId/project-grants',
+    openapiPath: '/v1/teams/{teamId}/project-grants',
+    operationId: 'teams.projectGrants.list',
+    summary: 'List the projects a team holds a role on',
+    description:
+      "For the team's admins (and tenant admins). Each grant names its team and project.",
+    tags: ['teams'],
+    security: 'bearer',
+    parameters: [TeamIdPathParam, LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': { description: 'Page of team grants.', schema: ref('TeamProjectGrantCollectionPage') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No team with that id under this tenant.'),
     },
   },
   {

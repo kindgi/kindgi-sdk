@@ -673,6 +673,29 @@ OPERATIONS: dict[str, Operation] = {
     "projects.memberships.add": Operation(
         "projects.memberships.add", "POST", "/v1/projects/{projectId}/memberships", "json", True
     ),
+    "projects.teamGrants.list": Operation(
+        "projects.teamGrants.list", "GET", "/v1/projects/{projectId}/team-grants", "json", False
+    ),
+    "projects.teamGrants.add": Operation(
+        "projects.teamGrants.add", "POST", "/v1/projects/{projectId}/team-grants", "json", True
+    ),
+    "projects.teamGrants.updateRole": Operation(
+        "projects.teamGrants.updateRole",
+        "PATCH",
+        "/v1/projects/{projectId}/team-grants/{teamId}",
+        "empty",
+        True,
+    ),
+    "projects.teamGrants.remove": Operation(
+        "projects.teamGrants.remove",
+        "DELETE",
+        "/v1/projects/{projectId}/team-grants/{teamId}",
+        "empty",
+        True,
+    ),
+    "teams.projectGrants.list": Operation(
+        "teams.projectGrants.list", "GET", "/v1/teams/{teamId}/project-grants", "json", False
+    ),
     "projects.memberships.updateRole": Operation(
         "projects.memberships.updateRole",
         "PATCH",
@@ -6042,7 +6065,7 @@ class TeamsMembershipsResource:
     ) -> _models.TeamMembershipCollectionPage:
         """List memberships of a team. `GET /v1/teams/{teamId}/memberships`
 
-        Cursor-paginated. Sort order is binding-defined (for example `joinedAt` ascending).
+        Cursor-paginated. Sort order is binding-defined (for example `joinedAt` ascending). For the team's admins (and tenant admins): a plain member sees the team, not who else is in it, and reads their own roles through `GET /v1/identity/users/{userId}/grants`.
         """
         return self._client._request(
             _OPERATIONS["teams.memberships.list"],
@@ -6065,7 +6088,7 @@ class TeamsMembershipsResource:
     ) -> _models.AddTeamMembershipResult:
         """Add a user to a team. `POST /v1/teams/{teamId}/memberships`
 
-        Idempotent on `(teamId, userId)` — re-adding an existing member with a different role does NOT overwrite; use PATCH for role changes.
+        Re-adding a member with the role they hold answers 201 again; with another role, 409 `membership-exists` names the role they hold (`details.role`), which is kept: use PATCH to change it.
         """
         return self._client._request(
             _OPERATIONS["teams.memberships.add"],
@@ -6117,12 +6140,42 @@ class TeamsMembershipsResource:
         )
 
 
+class TeamsProjectGrantsResource:
+    """`client.teams.project_grants` — the `teams.projectGrants` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        team_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.TeamProjectGrantCollectionPage:
+        """List the projects a team holds a role on. `GET /v1/teams/{teamId}/project-grants`
+
+        For the team's admins (and tenant admins). Each grant names its team and project.
+        """
+        return self._client._request(
+            _OPERATIONS["teams.projectGrants.list"],
+            path={"teamId": team_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.TeamProjectGrantCollectionPage,
+            timeout=timeout,
+        )
+
+
 class TeamsResource:
     """`client.teams` — the `teams` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
         self.memberships = TeamsMembershipsResource(client)
+        self.project_grants = TeamsProjectGrantsResource(client)
 
     def list(
         self,
@@ -6211,7 +6264,10 @@ class TeamsResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
     ) -> None:
-        """Delete a team (idempotent, cascades memberships). `DELETE /v1/teams/{teamId}`"""
+        """Delete a team (idempotent, cascades memberships). `DELETE /v1/teams/{teamId}`
+
+        With authorization on, the team's tuples go with it: its members' roles and its project grants, so nobody keeps access through a team that's gone (501 `authz-membership-unsupported` from a runtime that can't do that).
+        """
         return self._client._request(
             _OPERATIONS["teams.delete"],
             path={"teamId": team_id},
@@ -6238,7 +6294,7 @@ class ProjectsMembershipsResource:
     ) -> _models.ProjectMembershipCollectionPage:
         """List direct memberships of a project. `GET /v1/projects/{projectId}/memberships`
 
-        Cursor-paginated. Direct-grant memberships only — team-mediated grants are resolved through the FGA store per tenant.
+        Cursor-paginated. Direct-grant memberships only — team-mediated grants are resolved through the FGA store per tenant. For the project's editors and admins (`write`): a viewer sees the project, not who else is in it, and reads their own roles through `GET /v1/identity/users/{userId}/grants`.
         """
         return self._client._request(
             _OPERATIONS["projects.memberships.list"],
@@ -6261,7 +6317,7 @@ class ProjectsMembershipsResource:
     ) -> _models.AddProjectMembershipResult:
         """Add a user directly to a project. `POST /v1/projects/{projectId}/memberships`
 
-        Names the person by exactly one of `userId` and `email` (matched as the runtime matches emails when it adds a person); someone who is not a person of this tenant, or was removed from it, is refused with 404 `identity-user-not-found`. Idempotent on `(projectId, userId)` — re-adding an existing member with a different role does NOT overwrite; use PATCH for role changes.
+        Names the person by exactly one of `userId` and `email` (matched as the runtime matches emails when it adds a person); someone who is not a person of this tenant, or was removed from it, is refused with 404 `identity-user-not-found`. Re-adding a member with the role they hold answers 201 again; with another role, 409 `membership-exists` names the role they hold (`details.role`), which is kept: use PATCH to change it.
         """
         return self._client._request(
             _OPERATIONS["projects.memberships.add"],
@@ -6313,12 +6369,105 @@ class ProjectsMembershipsResource:
         )
 
 
+class ProjectsTeamGrantsResource:
+    """`client.projects.team_grants` — the `projects.teamGrants` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        project_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.TeamProjectGrantCollectionPage:
+        """List the teams with a role on a project. `GET /v1/projects/{projectId}/team-grants`
+
+        Every member of a team holds its role on the project. For the project's editors and admins (`write`). Each grant names its team and project.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.teamGrants.list"],
+            path={"projectId": project_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.TeamProjectGrantCollectionPage,
+            timeout=timeout,
+        )
+
+    def add(
+        self,
+        project_id: str | UUID,
+        body: _models.AddTeamProjectGrantBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.TeamProjectGrant:
+        """Give a team a role on a project. `POST /v1/projects/{projectId}/team-grants`
+
+        Every member of the team (its admins included) then holds the role on the project. Takes `admin` on the project and `read` on the team: a project is given only to a team you can read. A team's role is `viewer`, `editor` or `admin`: a team never owns a project. Repeating the role the team holds answers 200; another role, 409 `team-grant-exists` naming the one it holds (`details.role`): use PATCH to change it.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.teamGrants.add"],
+            path={"projectId": project_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.AddTeamProjectGrantBody, body, fields),
+            response=_models.TeamProjectGrant,
+            timeout=timeout,
+        )
+
+    def update_role(
+        self,
+        project_id: str | UUID,
+        team_id: str | UUID,
+        body: _models.UpdateTeamProjectGrantBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> None:
+        """Change a team's role on a project. `PATCH /v1/projects/{projectId}/team-grants/{teamId}`"""
+        return self._client._request(
+            _OPERATIONS["projects.teamGrants.updateRole"],
+            path={"projectId": project_id, "teamId": team_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.UpdateTeamProjectGrantBody, body, fields),
+            timeout=timeout,
+        )
+
+    def remove(
+        self,
+        project_id: str | UUID,
+        team_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> None:
+        """Take a team's role on a project away (idempotent). `DELETE /v1/projects/{projectId}/team-grants/{teamId}`"""
+        return self._client._request(
+            _OPERATIONS["projects.teamGrants.remove"],
+            path={"projectId": project_id, "teamId": team_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            timeout=timeout,
+        )
+
+
 class ProjectsResource:
     """`client.projects` — the `projects` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
         self.memberships = ProjectsMembershipsResource(client)
+        self.team_grants = ProjectsTeamGrantsResource(client)
 
     def get_default(self, /, *, timeout: float | None = None) -> _models.Project:
         """Fetch the tenant's Default project. `GET /v1/projects/default`
@@ -12776,7 +12925,7 @@ class AsyncTeamsMembershipsResource:
     ) -> _models.TeamMembershipCollectionPage:
         """List memberships of a team. `GET /v1/teams/{teamId}/memberships`
 
-        Cursor-paginated. Sort order is binding-defined (for example `joinedAt` ascending).
+        Cursor-paginated. Sort order is binding-defined (for example `joinedAt` ascending). For the team's admins (and tenant admins): a plain member sees the team, not who else is in it, and reads their own roles through `GET /v1/identity/users/{userId}/grants`.
         """
         return await self._client._request(
             _OPERATIONS["teams.memberships.list"],
@@ -12799,7 +12948,7 @@ class AsyncTeamsMembershipsResource:
     ) -> _models.AddTeamMembershipResult:
         """Add a user to a team. `POST /v1/teams/{teamId}/memberships`
 
-        Idempotent on `(teamId, userId)` — re-adding an existing member with a different role does NOT overwrite; use PATCH for role changes.
+        Re-adding a member with the role they hold answers 201 again; with another role, 409 `membership-exists` names the role they hold (`details.role`), which is kept: use PATCH to change it.
         """
         return await self._client._request(
             _OPERATIONS["teams.memberships.add"],
@@ -12851,12 +13000,42 @@ class AsyncTeamsMembershipsResource:
         )
 
 
+class AsyncTeamsProjectGrantsResource:
+    """`client.teams.project_grants` — the `teams.projectGrants` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        team_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.TeamProjectGrantCollectionPage:
+        """List the projects a team holds a role on. `GET /v1/teams/{teamId}/project-grants`
+
+        For the team's admins (and tenant admins). Each grant names its team and project.
+        """
+        return await self._client._request(
+            _OPERATIONS["teams.projectGrants.list"],
+            path={"teamId": team_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.TeamProjectGrantCollectionPage,
+            timeout=timeout,
+        )
+
+
 class AsyncTeamsResource:
     """`client.teams` — the `teams` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
         self.memberships = AsyncTeamsMembershipsResource(client)
+        self.project_grants = AsyncTeamsProjectGrantsResource(client)
 
     async def list(
         self,
@@ -12945,7 +13124,10 @@ class AsyncTeamsResource:
         idempotency_key: str | None = None,
         timeout: float | None = None,
     ) -> None:
-        """Delete a team (idempotent, cascades memberships). `DELETE /v1/teams/{teamId}`"""
+        """Delete a team (idempotent, cascades memberships). `DELETE /v1/teams/{teamId}`
+
+        With authorization on, the team's tuples go with it: its members' roles and its project grants, so nobody keeps access through a team that's gone (501 `authz-membership-unsupported` from a runtime that can't do that).
+        """
         return await self._client._request(
             _OPERATIONS["teams.delete"],
             path={"teamId": team_id},
@@ -12972,7 +13154,7 @@ class AsyncProjectsMembershipsResource:
     ) -> _models.ProjectMembershipCollectionPage:
         """List direct memberships of a project. `GET /v1/projects/{projectId}/memberships`
 
-        Cursor-paginated. Direct-grant memberships only — team-mediated grants are resolved through the FGA store per tenant.
+        Cursor-paginated. Direct-grant memberships only — team-mediated grants are resolved through the FGA store per tenant. For the project's editors and admins (`write`): a viewer sees the project, not who else is in it, and reads their own roles through `GET /v1/identity/users/{userId}/grants`.
         """
         return await self._client._request(
             _OPERATIONS["projects.memberships.list"],
@@ -12995,7 +13177,7 @@ class AsyncProjectsMembershipsResource:
     ) -> _models.AddProjectMembershipResult:
         """Add a user directly to a project. `POST /v1/projects/{projectId}/memberships`
 
-        Names the person by exactly one of `userId` and `email` (matched as the runtime matches emails when it adds a person); someone who is not a person of this tenant, or was removed from it, is refused with 404 `identity-user-not-found`. Idempotent on `(projectId, userId)` — re-adding an existing member with a different role does NOT overwrite; use PATCH for role changes.
+        Names the person by exactly one of `userId` and `email` (matched as the runtime matches emails when it adds a person); someone who is not a person of this tenant, or was removed from it, is refused with 404 `identity-user-not-found`. Re-adding a member with the role they hold answers 201 again; with another role, 409 `membership-exists` names the role they hold (`details.role`), which is kept: use PATCH to change it.
         """
         return await self._client._request(
             _OPERATIONS["projects.memberships.add"],
@@ -13047,12 +13229,105 @@ class AsyncProjectsMembershipsResource:
         )
 
 
+class AsyncProjectsTeamGrantsResource:
+    """`client.projects.team_grants` — the `projects.teamGrants` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        project_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.TeamProjectGrantCollectionPage:
+        """List the teams with a role on a project. `GET /v1/projects/{projectId}/team-grants`
+
+        Every member of a team holds its role on the project. For the project's editors and admins (`write`). Each grant names its team and project.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.teamGrants.list"],
+            path={"projectId": project_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.TeamProjectGrantCollectionPage,
+            timeout=timeout,
+        )
+
+    async def add(
+        self,
+        project_id: str | UUID,
+        body: _models.AddTeamProjectGrantBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.TeamProjectGrant:
+        """Give a team a role on a project. `POST /v1/projects/{projectId}/team-grants`
+
+        Every member of the team (its admins included) then holds the role on the project. Takes `admin` on the project and `read` on the team: a project is given only to a team you can read. A team's role is `viewer`, `editor` or `admin`: a team never owns a project. Repeating the role the team holds answers 200; another role, 409 `team-grant-exists` naming the one it holds (`details.role`): use PATCH to change it.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.teamGrants.add"],
+            path={"projectId": project_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.AddTeamProjectGrantBody, body, fields),
+            response=_models.TeamProjectGrant,
+            timeout=timeout,
+        )
+
+    async def update_role(
+        self,
+        project_id: str | UUID,
+        team_id: str | UUID,
+        body: _models.UpdateTeamProjectGrantBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> None:
+        """Change a team's role on a project. `PATCH /v1/projects/{projectId}/team-grants/{teamId}`"""
+        return await self._client._request(
+            _OPERATIONS["projects.teamGrants.updateRole"],
+            path={"projectId": project_id, "teamId": team_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.UpdateTeamProjectGrantBody, body, fields),
+            timeout=timeout,
+        )
+
+    async def remove(
+        self,
+        project_id: str | UUID,
+        team_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> None:
+        """Take a team's role on a project away (idempotent). `DELETE /v1/projects/{projectId}/team-grants/{teamId}`"""
+        return await self._client._request(
+            _OPERATIONS["projects.teamGrants.remove"],
+            path={"projectId": project_id, "teamId": team_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            timeout=timeout,
+        )
+
+
 class AsyncProjectsResource:
     """`client.projects` — the `projects` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
         self.memberships = AsyncProjectsMembershipsResource(client)
+        self.team_grants = AsyncProjectsTeamGrantsResource(client)
 
     async def get_default(self, /, *, timeout: float | None = None) -> _models.Project:
         """Fetch the tenant's Default project. `GET /v1/projects/default`

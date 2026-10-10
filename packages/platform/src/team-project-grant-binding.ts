@@ -12,7 +12,7 @@
  * of `makeInMemoryProjectBinding` (its `grants` binding).
  */
 
-import type { Filter, Page, ProjectId, TeamId, TenantId } from '@kindgi/types';
+import type { Filter, Page, ProjectId, TeamId, TenantId, Timestamp } from '@kindgi/types';
 
 import type { ProjectRole } from './types.js';
 
@@ -25,6 +25,8 @@ export interface TeamProjectGrant {
   readonly teamId: TeamId;
   readonly projectId: ProjectId;
   readonly role: ProjectRole;
+  /** When the team was given the project. Absent from a binding that doesn't record it. */
+  readonly grantedAt?: Timestamp;
 }
 
 export interface TeamProjectGrantAddInput {
@@ -43,6 +45,12 @@ export interface TeamProjectGrantBinding {
    * stored differing role. Use `updateRole` to change roles.
    */
   add(tenantId: TenantId, input: TeamProjectGrantAddInput): Promise<void>;
+  /** The team's grant on the project, if it has one. Optional: the routes need it without an authorizer. */
+  get?(
+    tenantId: TenantId,
+    teamId: TeamId,
+    projectId: ProjectId,
+  ): Promise<TeamProjectGrant | undefined>;
   /** Remove a team-project grant. No-op when absent. */
   remove(tenantId: TenantId, teamId: TeamId, projectId: ProjectId): Promise<void>;
   /** Cursor-paginated grants filtered by tenant. */

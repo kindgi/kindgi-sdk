@@ -22,6 +22,7 @@ import type { IdentityDirectoryBinding } from '../identity-directory-binding.js'
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
 import {
+  membershipExistsError,
   membershipNotKeptInStepError,
   orgNotFoundError,
   projectDefaultAlreadyExistsError,
@@ -259,15 +260,17 @@ export function projectsRouter(
       return mw(c, next);
     });
     // Membership routes: reads require read, mutations admin on the project.
+    // Who's in a project is for its editors and admins: a viewer reads
+    // their own roles through their grants, not the other people here.
     r.use('/:projectId/memberships', async (c, next) => {
       const projectId = c.req.param('projectId');
-      const action = c.req.method === 'GET' ? 'read' : 'admin';
+      const action = c.req.method === 'GET' ? 'write' : 'admin';
       const mw = authorizer.authorize(action, () => ref('project', projectId));
       return mw(c, next);
     });
     r.use('/:projectId/memberships/:userId', async (c, next) => {
       const projectId = c.req.param('projectId');
-      const action = c.req.method === 'GET' ? 'read' : 'admin';
+      const action = c.req.method === 'GET' ? 'write' : 'admin';
       const mw = authorizer.authorize(action, () => ref('project', projectId));
       return mw(c, next);
     });
@@ -481,6 +484,10 @@ export function projectsRouter(
     }
     const userId = resolved.userId;
     // Racy — the project can be deleted between the preliminary get and the add.
+    const exists = (role: string) => {
+      c.status(statusFor('membership-exists') as never);
+      return c.json(toWireError(membershipExistsError(role), requestId));
+    };
     const projectGone = () => {
       c.status(statusFor('project-not-found') as never);
       return c.json(
@@ -506,6 +513,7 @@ export function projectsRouter(
       });
       if (res.kind === 'err') {
         if (res.error.code === 'project-not-found') return projectGone();
+        if (res.error.code === 'membership-exists') return exists(res.error.role);
         throw new Error(res.error.message, { cause: res.error });
       }
     } else {
@@ -515,6 +523,7 @@ export function projectsRouter(
         role: b.role,
       });
       if (outcome.kind === 'project-not-found') return projectGone();
+      if (outcome.kind === 'membership-exists') return exists(outcome.role);
     }
     c.status(201);
     return c.json({

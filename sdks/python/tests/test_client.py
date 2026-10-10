@@ -777,6 +777,41 @@ def test_a_persons_grants_and_tenant_admin() -> None:
     assert json.loads(seen[1].content) == {"kind": "tenant-admin"}
 
 
+def test_team_grants() -> None:
+    grant = {
+        "teamId": "t-1",
+        "projectId": "p-1",
+        "role": "editor",
+        "teamName": "Crew",
+        "projectName": "Acme",
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, json={"data": [grant], "hasMore": False})
+        if request.method == "POST":
+            return httpx.Response(201, json=grant)
+        return httpx.Response(204)
+
+    api, seen = client(handler)
+    page = api.projects.team_grants.list("p-1")
+    assert isinstance(page.data[0], models.TeamProjectGrant) and page.data[0].team_name == "Crew"
+    added = api.projects.team_grants.add("p-1", team_id="t-1", role="editor")
+    assert added.role == "editor"
+    api.projects.team_grants.update_role("p-1", "t-1", role="admin")
+    api.projects.team_grants.remove("p-1", "t-1")
+    api.teams.project_grants.list("t-1")
+    assert [(r.method, r.url.path) for r in seen] == [
+        ("GET", "/v1/projects/p-1/team-grants"),
+        ("POST", "/v1/projects/p-1/team-grants"),
+        ("PATCH", "/v1/projects/p-1/team-grants/t-1"),
+        ("DELETE", "/v1/projects/p-1/team-grants/t-1"),
+        ("GET", "/v1/teams/t-1/project-grants"),
+    ]
+    assert json.loads(seen[1].content) == {"teamId": "t-1", "role": "editor"}
+    assert json.loads(seen[2].content) == {"role": "admin"}
+
+
 def test_named_models_keep_their_names() -> None:
     # Inline shapes in a new schema once renamed `Team`/`Project` to `Team1`/`Project1`.
     for name in ("Team", "Project", "Reviewer", "PersonGrants", "ServiceAccountGrantBody"):

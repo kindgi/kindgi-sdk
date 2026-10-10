@@ -8622,6 +8622,63 @@ export const AddProjectMembershipResultSchema: JsonSchema = {
   },
 };
 
+export const TeamProjectRoleSchema: JsonSchema = {
+  type: 'string',
+  enum: ['viewer', 'editor', 'admin'],
+  description:
+    "A team's role on a project, held by every member of the team: `admin` includes `editor`, which includes `viewer`. A team never owns a project.",
+};
+
+export const TeamProjectGrantSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: "A team's role on a project.",
+  required: ['teamId', 'projectId', 'role'],
+  properties: {
+    teamId: { type: 'string' },
+    projectId: { type: 'string' },
+    role: { $ref: '#/components/schemas/TeamProjectRole' },
+    grantedAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'When the team was given the role. Absent from a runtime that does not record it.',
+    },
+    teamName: { type: 'string' },
+    projectName: { type: 'string' },
+  },
+};
+
+export const TeamProjectGrantCollectionPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/TeamProjectGrant' } },
+    hasMore: { type: 'boolean' },
+    nextCursor: { type: 'string' },
+  },
+};
+
+export const AddTeamProjectGrantBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['teamId', 'role'],
+  properties: {
+    teamId: { type: 'string', minLength: 1 },
+    role: { $ref: '#/components/schemas/TeamProjectRole' },
+  },
+};
+
+export const UpdateTeamProjectGrantBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['role'],
+  properties: {
+    role: { $ref: '#/components/schemas/TeamProjectRole' },
+  },
+};
+
 /**
  * `Tenant` — the sovereignty boundary. Wire shape returned by
  * `GET /v1/tenant`.
@@ -10506,6 +10563,11 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['UpdateTeamMembershipBody', UpdateTeamMembershipBodySchema],
   ['AddTeamMembershipResult', AddTeamMembershipResultSchema],
   ['ProjectRole', ProjectRoleSchema],
+  ['TeamProjectRole', TeamProjectRoleSchema],
+  ['TeamProjectGrant', TeamProjectGrantSchema],
+  ['TeamProjectGrantCollectionPage', TeamProjectGrantCollectionPageSchema],
+  ['AddTeamProjectGrantBody', AddTeamProjectGrantBodySchema],
+  ['UpdateTeamProjectGrantBody', UpdateTeamProjectGrantBodySchema],
   ['Project', ProjectSchema],
   ['ProjectSpec', ProjectSpecSchema],
   ['ProjectPatch', ProjectPatchSchema],
