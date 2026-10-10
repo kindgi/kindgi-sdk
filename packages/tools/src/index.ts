@@ -22,7 +22,7 @@ import './http.js';
 export { registerToolSpecSynthesizer, getToolSpecSynthesizer } from './spec-registry.js';
 export type { ToolSpecSynthesizer, ToolSpecSynthesizerOptions } from './spec-registry.js';
 export { invokeTool } from './invoke.js';
-export { toolContextForTest } from './test-context.js';
+export { invokeToolForTest, toolContextForTest } from './test-context.js';
 export { toolSecretNames } from './secret-names.js';
 export { ToolPreconditionError, isToolPreconditionError } from './precondition.js';
 export { TOOL_ENV_RECORD_KEY, toolCallRecordKey } from './record-keys.js';

@@ -14,8 +14,7 @@ import type {
   PreconditionFailedError,
   ToolError,
 } from './errors.js';
-import { envForCall } from './invoke-env.js';
-import { type ToolPreconditionError, isToolPreconditionError } from './precondition.js';
+import { isToolPreconditionError } from './precondition.js';
 import type { JsonSchema, Tool, ToolContext } from './types.js';
 
 /**
@@ -112,13 +111,7 @@ export interface InvokeToolOptions {
 }
 
 /**
- * Invoke a tool with a caller-supplied input and context, the way the runtime calls it. The
- * path is:
- *   0. The env values the tool declares (`needsSpec.env`): each takes the caller's `ctx.env`
- *      value, else its schema's `default`, and is checked against its schema; the handler's
- *      `ctx.env` holds the declared names only. A name with neither, or a value its schema
- *      refuses, is `precondition-failed` (`env-value-missing`, `env-value-invalid`), before the
- *      input is read: the runtime decides them before it sends the call.
+ * Invoke a tool with a caller-supplied input and context. The path is:
  *   1. Validate a copy of `input` against `tool.input`, filling in its
  *      defaults, and — for a Zod-authored tool — parse it with
  *      `tool.inputZod` (defaults, transforms, refinements). Reject on
@@ -137,18 +130,22 @@ export async function invokeTool<TInput = unknown, TOutput = unknown>(
   ctx: ToolContext,
   options: InvokeToolOptions = {},
 ): Promise<Result<TOutput, ToolError>> {
-  const env = envForCall(tool, ctx.env);
-  if (env.kind === 'err') return { kind: 'err', error: preconditionFailed(tool, env.error) };
   const prepared = await prepareInput(tool, input);
   if (prepared.kind === 'err') return prepared;
-  const called = withEnv(ctx, env.value);
 
   let output: TOutput;
   try {
-    output = await tool.handler(prepared.value as TInput, called);
+    output = await tool.handler(prepared.value as TInput, ctx);
   } catch (cause) {
     if (isToolPreconditionError(cause)) {
-      return { kind: 'err', error: preconditionFailed(tool, cause) };
+      const refused: PreconditionFailedError = {
+        code: 'precondition-failed',
+        message: `Tool "${tool.id}" was not run: ${cause.reason}: ${cause.message}`,
+        toolId: tool.id,
+        reason: cause.reason,
+        cause,
+      };
+      return { kind: 'err', error: refused };
     }
     const err: HandlerError = {
       code: 'handler-error',
@@ -173,28 +170,4 @@ export async function invokeTool<TInput = unknown, TOutput = unknown>(
   }
 
   return { kind: 'ok', value: output };
-}
-
-/**
- * The context the handler gets: the caller's own object when its env is already what the
- * handler should see (none declared, none passed), else a copy with the declared names only.
- */
-function withEnv(ctx: ToolContext, env: Readonly<Record<string, string>> | undefined): ToolContext {
-  if (env === undefined && ctx.env === undefined) return ctx;
-  const { env: _given, ...rest } = ctx;
-  return env === undefined ? rest : { ...rest, env };
-}
-
-/** A runtime's refusal (or `invokeTool`'s own, for an env value): the handler never ran. */
-function preconditionFailed(
-  tool: Pick<Tool, 'id'>,
-  cause: ToolPreconditionError,
-): PreconditionFailedError {
-  return {
-    code: 'precondition-failed',
-    message: `Tool "${tool.id}" was not run: ${cause.reason}: ${cause.message}`,
-    toolId: tool.id,
-    reason: cause.reason,
-    cause,
-  };
 }

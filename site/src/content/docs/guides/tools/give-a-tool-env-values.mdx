@@ -181,27 +181,27 @@ A test passes the values in the context it builds.
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
-`invokeTool` decides them as a run does:
+`invokeToolForTest` decides them as a run does:
 - a name the test doesn't set takes its schema's `default`;
 - each value is checked against its schema;
 - the handler sees the declared names only.
 
 A missing or invalid value is `precondition-failed` (`env-value-missing`,
-`env-value-invalid`), and the handler doesn't run. `toolContextForTest`
-builds the context:
+`env-value-invalid`), and the handler doesn't run. Its third argument is the
+context, over a test's defaults (`toolContextForTest`):
 
 ```ts
 // tools/find-order/index.test.ts
-import { invokeTool, toolContextForTest } from '@kindgi/sdk/define';
+import { invokeToolForTest } from '@kindgi/sdk/define';
 import { expect, test } from 'vitest';
 
 import findOrder from './index.js';
 
 test('builds the URL from the env values', async () => {
-  const result = await invokeTool(
+  const result = await invokeToolForTest(
     findOrder,
     { orderId: 'ord_1001' },
-    toolContextForTest({ env: { ORDERS_BASE_URL: 'https://orders.example.com' } }),
+    { env: { ORDERS_BASE_URL: 'https://orders.example.com' } },
   );
   // ORDERS_REGION isn't set, so it's its default, `eu`, as in a run.
   expect(result).toEqual({

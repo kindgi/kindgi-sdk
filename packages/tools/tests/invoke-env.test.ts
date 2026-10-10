@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-/** `invokeTool` and `needsSpec.env`: the values the runtime would give the handler, decided the same way. */
+/** `invokeToolForTest` decides `needsSpec.env` as the runtime does for a pack tool; `invokeTool` itself decides none. */
 
 import type { TenantId, ToolId } from '@kindgi/types';
 import { describe, expect, test } from 'vitest';
 
-import { defineTool, invokeTool, toolContextForTest } from '../src/index.js';
+import { defineTool, invokeTool, invokeToolForTest, toolContextForTest } from '../src/index.js';
 import type { JsonSchema, Tool, ToolContext } from '../src/index.js';
 
 /** A tool that declares `env` and answers with the `ctx.env` its handler saw, counting its calls. */
@@ -29,9 +29,9 @@ function envTool(env: Readonly<Record<string, JsonSchema>> | undefined, input?: 
 }
 
 const run = (tool: Tool, env?: Record<string, string>, input: unknown = {}) =>
-  invokeTool(tool, input, toolContextForTest(env === undefined ? {} : { env }));
+  invokeToolForTest(tool, input, env === undefined ? {} : { env });
 
-describe('invokeTool: needsSpec.env, as the runtime decides it', () => {
+describe('invokeToolForTest: needsSpec.env, as the runtime decides it', () => {
   test("a name the context doesn't set takes its schema's default", async () => {
     const { tool } = envTool({ X: { type: 'string', default: 'd' } });
     expect(await run(tool)).toEqual({ kind: 'ok', value: { env: { X: 'd' } } });
@@ -112,17 +112,56 @@ describe('invokeTool: needsSpec.env, as the runtime decides it', () => {
     expect(await run(none.tool, { UNDECLARED: '2' })).toEqual({ kind: 'ok', value: { env: null } });
   });
 
-  test('the env is decided before the input is read: the runtime decides it before it sends the call', async () => {
-    const { tool } = envTool(
+  test('the input is checked first, as in a run: the env is decided as the handler is called', async () => {
+    const { tool, calls } = envTool(
       { A: { type: 'string' } },
       { type: 'object', properties: { n: { type: 'integer' } }, required: ['n'] },
     );
     const result = await run(tool, undefined, { n: 'not a number' });
-    expect(result.kind === 'err' && result.error.code).toBe('precondition-failed');
+    expect(result.kind === 'err' && result.error.code).toBe('input-validation-failed');
+    expect(calls.count).toBe(0);
+  });
+});
+
+describe('invokeTool decides no env: in a run, the tool resolves its own', () => {
+  test("a tool shaped like the runtime's pack tool gets its env from its store through invokeTool", async () => {
+    // As the runtime builds a pack tool: the manifest, and a handler that resolves the names the
+    // context doesn't pin from the env store (here, a map). A live call comes with no `env`.
+    const store: Record<string, string> = {
+      WOO_STORE_URL: 'https://shop.acme.example',
+      WOO_REFUND: 'true',
+    };
+    const spec = defineTool({
+      id: 'acme.probe' as ToolId,
+      description: 'Answers with the env its runtime handler resolved.',
+      version: '1.0.0',
+      input: { type: 'object' },
+      output: { type: 'object' },
+      needsSpec: {
+        env: {
+          WOO_STORE_URL: { type: 'string' },
+          WOO_REFUND: { type: 'string', enum: ['true', 'false'], default: 'false' },
+        },
+      },
+      handler: async () => ({}),
+    });
+    if (spec.kind === 'err') throw new Error(spec.error.message);
+    const names = Object.keys(spec.value.needsSpec?.env ?? {});
+    const runtimeTool: Tool = {
+      ...(spec.value as Tool),
+      handler: async (_input: unknown, c: ToolContext) => {
+        const pinned = c.env ?? {};
+        return { env: Object.fromEntries(names.map((n) => [n, pinned[n] ?? store[n]])) };
+      },
+    };
+    expect(await invokeTool(runtimeTool, {}, toolContextForTest())).toEqual({
+      kind: 'ok',
+      value: { env: { WOO_STORE_URL: 'https://shop.acme.example', WOO_REFUND: 'true' } },
+    });
   });
 
-  test('a context with the env already as the handler should see it is passed as it is', async () => {
-    const { tool } = envTool(undefined);
+  test('the context reaches the handler as it was given, env and all', async () => {
+    const { tool } = envTool({ X: { type: 'string', default: 'd' } });
     let seen: ToolContext | undefined;
     const spy = {
       ...tool,
@@ -131,7 +170,7 @@ describe('invokeTool: needsSpec.env, as the runtime decides it', () => {
         return {};
       },
     };
-    const c = toolContextForTest();
+    const c = toolContextForTest({ env: { UNDECLARED: '1' } });
     await invokeTool(spy, {}, c);
     expect(seen).toBe(c);
   });

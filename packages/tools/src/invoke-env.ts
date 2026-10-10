@@ -2,12 +2,14 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * The env values `invokeTool` hands a tool, as the runtime decides them (its tool bridge,
- * "Env values"): each name the tool declares in `needsSpec.env` takes the caller's `ctx.env`
- * value, else its schema's `default`, and each is checked against its schema. A name with
- * neither, or a value its schema refuses, refuses the call before the handler runs
- * (`env-value-missing`, `env-value-invalid`). The handler sees the declared names only: the
- * runtime sends no others.
+ * The env values `invokeToolForTest` hands a tool, decided as the runtime decides a pack tool's
+ * (its tool bridge, "Env values"): each name the tool declares in `needsSpec.env` takes the
+ * context's `env` value, else its schema's `default`, and each is checked against its schema. A
+ * name with neither, or a value its schema refuses, refuses the call before the handler runs
+ * (`env-value-missing` first, then `env-value-invalid`). The handler sees the declared names
+ * only: the runtime sends no others. `env-declaration-invalid` is this helper's own: the runtime
+ * never refuses a call for it, it leaves the tool out when it loads (and `defineTool` refuses
+ * the schema up front). Test only: `invokeTool` itself never decides env.
  */
 
 import { type CompiledInlineSchema, compileInlineSchema } from '@kindgi/schema';

@@ -175,9 +175,9 @@ export interface ToolContext {
    * same ones. Not for credentials: env values are shown with the run
    * (use `secrets`).
    * Absent when the tool declares none, and from an older runtime.
-   * In a unit test, `invokeTool` decides them the same way from the
-   * context it's given: its `env`, else each schema's `default`, each
-   * checked, the declared names only (`toolContextForTest({ env })`).
+   * In a unit test, `invokeToolForTest` decides them the same way from
+   * the context it's given: its `env`, else each schema's `default`, each
+   * checked, the declared names only. `invokeTool` passes `env` as given.
    */
   readonly env?: Readonly<Record<string, string>>;
   /**
