@@ -331,6 +331,10 @@ describe('GET /v1/identity/me/permissions', () => {
       ).toBe('Read-only here.');
       const long = (await harness(store, configWith('x'.repeat(400)))(BOB)).body.readOnlyNotice;
       expect(long).toBe(`${'x'.repeat(279)}…`);
+      // 280 code points of emoji (560 UTF-16 units): cut whole, never mid-pair.
+      const emoji = (await harness(store, configWith('🔒'.repeat(300)))(BOB)).body.readOnlyNotice;
+      expect(emoji).toBe(`${'🔒'.repeat(279)}…`);
+      expect(emoji).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
     });
 
     test("a config that can't be read leaves it out; the permissions still answer", async () => {

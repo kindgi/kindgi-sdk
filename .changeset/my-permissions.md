@@ -3,7 +3,7 @@
 "@kindgi/client": patch
 ---
 
-What I may do, in one call, so a client can hide what the caller can't do instead of offering it and answering 403. It's optional for a runtime: without a `MyAccessBinding` the route answers `501 permissions-unsupported`, and a client reads whoami's `tenantAdmin` and `reviewerRole` instead.
+What the caller may do, in one call, so a client can hide what the caller can't do instead of offering it and answering 403. It's optional for a runtime: without a `MyAccessBinding` the route answers `501 permissions-unsupported`, and a client reads whoami's `tenantAdmin` and `reviewerRole` instead.
 
 **`GET /v1/identity/me/permissions`** answers for the caller as authenticated:
 - **`tenant`:** `{admin, member?}`. `admin` is decided as the admin routes decide it.

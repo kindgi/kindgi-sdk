@@ -600,9 +600,11 @@ async function consoleReadOnlyNotice(
     });
     const text = entry?.value.replace(/\s+/g, ' ').trim() ?? '';
     if (text === '') return undefined;
-    return text.length <= READ_ONLY_NOTICE_MAX_LENGTH
+    // By code point, so a cut never splits a surrogate pair (an emoji).
+    const chars = Array.from(text);
+    return chars.length <= READ_ONLY_NOTICE_MAX_LENGTH
       ? text
-      : `${text.slice(0, READ_ONLY_NOTICE_MAX_LENGTH - 1)}…`;
+      : `${chars.slice(0, READ_ONLY_NOTICE_MAX_LENGTH - 1).join('')}…`;
   } catch (cause) {
     c.get('log').warn(
       `me/permissions: the console's read-only line couldn't be read, so it's left out: ${cause instanceof Error ? cause.message : String(cause)}`,
