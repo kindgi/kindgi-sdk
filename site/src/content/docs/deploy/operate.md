@@ -441,9 +441,10 @@ and what's different after:
 - **`kindgi dev` runs your pack's code sandboxed** (macOS Seatbelt; Linux
   bubblewrap, which you may need to install): it can't read your keys or
   files outside the app, write outside it, or reach Docker, and keeps the
-  network and the app's own files. A tool that reads a path or a socket
-  outside the app (`~/.aws`, a local Postgres socket) needs it opened in the
-  pack's `dev.sandbox` config. Where it can't run (Windows outside WSL, a
+  network and the app's own files. On Linux, the UNIX sockets it closes are
+  those under the home folder, `/tmp`, `/var/tmp` and `/run`. A tool that
+  reads a path or a socket outside the app (`~/.aws`, a local Postgres
+  socket) needs it opened in the pack's `dev.sandbox` config. Where it can't run (Windows outside WSL, a
   container, inside another sandbox such as a coding agent's), `kindgi dev`
   warns and runs without it; `KINDGI_DEV_SANDBOX=required` refuses instead
   ([Keep your tools' code away from your keys](../../guides/secrets/dev-sandbox/)).
