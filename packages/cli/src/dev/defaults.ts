@@ -46,7 +46,7 @@ import {
   javaEnv,
   javaLauncher,
 } from './pack-code.js';
-import { devBundleMapPath, devIndexPath } from './paths.js';
+import { devBundleMapPath, devIndexPath, devIndexerDir } from './paths.js';
 import { runtimePortInUseReal } from './port.js';
 import {
   type DockerRunner,
@@ -91,6 +91,13 @@ import {
   shellReferencesOf,
   writeRuntimeEnv,
 } from './runtime-env.js';
+import { probeReal } from './sandbox/detect.js';
+import {
+  type ActiveDevSandbox,
+  detectDevSandbox,
+  sandboxTmpDir,
+  sandboxedCommand,
+} from './sandbox/index.js';
 import { createScalaPackBuilder } from './scala-builder.js';
 import {
   DEFAULT_SCAN_INTERVAL_MS,
@@ -134,21 +141,42 @@ export function packServiceCommand(code: PackCode): readonly [string, ...string[
  * code is swapped (it retries while the front answers 503 mid-swap).
  */
 export function createPackServiceReal(opts: DevPackServiceOptions): DevPackService {
+  // A required env name the pack lacks is a warning in dev (the
+  // service still serves), not a refusal as in a deployment. And the
+  // service keeps the app's env files' names: in dev the pack reads the
+  // app's settings, declared or not.
+  const env = async (): Promise<Readonly<Record<string, string>>> => {
+    const base: Record<string, string> = {
+      ...(await opts.env()),
+      [PACK_ENV_CHECK_VAR]: 'warn',
+      [PACK_ENV_FILTER_VAR]: 'off',
+    };
+    if (opts.sandbox !== undefined) {
+      base.TMPDIR = opts.sandbox.engine === 'seatbelt' ? sandboxTmpDir(opts.packDir) : '/tmp';
+    }
+    return isJvmPackCode(opts.code) ? javaEnv(opts.code, base) : base;
+  };
+  const { sandbox } = opts;
+  const command = packServiceCommand(opts.code);
   return createPackServiceSupervisor({
-    command: packServiceCommand(opts.code),
+    // Sandboxed: worked out at every start, for what that start runs.
+    command:
+      sandbox === undefined
+        ? command
+        : async () =>
+            (
+              await sandboxedCommand(sandbox, {
+                packDir: opts.packDir,
+                code: opts.code,
+                command,
+                env: await env(),
+                node: { execPath: process.execPath, entry: resolvePackServiceEntrypoint() },
+                ...(opts.onNotice !== undefined && { onNotice: opts.onNotice }),
+              })
+            ).command,
     moduleRoot: opts.packDir,
-    // A required env name the pack lacks is a warning in dev (the
-    // service still serves), not a refusal as in a deployment. And the
-    // service keeps the app's env files' names: in dev the pack reads the
-    // app's settings, declared or not.
-    env: async () => {
-      const env = {
-        ...(await opts.env()),
-        [PACK_ENV_CHECK_VAR]: 'warn',
-        [PACK_ENV_FILTER_VAR]: 'off',
-      };
-      return isJvmPackCode(opts.code) ? javaEnv(opts.code, env) : env;
-    },
+    cwd: opts.packDir,
+    env,
     onLog: opts.onLog,
     onEvent: opts.onEvent,
     ...(opts.port !== undefined && { port: opts.port }),
@@ -190,6 +218,51 @@ export interface PythonIndexerOptions {
   readonly publishedAt?: string;
   /** What pack code prints while the indexer loads it (`IndexerRunOptions.onOutput`). */
   readonly onOutput?: (line: string, stream: 'stdout' | 'stderr') => void;
+  /** Run it in `kindgi dev`'s sandbox (`IndexerRunOptions.sandbox`). */
+  readonly sandbox?: IndexerSandbox;
+}
+
+/** `kindgi dev`'s sandbox for an indexer child, and where its notices go. */
+export interface IndexerSandbox {
+  readonly sandbox: ActiveDevSandbox;
+  readonly onNotice?: (line: string) => void;
+}
+
+/**
+ * An indexer child's command, inside the sandbox when there is one (its
+ * own profile, its own temp folder, the indexer's output folder the one
+ * place in `.kindgi` it writes); and its environment.
+ */
+async function indexerChild(
+  command: readonly [string, ...string[]],
+  ctx: {
+    readonly packDir: string;
+    readonly code: PackCode;
+    readonly env: Readonly<Record<string, string>>;
+    readonly entry: string;
+    readonly sandbox: IndexerSandbox | undefined;
+  },
+): Promise<{
+  readonly command: readonly [string, ...string[]];
+  readonly env: Readonly<Record<string, string>>;
+}> {
+  if (ctx.sandbox === undefined) return { command, env: ctx.env };
+  const { sandbox, onNotice } = ctx.sandbox;
+  const env = {
+    ...ctx.env,
+    TMPDIR: sandbox.engine === 'seatbelt' ? sandboxTmpDir(ctx.packDir) : '/tmp',
+  };
+  const wrapped = await sandboxedCommand(sandbox, {
+    packDir: ctx.packDir,
+    code: ctx.code,
+    command,
+    env,
+    node: { execPath: process.execPath, entry: ctx.entry },
+    process: 'indexer',
+    writable: [devIndexerDir(ctx.packDir)],
+    ...(onNotice !== undefined && { onNotice }),
+  });
+  return { command: wrapped.command, env };
 }
 
 /**
@@ -212,7 +285,15 @@ export async function runPythonIndexer(opts: PythonIndexerOptions): Promise<Inde
     ...(opts.publishedAt !== undefined ? ['--published-at', opts.publishedAt] : []),
     '--json',
   ];
-  return indexResultOf(outcomeOfChild(await runChild(program, args, opts.env, opts.onOutput)));
+  const child = await indexerChild([program, ...args], {
+    packDir: opts.packDir,
+    code: { language: 'python', python: opts.python } as PackCode,
+    env: opts.env,
+    entry: indexChildScript(),
+    sandbox: opts.sandbox,
+  });
+  const [cmd, ...rest] = child.command;
+  return indexResultOf(outcomeOfChild(await runChild(cmd, rest, child.env, opts.onOutput)));
 }
 
 export interface JavaIndexerOptions {
@@ -226,6 +307,8 @@ export interface JavaIndexerOptions {
   readonly publishedAt?: string;
   /** What pack code prints while the indexer loads it (`IndexerRunOptions.onOutput`). */
   readonly onOutput?: (line: string, stream: 'stdout' | 'stderr') => void;
+  /** Run it in `kindgi dev`'s sandbox (`IndexerRunOptions.sandbox`). */
+  readonly sandbox?: IndexerSandbox;
 }
 
 /**
@@ -246,10 +329,22 @@ export async function runJavaIndexer(opts: JavaIndexerOptions): Promise<IndexRes
     ...(opts.publishedAt !== undefined ? ['--published-at', opts.publishedAt] : []),
     '--json',
   ];
-  return indexResultOf(
-    outcomeOfChild(
-      await runChild(opts.code.java, args, javaEnv(opts.code, opts.env), opts.onOutput),
-    ),
+  const child = await indexerChild([opts.code.java, ...args], {
+    packDir: opts.packDir,
+    code: opts.code,
+    env: javaEnv(opts.code, opts.env),
+    entry: indexChildScript(),
+    sandbox: opts.sandbox,
+  });
+  const [cmd, ...rest] = child.command;
+  return indexResultOf(outcomeOfChild(await runChild(cmd, rest, child.env, opts.onOutput)));
+}
+
+/** The Node indexer child's script: TypeScript from source (tests), else the built one. */
+function indexChildScript(): string {
+  const fromSource = import.meta.url.endsWith('.ts');
+  return fileURLToPath(
+    new URL(fromSource ? './index-child.ts' : './index-child.js', import.meta.url),
   );
 }
 
@@ -276,14 +371,12 @@ async function runIndexerInChild(
   env: () => Promise<Readonly<Record<string, string>>>,
   bundleMap: Readonly<Record<string, string>>,
   onOutput?: (line: string, stream: 'stdout' | 'stderr') => void,
+  sandbox?: IndexerSandbox,
 ): Promise<IndexerOutcome> {
   const mapPath = devBundleMapPath(packDir);
   await mkdir(dirname(mapPath), { recursive: true });
   await writeFile(mapPath, JSON.stringify(bundleMap), 'utf8');
-  const fromSource = import.meta.url.endsWith('.ts');
-  const script = fileURLToPath(
-    new URL(fromSource ? './index-child.ts' : './index-child.js', import.meta.url),
-  );
+  const script = indexChildScript();
   const args = [
     '--enable-source-maps',
     script,
@@ -294,7 +387,15 @@ async function runIndexerInChild(
     '--bundle-map',
     mapPath,
   ];
-  return outcomeOfChild(await runChild(process.execPath, args, await env(), onOutput));
+  const child = await indexerChild([process.execPath, ...args], {
+    packDir,
+    code: { language: 'node' } as PackCode,
+    env: await env(),
+    entry: script,
+    sandbox,
+  });
+  const [cmd, ...rest] = child.command;
+  return outcomeOfChild(await runChild(cmd, rest, child.env, onOutput));
 }
 
 /** The outcome an indexer child printed as its last stdout line. */
@@ -586,7 +687,34 @@ export async function runIndexerReadReal(
   outputPath: string = devIndexPath(packDir),
   options: IndexerRunOptions = {},
 ): Promise<IndexResult> {
+  if (options.sandbox === undefined) return runIndexerUnsandboxed(packDir, outputPath, options);
+  // Sandboxed, the child writes the index to the one folder in `.kindgi` it
+  // may write; it's moved to where it's read from out here.
+  const childOutput = join(devIndexerDir(packDir), 'index.json');
+  const result = await runIndexerUnsandboxed(packDir, childOutput, {
+    ...options,
+    // Always a child: the in-process indexer would run the pack's code here.
+    env: options.env ?? (async () => ({})),
+  });
+  if (result.kind !== 'ok') return result;
+  await mkdir(dirname(outputPath), { recursive: true });
+  await rename(childOutput, outputPath);
+  return result;
+}
+
+async function runIndexerUnsandboxed(
+  packDir: string,
+  outputPath: string,
+  options: IndexerRunOptions,
+): Promise<IndexResult> {
   const code = options.code;
+  const sandbox: IndexerSandbox | undefined =
+    options.sandbox === undefined
+      ? undefined
+      : {
+          sandbox: options.sandbox,
+          ...(options.onNotice !== undefined && { onNotice: options.onNotice }),
+        };
   if (code?.language === 'python') {
     return runPythonIndexer({
       packDir,
@@ -594,6 +722,7 @@ export async function runIndexerReadReal(
       python: code.python,
       env: options.env !== undefined ? await options.env() : {},
       ...(options.onOutput !== undefined && { onOutput: options.onOutput }),
+      ...(sandbox !== undefined && { sandbox }),
     });
   }
   if (isJvmPackCode(code)) {
@@ -603,6 +732,7 @@ export async function runIndexerReadReal(
       code,
       env: options.env !== undefined ? await options.env() : {},
       ...(options.onOutput !== undefined && { onOutput: options.onOutput }),
+      ...(sandbox !== undefined && { sandbox }),
     });
   }
   return indexResultOf(
@@ -613,6 +743,7 @@ export async function runIndexerReadReal(
           options.env,
           options.bundleMap ?? {},
           options.onOutput,
+          sandbox,
         )
       : await runIndexerReal({ packDir, outputPath }),
   );
@@ -1188,6 +1319,7 @@ export const REAL_DEV_RUNNERS: DevRunners = {
   runIndexer: runIndexerReadReal,
   createPackBuilder: createPackBuilderReal,
   createPackService: createPackServiceReal,
+  detectSandbox: () => detectDevSandbox(process.platform, probeReal),
   checkPackPython,
   checkPackJvm,
   publishIndex: publishIndexReal,

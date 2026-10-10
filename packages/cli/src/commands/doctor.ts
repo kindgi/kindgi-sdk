@@ -46,6 +46,14 @@ import { javaMajor } from '../dev/pack-code.js';
 import { type DockerRunner, docker } from '../dev/runtime-container.js';
 import { DEFAULT_RUNTIME_IMAGE, registryOf } from '../dev/runtime-image.js';
 import { checkDocker, checkImageAccess, credentialHelperHint } from '../dev/runtime-registry.js';
+import { probeReal } from '../dev/sandbox/detect.js';
+import {
+  DEV_SANDBOX_DOCS,
+  DEV_SANDBOX_VAR,
+  type SandboxAvailability,
+  detectDevSandbox,
+  sandboxLabel,
+} from '../dev/sandbox/index.js';
 import { loadLocalEnvSettings } from '../env/project-env.js';
 import { extractKindgiError } from '../errors.js';
 import { renderJson } from '../output.js';
@@ -87,6 +95,7 @@ export type DoctorCheckId =
   | 'maven'
   | 'sbt'
   | 'docker'
+  | 'dev-sandbox'
   | 'registry'
   | 'project'
   | 'dependencies'
@@ -141,6 +150,8 @@ export interface DoctorSeam {
   /** The image the registry check pulls. Default: the one `kindgi dev` runs. */
   readonly image?: string;
   readonly presets?: () => Promise<Readonly<Record<string, ProviderPreset>>>;
+  /** Whether `kindgi dev` can sandbox the pack service here. Default: tried, as `kindgi dev` does. */
+  readonly sandbox?: () => Promise<SandboxAvailability>;
 }
 
 const TITLES: Readonly<Record<DoctorCheckId, string>> = {
@@ -152,6 +163,7 @@ const TITLES: Readonly<Record<DoctorCheckId, string>> = {
   maven: 'Maven',
   sbt: 'sbt',
   docker: 'Docker',
+  'dev-sandbox': 'Dev sandbox',
   registry: 'Runtime image',
   project: 'Project',
   dependencies: 'Dependencies',
@@ -213,6 +225,12 @@ export async function runDoctor(ctx: CommandContext, dir: string): Promise<Docto
     dockerCheck.status === 'pass'
       ? await registryCheck(run, seam.image ?? DEFAULT_RUNTIME_IMAGE, kindgi)
       : skip('registry', 'Not checked: it needs Docker running.'),
+  );
+  checks.push(
+    await devSandboxCheck(
+      ctx.env,
+      seam.sandbox ?? (() => detectDevSandbox(process.platform, probeReal)),
+    ),
   );
   checks.push(await consoleSignInCheck(ctx));
 
@@ -549,6 +567,28 @@ async function pythonVersion(tool: NonNullable<DoctorSeam['tool']>): Promise<str
 }
 
 // ---------- Docker and the runtime image ----------
+
+/** Whether `kindgi dev` runs the pack service sandboxed here, or why not. */
+async function devSandboxCheck(
+  env: Readonly<Record<string, string | undefined>>,
+  detect: () => Promise<SandboxAvailability>,
+): Promise<DoctorCheck> {
+  if (env[DEV_SANDBOX_VAR] === 'off') {
+    return skip('dev-sandbox', `Not checked: ${DEV_SANDBOX_VAR}=off.`);
+  }
+  const availability = await detect();
+  if (availability.kind === 'available') {
+    return pass(
+      'dev-sandbox',
+      `kindgi dev runs your tools' code sandboxed (${sandboxLabel(availability.engine)}): it can't read your keys or reach Docker.`,
+    );
+  }
+  return warn(
+    'dev-sandbox',
+    `kindgi dev would run your tools' code without the sandbox: ${availability.reason}. It can then read your files and keys.`,
+    `${availability.fix} (${DEV_SANDBOX_DOCS})`,
+  );
+}
 
 async function checkDockerRunning(run: DockerRunner): Promise<DoctorCheck> {
   const ready = await checkDocker(run);
