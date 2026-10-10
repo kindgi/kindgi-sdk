@@ -50,6 +50,9 @@ describe('every list call answers with data, hasMore and nextCursor', () => {
   test('audit.authz.list', () => {
     expectTypeOf<Answer<KindgiClient['audit']['authz']['list']>>().toMatchTypeOf<WirePage>();
   });
+  test('audit.signIns.list', () => {
+    expectTypeOf<Answer<KindgiClient['audit']['signIns']['list']>>().toMatchTypeOf<WirePage>();
+  });
   test('auth.providers.list', () => {
     expectTypeOf<Answer<KindgiClient['auth']['providers']['list']>>().toMatchTypeOf<WirePage>();
   });
@@ -108,9 +111,6 @@ describe('every list call answers with data, hasMore and nextCursor', () => {
     expectTypeOf<
       Answer<KindgiClient['evalSuites']['versions']['list']>
     >().toMatchTypeOf<WirePage>();
-  });
-  test('eventTriggers.list', () => {
-    expectTypeOf<Answer<KindgiClient['eventTriggers']['list']>>().toMatchTypeOf<WirePage>();
   });
   test('events.query', () => {
     expectTypeOf<Answer<KindgiClient['events']['query']>>().toMatchTypeOf<WirePage>();
@@ -260,8 +260,5 @@ describe('every list call answers with data, hasMore and nextCursor', () => {
   });
   test('webhookEndpoints.list', () => {
     expectTypeOf<Answer<KindgiClient['webhookEndpoints']['list']>>().toMatchTypeOf<WirePage>();
-  });
-  test('webhooks.list', () => {
-    expectTypeOf<Answer<KindgiClient['webhooks']['list']>>().toMatchTypeOf<WirePage>();
   });
 });

@@ -20,6 +20,7 @@ import {
 } from '../token-admin.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit, decodeCursor, encodeCursor, isCursorTime } from './pagination.js';
+import { parseTimeInput } from './time-input.js';
 
 /**
  * API keys: mint, list, read, revoke. A key acts for one principal (a
@@ -350,8 +351,8 @@ function parseMintBody(body: unknown): Parsed<ParsedMintBody> {
 /** `expiresAt`: an ISO date string. */
 function parseExpiresAt(raw: unknown): Parsed<Date> {
   if (typeof raw !== 'string') return badInput('`expiresAt` must be an ISO date string');
-  const parsed = new Date(raw);
-  if (Number.isNaN(parsed.getTime())) return badInput('`expiresAt` is not a valid ISO date');
+  const parsed = parseTimeInput(raw);
+  if (parsed === null) return badInput('`expiresAt` is not a valid ISO date');
   return { kind: 'ok', value: parsed };
 }
 

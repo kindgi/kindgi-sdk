@@ -128,6 +128,48 @@ export function stringFlag(ctx: CommandContext, name: string): string | undefine
   return typeof raw === 'string' && raw !== '' ? raw : undefined;
 }
 
+const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
+const ZONED_TIME =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
+
+/** Year, month and day name a real date (and, when given, a real time of day). */
+function isCalendarTime(parts: RegExpExecArray): boolean {
+  const [year, month, day, hour = 0, minute = 0, second = 0] = parts.slice(1).map(Number);
+  const date = new Date(Date.UTC(year as number, (month as number) - 1, day as number));
+  return (
+    (year as number) >= 1000 &&
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === (month as number) - 1 &&
+    date.getUTCDate() === day &&
+    hour < 24 &&
+    minute < 60 &&
+    second < 60
+  );
+}
+
+/**
+ * A time given to `--<name>`, as the API takes a time (`toISOString()`):
+ * an ISO 8601 time with a zone (`2026-10-09T12:00:00Z`,
+ * `2026-10-09T14:00:00+02:00`), or a date (`2026-10-09`), read as the
+ * start of that day in UTC. Anything else is a usage error here, rather
+ * than the API's `400` for a time that isn't a `date-time`.
+ */
+export function timeFlagValue(raw: string, name: string): string {
+  const date = DATE_ONLY.exec(raw);
+  if (date !== null && isCalendarTime(date)) return `${raw}T00:00:00.000Z`;
+  const time = ZONED_TIME.exec(raw);
+  if (time !== null && isCalendarTime(time)) return new Date(raw).toISOString();
+  throw new UsageError(
+    `--${name} must be an ISO 8601 time with a zone (2026-10-09T12:00:00Z) or a date (2026-10-09); got "${raw}"`,
+  );
+}
+
+/** An optional time flag, as `timeFlagValue` reads it. */
+export function timeFlag(ctx: CommandContext, name: string): string | undefined {
+  const raw = stringFlag(ctx, name);
+  return raw === undefined ? undefined : timeFlagValue(raw, name);
+}
+
 /**
  * A repeatable `--<name>=key:value` flag (default `--segment`): a segment
  * path, in order (coarse to fine).

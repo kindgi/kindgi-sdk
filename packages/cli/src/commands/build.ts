@@ -80,6 +80,7 @@ import type { IndexedCounts } from '../dev/runners.js';
 import { renderJson } from '../output.js';
 import { loadPackConfig } from '../pack-config.js';
 import { isPackageVersion } from '../package-manager.js';
+import { timeFlagValue } from './helpers.js';
 import type { CommandResult, LeafCommand } from './types.js';
 
 /**
@@ -158,7 +159,7 @@ export const buildCommand: LeafCommand = {
     'published-at': {
       type: 'string',
       description:
-        'The publish time (ISO 8601), in the image and its signature. Default: the build time. For a reproducible build, pass `--artifact-version` and `--published-at`.',
+        'The publish time (an ISO 8601 time with a zone, or a date: its start, UTC), in the image and its signature. Default: the build time. For a reproducible build, pass `--artifact-version` and `--published-at`.',
     },
     tenant: {
       type: 'string',
@@ -1190,8 +1191,18 @@ async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
   const avFlag = ctx.options['artifact-version'];
   const artifactVersion =
     typeof avFlag === 'string' && avFlag !== '' ? avFlag : defaults.artifactVersion;
+  // A given --published-at goes into the signed image as the API's
+  // `date-time` (a date reads as that day's start in UTC), or deploying it
+  // would be refused.
   const paFlag = ctx.options['published-at'];
-  const publishedAt = typeof paFlag === 'string' && paFlag !== '' ? paFlag : defaults.publishedAt;
+  let publishedAt = defaults.publishedAt;
+  if (typeof paFlag === 'string' && paFlag !== '') {
+    try {
+      publishedAt = timeFlagValue(paFlag, 'published-at');
+    } catch (err) {
+      return { kind: 'error', stderr: `${(err as Error).message}\n`, exitCode: 2 };
+    }
+  }
 
   // --tenant — flag > env block > KINDGI_TENANT_ID env var > error.
   const tenantFlag = ctx.options.tenant;

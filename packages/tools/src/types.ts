@@ -154,11 +154,13 @@ export interface ToolContext {
    * The secrets this tool declares in `needsSpec.secrets`, by name,
    * resolved by the runtime for this call: for the call's tenant, in the
    * env the runtime serves (`KINDGI_ENV`; in `kindgi dev`, `local` — the
-   * pack's `.env` and `.env.local`). Every declared name is present: one
+   * pack's `.env` and `.env.local`). Every required name is present: one
    * the runtime can't resolve, or whose value doesn't match its schema,
-   * fails the call before the handler runs. Absent when the tool
-   * declares none, and wherever nothing resolves them — a unit test
-   * passes its own.
+   * fails the call before the handler runs. An optional one (its schema
+   * accepts `null`: `{ type: ['string', 'null'] }`) is absent when the env
+   * doesn't have it, or has it empty (runtime 0.1.6 or later; an older
+   * runtime requires it). Absent when the tool declares none, and wherever
+   * nothing resolves them — a unit test passes its own.
    */
   readonly secrets?: Readonly<Record<string, string>>;
   /**
@@ -253,9 +255,10 @@ export type NetworkPolicy =
  * `env` and `secrets` are resolved per call (`ctx.env`, `ctx.secrets`).
  * Their values are strings, as in a process environment; each schema
  * checks the string (`enum`, `pattern`, `minLength`…) and nothing is
- * coerced. An `env` name whose schema has a `default` is optional; every
- * other declared name is required. `config` is reserved: no runtime
- * resolves it yet.
+ * coerced. An `env` name whose schema has a `default` is optional; a
+ * `secrets` name whose schema says it accepts `null` (`type: ['string',
+ * 'null']`) is optional (runtime 0.1.6 or later); every other declared name
+ * is required. `config` is reserved: no runtime resolves it yet.
  *
  * `capabilities` names capability-router features (e.g. `'embedding'`);
  * `bindings` names deployment-plugged binding keys (e.g. `'blob'`).

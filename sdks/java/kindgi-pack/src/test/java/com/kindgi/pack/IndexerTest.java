@@ -56,6 +56,9 @@ class IndexerTest {
         .containsEntry("input", Map.of("type", "object", "additionalProperties", false,
             "properties", Map.of("name", Map.of("type", "string")), "required", List.of("name")));
     assertThat(tools.get(1).get("effects")).isEqualTo(List.of(Map.of("kind", "network", "resource", "api:greetings")));
+    assertThat(tools.get(1).get("needsSpec")).isEqualTo(Map.of("secrets", Map.of(
+        "GREETINGS_KEY", Map.of("type", "string"),
+        "TRANSLATE_KEY", Map.of("type", List.of("string", "null")))));
 
     Map<String, Object> guardrail = ((List<Map<String, Object>>) index.get("guardrails")).get(0);
     assertThat(guardrail).containsEntry("checkId", "acme.checks.not-empty").containsEntry("kind", "zero-llm")

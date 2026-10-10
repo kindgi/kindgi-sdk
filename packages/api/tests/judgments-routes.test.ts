@@ -18,7 +18,7 @@ import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type { JudgmentRegistryBinding, RunHandlerBinding, TokenResolver } from '../src/index.js';
-import { judgeClassApplies, whyNotAssertable } from '../src/index.js';
+import { isReplayCopy, judgeClassApplies, whyNotAssertable } from '../src/index.js';
 import { inMemoryJudgments } from './support/in-memory-judgments.js';
 
 const tenantId = randomUUID() as TenantId;
@@ -591,6 +591,29 @@ describe("the context captured on a turn's first judgment", () => {
     expect(h.reads).toEqual([1, 1]);
   });
 
+  test("a comparison's replay is stamped with the run it replays, at its first judgment; any other run isn't", async () => {
+    const replayedTurn = row({ runId: 'run-replay-turn' as RunId, replayOf: 'run-1' as RunId });
+    const { agent: _agent, ...flowRun } = row({
+      runId: 'run-replay-flow' as RunId,
+      replayOf: 'run-2' as RunId,
+    });
+    const plain = row({ runId: 'run-plain' as RunId });
+    const h = harness([replayedTurn, flowRun, plain], { messages, journal });
+    const contextOf = async (runId: string) => {
+      const res = await h.call('POST', '/v1/judgments', {
+        runId,
+        item: { key: 'c1' },
+        verdict: 'yes',
+      });
+      expect(res.status, JSON.stringify(res.body)).toBe(201);
+      return (await h.call('GET', `/v1/judgments/${res.body.id}`)).body.run.context;
+    };
+    expect((await contextOf('run-replay-turn')).replayOf).toBe('run-1');
+    // A flow replay with no tool calls keeps no other context, and is stamped all the same.
+    expect(await contextOf('run-replay-flow')).toEqual({ replayOf: 'run-2' });
+    expect(await contextOf('run-plain')).not.toHaveProperty('replayOf');
+  });
+
   test('a flow run reads no conversation; with no tool calls to keep, it keeps no context', async () => {
     const { agent: _agent, ...run } = row();
     const h = harness([run], { messages, journal });
@@ -890,6 +913,21 @@ describe('judgeClassApplies', () => {
     expect(
       judgeClassApplies({ kind: 'agent', projectId: projectA, agentId: 'acme.other' }, run),
     ).toBe(false);
+  });
+});
+
+describe('isReplayCopy', () => {
+  test('a stamped copy, or an agent turn whose output carries its replay report; nothing else', () => {
+    expect(isReplayCopy({ output: {}, context: { replayOf: 'run-1' } })).toBe(true);
+    expect(isReplayCopy({ output: { replay: { of: 'run-1', evalRunId: 'e', tools: [] } } })).toBe(
+      true,
+    );
+    expect(isReplayCopy({ output: { matches: [] } })).toBe(false);
+    expect(isReplayCopy({ output: { replay: 'live' } })).toBe(false);
+    expect(isReplayCopy({ output: [{ replay: { of: 'run-1' } }] })).toBe(false);
+    expect(isReplayCopy({ output: null })).toBe(false);
+    // A typed answer's own `replay` field sits under `output`, not at the top.
+    expect(isReplayCopy({ output: { output: { replay: { of: 'x' } } } })).toBe(false);
   });
 });
 
