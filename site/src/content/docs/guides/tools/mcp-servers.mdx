@@ -276,6 +276,17 @@ resolved from the tenant's secrets when it connects. Give the agent its own
 WordPress user, with a role that allows only what it should do, and create
 the Application Password on that user's profile.
 
+A user name or password the server turns down (it answers 401) fails the tool
+call with `mcp-auth-refused`, and the runtime's log names the endpoint:
+
+```text
+20:22:48.769 WARN  [mcp] MCP endpoint "shop-bad" sync failed: mcp-auth-refused: MCP endpoint "shop-bad" answered 401 to its credential endpointId=shop-bad
+```
+
+On WordPress's side: [Application Passwords](https://developer.wordpress.org/rest-api/using-the-rest-api/authentication/#basic-authentication-with-application-passwords),
+the [MCP Adapter](https://github.com/WordPress/mcp-adapter) and
+[WooCommerce's MCP tools](https://developer.woocommerce.com/docs/features/mcp/).
+
 ### Sign in with OAuth client credentials
 
 For a server behind an OAuth 2 token endpoint, such as a Drupal site's MCP
@@ -305,15 +316,36 @@ and sends it as `Authorization: Bearer <token>`:
   instance gets its own. The secret is resolved at each token request, so a
   rotated secret is used from the next one.
 - **The token URL** is https, or http to `localhost`, `127.0.0.1` or `[::1]`.
+  A token endpoint on the runtime's own machine is reached only with
+  `KINDGI_TENANT_HOST_ACCESS=local`, the default in `kindgi dev`. A deployed
+  runtime's default, `deployed`, refuses it with `host-access-denied`.
 - **When it fails:**
   - a token request that's refused (`invalid_client`, a scope it may not
     have) fails the tool call with `mcp-auth-refused`;
   - one that can't be made (the token endpoint down, a malformed answer) fails
     it with `mcp-auth-failed`.
 
-  Neither message includes the secret or a token.
+  Neither message includes the secret or a token. The runtime's log says
+  which, and why:
+
+  ```text
+  20:22:49.143 WARN  [mcp] MCP endpoint "cms-bad" sync failed: mcp-auth-refused: MCP endpoint "cms-bad": its token endpoint localhost:18081 refused the client (HTTP 401: invalid_client) endpointId=cms-bad
+  20:22:48.608 WARN  [mcp] MCP endpoint "cms-down" sync failed: mcp-auth-failed: MCP endpoint "cms-down": its token request to localhost:18099 failed: fetch failed (ECONNREFUSED) endpointId=cms-down
+  ```
 - **A token the server stops taking early** (a 401): Kindgi asks for a new
   one and sends that request once more.
+
+On Drupal's side: the [MCP Server](https://www.drupal.org/project/mcp_server)
+module, and [Simple OAuth](https://www.drupal.org/project/simple_oauth) for
+the token endpoint: a consumer with the client credentials grant, and the
+user its tokens act as.
+
+### Signed in, but no tools
+
+A sync whose counts are all 0 (`synced — 0 published, 0 reinstated,
+0 unchanged, 0 retired`) signed in, and the server listed no tools to that
+account. Which tools a server lists, and to whom, is set on the server's
+side: check that the account the credentials stand for may use them.
 
 ### What `auth` can't be set with
 
