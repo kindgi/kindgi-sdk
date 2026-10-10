@@ -12,6 +12,7 @@ import type { AdapterFactoryInput, ProviderMetadata } from '@kindgi/capabilities
 import { attemptsOf } from '@kindgi/capabilities/attempts';
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
+import { cachesPrompts } from '../src/entry.js';
 import {
   IDENTITY_TIMEOUT_MS,
   NOVA_THINKING_REMOVED,
@@ -744,5 +745,103 @@ describe("Nova's chain of thought, written into its answer", () => {
     });
     const r = await provider.invoke({ ...ask(), model: llama });
     expect(r.message.content).toBe('<thinking>x</thinking> Shipped.');
+  });
+});
+
+describe("prompt caching: Bedrock's cache points", () => {
+  const CLAUDE = 'us.anthropic.claude-haiku-4-5-20251001-v1:0';
+  const OPENAI = 'us.openai.gpt-6.1-sol';
+  const UNPRICED = 'global.anthropic.claude-sonnet-5-5';
+  const APP_PROFILE = 'arn:aws:bedrock:us-east-2:111122223333:application-inference-profile/acme';
+  const model = (name: string, cost: Record<string, number>) => ({
+    name,
+    contextWindow: 200_000,
+    features: ['tool-use'],
+    cost: { promptUsdPer1kTokens: 0.0011, completionUsdPer1kTokens: 0.0055, ...cost },
+  });
+  const caching = {
+    id: 'bedrock-acme',
+    region: 'us-east-2',
+    models: [
+      model(CLAUDE, { cachedPromptMultiplier: 0.1, promptCacheCreationMultiplier: 1.25 }),
+      model(NOVA, { cachedPromptMultiplier: 0.25, promptCacheCreationMultiplier: 0 }),
+      model(OPENAI, { cachedPromptMultiplier: 0.05, promptCacheCreationMultiplier: 1.25 }),
+      model(UNPRICED, {}),
+      model(APP_PROFILE, { cachedPromptMultiplier: 0.1 }),
+    ],
+  } as unknown as ProviderMetadata;
+  const LOOKUP = {
+    name: 'acme.lookup_order',
+    description: 'Look up an order by its id.',
+    inputSchema: { type: 'object', properties: { orderId: { type: 'string' } } },
+  };
+  const POINT = { cachePoint: { type: 'default' } };
+  const sentBody = async (
+    call: Parameters<ReturnType<typeof bedrockAdapterFactory>['invoke']>[0],
+  ) => {
+    const sent: Sent[] = [];
+    const provider = bedrockAdapterFactory({
+      metadata: caching,
+      config: {},
+      fetch: capturingFetch(sent),
+      identities: { aws: identity() },
+    });
+    await provider.invoke(call);
+    return sent[0]?.body as { system?: unknown[]; messages: { content: unknown[] }[] };
+  };
+  const points = (body: unknown) => JSON.stringify(body).split('"cachePoint"').length - 1;
+  const withTools = (name: string) => ({
+    model: name,
+    messages: [
+      { role: 'system' as const, content: 'You answer about orders.' },
+      { role: 'user' as const, content: 'Where is A-1?' },
+    ],
+    tools: [LOOKUP],
+  });
+
+  test.each([CLAUDE, NOVA])(
+    '%s, its cache reads priced: a point after the system text and after the last message',
+    async (name) => {
+      const body = await sentBody(withTools(name));
+      expect(body.system).toEqual([{ text: 'You answer about orders.' }, POINT]);
+      expect(body.messages.at(-1)?.content.at(-1)).toEqual(POINT);
+      expect(points(body)).toBe(2);
+    },
+  );
+
+  test('a one-off call (no tools, no earlier answer): after the system text only', async () => {
+    const body = await sentBody({
+      model: CLAUDE,
+      messages: [
+        { role: 'system', content: 'Judge the answer.' },
+        { role: 'user', content: 'Shipped.' },
+      ],
+    });
+    expect(body.system).toEqual([{ text: 'Judge the answer.' }, POINT]);
+    expect(points(body)).toBe(1);
+  });
+
+  test.each([
+    [OPENAI, "OpenAI's models: caching not verified on Bedrock"],
+    [UNPRICED, 'no cache price registered'],
+    [APP_PROFILE, "an application inference profile: its model isn't known"],
+  ])('%s: no cache point (%s)', async (name) => {
+    expect(points(await sentBody(withTools(name)))).toBe(0);
+  });
+
+  test('cachesPrompts: Claude or Nova by any id form, with a positive cache-read price', () => {
+    const priced = (name: string, cost: Record<string, number> = { cachedPromptMultiplier: 0.1 }) =>
+      cachesPrompts(model(name, cost) as never);
+    expect(priced('anthropic.claude-haiku-4-5-20251001-v1:0')).toBe(true);
+    expect(priced('global.anthropic.claude-haiku-4-5-20251001-v1:0')).toBe(true);
+    expect(priced('eu.amazon.nova-lite-v1:0')).toBe(true);
+    expect(priced('us.anthropic.claude-sonnet-5-5', { promptCacheReadMultiplier: 0.05 })).toBe(
+      true,
+    );
+    expect(priced('us.anthropic.claude-sonnet-5-5', { cachedPromptMultiplier: 0 })).toBe(false);
+    expect(priced('us.meta.llama4-maverick-17b-instruct-v1:0')).toBe(false);
+    expect(priced('us.openai.gpt-6-luna')).toBe(false);
+    expect(priced('us.cohere.command-r-plus-v1:0')).toBe(false);
+    expect(priced('claude-haiku-4-5')).toBe(false);
   });
 });

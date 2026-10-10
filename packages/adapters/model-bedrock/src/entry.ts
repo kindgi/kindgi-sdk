@@ -21,6 +21,9 @@
  *     credentials are looked for.
  *   - A failed sign-in (no credentials, no key, a blank one) is an `auth` error, never retried.
  *   - No request follows a redirect: the credential goes to the endpoint, nowhere else.
+ *   - Prompt caching: cache points after the system prompt and, when the call will be sent
+ *     again, the last message, for Claude and Nova models whose registration prices cache reads
+ *     (`cachesPrompts`); none for any other model.
  *   - The region is the registration's (`metadata.region`), never `AWS_REGION`, and the endpoint
  *     is always given (the region's own, or `adapter_config.baseURL`), so
  *     `AWS_ENDPOINT_URL_BEDROCK_RUNTIME` and `AWS_ENDPOINT_URL` are never read.
@@ -36,6 +39,7 @@ import {
   type AdapterFactoryEntry,
   type AwsCredentialClient,
   type AwsCredentials,
+  type ModelInfo,
   adapterConfigError,
   identitiesPresent,
 } from '@kindgi/capabilities';
@@ -104,6 +108,7 @@ export const bedrockAdapterFactory: AdapterFactory = (input) => {
       })(name);
     },
     cost: (model, usage) => tokenCostUsd(model, usage),
+    cacheMark: (model) => (cachesPrompts(model) ? BEDROCK_CACHE_POINT : undefined),
     explain: (error) => (error.status === 403 ? accessHint(auth, region) : undefined),
   });
   // Nova's chain of thought, written into its answer, is taken out (`nova-thinking.ts`).
@@ -115,6 +120,28 @@ export const bedrockAdapterFactory: AdapterFactory = (input) => {
     },
   };
 };
+
+/**
+ * Bedrock caches only the prompt prefixes a request marks with a cache point (5-minute TTL).
+ * Where the marks go: `withCacheMarks` in `@kindgi/adapter-model-shared`.
+ */
+const BEDROCK_CACHE_POINT = { bedrock: { cachePoint: { type: 'default' } } };
+
+/** Anthropic's Claude and Amazon Nova, by model or inference-profile id (`us.`, `global.`, …). */
+const CACHING_FAMILY = /^(?:[a-z-]+\.)?(?:anthropic\.claude|amazon\.nova)-/;
+
+/**
+ * Whether the adapter marks a model's prompts for Bedrock's cache: the registration prices
+ * cache reads (a positive `cachedPromptMultiplier` or `promptCacheReadMultiplier`), and the
+ * model is Claude or Nova, the families whose caching was seen live on Bedrock (2026-10-10).
+ * Others, OpenAI's models on Bedrock or an application inference profile's ARN among them, stay
+ * unmarked until they are.
+ */
+export function cachesPrompts(model: ModelInfo): boolean {
+  const cost = model.cost as Partial<Record<string, unknown>>;
+  const read = cost.cachedPromptMultiplier ?? cost.promptCacheReadMultiplier;
+  return typeof read === 'number' && read > 0 && CACHING_FAMILY.test(model.name);
+}
 
 /** The entry a runtime registers: the factory, and its static check. */
 export const bedrockAdapterEntry: AdapterFactoryEntry = {

@@ -62,6 +62,14 @@ Each of these has a test. It signs in before each attempt, with the call's abort
 
 When tools are in play, Amazon Nova writes its reasoning into the answer: `<thinking>…</thinking>` before the reply. A Kindgi answer carries no reasoning (the other vendors keep it apart, and a result has no slot for reasoning text). So for a Nova model, one leading `<thinking>` block is taken out of the answer, and the result carries the warning `reasoning-text-removed` (`NOVA_THINKING_REMOVED`), which the model-call record keeps. Only an exact, closed, leading block is touched: one later in the text, or an unclosed one, is left as it came. Other vendors' models are never changed.
 
+## Prompt caching
+
+Bedrock caches only the prompt prefixes a request marks with a cache point, so the adapter marks them for a model whose registration prices cache reads (a positive `cachedPromptMultiplier` or `promptCacheReadMultiplier`) and that is Anthropic's Claude or Amazon Nova:
+- after the system prompt (the first system message). The tools come before it, so the cached prefix holds them too;
+- after the last message, when the call will be sent again: it has tools (the next step of a tool loop sends everything again) or an earlier answer (the next turn does).
+
+That's two cache points at most, under Bedrock's four per request, each with the 5-minute cache. A prefix shorter than the model's minimum isn't cached and costs nothing extra. Other models, OpenAI's on Bedrock or an application inference profile among them, get no cache points. Nova's cache can take a few seconds to become readable: a call right after the first may write the prefix again, which costs nothing on Nova.
+
 ## Cost
 
 `costUsd` is `tokenCostUsd` over the model's registered rates: prompt and completion, cache reads and writes at the model's `cachedPromptMultiplier` / `promptCacheCreationMultiplier` (the prompt rate when absent), and the long-context tier when registered. Bedrock's prices differ by model, region and tier, so register the rates of yours. Costs are estimates from published prices; AWS's invoice is authoritative.
