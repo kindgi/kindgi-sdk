@@ -33,10 +33,13 @@ const tenantId = randomUUID() as TenantId;
 const orgO = randomUUID() as OrgId;
 const projectA = randomUUID() as ProjectId;
 const projectB = randomUUID() as ProjectId;
+/** In no org. */
+const projectC = randomUUID() as ProjectId;
 
 const MEMBER = 'member-token';
 const ADMIN = 'admin-token';
 const ADMIN_KEY_A = 'admin-key-for-a';
+const ADMIN_KEY_C = 'admin-key-for-c';
 
 const resolveToken: TokenResolver = async (token) => {
   if (token === MEMBER) return { tenantId, userId: 'member-1' as UserId };
@@ -44,6 +47,8 @@ const resolveToken: TokenResolver = async (token) => {
   // The admin's API key, limited to project A.
   if (token === ADMIN_KEY_A)
     return { tenantId, userId: 'admin-1' as UserId, tokenProjectId: projectA };
+  if (token === ADMIN_KEY_C)
+    return { tenantId, userId: 'admin-1' as UserId, tokenProjectId: projectC };
   return null;
 };
 
@@ -56,6 +61,7 @@ const GRANTS: Readonly<Record<string, readonly string[]>> = {
     `read org:${orgO}`,
     `read project:${projectA}`,
     `read project:${projectB}`,
+    `read project:${projectC}`,
   ],
 };
 
@@ -103,11 +109,12 @@ interface Rec {
   readonly costUsd: number;
 }
 
-/** Two in project A, one in B, one with no project (the tenant's own). */
+/** Two in project A, one in B, one in C (no org), one with no project (the tenant's own). */
 const RECORDS: readonly Rec[] = [
   { projectId: projectA, agentId: 'agent-a', model: 'model-a', costUsd: 1 },
   { projectId: projectA, agentId: 'agent-a', model: 'model-a', costUsd: 1 },
   { projectId: projectB, agentId: 'agent-b', model: 'model-b', costUsd: 5 },
+  { projectId: projectC, agentId: 'agent-c', model: 'model-c', costUsd: 0.25 },
   { agentId: 'agent-t', model: 'model-t', costUsd: 0.5 },
 ];
 const ORG_OF: Readonly<Record<string, OrgId>> = { [projectA]: orgO, [projectB]: orgO };
@@ -178,9 +185,10 @@ function harness(opts: {
   const { binding, inputs } = costBinding(opts.appliesReadable ?? true);
   const projectBinding = {
     list: async () => ({
-      items: [projectA, projectB].map(
-        (id) => ({ id, tenantId, orgId: orgO }) as unknown as Project,
-      ),
+      items: [
+        ...[projectA, projectB].map((id) => ({ id, tenantId, orgId: orgO })),
+        { id: projectC, tenantId },
+      ] as unknown as Project[],
     }),
   } as unknown as ProjectBinding;
   const app = createApp({
@@ -235,8 +243,10 @@ describe.each([
     const h = harness({ authz });
     const res = await h.aggregate(ADMIN);
     expect(res.status).toBe(200);
-    expect(res.body.totalUsd).toBe(7.5);
-    expect(keyValues(res.body)).toEqual(expect.arrayContaining(['agent-a', 'agent-b', 'agent-t']));
+    expect(res.body.totalUsd).toBe(7.75);
+    expect(keyValues(res.body)).toEqual(
+      expect.arrayContaining(['agent-a', 'agent-b', 'agent-c', 'agent-t']),
+    );
     expect(h.inputs.at(-1)?.readableProjectIds).toBeUndefined();
   });
 
@@ -247,6 +257,15 @@ describe.each([
     expect(res.body.totalUsd).toBe(2.5);
     expect(keyValues(res.body)).not.toContain('agent-b');
     expect(h.inputs.at(-1)?.readableProjectIds).toEqual([projectA]);
+  });
+
+  test("an org scope, for a key whose project is outside the org, counts nothing (not the tenant's own either)", async () => {
+    const h = harness({ authz });
+    const res = await h.aggregate(ADMIN_KEY_C, `&scopeKind=org&scopeId=${orgO}`);
+    expect(res.status).toBe(200);
+    expect(res.body.totalRecords).toBe(0);
+    expect(res.body.groups).toEqual([]);
+    expect(h.inputs.at(-1)?.readableProjectIds).toEqual([projectC]);
   });
 
   test('a project scope is checked as before, and not narrowed further', async () => {

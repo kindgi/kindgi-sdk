@@ -209,7 +209,9 @@ export interface CostAggregateInput {
   /**
    * Count only records in these projects, and records with no project
    * (the tenant's own, which `/v1/cost/records` shows to anyone who may
-   * read the tenant), within `scope`. The route sets it when the caller
+   * read the tenant), within `scope`. An org scope covers only the org's
+   * projects: a record with no project never counts there, and nor does a
+   * listed project outside the org. The route sets it when the caller
    * may not read every project (`read` on each listed one); absent, every
    * record in `scope` counts. Empty: no project's records count. A binding
    * that applies it says so with `CostBinding.aggregatesReadableProjects`.
