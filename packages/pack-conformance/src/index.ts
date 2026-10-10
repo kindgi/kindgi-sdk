@@ -64,8 +64,11 @@ export interface PackServiceTarget {
  *   readiness under `KINDGI_PACK_ENV_CHECK`, and `/v1/info` lists `missingEnv`.
  * - `log-records`: the service's stderr lines are log records: the lifecycle,
  *   and a record per call with its ids and the caller's trace.
+ * - `env-filter`: only the names the pack declares (and Kindgi's and the
+ *   platform's) reach its code, unless `KINDGI_PACK_ENV_FILTER=off`; the
+ *   service names the ones it dropped (`env-dropped`).
  */
-export type ConformanceFeature = 'pack-env' | 'log-records';
+export type ConformanceFeature = 'pack-env' | 'log-records' | 'env-filter';
 
 /** Root of a fixture pack shipped with this package (`node-pack`, `python-pack`). */
 export function fixturePackDir(name: string): string {
@@ -149,22 +152,73 @@ interface RunningService {
   readonly token: string;
   readonly events: ServiceEvent[];
   readonly stdout: string[];
+  readonly stderr: string[];
   readonly exited: Promise<{ readonly code: number | null; readonly signal: string | null }>;
   terminate(): Promise<{ readonly code: number | null; readonly signal: string | null }>;
 }
+
+/**
+ * Names a pack service keeps although the pack doesn't declare them, one
+ * of each kind the contract lists, with values that don't change how a
+ * runtime starts: the process's, the platform's workload identity and
+ * metadata (Cloud Run, AWS, Azure), and the kept prefixes (`LC_`,
+ * `PYTHON`, `OTEL_`, `CLOUD_RUN_`, `CONTAINER_APP_`). `PATH` and `PORT`
+ * are always set. Static credentials (`AWS_SECRET_ACCESS_KEY`) are not
+ * among them.
+ */
+const PLATFORM_ENV_PROBES: Readonly<Record<string, string>> = {
+  HOSTNAME: 'conformance',
+  K_SERVICE: 'conformance',
+  K_REVISION: 'conformance-00001',
+  AWS_REGION: 'eu-west-1',
+  AWS_CONTAINER_CREDENTIALS_RELATIVE_URI: '/v2/credentials/conformance',
+  AWS_WEB_IDENTITY_TOKEN_FILE: '/var/run/secrets/conformance/token',
+  ECS_CONTAINER_METADATA_URI_V4: 'http://169.254.170.2/v4/conformance',
+  IDENTITY_ENDPOINT: 'http://localhost:42356/msi/token',
+  AZURE_CLIENT_ID: 'conformance',
+  AZURE_FEDERATED_TOKEN_FILE: '/var/run/secrets/azure/tokens/conformance',
+  LC_MESSAGES: 'C',
+  PYTHONDONTWRITEBYTECODE: '1',
+  OTEL_SERVICE_NAME: 'conformance',
+  CLOUD_RUN_EXECUTION: 'conformance',
+  CONTAINER_APP_NAME: 'conformance',
+};
 
 function serviceArgs(target: PackServiceTarget, indexPath: string): string[] {
   const [, ...rest] = target.command;
   return [...rest, '--index', indexPath, '--module-root', target.packDir, '--host', '127.0.0.1'];
 }
 
+/**
+ * The service's environment: `PORT=0`, `PATH`, the declared names as a
+ * built image lists them (`KINDGI_PACK_ENV_DECLARED`, which a JVM pack
+ * service's launcher reads), then the target's and the case's.
+ */
 function serviceEnv(
   target: PackServiceTarget,
+  indexPath: string,
   extra: Readonly<Record<string, string>>,
 ): Record<string, string> {
   const env: Record<string, string> = { PORT: '0' };
   if (process.env.PATH !== undefined) env.PATH = process.env.PATH;
+  const declared = declaredEnv(indexPath);
+  if (declared !== undefined) env.KINDGI_PACK_ENV_DECLARED = declared;
   return { ...env, ...target.env, ...extra };
+}
+
+/** The index's `env.required` and `env.optional`, comma-separated; undefined when it can't be read. */
+function declaredEnv(indexPath: string): string | undefined {
+  try {
+    const { env } = JSON.parse(readFileSync(indexPath, 'utf8')) as {
+      readonly env?: {
+        readonly required?: readonly string[];
+        readonly optional?: readonly string[];
+      };
+    };
+    return [...(env?.required ?? []), ...(env?.optional ?? [])].sort().join(',');
+  } catch {
+    return undefined;
+  }
 }
 
 function spawnService(
@@ -180,7 +234,7 @@ function spawnService(
   const command = target.command[0];
   if (command === undefined) throw new Error(`${target.name}: empty command`);
   const child = spawn(command, serviceArgs(target, indexPath), {
-    env: serviceEnv(target, env),
+    env: serviceEnv(target, indexPath, env),
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const events: ServiceEvent[] = [];
@@ -257,6 +311,7 @@ async function startService(
     token,
     events,
     stdout,
+    stderr,
     exited,
     async terminate() {
       if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
@@ -715,6 +770,106 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
         expect(events.map((e) => e.kind)).toContain('config-invalid');
       });
     });
+
+    describe.skipIf(target.unsupported?.includes('env-filter') === true)(
+      "the pack's environment",
+      () => {
+        const DECLARED = { optional: ['CONFORMANCE_OPTIONAL'], required: ['CONFORMANCE_A'] };
+        /** A value no line the service writes may hold. */
+        const UNDECLARED_VALUE = 'conformance-undeclared-value';
+
+        /** The fixture index with `env` declared, written beside it. */
+        async function declaredIndexPath(): Promise<string> {
+          const declared = { ...(JSON.parse(indexText) as typeof index), env: DECLARED };
+          expectValid(spec.index, declared);
+          const path = join(workDir, 'filter-index.json');
+          await writeFile(path, JSON.stringify(declared), 'utf8');
+          return path;
+        }
+
+        async function namesIn(running: RunningService): Promise<string[]> {
+          const answer = response(await invoke(running, toolCall('conformance.process-env', {})));
+          return (answer.output as { names: string[] }).names;
+        }
+
+        test("only the names the pack declares reach its code, with Kindgi's and the platform's", async () => {
+          const running = await startService(target, await declaredIndexPath(), {
+            CONFORMANCE_A: 'a',
+            CONFORMANCE_OPTIONAL: 'o',
+            CONFORMANCE_UNDECLARED: UNDECLARED_VALUE,
+            AWS_SECRET_ACCESS_KEY: UNDECLARED_VALUE,
+            KINDGI_LOG_FORMAT: 'json',
+            ...PLATFORM_ENV_PROBES,
+          });
+          try {
+            const names = await namesIn(running);
+            expect(names).toEqual(
+              expect.arrayContaining([
+                'CONFORMANCE_A',
+                'CONFORMANCE_OPTIONAL',
+                'KINDGI_LOG_FORMAT',
+                'PORT',
+                'PATH',
+                ...Object.keys(PLATFORM_ENV_PROBES),
+              ]),
+            );
+            expect(names).not.toContain('CONFORMANCE_UNDECLARED');
+            expect(names).not.toContain('AWS_SECRET_ACCESS_KEY');
+            const dropped = await waitFor(
+              () => running.events.find((e) => e.kind === 'env-dropped'),
+              SERVICE_WAIT_MS,
+              'an env-dropped line',
+            );
+            expect(dropped.names).toEqual(
+              expect.arrayContaining(['AWS_SECRET_ACCESS_KEY', 'CONFORMANCE_UNDECLARED']),
+            );
+            expect(dropped.names).not.toContain('CONFORMANCE_A');
+            expect(running.stderr.join('\n')).not.toContain(UNDECLARED_VALUE);
+          } finally {
+            await running.terminate();
+          }
+        });
+
+        test("a pack that declares nothing keeps only Kindgi's and the platform's", async () => {
+          const running = await startService(target, indexPath, {
+            CONFORMANCE_UNDECLARED: UNDECLARED_VALUE,
+            K_SERVICE: 'conformance',
+          });
+          try {
+            const names = await namesIn(running);
+            expect(names).toContain('K_SERVICE');
+            expect(names).not.toContain('CONFORMANCE_UNDECLARED');
+          } finally {
+            await running.terminate();
+          }
+        });
+
+        test('KINDGI_PACK_ENV_FILTER=off: every name reaches it, and none is dropped', async () => {
+          const running = await startService(target, await declaredIndexPath(), {
+            CONFORMANCE_A: 'a',
+            CONFORMANCE_UNDECLARED: UNDECLARED_VALUE,
+            KINDGI_PACK_ENV_FILTER: 'off',
+          });
+          try {
+            expect(await namesIn(running)).toEqual(
+              expect.arrayContaining(['CONFORMANCE_A', 'CONFORMANCE_UNDECLARED']),
+            );
+            expect(running.events.map((e) => e.kind)).not.toContain('env-dropped');
+          } finally {
+            await running.terminate();
+          }
+        });
+
+        test('KINDGI_PACK_ENV_FILTER other than on or off: exit 1 with a config-invalid line', async () => {
+          const { code, events } = await runToExit(target, indexPath, {
+            KINDGI_PACK_SERVICE_TOKEN: 'x',
+            KINDGI_PACK_ENV_FILTER: 'no',
+          });
+          expect(code).toBe(1);
+          expect(events.map((e) => e.kind)).toContain('config-invalid');
+        });
+      },
+    );
 
     describe('routes', () => {
       test('GET /healthz and /readyz need no token', async () => {

@@ -20,6 +20,17 @@ type RefusedOutcome = Exclude<
 >;
 
 /**
+ * A refusal the deploy decides itself, when its registry answered
+ * `already-registered` for a live guardrail it can't keep: one in another
+ * project (whose project the registry doesn't say), or one in its own
+ * project with a different definition.
+ */
+interface DeployRefusal {
+  readonly code: 'guardrail-project-mismatch' | 'guardrail-already-registered';
+  readonly reason: string;
+}
+
+/**
  * A deploy's primitive came back from its registry with an outcome other
  * than `ok` or `already-registered` (e.g. `project-not-found`): the deploy
  * stops, what it published is rolled back, and the route answers with
@@ -35,15 +46,22 @@ export class PublishRefused extends Error {
   /** The code the deploy answers with. */
   readonly code:
     | Exclude<RefusedOutcome['kind'], 'project-mismatch'>
-    | `${PublishedPrimitive}-project-mismatch`;
+    | `${PublishedPrimitive}-project-mismatch`
+    | DeployRefusal['code'];
   /** With `…-project-mismatch`: the project the primitive belongs to, for the log only. */
   readonly projectId?: ProjectId;
 
   constructor(
     readonly primitive: PublishedPrimitive,
     readonly id: string,
-    outcome: RefusedOutcome,
+    outcome: RefusedOutcome | DeployRefusal,
   ) {
+    if ('code' in outcome) {
+      super(`The ${primitive} ${id} wasn't published: ${outcome.reason}`);
+      this.name = 'PublishRefused';
+      this.code = outcome.code;
+      return;
+    }
     const code =
       outcome.kind === 'project-mismatch'
         ? (`${primitive}-project-mismatch` as const)

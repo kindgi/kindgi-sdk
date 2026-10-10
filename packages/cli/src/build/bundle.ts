@@ -10,9 +10,10 @@
 
 import { readdir, stat } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 import { createGlobMatcher, discoveryRoots } from '@kindgi/handler-runtime';
-import type { Plugin } from 'esbuild';
+import type { ImportKind, Plugin } from 'esbuild';
 
 export interface PackEntry {
   /** Absolute path of the primitive's source file. */
@@ -99,8 +100,8 @@ const SKIP = Symbol('kindgi-externals-resolving');
  * in one), is bundled.
  *
  * How an external is imported:
- *   - `resolved` (dev): by the absolute path esbuild resolved, so it
- *     loads the same file no matter where the bundle sits;
+ *   - `resolved` (dev): by the file esbuild resolved (`resolvedSpecifier`),
+ *     so it loads the same file no matter where the bundle sits;
  *   - `bare` (a pack image): by its specifier, which Node resolves from
  *     the bundle's folder upward into the image's own `node_modules` —
  *     the host's absolute paths don't exist there.
@@ -132,12 +133,29 @@ export function nodeModulesExternalPlugin(
         if (resolved.errors.length > 0 || resolved.external) return undefined;
         if (/[\\/]node_modules[\\/]/.test(resolved.path)) {
           onExternal?.(packageName(args.path), args.importer);
-          return { path: importBy === 'bare' ? args.path : resolved.path, external: true };
+          const path = importBy === 'bare' ? args.path : resolvedSpecifier(resolved.path, args.kind);
+          return { path, external: true };
         }
         return undefined;
       });
     },
   };
+}
+
+/**
+ * How a dev bundle names a file it imports from `node_modules`. An
+ * `import` takes a file URL: Node's ESM loader rejects a Windows path
+ * (`C:\…`) and reads a `#` or `%` in any path as URL syntax. A
+ * `require` (CommonJS code the bundle inlined) takes the path itself; it
+ * rejects a URL.
+ */
+export function resolvedSpecifier(
+  path: string,
+  kind: ImportKind,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  if (kind === 'require-call' || kind === 'require-resolve') return path;
+  return pathToFileURL(path, { windows: platform === 'win32' }).href;
 }
 
 /** `@scope/name/sub` → `@scope/name`; `name/sub` → `name`. */

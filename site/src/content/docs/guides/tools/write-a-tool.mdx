@@ -127,6 +127,11 @@ In both languages:
 - `mutating: false` declares that the tool only reads. See
   [Mark a tool read-only](../read-only-tools/).
 - What the handler logs shows in the `kindgi dev` terminal, prefixed `[pack]`.
+- Open files, databases and connections inside the handler, on first use,
+  not at the module's top level. `kindgi build` imports every tool,
+  guardrail and flow module to index it, so what a module does when it's
+  imported runs during the build too, inside an image that doesn't have your
+  app's files or services ([Build, sign and push your pack](../../../deploy/self-host/#3-build-sign-and-push-your-pack)).
 
 Save the file. `kindgi dev` indexes it and registers the tool; the next call
 runs the new code.

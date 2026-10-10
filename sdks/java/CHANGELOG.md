@@ -7,10 +7,27 @@ heading into its version.
 
 ## Unreleased
 
+- `kindgi-pack`, `kindgi-pack-scala`: **only the names a pack declares reach
+  its code.** The launcher (`kindgi-pack-java`) drops every variable the pack
+  doesn't declare before the JVM starts, keeping `KINDGI_*`, the platform's,
+  and the names in `KINDGI_PACK_ENV_DECLARED`, which `kindgi build` sets in
+  the image. The service logs the dropped names (`env-dropped`), never their
+  values, and won't start while an undeclared variable still reaches it.
+  `KINDGI_PACK_ENV_FILTER=off` keeps every variable.
 - `kindgi-pack`, `kindgi-pack-scala`: **a union of types validates**
   (`"type": ["string", "number"]`, what Zod writes for a union of scalars in a
   TypeScript tool's schema). It used to be refused as unsupported, matching the
   TypeScript pack service's old strict mode; both take it now. (#477)
+
+## 0.1.5
+
+No JVM changes; the version moves with the npm packages.
+
+## 0.1.5-rc.0
+
+- `kindgi-pack`: **on SIGTERM, the service stops taking calls before it writes
+  `draining`.** It wrote the record first, so for a moment a supervisor that
+  read it and asked `/readyz` at once could still get 200. (#471)
 - `kindgi-pack`, `kindgi-pack-scala`: **a guardrail can't ship its check under
   a built-in check's id** (`must-cite`, `never-call-tool`, `max-tool-calls`,
   `output-matches`, `tool-order`, `required-substring`,
