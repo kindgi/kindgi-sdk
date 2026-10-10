@@ -25,6 +25,9 @@
  * pack code is the team's own (trusted).
  */
 
+import { isAbsolute } from 'node:path';
+import { pathToFileURL } from 'node:url';
+
 import type { ErrorObject, ValidateFunction } from 'ajv';
 import * as addFormatsModule from 'ajv-formats';
 import { Ajv2020 } from 'ajv/dist/2020.js';
@@ -501,7 +504,17 @@ function resolveCheckEvaluate(
 }
 
 async function defaultImportCheck(modulePath: string): Promise<CheckModule> {
-  return (await import(modulePath)) as CheckModule;
+  return (await import(importSpecifier(modulePath))) as CheckModule;
+}
+
+/**
+ * A module path as `import()` takes it: an absolute file path as its
+ * `file:` URL, since Node's ESM loader refuses Windows' `C:\…` and reads a
+ * `#` in a path as a URL fragment; anything else (a URL, a package name)
+ * as given. The pack service's own importer does the same.
+ */
+function importSpecifier(modulePath: string): string {
+  return isAbsolute(modulePath) ? pathToFileURL(modulePath).href : modulePath;
 }
 
 /** The Zod input schema of a `defineTool` export (`inputZod`), when the module has one. */
@@ -537,7 +550,7 @@ function resolveHandler(module_: HandlerModule): HandlerFn | undefined {
 }
 
 async function defaultImportHandler(modulePath: string): Promise<HandlerModule> {
-  return (await import(modulePath)) as HandlerModule;
+  return (await import(importSpecifier(modulePath))) as HandlerModule;
 }
 
 function stringifyError(err: unknown): string {
