@@ -28,7 +28,7 @@ dependencies = [
 
 [project.optional-dependencies]
 # Verifying signed exports (kindgi.exports): Ed25519 isn't in the standard library.
-verify = ["cryptography>=42,<47"]
+verify = ["cryptography>=42,<51"]
 
 [project.urls]
 Homepage = "https://github.com/kindgi/kindgi-sdk/tree/main/sdks/python#readme"
@@ -45,7 +45,7 @@ dev = [
   # kindgi.webhooks against it, both ways.
   "standardwebhooks>=1.0",
   # kindgi.exports' Ed25519 (the `verify` extra), for its tests.
-  "cryptography>=42,<47",
+  "cryptography>=42,<51",
 ]
 
 [build-system]
