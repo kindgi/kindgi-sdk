@@ -131,7 +131,8 @@ read as JSON alone, saying what to add. A project with a `.cursorignore`,
 The rules stop the agent's file tools, and a plain `cat .env.local` too. A
 program its shell runs (`node -e …`, a script) can still read the files. To
 close that, turn on Claude Code's
-[sandbox](https://code.claude.com/docs/en/sandboxing) with the same files:
+[sandbox](https://code.claude.com/docs/en/sandboxing) with the same files.
+Tested with Claude Code 2.1.288:
 
 ```json
 {
