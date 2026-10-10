@@ -10,8 +10,7 @@ import type { AuditEventBinding } from '@kindgi/audit-events';
 import type { AuthzCheckBinding } from '@kindgi/authz';
 import type { AdapterFactoryRegistry } from '@kindgi/capabilities';
 import type { ComplianceEvidenceGenerator, LoadedClassifier } from '@kindgi/compliance';
-import { exportSignerFromSigningKeyBinding } from '@kindgi/crypto';
-import type { ExportSigningBinding, SigningKeyBinding } from '@kindgi/crypto';
+import type { ExportSigningBinding } from '@kindgi/crypto';
 import type { TenantHierarchyBinding } from '@kindgi/platform';
 import type {
   OrgBinding,
@@ -266,6 +265,10 @@ export interface CreateAppInput {
    *   - `/v1/compliance/*` is mounted as a view filtered to
    *     classifier-marked exportable kinds (needs
    *     `complianceClassifier` too).
+   *   - Every secret and env write through `/v1/secrets` and `/v1/env` is
+   *     recorded at the route (`secret-set`, `secret-rotated`,
+   *     `secret-revoked`, `env-set`, `env-deleted`, …): the caller as
+   *     `actor`, the request as `correlationId`, never a value.
    * Absent = no durable audit trail; every subsystem's audit
    * writes become no-ops.
    *
@@ -285,7 +288,7 @@ export interface CreateAppInput {
    * `auditEvents` + `complianceClassifier` are provided (i.e., when
    * `/v1/compliance/*` mounts). The Kindgi runtime supplies the
    * generator (or pass a bespoke implementation). The public interface
-   * has recordFromRun / exportSigned / describe; implementations may add
+   * has recordFromRun / describe; implementations may add
    * more (e.g. subscriptions), which @kindgi/api doesn't use.
    */
   readonly complianceGenerator?: ComplianceEvidenceGenerator;
@@ -476,11 +479,6 @@ export interface CreateAppInput {
    * binding.
    */
   readonly exportSigning?: ExportSigningBinding;
-  /**
-   * @deprecated Use `exportSigning`. Still read, as its Ed25519 keys
-   * (`exportSignerFromSigningKeyBinding`), when `exportSigning` isn't given.
-   */
-  readonly signingKey?: SigningKeyBinding;
   /**
    * Optional. Issue and accept public run tokens (`kgi_pt_…`):
    * short-lived, read-only tokens a browser uses to follow specific runs
@@ -1019,11 +1017,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
 
   const runBinding = input.kernelBinding.run;
-  const exportSigning =
-    input.exportSigning ??
-    (input.signingKey !== undefined
-      ? exportSignerFromSigningKeyBinding(input.signingKey)
-      : undefined);
+  const exportSigning = input.exportSigning;
   const exportOptions = {
     ...(exportSigning !== undefined && { exportSigning }),
     ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
@@ -1507,7 +1501,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // store — an in-memory reference is used when the caller doesn't
   // plug in a durable one.
   if (input.envBinding !== undefined) {
-    v1.route('/env', envRouter(input.envBinding, authorizer));
+    v1.route('/env', envRouter(input.envBinding, authorizer, input.auditEvents));
   }
   // Audit query surface. Admin-only PEP applied inside the router
   // (self-contained; no plumbing here).
@@ -1521,6 +1515,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         secretsBinding: input.secretsBinding,
         rotationStatusStore: input.rotationStatusStore ?? createInMemoryRotationStatusStore(),
         ...(authorizer !== undefined && { authorizer }),
+        ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
       }),
     );
   }

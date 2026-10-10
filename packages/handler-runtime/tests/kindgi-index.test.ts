@@ -26,7 +26,7 @@ import { RESERVED_CHECK_IDS, main, readBundleMap, runIndexer } from '../src/kind
 // Every index this suite writes must satisfy the spec (`@kindgi/specs/pack-index.schema.json`).
 const addFormats = ((addFormatsModule as { default?: unknown }).default ??
   addFormatsModule) as unknown as (ajv: Ajv2020) => void;
-const specAjv = new Ajv2020({ strict: true, allErrors: true, allowUnionTypes: false });
+const specAjv = new Ajv2020({ strict: true, allErrors: true, allowUnionTypes: true });
 addFormats(specAjv);
 const validateIndexSpec = specAjv.compile(
   JSON.parse(

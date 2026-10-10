@@ -95,7 +95,8 @@ class ToolContext:
     run_id: str
     """The kernel run this call belongs to (an agent turn or a flow step)."""
     request_id: str | None = None
-    """This call — e.g. the model's tool-call id. Useful for logs and idempotency."""
+    """This call — e.g. the model's tool-call id. Useful for logs; to dedupe a side effect, use
+    `idempotency_key` (a model's call id is only unique within one of its answers)."""
     project_id: str | None = None
     """The run's project. The runtime sets it from the run, never from the run's input or a
     model's arguments, so a tool can check an id in its input against it."""
@@ -125,6 +126,13 @@ class ToolContext:
     """A logger bound to this call: its records carry the run's ids and the caller's trace id
     (`ctx.log.info("looked up order", order_id=…)`). The pack service sets it; in a test it
     writes nothing unless you pass one. Never put a secret's value in a field."""
+    idempotency_key: str | None = None
+    """A key for this call's side effects: the same every time this call runs (its step resumed
+    after a wait, retried after a failure, or run again after a crash), different for every other
+    call. A step can run more than once, so a tool that changes something passes it to the system
+    it writes to (an `Idempotency-Key` header, a client reference, a unique column), or looks for
+    it there first. A UUID. `None` from a runtime that can't name its steps (before protocol
+    2.6.0): the call can't be deduped on it then."""
 
     @classmethod
     def for_test(
@@ -153,6 +161,7 @@ class ToolContext:
             tenant_id=str(ctx["tenantId"]),
             run_id=str(ctx["runId"]),
             request_id=text("requestId"),
+            idempotency_key=text("idempotencyKey"),
             project_id=text("projectId"),
             org_id=text("orgId"),
             env=mapping("env"),

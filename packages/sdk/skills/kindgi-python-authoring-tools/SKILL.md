@@ -103,8 +103,16 @@ def verify_citation(citation: Citation, ctx: ToolContext) -> Verdict:
 - `ctx.tenant_id` — the tenant the call is for. Key any per-tenant
   state by it.
 - `ctx.run_id` — the run (an agent turn or a flow step) the call belongs to.
-- `ctx.request_id` — this call, e.g. the model's tool-call id; useful
-  for logs and idempotency keys.
+- `ctx.request_id` — this call, e.g. the model's tool-call id; for logs.
+  A model's call id is only unique within one of its answers: don't
+  dedupe on it.
+- `ctx.idempotency_key` — the same every time this call runs (resumed,
+  retried, or run again after a crash), different for every other call. A
+  step can run more than once, so a tool that writes passes it to the
+  system it writes to (an `Idempotency-Key` header, a client reference, a
+  unique column) or looks for it there first: a refund never goes out
+  twice. A UUID; `None` outside a run and from a runtime before 0.1.6.
+  Docs: https://docs.kindgi.com/v0.1/guides/tools/write-a-tool/#make-a-side-effect-happen-once
 - `ctx.project_id`, `ctx.org_id` — the run's project, and that project's
   org (`None` when it has none). The runtime sets them from the run, never
   from the input: to check an org or project id the input names, compare

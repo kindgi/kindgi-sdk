@@ -104,9 +104,28 @@ export interface EmitLifecycleEventInput {
   readonly errorCode?: string;
   readonly hard?: boolean;
   readonly reason?: string;
+  /** A secret set's mode: a new secret, or a new version of one. */
+  readonly writeMode?: 'create-new' | 'add-version';
+  /** An asynchronous rotation's id (`secret-rotation-started`). */
+  readonly rotationId?: string;
+  /**
+   * The backend dropped a revoked secret's stored values to set it again
+   * (a provider that keeps them for a recovery window): the record says
+   * their retention ended here.
+   */
+  readonly revokedValuesPurged?: true;
+  /**
+   * Who did it, as the API names its caller (`user:<id>`,
+   * `service_account:<id>`, `session:<id>`, `token:<hash>`). Absent: from
+   * `resolveContext`, as a binding emits.
+   */
+  readonly actor?: string;
+  /** The request it came from (the API's `requestId`). */
+  readonly correlationId?: string;
   readonly auditEvents: AuditEventBinding;
   readonly tenantId: TenantId;
-  readonly projectId: ProjectId;
+  /** The project, for a project-scoped value; absent for a tenant- or org-scoped one. */
+  readonly projectId?: ProjectId;
 }
 
 /**
@@ -118,14 +137,18 @@ export interface EmitLifecycleEventInput {
 export async function emitLifecycleEvent(input: EmitLifecycleEventInput): Promise<void> {
   const payload = buildLifecyclePayload(input);
   const actor =
-    input.resolveContext !== undefined ? actorFromResolveContext(input.resolveContext) : undefined;
+    input.actor ??
+    (input.resolveContext !== undefined
+      ? actorFromResolveContext(input.resolveContext)
+      : undefined);
   const event = buildEvent({
     tenantId: input.tenantId,
-    projectId: input.projectId,
+    ...(input.projectId !== undefined && { projectId: input.projectId }),
     kind: input.evidenceKind,
     outcome: input.outcome,
     actor,
     runId: input.resolveContext?.runId,
+    ...(input.correlationId !== undefined && { correlationId: input.correlationId }),
     payload,
   });
   await safeEmit(input.auditEvents, event);
@@ -137,11 +160,12 @@ export async function emitLifecycleEvent(input: EmitLifecycleEventInput): Promis
 
 interface BuildEventInput {
   readonly tenantId: TenantId;
-  readonly projectId: ProjectId;
+  readonly projectId?: ProjectId;
   readonly kind: string;
   readonly outcome: string;
   readonly actor: string | undefined;
   readonly runId: string | undefined;
+  readonly correlationId?: string;
   readonly payload: Readonly<Record<string, unknown>>;
 }
 
@@ -149,12 +173,13 @@ function buildEvent(input: BuildEventInput): AuditEvent {
   return {
     id: randomUUID(),
     tenantId: input.tenantId,
-    projectId: input.projectId,
+    ...(input.projectId !== undefined && { projectId: input.projectId }),
     kind: input.kind,
     timestamp: new Date().toISOString() as unknown as Timestamp,
     actor: input.actor ?? 'user:system',
     outcome: input.outcome,
     ...(input.runId !== undefined && { runId: input.runId }),
+    ...(input.correlationId !== undefined && { correlationId: input.correlationId }),
     payload: { v: 1, doc: input.payload },
   };
 }
@@ -250,6 +275,9 @@ function buildLifecyclePayload(input: EmitLifecycleEventInput): Readonly<Record<
   if (input.errorCode !== undefined) payload.errorCode = input.errorCode;
   if (input.hard !== undefined) payload.hard = input.hard;
   if (input.reason !== undefined) payload.reason = input.reason;
+  if (input.writeMode !== undefined) payload.writeMode = input.writeMode;
+  if (input.rotationId !== undefined) payload.rotationId = input.rotationId;
+  if (input.revokedValuesPurged === true) payload.revokedValuesPurged = true;
   if (input.resolveContext?.nodeId !== undefined) payload.nodeId = input.resolveContext.nodeId;
   if (input.resolveContext?.runId !== undefined) payload.runId = input.resolveContext.runId;
   return payload;

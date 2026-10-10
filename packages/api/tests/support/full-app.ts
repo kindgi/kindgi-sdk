@@ -83,7 +83,6 @@ const complianceClassifier: LoadedClassifier = {
 };
 const complianceGenerator = createStubBinding<ComplianceEvidenceGenerator>('complianceGenerator', {
   recordFromRun: true,
-  exportSigned: true,
   describe: true,
 });
 export const noopResolveToken: TokenResolver = async () => ({ tenantId: 't' as TenantId });

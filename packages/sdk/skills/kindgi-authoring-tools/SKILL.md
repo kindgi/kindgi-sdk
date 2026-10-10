@@ -112,6 +112,7 @@ The handler gets the **parsed** input, typed `z.infer` of `input` (Zod's output 
 - **Transforms and refinements.** `.transform()` results and `.refine()` checks apply before the handler runs. A failed refinement comes back as `input-validation-failed`.
 - **Extra keys.** A plain `z.object` accepts them and strips them. Use `z.strictObject` to reject them.
 - **JSON-Schema-authored tools** get each property's `default` filled in the same way.
+- **Unions of scalars** (`z.union([z.string(), z.number()])`, `type: ['string', 'number']` on the wire) compile and validate. A schema Kindgi's strict schema check still refuses (an open tuple, an unknown keyword) says so at `defineTool`; for a field that may hold any JSON value, `z.json()` compiles.
 
 The output side is the reverse: the advertised output schema requires every field, defaulted ones included. Return them all.
 
@@ -220,6 +221,8 @@ A tool that writes also says what it writes, in `effects`, beside `mutating: tru
 ```
 
 The kinds are `reads`, `writes`, `deletes`, `network`, `spawns-run`, `emits-event`, `external-side-effect` and `sensitive-data-egress` (`EFFECT_KINDS` in `@kindgi/tools`); `defineTool` refuses any other. `resource` is free text naming what the tool touches. A read-only tool keeps `effects: []`.
+
+A step can run more than once (resumed after an approval, retried after a failure, run again after a crash), so a tool that writes uses `ctx.idempotencyKey`: the same every time this call runs, different for every other call. Pass it to the system you write to (an `Idempotency-Key` header, a client reference, a unique column) or look for it there first, and a refund never goes out twice. Not `ctx.requestId`: a model's call id is only unique within one of its answers. The key is absent outside a run and from a runtime before 0.1.6. Docs: https://docs.kindgi.com/v0.1/guides/tools/write-a-tool/#make-a-side-effect-happen-once
 
 ## Tool id convention
 
