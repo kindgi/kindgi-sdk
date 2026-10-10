@@ -50,7 +50,8 @@ createServer(async (req, res) => {
 
   const read = parseEvent(body);
   if (read.kind !== 'ok') {
-    // A newer runtime's event type (`unknown-type`): take it and leave it, or it's retried.
+    // Signed, but this version can't read it (most likely a newer runtime's event type):
+    // take it and leave it; a retry wouldn't read any better.
     console.log('skipped:', read.reason, read.message);
     res.writeHead(204).end();
     return;
