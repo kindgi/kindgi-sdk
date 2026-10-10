@@ -3,6 +3,7 @@
 
 import { Hono } from 'hono';
 
+import type { AuditEventBinding } from '@kindgi/audit-events';
 import { tuplesForCreate } from '@kindgi/authz';
 import type { Scope } from '@kindgi/platform';
 import type { Cursor, EnvName, TenantId } from '@kindgi/types';
@@ -17,10 +18,12 @@ import type {
   SecretVersionRecord,
 } from '../secrets-binding.js';
 import type { AppEnv } from '../types.js';
-import { hasCapability, requireEnvName, requireScope, scopesEqual } from './env.js';
+import { capabilityRefusal } from './denied.js';
+import { requireEnvName, requireScope, scopesEqual } from './env.js';
 import { clampLimit } from './pagination.js';
 import { queryScopeResourceRef, scopeResourceRef } from './scope-params.js';
 import { parseTimeInput } from './time-input.js';
+import { auditWrite } from './write-audit.js';
 
 /**
  * `/v1/secrets/*` — HTTP surface for `SecretBinding`. Nine endpoints
@@ -67,10 +70,17 @@ export interface SecretsRouterOptions {
    * by `secretsBinding.set` on fresh create.
    */
   readonly authorizer?: Authorizer;
+  /**
+   * Where each set, rotation and revoke is recorded (`secret-set`,
+   * `secret-rotated`, `secret-rotation-started`, `secret-rotation-failed`,
+   * `secret-revoked`, `secret-hard-revoked`): the caller, the scope, the
+   * request and the backend's answer, never a value. Absent: none.
+   */
+  readonly auditEvents?: AuditEventBinding;
 }
 
 export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
-  const { secretsBinding, rotationStatusStore, authorizer } = options;
+  const { secretsBinding, rotationStatusStore, authorizer, auditEvents } = options;
   const heartbeatMs = options.sseHeartbeatMs ?? 15_000;
   const r = new Hono<AppEnv>();
 
@@ -299,19 +309,8 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
 
-    if (!hasCapability(c, 'secrets:write')) {
-      c.status(statusFor('permission-denied') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'permission-denied',
-            message:
-              'Bearer token is missing the `secrets:write` capability required for this route.',
-          },
-          requestId,
-        ),
-      );
-    }
+    const missing = capabilityRefusal(c, authorizer, 'secrets:write');
+    if (missing !== undefined) return missing;
 
     let body: unknown;
     try {
@@ -425,7 +424,23 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
         tuplesForCreate({ kind: 'secret', id: secretRowId, tenantId, scope: setScope }),
     });
 
+    const setAudit = {
+      kind: 'secret-set',
+      scope: setScope,
+      envName: envNameResult.envName,
+      name: b.name,
+      writeMode: b.writeMode,
+    } as const;
     if (outcome.kind === 'ok') {
+      // A backend that dropped a revoked secret's stored values to set it
+      // again says so (`revokedValuesPurged`): the record keeps it.
+      const purged = (outcome as { readonly revokedValuesPurged?: true }).revokedValuesPurged;
+      await auditWrite(c, auditEvents, {
+        ...setAudit,
+        outcome: 'succeeded',
+        version: outcome.versionId,
+        ...(purged === true && { revokedValuesPurged: true }),
+      });
       // Freshly-created secrets return 201 (`create-new` path); every
       // subsequent version of an existing secret returns 200 (`add-version`).
       const status = b.writeMode === 'create-new' ? 201 : 200;
@@ -434,6 +449,15 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
         record: serializeSecretRecord(outcome.record),
         versionId: outcome.versionId,
       });
+    }
+    if (outcome.kind === 'already-exists' || outcome.kind === 'version-conflict') {
+      await auditWrite(c, auditEvents, {
+        ...setAudit,
+        outcome: 'failed',
+        errorCode: 'secret-write-conflict',
+      });
+    } else {
+      await auditWrite(c, auditEvents, { ...setAudit, outcome: 'failed', errorCode: outcome.code });
     }
     if (outcome.kind === 'already-exists') {
       c.status(statusFor('secret-write-conflict') as never);
@@ -472,19 +496,8 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
     const tenantId = c.get('tenantId') as TenantId;
     const name = c.req.param('name');
 
-    if (!hasCapability(c, 'secrets:rotate')) {
-      c.status(statusFor('permission-denied') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'permission-denied',
-            message:
-              'Bearer token is missing the `secrets:rotate` capability required for this route.',
-          },
-          requestId,
-        ),
-      );
-    }
+    const missing = capabilityRefusal(c, authorizer, 'secrets:rotate');
+    if (missing !== undefined) return missing;
 
     let body: unknown = {};
     const raw = await c.req.text();
@@ -564,7 +577,14 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
       ...(b.revokeOldAfterMs !== undefined && { revokeOldAfterMs: b.revokeOldAfterMs as number }),
     });
 
+    const rotateAudit = { scope, envName: envNameResult.envName, name } as const;
     if (result.kind === 'err') {
+      await auditWrite(c, auditEvents, {
+        ...rotateAudit,
+        kind: 'secret-rotation-failed',
+        outcome: 'failed',
+        errorCode: result.error.code,
+      });
       c.status(statusFor(result.error.code) as never);
       return c.json(
         toWireError({ code: result.error.code, message: result.error.message, name }, requestId),
@@ -572,6 +592,13 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
     }
 
     if (result.value.kind === 'ok') {
+      await auditWrite(c, auditEvents, {
+        ...rotateAudit,
+        kind: 'secret-rotated',
+        outcome: 'succeeded',
+        version: result.value.newVersionId,
+        previousVersion: result.value.oldVersionId,
+      });
       // Sync provider — 201 Created inline.
       c.status(201 as never);
       return c.json({
@@ -595,6 +622,13 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
     const query = encodeStatusQuery(scope, envNameResult.envName);
     const statusUrl = `/v1/secrets/${encodeURIComponent(name)}/rotations/${rotationId}?${query}`;
     const eventsUrl = `/v1/secrets/${encodeURIComponent(name)}/rotations/${rotationId}/events?${query}`;
+    // Its end is recorded where it completes, not here.
+    await auditWrite(c, auditEvents, {
+      ...rotateAudit,
+      kind: 'secret-rotation-started',
+      outcome: 'succeeded',
+      rotationId,
+    });
     c.status(202 as never);
     return c.json({ kind: 'async', rotationId, statusUrl, eventsUrl });
   });
@@ -774,18 +808,8 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
     const hardFlag = c.req.query('hard') === 'true';
 
     const requiredCap = hardFlag ? 'secrets:revoke:hard' : 'secrets:revoke';
-    if (!hasCapability(c, requiredCap)) {
-      c.status(statusFor('permission-denied') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'permission-denied',
-            message: `Bearer token is missing the \`${requiredCap}\` capability required for this route.`,
-          },
-          requestId,
-        ),
-      );
-    }
+    const missing = capabilityRefusal(c, authorizer, requiredCap);
+    if (missing !== undefined) return missing;
 
     const envNameResult = requireEnvName(c.req.query('envName'));
     if (envNameResult.kind === 'err') {
@@ -811,11 +835,28 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
       ...(reason !== undefined && reason.length > 0 && { reason }),
     });
 
+    const revokeAudit = {
+      kind: hardFlag ? 'secret-hard-revoked' : 'secret-revoked',
+      scope: scopeResult.scope,
+      envName: envNameResult.envName,
+      name,
+      ...(hardFlag && { hard: true }),
+      ...(reason !== undefined && reason.length > 0 && { reason }),
+    } as const;
     if (outcome.kind === 'err') {
+      await auditWrite(c, auditEvents, {
+        ...revokeAudit,
+        outcome: 'failed',
+        errorCode: outcome.error.code,
+      });
       c.status(statusFor(outcome.error.code) as never);
       return c.json(
         toWireError({ code: outcome.error.code, message: outcome.error.message, name }, requestId),
       );
+    }
+    // Only a revoke that changed something is recorded.
+    if (outcome.value.revoked) {
+      await auditWrite(c, auditEvents, { ...revokeAudit, outcome: 'succeeded' });
     }
     return c.json({ revoked: outcome.value.revoked, hard: outcome.value.hard });
   });

@@ -20,6 +20,9 @@ public final class Context {
         if (ctx.requestId() != null) {
           out.put("requestId", ctx.requestId());
         }
+        if (ctx.idempotencyKey() != null) {
+          out.put("idempotencyKey", ctx.idempotencyKey());
+        }
         if (ctx.projectId() != null) {
           out.put("projectId", ctx.projectId());
         }

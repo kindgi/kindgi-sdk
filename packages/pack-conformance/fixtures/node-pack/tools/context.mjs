@@ -12,6 +12,7 @@ export default {
     tenantId: ctx.tenantId,
     runId: ctx.runId,
     ...(ctx.requestId !== undefined && { requestId: ctx.requestId }),
+    ...(ctx.idempotencyKey !== undefined && { idempotencyKey: ctx.idempotencyKey }),
     ...(ctx.projectId !== undefined && { projectId: ctx.projectId }),
     ...(ctx.orgId !== undefined && { orgId: ctx.orgId }),
     env: ctx.env ?? {},

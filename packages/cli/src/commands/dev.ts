@@ -926,6 +926,9 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   let watchTicks = 0;
   let lastWatchOutcome: IndexResult | undefined;
   let lastWatchReport: RegistrationReport | undefined;
+  // The warnings the last load showed: a reload prints only the new ones
+  // (a renamed check's is new), so a save doesn't repeat them all.
+  let shownWarnings = warningsOf(bootIndex);
   // Refresh ticks still running. Shutdown drains these so a tick never
   // registers against a server that is already shutting down.
   const inFlightTicks = new Set<Promise<void>>();
@@ -955,15 +958,19 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
             packDir: args.packDir,
           });
           lastWatchReport = report;
+          const warnings = warningsOf(outcome);
           emitWatchTick({
             elapsedMs: Date.now() - startedAt,
             counts: outcome.counts,
             fileErrors: outcome.fileErrors,
+            warnings: warningsSince(shownWarnings, warnings),
             registered: report.registered.length,
             failed: report.failed,
           });
+          shownWarnings = warnings;
         } else if (outcome.code === 'discovery-empty') {
           lastWatchReport = undefined;
+          shownWarnings = new Set();
           emitProgress('  (no primitives yet)');
         } else {
           lastWatchReport = undefined;
@@ -1491,6 +1498,7 @@ function emitBootIndex(
   for (const e of bootIndex.fileErrors) {
     emitProblem(`  ⚠ indexer: ${e.filePath ?? '?'} [${e.code}] ${e.message}`);
   }
+  for (const w of bootIndex.warnings ?? []) emitProblem(`  ⚠ ${w.message}`);
   for (const f of bootReport.failed) {
     emitProblem(`  ⚠ ${f.kind}: ${f.id} — ${f.message ?? 'unknown reason'}`);
   }
@@ -1619,6 +1627,8 @@ function emitWatchTick(input: {
     readonly message: string;
     readonly filePath?: string;
   }[];
+  /** What the pack should change but that doesn't stop it loading. */
+  readonly warnings: WarningsSince;
   readonly registered: number;
   readonly failed: readonly {
     readonly kind: string;
@@ -1626,10 +1636,11 @@ function emitWatchTick(input: {
     readonly message?: string;
   }[];
 }): void {
-  const { counts, fileErrors, failed, elapsedMs, registered } = input;
+  const { counts, fileErrors, failed, elapsedMs, registered, warnings } = input;
   const totals = `${counts.tools} tools, ${counts.guardrails} guardrails, ${counts.agents} agents, ${counts.flows} flows`;
   if (fileErrors.length === 0 && failed.length === 0) {
     emitProgress(`  ✓ loaded ${registered} primitives (${totals}) in ${elapsedMs}ms`);
+    emitWarningsSince(warnings);
     return;
   }
   emitProblem(
@@ -1641,6 +1652,30 @@ function emitWatchTick(input: {
   for (const f of failed) {
     emitProblem(`    ✗ ${f.kind}: ${f.id} — ${f.message ?? 'unknown reason'}`);
   }
+  emitWarningsSince(warnings);
+}
+
+/** A load's warnings, by message (an indexer that reports none, or a failed load, has none). */
+function warningsOf(result: IndexResult): ReadonlySet<string> {
+  return new Set(result.kind === 'ok' ? (result.warnings ?? []).map((w) => w.message) : []);
+}
+
+/** A reload's warnings: the ones the last load didn't show, and how many it did that still stand. */
+interface WarningsSince {
+  readonly fresh: readonly string[];
+  readonly standing: number;
+}
+
+function warningsSince(shown: ReadonlySet<string>, now: ReadonlySet<string>): WarningsSince {
+  const fresh = [...now].filter((m) => !shown.has(m));
+  return { fresh, standing: now.size - fresh.length };
+}
+
+/** The new warnings in full, the standing ones as one line: a save doesn't repeat them. */
+function emitWarningsSince({ fresh, standing }: WarningsSince): void {
+  for (const m of fresh) emitProblem(`    ⚠ ${m}`);
+  if (standing === 1) emitProblem('    ⚠ 1 warning from the last load still applies');
+  if (standing > 1) emitProblem(`    ⚠ ${standing} warnings from the last load still apply`);
 }
 
 /**

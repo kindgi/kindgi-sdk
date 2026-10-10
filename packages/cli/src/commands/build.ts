@@ -839,6 +839,7 @@ async function prepareNodeContext(
     `    ✓ ${localIndex.counts.tools} tools, ${localIndex.counts.guardrails} guardrails, ` +
       `${localIndex.counts.agents} agents, ${localIndex.counts.flows} flows indexed`,
   );
+  printIndexWarnings(localIndex, lines);
 
   // ---- 3. Containerfile + context --------------------------------------
   const containerfilePath = join(args.outDir, 'Containerfile');
@@ -971,6 +972,7 @@ async function preparePythonContext(
     `    ✓ ${localIndex.counts.tools} tools, ${localIndex.counts.guardrails} guardrails, ` +
       `${localIndex.counts.agents} agents, ${localIndex.counts.flows} flows discovered`,
   );
+  printIndexWarnings(localIndex, lines);
 
   const packFiles = await collectPythonContextFiles(args.packDir);
   if (packFiles.kind === 'error') return failure(`${packFiles.message}\n`);
@@ -1078,6 +1080,7 @@ async function prepareJvmContext(
     `    ✓ ${localIndex.counts.tools} tools, ${localIndex.counts.guardrails} guardrails, ` +
       `${localIndex.counts.agents} agents, ${localIndex.counts.flows} flows discovered`,
   );
+  printIndexWarnings(localIndex, lines);
 
   const packFiles =
     language === 'java'
@@ -1402,4 +1405,12 @@ async function isFile(path: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/** The indexer's warnings, a line each: what the pack should change, though it builds as it is. */
+function printIndexWarnings(
+  result: { readonly warnings?: readonly { readonly message: string }[] },
+  lines: (s: string) => void,
+): void {
+  for (const w of result.warnings ?? []) lines(`    ⚠ ${w.message}`);
 }

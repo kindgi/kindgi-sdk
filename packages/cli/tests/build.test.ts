@@ -1166,6 +1166,29 @@ describe('kindgi build --local', () => {
     expect(fixtures.state.dockerBuilds).toHaveLength(0);
   });
 
+  test('an indexer warning is printed and the pack still builds', async () => {
+    const message =
+      'guardrails/cites.ts: check "cites" doesn\'t start with this pack\'s id ("my-pack."). Name it "my-pack.checks.<name>" so it can\'t collide with another pack\'s check in the same tenant. The pack builds as it is.';
+    const fixtures = makeFixtures({
+      indexOutcome: {
+        kind: 'ok',
+        packId: 'my-pack',
+        packVersion: '0.1.0',
+        counts: { tools: 1, guardrails: 1, agents: 0, flows: 0 },
+        fileErrors: [],
+        warnings: [{ code: 'check-id-unprefixed', message, filePath: 'guardrails/cites.ts' }],
+        index: SAMPLE_INDEX,
+      } as LocalIndexResult,
+    });
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: {} }, { environments: {} }),
+      argv: ['build', '--local', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(0);
+    expect(`${out.stdout}${out.stderr}`).toContain(`⚠ ${message}`);
+    expect(fixtures.state.dockerBuilds).toHaveLength(1);
+  });
+
   test("the app's registry config reaches the install as a build secret", async () => {
     await writeFile(join(packDir, '.npmrc'), '//registry.example.com/:_authToken=x\n', 'utf8');
     const fixtures = makeFixtures();
