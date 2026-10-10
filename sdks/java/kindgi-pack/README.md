@@ -177,6 +177,12 @@ public static final Flow FLOW = Flow.define("acme.record")
     .build();
 ```
 
+A guardrail ships its check, so its check id (`checkId`, else the guardrail's
+id) can't be a built-in check's (`must-cite`, `never-call-tool`,
+`max-tool-calls`, … in `Guardrail.RESERVED_CHECK_IDS`): the runtime runs the
+built-in for a guardrail naming one. `check(…)` refuses it, saying to rename
+your check, and the indexer reports the file.
+
 An agent or a flow takes any other field of its schema with
 `set(field, value)`. A node or an edge with more than `toolNode`, `agentNode`
 or `edge(id, from, to)` say is a map, as the flow schema describes it: a node
@@ -272,8 +278,9 @@ one line for tools to read.
 The service runs the process contract every pack service does: `PORT`,
 `KINDGI_PACK_SERVICE_TOKEN`, `KINDGI_PACK_SERVICE_MAX_CONCURRENCY` (32),
 `KINDGI_PACK_ENV_CHECK` (`strict` or `warn`), and log records on stderr.
-SIGTERM drains in-flight calls for up to 8 seconds and exits 0. It passes the
-same conformance suite as the TypeScript and Python services
+SIGTERM drains in-flight calls for up to 8 seconds and exits 0: from the
+`draining` record on, `/readyz` and new calls answer 503 (with `Retry-After`),
+so a load balancer stops sending calls. It passes the same conformance suite as the TypeScript and Python services
 (`packages/pack-conformance`).
 
 **Logging:** the service writes the same log records as the TypeScript and

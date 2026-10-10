@@ -72,6 +72,8 @@ export interface FlowRegistryBinding {
    * well-formed `Flow`. Bindings MAY reject with `already-registered`
    * when the same `(flowId, version)` is re-published; the route maps
    * that to `409`.
+   * A version of a flow whose versions live in another project is
+   * `project-mismatch` (flows never move between projects; `409 flow-project-mismatch`).
    */
   publish(input: FlowPublishInput): Promise<FlowPublishOutcome>;
   /**
@@ -93,6 +95,11 @@ export interface FlowRegistryBinding {
 export type FlowVersionRecord = Flow & {
   /** ISO-8601; present only on an unregistered version. */
   readonly unregisteredAt?: string;
+  /**
+   * The project the version belongs to, when the store records it: a
+   * deploy into another project is refused even when it writes nothing.
+   */
+  readonly projectId?: ProjectId;
 };
 
 export interface FlowListInput {
@@ -208,6 +215,18 @@ export type FlowPublishOutcome =
       readonly kind: 'project-not-found';
       readonly flowId: FlowId;
       readonly version: string;
+      readonly projectId: ProjectId;
+    }
+  | {
+      /**
+       * The flow's versions live in another project: a flow belongs to
+       * the project its first version was published into, and never
+       * moves. Nothing is written (the route answers `409 flow-project-mismatch`).
+       */
+      readonly kind: 'project-mismatch';
+      readonly flowId: FlowId;
+      readonly version: string;
+      /** The project the flow belongs to. */
       readonly projectId: ProjectId;
     };
 

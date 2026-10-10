@@ -167,6 +167,7 @@ export type {
 } from './reviewer-binding.js';
 export type {
   Approval,
+  ApprovalPosition,
   ApprovalStatus,
   HitlBinding,
   HitlBindingError,

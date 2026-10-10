@@ -7,6 +7,24 @@ heading into its version.
 
 ## Unreleased
 
+## 0.1.5
+
+No JVM changes; the version moves with the npm packages.
+
+## 0.1.5-rc.0
+
+- `kindgi-pack`: **on SIGTERM, the service stops taking calls before it writes
+  `draining`.** It wrote the record first, so for a moment a supervisor that
+  read it and asked `/readyz` at once could still get 200. (#471)
+- `kindgi-pack`, `kindgi-pack-scala`: **a guardrail can't ship its check under
+  a built-in check's id** (`must-cite`, `never-call-tool`, `max-tool-calls`,
+  `output-matches`, `tool-order`, `required-substring`,
+  `forbidden-substring`). The runtime runs the built-in for a guardrail naming
+  one, so the pack's check would be silently replaced. `Guardrail.Builder.check`
+  (Scala: `check`) refuses it, saying to rename the check; the indexer reports
+  the file. `Guardrail.RESERVED_CHECK_IDS` lists them, and a test holds it
+  equal to `@kindgi/guardrails`' built-in checks, as the TypeScript and Python
+  pack SDKs do. (#461)
 - `kindgi-pack`, `kindgi-pack-scala`: **Jackson 2.18.11 or later.** kindgi-pack's
   Jackson (core, databind, annotations, jdk8, jsr310) and the Scala layer's
   jackson-module-scala move from 2.15.4 to 2.18.11, which fixes advisories that

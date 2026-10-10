@@ -69,14 +69,15 @@ export function rememberTarget(scope: RememberScope, run: RememberRun): Remember
   const ok = (to: MemoryScope): RememberTarget => ({ kind: 'ok', scope: to, subjects });
   switch (scope) {
     case 'same-user':
+      // The end user, named. Never the user the run acts for: a credential
+      // that serves many people is one user for all of them.
       if (run.participantId !== undefined) {
         return ok({ ...inProject, participantId: run.participantId });
       }
-      if (run.userId !== undefined) return ok({ ...inProject, userId: run.userId });
       return {
         kind: 'refused',
         reason:
-          'Not remembered: this conversation names no end user and the run acts for no user, so there is no one to remember it for.',
+          'Not remembered: this conversation names no end user (`participantId`), so there is no one to remember it for.',
       };
     case 'same-conversation':
       return ok({ ...inProject, threadId: run.conversationId as unknown as ThreadId });
