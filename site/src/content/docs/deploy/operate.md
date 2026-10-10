@@ -432,6 +432,8 @@ and what's different after:
   `KINDGI_RUN_ENDED_CHECK_MS` of a cancel (5 s by default).
 - **Cancelling a flow while it runs a loop stops the loop:** no more of its
   steps start after the cancel.
+- **Two runtime instances starting at once no longer deadlock or race on
+  migrations:** one waits until the other's migrations finish.
 - **Safari signs in to `kindgi dev`'s console.** Under `kindgi dev` on
   `http://localhost` or `127.0.0.1`, the session cookie is a plain one,
   since Safari keeps a `Secure` cookie only over `https`. A deployment's
