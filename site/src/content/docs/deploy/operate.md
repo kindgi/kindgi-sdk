@@ -309,7 +309,26 @@ Nothing starts and nothing is written, and they print names and ids, never a val
 | --- | --- |
 | `provider-keys` | Each tool version, MCP endpoint and webhook endpoint that names a model provider's key. A model provider's key is used by its provider only, so from 0.1.6 they're refused: a tool's calls fail with `provider-key-refused`, and so do an MCP endpoint's connections and a webhook endpoint's deliveries. For each, store the key it needs under its own name (the same value is fine), name that instead, and deploy or register it again. See [Give a tool a secret](../../guides/tools/give-a-tool-a-secret/#a-model-providers-key-isnt-a-tools). |
 
-The runtime logs the same at every start, one `WARN` per tool version or endpoint: `provider-key-declared tenant=<id> tool=<id>@<version> secret=<name> provider=<id>`.
+Here `check provider-keys` runs on a 0.1.5 database where a tool and an MCP endpoint name Anthropic's key (exit `1`):
+
+```text
+provider-keys: 2 name a model provider's key (1 tenant checked):
+  tenant=… mcp-endpoint=acme.docs secret=ANTHROPIC_API_KEY provider=anthropic
+  tenant=… tool=acme.summarize@1.0.0 secret=ANTHROPIC_API_KEY provider=anthropic
+A model provider's key is used by its provider only: these are refused. For each, store the key it needs under its own name (the same value is fine), name that instead, and deploy or register it again.
+```
+
+After each got a key of its own, the same run finds nothing (exit `0`):
+
+```text
+provider-keys: nothing names a model provider's key (1 tenant checked).
+```
+
+The runtime logs the same at every start, one `WARN` per tool version or endpoint (`docker logs kindgi-server`). Here it's for another tool registered on 0.1.5 with Anthropic's key, `acme.translate`:
+
+```json
+{"time":"2026-10-10T10:15:40.130Z","level":"warn","severity":"WARNING","subsystem":"providers.keys","message":"provider-key-declared tenant=… tool=acme.translate@1.0.0 secret=ANTHROPIC_API_KEY provider=anthropic: a model provider's key is used by its provider only, so this tool's calls are refused. Store the key it needs under its own name and use that name","tenantId":"…","kind":"tool","id":"acme.translate","version":"1.0.0","secretName":"ANTHROPIC_API_KEY","providerId":"anthropic"}
+```
 
 ### From 0.1.4 to 0.1.5
 
