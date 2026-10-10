@@ -7,6 +7,15 @@ heading into its version.
 
 ## Unreleased
 
+## 0.1.5
+
+No JVM changes; the version moves with the npm packages.
+
+## 0.1.5-rc.0
+
+- `kindgi-pack`: **on SIGTERM, the service stops taking calls before it writes
+  `draining`.** It wrote the record first, so for a moment a supervisor that
+  read it and asked `/readyz` at once could still get 200. (#471)
 - `kindgi-pack`, `kindgi-pack-scala`: **a guardrail can't ship its check under
   a built-in check's id** (`must-cite`, `never-call-tool`, `max-tool-calls`,
   `output-matches`, `tool-order`, `required-substring`,

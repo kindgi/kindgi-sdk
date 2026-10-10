@@ -32,12 +32,15 @@ const USER_1 = 'user-1-token';
 const USER_2 = 'user-2-token';
 const APP_KEY = 'app-key-token';
 const ADMIN = 'admin-token';
+/** A key limited to project B, of a user who also reads project A and org A. */
+const KEY_B = 'key-b-token';
 
 const resolveToken: TokenResolver = async (token) => {
   if (token === USER_1) return { tenantId, userId: 'user-1' as UserId };
   if (token === USER_2) return { tenantId, userId: 'user-2' as UserId };
   if (token === APP_KEY) return { tenantId, tokenId: 'key-1' as never };
   if (token === ADMIN) return { tenantId, userId: 'admin-1' as UserId };
+  if (token === KEY_B) return { tenantId, userId: 'multi-1' as UserId, tokenProjectId: projectB };
   return null;
 };
 
@@ -47,6 +50,7 @@ const GRANTS: Readonly<Record<string, readonly string[]>> = {
   'user-2': [],
   'key-1': [`read project:${projectA}`, `write project:${projectA}`],
   'admin-1': [`admin tenant:${tenantId}`],
+  'multi-1': [`read project:${projectA}`, `read project:${projectB}`, `read org:${orgA}`],
 };
 
 function holder(principal: unknown): string {
@@ -205,6 +209,16 @@ describe('API — memory readers', () => {
     // `read org` isn't granted to the key, so the listing gives no org.
     expect(await visibleNames(h, APP_KEY)).toEqual(['participant', 'projectA', 'tenant', 'thread']);
     expect(h.projectLists).toEqual([]);
+  });
+
+  test.each([
+    ['listing', withList],
+    ['checking', checkOnly],
+  ])("a key limited to a project reads only that project's facts (%s)", async (_, authz) => {
+    const h = harness(authz);
+    await seed(h);
+    // Not project A's, nor org A's org-wide facts, though its user may read both.
+    expect(await visibleNames(h, KEY_B)).toEqual(['projectB', 'tenant']);
   });
 
   test('every read hands the binding the readers; the reference guard agrees', async () => {

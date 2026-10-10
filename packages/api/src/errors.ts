@@ -94,6 +94,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'tool-already-registered': 409,
   'tool-project-mismatch': 409,
   'guardrail-already-registered': 409,
+  // A deploy's guardrail id is live in another project: a deploy never takes it.
+  'guardrail-project-mismatch': 409,
   'guardrail-config-invalid': 422,
   'flow-already-registered': 409,
   'flow-project-mismatch': 409,
