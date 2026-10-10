@@ -7319,43 +7319,6 @@ class LogoutResult(BaseModel):
     revoked: bool
 
 
-class UserRecord(BaseModel):
-    """
-    Tenant-scoped user record (admin plane). `primaryEmail` may be redacted on the wire based on tenant policy (the routes treat it as opaque). `metadata` is free-form JSON — deployments carry IdP claims / provisioning source / roles here.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    user_id: Annotated[str, Field(alias="userId")]
-    tenant_id: Annotated[UUID, Field(alias="tenantId")]
-    primary_email: Annotated[str | None, Field(alias="primaryEmail")] = None
-    display_name: Annotated[str | None, Field(alias="displayName")] = None
-    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
-    last_active_at: Annotated[AwareDatetime | None, Field(alias="lastActiveAt")] = None
-    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
-    """
-    When they were removed from the tenant (`POST /v1/identity/users/{userId}/unregister`); absent while they are here.
-    """
-    metadata: dict[str, Any] | None = None
-
-
-class UnregisterUserResult(BaseModel):
-    """
-    A removed person, and what removing them took away (each 0 when they were already removed).
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    user: UserRecord
-    keys_revoked: Annotated[int, Field(alias="keysRevoked", ge=0)]
-    sessions_revoked: Annotated[int, Field(alias="sessionsRevoked", ge=0)]
-    grants_removed: Annotated[int, Field(alias="grantsRemoved", ge=0)]
-
-
 class CreateUserBody(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -7581,16 +7544,6 @@ class MyKeyLimits(BaseModel):
     """
     The project the key is limited to: `projects` holds it alone, and no org or team is administered through it.
     """
-
-
-class UserCollectionPage(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[UserRecord]
-    has_more: Annotated[bool, Field(alias="hasMore")]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
 class IdentitySessionSummary(BaseModel):
@@ -10722,51 +10675,6 @@ class CostRecordCollectionPage(BaseModel):
     has_more: Annotated[bool, Field(alias="hasMore")]
 
 
-class WhoamiResult(BaseModel):
-    """
-    Introspection of the caller's current authentication context. Always carries `tenantId` and `scopes` (empty for static bearer tokens), plus `userId` when the token carries one; `principal` says whom the caller acts as, and an API key adds `tokenId`, its `role` and the `projectId` it is limited to; session-token callers additionally see `sessionId`, `providerId`, and `expiresAt`. `user` is the caller's directory record, present when the deployment wires an identity directory and it knows the `userId`. `reviewerRole` is set when the caller is a reviewer — its token carries a reviewer role, or its user is a registered reviewer — so clients can gate reviewer-only UI (the approvals surface) without a second round trip.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    tenant_id: Annotated[UUID, Field(alias="tenantId")]
-    actor: str | None = None
-    """
-    The caller as approvals name a person: `user:<id>` or `service_account:<id>`, the same string as an approval's `requestedBy` and a decision's `decidedBy`.
-    """
-    user_id: Annotated[str | None, Field(alias="userId")] = None
-    session_id: Annotated[str | None, Field(alias="sessionId")] = None
-    provider_id: Annotated[str | None, Field(alias="providerId")] = None
-    scopes: list[str]
-    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
-    reviewer_role: Annotated[
-        Literal["standard", "senior", "admin"] | None, Field(alias="reviewerRole")
-    ] = None
-    """
-    Reviewer role class. Hierarchy: standard < senior < admin.
-    """
-    user: UserRecord | None = None
-    principal: ApiKeyPrincipal | None = None
-    token_id: Annotated[str | None, Field(alias="tokenId")] = None
-    """
-    The caller's API key, when it is one.
-    """
-    role: Literal["admin", "member"] | None = None
-    """
-    The caller's API key role, when the key has one.
-    """
-    project_id: Annotated[str | None, Field(alias="projectId")] = None
-    """
-    The project the caller's API key is limited to, when it is.
-    """
-    tenant_admin: Annotated[bool | None, Field(alias="tenantAdmin")] = None
-    """
-    Whether the caller is a tenant admin, decided as the admin routes decide it: `admin` on the tenant when the runtime authorizes, otherwise the `tenant-admin` scope of a full key (never a `member` key or one limited to a project). A console shows its admin pages by it. Absent from older servers: read `scopes`.
-    """
-
-
 class PersonProjectRole(BaseModel):
     """
     A person's direct role on a project.
@@ -11197,3 +11105,99 @@ class PersonGrants(BaseModel):
     Team memberships.
     """
     reviewer: PersonReviewerRole | None = None
+
+
+class UserRecord(BaseModel):
+    """
+    Tenant-scoped user record (admin plane). `primaryEmail` may be redacted on the wire based on tenant policy (the routes treat it as opaque). `metadata` is free-form JSON — deployments carry IdP claims / provisioning source / roles here.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    user_id: Annotated[str, Field(alias="userId")]
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    primary_email: Annotated[str | None, Field(alias="primaryEmail")] = None
+    display_name: Annotated[str | None, Field(alias="displayName")] = None
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    last_active_at: Annotated[AwareDatetime | None, Field(alias="lastActiveAt")] = None
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    When they were removed from the tenant (`POST /v1/identity/users/{userId}/unregister`); absent while they are here.
+    """
+    metadata: dict[str, Any] | None = None
+    grants: PersonGrants | None = None
+    """
+    The person's grants: only on `GET /v1/identity/users?include=grants`, and only from a runtime that reads grants.
+    """
+
+
+class UnregisterUserResult(BaseModel):
+    """
+    A removed person, and what removing them took away (each 0 when they were already removed).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    user: UserRecord
+    keys_revoked: Annotated[int, Field(alias="keysRevoked", ge=0)]
+    sessions_revoked: Annotated[int, Field(alias="sessionsRevoked", ge=0)]
+    grants_removed: Annotated[int, Field(alias="grantsRemoved", ge=0)]
+
+
+class UserCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[UserRecord]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class WhoamiResult(BaseModel):
+    """
+    Introspection of the caller's current authentication context. Always carries `tenantId` and `scopes` (empty for static bearer tokens), plus `userId` when the token carries one; `principal` says whom the caller acts as, and an API key adds `tokenId`, its `role` and the `projectId` it is limited to; session-token callers additionally see `sessionId`, `providerId`, and `expiresAt`. `user` is the caller's directory record, present when the deployment wires an identity directory and it knows the `userId`. `reviewerRole` is set when the caller is a reviewer — its token carries a reviewer role, or its user is a registered reviewer — so clients can gate reviewer-only UI (the approvals surface) without a second round trip.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    actor: str | None = None
+    """
+    The caller as approvals name a person: `user:<id>` or `service_account:<id>`, the same string as an approval's `requestedBy` and a decision's `decidedBy`.
+    """
+    user_id: Annotated[str | None, Field(alias="userId")] = None
+    session_id: Annotated[str | None, Field(alias="sessionId")] = None
+    provider_id: Annotated[str | None, Field(alias="providerId")] = None
+    scopes: list[str]
+    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
+    reviewer_role: Annotated[
+        Literal["standard", "senior", "admin"] | None, Field(alias="reviewerRole")
+    ] = None
+    """
+    Reviewer role class. Hierarchy: standard < senior < admin.
+    """
+    user: UserRecord | None = None
+    principal: ApiKeyPrincipal | None = None
+    token_id: Annotated[str | None, Field(alias="tokenId")] = None
+    """
+    The caller's API key, when it is one.
+    """
+    role: Literal["admin", "member"] | None = None
+    """
+    The caller's API key role, when the key has one.
+    """
+    project_id: Annotated[str | None, Field(alias="projectId")] = None
+    """
+    The project the caller's API key is limited to, when it is.
+    """
+    tenant_admin: Annotated[bool | None, Field(alias="tenantAdmin")] = None
+    """
+    Whether the caller is a tenant admin, decided as the admin routes decide it: `admin` on the tenant when the runtime authorizes, otherwise the `tenant-admin` scope of a full key (never a `member` key or one limited to a project). A console shows its admin pages by it. Absent from older servers: read `scopes`.
+    """
