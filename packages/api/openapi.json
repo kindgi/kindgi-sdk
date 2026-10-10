@@ -248,6 +248,7 @@
           "tool-already-registered": 409,
           "tool-project-mismatch": 409,
           "guardrail-already-registered": 409,
+          "guardrail-project-mismatch": 409,
           "guardrail-config-invalid": 422,
           "flow-already-registered": 409,
           "flow-project-mismatch": 409,

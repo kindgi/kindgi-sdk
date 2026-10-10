@@ -2,7 +2,7 @@
 "@kindgi/cli": patch
 ---
 
-`kindgi tokens`, `kindgi service-accounts` and `kindgi people` manage who can act, and with which key. `tokens` was unwired.
+`kindgi tokens`, `kindgi service-accounts` and `kindgi people` manage who can act, and with which key. Before, `kindgi tokens` wasn't implemented.
 - **`tokens create`:** an API key for you, or (as a tenant admin) for a person (`--for=user:<id>`) or a service account (`--for=sa:<id>`).
   - `--role=member|admin`, `--project=<id>` to limit it, `--expires=30d|12h|<iso-date>`, `--label` and `--capability`.
   - The secret is printed once, with a warning on stderr.
