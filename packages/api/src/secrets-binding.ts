@@ -353,4 +353,14 @@ export type SecretError =
    * rotate and no revocation): the message says what to do instead.
    */
   | { readonly code: 'secret-operation-unsupported'; readonly message: string }
-  | { readonly code: 'secret-store-error'; readonly message: string; readonly cause?: unknown };
+  | { readonly code: 'secret-store-error'; readonly message: string; readonly cause?: unknown }
+  /**
+   * A model provider's key, asked for by something that isn't its provider
+   * (`guardProviderKeys`): a tool, an MCP endpoint or a webhook endpoint.
+   */
+  | {
+      readonly code: 'provider-key-refused';
+      readonly message: string;
+      readonly name: string;
+      readonly providerId: string;
+    };

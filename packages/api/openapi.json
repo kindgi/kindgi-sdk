@@ -164,10 +164,6 @@
       "description": "Multi-tenant hierarchy — Project CRUD (list, create, get, patch, delete) + `/projects/default` shortcut + `ProjectMembership` sub-resource (list, add, updateRole, remove). Primary content scope: every content resource belongs to exactly one project. The Default project (`isDefault: true`) is auto-created per tenant at inception — exactly one per tenant, enforced at the storage layer."
     },
     {
-      "name": "judging",
-      "description": "A project's judging rules (which runs to queue for a person's judgment when they end) and the queue they fill. Rules only list runs; nothing here starts a model."
-    },
-    {
       "name": "tenant",
       "description": "Sovereignty boundary readback + tenant-scoped config (get tenant; list + upsert entries routed to the env / secrets bindings). There is no `/v1/tenants` collection — the caller's tenant is implicit from the bearer token. `PATCH /config` routes writes to `SecretBinding` when `sensitive: true` OR `kind: \"secret\"`; else to `EnvBinding`. `GET /config` merges both bindings at tenant scope; secret values are ALWAYS redacted here. The `/config` sub-routes mount when at least one of `envBinding` / `secretsBinding` is wired. Prefer `/v1/env/*` + `/v1/secrets/*` for new callers."
     },
@@ -328,9 +324,6 @@
           "eval-run-not-rescorable": 409,
           "judgment-not-found": 404,
           "judge-class-not-found": 404,
-          "judging-rule-not-found": 404,
-          "judging-item-not-found": 404,
-          "judging-item-not-open": 409,
           "judge-class-name-taken": 409,
           "judge-class-not-applicable": 400,
           "judge-class-not-allowed": 403,
@@ -367,11 +360,9 @@
           "run-not-finished": 409,
           "item-not-found": 400,
           "test-sets-not-supported": 501,
-          "run-failures-not-supported": 501,
           "memory-operation-unsupported": 501,
           "conversation-unregister-unsupported": 501,
           "authz-membership-unsupported": 501,
-          "guardrail-outcomes-not-supported": 501,
           "eval-run-already-terminal": 409,
           "dispatcher-not-registered": 422,
           "dispatcher-input-invalid": 400,
@@ -411,10 +402,8 @@
           "project-not-found": 404,
           "team-membership-not-found": 404,
           "project-membership-not-found": 404,
-          "membership-exists": 409,
-          "team-grant-not-found": 404,
-          "team-grant-exists": 409,
-          "project-access-unsupported": 501,
+          "provider-key-refused": 400,
+          "provider-key-in-use": 409,
           "slug-conflict": 409,
           "project-default-already-exists": 409,
           "tenant-not-found": 404,
@@ -1627,127 +1616,6 @@
           },
           "cause": {
             "description": "What the error came from, when it says: e.g. for `capability-routing-failed`, the router's `capability-unsatisfiable` with its reasons, by provider."
-          },
-          "reason": {
-            "type": "string",
-            "description": "The error's own reason, when it gives one: for a turn that ended at its approval (`hitl-cancelled`), `timeout` when nobody decided in time. Absent from an older runtime and from errors without one; read `code` then."
-          }
-        }
-      },
-      "FailureSubject": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "kind",
-          "id"
-        ],
-        "description": "Whose runs a failure group counts: an agent's turns, or a flow's runs.",
-        "properties": {
-          "kind": {
-            "type": "string",
-            "enum": [
-              "agent",
-              "flow"
-            ]
-          },
-          "id": {
-            "type": "string"
-          }
-        }
-      },
-      "FailureGroup": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "subject",
-          "count",
-          "firstSeen",
-          "lastSeen",
-          "exampleRunId"
-        ],
-        "description": "One group of failed runs: the same cause, subject and version.",
-        "properties": {
-          "code": {
-            "type": "string",
-            "description": "The failure's code (`Run.failure.code`). Absent when not grouped by code, and in `unrecorded`."
-          },
-          "reason": {
-            "type": "string",
-            "description": "The failure's reason (`Run.failure.reason`), when it gives one: a `hitl-*` outcome's, e.g. `timeout`."
-          },
-          "subject": {
-            "$ref": "#/components/schemas/FailureSubject"
-          },
-          "version": {
-            "type": "string",
-            "description": "The agent's or flow's version. Absent when not grouped by version, or not recorded for the run."
-          },
-          "count": {
-            "type": "integer",
-            "minimum": 1
-          },
-          "firstSeen": {
-            "type": "string",
-            "format": "date-time",
-            "description": "When the first of them failed, in the window."
-          },
-          "lastSeen": {
-            "type": "string",
-            "format": "date-time",
-            "description": "When the latest of them failed, in the window."
-          },
-          "exampleRunId": {
-            "type": "string",
-            "format": "uuid",
-            "description": "The group's most recent run."
-          }
-        }
-      },
-      "RunFailureGroups": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "from",
-          "to",
-          "groups",
-          "outcomes",
-          "unrecorded",
-          "total"
-        ],
-        "properties": {
-          "from": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "to": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "groups": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/FailureGroup"
-            },
-            "description": "The failures, the most first."
-          },
-          "outcomes": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/FailureGroup"
-            },
-            "description": "People's decisions, never errors: `hitl-*` codes (an approval rejected, cancelled or timed out), the most first."
-          },
-          "unrecorded": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/FailureGroup"
-            },
-            "description": "Runs that failed before their cause was recorded (a runtime from before this): by subject and version only, never by code."
-          },
-          "total": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "Every failed run in the window, across the three lists."
           }
         }
       },
@@ -2621,31 +2489,6 @@
           }
         }
       },
-      "ServiceAccountGrantProjectBody": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "kind",
-          "projectId",
-          "role"
-        ],
-        "description": "A role to give on one project; it replaces the account's role there.",
-        "properties": {
-          "kind": {
-            "type": "string",
-            "enum": [
-              "project"
-            ]
-          },
-          "projectId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "role": {
-            "$ref": "#/components/schemas/AssignableProjectRole"
-          }
-        }
-      },
       "ServiceAccountGrant": {
         "description": "What a service account may do: tenant admin, tenant member (read the tenant's settings), or a role on one project.",
         "oneOf": [
@@ -2673,7 +2516,7 @@
             "$ref": "#/components/schemas/ServiceAccountGrantTenantMember"
           },
           {
-            "$ref": "#/components/schemas/ServiceAccountGrantProjectBody"
+            "$ref": "#/components/schemas/ServiceAccountGrantProject"
           }
         ],
         "discriminator": {
@@ -2801,21 +2644,7 @@
           "grants": {
             "type": "array",
             "items": {
-              "description": "The grant to add: tenant admin, tenant member, or a role on one project.",
-              "oneOf": [
-                {
-                  "$ref": "#/components/schemas/ServiceAccountGrantTenantAdmin"
-                },
-                {
-                  "$ref": "#/components/schemas/ServiceAccountGrantTenantMember"
-                },
-                {
-                  "$ref": "#/components/schemas/ServiceAccountGrantProjectBody"
-                }
-              ],
-              "discriminator": {
-                "propertyName": "kind"
-              }
+              "$ref": "#/components/schemas/ServiceAccountGrant"
             },
             "description": "Written before the account is returned, so its first key works at once."
           }
@@ -3910,7 +3739,7 @@
             "type": "string"
           },
           "assertableBy": {
-            "$ref": "#/components/schemas/JudgeClassAssertableByView"
+            "$ref": "#/components/schemas/JudgeClassAssertableBy"
           },
           "createdAt": {
             "type": "string",
@@ -4572,50 +4401,6 @@
           }
         }
       },
-      "JudgeClassAssertableByView": {
-        "type": "object",
-        "additionalProperties": false,
-        "minProperties": 1,
-        "description": "Who may assert the class, as the caller sees it: every part that is set must hold. `principalIds` is sent only to an admin on the class's scope; `principalCount` to everyone who reads it.",
-        "properties": {
-          "minReviewerRole": {
-            "type": "string",
-            "enum": [
-              "standard",
-              "senior",
-              "admin"
-            ],
-            "description": "The caller's reviewer role is at least this (its token's, or the roster's)."
-          },
-          "principalKinds": {
-            "type": "array",
-            "minItems": 1,
-            "items": {
-              "type": "string",
-              "enum": [
-                "user",
-                "service"
-              ]
-            },
-            "description": "Users, service tokens, or both."
-          },
-          "principalIds": {
-            "type": "array",
-            "minItems": 1,
-            "maxItems": 100,
-            "items": {
-              "type": "string",
-              "minLength": 1
-            },
-            "description": "Only these principals: user ids, or service token ids. Sent only to an admin on the class's scope."
-          },
-          "principalCount": {
-            "type": "integer",
-            "minimum": 1,
-            "description": "How many principals the class is restricted to (`principalIds`), for every reader. Absent when it names none."
-          }
-        }
-      },
       "JudgedEvalCase": {
         "type": "object",
         "additionalProperties": false,
@@ -5047,11 +4832,6 @@
           "version": {
             "type": "string",
             "description": "Semver."
-          },
-          "projectId": {
-            "type": "string",
-            "format": "uuid",
-            "description": "The agent's project: every version of an agent is in the one project. Absent when the runtime doesn't record it: a pack `kindgi dev` serves from disk, or a runtime before Kindgi 0.1.6."
           },
           "name": {
             "type": "string"
@@ -5695,11 +5475,6 @@
             "type": "string",
             "description": "Semver."
           },
-          "projectId": {
-            "type": "string",
-            "format": "uuid",
-            "description": "The flow's project: every version of a flow is in the one project. Absent when the runtime doesn't record it: a pack `kindgi dev` serves from disk, or a runtime before Kindgi 0.1.6."
-          },
           "name": {
             "type": "string"
           },
@@ -6293,11 +6068,6 @@
             "minLength": 1,
             "description": "ToolId — dotted namespace (e.g. `acme.verify-citation`)."
           },
-          "projectId": {
-            "type": "string",
-            "format": "uuid",
-            "description": "The tool's project: every version of a tool is in the one project. Absent when the runtime doesn't record it: a pack `kindgi dev` serves from disk, or a runtime before Kindgi 0.1.6."
-          },
           "description": {
             "type": "string",
             "minLength": 1
@@ -6364,11 +6134,6 @@
           },
           "spec": {
             "$ref": "#/components/schemas/ToolSpec"
-          },
-          "unregisteredAt": {
-            "type": "string",
-            "format": "date-time",
-            "description": "Present only on an unregistered version: a retired tool (every version unregistered) as `GET /v1/tools?includeRetired=true` lists it."
           }
         }
       },
@@ -6389,11 +6154,6 @@
             "minLength": 1,
             "description": "ToolId — dotted namespace (e.g. `acme.verify-citation`)."
           },
-          "projectId": {
-            "type": "string",
-            "format": "uuid",
-            "description": "Project this belongs to (its content scope). Required: missing, or not a project in the caller's tenant → `400 bad-input`."
-          },
           "description": {
             "type": "string",
             "minLength": 1
@@ -6460,6 +6220,11 @@
           },
           "spec": {
             "$ref": "#/components/schemas/ToolSpec"
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Project this belongs to (its content scope). Required: missing, or not a project in the caller's tenant → `400 bad-input`."
           }
         }
       },
@@ -6554,11 +6319,6 @@
             "type": "string",
             "minLength": 1,
             "description": "ToolId — dotted namespace (e.g. `acme.verify-citation`)."
-          },
-          "projectId": {
-            "type": "string",
-            "format": "uuid",
-            "description": "The tool's project: every version of a tool is in the one project. Absent when the runtime doesn't record it: a pack `kindgi dev` serves from disk, or a runtime before Kindgi 0.1.6."
           },
           "description": {
             "type": "string",
@@ -6744,11 +6504,6 @@
             "type": "string",
             "minLength": 1
           },
-          "projectId": {
-            "type": "string",
-            "format": "uuid",
-            "description": "The guardrail's project. Absent when the runtime doesn't record it: a pack `kindgi dev` serves from disk, or a runtime before Kindgi 0.1.6."
-          },
           "name": {
             "type": "string"
           },
@@ -6825,11 +6580,6 @@
             "type": "string",
             "minLength": 1
           },
-          "projectId": {
-            "type": "string",
-            "format": "uuid",
-            "description": "Project this belongs to (its content scope). Required: missing, or not a project in the caller's tenant → `400 bad-input`."
-          },
           "name": {
             "type": "string"
           },
@@ -6887,6 +6637,11 @@
           "judgeCapabilities": {
             "type": "object",
             "additionalProperties": true
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Project this belongs to (its content scope). Required: missing, or not a project in the caller's tenant → `400 bad-input`."
           }
         }
       },
@@ -6939,155 +6694,6 @@
           },
           "hasMore": {
             "type": "boolean"
-          }
-        }
-      },
-      "GuardrailOutcomeCounts": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "passed",
-          "violated",
-          "blocked",
-          "errored"
-        ],
-        "description": "How many of a guardrail's checks came to each outcome.",
-        "properties": {
-          "passed": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "The check ran and found nothing."
-          },
-          "violated": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "The check found something and the answer went through (`log-only`, `noop`, or an action handed back)."
-          },
-          "blocked": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "The check found something and its `halt` failed the turn."
-          },
-          "errored": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "The check couldn't run (no such check, a bad configuration, a judge that couldn't be routed)."
-          }
-        }
-      },
-      "GuardrailOutcomesByAgentVersion": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "agentId",
-          "agentVersion",
-          "passed",
-          "violated",
-          "blocked",
-          "errored"
-        ],
-        "description": "The counts on one agent version's turns.",
-        "properties": {
-          "agentId": {
-            "type": "string"
-          },
-          "agentVersion": {
-            "type": "string"
-          },
-          "passed": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "The check ran and found nothing."
-          },
-          "violated": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "The check found something and the answer went through (`log-only`, `noop`, or an action handed back)."
-          },
-          "blocked": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "The check found something and its `halt` failed the turn."
-          },
-          "errored": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "The check couldn't run (no such check, a bad configuration, a judge that couldn't be routed)."
-          }
-        }
-      },
-      "GuardrailBlockedRun": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "runId",
-          "at",
-          "agentId",
-          "agentVersion"
-        ],
-        "description": "A turn the guardrail blocked: its run, never its answer.",
-        "properties": {
-          "runId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "at": {
-            "type": "string",
-            "format": "date-time",
-            "description": "When the guardrail checked."
-          },
-          "agentId": {
-            "type": "string"
-          },
-          "agentVersion": {
-            "type": "string"
-          }
-        }
-      },
-      "GuardrailOutcomes": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "guardrailId",
-          "from",
-          "to",
-          "counts",
-          "byAgentVersion",
-          "recentBlocked"
-        ],
-        "properties": {
-          "guardrailId": {
-            "type": "string"
-          },
-          "from": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "to": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "counts": {
-            "$ref": "#/components/schemas/GuardrailOutcomeCounts"
-          },
-          "byAgentVersion": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/GuardrailOutcomesByAgentVersion"
-            },
-            "description": "The same counts per agent version, the most checked first, at most 100."
-          },
-          "recentBlocked": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/GuardrailBlockedRun"
-            },
-            "description": "The window's latest blocked turns, newest first, at most `recent`."
-          },
-          "recordedSince": {
-            "type": "string",
-            "format": "date-time",
-            "description": "The earliest outcome kept for this guardrail in this project, in any window: nothing before it is counted. Outcomes were first recorded in 0.1.6, and they go with their run's retention. Absent when none is kept."
           }
         }
       },
@@ -10446,25 +10052,6 @@
             "items": {
               "$ref": "#/components/schemas/AdapterConfigProblem"
             }
-          },
-          "secretRef": {
-            "type": "object",
-            "additionalProperties": false,
-            "required": [
-              "envName",
-              "name"
-            ],
-            "properties": {
-              "envName": {
-                "type": "string",
-                "minLength": 1
-              },
-              "name": {
-                "type": "string",
-                "minLength": 1
-              }
-            },
-            "description": "The secret the provider's key resolves from, by name only, never its value. Present when the registration has one. Only a caller allowed to check the provider sees it. `kindgi dev` uses it to keep a provider's key out of the pack service's environment. A runtime before 0.1.6 leaves it out."
           }
         }
       },
@@ -11997,11 +11584,6 @@
             "type": "string",
             "format": "uuid"
           },
-          "projectId": {
-            "type": "string",
-            "format": "uuid",
-            "description": "The test set's project: every version of a test set is in the one project. Absent when the runtime doesn't record it: a pack `kindgi dev` serves from disk, or a runtime before Kindgi 0.1.6."
-          },
           "version": {
             "type": "string",
             "pattern": "^\\d+\\.\\d+\\.\\d+$",
@@ -12017,11 +11599,6 @@
             "type": "object",
             "additionalProperties": true,
             "description": "Kind-specific suite body. For `accuracy`, typically `{ cases: [{ input, expectedOutput }], grader?: { adapterId, config? } }`. For `pairwise`, typically `{ prompts, variantA, variantB }`. For `regression`, typically `{ baseline, cases }`. For `human-review`, typically `{ rubric, reviewerRole }`. For `benchmark`, typically `{ benchmark: { name, version } }`. For `custom`, typically `{ handler: { modulePath, entrypointPath }, cases }`."
-          },
-          "unregisteredAt": {
-            "type": "string",
-            "format": "date-time",
-            "description": "Present only on an unregistered version: one `GET …/versions?includeTombstoned=true` lists, or a retired test set (every version unregistered) as `GET /v1/eval-suites?includeRetired=true` lists it."
           }
         }
       },
@@ -13373,11 +12950,6 @@
             "type": "string",
             "format": "uuid"
           },
-          "projectId": {
-            "type": "string",
-            "format": "uuid",
-            "description": "The project the eval run is in: the one it was started in. Absent on a runtime before Kindgi 0.1.6."
-          },
           "suiteId": {
             "type": "string"
           },
@@ -14509,10 +14081,6 @@
           "metadata": {
             "type": "object",
             "additionalProperties": true
-          },
-          "grants": {
-            "$ref": "#/components/schemas/PersonGrants",
-            "description": "The person's grants: only on `GET /v1/identity/users?include=grants`, and only from a runtime that reads grants."
           }
         }
       },
@@ -14662,597 +14230,6 @@
             "enum": [
               "tenant-admin"
             ]
-          }
-        }
-      },
-      "JudgingRunStatus": {
-        "type": "string",
-        "enum": [
-          "completed",
-          "failed",
-          "cancelled"
-        ],
-        "description": "How a run ended."
-      },
-      "JudgingQueueState": {
-        "type": "string",
-        "enum": [
-          "open",
-          "judged",
-          "dismissed",
-          "erased"
-        ],
-        "description": "Where a queued run stands. `judged`: every rule that queued it has the judgment it wants. `erased`: the run's content is gone (erased, or the run purged); the item shows nothing of it."
-      },
-      "JudgingRuleWhen": {
-        "type": "object",
-        "additionalProperties": false,
-        "description": "Which of a project's runs a rule matches as they end. Every field narrows; absent fields don't. `agentIds` or `flowIds`, not both. Top-level runs only (an agent's own runs, not its turns as a flow's step); replays never match.",
-        "properties": {
-          "agentIds": {
-            "type": "array",
-            "minItems": 1,
-            "maxItems": 50,
-            "items": {
-              "type": "string"
-            }
-          },
-          "flowIds": {
-            "type": "array",
-            "minItems": 1,
-            "maxItems": 50,
-            "items": {
-              "type": "string"
-            }
-          },
-          "versions": {
-            "type": "array",
-            "minItems": 1,
-            "maxItems": 50,
-            "items": {
-              "type": "string"
-            },
-            "description": "These versions exactly, or `live`: runs that got the agent's live version, not one the caller named. Runs from before the runtime recorded how their version was chosen never match `live`."
-          },
-          "status": {
-            "type": "array",
-            "minItems": 1,
-            "items": {
-              "$ref": "#/components/schemas/JudgingRunStatus"
-            },
-            "description": "How the run ended. Only `completed` today: a judgment needs a completed run, so `failed` and `cancelled` are refused (400). Absent: `completed`."
-          },
-          "includeDryRuns": {
-            "type": "boolean",
-            "description": "Dry runs are left out unless `true`."
-          }
-        }
-      },
-      "JudgingRuleSpec": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "name",
-          "when"
-        ],
-        "description": "A judging rule as written. It only lists runs: nothing here starts a model.",
-        "properties": {
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 200
-          },
-          "when": {
-            "$ref": "#/components/schemas/JudgingRuleWhen"
-          },
-          "sample": {
-            "type": "number",
-            "exclusiveMinimum": 0,
-            "maximum": 1,
-            "description": "The share of matching runs queued, decided by the run and rule ids: the same every time and across the rule's versions, so raising it keeps the runs it took before. Default 1."
-          },
-          "maxOpen": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 10000,
-            "description": "Queue nothing while this rule has this many open items. Absent: no cap."
-          },
-          "judgeClassId": {
-            "type": "string",
-            "description": "Whose judgment it wants: one of this class closes it. Absent: any judgment does."
-          },
-          "enabled": {
-            "type": "boolean",
-            "description": "Default `true`."
-          }
-        }
-      },
-      "JudgingRulePatch": {
-        "type": "object",
-        "additionalProperties": false,
-        "description": "The fields to change; `when` is replaced whole.",
-        "properties": {
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 200
-          },
-          "when": {
-            "$ref": "#/components/schemas/JudgingRuleWhen"
-          },
-          "sample": {
-            "type": "number",
-            "exclusiveMinimum": 0,
-            "maximum": 1,
-            "description": "The share of matching runs queued, decided by the run and rule ids: the same every time and across the rule's versions, so raising it keeps the runs it took before. Default 1."
-          },
-          "maxOpen": {
-            "type": [
-              "integer",
-              "null"
-            ],
-            "minimum": 1,
-            "maximum": 10000,
-            "description": "Queue nothing while this rule has this many open items. `null` removes the cap."
-          },
-          "judgeClassId": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "Whose judgment it wants: one of this class closes it. `null`: any judgment does."
-          },
-          "enabled": {
-            "type": "boolean",
-            "description": "Default `true`."
-          }
-        }
-      },
-      "JudgingRule": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "ruleId",
-          "projectId",
-          "version",
-          "name",
-          "when",
-          "sample",
-          "enabled",
-          "createdAt"
-        ],
-        "description": "One version of a judging rule; the latest live one applies.",
-        "properties": {
-          "ruleId": {
-            "type": "string"
-          },
-          "projectId": {
-            "type": "string"
-          },
-          "version": {
-            "type": "integer",
-            "minimum": 1
-          },
-          "name": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 200
-          },
-          "when": {
-            "$ref": "#/components/schemas/JudgingRuleWhen"
-          },
-          "sample": {
-            "type": "number",
-            "exclusiveMinimum": 0,
-            "maximum": 1
-          },
-          "maxOpen": {
-            "type": "integer",
-            "minimum": 1,
-            "maximum": 10000,
-            "description": "Queue nothing while this rule has this many open items. Absent: no cap."
-          },
-          "judgeClassId": {
-            "type": "string",
-            "description": "Whose judgment it wants: one of this class closes it. Absent: any judgment does."
-          },
-          "enabled": {
-            "type": "boolean"
-          },
-          "createdBy": {
-            "type": "string",
-            "description": "Who wrote this version."
-          },
-          "createdAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "unregisteredAt": {
-            "type": "string",
-            "format": "date-time"
-          }
-        }
-      },
-      "JudgingRulePage": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "data",
-          "hasMore"
-        ],
-        "properties": {
-          "data": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/JudgingRule"
-            }
-          },
-          "hasMore": {
-            "type": "boolean"
-          },
-          "nextCursor": {
-            "type": "string"
-          }
-        }
-      },
-      "JudgingRuleUnregisterResult": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "ruleId",
-          "unregistered"
-        ],
-        "properties": {
-          "ruleId": {
-            "type": "string"
-          },
-          "unregistered": {
-            "type": "boolean"
-          }
-        }
-      },
-      "JudgingClassCount": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "judgeClassId",
-          "count"
-        ],
-        "properties": {
-          "judgeClassId": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "`null`: unclassified."
-          },
-          "count": {
-            "type": "integer",
-            "minimum": 0
-          }
-        }
-      },
-      "JudgingProgress": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "total",
-          "byClass"
-        ],
-        "description": "The live judgments on the run so far, by class.",
-        "properties": {
-          "total": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "byClass": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/JudgingClassCount"
-            }
-          }
-        }
-      },
-      "JudgingItemCan": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "dismiss",
-          "reopen"
-        ],
-        "description": "What the caller may do with the item, by the check the routes make (`write` on the project, as judging the run needs).",
-        "properties": {
-          "dismiss": {
-            "type": "boolean"
-          },
-          "reopen": {
-            "type": "boolean"
-          }
-        }
-      },
-      "JudgingItemRule": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "ruleId",
-          "version"
-        ],
-        "properties": {
-          "ruleId": {
-            "type": "string"
-          },
-          "version": {
-            "type": "integer",
-            "minimum": 1
-          }
-        }
-      },
-      "JudgingQueueItem": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "runId",
-          "projectId",
-          "flowId",
-          "runStatus",
-          "completedAt",
-          "rules",
-          "wantedClassIds",
-          "anyJudgment",
-          "progress",
-          "addedAt",
-          "state",
-          "can"
-        ],
-        "description": "A queued run: never its content, only what it was and where it stands.",
-        "properties": {
-          "runId": {
-            "type": "string"
-          },
-          "projectId": {
-            "type": "string"
-          },
-          "agentId": {
-            "type": "string"
-          },
-          "agentVersion": {
-            "type": "string"
-          },
-          "flowId": {
-            "type": "string"
-          },
-          "runStatus": {
-            "$ref": "#/components/schemas/JudgingRunStatus"
-          },
-          "completedAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "rules": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/JudgingItemRule"
-            },
-            "description": "The rules that queued it, each at the version that did."
-          },
-          "wantedClassIds": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            },
-            "description": "The judge classes its rules want."
-          },
-          "anyJudgment": {
-            "type": "boolean",
-            "description": "One of its rules wants any judgment."
-          },
-          "progress": {
-            "$ref": "#/components/schemas/JudgingProgress"
-          },
-          "addedAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "state": {
-            "$ref": "#/components/schemas/JudgingQueueState"
-          },
-          "closedAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "closedBy": {
-            "type": "string",
-            "description": "Who dismissed or reopened it last."
-          },
-          "reason": {
-            "type": "string",
-            "description": "Why it was dismissed, when they said."
-          },
-          "can": {
-            "$ref": "#/components/schemas/JudgingItemCan"
-          }
-        }
-      },
-      "JudgingQueuePage": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "data",
-          "hasMore",
-          "total"
-        ],
-        "properties": {
-          "data": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/JudgingQueueItem"
-            }
-          },
-          "hasMore": {
-            "type": "boolean"
-          },
-          "nextCursor": {
-            "type": "string"
-          },
-          "total": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "Every item the filters match, across pages."
-          }
-        }
-      },
-      "JudgingDismissBody": {
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-          "reason": {
-            "type": "string",
-            "maxLength": 500
-          }
-        }
-      },
-      "JudgingClassResult": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "judgeClassId",
-          "judgments",
-          "yes"
-        ],
-        "properties": {
-          "judgeClassId": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "`null`: unclassified."
-          },
-          "judgments": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "yes": {
-            "type": "integer",
-            "minimum": 0
-          }
-        }
-      },
-      "JudgingResultGroup": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "ruleVersion",
-          "agentVersion",
-          "added",
-          "open",
-          "judged",
-          "dismissed",
-          "erased",
-          "skippedByCap",
-          "judgments",
-          "yesShare",
-          "byClass"
-        ],
-        "description": "One rule version's runs of one agent version. `added` = `open` + `judged` + `dismissed` + `erased`.",
-        "properties": {
-          "ruleVersion": {
-            "type": "integer",
-            "minimum": 1
-          },
-          "agentVersion": {
-            "type": [
-              "string",
-              "null"
-            ],
-            "description": "`null`: a flow run, or one from before versions were recorded."
-          },
-          "added": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "open": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "judged": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "dismissed": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "erased": {
-            "type": "integer",
-            "minimum": 0
-          },
-          "skippedByCap": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "Runs the rule matched and sampled but didn't queue, because `maxOpen` were waiting, even when another rule queued them. Non-zero: the queued runs lean toward quiet times. `added` + `skippedByCap` = every run the rule matched and sampled."
-          },
-          "judgments": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "Live judgments on the queued runs: each is one person's verdict on one item of a run's output."
-          },
-          "yesShare": {
-            "type": [
-              "number",
-              "null"
-            ],
-            "description": "The `yes` share of those judgments, each weighted by its class (unclassified: 1). `null` with none."
-          },
-          "byClass": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/JudgingClassResult"
-            },
-            "description": "The same judgments by class, unweighted."
-          }
-        }
-      },
-      "JudgingRuleResults": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "ruleId",
-          "groups"
-        ],
-        "properties": {
-          "ruleId": {
-            "type": "string"
-          },
-          "since": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "groups": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/JudgingResultGroup"
-            },
-            "description": "By the rule's version and the agent's, newest rule version first: two versions of a rule are two sampling designs, never pooled."
-          }
-        }
-      },
-      "JudgingRulePreview": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "considered",
-          "matched"
-        ],
-        "properties": {
-          "considered": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "The recent runs looked at."
-          },
-          "matched": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "Those the rule would have queued, with its `sample` (`maxOpen` isn't applied)."
           }
         }
       },
@@ -17216,304 +16193,7 @@
           "admin",
           "member"
         ],
-        "description": "Role on a project, as read. `member` is only read, on a role given before it was retired: it grants what `viewer` does, and writes refuse it."
-      },
-      "AssignableProjectRole": {
-        "type": "string",
-        "enum": [
-          "viewer",
-          "editor",
-          "owner",
-          "admin"
-        ],
-        "description": "A role to give on a project: `owner`, `admin`, `editor` or `viewer`, each including the ones after it. `member` is refused (400): give `viewer`."
-      },
-      "TeamProjectRole": {
-        "type": "string",
-        "enum": [
-          "viewer",
-          "editor",
-          "admin"
-        ],
-        "description": "A team's role on a project, held by every member of the team: `admin` includes `editor`, which includes `viewer`. A team never owns a project."
-      },
-      "TeamProjectGrant": {
-        "type": "object",
-        "additionalProperties": false,
-        "description": "A team's role on a project.",
-        "required": [
-          "teamId",
-          "projectId",
-          "role"
-        ],
-        "properties": {
-          "teamId": {
-            "type": "string"
-          },
-          "projectId": {
-            "type": "string"
-          },
-          "role": {
-            "$ref": "#/components/schemas/TeamProjectRole"
-          },
-          "grantedAt": {
-            "type": "string",
-            "format": "date-time",
-            "description": "When the team was given the role. Absent from a runtime that does not record it."
-          },
-          "teamName": {
-            "type": "string"
-          },
-          "projectName": {
-            "type": "string"
-          }
-        }
-      },
-      "TeamProjectGrantCollectionPage": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "data",
-          "hasMore"
-        ],
-        "properties": {
-          "data": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/TeamProjectGrant"
-            }
-          },
-          "hasMore": {
-            "type": "boolean"
-          },
-          "nextCursor": {
-            "type": "string"
-          }
-        }
-      },
-      "AddTeamProjectGrantBody": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "teamId",
-          "role"
-        ],
-        "properties": {
-          "teamId": {
-            "type": "string",
-            "minLength": 1
-          },
-          "role": {
-            "$ref": "#/components/schemas/TeamProjectRole"
-          }
-        }
-      },
-      "UpdateTeamProjectGrantBody": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "role"
-        ],
-        "properties": {
-          "role": {
-            "$ref": "#/components/schemas/TeamProjectRole"
-          }
-        }
-      },
-      "AccessPrincipal": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "kind",
-          "id"
-        ],
-        "description": "Whom access is held by: a person, or a service account.",
-        "properties": {
-          "kind": {
-            "type": "string",
-            "enum": [
-              "user",
-              "service-account"
-            ]
-          },
-          "id": {
-            "type": "string",
-            "minLength": 1
-          }
-        }
-      },
-      "ProjectAccessDirect": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "kind",
-          "role"
-        ],
-        "description": "The principal's own role on the project. `joinedAt` when a membership stands behind it: only then do the membership routes change or remove it.",
-        "properties": {
-          "kind": {
-            "type": "string",
-            "enum": [
-              "direct"
-            ]
-          },
-          "role": {
-            "$ref": "#/components/schemas/ProjectRole"
-          },
-          "joinedAt": {
-            "type": "string",
-            "format": "date-time"
-          }
-        }
-      },
-      "ProjectAccessTeam": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "kind",
-          "teamId",
-          "role"
-        ],
-        "description": "A team's grant on the project, held by every member of the team.",
-        "properties": {
-          "kind": {
-            "type": "string",
-            "enum": [
-              "team"
-            ]
-          },
-          "teamId": {
-            "type": "string"
-          },
-          "teamName": {
-            "type": "string"
-          },
-          "role": {
-            "$ref": "#/components/schemas/TeamProjectRole"
-          }
-        }
-      },
-      "ProjectAccessOrgAdmin": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "kind",
-          "orgId"
-        ],
-        "description": "An admin of the project's org (directly or through a team): admin on the project.",
-        "properties": {
-          "kind": {
-            "type": "string",
-            "enum": [
-              "org-admin"
-            ]
-          },
-          "orgId": {
-            "type": "string"
-          },
-          "orgName": {
-            "type": "string"
-          }
-        }
-      },
-      "ProjectAccessTenantAdmin": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "kind"
-        ],
-        "description": "A tenant admin: admin on every project.",
-        "properties": {
-          "kind": {
-            "type": "string",
-            "enum": [
-              "tenant-admin"
-            ]
-          }
-        }
-      },
-      "ProjectAccessPath": {
-        "description": "One way into the project.",
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/ProjectAccessDirect"
-          },
-          {
-            "$ref": "#/components/schemas/ProjectAccessTeam"
-          },
-          {
-            "$ref": "#/components/schemas/ProjectAccessOrgAdmin"
-          },
-          {
-            "$ref": "#/components/schemas/ProjectAccessTenantAdmin"
-          }
-        ],
-        "discriminator": {
-          "propertyName": "kind"
-        }
-      },
-      "ProjectAccess": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "principal",
-          "role",
-          "via"
-        ],
-        "description": "Someone with access to the project, their effective role, and every way in.",
-        "properties": {
-          "principal": {
-            "$ref": "#/components/schemas/AccessPrincipal"
-          },
-          "displayName": {
-            "type": "string",
-            "description": "A person's name, or a service account's."
-          },
-          "primaryEmail": {
-            "type": "string",
-            "description": "A person's email: shown to the project's admins only."
-          },
-          "role": {
-            "type": "string",
-            "enum": [
-              "owner",
-              "admin",
-              "editor",
-              "viewer"
-            ],
-            "description": "The effective role: the highest any way in gives."
-          },
-          "via": {
-            "type": "array",
-            "minItems": 1,
-            "description": "Every way in, the highest role first.",
-            "items": {
-              "$ref": "#/components/schemas/ProjectAccessPath"
-            }
-          }
-        }
-      },
-      "ProjectAccessPage": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "data",
-          "hasMore"
-        ],
-        "properties": {
-          "data": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/ProjectAccess"
-            }
-          },
-          "hasMore": {
-            "type": "boolean"
-          },
-          "nextCursor": {
-            "type": "string"
-          }
-        }
+        "description": "Role on a project membership."
       },
       "Project": {
         "type": "object",
@@ -17695,7 +16375,7 @@
             "description": "The person's email, as the tenant has it."
           },
           "role": {
-            "$ref": "#/components/schemas/AssignableProjectRole"
+            "$ref": "#/components/schemas/ProjectRole"
           }
         }
       },
@@ -17707,7 +16387,7 @@
         ],
         "properties": {
           "role": {
-            "$ref": "#/components/schemas/AssignableProjectRole"
+            "$ref": "#/components/schemas/ProjectRole"
           }
         }
       },
@@ -18614,10 +17294,6 @@
           "ifVersion": {
             "type": "integer",
             "minimum": 0
-          },
-          "appEnvFile": {
-            "type": "boolean",
-            "description": "Under `kindgi dev` only: write the app's own env file (the last of `dev.envFiles`, `.env.local` by default) instead of Kindgi's `.kindgi/secrets.env`, for a value the app reads too, such as a webhook signing secret. A runtime with a secrets store refuses it with `bad-input`."
           }
         }
       },
@@ -20302,197 +18978,6 @@
             },
             "required": false,
             "description": "Comma-separated extras per run. `output` adds each run's output."
-          },
-          {
-            "name": "status",
-            "in": "query",
-            "schema": {
-              "type": "array",
-              "items": {
-                "$ref": "#/components/schemas/RunStatus"
-              }
-            },
-            "required": false,
-            "description": "Only runs in these statuses: one, or several, repeated (`status=failed&status=cancelled`) or comma-separated (`status=failed,cancelled`)."
-          },
-          {
-            "name": "createdAfter",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "date-time"
-            },
-            "required": false,
-            "description": "Only runs created strictly after this time."
-          },
-          {
-            "name": "createdBefore",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "date-time"
-            },
-            "required": false,
-            "description": "Only runs created strictly before this time."
-          },
-          {
-            "name": "agentVersion",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "required": false,
-            "description": "With `agentId`: only the turns that ran this version. Turns from before versions were recorded never match."
-          },
-          {
-            "name": "flowId",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "required": false,
-            "description": "Only runs of this flow. An agent's turns run `agent.turn`; use `agentId` for an agent's."
-          },
-          {
-            "name": "flowVersion",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "required": false,
-            "description": "With `flowId`: only runs of this version."
-          }
-        ],
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ]
-      }
-    },
-    "/v1/runs/failures": {
-      "get": {
-        "operationId": "runs.failures",
-        "summary": "A project's failed runs, grouped by cause and version",
-        "tags": [
-          "runs"
-        ],
-        "responses": {
-          "200": {
-            "description": "The groups.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/RunFailureGroups"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "A missing or malformed `projectId`, `from`, `to`, `groupBy` or `limit`; a window over 90 days; both `agentId` and `flowId`.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing / malformed / expired / revoked bearer token.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "`run-failures-not-supported`: this deployment cannot group failed runs by cause.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          }
-        },
-        "description": "Counts from the server, never from a page: per group, how many runs failed, when the first and the latest failed in the window, and the latest run. People's decisions (`hitl-*`: an approval rejected, cancelled or timed out) come apart as `outcomes`, never as failures. Runs that failed before their cause was recorded come apart as `unrecorded`, by subject and version only. Replays, eval runs' runs and dry runs aren't counted; a child run counts under its own agent or flow. Failed runs go with their retention, so a window can hold fewer than happened. Needs `read` on the project.",
-        "parameters": [
-          {
-            "name": "projectId",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "required": true,
-            "description": "The project whose runs are counted."
-          },
-          {
-            "name": "from",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "date-time"
-            },
-            "required": true,
-            "description": "Runs that failed at or after this time (ISO 8601)."
-          },
-          {
-            "name": "to",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "date-time"
-            },
-            "required": true,
-            "description": "Runs that failed before this time (ISO 8601). At most 90 days after `from`."
-          },
-          {
-            "name": "agentId",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "required": false,
-            "description": "Only this agent's turns. Not with `flowId`."
-          },
-          {
-            "name": "flowId",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "required": false,
-            "description": "Only this flow's runs. Not with `agentId`."
-          },
-          {
-            "name": "groupBy",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            },
-            "required": false,
-            "description": "What failures are grouped by: `code`, `version`, or `code,version` (the default)."
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 200
-            },
-            "required": false,
-            "description": "The most groups in each list, the most failures first: 1 to 200, 50 by default."
           }
         ],
         "security": [
@@ -22885,7 +21370,7 @@
             }
           }
         },
-        "description": "Cursor-paginated. Optional `?role=` narrows to a specific role class. The roster names people: with authorization on, a tenant admin or a reviewer (a role on the token, or one the roster gives the user) reads it, and anyone else gets `403 permission-denied`.",
+        "description": "Cursor-paginated. Optional `?role=` narrows to a specific role class. Reviewer-role gate does NOT apply — roster management is an admin surface, not a reviewer-only action.",
         "parameters": [
           {
             "name": "limit",
@@ -23061,7 +21546,6 @@
             }
           }
         },
-        "description": "With authorization on, a tenant admin or a reviewer reads it, as the roster; anyone else gets `403 permission-denied`.",
         "parameters": [
           {
             "name": "reviewerId",
@@ -23348,7 +21832,7 @@
             }
           }
         },
-        "description": "Cursor-paginated list of the latest version per agent id. Optional `?name=` filters by prefix on agent id. A retired agent (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.",
+        "description": "Cursor-paginated list of the latest version per agent id. Optional `?name=` filters by prefix on agent id.",
         "parameters": [
           {
             "name": "limit",
@@ -23408,16 +21892,6 @@
             },
             "required": false,
             "description": "Default `true`. `false` = literal-at-this-scope only (admin/audit view). Load-bearing for policy/config-scoped resources (mcp-endpoints); documented no-op for content-scoped resources (agents/flows/tools/...)."
-          },
-          {
-            "name": "includeRetired",
-            "in": "query",
-            "schema": {
-              "type": "boolean",
-              "default": false
-            },
-            "required": false,
-            "description": "When `true`, retired items (every version unregistered) are listed too, each as its highest version with that version's `unregisteredAt`. Default: `false` (items with an active version only)."
           }
         ],
         "security": [
@@ -23610,7 +22084,7 @@
             }
           },
           "404": {
-            "description": "No agent was ever registered with that id under this tenant.",
+            "description": "No agent with that id under this tenant.",
             "content": {
               "application/json": {
                 "schema": {
@@ -23620,7 +22094,7 @@
             }
           }
         },
-        "description": "Cursor-paginated. Sort order is binding-defined (built-in registry: semver asc). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired agent (every version unregistered) answers too, with its versions to reinstate.",
+        "description": "Cursor-paginated. Sort order is binding-defined (built-in registry: semver asc).",
         "parameters": [
           {
             "name": "agentId",
@@ -23651,16 +22125,6 @@
             },
             "required": false,
             "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
-          },
-          {
-            "name": "includeTombstoned",
-            "in": "query",
-            "schema": {
-              "type": "boolean",
-              "default": false
-            },
-            "required": false,
-            "description": "When `true`, the response includes soft-tombstoned versions in addition to active ones. Tombstoned rows carry an `unregisteredAt` ISO timestamp; active rows omit the field. Default: `false` (active-only)."
           }
         ],
         "security": [
@@ -25522,7 +23986,7 @@
             }
           }
         },
-        "description": "Cursor-paginated list of the latest version per flow id. Optional `?name=` filters by prefix on flow id. A retired flow (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.",
+        "description": "Cursor-paginated list of the latest version per flow id. Optional `?name=` filters by prefix on flow id.",
         "parameters": [
           {
             "name": "limit",
@@ -25582,16 +24046,6 @@
             },
             "required": false,
             "description": "Default `true`. `false` = literal-at-this-scope only (admin/audit view). Load-bearing for policy/config-scoped resources (mcp-endpoints); documented no-op for content-scoped resources (agents/flows/tools/...)."
-          },
-          {
-            "name": "includeRetired",
-            "in": "query",
-            "schema": {
-              "type": "boolean",
-              "default": false
-            },
-            "required": false,
-            "description": "When `true`, retired items (every version unregistered) are listed too, each as its highest version with that version's `unregisteredAt`. Default: `false` (items with an active version only)."
           }
         ],
         "security": [
@@ -25784,7 +24238,7 @@
             }
           },
           "404": {
-            "description": "No flow was ever registered with that id under this tenant.",
+            "description": "No flow with that id under this tenant.",
             "content": {
               "application/json": {
                 "schema": {
@@ -25794,7 +24248,7 @@
             }
           }
         },
-        "description": "Cursor-paginated. Sort order is binding-defined (for example semver asc). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired flow (every version unregistered) answers too, with its versions to reinstate.",
+        "description": "Cursor-paginated. Sort order is binding-defined (for example semver asc).",
         "parameters": [
           {
             "name": "flowId",
@@ -25825,16 +24279,6 @@
             },
             "required": false,
             "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
-          },
-          {
-            "name": "includeTombstoned",
-            "in": "query",
-            "schema": {
-              "type": "boolean",
-              "default": false
-            },
-            "required": false,
-            "description": "When `true`, the response includes soft-tombstoned versions in addition to active ones. Tombstoned rows carry an `unregisteredAt` ISO timestamp; active rows omit the field. Default: `false` (active-only)."
           }
         ],
         "security": [
@@ -26162,7 +24606,7 @@
             }
           }
         },
-        "description": "Cursor-paginated list of registered tool manifests. Optional `?name=` filters by prefix on tool id. A retired tool (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.",
+        "description": "Cursor-paginated list of registered tool manifests. Optional `?name=` filters by prefix on tool id.",
         "parameters": [
           {
             "name": "limit",
@@ -26222,16 +24666,6 @@
             },
             "required": false,
             "description": "Default `true`. `false` = literal-at-this-scope only (admin/audit view). Load-bearing for policy/config-scoped resources (mcp-endpoints); documented no-op for content-scoped resources (agents/flows/tools/...)."
-          },
-          {
-            "name": "includeRetired",
-            "in": "query",
-            "schema": {
-              "type": "boolean",
-              "default": false
-            },
-            "required": false,
-            "description": "When `true`, retired items (every version unregistered) are listed too, each as its highest version with that version's `unregisteredAt`. Default: `false` (items with an active version only)."
           }
         ],
         "security": [
@@ -26258,7 +24692,7 @@
             }
           },
           "400": {
-            "description": "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID).",
+            "description": "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID). Or `provider-key-refused`: the tool names a model provider's key (`details.secret`, `details.providerId`); store the key it needs under its own name (the same value is fine) and name that.",
             "content": {
               "application/json": {
                 "schema": {
@@ -26308,7 +24742,7 @@
             }
           }
         },
-        "description": "Body is a `ToolManifest` (Tool minus its runtime handler). Server validates via `@kindgi/tools.validateToolManifest`. Metadata only: the handler is not uploaded through this route and must already be available to the runtime.",
+        "description": "Body is a `ToolManifest` (Tool minus its runtime handler). Server validates via `@kindgi/tools.validateToolManifest`. Metadata only: the handler is not uploaded through this route and must already be available to the runtime. A tool never gets a model provider's key: one that declares (`needsSpec.secrets`) or sends (`spec.authorization.secretRef`) a secret a provider registration of the tenant names, in any env, is refused.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -27037,115 +25471,6 @@
             },
             "required": true,
             "description": "GuardrailId — unique identifier for the guardrail."
-          }
-        ],
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ]
-      }
-    },
-    "/v1/guardrails/{guardrailId}/outcomes": {
-      "get": {
-        "operationId": "guardrails.outcomes",
-        "summary": "What a guardrail's checks came to in a project",
-        "tags": [
-          "guardrails"
-        ],
-        "responses": {
-          "200": {
-            "description": "The outcomes.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/GuardrailOutcomes"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "A missing or malformed `projectId`, `from`, `to` or `recent`; a window over 90 days.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing / malformed / expired / revoked bearer token.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "`guardrail-outcomes-not-supported`: this deployment doesn't record guardrail outcomes.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          }
-        },
-        "description": "Counts from the server, over a window: how many of the guardrail's checks on agent turns in the project `passed`, were `violated` (the answer went through: `log-only`, `noop`, or an action handed back), `blocked` (a `halt` failed the turn) or `errored` (the check couldn't run; a `halt` guardrail's error fails the turn too, and is counted here). The same counts per agent version, and the window's latest blocked turns, by run id and time only: a blocked answer stays behind its run's page. A guardrail whose scope didn't match a turn wasn't checked on it. Replays and dry runs aren't counted. Outcomes go with their run's retention, so a window can hold fewer than asked; `recordedSince` says how far back they go. A guardrail no longer registered still has its outcomes. Needs `read` on the guardrail and on the project.",
-        "parameters": [
-          {
-            "name": "guardrailId",
-            "in": "path",
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "description": "GuardrailId — unique identifier for the guardrail."
-          },
-          {
-            "name": "projectId",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "required": true,
-            "description": "The project whose agent turns are counted."
-          },
-          {
-            "name": "from",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "date-time"
-            },
-            "required": true,
-            "description": "Checks at or after this time (ISO 8601)."
-          },
-          {
-            "name": "to",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "date-time"
-            },
-            "required": true,
-            "description": "Checks before this time (ISO 8601). At most 90 days after `from`."
-          },
-          {
-            "name": "recent",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 50
-            },
-            "required": false,
-            "description": "How many of the latest blocked turns to name: 0 to 50, 10 by default."
           }
         ],
         "security": [
@@ -31537,7 +29862,7 @@
             }
           },
           "409": {
-            "description": "Provider already registered at that id.",
+            "description": "Provider already registered at that id. Or `provider-key-in-use`: `secret_ref` names a secret that a tool (its current version), an MCP endpoint or a webhook endpoint uses; `details.usedBy` lists each (`kind`, `id`, a tool's `version`). Store the provider's key under its own name. Nothing is stored.",
             "content": {
               "application/json": {
                 "schema": {
@@ -31567,7 +29892,7 @@
             }
           }
         },
-        "description": "Body is a full `ProviderMetadata`. Server validates shape: provider-level `id` + `region` non-empty; `models[]` non-empty with unique `name` per entry; per-model `contextWindow` positive integer; per-model `features` against the closed enum; per-model `cost` non-negative; optional per-model `p95LatencyMs` / `maxOutputTokens` well-shaped; optional `labels` within their limits — same rules as `@kindgi/capabilities.createProviderRegistry`. Secrets (API keys, endpoints) are NOT part of the wire shape; deployments store them inside the binding. When the runtime has the adapter the body names, that adapter checks the registration first (its `adapter_config`, the metadata and the presence of `secret_ref`; static: no network, no secret read): a problem refuses it with `422 provider-config-invalid`.",
+        "description": "Body is a full `ProviderMetadata`. Server validates shape: provider-level `id` + `region` non-empty; `models[]` non-empty with unique `name` per entry; per-model `contextWindow` positive integer; per-model `features` against the closed enum; per-model `cost` non-negative; optional per-model `p95LatencyMs` / `maxOutputTokens` well-shaped; optional `labels` within their limits — same rules as `@kindgi/capabilities.createProviderRegistry`. Secrets (API keys, endpoints) are NOT part of the wire shape; deployments store them inside the binding. When the runtime has the adapter the body names, that adapter checks the registration first (its `adapter_config`, the metadata and the presence of `secret_ref`; static: no network, no secret read): a problem refuses it with `422 provider-config-invalid`. A model provider's key is used by its provider only: a `secret_ref` naming a secret that a tool, an MCP endpoint or a webhook endpoint already uses is refused (`409 provider-key-in-use`), and from then on the name is refused to tools and endpoints.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -32926,7 +31251,7 @@
             }
           },
           "400": {
-            "description": "Validation failed (see `details.reason`).",
+            "description": "Validation failed (see `details.reason`). Or `provider-key-refused`: `secretRef` names a model provider's key (`details.secret`, `details.providerId`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -32976,7 +31301,7 @@
             }
           }
         },
-        "description": "Body is a full `MCPEndpoint` plus the scope to register it in (`scopeKind` + `scopeId`); authorization checks that scope. Server validates the closed transport enum + the `config.transport` matches `transport` guardrail + per-variant required fields (`command` for stdio; `url` for http-sse / streamable-http), and refuses unknown fields. `secretRef` names a secret in the deployment's store — plaintext secrets never cross the wire. A deployment with `KINDGI_TENANT_HOST_ACCESS=deployed` (the default outside development) refuses a `stdio` endpoint, which would run a command on the server's host: `403 host-access-denied`.",
+        "description": "Body is a full `MCPEndpoint` plus the scope to register it in (`scopeKind` + `scopeId`); authorization checks that scope. Server validates the closed transport enum + the `config.transport` matches `transport` guardrail + per-variant required fields (`command` for stdio; `url` for http-sse / streamable-http), and refuses unknown fields. `secretRef` names a secret in the deployment's store — plaintext secrets never cross the wire — and never a model provider's key (`400 provider-key-refused`). A deployment with `KINDGI_TENANT_HOST_ACCESS=deployed` (the default outside development) refuses a `stdio` endpoint, which would run a command on the server's host: `403 host-access-denied`.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -35242,7 +33567,7 @@
             }
           }
         },
-        "description": "Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `EvalSuite.id`. Sort order: suite id ascending. Latest version per id. A retired suite (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.",
+        "description": "Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `EvalSuite.id`. Sort order: suite id ascending. Latest version per id.",
         "parameters": [
           {
             "name": "limit",
@@ -35311,16 +33636,6 @@
             },
             "required": false,
             "description": "Default `true`. `false` = literal-at-this-scope only (admin/audit view). Load-bearing for policy/config-scoped resources (mcp-endpoints); documented no-op for content-scoped resources (agents/flows/tools/...)."
-          },
-          {
-            "name": "includeRetired",
-            "in": "query",
-            "schema": {
-              "type": "boolean",
-              "default": false
-            },
-            "required": false,
-            "description": "When `true`, retired items (every version unregistered) are listed too, each as its highest version with that version's `unregisteredAt`. Default: `false` (items with an active version only)."
           }
         ],
         "security": [
@@ -35514,7 +33829,7 @@
             }
           },
           "404": {
-            "description": "No eval suite was ever registered with that id under this tenant.",
+            "description": "No eval suite with that id under this tenant.",
             "content": {
               "application/json": {
                 "schema": {
@@ -35524,7 +33839,7 @@
             }
           }
         },
-        "description": "Cursor-paginated. Sort order is binding-defined (for example ascending semver). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired suite (every version unregistered) answers too, with its versions to reinstate.",
+        "description": "Cursor-paginated. Sort order is binding-defined (for example ascending semver).",
         "parameters": [
           {
             "name": "suiteId",
@@ -35556,16 +33871,6 @@
             },
             "required": false,
             "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
-          },
-          {
-            "name": "includeTombstoned",
-            "in": "query",
-            "schema": {
-              "type": "boolean",
-              "default": false
-            },
-            "required": false,
-            "description": "When `true`, the response includes soft-tombstoned versions in addition to active ones. Tombstoned rows carry an `unregisteredAt` ISO timestamp; active rows omit the field. Default: `false` (active-only)."
           }
         ],
         "security": [
@@ -38180,18 +36485,6 @@
             },
             "required": false,
             "description": "With `true`, people who were removed (`unregisteredAt`) too."
-          },
-          {
-            "name": "include",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "enum": [
-                "grants"
-              ]
-            },
-            "required": false,
-            "description": "Extra fields, comma-separated. `grants`: each person's grants, as `GET /v1/identity/users/{userId}/grants` answers them, in this one read. A runtime that doesn't read grants (no authorization store) leaves `grants` out, as an older one does."
           }
         ],
         "security": [
@@ -39087,7 +37380,7 @@
             }
           },
           "400": {
-            "description": "Signature invalid, image unverifiable, or deployment-validation-failed with per-primitive `details[]`.",
+            "description": "Signature invalid, image unverifiable, or deployment-validation-failed with per-primitive `details[]`. A tool that declares or sends a model provider's key is one such issue (`path` `/secrets/<name>`): a tool never gets a model provider's key.",
             "content": {
               "application/json": {
                 "schema": {
@@ -40849,7 +39142,6 @@
             }
           }
         },
-        "description": "With authorization on, the team's tuples go with it: its members' roles and its project grants, so nobody keeps access through a team that's gone (501 `authz-membership-unsupported` from a runtime that can't do that).",
         "parameters": [
           {
             "name": "teamId",
@@ -40917,7 +39209,7 @@
             }
           }
         },
-        "description": "Cursor-paginated. Sort order is binding-defined (for example `joinedAt` ascending). For the team's admins (and tenant admins): a plain member sees the team, not who else is in it, and reads their own roles through `GET /v1/identity/users/{userId}/grants`.",
+        "description": "Cursor-paginated. Sort order is binding-defined (for example `joinedAt` ascending).",
         "parameters": [
           {
             "name": "teamId",
@@ -41004,7 +39296,7 @@
             }
           },
           "409": {
-            "description": "A member already, with another role (`membership-exists`, `details.role`); or an Idempotency-Key reused with another body.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
             "content": {
               "application/json": {
                 "schema": {
@@ -41024,7 +39316,7 @@
             }
           }
         },
-        "description": "Adding a role the member already holds answers 201 with the existing record; another role, 409 `membership-exists` naming the role they hold (`details.role`), which is kept: use PATCH to change it.",
+        "description": "Idempotent on `(teamId, userId)` — re-adding an existing member with a different role does NOT overwrite; use PATCH for role changes.",
         "parameters": [
           {
             "name": "teamId",
@@ -41695,1118 +39987,6 @@
         ]
       }
     },
-    "/v1/projects/{projectId}/judging-rules": {
-      "get": {
-        "operationId": "projects.judgingRules.list",
-        "summary": "List a project's judging rules",
-        "tags": [
-          "judging"
-        ],
-        "responses": {
-          "200": {
-            "description": "A page of rules.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/JudgingRulePage"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing / malformed / expired / revoked bearer token.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No project with that id (`project-not-found`).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          }
-        },
-        "description": "The live rules (their latest versions), oldest first. A rule says which of the project's runs to queue for a person's judgment when they end. Needs `read` on the project.",
-        "parameters": [
-          {
-            "name": "projectId",
-            "in": "path",
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "description": "ProjectId — opaque branded string."
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 100,
-              "default": 25
-            },
-            "required": false,
-            "description": "1..100. Default 25."
-          },
-          {
-            "name": "cursor",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            },
-            "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
-          }
-        ],
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ]
-      },
-      "post": {
-        "operationId": "projects.judgingRules.create",
-        "summary": "Create a judging rule",
-        "tags": [
-          "judging"
-        ],
-        "responses": {
-          "201": {
-            "description": "The rule, version 1.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/JudgingRule"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Malformed request body.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing / malformed / expired / revoked bearer token.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No project with that id (`project-not-found`), or no live judge class `judgeClassId` (`judge-class-not-found`).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error (unmapped domain code or framework crash).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          }
-        },
-        "description": "Version 1 of a rule. From then on, a top-level run of the project that matches `when` as it ends (and falls in `sample`, while the rule has fewer than `maxOpen` open items) is queued for a person's judgment; replays never are. A rule only lists runs: it never starts a model. Needs `write` on the project.",
-        "parameters": [
-          {
-            "name": "projectId",
-            "in": "path",
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "description": "ProjectId — opaque branded string."
-          },
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "required": false,
-            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/JudgingRuleSpec"
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ]
-      }
-    },
-    "/v1/projects/{projectId}/judging-rules/preview": {
-      "get": {
-        "operationId": "projects.judgingRules.preview",
-        "summary": "What a rule would have queued",
-        "tags": [
-          "judging"
-        ],
-        "responses": {
-          "200": {
-            "description": "The preview.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/JudgingRulePreview"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "A malformed field (`bad-input`).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing / malformed / expired / revoked bearer token.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No project with that id (`project-not-found`).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          }
-        },
-        "description": "Among the project's last `last` top-level runs (not replays), how many a rule with these fields (and its `sample`) would have queued. The rule editor's \"would have added N of the last 100\". Lists are comma-separated. Needs `read` on the project.",
-        "parameters": [
-          {
-            "name": "projectId",
-            "in": "path",
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "description": "ProjectId — opaque branded string."
-          },
-          {
-            "name": "agentIds",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            },
-            "required": false,
-            "description": "Comma-separated."
-          },
-          {
-            "name": "flowIds",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            },
-            "required": false,
-            "description": "Comma-separated."
-          },
-          {
-            "name": "versions",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            },
-            "required": false,
-            "description": "Comma-separated; `live` for the live version."
-          },
-          {
-            "name": "status",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            },
-            "required": false,
-            "description": "Comma-separated: completed, failed, cancelled."
-          },
-          {
-            "name": "includeDryRuns",
-            "in": "query",
-            "schema": {
-              "type": "boolean"
-            },
-            "required": false,
-            "description": "`true` to count dry runs."
-          },
-          {
-            "name": "sample",
-            "in": "query",
-            "schema": {
-              "type": "number"
-            },
-            "required": false,
-            "description": "0 < sample ≤ 1. Default 1."
-          },
-          {
-            "name": "last",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 500
-            },
-            "required": false,
-            "description": "How many recent runs to look at, 1 to 500. Default 100."
-          },
-          {
-            "name": "ruleId",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            },
-            "required": false,
-            "description": "An existing rule's id, to sample as that rule does: `matched` is then exactly the runs it would take. Without it, `matched` is an estimate."
-          }
-        ],
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ]
-      }
-    },
-    "/v1/projects/{projectId}/judging-rules/{ruleId}": {
-      "get": {
-        "operationId": "projects.judgingRules.get",
-        "summary": "Fetch a judging rule",
-        "tags": [
-          "judging"
-        ],
-        "responses": {
-          "200": {
-            "description": "The rule.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/JudgingRule"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing / malformed / expired / revoked bearer token.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No such rule in the project (`judging-rule-not-found`).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          }
-        },
-        "description": "Its latest version. Needs `read` on the project.",
-        "parameters": [
-          {
-            "name": "projectId",
-            "in": "path",
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "description": "ProjectId — opaque branded string."
-          },
-          {
-            "name": "ruleId",
-            "in": "path",
-            "schema": {
-              "type": "string"
-            },
-            "required": true
-          }
-        ],
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ]
-      },
-      "patch": {
-        "operationId": "projects.judgingRules.update",
-        "summary": "Change a judging rule",
-        "tags": [
-          "judging"
-        ],
-        "responses": {
-          "200": {
-            "description": "The new version.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/JudgingRule"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Malformed request body.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing / malformed / expired / revoked bearer token.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No such rule (`judging-rule-not-found`), or no live judge class `judgeClassId` (`judge-class-not-found`).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error (unmapped domain code or framework crash).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          }
-        },
-        "description": "A new version with these fields changed (`when` is replaced whole). Earlier versions are kept: `…/versions` shows who changed what, when. Needs `write` on the project.",
-        "parameters": [
-          {
-            "name": "projectId",
-            "in": "path",
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "description": "ProjectId — opaque branded string."
-          },
-          {
-            "name": "ruleId",
-            "in": "path",
-            "schema": {
-              "type": "string"
-            },
-            "required": true
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/JudgingRulePatch"
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ]
-      }
-    },
-    "/v1/projects/{projectId}/judging-rules/{ruleId}/unregister": {
-      "post": {
-        "operationId": "projects.judgingRules.unregister",
-        "summary": "Stop a judging rule",
-        "tags": [
-          "judging"
-        ],
-        "responses": {
-          "200": {
-            "description": "Whether it was stopped now.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/JudgingRuleUnregisterResult"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Malformed request body.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing / malformed / expired / revoked bearer token.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No such rule (`judging-rule-not-found`).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error (unmapped domain code or framework crash).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          }
-        },
-        "description": "It queues nothing more; its versions and the items it queued stay. `unregistered: false` when it was already stopped. Needs `write` on the project.",
-        "parameters": [
-          {
-            "name": "projectId",
-            "in": "path",
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "description": "ProjectId — opaque branded string."
-          },
-          {
-            "name": "ruleId",
-            "in": "path",
-            "schema": {
-              "type": "string"
-            },
-            "required": true
-          }
-        ],
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ]
-      }
-    },
-    "/v1/projects/{projectId}/judging-rules/{ruleId}/versions": {
-      "get": {
-        "operationId": "projects.judgingRules.versions",
-        "summary": "A judging rule's versions",
-        "tags": [
-          "judging"
-        ],
-        "responses": {
-          "200": {
-            "description": "A page of versions.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/JudgingRulePage"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing / malformed / expired / revoked bearer token.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No such rule (`judging-rule-not-found`).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          }
-        },
-        "description": "Every version, newest first: who wrote it, when, and what it said. Needs `read` on the project.",
-        "parameters": [
-          {
-            "name": "projectId",
-            "in": "path",
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "description": "ProjectId — opaque branded string."
-          },
-          {
-            "name": "ruleId",
-            "in": "path",
-            "schema": {
-              "type": "string"
-            },
-            "required": true
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 100,
-              "default": 25
-            },
-            "required": false,
-            "description": "1..100. Default 25."
-          },
-          {
-            "name": "cursor",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            },
-            "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
-          }
-        ],
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ]
-      }
-    },
-    "/v1/projects/{projectId}/judging-rules/{ruleId}/results": {
-      "get": {
-        "operationId": "projects.judgingRules.results",
-        "summary": "A judging rule's results",
-        "tags": [
-          "judging"
-        ],
-        "responses": {
-          "200": {
-            "description": "The results.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/JudgingRuleResults"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing / malformed / expired / revoked bearer token.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No such rule (`judging-rule-not-found`).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          }
-        },
-        "description": "By the rule's version and the agent's: the runs it queued (open, judged, dismissed, erased), the ones its `maxOpen` skipped, and the live judgments on them, with their class-weighted `yes` share and a count by class. Never pooled with another rule's, or across a rule's versions: each is a sample of its own `when`. Needs `read` on the project.",
-        "parameters": [
-          {
-            "name": "projectId",
-            "in": "path",
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "description": "ProjectId — opaque branded string."
-          },
-          {
-            "name": "ruleId",
-            "in": "path",
-            "schema": {
-              "type": "string"
-            },
-            "required": true
-          },
-          {
-            "name": "since",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "date-time"
-            },
-            "required": false,
-            "description": "Only runs queued from this time on."
-          }
-        ],
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ]
-      }
-    },
-    "/v1/projects/{projectId}/judging-queue": {
-      "get": {
-        "operationId": "projects.judgingQueue.list",
-        "summary": "The project's judging queue",
-        "tags": [
-          "judging"
-        ],
-        "responses": {
-          "200": {
-            "description": "A page of queued runs.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/JudgingQueuePage"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "A malformed filter (`bad-input`).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing / malformed / expired / revoked bearer token.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No project with that id (`project-not-found`).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          }
-        },
-        "description": "Queued runs, oldest first: never a run's content, only what it was, which rules queued it, whose judgment they want and the judgments so far, and what the caller may do with it (`can`). An item closes as `judged` once every rule that queued it has the judgment it wants. `forMe=true`: the items any judgment closes, or that want a class the caller may assert. `limit=0` answers only the `total`. Needs `read` on the project.",
-        "parameters": [
-          {
-            "name": "projectId",
-            "in": "path",
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "description": "ProjectId — opaque branded string."
-          },
-          {
-            "name": "state",
-            "in": "query",
-            "schema": {
-              "$ref": "#/components/schemas/JudgingQueueState"
-            },
-            "required": false,
-            "description": "open, judged, dismissed or erased."
-          },
-          {
-            "name": "agentId",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            },
-            "required": false,
-            "description": "Only this agent."
-          },
-          {
-            "name": "ruleId",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            },
-            "required": false,
-            "description": "Only items this rule queued."
-          },
-          {
-            "name": "judgeClassId",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            },
-            "required": false,
-            "description": "Only items that want this class."
-          },
-          {
-            "name": "forMe",
-            "in": "query",
-            "schema": {
-              "type": "boolean"
-            },
-            "required": false,
-            "description": "`true`: what the caller is asked to judge."
-          },
-          {
-            "name": "addedAfter",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "date-time"
-            },
-            "required": false,
-            "description": "Queued from this time on."
-          },
-          {
-            "name": "closedAfter",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "date-time"
-            },
-            "required": false,
-            "description": "Closed from this time on."
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 100,
-              "default": 25
-            },
-            "required": false,
-            "description": "Page size; `0` for the `total` alone."
-          },
-          {
-            "name": "cursor",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            },
-            "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
-          }
-        ],
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ]
-      }
-    },
-    "/v1/projects/{projectId}/judging-queue/{runId}/dismiss": {
-      "post": {
-        "operationId": "projects.judgingQueue.dismiss",
-        "summary": "Dismiss a queued run",
-        "tags": [
-          "judging"
-        ],
-        "responses": {
-          "200": {
-            "description": "The item, dismissed.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/JudgingQueueItem"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Malformed request body.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing / malformed / expired / revoked bearer token.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "The run isn't in the project's queue (`judging-item-not-found`).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "The item isn't open (`judging-item-not-open`).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error (unmapped domain code or framework crash).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          }
-        },
-        "description": "Not worth judging: it leaves the open queue, with who dismissed it and why. `reopen` undoes it. Needs `write` on the project, as judging the run does.",
-        "parameters": [
-          {
-            "name": "projectId",
-            "in": "path",
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "description": "ProjectId — opaque branded string."
-          },
-          {
-            "name": "runId",
-            "in": "path",
-            "schema": {
-              "type": "string"
-            },
-            "required": true
-          }
-        ],
-        "requestBody": {
-          "required": false,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/JudgingDismissBody"
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ]
-      }
-    },
-    "/v1/projects/{projectId}/judging-queue/{runId}/reopen": {
-      "post": {
-        "operationId": "projects.judgingQueue.reopen",
-        "summary": "Reopen a dismissed run",
-        "tags": [
-          "judging"
-        ],
-        "responses": {
-          "200": {
-            "description": "The item, open again.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/JudgingQueueItem"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Malformed request body.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing / malformed / expired / revoked bearer token.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "The run isn't in the project's queue (`judging-item-not-found`).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "The item wasn't dismissed (`judging-item-not-open`).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error (unmapped domain code or framework crash).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          }
-        },
-        "description": "Back in the open queue. Only a dismissed item reopens: a judged one was closed by its judgments. Needs `write` on the project.",
-        "parameters": [
-          {
-            "name": "projectId",
-            "in": "path",
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "description": "ProjectId — opaque branded string."
-          },
-          {
-            "name": "runId",
-            "in": "path",
-            "schema": {
-              "type": "string"
-            },
-            "required": true
-          }
-        ],
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ]
-      }
-    },
     "/v1/projects/{projectId}/memberships": {
       "get": {
         "operationId": "projects.memberships.list",
@@ -42846,7 +40026,7 @@
             }
           }
         },
-        "description": "Cursor-paginated. Direct-grant memberships only — team-mediated grants are resolved through the FGA store per tenant. For the project's editors and admins (`write`): a viewer sees the project, not who else is in it, and reads their own roles through `GET /v1/identity/users/{userId}/grants`.",
+        "description": "Cursor-paginated. Direct-grant memberships only — team-mediated grants are resolved through the FGA store per tenant.",
         "parameters": [
           {
             "name": "projectId",
@@ -42933,7 +40113,7 @@
             }
           },
           "409": {
-            "description": "A member already, with another role (`membership-exists`, `details.role`); or an Idempotency-Key reused with another body.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
             "content": {
               "application/json": {
                 "schema": {
@@ -42953,7 +40133,7 @@
             }
           }
         },
-        "description": "Names the person by exactly one of `userId` and `email` (matched as the runtime matches emails when it adds a person); someone who is not a person of this tenant, or was removed from it, is refused with 404 `identity-user-not-found`. Adding a role the member already holds answers 201 with the existing record; another role, 409 `membership-exists` naming the role they hold (`details.role`), which is kept: use PATCH to change it.",
+        "description": "Names the person by exactly one of `userId` and `email` (matched as the runtime matches emails when it adds a person); someone who is not a person of this tenant, or was removed from it, is refused with 404 `identity-user-not-found`. Idempotent on `(projectId, userId)` — re-adding an existing member with a different role does NOT overwrite; use PATCH for role changes.",
         "parameters": [
           {
             "name": "projectId",
@@ -42985,555 +40165,6 @@
             }
           }
         },
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ]
-      }
-    },
-    "/v1/projects/{projectId}/access": {
-      "get": {
-        "operationId": "projects.access.list",
-        "summary": "Who has access to a project, and how",
-        "tags": [
-          "projects"
-        ],
-        "responses": {
-          "200": {
-            "description": "Page of who has access.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ProjectAccessPage"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing / malformed / expired / revoked bearer token.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No project with that id under this tenant.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "The runtime has no authorization store (`project-access-unsupported`).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          }
-        },
-        "description": "Everyone the authorization store lets into the project (people and service accounts), each with their effective role and every way in: a direct role, a team's grant, an admin of the project's org, a tenant admin. For the project's editors and admins (`write`): a viewer sees the project, not who else works in it. Emails show to the project's admins only. Ordered by role (owner first), then name. 501 `project-access-unsupported` from a runtime without an authorization store.",
-        "parameters": [
-          {
-            "name": "projectId",
-            "in": "path",
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "description": "ProjectId — opaque branded string."
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 100,
-              "default": 25
-            },
-            "required": false,
-            "description": "1..100. Default 25."
-          },
-          {
-            "name": "cursor",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            },
-            "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
-          }
-        ],
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ]
-      }
-    },
-    "/v1/projects/{projectId}/team-grants": {
-      "get": {
-        "operationId": "projects.teamGrants.list",
-        "summary": "List the teams with a role on a project",
-        "tags": [
-          "projects"
-        ],
-        "responses": {
-          "200": {
-            "description": "Page of team grants.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TeamProjectGrantCollectionPage"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing / malformed / expired / revoked bearer token.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No project with that id under this tenant.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          }
-        },
-        "description": "Every member of a team holds its role on the project. For the project's editors and admins (`write`). Each grant names its team and project.",
-        "parameters": [
-          {
-            "name": "projectId",
-            "in": "path",
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "description": "ProjectId — opaque branded string."
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 100,
-              "default": 25
-            },
-            "required": false,
-            "description": "1..100. Default 25."
-          },
-          {
-            "name": "cursor",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            },
-            "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
-          }
-        ],
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ]
-      },
-      "post": {
-        "operationId": "projects.teamGrants.add",
-        "summary": "Give a team a role on a project",
-        "tags": [
-          "projects"
-        ],
-        "responses": {
-          "201": {
-            "description": "The team holds the role: given now, or already (the existing grant).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TeamProjectGrant"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Malformed request body.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing / malformed / expired / revoked bearer token.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No project (`project-not-found`) or team (`team-not-found`) with that id under this tenant.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "The team holds another role on the project (`team-grant-exists`, `details.role`); or an Idempotency-Key reused with another body.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error (unmapped domain code or framework crash).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "The runtime can't keep permissions in step with the change (`authz-membership-unsupported`).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          }
-        },
-        "description": "Every member of the team (its admins included) then holds the role on the project. Takes `admin` on the project and `read` on the team: a project is given only to a team you can read. A team's role is `viewer`, `editor` or `admin`: a team never owns a project. Adding a role the team already holds answers 201 with the existing grant; another role, 409 `team-grant-exists` naming the one it holds (`details.role`): use PATCH to change it.",
-        "parameters": [
-          {
-            "name": "projectId",
-            "in": "path",
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "description": "ProjectId — opaque branded string."
-          },
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "required": false,
-            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/AddTeamProjectGrantBody"
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ]
-      }
-    },
-    "/v1/projects/{projectId}/team-grants/{teamId}": {
-      "patch": {
-        "operationId": "projects.teamGrants.updateRole",
-        "summary": "Change a team's role on a project",
-        "tags": [
-          "projects"
-        ],
-        "responses": {
-          "204": {
-            "description": "Changed. No body."
-          },
-          "400": {
-            "description": "Malformed request body.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing / malformed / expired / revoked bearer token.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No project with that id (`project-not-found`), or the team has no role on it (`team-grant-not-found`).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error (unmapped domain code or framework crash).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "The runtime can't keep permissions in step with the change (`authz-membership-unsupported`).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          }
-        },
-        "parameters": [
-          {
-            "name": "projectId",
-            "in": "path",
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "description": "ProjectId — opaque branded string."
-          },
-          {
-            "name": "teamId",
-            "in": "path",
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "description": "TeamId — opaque branded string."
-          },
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "required": false,
-            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/UpdateTeamProjectGrantBody"
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ]
-      },
-      "delete": {
-        "operationId": "projects.teamGrants.remove",
-        "summary": "Take a team's role on a project away (idempotent)",
-        "tags": [
-          "projects"
-        ],
-        "responses": {
-          "204": {
-            "description": "Removed (or there was none). No body."
-          },
-          "401": {
-            "description": "Missing / malformed / expired / revoked bearer token.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "501": {
-            "description": "The runtime can't keep permissions in step with the change (`authz-membership-unsupported`).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          }
-        },
-        "parameters": [
-          {
-            "name": "projectId",
-            "in": "path",
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "description": "ProjectId — opaque branded string."
-          },
-          {
-            "name": "teamId",
-            "in": "path",
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "description": "TeamId — opaque branded string."
-          },
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "required": false,
-            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
-          }
-        ],
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ]
-      }
-    },
-    "/v1/teams/{teamId}/project-grants": {
-      "get": {
-        "operationId": "teams.projectGrants.list",
-        "summary": "List the projects a team holds a role on",
-        "tags": [
-          "teams"
-        ],
-        "responses": {
-          "200": {
-            "description": "Page of team grants.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/TeamProjectGrantCollectionPage"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing / malformed / expired / revoked bearer token.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No team with that id under this tenant.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          }
-        },
-        "description": "For the team's admins (and tenant admins). Each grant names its team and project.",
-        "parameters": [
-          {
-            "name": "teamId",
-            "in": "path",
-            "schema": {
-              "type": "string"
-            },
-            "required": true,
-            "description": "TeamId — opaque branded string."
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 100,
-              "default": 25
-            },
-            "required": false,
-            "description": "1..100. Default 25."
-          },
-          {
-            "name": "cursor",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            },
-            "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
-          }
-        ],
         "security": [
           {
             "bearerAuth": []
@@ -46398,7 +43029,7 @@
             }
           },
           "400": {
-            "description": "Malformed body or unknown field; the deployment refuses the URL (`webhook-url-refused`); the referenced secret does not exist (`webhook-secret-not-found`) or is too weak (`webhook-secret-too-weak`).",
+            "description": "Malformed body or unknown field; the deployment refuses the URL (`webhook-url-refused`); the referenced secret does not exist (`webhook-secret-not-found`) or is too weak (`webhook-secret-too-weak`), or it's a model provider's key (`provider-key-refused`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -46656,7 +43287,7 @@
             }
           },
           "400": {
-            "description": "Malformed body or unknown field; the deployment refuses the URL (`webhook-url-refused`); the referenced secret does not exist or is too weak.",
+            "description": "Malformed body or unknown field; the deployment refuses the URL (`webhook-url-refused`); the referenced secret does not exist or is too weak, or it's a model provider's key (`provider-key-refused`).",
             "content": {
               "application/json": {
                 "schema": {

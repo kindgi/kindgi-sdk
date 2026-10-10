@@ -80,6 +80,7 @@ import type { PersonGrantsBinding } from './person-grants-binding.js';
 import type { ProjectAccessBinding } from './project-access-binding.js';
 import type { ProvenanceBinding } from './provenance-binding.js';
 import type { ProviderRegistryBinding } from './provider-binding.js';
+import { providerKeysOf, usersOfSecret } from './provider-keys.js';
 import {
   type PublicRunTokenConfig,
   mintPublicRunToken,
@@ -1262,8 +1263,24 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ),
     );
   }
+  // A model provider's key is used by its provider only: the routes that
+  // write a tool, an endpoint or a provider check names against it.
+  const providerKeys = providerKeysOf(input.providerRegistry);
+  const secretUsers = (tenantId: import('@kindgi/types').TenantId, name: string) =>
+    usersOfSecret(
+      {
+        ...(input.toolRegistry !== undefined && { tools: input.toolRegistry }),
+        ...(input.mcpEndpointRegistry !== undefined && { mcpEndpoints: input.mcpEndpointRegistry }),
+        ...(input.webhookEndpoints !== undefined && { webhookEndpoints: input.webhookEndpoints }),
+      },
+      tenantId,
+      name,
+    );
   if (input.toolRegistry !== undefined) {
-    v1.route('/tools', toolsRouter(input.toolRegistry, authorizer, input.onToolWrite));
+    v1.route(
+      '/tools',
+      toolsRouter(input.toolRegistry, authorizer, input.onToolWrite, { providerKeys }),
+    );
   }
   if (input.guardrailRegistry !== undefined) {
     v1.route(
@@ -1374,6 +1391,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         input.onProviderWrite,
         input.adapterFactories,
         authorizer,
+        { secretUsers },
       ),
     );
   }
@@ -1382,6 +1400,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       '/mcp',
       mcpRouter(input.mcpEndpointRegistry, input.mcpClientProbe, authorizer, {
         hostAccess: input.tenantHostAccess ?? 'deployed',
+        providerKeys,
       }),
     );
   }
@@ -1430,7 +1449,10 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     }
   }
   if (input.webhookEndpoints !== undefined) {
-    v1.route('/webhook-endpoints', webhookEndpointsRouter(input.webhookEndpoints, authorizer));
+    v1.route(
+      '/webhook-endpoints',
+      webhookEndpointsRouter(input.webhookEndpoints, authorizer, { providerKeys }),
+    );
   }
   if (input.policyRegistry !== undefined) {
     v1.route('/policies', policiesRouter(input.policyRegistry, authorizer));
@@ -1598,6 +1620,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         {
           deploymentRegistry: input.deploymentRegistry,
           signingKeyRegistry: input.signingKeyRegistry,
+          providerKeys,
           imageRegistry: input.imageRegistry,
           ...(input.toolRegistry !== undefined && { toolRegistry: input.toolRegistry }),
           ...(input.blockRegistry !== undefined && { blockRegistry: input.blockRegistry }),
