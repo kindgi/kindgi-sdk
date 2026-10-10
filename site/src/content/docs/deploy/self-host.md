@@ -213,10 +213,10 @@ curl -s http://localhost:4000/ready
 ```
 
 ```text
-{"ok":true,"database":"ok"}
+{"ok":true,"database":"ok","erasures":"unreplayable"}
 ```
 
-`/ready` answers once the runtime is up and its database answers (`/health` checks only the process; see [Operate](../operate/#check-health-and-logs)).
+`/ready` answers once the runtime is up and its database answers (`/health` checks only the process; see [Operate](../operate/#check-health-and-logs)). Its `erasures` says whether an erasure can be replayed after a backup restore: `unreplayable` until you set `KINDGI_ERASURE_LEDGER_KEY` ([Erasures and backups](../operate/#erasures-and-backups)).
 
 Open `http://localhost:4000/` in Chrome or Firefox: it leads to the console, at `/console/`, where you sign in with the API token from `kindgi.env`. Safari can't keep the local sign-in over http yet ([Known limitations](../operate/#known-limitations-in-015)). A runtime started without the console answers there with a short page naming what it serves (`/health`, `/ready`, the API reference at `/docs`).
 
@@ -227,16 +227,20 @@ docker logs kindgi-server
 ```
 
 ```text
-Kindgi API server listening on http://localhost:4000
-  Tenant:  8f34192d-53bb-4fc2-bfb8-9094157b2404
-  Token:   kgi_bt_…abb1 (provided)
+Kindgi API server listening on http://localhost:4000 (local to this host or container: set KINDGI_PUBLIC_URL to the address clients use)
+  Tenant:  …
+  Token:   kgi_bt_…3236 (provided)
+  User:    … (KINDGI_API_TOKEN's user from now on; KINDGI_SEED_USER_ID names one)
   …
+  Console: http://localhost:4000/console/
+  Console sign-in: an API token (KINDGI_CONSOLE_TOKEN_SIGN_IN)
   Deployments: on (signed images, /v1/deployments)
-  License: Docs example · non-production · until 2026-11-02
-  ⚠ The license key expires in 29 days (2026-11-02). Renew it: contact@kindgi.com.
+  …
+  License: …
+  …
   Env: production (tool secrets resolve in it)
-  Tenant host access: deployed (stdio MCP endpoints refused; KINDGI_TENANT_HOST_ACCESS)
-  Pack service: http://kindgi-pack:8080 — acme-pack (artifact …), protocol 2, 3 tools, 1 check
+  Tenant host access: deployed (stdio MCP endpoints refused; tenant-chosen hosts can't reach the metadata server or this host; KINDGI_TENANT_HOST_ACCESS)
+  Pack service: http://…:8080 — acme-pack (artifact …), protocol 2, 3 tools, 1 check
 ```
 
 Without `KINDGI_LICENSE_KEY`, the runtime doesn't start. It exits with code 2 and says:
@@ -245,7 +249,12 @@ Without `KINDGI_LICENSE_KEY`, the runtime doesn't start. It exits with code 2 an
 KINDGI_LICENSE_KEY is not set. Outside development mode the Kindgi runtime needs a license key: a production key comes with a commercial license, and a free non-production key covers staging and CI. To get one: contact@kindgi.com. Local development needs none: `kindgi dev` runs the runtime with KINDGI_DEV=true.
 ```
 
-A key within 30 days of expiry adds the warning under the license line, as this example key does.
+A key within 30 days of expiry adds a warning under the license line:
+
+```text
+  License: Docs example · non-production · until 2026-11-02
+  ⚠ The license key expires in 29 days (2026-11-02). Renew it: contact@kindgi.com.
+```
 
 **Behind a proxy or a load balancer,** or on a published port other than the one it binds, set `KINDGI_PUBLIC_URL` in `kindgi.env` to the address clients use. The first line then names both, and the banner's links (`Docs`, and `Console` when it serves the console) use the public address:
 
