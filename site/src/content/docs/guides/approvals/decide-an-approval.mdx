@@ -190,6 +190,10 @@ deadline passes with no decision:
   "error":{"code":"hitl-cancelled","message":"Tool-call HITL cancelled for acme-desk.echo: timeout","reason":"timeout"}
   ```
 
+  The run's `failure` says the same as data: `code: "hitl-cancelled"`,
+  `reason: "timeout"`. Read `reason` rather than the message; a runtime from
+  before 0.1.6 doesn't send it, so go by `code` alone there.
+
 A decision made before the deadline always wins. A deadline always escalates
 this way: `hitl.onTimeout` takes only `'escalate'`, the default. An agent that
 asks for anything else is refused when it's defined:
