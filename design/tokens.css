@@ -90,16 +90,16 @@
   --kg-status-muted-bg: #eceef2;
   /* Its line. Decorative. */
   --kg-status-muted-line: #a3acbc;
-  /* Chart series, darkest ink: the biggest item. */
-  --kg-series-1: #002a66;
+  /* Chart series 1, the strongest tone (indigo in light, pale cyan in dark): the biggest item. */
+  --kg-series-1: #392d7d;
   /* Chart series 2. */
-  --kg-series-2: #184381;
+  --kg-series-2: #008ab3;
   /* Chart series 3. */
-  --kg-series-3: #2e5a9a;
+  --kg-series-3: #2b4c9f;
   /* Chart series 4. */
-  --kg-series-4: #4572b4;
+  --kg-series-4: #0ea3b0;
   /* Chart series 5. */
-  --kg-series-5: #5c8ace;
+  --kg-series-5: #166daf;
   /* Warm stone: everything else, and the previous period (dashed). */
   --kg-series-muted: #8b7e6d;
   /* Everything you read. Self-hosted. */
@@ -164,11 +164,11 @@
     --kg-status-muted: #a3acbc;
     --kg-status-muted-bg: #1e2633;
     --kg-status-muted-line: #4a5568;
-    --kg-series-1: #b7e9ff;
-    --kg-series-2: #9dcfff;
-    --kg-series-3: #84b5ec;
-    --kg-series-4: #6c9cd1;
-    --kg-series-5: #5583b7;
+    --kg-series-1: #b0f6fe;
+    --kg-series-2: #6b8fe2;
+    --kg-series-3: #80d8fe;
+    --kg-series-4: #736dc3;
+    --kg-series-5: #6db4f6;
     --kg-series-muted: #918473;
   }
 }
@@ -219,10 +219,10 @@
   --kg-status-muted: #a3acbc;
   --kg-status-muted-bg: #1e2633;
   --kg-status-muted-line: #4a5568;
-  --kg-series-1: #b7e9ff;
-  --kg-series-2: #9dcfff;
-  --kg-series-3: #84b5ec;
-  --kg-series-4: #6c9cd1;
-  --kg-series-5: #5583b7;
+  --kg-series-1: #b0f6fe;
+  --kg-series-2: #6b8fe2;
+  --kg-series-3: #80d8fe;
+  --kg-series-4: #736dc3;
+  --kg-series-5: #6db4f6;
   --kg-series-muted: #918473;
 }
