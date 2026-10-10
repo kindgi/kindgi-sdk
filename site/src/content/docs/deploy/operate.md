@@ -305,15 +305,15 @@ changes: the 0.1.5 CLI and SDKs (npm, PyPI, Maven Central) stay as they are.
 
 On 0.1.5.1:
 
-- **Removing someone from a project or a team removes every role they held
+- **Removing someone from a project or a team removes the roles they held
   there.**
 - **Re-adding someone who's already a member keeps their current role.** To
   give them another, change their role
   ([Project memberships](../authorization/#project-memberships)). The answer
   to the re-add still echoes the role you asked for (`201`), as the API is
   unchanged in this patch; the members list shows the role they hold.
-- **Removing a project's creator ends their ownership,** and removing a
-  team's creator ends their team admin. Before, removing them did nothing.
+- **Removing a team's creator ends their team admin,** which they hold
+  without a membership row. This matches what the team's members list shows.
 
 Run 0.1.5.1, pulled by its digest, with the same `kindgi.env`. It has no
 migration:
@@ -328,8 +328,9 @@ and set `server_image` to its digest.
 
 **If you removed someone from a project or a team on an earlier version,
 after re-adding them with another role,** they may still hold that role.
-Remove them again on 0.1.5.1: the removal now clears every role they held,
-the leftover included. 0.1.6 adds a check that finds them.
+Remove them again on 0.1.5.1: the removal now clears it. For a leftover
+`owner` on a project, add the person as `owner`, then remove them. 0.1.6
+adds a check that finds who needs it.
 
 ### From 0.1.4 to 0.1.5
 
