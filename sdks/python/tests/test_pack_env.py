@@ -259,8 +259,10 @@ def test_boot_logs_the_missing_names_once(
 ) -> None:
     index_path = tmp_path / "index.json"
     index_path.write_text(json.dumps(INDEX))
+    # The filter would drop the test runner's own environment; it has its own tests.
     config = read_config(
-        ["--index", str(index_path)], {**BASE_ENV, "KINDGI_PACK_ENV_CHECK": "warn"}
+        ["--index", str(index_path)],
+        {**BASE_ENV, "KINDGI_PACK_ENV_CHECK": "warn", "KINDGI_PACK_ENV_FILTER": "off"},
     )
     assert isinstance(config, ServeConfig)
     loaded = load_service(config, ENVIRON)

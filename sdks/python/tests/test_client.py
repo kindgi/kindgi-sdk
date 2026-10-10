@@ -598,9 +598,80 @@ def test_settings_come_from_the_environment(
     monkeypatch.setenv("KINDGI_API_TOKEN", "kgi_bt_env")
     with Kindgi() as api:
         assert (api.base_url, api.token) == ("http://env.test", "kgi_bt_env")
-    monkeypatch.delenv("KINDGI_API_TOKEN")
-    with pytest.raises(ValueError, match="KINDGI_API_TOKEN"):
-        Kindgi()
+
+
+def test_settings_are_found_on_first_use_not_when_the_client_is_created(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # A module-scope `Kindgi()` must load in a build step that imports the app
+    # without its settings (Django's `collectstatic`, a Docker build).
+    monkeypatch.chdir(tmp_path)  # no running kindgi dev to fall back to
+    monkeypatch.delenv("KINDGI_API_URL", raising=False)
+    monkeypatch.delenv("KINDGI_API_TOKEN", raising=False)
+    seen: list[httpx.Request] = []
+
+    def record(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={"data": [], "hasMore": False})
+
+    api = Kindgi(http_client=httpx.Client(transport=httpx.MockTransport(record)))
+    # The first use says what to set, and nothing is sent.
+    with pytest.raises(ValueError, match="KINDGI_API_URL and KINDGI_API_TOKEN"):
+        api.runs.list()
+    with pytest.raises(ValueError, match="KINDGI_API_URL"):
+        _ = api.base_url
+    assert seen == []
+    # Once they're set, the next use finds them, and keeps them.
+    monkeypatch.setenv("KINDGI_API_URL", "http://env.test/")
+    monkeypatch.setenv("KINDGI_API_TOKEN", "kgi_bt_env")
+    api.runs.list()
+    assert str(seen[0].url).startswith("http://env.test/v1/runs")
+    assert seen[0].headers["authorization"] == "Bearer kgi_bt_env"
+    monkeypatch.setenv("KINDGI_API_TOKEN", "kgi_bt_other")
+    api.runs.list()
+    assert seen[1].headers["authorization"] == "Bearer kgi_bt_env"
+    api.close()
+
+
+def test_the_async_client_finds_its_settings_on_first_use_too(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("KINDGI_API_URL", raising=False)
+    monkeypatch.delenv("KINDGI_API_TOKEN", raising=False)
+
+    async def scenario() -> None:
+        seen: list[httpx.Request] = []
+
+        def record(request: httpx.Request) -> httpx.Response:
+            seen.append(request)
+            return httpx.Response(200, json={"data": [], "hasMore": False})
+
+        async with AsyncKindgi(
+            http_client=httpx.AsyncClient(transport=httpx.MockTransport(record))
+        ) as api:
+            with pytest.raises(ValueError, match="KINDGI_API_TOKEN"):
+                await api.runs.list()
+            assert seen == []
+            monkeypatch.setenv("KINDGI_API_URL", "http://env.test")
+            monkeypatch.setenv("KINDGI_API_TOKEN", "kgi_bt_env")
+            await api.runs.list()
+            assert seen[0].headers["authorization"] == "Bearer kgi_bt_env"
+
+    asyncio.run(scenario())
+
+
+def test_default_headers_still_come_after_the_clients_own(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api, seen = client(
+        lambda r: httpx.Response(200, json={"data": [], "hasMore": False}),
+        default_headers={"User-Agent": "acme-app/1.0", "X-Acme": "yes"},
+    )
+    api.runs.list()
+    assert seen[0].headers["user-agent"] == "acme-app/1.0"
+    assert seen[0].headers["x-acme"] == "yes"
+    assert seen[0].headers["authorization"] == "Bearer kgi_bt_test"
 
 
 def test_the_async_client() -> None:

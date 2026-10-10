@@ -33,6 +33,7 @@ import {
   type PackLanguage,
   findKindgiConfig,
   resolveDiscovery,
+  resolvePackEnv,
 } from '@kindgi/handler-runtime';
 
 import { checkAptPackages } from '../build/apt.js';
@@ -837,6 +838,7 @@ async function prepareNodeContext(
     `    ✓ ${localIndex.counts.tools} tools, ${localIndex.counts.guardrails} guardrails, ` +
       `${localIndex.counts.agents} agents, ${localIndex.counts.flows} flows indexed`,
   );
+  printIndexWarnings(localIndex, lines);
 
   // ---- 3. Containerfile + context --------------------------------------
   const containerfilePath = join(args.outDir, 'Containerfile');
@@ -969,6 +971,7 @@ async function preparePythonContext(
     `    ✓ ${localIndex.counts.tools} tools, ${localIndex.counts.guardrails} guardrails, ` +
       `${localIndex.counts.agents} agents, ${localIndex.counts.flows} flows discovered`,
   );
+  printIndexWarnings(localIndex, lines);
 
   const packFiles = await collectPythonContextFiles(args.packDir);
   if (packFiles.kind === 'error') return failure(`${packFiles.message}\n`);
@@ -1060,12 +1063,23 @@ async function prepareJvmContext(
         .join('\n')}\n`,
     );
   }
+  // The launcher keeps these names in the image, and drops the rest.
+  const declared = resolvePackEnv(
+    (JSON.parse(await readFile(expectedIndexPath, 'utf8')) as { readonly env?: unknown }).env,
+  );
+  if (declared.kind === 'err')
+    return failure(`kindgi build: the index's env: ${declared.message}\n`);
+  const declaredEnv = [
+    ...(declared.value?.required ?? []),
+    ...(declared.value?.optional ?? []),
+  ].sort();
   const tool = code.language === 'java' ? code.maven : code.sbt;
   lines(`  Indexing (${name} — ${code.javaHome ?? code.java}; ${tool.join(' ')})`);
   lines(
     `    ✓ ${localIndex.counts.tools} tools, ${localIndex.counts.guardrails} guardrails, ` +
       `${localIndex.counts.agents} agents, ${localIndex.counts.flows} flows discovered`,
   );
+  printIndexWarnings(localIndex, lines);
 
   const packFiles =
     language === 'java'
@@ -1091,6 +1105,7 @@ async function prepareJvmContext(
       language === 'java' ? DEFAULT_JAVA_BUILD_IMAGE_REF : DEFAULT_SCALA_BUILD_IMAGE_REF,
     runtimeImageRef: DEFAULT_JAVA_RUNTIME_IMAGE_REF,
     systemPackages: system.packages,
+    declaredEnv,
   });
   const contextDir = join(args.outDir, 'context');
   await java.writeContext({
@@ -1379,4 +1394,12 @@ async function isFile(path: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/** The indexer's warnings, a line each: what the pack should change, though it builds as it is. */
+function printIndexWarnings(
+  result: { readonly warnings?: readonly { readonly message: string }[] },
+  lines: (s: string) => void,
+): void {
+  for (const w of result.warnings ?? []) lines(`    ⚠ ${w.message}`);
 }

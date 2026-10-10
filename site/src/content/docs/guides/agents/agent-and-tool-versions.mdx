@@ -167,11 +167,20 @@ Under kindgi dev, the pack is the source of agents: change the agent in the pack
 ```
 
 - **No new run gets it:** not by a range, not as the latest, not by its
-  exact number. A run that names it is refused:
+  exact number. A run that names it is refused (`404 agent-not-found`):
 
   ```text
   Agent "acme.greeter@1.0.0" is unregistered; reinstate it or run another version.
   ```
+
+  A flow's version is refused the same way, as `404 flow-not-found`:
+
+  ```json
+  {"error":{"code":"flow-not-found","message":"Flow \"acme.refunds@1.0.0\" is unregistered; reinstate it or run another version.","requestId":"req-…"}}
+  ```
+
+  A run that names no version gets the latest live one. A run already going,
+  one waiting for an approval included, finishes on the version it started.
 
 - **A version live somewhere can't be unregistered.** Roll back, unpin or
   promote another version in each scope where it's live first (see

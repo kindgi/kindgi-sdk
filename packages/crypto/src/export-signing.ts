@@ -20,7 +20,6 @@
  *
  * Not the same seam as `SigningKeyBinding` (raw key bytes, read
  * synchronously, for public run tokens on the request path).
- * `exportSignerFromSigningKeyBinding` adapts one to the other.
  */
 
 import {
@@ -32,8 +31,6 @@ import {
 } from 'node:crypto';
 
 import type { Result } from '@kindgi/types';
-
-import type { SigningKeyBinding } from './binding.js';
 import { parsePrivateKeyPem, serializePublicKeyPem, signEd25519 } from './ed25519.js';
 import { ED25519_RAW_KEY_BYTES, unwrapPublicKeySpki, wrapPrivateKeyPkcs8 } from './encoding.js';
 import type { CryptoError } from './errors.js';
@@ -250,38 +247,6 @@ export function createEd25519ExportSigner(
       return signedWith(key, privateKey, bytes);
     },
   });
-}
-
-/**
- * The `ExportSigningBinding` over a `SigningKeyBinding`'s Ed25519 keys,
- * under the ids that binding gives them; the first is the active one.
- * `undefined` when it holds no Ed25519 key (nothing to sign with).
- */
-export function exportSignerFromSigningKeyBinding(
-  binding: SigningKeyBinding,
-): ExportSigningBinding | undefined {
-  const keys = binding
-    .listKeys()
-    .filter((d) => d.algorithm === 'ed25519')
-    .flatMap((d) => {
-      const pub = binding.getPublicKey(d.keyId);
-      return pub === null ? [] : [describeKey(d.keyId as unknown as string, pub)];
-    });
-  const [active] = keys;
-  if (active === undefined) return undefined;
-  return {
-    activeKey: () => active,
-    listKeys: () => keys,
-    async sign(bytes, options) {
-      const key =
-        options?.keyId === undefined ? active : keys.find((k) => k.keyId === options.keyId);
-      const privateKey = key === undefined ? null : binding.getPrivateKey(key.keyId as never);
-      if (key === undefined || privateKey === null) {
-        return { kind: 'err', error: keyNotFound(options?.keyId ?? active.keyId, keys) };
-      }
-      return signedWith(key, privateKey, bytes);
-    },
-  };
 }
 
 function signedWith(

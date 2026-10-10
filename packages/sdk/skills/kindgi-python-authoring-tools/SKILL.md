@@ -14,7 +14,7 @@ description: >
   kindgi-python-getting-started.
 type: core
 library: "kindgi (Python)"
-version: "0.1.2"
+version: "0.1.3"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -121,6 +121,14 @@ def verify_citation(citation: Citation, ctx: ToolContext) -> Verdict:
   (`kindgi env set NAME <value> --scope=project:<id> --env=<env>`).
   Strings, and not secret. Empty from an older runtime.
 - `ctx.config` — **reserved, empty today**.
+- `ctx.log` — a logger bound to the call (its records carry the run's ids,
+  the tool's id and the trace id): `ctx.log.info("refund issued",
+  {"orderId": order_id, "amountCents": amount_cents})`, or the fields as
+  keywords. Values go in the fields, never in the message. Log ids,
+  amounts and outcomes, never what a person typed (a refund's reason, a
+  message, an address): the log is read by whoever operates the runtime.
+  `ToolContext.for_test(…)` logs nothing unless you pass it `log=`. Docs:
+  https://docs.kindgi.com/v0.1/guides/tools/write-a-tool/#log-from-a-tool
 
 ## Configuration and secrets
 
@@ -177,8 +185,12 @@ that is the pack's `.env` and `.env.local` (or `[tool.kindgi.dev]
 envFiles`), restarted when they change; nothing else from your shell
 reaches it except `PATH`, `HOME` and `TMPDIR`. Put a secret there by
 hand or with `kindgi secrets set NAME --env=local --scope=tenant` (a
-no-echo prompt), and keep the env files out of git. `KINDGI_*` names
-are Kindgi's own settings and never reach pack code.
+no-echo prompt), and keep the env files out of git. Declare every name
+the code reads in `[tool.kindgi.env]` (`required`, `optional`): in an image
+the pack service drops every other variable before your code loads
+(`kindgi dev` keeps them), so an undeclared one works locally and is unset
+once deployed. `KINDGI_*` names are Kindgi's own settings: a pack can't
+declare one.
 
 ## Errors and output
 
