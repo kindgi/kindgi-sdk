@@ -208,9 +208,10 @@ person's outcome, not an error:
 
 A run cancelled while it waits ends `cancelled`, with no failure code.
 
-An approval still waiting when its run, or a run it's a step of, has already
-ended can't be decided either: the decision is refused with
-`409 run-already-terminal`, and nothing is recorded. Its `details` name
+An approval a run waits on (a tool call's or a turn's) that's still open
+when that run, or a run it's a step of, has already ended can't be decided
+either: the decision is refused with `409 run-already-terminal`, and nothing
+is recorded. Its `details` name
 the run that ended (it may be the run the approval's run is a step of) and
 its `status`. A decision recorded just before its run ended stands: the
 answer has `waitpointResolved: false` and the run's `runStatus`.
@@ -265,11 +266,14 @@ withdrawn").
 kindgi approvals complete <approval-id> --decision=withdraw --rationale="Asked by mistake"
 ```
 
-Cancelling a run withdraws its open approvals by itself: see
+Cancelling a run withdraws the approvals it waits on by itself: see
 [Cancel a run](../../runs/cancel-a-run/#approvals-of-a-cancelled-run).
 Those approvals show `withdrawnBecause: "run-cancelled"` (or `run-ended`,
 when a run ended otherwise while they waited, e.g. it failed) and no
-`decision`.
+`decision`. An approval a run asked for without waiting on it, such as a
+project-wide memory fact's review or a memory erasure's, names the run only
+as where it came from: it stays pending after the run ends, and is decided
+as usual.
 
 ### When nobody decides
 
