@@ -1,0 +1,228 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Copyright (C) 2026 Kindgi Inc. */
+
+/* Kindgi's design tokens, light and dark. Written from design/tokens.json by
+   `pnpm run tokens:build`: edit the JSON, not this file. See design/README.md. */
+
+:root {
+  color-scheme: light;
+  /* The page: your side. Drafting paper in light, night steel in dark. */
+  --kg-page: #f3f4f7;
+  /* Cards, tables, panels on the page. */
+  --kg-card: #ffffff;
+  /* Form fields: text boxes, selects. */
+  --kg-field: #ffffff;
+  /* Text and headings. */
+  --kg-text: #1c2433;
+  /* Secondary text: descriptions, captions, labels. */
+  --kg-text-2: #535d6e;
+  /* A heading's second line (steel). */
+  --kg-heading-2: #4d6080;
+  /* Hairlines between rows and around cards. Decorative. */
+  --kg-rule: #c7ccd6;
+  /* Drawn lines: boxes, outline buttons, form field edges. */
+  --kg-line: #1c2433;
+  /* What Kindgi runs: graphite in light, plum-black in dark. The website's Kindgi surfaces. */
+  --kg-kindgi: #1c2433;
+  /* Text on the Kindgi surface. */
+  --kg-kindgi-text: #f1f2f5;
+  /* Secondary text on the Kindgi surface. */
+  --kg-kindgi-text-2: #a9b1bf;
+  /* Hairlines on the Kindgi surface. */
+  --kg-kindgi-rule: #323c50;
+  /* Plum-graphite: a closing band set apart from the Kindgi surface (the website's hero). */
+  --kg-kindgi-band: #2b1b32;
+  /* Hairlines on the band. */
+  --kg-kindgi-band-rule: #4a3354;
+  /* Plum: a primary action, or a person decides. Rare outside the website: never on things that repeat (links, menus, rows). */
+  --kg-action: #6c1a5a;
+  /* A filled action button on hover: a light shade change. */
+  --kg-action-hover: #561447;
+  /* Text on an action button. */
+  --kg-on-action: #ffffff;
+  /* Orchid: the accent on the Kindgi surface (buttons, selected tabs, labels there). */
+  --kg-accent: #da8bd0;
+  /* An accent button on hover. */
+  --kg-accent-hover: #e4a6dc;
+  /* Text on an accent button. */
+  --kg-on-accent: #1c2433;
+  /* Links: the words and an arrow, no underline. */
+  --kg-link: #535d6e;
+  /* A link on hover: stronger text. */
+  --kg-link-hover: #1c2433;
+  /* Code blocks: neutral in both themes (with a rule border in dark). */
+  --kg-code-bg: #1c2433;
+  /* Code text; strings and the selected tab take the accent. */
+  --kg-code-text: #f1f2f5;
+  /* Status: a person decides (waiting for a reviewer, pending approval). Icon and word. */
+  --kg-status-person: #6c1a5a;
+  /* Its tint (diff lines only). */
+  --kg-status-person-bg: #f3e3ef;
+  /* Its line: mixed 45% with the rule for a card's quiet full border. */
+  --kg-status-person-line: #6c1a5a;
+  /* Status: done and good (succeeded, approved, gate passed). */
+  --kg-status-ok: #1e6b4f;
+  /* Its tint (added diff lines). */
+  --kg-status-ok-bg: #e3f2ea;
+  /* Its line. */
+  --kg-status-ok-line: #2e8b67;
+  /* Status: failed or stopped (failed, rejected, guardrail halted). */
+  --kg-status-bad: #b42318;
+  /* Its tint (removed diff lines). */
+  --kg-status-bad-bg: #fce6e3;
+  /* Its line. */
+  --kg-status-bad-line: #d0412f;
+  /* Status: needs attention (licence expiring, near a budget). */
+  --kg-status-warn: #835400;
+  /* Its tint. */
+  --kg-status-warn-bg: #fbf0d9;
+  /* Its line. */
+  --kg-status-warn-line: #c08a1e;
+  /* Status: in progress, or a note (running). */
+  --kg-status-info: #3b5b8c;
+  /* Its tint. */
+  --kg-status-info-bg: #e6ecf5;
+  /* Its line. */
+  --kg-status-info-line: #4d6080;
+  /* Status: inactive (queued, cancelled, draft). */
+  --kg-status-muted: #535d6e;
+  /* Its tint. */
+  --kg-status-muted-bg: #eceef2;
+  /* Its line. Decorative. */
+  --kg-status-muted-line: #a3acbc;
+  /* Chart series, darkest ink: the biggest item. */
+  --kg-series-1: #002a66;
+  /* Chart series 2. */
+  --kg-series-2: #184381;
+  /* Chart series 3. */
+  --kg-series-3: #2e5a9a;
+  /* Chart series 4. */
+  --kg-series-4: #4572b4;
+  /* Chart series 5. */
+  --kg-series-5: #5c8ace;
+  /* Warm stone: everything else, and the previous period (dashed). */
+  --kg-series-muted: #8b7e6d;
+  /* Everything you read. Self-hosted. */
+  --kg-font: "IBM Plex Sans", Arial, sans-serif;
+  /* Code, commands and ids. */
+  --kg-font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+  /* font-stretch for headings and the wordmark (IBM Plex Sans at its narrowest). */
+  --kg-narrow: 85%;
+  /* Square: cards, buttons, dialogs, code. */
+  --kg-radius: 0;
+  /* Form fields only: text boxes, selects, search. */
+  --kg-radius-field: 3px;
+  /* A list or table row, the comfortable default. */
+  --kg-row: 38px;
+  /* A row in a compact view, where a list offers one. */
+  --kg-row-compact: 30px;
+}
+
+/* Dark, when the system asks for it and the page hasn't chosen light */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not(.light) {
+    color-scheme: dark;
+    --kg-page: #10151f;
+    --kg-card: #171e2b;
+    --kg-field: #10151f;
+    --kg-text: #e6e8ee;
+    --kg-text-2: #a3acbc;
+    --kg-heading-2: #8ea0c0;
+    --kg-rule: #2a3446;
+    --kg-line: #5e6a80;
+    --kg-kindgi: #241a2d;
+    --kg-kindgi-text: #eeeaf2;
+    --kg-kindgi-text-2: #b5aac1;
+    --kg-kindgi-rule: #3f2e4a;
+    --kg-kindgi-band: #35233f;
+    --kg-kindgi-band-rule: #54405f;
+    --kg-action: #da8bd0;
+    --kg-action-hover: #e4a6dc;
+    --kg-on-action: #1c1222;
+    --kg-accent: #e7a8df;
+    --kg-accent-hover: #f0c0e9;
+    --kg-on-accent: #241a2d;
+    --kg-link: #a3acbc;
+    --kg-link-hover: #e6e8ee;
+    --kg-code-bg: #0b0f17;
+    --kg-code-text: #e6e8ee;
+    --kg-status-person: #e7a8df;
+    --kg-status-person-bg: #35182f;
+    --kg-status-person-line: #da8bd0;
+    --kg-status-ok: #6fd0a5;
+    --kg-status-ok-bg: #12302a;
+    --kg-status-ok-line: #3e9c78;
+    --kg-status-bad: #ff8a7e;
+    --kg-status-bad-bg: #3a1715;
+    --kg-status-bad-line: #e0574a;
+    --kg-status-warn: #f2c46b;
+    --kg-status-warn-bg: #33270f;
+    --kg-status-warn-line: #c9962f;
+    --kg-status-info: #9db2d6;
+    --kg-status-info-bg: #1a2740;
+    --kg-status-info-line: #6f86ae;
+    --kg-status-muted: #a3acbc;
+    --kg-status-muted-bg: #1e2633;
+    --kg-status-muted-line: #4a5568;
+    --kg-series-1: #b7e9ff;
+    --kg-series-2: #9dcfff;
+    --kg-series-3: #84b5ec;
+    --kg-series-4: #6c9cd1;
+    --kg-series-5: #5583b7;
+    --kg-series-muted: #918473;
+  }
+}
+
+/* Dark, when the page chose it: data-theme (Starlight) or a dark class (shadcn/ui) */
+:root[data-theme="dark"],
+:root.dark {
+  color-scheme: dark;
+  --kg-page: #10151f;
+  --kg-card: #171e2b;
+  --kg-field: #10151f;
+  --kg-text: #e6e8ee;
+  --kg-text-2: #a3acbc;
+  --kg-heading-2: #8ea0c0;
+  --kg-rule: #2a3446;
+  --kg-line: #5e6a80;
+  --kg-kindgi: #241a2d;
+  --kg-kindgi-text: #eeeaf2;
+  --kg-kindgi-text-2: #b5aac1;
+  --kg-kindgi-rule: #3f2e4a;
+  --kg-kindgi-band: #35233f;
+  --kg-kindgi-band-rule: #54405f;
+  --kg-action: #da8bd0;
+  --kg-action-hover: #e4a6dc;
+  --kg-on-action: #1c1222;
+  --kg-accent: #e7a8df;
+  --kg-accent-hover: #f0c0e9;
+  --kg-on-accent: #241a2d;
+  --kg-link: #a3acbc;
+  --kg-link-hover: #e6e8ee;
+  --kg-code-bg: #0b0f17;
+  --kg-code-text: #e6e8ee;
+  --kg-status-person: #e7a8df;
+  --kg-status-person-bg: #35182f;
+  --kg-status-person-line: #da8bd0;
+  --kg-status-ok: #6fd0a5;
+  --kg-status-ok-bg: #12302a;
+  --kg-status-ok-line: #3e9c78;
+  --kg-status-bad: #ff8a7e;
+  --kg-status-bad-bg: #3a1715;
+  --kg-status-bad-line: #e0574a;
+  --kg-status-warn: #f2c46b;
+  --kg-status-warn-bg: #33270f;
+  --kg-status-warn-line: #c9962f;
+  --kg-status-info: #9db2d6;
+  --kg-status-info-bg: #1a2740;
+  --kg-status-info-line: #6f86ae;
+  --kg-status-muted: #a3acbc;
+  --kg-status-muted-bg: #1e2633;
+  --kg-status-muted-line: #4a5568;
+  --kg-series-1: #b7e9ff;
+  --kg-series-2: #9dcfff;
+  --kg-series-3: #84b5ec;
+  --kg-series-4: #6c9cd1;
+  --kg-series-5: #5583b7;
+  --kg-series-muted: #918473;
+}
