@@ -76,7 +76,7 @@ describe('applyToManifest', () => {
 });
 
 describe('summarize', () => {
-  test('a failed test is named; no failure is a pass; no reports is no pass', () => {
+  test('a failed test is named; no failure is a pass; no reports, or no tests, is no pass', () => {
     const candidates = [{ name: '@ai-sdk/azure', version: '4.1.0' }];
     const ok = {
       testResults: [
@@ -106,6 +106,12 @@ describe('summarize', () => {
       { file: 'b.test.ts', test: 'it breaks' },
     ]);
     assert.equal(summarize(candidates, []).passed, false);
+    assert.equal(
+      summarize(candidates, [
+        { testResults: [{ name: 'a.test.ts', status: 'passed', assertionResults: [] }] },
+      ]).passed,
+      false,
+    );
   });
 });
 

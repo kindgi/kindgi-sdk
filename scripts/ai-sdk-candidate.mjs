@@ -118,12 +118,12 @@ function failuresOf(file) {
     .map((a) => ({ file: file.name, test: a.fullName ?? a.title }));
 }
 
-/** The adapters' vitest JSON reports, as the run's result. */
+/** The adapters' vitest JSON reports, as the run's result: a pass needs tests that ran, and none failed. */
 export function summarize(candidates, reports) {
   const files = reports.flatMap((r) => r.testResults ?? []);
   const tests = files.reduce((n, f) => n + (f.assertionResults ?? []).length, 0);
   const failed = files.flatMap(failuresOf);
-  return { candidates, passed: reports.length > 0 && failed.length === 0, tests, failed };
+  return { candidates, passed: tests > 0 && failed.length === 0, tests, failed };
 }
 
 function applyCandidates(pins, candidates) {
