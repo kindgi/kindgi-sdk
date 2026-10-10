@@ -9,7 +9,7 @@ Sign-in with "acme-google" (OpenID Connect). Send this to whoever runs your iden
   Kindgi's secret store under a name, never by email or chat:
     kindgi secrets set <NAME> --env=<runtime env> --scope=tenant
 
-Step by step: https://docs.kindgi.com/guides/sso/oidc/
+Step by step: https://docs.kindgi.com/v0.1/guides/sso/oidc/
 
 Then register it:
   kindgi sso providers finish acme-google --kind=oidc --issuer=<issuer> --client-id=<client-id> --client-secret-ref=<NAME> --domains=<your-domain>

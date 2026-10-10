@@ -306,10 +306,10 @@ describe('approval reviewers with authorization enforced', () => {
     expect(a.reviewers.map((r) => r.userId)).toEqual([member]);
   });
 
-  test('reading the roster does not', async () => {
+  test('reading the roster needs a tenant admin or a reviewer: it names people', async () => {
     const a = makeApp({ authorized: true, inStep: 'all' });
     const answer = await send(a.app, 'GET', '/v1/approvals/reviewers', undefined, 'member-token');
-    expect(answer.status).toBe(200);
+    expect(answer.status).toBe(403);
   });
 });
 

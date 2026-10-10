@@ -58,6 +58,7 @@ const SCHEDULES_TABLE: TableSpec<SchedulePage, Schedule> = {
     { header: 'CRON', get: (s) => s.cronExpression },
     { header: 'TIMEZONE', get: (s) => s.timezone ?? 'UTC' },
     { header: 'STATUS', get: (s) => s.status },
+    { header: 'OWNER', get: (s) => s.owner?.displayName ?? s.owner?.id ?? '' },
     { header: 'NEXT', get: (s) => s.nextFireAt ?? '' },
     { header: 'LABEL', get: (s) => s.label ?? '' },
   ],
@@ -200,8 +201,10 @@ const list: LeafCommand = {
   kind: 'leaf',
   name: 'list',
   description: 'List schedules.',
-  usage: 'kindgi schedules list [--status=active|paused] [--limit=<n>] [--cursor=<c>]',
+  usage:
+    'kindgi schedules list [--project=<project-id>] [--status=active|paused] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
+    project: { type: 'string', description: "Only this project's schedules." },
     status: { type: 'string', description: 'Only `active` or only `paused` schedules.' },
     ...PAGE_FLAGS,
   },
@@ -214,9 +217,12 @@ const list: LeafCommand = {
         if (status !== undefined && status !== 'active' && status !== 'paused') {
           throw new Error('--status must be `active` or `paused`');
         }
-        return await ctx
-          .client()
-          .schedules.list({ ...page(ctx), ...(status !== undefined && { status }) });
+        const projectId = stringFlag(ctx, 'project');
+        return await ctx.client().schedules.list({
+          ...page(ctx),
+          ...(status !== undefined && { status }),
+          ...(projectId !== undefined && { projectId }),
+        });
       },
       SCHEDULES_TABLE,
     ),

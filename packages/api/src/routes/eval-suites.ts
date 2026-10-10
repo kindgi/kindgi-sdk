@@ -12,6 +12,7 @@ import {
   EVAL_KINDS,
   type EvalKind,
   type EvalSuite,
+  type EvalSuiteRecord,
   type EvalSuiteRegistryBinding,
 } from '../eval-suite-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
@@ -117,6 +118,10 @@ export function evalSuitesRouter(
     const cursorRaw = c.req.query('cursor');
     const kindRaw = c.req.query('kind');
     const nameRaw = c.req.query('name');
+    // `?includeRetired=true` lists retired items too (no active version),
+    // each as its highest version with `unregisteredAt`. Anything else →
+    // items with an active version only (the default).
+    const includeRetired = c.req.query('includeRetired') === 'true';
 
     if (kindRaw !== undefined && kindRaw.length > 0 && !isEvalKind(kindRaw)) {
       c.status(statusFor('bad-input') as never);
@@ -147,6 +152,7 @@ export function evalSuitesRouter(
       ...(nameRaw !== undefined && nameRaw.length > 0 && { nameFilter: nameRaw }),
       ...(scopeParsed.scope !== undefined && { scope: scopeParsed.scope }),
       ...(scopeParsed.inherit !== undefined && { inherit: scopeParsed.inherit }),
+      ...(includeRetired && { includeRetired: true }),
     });
     // Only what the caller may read (T243 A), as `GET …/:id` asks.
     const visible =
@@ -207,12 +213,17 @@ export function evalSuitesRouter(
     const suiteId = c.req.param('suiteId');
     const limit = clampLimit(c.req.query('limit'));
     const cursorRaw = c.req.query('cursor');
+    // `?includeTombstoned=true` lists unregistered versions too, each
+    // with `unregisteredAt`. Anything else → active versions only.
+    const includeTombstoned = c.req.query('includeTombstoned') === 'true';
 
-    // Confirm the id exists at all — an empty versions list from the
-    // binding is ambiguous (no versions vs. unknown id), so we do a
-    // preliminary `get` to flip an unknown id to a `404`.
-    const latest = await binding.get({ tenantId, suiteId });
-    if (latest === null) {
+    // Confirm the id exists at all: an empty versions list from the
+    // binding is ambiguous (no versions vs. unknown id). A retired test set
+    // (every version unregistered) still has its head row, so it answers
+    // 200, with its versions under `includeTombstoned`; a never-registered
+    // id is 404. As flows, tools and policies do.
+    const exists = await binding.headExists({ tenantId, suiteId });
+    if (!exists) {
       c.status(statusFor('eval-suite-not-found') as never);
       return c.json(
         toWireError(
@@ -231,6 +242,7 @@ export function evalSuitesRouter(
       suiteId,
       limit,
       ...(cursorRaw !== undefined && cursorRaw.length > 0 && { cursor: cursorRaw as Cursor }),
+      ...(includeTombstoned && { includeTombstoned: true }),
     });
     return c.json({
       data: page.data.map(serializeEvalSuite),
@@ -425,14 +437,16 @@ export function evalSuitesRouter(
   return r;
 }
 
-function serializeEvalSuite(s: EvalSuite): Record<string, unknown> {
+function serializeEvalSuite(s: EvalSuiteRecord): Record<string, unknown> {
   return {
     id: s.id,
     tenantId: s.tenantId as unknown as string,
+    ...(s.projectId !== undefined && { projectId: s.projectId as unknown as string }),
     version: s.version,
     kind: s.kind,
     ...(s.description !== undefined && { description: s.description }),
     spec: s.spec,
+    ...(s.unregisteredAt !== undefined && { unregisteredAt: s.unregisteredAt }),
   };
 }
 

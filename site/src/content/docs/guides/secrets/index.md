@@ -11,7 +11,8 @@ A pack's code needs three kinds of values, and Kindgi keeps them apart:
 - **Secrets a tool uses for a tenant**: an API key, a signing key. A tool
   declares them by name, and Kindgi resolves them for each call from the
   tenant's secrets (`ctx.secrets`). Model providers, HTTP tools, MCP
-  endpoints and webhooks name theirs the same way.
+  endpoints and webhooks name theirs the same way. A model provider's key
+  is its provider's only: no tool or endpoint gets it.
 - **Env values a tool uses per project**: a base URL, a region, an account
   id, which aren't secret but differ per tenant, org or project. A tool
   declares them by name, and Kindgi resolves them for each call, the

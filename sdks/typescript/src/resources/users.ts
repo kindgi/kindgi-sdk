@@ -199,6 +199,11 @@ export interface UserFilter extends Filter {
   readonly query?: string;
   /** People who were removed (`unregisteredAt`) too. Default: only the people still here. */
   readonly includeUnregistered?: boolean;
+  /**
+   * Each person's `grants` too, in the same read (what `grants(id)`
+   * answers). A runtime that doesn't read grants leaves them out.
+   */
+  readonly includeGrants?: boolean;
 }
 
 export function makeUsersClient(transport: Transport): UsersClient {
@@ -246,6 +251,7 @@ export function makeUsersClient(transport: Transport): UsersClient {
           ...(filter?.cursor !== undefined && { cursor: filter.cursor as unknown as string }),
           ...(filter?.query !== undefined && { query: filter.query }),
           ...(filter?.includeUnregistered === true && { includeUnregistered: 'true' }),
+          ...(filter?.includeGrants === true && { include: 'grants' }),
         },
       });
       return listPage(page);

@@ -26,12 +26,13 @@ export interface ToolsClient {
    * currently-active tools appear (i.e., tools with at least one
    * non-tombstoned version). Fully-retired tools drop from the list
    * but retain their identity — `get(id)` still resolves them to a
-   * 410 gone.
+   * 410 gone. `filter.includeRetired = true` lists them too, each as
+   * its highest version with `unregisteredAt`.
    *
    * @wire `GET /v1/tools` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1tools/get`.
    */
-  list(filter?: ToolFilter): Promise<ListPage<Tool>>;
+  list(filter?: ToolFilter): Promise<ListPage<ToolVersionRow>>;
 
   /**
    * Fetch the latest active version of a tool.
@@ -151,6 +152,11 @@ export interface ToolFilter {
   readonly cursor?: Cursor;
   /** Prefix filter on tool id (matches the server's `?name=` query). */
   readonly name?: string;
+  /**
+   * List retired tools too (every version unregistered), each as its
+   * highest version with `unregisteredAt`. Default: `false`.
+   */
+  readonly includeRetired?: boolean;
 }
 
 export interface ToolVersionFilter {
@@ -250,13 +256,14 @@ export function makeToolsClient(transport: Transport): ToolsClient {
   };
   return {
     async list(filter) {
-      const page = await transport.request<WirePage<Tool>>({
+      const page = await transport.request<WirePage<ToolVersionRow>>({
         method: 'GET',
         path: '/v1/tools',
         query: {
           ...(filter?.limit !== undefined && { limit: filter.limit }),
           ...(filter?.cursor !== undefined && { cursor: filter.cursor as unknown as string }),
           ...(filter?.name !== undefined && { name: filter.name }),
+          ...(filter?.includeRetired === true && { includeRetired: 'true' }),
         },
       });
       return listPage(page);

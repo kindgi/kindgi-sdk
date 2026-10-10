@@ -628,6 +628,7 @@ function serializeEvalRun(run: EvalRun): Record<string, unknown> {
   return {
     runId: run.runId as unknown as string,
     tenantId: run.tenantId as unknown as string,
+    ...(run.projectId !== undefined && { projectId: run.projectId as unknown as string }),
     suiteId: run.suiteId,
     suiteVersion: run.suiteVersion,
     kind: run.kind,

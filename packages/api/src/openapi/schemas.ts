@@ -134,6 +134,20 @@ const ContentProjectIdProperty: JsonSchema = {
     "Project this belongs to (its content scope). Required: missing, or not a project in the caller's tenant → `400 bad-input`.",
 };
 
+/**
+ * `projectId` on an agent, flow, tool, test set or guardrail a read
+ * returns: the project the registry keeps it in. Optional, so a client
+ * handles a record without one (a pack `kindgi dev` serves from disk,
+ * or an older runtime).
+ */
+function recordProjectIdProperty(lead: string): JsonSchema {
+  return {
+    type: 'string',
+    format: 'uuid',
+    description: `${lead} Absent when the runtime doesn't record it: a pack \`kindgi dev\` serves from disk, or a runtime before Kindgi 0.1.6.`,
+  };
+}
+
 // ---------------- run resource ----------------
 
 export const RunStatusSchema: JsonSchema = {
@@ -619,6 +633,91 @@ export const RunFailureSchema: JsonSchema = {
     cause: {
       description:
         "What the error came from, when it says: e.g. for `capability-routing-failed`, the router's `capability-unsatisfiable` with its reasons, by provider.",
+    },
+    reason: {
+      type: 'string',
+      description:
+        "The error's own reason, when it gives one: for a turn that ended at its approval (`hitl-cancelled`), `timeout` when nobody decided in time. Absent from an older runtime and from errors without one; read `code` then.",
+    },
+  },
+};
+
+export const FailureSubjectSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'id'],
+  description: "Whose runs a failure group counts: an agent's turns, or a flow's runs.",
+  properties: {
+    kind: { type: 'string', enum: ['agent', 'flow'] },
+    id: { type: 'string' },
+  },
+};
+
+export const FailureGroupSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['subject', 'count', 'firstSeen', 'lastSeen', 'exampleRunId'],
+  description: 'One group of failed runs: the same cause, subject and version.',
+  properties: {
+    code: {
+      type: 'string',
+      description:
+        "The failure's code (`Run.failure.code`). Absent when not grouped by code, and in `unrecorded`.",
+    },
+    reason: {
+      type: 'string',
+      description:
+        "The failure's reason (`Run.failure.reason`), when it gives one: a `hitl-*` outcome's, e.g. `timeout`.",
+    },
+    subject: { $ref: '#/components/schemas/FailureSubject' },
+    version: {
+      type: 'string',
+      description:
+        "The agent's or flow's version. Absent when not grouped by version, or not recorded for the run.",
+    },
+    count: { type: 'integer', minimum: 1 },
+    firstSeen: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When the first of them failed, in the window.',
+    },
+    lastSeen: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When the latest of them failed, in the window.',
+    },
+    exampleRunId: { type: 'string', format: 'uuid', description: "The group's most recent run." },
+  },
+};
+
+export const RunFailureGroupsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['from', 'to', 'groups', 'outcomes', 'unrecorded', 'total'],
+  properties: {
+    from: { type: 'string', format: 'date-time' },
+    to: { type: 'string', format: 'date-time' },
+    groups: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/FailureGroup' },
+      description: 'The failures, the most first.',
+    },
+    outcomes: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/FailureGroup' },
+      description:
+        "People's decisions, never errors: `hitl-*` codes (an approval rejected, cancelled or timed out), the most first.",
+    },
+    unrecorded: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/FailureGroup' },
+      description:
+        'Runs that failed before their cause was recorded (a runtime from before this): by subject and version only, never by code.',
+    },
+    total: {
+      type: 'integer',
+      minimum: 0,
+      description: 'Every failed run in the window, across the three lists.',
     },
   },
 };
@@ -1165,6 +1264,18 @@ export const ServiceAccountGrantProjectSchema: JsonSchema = {
   },
 };
 
+export const ServiceAccountGrantProjectBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'projectId', 'role'],
+  description: "A role to give on one project; it replaces the account's role there.",
+  properties: {
+    kind: { type: 'string', enum: ['project'] },
+    projectId: { type: 'string', format: 'uuid' },
+    role: { $ref: '#/components/schemas/AssignableProjectRole' },
+  },
+};
+
 export const ServiceAccountGrantSchema: JsonSchema = {
   description:
     "What a service account may do: tenant admin, tenant member (read the tenant's settings), or a role on one project.",
@@ -1181,7 +1292,7 @@ export const ServiceAccountGrantBodySchema: JsonSchema = {
   oneOf: [
     { $ref: '#/components/schemas/ServiceAccountGrantTenantAdmin' },
     { $ref: '#/components/schemas/ServiceAccountGrantTenantMember' },
-    { $ref: '#/components/schemas/ServiceAccountGrantProject' },
+    { $ref: '#/components/schemas/ServiceAccountGrantProjectBody' },
   ],
   discriminator: { propertyName: 'kind' },
 };
@@ -1255,7 +1366,9 @@ export const CreateServiceAccountBodySchema: JsonSchema = {
     description: { type: 'string', maxLength: 500 },
     grants: {
       type: 'array',
-      items: { $ref: '#/components/schemas/ServiceAccountGrant' },
+      // Inline, not a `$ref`: the Python codegen would fold the referenced
+      // union into these items and drop its `ServiceAccountGrantBody` class.
+      items: ServiceAccountGrantBodySchema,
       description: 'Written before the account is returned, so its first key works at once.',
     },
   },
@@ -1403,9 +1516,16 @@ export const ApprovalCollectionPageSchema: JsonSchema = {
     data: { type: 'array', items: { $ref: '#/components/schemas/Approval' } },
     nextCursor: {
       type: 'string',
-      description: 'Opaque cursor for the next page; treat as opaque on the client.',
+      description:
+        'Opaque cursor for the next page, in the same order; treat as opaque on the client.',
     },
     hasMore: { type: 'boolean' },
+    order: {
+      type: 'string',
+      enum: ['asc', 'desc'],
+      description:
+        'The order the page is in: `asc` (oldest first) or `desc` (newest first). Absent from a runtime before Kindgi 0.1.6, which lists newest first and ignores `order`.',
+    },
   },
 };
 
@@ -1882,6 +2002,9 @@ export const AgentSchema: JsonSchema = {
   properties: {
     id: { type: 'string', description: 'AgentId — dotted namespace (e.g. `acme.drafting`).' },
     version: { type: 'string', description: 'Semver.' },
+    projectId: recordProjectIdProperty(
+      "The agent's project: every version of an agent is in the one project.",
+    ),
     name: { type: 'string' },
     description: { type: 'string' },
     instructions: {
@@ -2214,6 +2337,9 @@ export const FlowSchema: JsonSchema = {
   properties: {
     id: { type: 'string', description: 'FlowId — dotted namespace (e.g. `ingest.contract-pdf`).' },
     version: { type: 'string', description: 'Semver.' },
+    projectId: recordProjectIdProperty(
+      "The flow's project: every version of a flow is in the one project.",
+    ),
     name: { type: 'string' },
     description: { type: 'string' },
     nodes: { type: 'array', items: { $ref: '#/components/schemas/FlowNode' } },
@@ -2568,6 +2694,9 @@ export const ToolSchema: JsonSchema = {
       minLength: 1,
       description: 'ToolId — dotted namespace (e.g. `acme.verify-citation`).',
     },
+    projectId: recordProjectIdProperty(
+      "The tool's project: every version of a tool is in the one project.",
+    ),
     description: { type: 'string', minLength: 1 },
     version: { type: 'string', pattern: '^\\d+\\.\\d+\\.\\d+$' },
     input: {
@@ -2596,8 +2725,20 @@ export const ToolSchema: JsonSchema = {
     needsSpec: { $ref: '#/components/schemas/TypedNeeds' },
     codeArtifactRef: { $ref: '#/components/schemas/CodeArtifactRef' },
     spec: { $ref: '#/components/schemas/ToolSpec' },
+    unregisteredAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'Present only on an unregistered version: a retired tool (every version unregistered) as `GET /v1/tools?includeRetired=true` lists it.',
+    },
   },
 };
+
+/** `Tool`'s properties but what the registry sets on a read (a register body never carries it). */
+const { unregisteredAt: _readOnly, ...toolManifestProperties } = ToolSchema.properties as Record<
+  string,
+  JsonSchema
+>;
 
 export const RegisterToolBodySchema: JsonSchema = {
   description:
@@ -2605,7 +2746,7 @@ export const RegisterToolBodySchema: JsonSchema = {
   ...ToolSchema,
   required: [...(ToolSchema.required as readonly string[]), 'projectId'],
   properties: {
-    ...(ToolSchema.properties as Record<string, JsonSchema>),
+    ...toolManifestProperties,
     projectId: ContentProjectIdProperty,
   },
 };
@@ -2740,6 +2881,7 @@ export const GuardrailSchema: JsonSchema = {
   required: ['id', 'kind', 'check', 'action'],
   properties: {
     id: { type: 'string', minLength: 1 },
+    projectId: recordProjectIdProperty("The guardrail's project."),
     name: { type: 'string' },
     description: { type: 'string' },
     kind: {
@@ -2797,6 +2939,88 @@ export const UnregisterGuardrailResultSchema: JsonSchema = {
   properties: {
     guardrailId: { type: 'string' },
     unregistered: { type: 'boolean', const: true },
+  },
+};
+
+const outcomeCountProperties = {
+  passed: { type: 'integer', minimum: 0, description: 'The check ran and found nothing.' },
+  violated: {
+    type: 'integer',
+    minimum: 0,
+    description:
+      'The check found something and the answer went through (`log-only`, `noop`, or an action handed back).',
+  },
+  blocked: {
+    type: 'integer',
+    minimum: 0,
+    description: 'The check found something and its `halt` failed the turn.',
+  },
+  errored: {
+    type: 'integer',
+    minimum: 0,
+    description:
+      "The check couldn't run (no such check, a bad configuration, a judge that couldn't be routed).",
+  },
+} as const;
+
+export const GuardrailOutcomeCountsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['passed', 'violated', 'blocked', 'errored'],
+  description: "How many of a guardrail's checks came to each outcome.",
+  properties: outcomeCountProperties,
+};
+
+export const GuardrailOutcomesByAgentVersionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['agentId', 'agentVersion', 'passed', 'violated', 'blocked', 'errored'],
+  description: "The counts on one agent version's turns.",
+  properties: {
+    agentId: { type: 'string' },
+    agentVersion: { type: 'string' },
+    ...outcomeCountProperties,
+  },
+};
+
+export const GuardrailBlockedRunSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['runId', 'at', 'agentId', 'agentVersion'],
+  description: 'A turn the guardrail blocked: its run, never its answer.',
+  properties: {
+    runId: { type: 'string', format: 'uuid' },
+    at: { type: 'string', format: 'date-time', description: 'When the guardrail checked.' },
+    agentId: { type: 'string' },
+    agentVersion: { type: 'string' },
+  },
+};
+
+export const GuardrailOutcomesSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['guardrailId', 'from', 'to', 'counts', 'byAgentVersion', 'recentBlocked'],
+  properties: {
+    guardrailId: { type: 'string' },
+    from: { type: 'string', format: 'date-time' },
+    to: { type: 'string', format: 'date-time' },
+    counts: { $ref: '#/components/schemas/GuardrailOutcomeCounts' },
+    byAgentVersion: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/GuardrailOutcomesByAgentVersion' },
+      description: 'The same counts per agent version, the most checked first, at most 100.',
+    },
+    recentBlocked: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/GuardrailBlockedRun' },
+      description: "The window's latest blocked turns, newest first, at most `recent`.",
+    },
+    recordedSince: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        "The earliest outcome kept for this guardrail in this project, in any window: nothing before it is counted. Outcomes were first recorded in 0.1.6, and they go with their run's retention. Absent when none is kept.",
+    },
   },
 };
 
@@ -3100,6 +3324,45 @@ export const JudgeClassAssertableBySchema: JsonSchema = {
   },
 };
 
+/**
+ * `assertableBy` as a reader sees it. `principalIds` names people and
+ * tokens, so only the class's admins get it; everyone gets their count.
+ */
+export const JudgeClassAssertableByViewSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  minProperties: 1,
+  description:
+    "Who may assert the class, as the caller sees it: every part that is set must hold. `principalIds` is sent only to an admin on the class's scope; `principalCount` to everyone who reads it.",
+  properties: {
+    minReviewerRole: {
+      type: 'string',
+      enum: ['standard', 'senior', 'admin'],
+      description: "The caller's reviewer role is at least this (its token's, or the roster's).",
+    },
+    principalKinds: {
+      type: 'array',
+      minItems: 1,
+      items: { type: 'string', enum: ['user', 'service'] },
+      description: 'Users, service tokens, or both.',
+    },
+    principalIds: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 100,
+      items: { type: 'string', minLength: 1 },
+      description:
+        "Only these principals: user ids, or service token ids. Sent only to an admin on the class's scope.",
+    },
+    principalCount: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        'How many principals the class is restricted to (`principalIds`), for every reader. Absent when it names none.',
+    },
+  },
+};
+
 export const JudgeClassSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -3118,7 +3381,7 @@ export const JudgeClassSchema: JsonSchema = {
       description: 'How much a judgment of this class counts, relative to the others.',
     },
     description: { type: 'string' },
-    assertableBy: { $ref: '#/components/schemas/JudgeClassAssertableBy' },
+    assertableBy: { $ref: '#/components/schemas/JudgeClassAssertableByView' },
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
     unregisteredAt: {
@@ -6452,6 +6715,9 @@ export const EvalSuiteSchema: JsonSchema = {
   properties: {
     id: { type: 'string', minLength: 1 },
     tenantId: { type: 'string', format: 'uuid' },
+    projectId: recordProjectIdProperty(
+      "The test set's project: every version of a test set is in the one project.",
+    ),
     version: {
       type: 'string',
       pattern: '^\\d+\\.\\d+\\.\\d+$',
@@ -6464,6 +6730,12 @@ export const EvalSuiteSchema: JsonSchema = {
       additionalProperties: true,
       description:
         'Kind-specific suite body. For `accuracy`, typically `{ cases: [{ input, expectedOutput }], grader?: { adapterId, config? } }`. For `pairwise`, typically `{ prompts, variantA, variantB }`. For `regression`, typically `{ baseline, cases }`. For `human-review`, typically `{ rubric, reviewerRole }`. For `benchmark`, typically `{ benchmark: { name, version } }`. For `custom`, typically `{ handler: { modulePath, entrypointPath }, cases }`.',
+    },
+    unregisteredAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'Present only on an unregistered version: one `GET …/versions?includeTombstoned=true` lists, or a retired test set (every version unregistered) as `GET /v1/eval-suites?includeRetired=true` lists it.',
     },
   },
 };
@@ -7244,6 +7516,12 @@ export const EvalRunSchema: JsonSchema = {
   properties: {
     runId: { type: 'string', format: 'uuid' },
     tenantId: { type: 'string', format: 'uuid' },
+    projectId: {
+      type: 'string',
+      format: 'uuid',
+      description:
+        'The project the eval run is in: the one it was started in. Absent on a runtime before Kindgi 0.1.6.',
+    },
     suiteId: { type: 'string' },
     suiteVersion: { type: 'string', pattern: '^\\d+\\.\\d+\\.\\d+$' },
     kind: { $ref: '#/components/schemas/EvalKind' },
@@ -7858,6 +8136,11 @@ export const UserRecordSchema: JsonSchema = {
         'When they were removed from the tenant (`POST /v1/identity/users/{userId}/unregister`); absent while they are here.',
     },
     metadata: { type: 'object', additionalProperties: true },
+    grants: {
+      $ref: '#/components/schemas/PersonGrants',
+      description:
+        "The person's grants: only on `GET /v1/identity/users?include=grants`, and only from a runtime that reads grants.",
+    },
   },
 };
 
@@ -8174,6 +8457,337 @@ export const MyPermissionsSchema: JsonSchema = {
       maxLength: 280,
       description:
         "The line a console shows a caller who may only view a project, as a tenant admin set it in the tenant config (`kind: 'config'`, key `console.readOnlyNotice`). Plain text on one line, at most 280 characters. Absent when none is set: the console shows its own.",
+    },
+  },
+};
+
+// ---------- judging rules and queue ----------
+
+export const JudgingRunStatusSchema: JsonSchema = {
+  type: 'string',
+  enum: ['completed', 'failed', 'cancelled'],
+  description: 'How a run ended.',
+};
+
+export const JudgingQueueStateSchema: JsonSchema = {
+  type: 'string',
+  enum: ['open', 'judged', 'dismissed', 'erased'],
+  description:
+    "Where a queued run stands. `judged`: every rule that queued it has the judgment it wants. `erased`: the run's content is gone (erased, or the run purged); the item shows nothing of it.",
+};
+
+export const JudgingRuleWhenSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "Which of a project's runs a rule matches as they end. Every field narrows; absent fields don't. `agentIds` or `flowIds`, not both. Top-level runs only (an agent's own runs, not its turns as a flow's step); replays never match.",
+  properties: {
+    agentIds: { type: 'array', minItems: 1, maxItems: 50, items: { type: 'string' } },
+    flowIds: { type: 'array', minItems: 1, maxItems: 50, items: { type: 'string' } },
+    versions: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 50,
+      items: { type: 'string' },
+      description:
+        "These versions exactly, or `live`: runs that got the agent's live version, not one the caller named. Runs from before the runtime recorded how their version was chosen never match `live`.",
+    },
+    status: {
+      type: 'array',
+      minItems: 1,
+      items: { $ref: '#/components/schemas/JudgingRunStatus' },
+      description:
+        'How the run ended. Only `completed` today: a judgment needs a completed run, so `failed` and `cancelled` are refused (400). Absent: `completed`.',
+    },
+    includeDryRuns: { type: 'boolean', description: 'Dry runs are left out unless `true`.' },
+  },
+};
+
+const JUDGING_RULE_FIELDS: Record<string, JsonSchema> = {
+  name: { type: 'string', minLength: 1, maxLength: 200 },
+  when: { $ref: '#/components/schemas/JudgingRuleWhen' },
+  sample: {
+    type: 'number',
+    exclusiveMinimum: 0,
+    maximum: 1,
+    description:
+      "The share of matching runs queued, decided by the run and rule ids: the same every time and across the rule's versions, so raising it keeps the runs it took before. Default 1.",
+  },
+  maxOpen: {
+    type: 'integer',
+    minimum: 1,
+    maximum: 10000,
+    description: 'Queue nothing while this rule has this many open items. Absent: no cap.',
+  },
+  judgeClassId: {
+    type: 'string',
+    description: 'Whose judgment it wants: one of this class closes it. Absent: any judgment does.',
+  },
+  enabled: { type: 'boolean', description: 'Default `true`.' },
+};
+
+export const JudgingRuleSpecSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['name', 'when'],
+  description: 'A judging rule as written. It only lists runs: nothing here starts a model.',
+  properties: JUDGING_RULE_FIELDS,
+};
+
+export const JudgingRulePatchSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: 'The fields to change; `when` is replaced whole.',
+  properties: {
+    ...JUDGING_RULE_FIELDS,
+    maxOpen: {
+      type: ['integer', 'null'],
+      minimum: 1,
+      maximum: 10000,
+      description:
+        'Queue nothing while this rule has this many open items. `null` removes the cap.',
+    },
+    judgeClassId: {
+      type: ['string', 'null'],
+      description:
+        'Whose judgment it wants: one of this class closes it. `null`: any judgment does.',
+    },
+  },
+};
+
+export const JudgingRuleSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['ruleId', 'projectId', 'version', 'name', 'when', 'sample', 'enabled', 'createdAt'],
+  description: 'One version of a judging rule; the latest live one applies.',
+  properties: {
+    ruleId: { type: 'string' },
+    projectId: { type: 'string' },
+    version: { type: 'integer', minimum: 1 },
+    ...JUDGING_RULE_FIELDS,
+    sample: { type: 'number', exclusiveMinimum: 0, maximum: 1 },
+    enabled: { type: 'boolean' },
+    createdBy: { type: 'string', description: 'Who wrote this version.' },
+    createdAt: { type: 'string', format: 'date-time' },
+    unregisteredAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const JudgingRulePageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/JudgingRule' } },
+    hasMore: { type: 'boolean' },
+    nextCursor: { type: 'string' },
+  },
+};
+
+export const JudgingRuleUnregisterResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['ruleId', 'unregistered'],
+  properties: { ruleId: { type: 'string' }, unregistered: { type: 'boolean' } },
+};
+
+export const JudgingClassCountSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['judgeClassId', 'count'],
+  properties: {
+    judgeClassId: { type: ['string', 'null'], description: '`null`: unclassified.' },
+    count: { type: 'integer', minimum: 0 },
+  },
+};
+
+export const JudgingProgressSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['total', 'byClass'],
+  description: 'The live judgments on the run so far, by class.',
+  properties: {
+    total: { type: 'integer', minimum: 0 },
+    byClass: { type: 'array', items: { $ref: '#/components/schemas/JudgingClassCount' } },
+  },
+};
+
+export const JudgingItemCanSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['dismiss', 'reopen'],
+  description:
+    'What the caller may do with the item, by the check the routes make (`write` on the project, as judging the run needs).',
+  properties: { dismiss: { type: 'boolean' }, reopen: { type: 'boolean' } },
+};
+
+export const JudgingItemRuleSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['ruleId', 'version'],
+  properties: { ruleId: { type: 'string' }, version: { type: 'integer', minimum: 1 } },
+};
+
+export const JudgingQueueItemSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'runId',
+    'projectId',
+    'flowId',
+    'runStatus',
+    'completedAt',
+    'rules',
+    'wantedClassIds',
+    'anyJudgment',
+    'progress',
+    'addedAt',
+    'state',
+    'can',
+  ],
+  description: 'A queued run: never its content, only what it was and where it stands.',
+  properties: {
+    runId: { type: 'string' },
+    projectId: { type: 'string' },
+    agentId: { type: 'string' },
+    agentVersion: { type: 'string' },
+    flowId: { type: 'string' },
+    runStatus: { $ref: '#/components/schemas/JudgingRunStatus' },
+    completedAt: { type: 'string', format: 'date-time' },
+    rules: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/JudgingItemRule' },
+      description: 'The rules that queued it, each at the version that did.',
+    },
+    wantedClassIds: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'The judge classes its rules want.',
+    },
+    anyJudgment: { type: 'boolean', description: 'One of its rules wants any judgment.' },
+    progress: { $ref: '#/components/schemas/JudgingProgress' },
+    addedAt: { type: 'string', format: 'date-time' },
+    state: { $ref: '#/components/schemas/JudgingQueueState' },
+    closedAt: { type: 'string', format: 'date-time' },
+    closedBy: { type: 'string', description: 'Who dismissed or reopened it last.' },
+    reason: { type: 'string', description: 'Why it was dismissed, when they said.' },
+    can: { $ref: '#/components/schemas/JudgingItemCan' },
+  },
+};
+
+export const JudgingQueuePageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore', 'total'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/JudgingQueueItem' } },
+    hasMore: { type: 'boolean' },
+    nextCursor: { type: 'string' },
+    total: {
+      type: 'integer',
+      minimum: 0,
+      description: 'Every item the filters match, across pages.',
+    },
+  },
+};
+
+export const JudgingDismissBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: { reason: { type: 'string', maxLength: 500 } },
+};
+
+export const JudgingClassResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['judgeClassId', 'judgments', 'yes'],
+  properties: {
+    judgeClassId: { type: ['string', 'null'], description: '`null`: unclassified.' },
+    judgments: { type: 'integer', minimum: 0 },
+    yes: { type: 'integer', minimum: 0 },
+  },
+};
+
+export const JudgingResultGroupSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'ruleVersion',
+    'agentVersion',
+    'added',
+    'open',
+    'judged',
+    'dismissed',
+    'erased',
+    'skippedByCap',
+    'judgments',
+    'yesShare',
+    'byClass',
+  ],
+  description:
+    "One rule version's runs of one agent version. `added` = `open` + `judged` + `dismissed` + `erased`.",
+  properties: {
+    ruleVersion: { type: 'integer', minimum: 1 },
+    agentVersion: {
+      type: ['string', 'null'],
+      description: '`null`: a flow run, or one from before versions were recorded.',
+    },
+    added: { type: 'integer', minimum: 0 },
+    open: { type: 'integer', minimum: 0 },
+    judged: { type: 'integer', minimum: 0 },
+    dismissed: { type: 'integer', minimum: 0 },
+    erased: { type: 'integer', minimum: 0 },
+    skippedByCap: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        "Runs the rule matched and sampled but didn't queue, because `maxOpen` were waiting, even when another rule queued them. Non-zero: the queued runs lean toward quiet times. `added` + `skippedByCap` = every run the rule matched and sampled.",
+    },
+    judgments: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        "Live judgments on the queued runs: each is one person's verdict on one item of a run's output.",
+    },
+    yesShare: {
+      type: ['number', 'null'],
+      description:
+        'The `yes` share of those judgments, each weighted by its class (unclassified: 1). `null` with none.',
+    },
+    byClass: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/JudgingClassResult' },
+      description: 'The same judgments by class, unweighted.',
+    },
+  },
+};
+
+export const JudgingRuleResultsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['ruleId', 'groups'],
+  properties: {
+    ruleId: { type: 'string' },
+    since: { type: 'string', format: 'date-time' },
+    groups: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/JudgingResultGroup' },
+      description:
+        "By the rule's version and the agent's, newest rule version first: two versions of a rule are two sampling designs, never pooled.",
+    },
+  },
+};
+
+export const JudgingRulePreviewSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['considered', 'matched'],
+  properties: {
+    considered: { type: 'integer', minimum: 0, description: 'The recent runs looked at.' },
+    matched: {
+      type: 'integer',
+      minimum: 0,
+      description: "Those the rule would have queued, with its `sample` (`maxOpen` isn't applied).",
     },
   },
 };
@@ -8921,7 +9535,15 @@ export const AddTeamMembershipResultSchema: JsonSchema = {
 export const ProjectRoleSchema: JsonSchema = {
   type: 'string',
   enum: ['viewer', 'editor', 'owner', 'admin', 'member'],
-  description: 'Role on a project membership.',
+  description:
+    'Role on a project, as read. `member` is only read, on a role given before it was retired: it grants what `viewer` does, and writes refuse it.',
+};
+
+export const AssignableProjectRoleSchema: JsonSchema = {
+  type: 'string',
+  enum: ['viewer', 'editor', 'owner', 'admin'],
+  description:
+    'A role to give on a project: `owner`, `admin`, `editor` or `viewer`, each including the ones after it. `member` is refused (400): give `viewer`.',
 };
 
 export const ProjectSchema: JsonSchema = {
@@ -9014,7 +9636,7 @@ export const AddProjectMembershipBodySchema: JsonSchema = {
       minLength: 1,
       description: "The person's email, as the tenant has it.",
     },
-    role: { $ref: '#/components/schemas/ProjectRole' },
+    role: { $ref: '#/components/schemas/AssignableProjectRole' },
   },
 };
 
@@ -9023,7 +9645,7 @@ export const UpdateProjectMembershipBodySchema: JsonSchema = {
   additionalProperties: false,
   required: ['role'],
   properties: {
-    role: { $ref: '#/components/schemas/ProjectRole' },
+    role: { $ref: '#/components/schemas/AssignableProjectRole' },
   },
 };
 
@@ -9035,6 +9657,168 @@ export const AddProjectMembershipResultSchema: JsonSchema = {
     projectId: { type: 'string' },
     userId: { type: 'string' },
     role: { $ref: '#/components/schemas/ProjectRole' },
+  },
+};
+
+export const TeamProjectRoleSchema: JsonSchema = {
+  type: 'string',
+  enum: ['viewer', 'editor', 'admin'],
+  description:
+    "A team's role on a project, held by every member of the team: `admin` includes `editor`, which includes `viewer`. A team never owns a project.",
+};
+
+export const TeamProjectGrantSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: "A team's role on a project.",
+  required: ['teamId', 'projectId', 'role'],
+  properties: {
+    teamId: { type: 'string' },
+    projectId: { type: 'string' },
+    role: { $ref: '#/components/schemas/TeamProjectRole' },
+    grantedAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'When the team was given the role. Absent from a runtime that does not record it.',
+    },
+    teamName: { type: 'string' },
+    projectName: { type: 'string' },
+  },
+};
+
+export const TeamProjectGrantCollectionPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/TeamProjectGrant' } },
+    hasMore: { type: 'boolean' },
+    nextCursor: { type: 'string' },
+  },
+};
+
+export const AddTeamProjectGrantBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['teamId', 'role'],
+  properties: {
+    teamId: { type: 'string', minLength: 1 },
+    role: { $ref: '#/components/schemas/TeamProjectRole' },
+  },
+};
+
+export const AccessPrincipalSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'id'],
+  description: 'Whom access is held by: a person, or a service account.',
+  properties: {
+    kind: { type: 'string', enum: ['user', 'service-account'] },
+    id: { type: 'string', minLength: 1 },
+  },
+};
+
+export const ProjectAccessDirectSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'role'],
+  description:
+    "The principal's own role on the project. `joinedAt` when a membership stands behind it: only then do the membership routes change or remove it.",
+  properties: {
+    kind: { type: 'string', enum: ['direct'] },
+    role: { $ref: '#/components/schemas/ProjectRole' },
+    joinedAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const ProjectAccessTeamSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'teamId', 'role'],
+  description: "A team's grant on the project, held by every member of the team.",
+  properties: {
+    kind: { type: 'string', enum: ['team'] },
+    teamId: { type: 'string' },
+    teamName: { type: 'string' },
+    role: { $ref: '#/components/schemas/TeamProjectRole' },
+  },
+};
+
+export const ProjectAccessOrgAdminSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'orgId'],
+  description: "An admin of the project's org (directly or through a team): admin on the project.",
+  properties: {
+    kind: { type: 'string', enum: ['org-admin'] },
+    orgId: { type: 'string' },
+    orgName: { type: 'string' },
+  },
+};
+
+export const ProjectAccessTenantAdminSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind'],
+  description: 'A tenant admin: admin on every project.',
+  properties: { kind: { type: 'string', enum: ['tenant-admin'] } },
+};
+
+export const ProjectAccessPathSchema: JsonSchema = {
+  description: 'One way into the project.',
+  oneOf: [
+    { $ref: '#/components/schemas/ProjectAccessDirect' },
+    { $ref: '#/components/schemas/ProjectAccessTeam' },
+    { $ref: '#/components/schemas/ProjectAccessOrgAdmin' },
+    { $ref: '#/components/schemas/ProjectAccessTenantAdmin' },
+  ],
+  discriminator: { propertyName: 'kind' },
+};
+
+export const ProjectAccessSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['principal', 'role', 'via'],
+  description: 'Someone with access to the project, their effective role, and every way in.',
+  properties: {
+    principal: { $ref: '#/components/schemas/AccessPrincipal' },
+    displayName: { type: 'string', description: "A person's name, or a service account's." },
+    primaryEmail: {
+      type: 'string',
+      description: "A person's email: shown to the project's admins only.",
+    },
+    role: {
+      type: 'string',
+      enum: ['owner', 'admin', 'editor', 'viewer'],
+      description: 'The effective role: the highest any way in gives.',
+    },
+    via: {
+      type: 'array',
+      minItems: 1,
+      description: 'Every way in, the highest role first.',
+      items: { $ref: '#/components/schemas/ProjectAccessPath' },
+    },
+  },
+};
+
+export const ProjectAccessPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/ProjectAccess' } },
+    hasMore: { type: 'boolean' },
+    nextCursor: { type: 'string' },
+  },
+};
+
+export const UpdateTeamProjectGrantBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['role'],
+  properties: {
+    role: { $ref: '#/components/schemas/TeamProjectRole' },
   },
 };
 
@@ -9721,6 +10505,11 @@ export const TriggerOwnerSchema: JsonSchema = {
   properties: {
     kind: { type: 'string', enum: ['user', 'service'] },
     id: { type: 'string' },
+    displayName: {
+      type: 'string',
+      description:
+        "The owner's name at the time of the response: the person's display name, or the service account's name. Absent when it can't be read (no directory, a removed account) and from a runtime before Kindgi 0.1.6: show the id then.",
+    },
   },
 };
 
@@ -10612,6 +11401,9 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['UnpinBody', UnpinBodySchema],
   ['Run', RunSchema],
   ['RunFailure', RunFailureSchema],
+  ['FailureSubject', FailureSubjectSchema],
+  ['FailureGroup', FailureGroupSchema],
+  ['RunFailureGroups', RunFailureGroupsSchema],
   ['StartRunOptions', StartRunOptionsSchema],
   ['StartRunBody', StartRunBodySchema],
   ['ResumeRunBody', ResumeRunBodySchema],
@@ -10630,6 +11422,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ServiceAccountGrantTenantAdmin', ServiceAccountGrantTenantAdminSchema],
   ['ServiceAccountGrantTenantMember', ServiceAccountGrantTenantMemberSchema],
   ['ServiceAccountGrantProject', ServiceAccountGrantProjectSchema],
+  ['ServiceAccountGrantProjectBody', ServiceAccountGrantProjectBodySchema],
   ['ServiceAccountGrant', ServiceAccountGrantSchema],
   ['ServiceAccountGrantBody', ServiceAccountGrantBodySchema],
   ['ServiceAccountUngrantProject', ServiceAccountUngrantProjectSchema],
@@ -10683,6 +11476,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['UnregisterJudgmentResult', UnregisterJudgmentResultSchema],
   ['JudgedItemSummary', JudgedItemSummarySchema],
   ['JudgeClassAssertableBy', JudgeClassAssertableBySchema],
+  ['JudgeClassAssertableByView', JudgeClassAssertableByViewSchema],
   ['JudgedEvalCase', JudgedEvalCaseSchema],
   ['JudgedEvalCaseCollectionPage', JudgedEvalCaseCollectionPageSchema],
   ['BuildJudgedSuiteBody', BuildJudgedSuiteBodySchema],
@@ -10747,6 +11541,10 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['RegisterGuardrailResult', RegisterGuardrailResultSchema],
   ['UnregisterGuardrailResult', UnregisterGuardrailResultSchema],
   ['GuardrailCollectionPage', GuardrailCollectionPageSchema],
+  ['GuardrailOutcomeCounts', GuardrailOutcomeCountsSchema],
+  ['GuardrailOutcomesByAgentVersion', GuardrailOutcomesByAgentVersionSchema],
+  ['GuardrailBlockedRun', GuardrailBlockedRunSchema],
+  ['GuardrailOutcomes', GuardrailOutcomesSchema],
   ['ConversationStatus', ConversationStatusSchema],
   ['Conversation', ConversationSchema],
   ['ConversationMessage', ConversationMessageSchema],
@@ -10941,6 +11739,25 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['PersonTeamRole', PersonTeamRoleSchema],
   ['PersonReviewerRole', PersonReviewerRoleSchema],
   ['PersonGrantBody', PersonGrantBodySchema],
+  ['JudgingRunStatus', JudgingRunStatusSchema],
+  ['JudgingQueueState', JudgingQueueStateSchema],
+  ['JudgingRuleWhen', JudgingRuleWhenSchema],
+  ['JudgingRuleSpec', JudgingRuleSpecSchema],
+  ['JudgingRulePatch', JudgingRulePatchSchema],
+  ['JudgingRule', JudgingRuleSchema],
+  ['JudgingRulePage', JudgingRulePageSchema],
+  ['JudgingRuleUnregisterResult', JudgingRuleUnregisterResultSchema],
+  ['JudgingClassCount', JudgingClassCountSchema],
+  ['JudgingProgress', JudgingProgressSchema],
+  ['JudgingItemCan', JudgingItemCanSchema],
+  ['JudgingItemRule', JudgingItemRuleSchema],
+  ['JudgingQueueItem', JudgingQueueItemSchema],
+  ['JudgingQueuePage', JudgingQueuePageSchema],
+  ['JudgingDismissBody', JudgingDismissBodySchema],
+  ['JudgingClassResult', JudgingClassResultSchema],
+  ['JudgingResultGroup', JudgingResultGroupSchema],
+  ['JudgingRuleResults', JudgingRuleResultsSchema],
+  ['JudgingRulePreview', JudgingRulePreviewSchema],
   ['AccessRole', AccessRoleSchema],
   ['AccessPathDirect', AccessPathDirectSchema],
   ['AccessPathTeam', AccessPathTeamSchema],
@@ -10996,6 +11813,20 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['UpdateTeamMembershipBody', UpdateTeamMembershipBodySchema],
   ['AddTeamMembershipResult', AddTeamMembershipResultSchema],
   ['ProjectRole', ProjectRoleSchema],
+  ['AssignableProjectRole', AssignableProjectRoleSchema],
+  ['TeamProjectRole', TeamProjectRoleSchema],
+  ['TeamProjectGrant', TeamProjectGrantSchema],
+  ['TeamProjectGrantCollectionPage', TeamProjectGrantCollectionPageSchema],
+  ['AddTeamProjectGrantBody', AddTeamProjectGrantBodySchema],
+  ['UpdateTeamProjectGrantBody', UpdateTeamProjectGrantBodySchema],
+  ['AccessPrincipal', AccessPrincipalSchema],
+  ['ProjectAccessDirect', ProjectAccessDirectSchema],
+  ['ProjectAccessTeam', ProjectAccessTeamSchema],
+  ['ProjectAccessOrgAdmin', ProjectAccessOrgAdminSchema],
+  ['ProjectAccessTenantAdmin', ProjectAccessTenantAdminSchema],
+  ['ProjectAccessPath', ProjectAccessPathSchema],
+  ['ProjectAccess', ProjectAccessSchema],
+  ['ProjectAccessPage', ProjectAccessPageSchema],
   ['Project', ProjectSchema],
   ['ProjectSpec', ProjectSpecSchema],
   ['ProjectPatch', ProjectPatchSchema],

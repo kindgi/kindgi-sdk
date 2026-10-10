@@ -62,7 +62,9 @@ the list, and fetching or deciding it answers `not-found`.
 
 Registering again changes the role. `kindgi reviewers list` shows the
 reviewers; `kindgi reviewers unregister <reviewer-id>` removes one (their
-past decisions stay). A user who isn't a reviewer is refused:
+past decisions stay). The list names people, so with authorization on only
+a tenant admin or a reviewer reads it; anyone else, a project's viewer say,
+gets `permission-denied`. A user who isn't a reviewer is refused:
 
 ```text
 Error [auth]: The caller isn't a reviewer: its token carries no reviewer role, and its user isn't registered as one (`kindgi reviewers register`). The approvals surface is reviewer-only.
@@ -122,8 +124,29 @@ kindgi approvals list --status=pending
 kindgi approvals get <approval-id>
 ```
 
-Without `--status`, the list includes decided approvals too. In each
-approval:
+Without `--status`, the list includes decided approvals too. To see the
+approvals assigned to you, oldest first:
+
+```sh
+kindgi approvals list --status=assigned,in_review --assigned-to=me --order=asc
+```
+
+Approvals nobody is assigned to yet are `pending`, for any reviewer of their
+role:
+
+```sh
+kindgi approvals list --status=pending --order=asc
+```
+
+`--status` takes several statuses, comma-separated. `--assigned-to=me` keeps
+the approvals assigned to you (assigning one moves it to `assigned`), and
+`--order=asc` lists the oldest first. In the API these are
+`GET /v1/approvals?status=assigned,in_review&assignedTo=me&order=asc` and
+`GET /v1/approvals?status=pending&order=asc`, and the page says which order
+it's in (`order`). These need the runtime 0.1.6 or later: an earlier one takes
+one status and lists newest first.
+
+In each approval:
 
 - **`subjectKind`** is what waits: `tool-call:pending` is a tool call (the
   `subjectRef` has the `toolId` and the `arguments`);
@@ -263,6 +286,10 @@ deadline passes with no decision:
   ```text
   "error":{"code":"hitl-cancelled","message":"Tool-call HITL cancelled for acme-desk.echo: timeout","reason":"timeout"}
   ```
+
+  The run's `failure` says the same as data: `code: "hitl-cancelled"`,
+  `reason: "timeout"`. Read `reason` rather than the message; a runtime from
+  before 0.1.6 doesn't send it, so go by `code` alone there.
 
 A decision made before the deadline always wins. A deadline always escalates
 this way: `hitl.onTimeout` takes only `'escalate'`, the default. An agent that

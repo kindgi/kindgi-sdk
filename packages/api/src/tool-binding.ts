@@ -53,12 +53,12 @@ export interface ToolRegistryBinding {
    * The route uses `headExists` to distinguish 410 gone from 404
    * not-found.
    */
-  get(input: ToolGetInput): Promise<ToolManifest | null>;
+  get(input: ToolGetInput): Promise<ToolRecord | null>;
   /**
    * Exact `(toolId, version)` lookup, including tombstoned versions.
    * Provenance paths use this to resolve historical run references.
    */
-  getVersion(input: ToolGetVersionInput): Promise<ToolManifest | null>;
+  getVersion(input: ToolGetVersionInput): Promise<ToolRecord | null>;
   /**
    * Cursor-paginated list of versions for a specific tool id. Sort
    * order is binding-defined (for example, publish timestamp
@@ -161,6 +161,13 @@ export interface ToolListInput {
    * (documented for uniformity).
    */
   readonly inherit?: boolean;
+  /**
+   * `true` lists retired tools too (every version unregistered), each
+   * as its highest version, with that version's `unregisteredAt`, so a
+   * client can find one to reinstate. Default: tools with an active
+   * version only.
+   */
+  readonly includeRetired?: boolean;
 }
 
 export interface ToolGetInput {
@@ -237,17 +244,31 @@ export interface ToolReinstateVersionInput {
 }
 
 export interface ToolPage {
-  readonly data: readonly ToolManifest[];
+  /** A retired tool `includeRetired` lists carries its highest version's `unregisteredAt`. */
+  readonly data: readonly ToolVersionRow[];
   readonly nextCursor?: Cursor;
 }
 
 /**
- * A single row in a `listVersions` result. Manifest fields plus an
+ * A tool version as the registry reads it (`get`, `getVersion`, `list`):
+ * the manifest, and the tool's project when the store records it.
+ * Callers that ignore the extra field see a plain `ToolManifest`.
+ */
+export type ToolRecord = ToolManifest & {
+  /**
+   * The tool's project, when the store records it: tools never move
+   * between projects, so every version reads the same one.
+   */
+  readonly projectId?: ProjectId;
+};
+
+/**
+ * A single row in a `listVersions` result. A `ToolRecord` plus an
  * optional `unregisteredAt` timestamp — present iff the version has
  * been soft-tombstoned via `unregister`. Callers that ignore the extra
- * field see a plain `ToolManifest`.
+ * fields see a plain `ToolManifest`.
  */
-export type ToolVersionRow = ToolManifest & {
+export type ToolVersionRow = ToolRecord & {
   readonly unregisteredAt?: string;
 };
 

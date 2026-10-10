@@ -16,7 +16,7 @@ Web Application:
   3. Copy the client ID and the client secret.
 Issuer: https://<your-org>.okta.com
 
-Step by step: https://docs.kindgi.com/guides/sso/okta/
+Step by step: https://docs.kindgi.com/v0.1/guides/sso/okta/
 
 Then register it:
   kindgi sso providers finish acme-google --kind=oidc --issuer=<issuer> --client-id=<client-id> --client-secret-ref=<NAME> --domains=<your-domain>
