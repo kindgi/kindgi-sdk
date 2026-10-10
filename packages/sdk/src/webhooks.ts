@@ -9,7 +9,8 @@
  * Re-exports the Standard Webhooks helpers from `@kindgi/crypto`:
  * `verifyWebhook` for a receiver, `generateWebhookSecret` for the secret an
  * app registers by name, and `signWebhook` / `webhookHeaders` to test a
- * receiver.
+ * receiver. `parseEvent` reads the typed event from a verified body
+ * (`WebhookEvent`; a run's id is a `RunId`, for `client.runs.get`).
  *
  * @module @kindgi/sdk/webhooks
  */
@@ -32,3 +33,17 @@ export type {
   VerifyWebhookResult,
   WebhookRequestHeaders,
 } from '@kindgi/crypto';
+export type {
+  ApprovalRequestedEvent,
+  FinishedRun,
+  ImprovementPassFinishedEvent,
+  RequestedApproval,
+  RunFinishedEvent,
+  WebhookEvent,
+  WebhookTestEvent,
+} from '@kindgi/client';
+export {
+  type ParseWebhookEventFailure,
+  type ParseWebhookEventResult,
+  parseEvent,
+} from './webhook-events.js';

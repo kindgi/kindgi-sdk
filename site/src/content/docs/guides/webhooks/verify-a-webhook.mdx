@@ -16,12 +16,13 @@ signed it with your secret, against the **raw** body, before you parse it.
 <TabItem label="TypeScript">
 
 `verifyWebhook` from `@kindgi/sdk/webhooks` (server only: it uses
-`node:crypto`). This receiver uses Node's `http` module; with a framework, pass
-the request's headers and its unparsed body the same way.
+`node:crypto`), then `parseEvent` for the typed event. This receiver uses
+Node's `http` module; with a framework, pass the request's headers and its
+unparsed body the same way.
 
 ```ts
 import { createServer } from 'node:http';
-import { verifyWebhook } from '@kindgi/sdk/webhooks';
+import { parseEvent, verifyWebhook } from '@kindgi/sdk/webhooks';
 
 const secret = process.env.ACME_WEBHOOK_SECRET!;
 const handled = new Set<string>(); // use your database in production
@@ -47,7 +48,15 @@ createServer(async (req, res) => {
   }
   handled.add(result.id);
 
-  const event = JSON.parse(body);
+  const read = parseEvent(body);
+  if (read.kind !== 'ok') {
+    // Signed, but this version can't read it (most likely a newer runtime's event type):
+    // take it and leave it; a retry wouldn't read any better.
+    console.log('skipped:', read.reason, read.message);
+    res.writeHead(204).end();
+    return;
+  }
+  const event = read.event;
   if (event.type === 'run.finished') {
     const { id, flowId, status } = event.data.run;
     console.log('run finished:', id, flowId, status);
@@ -68,6 +77,7 @@ same way: pass the headers and the body's bytes.
 import os
 
 from fastapi import FastAPI, Request, Response
+from pydantic import ValidationError
 
 from kindgi import webhooks
 
@@ -88,7 +98,13 @@ async def kindgi_webhook(request: Request) -> Response:
         return Response(status_code=204)  # a retry of an event you already handled
     handled.add(delivery.id)
 
-    event = webhooks.parse_event(body)
+    try:
+        event = webhooks.parse_event(body)
+    except ValidationError as err:
+        # Signed, but this version can't read it (most likely a newer runtime's event type):
+        # take it and leave it; a retry wouldn't read any better.
+        print("skipped:", err.errors()[0]["type"])
+        return Response(status_code=204)
     if event.type == "run.finished":
         run = event.data.run
         print("run finished:", run.id, run.flow_id, run.status)

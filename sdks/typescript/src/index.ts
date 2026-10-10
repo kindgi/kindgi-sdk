@@ -311,9 +311,13 @@ export type {
   UpdateScheduleInput,
 } from './resources/schedules.js';
 export type {
+  ApprovalRequestedEvent,
   CreateWebhookEndpointInput,
+  FinishedRun,
+  ImprovementPassFinishedEvent,
   ListWebhookDeliveriesFilter,
   ListWebhookEndpointsFilter,
+  RequestedApproval,
   RunFinishedEvent,
   UnregisterWebhookEndpointResult,
   UpdateWebhookEndpointInput,
