@@ -329,8 +329,8 @@ and sends it as `Authorization: Bearer <token>`:
   which, and why:
 
   ```text
-  20:22:49.143 WARN  [mcp] MCP endpoint "cms-bad" sync failed: mcp-auth-refused: MCP endpoint "cms-bad": its token endpoint localhost:18081 refused the client (HTTP 401: invalid_client) endpointId=cms-bad
   20:22:48.608 WARN  [mcp] MCP endpoint "cms-down" sync failed: mcp-auth-failed: MCP endpoint "cms-down": its token request to localhost:18099 failed: fetch failed (ECONNREFUSED) endpointId=cms-down
+  20:22:49.143 WARN  [mcp] MCP endpoint "cms-bad" sync failed: mcp-auth-refused: MCP endpoint "cms-bad": its token endpoint localhost:18081 refused the client (HTTP 401: invalid_client) endpointId=cms-bad
   ```
 - **A token the server stops taking early** (a 401): Kindgi asks for a new
   one and sends that request once more.
