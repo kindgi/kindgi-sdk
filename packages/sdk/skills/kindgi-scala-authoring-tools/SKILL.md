@@ -167,16 +167,19 @@ A secret that belongs to the tenant, such as an API key a customer gives
 you, is declared with `set("needsSpec", …)` and read from `ctx.secrets`, as
 above. The runtime resolves every declared secret on every call, for the
 call's tenant, in its env (`KINDGI_ENV`; under `kindgi dev`, `local`: the
-pack's `.env` and `.env.local`). It checks each against its schema, and fails
+pack's `.env` and `.env.local`, then Kindgi's own `.kindgi/secrets.env`, where
+`./kindgiw secrets set` writes). It checks each against its schema, and fails
 the call, naming the secret, when one is missing or doesn't match. Every
 declared secret is required.
 
 Everything else comes from the process environment: `sys.env("CITATOR_URL")`.
 Under `kindgi dev`, the pack service gets the pack's `.env` and `.env.local`,
 and restarts when they change. Nothing else from your shell reaches it
-except `PATH`, `HOME` and `TMPDIR`; `SBT_OPTS` reaches sbt only. Put a secret
-there by hand, or with `./kindgiw secrets set NAME --env=local --scope=tenant`
-(a no-echo prompt), and keep the env files out of git. A deployed service
+except `PATH`, `HOME` and `TMPDIR`; `SBT_OPTS` reaches sbt only. Put a setting
+there by hand, and keep the env files out of git. A secret stored with
+`./kindgiw secrets set NAME --env=local --scope=tenant` (a no-echo prompt), and
+any model provider's key, never reach the process environment: declare the
+secret and read it from `ctx.secrets`. A deployed service
 names the variables it needs in `kindgi.config.json`:
 `"env": {"required": ["DATABASE_URL"], "optional": ["SENTRY_DSN"]}`. Without
 a required one it isn't ready. `KINDGI_*` names are Kindgi's own and never
