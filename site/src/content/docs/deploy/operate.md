@@ -491,7 +491,8 @@ and what's different after:
     `KINDGI_AUTH_TENANT_PROVIDERS=off`, a tenant can't add, change or
     remove identity providers.
   - **Your own secret manager:** Google Secret Manager, Azure Key Vault or
-    HashiCorp Vault (`KINDGI_SECRETS_BACKEND=secret-manager`), and on Azure
+    HashiCorp Vault (`KINDGI_SECRETS_BACKEND=secret-manager`;
+    [Keep secrets in your own secret manager](../secret-manager/)), and on Azure
     a Key Vault key for the database's secrets, Azure Container Registry
     with the server's managed identity, and export signing with a Key Vault
     key ([Export signed evidence](../../guides/observability/export-signed-evidence/)).
