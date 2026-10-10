@@ -19,7 +19,7 @@
   - **Limits:**
     - a body past 1 MiB, or past the trigger's `bodyLimitBytes` (default 256 KiB), is `413 webhook-body-too-large`;
     - deliveries past the trigger's `rateLimitPerMinute` (default 600) are `429`;
-    - an address past 60 refusals a minute is `429` before any lookup. `webhookReceiver.clientAddress` returns `undefined` when the deployment can't tell senders apart (behind a proxy it wasn't told to trust), and then the per-address limit is off rather than one sender's refusals shutting out the rest; an unreadable secret never counts against a sender;
+    - an address past 60 refusals a minute is `429` before any lookup. `webhookReceiver.clientAddress` returns `undefined` when the deployment can't tell senders apart (a request with `X-Forwarded-For` while no proxies are trusted), and then the per-address limit is off for it rather than one sender's refusals shutting out the rest, so the limit needs `KINDGI_TRUSTED_PROXIES`; an unreadable secret never counts against a sender;
     - a trigger records 20 refusals and skipped deliveries a minute, then only counts them (`suppressedRefusals`).
   - **The event:** the flow's event is the body, parsed as JSON for a JSON content type (else `400 webhook-body-not-json`), or its text otherwise.
   - **Mounting:** the receiver mounts with `createApp`'s new `webhookReceiver` (`envName`, `clientAddress`, `rateLimitStore`) when the trigger registry implements `findWebhook`, `fireWebhook` and `recordWebhookRefusal`, which replace `fetchActiveByWebhookId` (as `SchedulerBinding.fireByWebhookId` goes).
