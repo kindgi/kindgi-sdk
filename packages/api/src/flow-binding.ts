@@ -39,7 +39,8 @@ export interface FlowRegistryBinding {
    * Cursor-paginated list of flows (latest version per id, sorted by
    * flow id ascending). Optional `nameFilter` is a prefix match on the
    * flow id — the runtime uses dotted namespaces (`ingest.contract-pdf`),
-   * so prefix matching is the natural filter shape.
+   * so prefix matching is the natural filter shape. A retired flow (no
+   * active version) is left out unless `includeRetired`.
    */
   list(input: FlowListInput): Promise<FlowPage>;
   /**
@@ -63,7 +64,9 @@ export interface FlowRegistryBinding {
   /**
    * Cursor-paginated list of versions for a specific flow id. Sort
    * order is binding-defined (for example ascending semver). Returns an empty page (no error) when the id
-   * is unknown — the route flips that to `404` via a prior `get`.
+   * is unknown — the route flips that to `404` via a prior `headExists`.
+   * Active versions only, unless `includeTombstoned`: then unregistered
+   * ones too, each with `unregisteredAt`, a retired flow's included.
    */
   listVersions(input: FlowListVersionsInput): Promise<FlowPage>;
   /**
@@ -138,6 +141,12 @@ export interface FlowListInput {
    * SDK and OpenAPI schemas.
    */
   readonly inherit?: boolean;
+  /**
+   * `true` lists retired flows too (every version unregistered), each
+   * as its highest version, with that version's `unregisteredAt`, so a
+   * client can find one to reinstate. Default: active flows only.
+   */
+  readonly includeRetired?: boolean;
 }
 
 export interface FlowGetInput {
@@ -156,6 +165,8 @@ export interface FlowListVersionsInput {
   readonly flowId: FlowId;
   readonly limit: number;
   readonly cursor?: Cursor;
+  /** `true` lists unregistered versions too, each with `unregisteredAt`. Default: active only. */
+  readonly includeTombstoned?: boolean;
 }
 
 export interface FlowPublishInput {

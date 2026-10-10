@@ -197,5 +197,14 @@ Under kindgi dev, the pack is the source of agents: change the agent in the pack
   runs as before.
 - **You can still read it:** it keeps its pins, and fetching it shows
   `unregisteredAt`. Reinstating it makes it choosable again.
+- **Finding one to reinstate:** a tool's or a flow's versions list includes
+  unregistered versions when you ask, each with `unregisteredAt`:
+  `?includeTombstoned=true` (`kindgi tools versions <id> --include-tombstoned`,
+  `kindgi flows versions <id> --include-unregistered`). A flow with every
+  version unregistered is retired: fetching it answers `410 flow-gone`, and
+  the flows list leaves it out unless you ask with `?includeRetired=true`
+  (`kindgi flows list --include-retired`). Then it's listed as its highest
+  version, with `unregisteredAt`. For flows, these need the runtime 0.1.6 or
+  later.
 - **A run waiting on an approval** resumes after its version is
   unregistered.

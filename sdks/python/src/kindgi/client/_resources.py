@@ -2226,11 +2226,12 @@ class FlowsResource:
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | UUID | None = None,
         inherit: bool | None = None,
+        include_retired: bool | None = None,
         timeout: float | None = None,
     ) -> _models.FlowCollectionPage:
         """List flows. `GET /v1/flows`
 
-        Cursor-paginated list of the latest version per flow id. Optional `?name=` filters by prefix on flow id.
+        Cursor-paginated list of the latest version per flow id. Optional `?name=` filters by prefix on flow id. A retired flow (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
         """
         return self._client._request(
             _OPERATIONS["flows.list"],
@@ -2242,6 +2243,7 @@ class FlowsResource:
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
                 "inherit": inherit,
+                "includeRetired": include_retired,
             },
             headers={},
             response=_models.FlowCollectionPage,
@@ -2289,16 +2291,17 @@ class FlowsResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
+        include_tombstoned: bool | None = None,
         timeout: float | None = None,
     ) -> _models.FlowCollectionPage:
         """List versions of a flow. `GET /v1/flows/{flowId}/versions`
 
-        Cursor-paginated. Sort order is binding-defined (for example semver asc).
+        Cursor-paginated. Sort order is binding-defined (for example semver asc). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired flow (every version unregistered) answers too, with its versions to reinstate.
         """
         return self._client._request(
             _OPERATIONS["flows.listVersions"],
             path={"flowId": flow_id},
-            query={"limit": limit, "cursor": cursor},
+            query={"limit": limit, "cursor": cursor, "includeTombstoned": include_tombstoned},
             headers={},
             response=_models.FlowCollectionPage,
             timeout=timeout,
@@ -8946,11 +8949,12 @@ class AsyncFlowsResource:
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | UUID | None = None,
         inherit: bool | None = None,
+        include_retired: bool | None = None,
         timeout: float | None = None,
     ) -> _models.FlowCollectionPage:
         """List flows. `GET /v1/flows`
 
-        Cursor-paginated list of the latest version per flow id. Optional `?name=` filters by prefix on flow id.
+        Cursor-paginated list of the latest version per flow id. Optional `?name=` filters by prefix on flow id. A retired flow (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
         """
         return await self._client._request(
             _OPERATIONS["flows.list"],
@@ -8962,6 +8966,7 @@ class AsyncFlowsResource:
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
                 "inherit": inherit,
+                "includeRetired": include_retired,
             },
             headers={},
             response=_models.FlowCollectionPage,
@@ -9009,16 +9014,17 @@ class AsyncFlowsResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
+        include_tombstoned: bool | None = None,
         timeout: float | None = None,
     ) -> _models.FlowCollectionPage:
         """List versions of a flow. `GET /v1/flows/{flowId}/versions`
 
-        Cursor-paginated. Sort order is binding-defined (for example semver asc).
+        Cursor-paginated. Sort order is binding-defined (for example semver asc). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired flow (every version unregistered) answers too, with its versions to reinstate.
         """
         return await self._client._request(
             _OPERATIONS["flows.listVersions"],
             path={"flowId": flow_id},
-            query={"limit": limit, "cursor": cursor},
+            query={"limit": limit, "cursor": cursor, "includeTombstoned": include_tombstoned},
             headers={},
             response=_models.FlowCollectionPage,
             timeout=timeout,

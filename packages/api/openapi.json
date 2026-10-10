@@ -23562,7 +23562,7 @@
             }
           }
         },
-        "description": "Cursor-paginated list of the latest version per flow id. Optional `?name=` filters by prefix on flow id.",
+        "description": "Cursor-paginated list of the latest version per flow id. Optional `?name=` filters by prefix on flow id. A retired flow (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.",
         "parameters": [
           {
             "name": "limit",
@@ -23622,6 +23622,16 @@
             },
             "required": false,
             "description": "Default `true`. `false` = literal-at-this-scope only (admin/audit view). Load-bearing for policy/config-scoped resources (mcp-endpoints); documented no-op for content-scoped resources (agents/flows/tools/...)."
+          },
+          {
+            "name": "includeRetired",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "required": false,
+            "description": "When `true`, retired items (every version unregistered) are listed too, each as its highest version with that version's `unregisteredAt`. Default: `false` (items with an active version only)."
           }
         ],
         "security": [
@@ -23814,7 +23824,7 @@
             }
           },
           "404": {
-            "description": "No flow with that id under this tenant.",
+            "description": "No flow was ever registered with that id under this tenant.",
             "content": {
               "application/json": {
                 "schema": {
@@ -23824,7 +23834,7 @@
             }
           }
         },
-        "description": "Cursor-paginated. Sort order is binding-defined (for example semver asc).",
+        "description": "Cursor-paginated. Sort order is binding-defined (for example semver asc). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired flow (every version unregistered) answers too, with its versions to reinstate.",
         "parameters": [
           {
             "name": "flowId",
@@ -23855,6 +23865,16 @@
             },
             "required": false,
             "description": "Opaque cursor from a prior response. Absent → first page."
+          },
+          {
+            "name": "includeTombstoned",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "required": false,
+            "description": "When `true`, the response includes soft-tombstoned versions in addition to active ones. Tombstoned rows carry an `unregisteredAt` ISO timestamp; active rows omit the field. Default: `false` (active-only)."
           }
         ],
         "security": [
