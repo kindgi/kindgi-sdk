@@ -7,6 +7,7 @@ import type { FactSubject, MemoryScope, Retention } from '@kindgi/memory';
 import type { Timestamp } from '@kindgi/types';
 
 import type { MemoryRetrieveIntent } from '../memory-binding.js';
+import { parseTimeInput } from './time-input.js';
 
 export type ValidationResult<T> =
   | { readonly kind: 'ok'; readonly value: T }
@@ -30,10 +31,9 @@ export function parseScopeParam(raw: string): Partial<MemoryScope> | null {
 /** An ISO 8601 time, as a query value or a body field. */
 export function parseTime(raw: unknown, field: string): ValidationResult<Timestamp | undefined> {
   if (raw === undefined) return ok(undefined);
-  if (typeof raw !== 'string' || Number.isNaN(Date.parse(raw))) {
-    return err(`\`${field}\` must be an ISO 8601 time`);
-  }
-  return ok(new Date(raw).toISOString() as Timestamp);
+  const at = parseTimeInput(raw);
+  if (at === null) return err(`\`${field}\` must be an ISO 8601 time`);
+  return ok(at.toISOString() as Timestamp);
 }
 
 /** A revision number: a whole number of 1 or more. */

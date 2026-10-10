@@ -101,6 +101,18 @@ describe('defineCheck — Zod-optional authoring surface', () => {
     expect(typeof reason).toBe('string');
   });
 
+  test('a Zod union of scalars in the config (type: [...]) compiles and checks', () => {
+    const check = defineCheck({
+      id: 'zod.demo-union',
+      kind: 'zero-llm',
+      configSchema: z.object({ limit: z.union([z.number(), z.string()]) }),
+      evaluate: async () => ({ passed: true }),
+    });
+    expect(check.validateConfig?.({ limit: 5 })).toBeUndefined();
+    expect(check.validateConfig?.({ limit: 'five' })).toBeUndefined();
+    expect(typeof check.validateConfig?.({ limit: [5] })).toBe('string');
+  });
+
   test('omitting configSchema leaves validateConfig untouched', () => {
     const check = defineCheck({
       id: 'no-schema',

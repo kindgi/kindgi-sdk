@@ -3,7 +3,7 @@
 
 import type { TupleEnqueueHook } from '@kindgi/authz';
 import type { Scope } from '@kindgi/platform';
-import type { ToolManifest } from '@kindgi/tools';
+import type { CodeArtifactRef, ToolManifest } from '@kindgi/tools';
 import type { Cursor, ProjectId, Semver, TenantId, ToolId } from '@kindgi/types';
 
 import type { RegistryReadOnly } from './registry-read-only.js';
@@ -114,6 +114,34 @@ export interface ToolRegistryBinding {
    * bytes verbatim (semver hygiene). Idempotent.
    */
   reinstateVersion(input: ToolReinstateVersionInput): Promise<ToolReinstateVersionOutcome>;
+  /**
+   * Optional. Point a published version at where its code is now
+   * (`codeArtifactRef`): a deploy of the same version from a new image of
+   * the pack. Nothing else about the version changes. Without it, the
+   * version keeps the pointer its first deploy gave it: metadata only, as
+   * pack code runs by tool id and version.
+   */
+  refreshCodeArtifactRef?(input: ToolRefreshCodeInput): Promise<RegistryRefreshOutcome>;
+}
+
+export interface ToolRefreshCodeInput {
+  readonly tenantId: TenantId;
+  readonly toolId: ToolId;
+  readonly version: Semver;
+  /** Where the version's code is now; `null` for none. */
+  readonly codeArtifactRef: CodeArtifactRef | null;
+  /**
+   * Compare-and-set: refresh only while the version still points here
+   * (`null`: nowhere), else answer `{ refreshed: false }` and change
+   * nothing. A deploy's rollback passes what it wrote, so it never undoes
+   * a refresh another deploy made since.
+   */
+  readonly expected?: CodeArtifactRef | null;
+}
+
+/** `refreshed: false` when there's no such live row to refresh. */
+export interface RegistryRefreshOutcome {
+  readonly refreshed: boolean;
 }
 
 export interface ToolListInput {
@@ -157,6 +185,12 @@ export interface ToolListVersionsInput {
   readonly tenantId: TenantId;
   readonly toolId: ToolId;
   readonly limit: number;
+  /**
+   * A prior page's `nextCursor`, which the route checks before asking the
+   * binding: url-safe base64 of `{ "p": <the last version's publish time as
+   * stored>, "i": <its row id> }`, or (a cursor from before) of a bare ISO
+   * time. Anything else is `400 bad-input`.
+   */
   readonly cursor?: Cursor;
   /**
    * `false` (default) → return only active versions. `true` → return

@@ -32,6 +32,7 @@ export const PROJECT_REF_ROUTES: readonly string[] = [
   '/eval-suites',
   '/eval-suites/:suiteId/versions/from-judgments',
   '/eval-suites/:suiteId/runs',
+  '/eval-runs/:runId/rescore',
   '/blocks',
   '/schedules',
   '/service-accounts/:serviceAccountId/grant',

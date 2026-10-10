@@ -264,6 +264,17 @@ describe('POST /v1/webhook-endpoints', () => {
     expect(res.json.events).toEqual(['run.finished', 'improvement-pass.finished']);
   });
 
+  test('an endpoint can take approval.requested, alone or with the others', async () => {
+    const { app } = makeApp();
+    const alone = await createEndpoint(app, { events: ['approval.requested'] });
+    expect(alone.status).toBe(201);
+    expect(alone.json.events).toEqual(['approval.requested']);
+    const all = await createEndpoint(app, {
+      events: ['run.finished', 'improvement-pass.finished', 'approval.requested'],
+    });
+    expect(all.status).toBe(201);
+  });
+
   test('a missing or weak secret is refused, naming the reference', async () => {
     const { app } = makeApp();
     const missing = await createEndpoint(app, { secretRef: { envName: 'local', name: 'MISSING' } });

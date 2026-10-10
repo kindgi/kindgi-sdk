@@ -54,16 +54,23 @@ commit.
   its word. Cards and alerts get a quiet full border, `*-line` mixed 45% with
   `rule`. The tints (`*-bg`) are for diff lines. A status always has an icon
   and a word, so colour is never the only signal.
-- **Chart series** are the theme's blue ink in five steps of lightness
-  (`series-1`, the darkest, for the biggest item), with `series-muted` (warm
-  stone) for "everything else" and the previous period. They never use a
-  status colour or plum. Stacked bars get a 2 px gap between segments, and
-  the legend follows the stack order.
+- **Chart series** are five tones from indigo to teal, handed out interleaved
+  (dark, light, dark-ish, light-ish, middle), so neighbours in a stack are
+  two steps apart and every tone stays at least 3:1 against the card.
+  `series-1`, the strongest tone, is for the biggest item; a chart takes
+  `series-1`, `series-2`, … in order for any number of items. `series-muted`
+  (warm stone) is for "everything else" and the previous period. They never
+  use a status colour or plum. Stacked bars get a 2 px gap between segments,
+  and the legend follows the stack order.
 - **Code** sits on `code-bg`, neutral in both themes. Strings and the selected
   tab take the accent.
 - **Type** is IBM Plex Sans for everything you read and IBM Plex Mono for code,
   self-hosted (SIL Open Font License). Headings and the wordmark are set at
-  `narrow` (85% width).
+  `narrow` (85% width), which needs the variable Plex Sans with its width axis;
+  the static fonts have no narrow width. `font` names both ways to load it:
+  fontsource's `IBM Plex Sans Variable` (`@fontsource-variable/ibm-plex-sans`),
+  or your own `@font-face` that names the variable file `IBM Plex Sans` with
+  `font-stretch: 85% 100%`.
 - **Shape** is square (`radius`). Only form fields are slightly rounded
   (`radius-field`, 3px). Rows default to `row` (38px); a long list may offer
   `row-compact`.

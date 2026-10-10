@@ -140,7 +140,7 @@ export const deployCommand: LeafCommand = {
     'published-at': {
       type: 'string',
       description:
-        'For an inline build: the publish time (ISO 8601). Default: the build time. For a reproducible build, pass `--artifact-version` and `--published-at`.',
+        'For an inline build: the publish time (an ISO 8601 time with a zone, or a date: its start, UTC). Default: the build time. For a reproducible build, pass `--artifact-version` and `--published-at`.',
     },
     'signing-key': {
       type: 'string',
