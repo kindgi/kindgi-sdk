@@ -8,7 +8,7 @@ import type { Transport } from '../transport.js';
 import type {
   CreateServiceAccountInput,
   ServiceAccount,
-  ServiceAccountGrant,
+  ServiceAccountGrantInput,
   ServiceAccountGrantTarget,
 } from '../types.js';
 
@@ -56,7 +56,7 @@ export interface ServiceAccountsClient {
    */
   grant(
     serviceAccountId: string,
-    grant: ServiceAccountGrant,
+    grant: ServiceAccountGrantInput,
     options?: { readonly idempotencyKey?: string },
   ): Promise<ServiceAccount>;
 

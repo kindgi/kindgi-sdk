@@ -195,19 +195,37 @@ export function approvalsRouter(
       );
     }
 
-    const statusRaw = c.req.query('status');
-    let statusFilter: ApprovalStatus | undefined;
-    if (statusRaw !== undefined && statusRaw.length > 0) {
-      if (!APPROVAL_STATUSES.has(statusRaw as ApprovalStatus)) {
-        c.status(statusFor('bad-input') as never);
-        return c.json(
-          toWireError(
-            { code: 'bad-input', message: `Unknown \`status\` value: ${statusRaw}` },
-            requestId,
-          ),
-        );
-      }
-      statusFilter = statusRaw as ApprovalStatus;
+    const statusesParsed = parseStatuses(c.req.queries('status'));
+    if (statusesParsed.kind === 'err') {
+      c.status(statusFor('bad-input') as never);
+      return c.json(toWireError({ code: 'bad-input', message: statusesParsed.message }, requestId));
+    }
+    const statuses = statusesParsed.value;
+
+    // `?assignedTo=me`: the approvals assigned to the caller's own reviewer row.
+    const assignedToRaw = c.req.query('assignedTo');
+    if (assignedToRaw !== undefined && assignedToRaw !== 'me') {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError(
+          { code: 'bad-input', message: '`assignedTo` takes `me` (the approvals assigned to you)' },
+          requestId,
+        ),
+      );
+    }
+
+    const orderRaw = c.req.query('order');
+    if (orderRaw !== undefined && orderRaw !== 'asc' && orderRaw !== 'desc') {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'bad-input',
+            message: '`order` is `asc` (oldest first) or `desc` (newest first)',
+          },
+          requestId,
+        ),
+      );
     }
 
     const requiredRoleRaw = c.req.query('requiredRole');
@@ -296,22 +314,55 @@ export function approvalsRouter(
 
     // The cursor: where the last page ended (an approval's exact
     // `createdAt` and its id), or a bare time from before that (milliseconds,
-    // no tie-breaker), which still answers as it did.
+    // no tie-breaker), which still answers as it did. An oldest-first page's
+    // cursor says so (`ASC_CURSOR`), so it can't continue a newest-first
+    // list, nor the other way round.
     const rawCursor = c.req.query('cursor');
     let after: ApprovalPosition | undefined;
     let cursor: string | undefined;
+    let cursorOrder: 'asc' | 'desc' | undefined;
     if (rawCursor !== undefined && rawCursor.length > 0) {
-      const decoded = decodeCursor(rawCursor);
+      const ascending = rawCursor.startsWith(ASC_CURSOR);
+      const decoded = decodeCursor(ascending ? rawCursor.slice(ASC_CURSOR.length) : rawCursor);
       if (decoded !== null && isCursorTime(decoded.createdAt)) {
         after = { createdAt: decoded.createdAt, id: decoded.id as unknown as ApprovalId };
-      } else if (decoded === null && isCursorTime(rawCursor)) {
+        cursorOrder = ascending ? 'asc' : 'desc';
+      } else if (!ascending && decoded === null && isCursorTime(rawCursor)) {
         cursor = rawCursor;
+        cursorOrder = 'desc';
       } else {
         c.status(statusFor('bad-input') as never);
         return c.json(
           toWireError({ code: 'bad-input', message: '`cursor` is malformed' }, requestId),
         );
       }
+    }
+    const order = orderRaw ?? cursorOrder ?? 'desc';
+    if (cursorOrder !== undefined && cursorOrder !== order) {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'bad-input',
+            message:
+              '`cursor` continues a list in the other order: drop `order`, or start again without `cursor`',
+          },
+          requestId,
+        ),
+      );
+    }
+
+    // Assigned to the caller: its reviewer row, as deciding resolves it. A
+    // caller with none has nothing assigned to it.
+    let assignee: ReviewerId | undefined;
+    if (assignedToRaw === 'me') {
+      const userId = c.get('userId');
+      const found =
+        userId === undefined
+          ? null
+          : await reviewerBinding.resolveReviewer({ tenantId, userId: userId as UserId });
+      if (found === null) return c.json({ data: [], hasMore: false, order });
+      assignee = found as ReviewerId;
     }
 
     // Over-fetch up to 4× the page size (capped at 500) so a page still
@@ -322,7 +373,11 @@ export function approvalsRouter(
       tenantId,
       limit: HITL_LIMIT_CAP,
       ...(scopeParsed.scope !== undefined && { scope: scopeParsed.scope }),
-      ...(statusFilter !== undefined && { status: statusFilter }),
+      // One status also as `status`, which a binding from before `statuses` reads.
+      ...(statuses?.length === 1 && { status: statuses[0] }),
+      ...(statuses !== undefined && { statuses }),
+      ...(assignee !== undefined && { assignedTo: assignee }),
+      ...(order === 'asc' && { order }),
       ...(requiredRoleFilter !== undefined && { requiredRole: requiredRoleFilter }),
       ...(createdAfterIso !== undefined && { since: createdAfterIso as unknown as Timestamp }),
       ...(after !== undefined && { after }),
@@ -336,8 +391,12 @@ export function approvalsRouter(
       return c.json(toWireError(listed.error as never, requestId));
     }
     const roleRank = REVIEWER_ROLE_RANK[role];
+    // The binding narrows; these keep a page right from one that doesn't.
     const inTier = listed.value.approvals.filter(
-      (a) => REVIEWER_ROLE_RANK[a.requiredRole] <= roleRank,
+      (a) =>
+        REVIEWER_ROLE_RANK[a.requiredRole] <= roleRank &&
+        (statuses === undefined || statuses.includes(a.status)) &&
+        (assignee === undefined || a.assignedTo === assignee),
     );
     let visible = inTier;
     if (authorizer !== undefined) {
@@ -364,16 +423,22 @@ export function approvalsRouter(
         ? fetched[fetched.length - 1]
         : page[page.length - 1];
     const exact = last !== undefined ? listed.value.exactCreatedAt?.[last.id] : undefined;
+    // The order the page is in: what the binding applied (newest first from
+    // one that doesn't know `order`). The page says it, so a client can tell.
+    const listedOrder = listed.value.order ?? 'desc';
     const nextCursor =
       !hasMore || last === undefined
         ? undefined
         : exact !== undefined
-          ? encodeCursor({ createdAt: exact, id: last.id as unknown as string })
-          : (last.createdAt as unknown as string);
+          ? `${listedOrder === 'asc' ? ASC_CURSOR : ''}${encodeCursor({ createdAt: exact, id: last.id as unknown as string })}`
+          : listedOrder === 'asc'
+            ? undefined
+            : (last.createdAt as unknown as string);
     return c.json({
       data: page.map(serializeApproval),
-      hasMore,
+      hasMore: hasMore && (nextCursor !== undefined || listedOrder === 'desc'),
       ...(nextCursor !== undefined && { nextCursor }),
+      order: listedOrder,
     });
   });
 
@@ -914,4 +979,32 @@ async function resumeInline(
       message: cause instanceof Error ? cause.message : String(cause),
     };
   }
+}
+
+/** Marks an oldest-first page's cursor (`order=asc`), which only continues that order. */
+const ASC_CURSOR = 'a.';
+
+/**
+ * `?status=`, repeated or comma-separated (`status=pending&status=escalated`,
+ * `status=pending,escalated`), de-duplicated: as `GET /v1/runs` takes it. An
+ * empty value is no filter, as before; an unknown one is `400 bad-input`.
+ */
+function parseStatuses(
+  raw: readonly string[] | undefined,
+):
+  | { readonly kind: 'ok'; readonly value: readonly ApprovalStatus[] | undefined }
+  | { readonly kind: 'err'; readonly message: string } {
+  const given = (raw ?? [])
+    .flatMap((v) => v.split(','))
+    .map((v) => v.trim())
+    .filter((v) => v.length > 0);
+  if (given.length === 0) return { kind: 'ok', value: undefined };
+  const unknown = given.filter((v) => !APPROVAL_STATUSES.has(v as ApprovalStatus));
+  if (unknown.length > 0) {
+    return {
+      kind: 'err',
+      message: `Unknown \`status\` value${unknown.length === 1 ? '' : 's'}: ${unknown.join(', ')}. Expected one or more of: ${[...APPROVAL_STATUSES].join(', ')}`,
+    };
+  }
+  return { kind: 'ok', value: [...new Set(given as ApprovalStatus[])] };
 }

@@ -28,6 +28,7 @@ import type {
   GuardrailRegistryBinding,
   ImageRegistryBinding,
   LiveResolveInput,
+  ProviderRegistryBinding,
   RunHandlerBinding,
   SecretBinding,
   SecretRecord,
@@ -852,6 +853,59 @@ describe("POST /v1/deployments — the image's index is what registers", () => {
 // ---------------- happy path ----------------
 
 describe('POST /v1/deployments — happy path', () => {
+  test("a tool naming a model provider's key is refused, naming the tool, the key and the provider", async () => {
+    const fixture = buildSignedDeploy({
+      index: {
+        v: 1,
+        packId: 'acme.aperture',
+        packVersion: '1.0.0',
+        artifactVersion: '20260920.1',
+        publishedAt: '2026-09-20T14:32:07.104Z',
+        tools: [
+          {
+            id: 'acme.summarize',
+            description: 'Summarize with a model of its own.',
+            version: '1.0.0',
+            input: { type: 'object' },
+            output: { type: 'object' },
+            modulePath: './tools/summarize.js',
+            needsSpec: { secrets: { ANTHROPIC_API_KEY: { type: 'string' } } },
+          },
+        ],
+        guardrails: [],
+      },
+    });
+    const providerRegistry = {
+      resolveForRuntime: async () => [
+        {
+          metadata: { id: 'anthropic-main' },
+          adapterId: 'anthropic',
+          secretRef: { envName: 'prod', name: 'ANTHROPIC_API_KEY' },
+        },
+      ],
+    } as unknown as ProviderRegistryBinding;
+    const { app, toolRegistry } = makeApp({ fixture, extra: { providerRegistry } });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string; details: { issues: unknown[] } } };
+    expect(body.error.code).toBe('deployment-validation-failed');
+    expect(body.error.details.issues).toEqual([
+      {
+        primitive: 'tool',
+        index: 0,
+        id: 'acme.summarize',
+        path: '/secrets/ANTHROPIC_API_KEY',
+        message:
+          '`ANTHROPIC_API_KEY` is the key of model provider "anthropic-main": a tool never gets a model provider\'s key. If it needs to call a model itself, store the key under its own name (the same value is fine) and use that name',
+      },
+    ]);
+    expect(await toolRegistry.get({ tenantId, toolId: 'acme.summarize' as never })).toBeNull();
+  });
+
   test('signed deployment → 201 with all primitives registered', async () => {
     const fixture = buildSignedDeploy();
     const { app, toolRegistry, guardrailRegistry } = makeApp({ fixture });

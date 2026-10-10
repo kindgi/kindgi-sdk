@@ -14,10 +14,11 @@ import {
 import type { Cursor, GuardrailId, ProjectId, TenantId, UserId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
-import type { GuardrailRegistryBinding } from '../guardrail-binding.js';
+import type { GuardrailRecord, GuardrailRegistryBinding } from '../guardrail-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { refuseWritesWhenReadOnly } from '../registry-read-only.js';
 import type { AppEnv } from '../types.js';
+import { guardrailOutcomesHandler } from './guardrail-outcomes.js';
 import { clampLimit } from './pagination.js';
 import { parseScopeParams } from './scope-params.js';
 
@@ -165,6 +166,9 @@ export function guardrailsRouter(
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });
   });
+
+  // ---------- GET /:guardrailId/outcomes ----------
+  r.get('/:guardrailId/outcomes', guardrailOutcomesHandler(binding, authorizer));
 
   // ---------- GET /:guardrailId ----------
   r.get('/:guardrailId', async (c) => {
@@ -369,9 +373,10 @@ export function guardrailsRouter(
   return r;
 }
 
-function serializeGuardrail(i: Guardrail): Record<string, unknown> {
+function serializeGuardrail(i: GuardrailRecord): Record<string, unknown> {
   return {
     id: i.id as unknown as string,
+    ...(i.projectId !== undefined && { projectId: i.projectId as unknown as string }),
     ...(i.name !== undefined && { name: i.name }),
     ...(i.description !== undefined && { description: i.description }),
     kind: i.kind,

@@ -19,7 +19,7 @@ Microsoft Entra admin center → App registrations → New registration:
      Users and groups: who may sign in.
 Issuer: https://login.microsoftonline.com/<directory-tenant-id>/v2.0 (never `common`).
 
-Step by step: https://docs.kindgi.com/guides/sso/entra-id/
+Step by step: https://docs.kindgi.com/v0.1/guides/sso/entra-id/
 
 Then register it:
   kindgi sso providers finish acme-google --kind=oidc --issuer=<issuer> --client-id=<client-id> --client-secret-ref=<NAME> --domains=<your-domain>

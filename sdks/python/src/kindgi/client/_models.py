@@ -582,6 +582,85 @@ class RunFailure(BaseModel):
     """
     What the error came from, when it says: e.g. for `capability-routing-failed`, the router's `capability-unsatisfiable` with its reasons, by provider.
     """
+    reason: str | None = None
+    """
+    The error's own reason, when it gives one: for a turn that ended at its approval (`hitl-cancelled`), `timeout` when nobody decided in time. Absent from an older runtime and from errors without one; read `code` then.
+    """
+
+
+class FailureSubject(BaseModel):
+    """
+    Whose runs a failure group counts: an agent's turns, or a flow's runs.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["agent", "flow"]
+    id: str
+
+
+class FailureGroup(BaseModel):
+    """
+    One group of failed runs: the same cause, subject and version.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    code: str | None = None
+    """
+    The failure's code (`Run.failure.code`). Absent when not grouped by code, and in `unrecorded`.
+    """
+    reason: str | None = None
+    """
+    The failure's reason (`Run.failure.reason`), when it gives one: a `hitl-*` outcome's, e.g. `timeout`.
+    """
+    subject: FailureSubject
+    version: str | None = None
+    """
+    The agent's or flow's version. Absent when not grouped by version, or not recorded for the run.
+    """
+    count: Annotated[int, Field(ge=1)]
+    first_seen: Annotated[AwareDatetime, Field(alias="firstSeen")]
+    """
+    When the first of them failed, in the window.
+    """
+    last_seen: Annotated[AwareDatetime, Field(alias="lastSeen")]
+    """
+    When the latest of them failed, in the window.
+    """
+    example_run_id: Annotated[UUID, Field(alias="exampleRunId")]
+    """
+    The group's most recent run.
+    """
+
+
+class RunFailureGroups(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    from_: Annotated[AwareDatetime, Field(alias="from")]
+    to: AwareDatetime
+    groups: list[FailureGroup]
+    """
+    The failures, the most first.
+    """
+    outcomes: list[FailureGroup]
+    """
+    People's decisions, never errors: `hitl-*` codes (an approval rejected, cancelled or timed out), the most first.
+    """
+    unrecorded: list[FailureGroup]
+    """
+    Runs that failed before their cause was recorded (a runtime from before this): by subject and version only, never by code.
+    """
+    total: Annotated[int, Field(ge=0)]
+    """
+    Every failed run in the window, across the three lists.
+    """
 
 
 class StartRunOptions(BaseModel):
@@ -1825,6 +1904,39 @@ class JudgeClassAssertableBy(BaseModel):
     """
 
 
+class JudgeClassAssertableByView(BaseModel):
+    """
+    Who may assert the class, as the caller sees it: every part that is set must hold. `principalIds` is sent only to an admin on the class's scope; `principalCount` to everyone who reads it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    min_reviewer_role: Annotated[
+        Literal["standard", "senior", "admin"] | None, Field(alias="minReviewerRole")
+    ] = None
+    """
+    The caller's reviewer role is at least this (its token's, or the roster's).
+    """
+    principal_kinds: Annotated[
+        list[Literal["user", "service"]] | None, Field(alias="principalKinds", min_length=1)
+    ] = None
+    """
+    Users, service tokens, or both.
+    """
+    principal_ids: Annotated[
+        list[PrincipalId] | None, Field(alias="principalIds", max_length=100, min_length=1)
+    ] = None
+    """
+    Only these principals: user ids, or service token ids. Sent only to an admin on the class's scope.
+    """
+    principal_count: Annotated[int | None, Field(alias="principalCount", ge=1)] = None
+    """
+    How many principals the class is restricted to (`principalIds`), for every reader. Absent when it names none.
+    """
+
+
 class JudgedEvalCase(BaseModel):
     """
     One case of a `judged` eval suite: a copy of a judged run with its items' judgments summed up.
@@ -2427,6 +2539,10 @@ class Flow1(BaseModel):
     """
     Semver.
     """
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The flow's project: every version of a flow is in the one project. Absent when the runtime doesn't record it: a pack `kindgi dev` serves from disk, or a runtime before Kindgi 0.1.6.
+    """
     name: str | None = None
     description: str | None = None
     nodes: list[FlowNode]
@@ -2756,6 +2872,10 @@ class Tool1(BaseModel):
     """
     ToolId — dotted namespace (e.g. `acme.verify-citation`).
     """
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The tool's project: every version of a tool is in the one project. Absent when the runtime doesn't record it: a pack `kindgi dev` serves from disk, or a runtime before Kindgi 0.1.6.
+    """
     description: Annotated[str, Field(min_length=1)]
     version: Annotated[str | None, Field(pattern="^\\d+\\.\\d+\\.\\d+$")] = None
     input: dict[str, Any]
@@ -2792,6 +2912,10 @@ class Tool1(BaseModel):
     Handler-artifact pointer. Discriminated on `kind`: `oci` is the deploy-pipeline shape (image + module path + artifactVersion); `filesystem` is the local-development shape — absolute host path at the pack's on-disk handler file. Production servers SHOULD reject `filesystem`.
     """
     spec: ToolSpec | None = None
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    Present only on an unregistered version: a retired tool (every version unregistered) as `GET /v1/tools?includeRetired=true` lists it.
+    """
 
 
 class RegisterToolBody(BaseModel):
@@ -2807,6 +2931,10 @@ class RegisterToolBody(BaseModel):
     """
     ToolId — dotted namespace (e.g. `acme.verify-citation`).
     """
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    """
+    Project this belongs to (its content scope). Required: missing, or not a project in the caller's tenant → `400 bad-input`.
+    """
     description: Annotated[str, Field(min_length=1)]
     version: Annotated[str | None, Field(pattern="^\\d+\\.\\d+\\.\\d+$")] = None
     input: dict[str, Any]
@@ -2843,10 +2971,6 @@ class RegisterToolBody(BaseModel):
     Handler-artifact pointer. Discriminated on `kind`: `oci` is the deploy-pipeline shape (image + module path + artifactVersion); `filesystem` is the local-development shape — absolute host path at the pack's on-disk handler file. Production servers SHOULD reject `filesystem`.
     """
     spec: ToolSpec | None = None
-    project_id: Annotated[UUID, Field(alias="projectId")]
-    """
-    Project this belongs to (its content scope). Required: missing, or not a project in the caller's tenant → `400 bad-input`.
-    """
 
 
 class RegisterToolResult(BaseModel):
@@ -2901,6 +3025,10 @@ class ToolVersionRow(BaseModel):
     id: Annotated[str, Field(min_length=1)]
     """
     ToolId — dotted namespace (e.g. `acme.verify-citation`).
+    """
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The tool's project: every version of a tool is in the one project. Absent when the runtime doesn't record it: a pack `kindgi dev` serves from disk, or a runtime before Kindgi 0.1.6.
     """
     description: Annotated[str, Field(min_length=1)]
     version: Annotated[str | None, Field(pattern="^\\d+\\.\\d+\\.\\d+$")] = None
@@ -3012,6 +3140,10 @@ class Guardrail(BaseModel):
         populate_by_name=True,
     )
     id: Annotated[str, Field(min_length=1)]
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The guardrail's project. Absent when the runtime doesn't record it: a pack `kindgi dev` serves from disk, or a runtime before Kindgi 0.1.6.
+    """
     name: str | None = None
     description: str | None = None
     kind: Annotated[str, Field(examples=["zero-llm", "llm-judge", "external"], min_length=1)]
@@ -3040,6 +3172,10 @@ class RegisterGuardrailBody(BaseModel):
         populate_by_name=True,
     )
     id: Annotated[str, Field(min_length=1)]
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    """
+    Project this belongs to (its content scope). Required: missing, or not a project in the caller's tenant → `400 bad-input`.
+    """
     name: str | None = None
     description: str | None = None
     kind: Annotated[str, Field(examples=["zero-llm", "llm-judge", "external"], min_length=1)]
@@ -3056,10 +3192,6 @@ class RegisterGuardrailBody(BaseModel):
     scope: GuardrailScope | None = None
     budget: Budget | None = None
     judge_capabilities: Annotated[dict[str, Any] | None, Field(alias="judgeCapabilities")] = None
-    project_id: Annotated[UUID, Field(alias="projectId")]
-    """
-    Project this belongs to (its content scope). Required: missing, or not a project in the caller's tenant → `400 bad-input`.
-    """
 
 
 class RegisterGuardrailResult(BaseModel):
@@ -3090,6 +3222,105 @@ class GuardrailCollectionPage(BaseModel):
     Opaque cursor for the next page. Absent when `hasMore: false`.
     """
     has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class GuardrailOutcomeCounts(BaseModel):
+    """
+    How many of a guardrail's checks came to each outcome.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    passed: Annotated[int, Field(ge=0)]
+    """
+    The check ran and found nothing.
+    """
+    violated: Annotated[int, Field(ge=0)]
+    """
+    The check found something and the answer went through (`log-only`, `noop`, or an action handed back).
+    """
+    blocked: Annotated[int, Field(ge=0)]
+    """
+    The check found something and its `halt` failed the turn.
+    """
+    errored: Annotated[int, Field(ge=0)]
+    """
+    The check couldn't run (no such check, a bad configuration, a judge that couldn't be routed).
+    """
+
+
+class GuardrailOutcomesByAgentVersion(BaseModel):
+    """
+    The counts on one agent version's turns.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    agent_id: Annotated[str, Field(alias="agentId")]
+    agent_version: Annotated[str, Field(alias="agentVersion")]
+    passed: Annotated[int, Field(ge=0)]
+    """
+    The check ran and found nothing.
+    """
+    violated: Annotated[int, Field(ge=0)]
+    """
+    The check found something and the answer went through (`log-only`, `noop`, or an action handed back).
+    """
+    blocked: Annotated[int, Field(ge=0)]
+    """
+    The check found something and its `halt` failed the turn.
+    """
+    errored: Annotated[int, Field(ge=0)]
+    """
+    The check couldn't run (no such check, a bad configuration, a judge that couldn't be routed).
+    """
+
+
+class GuardrailBlockedRun(BaseModel):
+    """
+    A turn the guardrail blocked: its run, never its answer.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    run_id: Annotated[UUID, Field(alias="runId")]
+    at: AwareDatetime
+    """
+    When the guardrail checked.
+    """
+    agent_id: Annotated[str, Field(alias="agentId")]
+    agent_version: Annotated[str, Field(alias="agentVersion")]
+
+
+class GuardrailOutcomes(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    guardrail_id: Annotated[str, Field(alias="guardrailId")]
+    from_: Annotated[AwareDatetime, Field(alias="from")]
+    to: AwareDatetime
+    counts: GuardrailOutcomeCounts
+    by_agent_version: Annotated[
+        list[GuardrailOutcomesByAgentVersion], Field(alias="byAgentVersion")
+    ]
+    """
+    The same counts per agent version, the most checked first, at most 100.
+    """
+    recent_blocked: Annotated[list[GuardrailBlockedRun], Field(alias="recentBlocked")]
+    """
+    The window's latest blocked turns, newest first, at most `recent`.
+    """
+    recorded_since: Annotated[AwareDatetime | None, Field(alias="recordedSince")] = None
+    """
+    The earliest outcome kept for this guardrail in this project, in any window: nothing before it is counted. Outcomes were first recorded in 0.1.6, and they go with their run's retention. Absent when none is kept.
+    """
 
 
 class ConversationStatus(RootModel[Literal["open", "closed"]]):
@@ -5088,6 +5319,19 @@ class AdapterConfigProblem(BaseModel):
     """
 
 
+class SecretRef1(BaseModel):
+    """
+    The secret the provider's key resolves from, by name only, never its value. Present when the registration has one. Only a caller allowed to check the provider sees it. `kindgi dev` uses it to keep a provider's key out of the pack service's environment. A runtime before 0.1.6 leaves it out.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    env_name: Annotated[str, Field(alias="envName", min_length=1)]
+    name: Annotated[str, Field(min_length=1)]
+
+
 class ProviderCheckResult(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -5100,6 +5344,10 @@ class ProviderCheckResult(BaseModel):
     False when this runtime has no check for the provider's adapter; `issues` is then empty.
     """
     issues: list[AdapterConfigProblem]
+    secret_ref: Annotated[SecretRef1 | None, Field(alias="secretRef")] = None
+    """
+    The secret the provider's key resolves from, by name only, never its value. Present when the registration has one. Only a caller allowed to check the provider sees it. `kindgi dev` uses it to keep a provider's key out of the pack service's environment. A runtime before 0.1.6 leaves it out.
+    """
 
 
 class Config(BaseModel):
@@ -5944,6 +6192,10 @@ class EvalSuite(BaseModel):
     )
     id: Annotated[str, Field(min_length=1)]
     tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The test set's project: every version of a test set is in the one project. Absent when the runtime doesn't record it: a pack `kindgi dev` serves from disk, or a runtime before Kindgi 0.1.6.
+    """
     version: Annotated[str, Field(pattern="^\\d+\\.\\d+\\.\\d+$")]
     """
     Semver — publishing a modified suite produces a new version.
@@ -5955,6 +6207,10 @@ class EvalSuite(BaseModel):
     spec: dict[str, Any]
     """
     Kind-specific suite body. For `accuracy`, typically `{ cases: [{ input, expectedOutput }], grader?: { adapterId, config? } }`. For `pairwise`, typically `{ prompts, variantA, variantB }`. For `regression`, typically `{ baseline, cases }`. For `human-review`, typically `{ rubric, reviewerRole }`. For `benchmark`, typically `{ benchmark: { name, version } }`. For `custom`, typically `{ handler: { modulePath, entrypointPath }, cases }`.
+    """
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    Present only on an unregistered version: one `GET …/versions?includeTombstoned=true` lists, or a retired test set (every version unregistered) as `GET /v1/eval-suites?includeRetired=true` lists it.
     """
 
 
@@ -6726,6 +6982,10 @@ class EvalRun(BaseModel):
     )
     run_id: Annotated[UUID, Field(alias="runId")]
     tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The project the eval run is in: the one it was started in. Absent on a runtime before Kindgi 0.1.6.
+    """
     suite_id: Annotated[str, Field(alias="suiteId")]
     suite_version: Annotated[str, Field(alias="suiteVersion", pattern="^\\d+\\.\\d+\\.\\d+$")]
     kind: Literal[
@@ -7319,43 +7579,6 @@ class LogoutResult(BaseModel):
     revoked: bool
 
 
-class UserRecord(BaseModel):
-    """
-    Tenant-scoped user record (admin plane). `primaryEmail` may be redacted on the wire based on tenant policy (the routes treat it as opaque). `metadata` is free-form JSON — deployments carry IdP claims / provisioning source / roles here.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    user_id: Annotated[str, Field(alias="userId")]
-    tenant_id: Annotated[UUID, Field(alias="tenantId")]
-    primary_email: Annotated[str | None, Field(alias="primaryEmail")] = None
-    display_name: Annotated[str | None, Field(alias="displayName")] = None
-    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
-    last_active_at: Annotated[AwareDatetime | None, Field(alias="lastActiveAt")] = None
-    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
-    """
-    When they were removed from the tenant (`POST /v1/identity/users/{userId}/unregister`); absent while they are here.
-    """
-    metadata: dict[str, Any] | None = None
-
-
-class UnregisterUserResult(BaseModel):
-    """
-    A removed person, and what removing them took away (each 0 when they were already removed).
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    user: UserRecord
-    keys_revoked: Annotated[int, Field(alias="keysRevoked", ge=0)]
-    sessions_revoked: Annotated[int, Field(alias="sessionsRevoked", ge=0)]
-    grants_removed: Annotated[int, Field(alias="grantsRemoved", ge=0)]
-
-
 class CreateUserBody(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -7393,6 +7616,342 @@ class PersonGrantBody(BaseModel):
         populate_by_name=True,
     )
     kind: Literal["tenant-admin"]
+
+
+class JudgingRuleWhen(BaseModel):
+    """
+    Which of a project's runs a rule matches as they end. Every field narrows; absent fields don't. `agentIds` or `flowIds`, not both. Top-level runs only (an agent's own runs, not its turns as a flow's step); replays never match.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    agent_ids: Annotated[list[str] | None, Field(alias="agentIds", max_length=50, min_length=1)] = (
+        None
+    )
+    flow_ids: Annotated[list[str] | None, Field(alias="flowIds", max_length=50, min_length=1)] = (
+        None
+    )
+    versions: Annotated[list[str] | None, Field(max_length=50, min_length=1)] = None
+    """
+    These versions exactly, or `live`: runs that got the agent's live version, not one the caller named. Runs from before the runtime recorded how their version was chosen never match `live`.
+    """
+    status: Annotated[
+        list[Literal["completed", "failed", "cancelled"]] | None, Field(min_length=1)
+    ] = None
+    """
+    How the run ended. Only `completed` today: a judgment needs a completed run, so `failed` and `cancelled` are refused (400). Absent: `completed`.
+    """
+    include_dry_runs: Annotated[bool | None, Field(alias="includeDryRuns")] = None
+    """
+    Dry runs are left out unless `true`.
+    """
+
+
+class JudgingRuleSpec(BaseModel):
+    """
+    A judging rule as written. It only lists runs: nothing here starts a model.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    name: Annotated[str, Field(max_length=200, min_length=1)]
+    when: JudgingRuleWhen
+    sample: Annotated[float | None, Field(gt=0.0, le=1.0)] = None
+    """
+    The share of matching runs queued, decided by the run and rule ids: the same every time and across the rule's versions, so raising it keeps the runs it took before. Default 1.
+    """
+    max_open: Annotated[int | None, Field(alias="maxOpen", ge=1, le=10000)] = None
+    """
+    Queue nothing while this rule has this many open items. Absent: no cap.
+    """
+    judge_class_id: Annotated[str | None, Field(alias="judgeClassId")] = None
+    """
+    Whose judgment it wants: one of this class closes it. Absent: any judgment does.
+    """
+    enabled: bool | None = None
+    """
+    Default `true`.
+    """
+
+
+class JudgingRulePatch(BaseModel):
+    """
+    The fields to change; `when` is replaced whole.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    name: Annotated[str | None, Field(max_length=200, min_length=1)] = None
+    when: JudgingRuleWhen | None = None
+    sample: Annotated[float | None, Field(gt=0.0, le=1.0)] = None
+    """
+    The share of matching runs queued, decided by the run and rule ids: the same every time and across the rule's versions, so raising it keeps the runs it took before. Default 1.
+    """
+    max_open: Annotated[int | None, Field(alias="maxOpen", ge=1, le=10000)] = None
+    """
+    Queue nothing while this rule has this many open items. `null` removes the cap.
+    """
+    judge_class_id: Annotated[str | None, Field(alias="judgeClassId")] = None
+    """
+    Whose judgment it wants: one of this class closes it. `null`: any judgment does.
+    """
+    enabled: bool | None = None
+    """
+    Default `true`.
+    """
+
+
+class JudgingRule(BaseModel):
+    """
+    One version of a judging rule; the latest live one applies.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    rule_id: Annotated[str, Field(alias="ruleId")]
+    project_id: Annotated[str, Field(alias="projectId")]
+    version: Annotated[int, Field(ge=1)]
+    name: Annotated[str, Field(max_length=200, min_length=1)]
+    when: JudgingRuleWhen
+    sample: Annotated[float, Field(gt=0.0, le=1.0)]
+    max_open: Annotated[int | None, Field(alias="maxOpen", ge=1, le=10000)] = None
+    """
+    Queue nothing while this rule has this many open items. Absent: no cap.
+    """
+    judge_class_id: Annotated[str | None, Field(alias="judgeClassId")] = None
+    """
+    Whose judgment it wants: one of this class closes it. Absent: any judgment does.
+    """
+    enabled: bool
+    created_by: Annotated[str | None, Field(alias="createdBy")] = None
+    """
+    Who wrote this version.
+    """
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+
+
+class JudgingRulePage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[JudgingRule]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class JudgingRuleUnregisterResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    rule_id: Annotated[str, Field(alias="ruleId")]
+    unregistered: bool
+
+
+class JudgingClassCount(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    judge_class_id: Annotated[str | None, Field(alias="judgeClassId")]
+    """
+    `null`: unclassified.
+    """
+    count: Annotated[int, Field(ge=0)]
+
+
+class JudgingProgress(BaseModel):
+    """
+    The live judgments on the run so far, by class.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    total: Annotated[int, Field(ge=0)]
+    by_class: Annotated[list[JudgingClassCount], Field(alias="byClass")]
+
+
+class JudgingItemCan(BaseModel):
+    """
+    What the caller may do with the item, by the check the routes make (`write` on the project, as judging the run needs).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    dismiss: bool
+    reopen: bool
+
+
+class JudgingItemRule(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    rule_id: Annotated[str, Field(alias="ruleId")]
+    version: Annotated[int, Field(ge=1)]
+
+
+class JudgingQueueItem(BaseModel):
+    """
+    A queued run: never its content, only what it was and where it stands.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    run_id: Annotated[str, Field(alias="runId")]
+    project_id: Annotated[str, Field(alias="projectId")]
+    agent_id: Annotated[str | None, Field(alias="agentId")] = None
+    agent_version: Annotated[str | None, Field(alias="agentVersion")] = None
+    flow_id: Annotated[str, Field(alias="flowId")]
+    run_status: Annotated[Literal["completed", "failed", "cancelled"], Field(alias="runStatus")]
+    """
+    How a run ended.
+    """
+    completed_at: Annotated[AwareDatetime, Field(alias="completedAt")]
+    rules: list[JudgingItemRule]
+    """
+    The rules that queued it, each at the version that did.
+    """
+    wanted_class_ids: Annotated[list[str], Field(alias="wantedClassIds")]
+    """
+    The judge classes its rules want.
+    """
+    any_judgment: Annotated[bool, Field(alias="anyJudgment")]
+    """
+    One of its rules wants any judgment.
+    """
+    progress: JudgingProgress
+    added_at: Annotated[AwareDatetime, Field(alias="addedAt")]
+    state: Literal["open", "judged", "dismissed", "erased"]
+    """
+    Where a queued run stands. `judged`: every rule that queued it has the judgment it wants. `erased`: the run's content is gone (erased, or the run purged); the item shows nothing of it.
+    """
+    closed_at: Annotated[AwareDatetime | None, Field(alias="closedAt")] = None
+    closed_by: Annotated[str | None, Field(alias="closedBy")] = None
+    """
+    Who dismissed or reopened it last.
+    """
+    reason: str | None = None
+    """
+    Why it was dismissed, when they said.
+    """
+    can: JudgingItemCan
+
+
+class JudgingQueuePage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[JudgingQueueItem]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    total: Annotated[int, Field(ge=0)]
+    """
+    Every item the filters match, across pages.
+    """
+
+
+class JudgingDismissBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    reason: Annotated[str | None, Field(max_length=500)] = None
+
+
+class JudgingClassResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    judge_class_id: Annotated[str | None, Field(alias="judgeClassId")]
+    """
+    `null`: unclassified.
+    """
+    judgments: Annotated[int, Field(ge=0)]
+    yes: Annotated[int, Field(ge=0)]
+
+
+class JudgingResultGroup(BaseModel):
+    """
+    One rule version's runs of one agent version. `added` = `open` + `judged` + `dismissed` + `erased`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    rule_version: Annotated[int, Field(alias="ruleVersion", ge=1)]
+    agent_version: Annotated[str | None, Field(alias="agentVersion")]
+    """
+    `null`: a flow run, or one from before versions were recorded.
+    """
+    added: Annotated[int, Field(ge=0)]
+    open: Annotated[int, Field(ge=0)]
+    judged: Annotated[int, Field(ge=0)]
+    dismissed: Annotated[int, Field(ge=0)]
+    erased: Annotated[int, Field(ge=0)]
+    skipped_by_cap: Annotated[int, Field(alias="skippedByCap", ge=0)]
+    """
+    Runs the rule matched and sampled but didn't queue, because `maxOpen` were waiting, even when another rule queued them. Non-zero: the queued runs lean toward quiet times. `added` + `skippedByCap` = every run the rule matched and sampled.
+    """
+    judgments: Annotated[int, Field(ge=0)]
+    """
+    Live judgments on the queued runs: each is one person's verdict on one item of a run's output.
+    """
+    yes_share: Annotated[float | None, Field(alias="yesShare")]
+    """
+    The `yes` share of those judgments, each weighted by its class (unclassified: 1). `null` with none.
+    """
+    by_class: Annotated[list[JudgingClassResult], Field(alias="byClass")]
+    """
+    The same judgments by class, unweighted.
+    """
+
+
+class JudgingRuleResults(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    rule_id: Annotated[str, Field(alias="ruleId")]
+    since: AwareDatetime | None = None
+    groups: list[JudgingResultGroup]
+    """
+    By the rule's version and the agent's, newest rule version first: two versions of a rule are two sampling designs, never pooled.
+    """
+
+
+class JudgingRulePreview(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    considered: Annotated[int, Field(ge=0)]
+    """
+    The recent runs looked at.
+    """
+    matched: Annotated[int, Field(ge=0)]
+    """
+    Those the rule would have queued, with its `sample` (`maxOpen` isn't applied).
+    """
 
 
 class AccessPathDirect(BaseModel):
@@ -7581,16 +8140,6 @@ class MyKeyLimits(BaseModel):
     """
     The project the key is limited to: `projects` holds it alone, and no org or team is administered through it.
     """
-
-
-class UserCollectionPage(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[UserRecord]
-    has_more: Annotated[bool, Field(alias="hasMore")]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
 class IdentitySessionSummary(BaseModel):
@@ -8485,6 +9034,185 @@ class AddTeamMembershipResult(BaseModel):
     """
 
 
+class TeamProjectGrant(BaseModel):
+    """
+    A team's role on a project.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    team_id: Annotated[str, Field(alias="teamId")]
+    project_id: Annotated[str, Field(alias="projectId")]
+    role: Literal["viewer", "editor", "admin"]
+    """
+    A team's role on a project, held by every member of the team: `admin` includes `editor`, which includes `viewer`. A team never owns a project.
+    """
+    granted_at: Annotated[AwareDatetime | None, Field(alias="grantedAt")] = None
+    """
+    When the team was given the role. Absent from a runtime that does not record it.
+    """
+    team_name: Annotated[str | None, Field(alias="teamName")] = None
+    project_name: Annotated[str | None, Field(alias="projectName")] = None
+
+
+class TeamProjectGrantCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[TeamProjectGrant]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class AddTeamProjectGrantBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    team_id: Annotated[str, Field(alias="teamId", min_length=1)]
+    role: Literal["viewer", "editor", "admin"]
+    """
+    A team's role on a project, held by every member of the team: `admin` includes `editor`, which includes `viewer`. A team never owns a project.
+    """
+
+
+class UpdateTeamProjectGrantBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    role: Literal["viewer", "editor", "admin"]
+    """
+    A team's role on a project, held by every member of the team: `admin` includes `editor`, which includes `viewer`. A team never owns a project.
+    """
+
+
+class AccessPrincipal(BaseModel):
+    """
+    Whom access is held by: a person, or a service account.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["user", "service-account"]
+    id: Annotated[str, Field(min_length=1)]
+
+
+class ProjectAccessDirect(BaseModel):
+    """
+    The principal's own role on the project. `joinedAt` when a membership stands behind it: only then do the membership routes change or remove it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["direct"]
+    role: Literal["viewer", "editor", "owner", "admin", "member"]
+    """
+    Role on a project, as read. `member` is only read, on a role given before it was retired: it grants what `viewer` does, and writes refuse it.
+    """
+    joined_at: Annotated[AwareDatetime | None, Field(alias="joinedAt")] = None
+
+
+class ProjectAccessTeam(BaseModel):
+    """
+    A team's grant on the project, held by every member of the team.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["team"]
+    team_id: Annotated[str, Field(alias="teamId")]
+    team_name: Annotated[str | None, Field(alias="teamName")] = None
+    role: Literal["viewer", "editor", "admin"]
+    """
+    A team's role on a project, held by every member of the team: `admin` includes `editor`, which includes `viewer`. A team never owns a project.
+    """
+
+
+class ProjectAccessOrgAdmin(BaseModel):
+    """
+    An admin of the project's org (directly or through a team): admin on the project.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["org-admin"]
+    org_id: Annotated[str, Field(alias="orgId")]
+    org_name: Annotated[str | None, Field(alias="orgName")] = None
+
+
+class ProjectAccessTenantAdmin(BaseModel):
+    """
+    A tenant admin: admin on every project.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["tenant-admin"]
+
+
+class ProjectAccess(BaseModel):
+    """
+    Someone with access to the project, their effective role, and every way in.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    principal: AccessPrincipal
+    display_name: Annotated[str | None, Field(alias="displayName")] = None
+    """
+    A person's name, or a service account's.
+    """
+    primary_email: Annotated[str | None, Field(alias="primaryEmail")] = None
+    """
+    A person's email: shown to the project's admins only.
+    """
+    role: Literal["owner", "admin", "editor", "viewer"]
+    """
+    The effective role: the highest any way in gives.
+    """
+    via: Annotated[
+        list[
+            Annotated[
+                ProjectAccessDirect
+                | ProjectAccessTeam
+                | ProjectAccessOrgAdmin
+                | ProjectAccessTenantAdmin,
+                Field(discriminator="kind"),
+            ]
+        ],
+        Field(min_length=1),
+    ]
+    """
+    Every way in, the highest role first.
+    """
+
+
+class ProjectAccessPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[ProjectAccess]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
 class Project(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -8549,7 +9277,7 @@ class ProjectMembership(BaseModel):
     user_id: Annotated[str, Field(alias="userId")]
     role: Literal["viewer", "editor", "owner", "admin", "member"]
     """
-    Role on a project membership.
+    Role on a project, as read. `member` is only read, on a role given before it was retired: it grants what `viewer` does, and writes refuse it.
     """
     joined_at: Annotated[str, Field(alias="joinedAt")]
 
@@ -8578,9 +9306,9 @@ class AddProjectMembershipBody(BaseModel):
     """
     The person's email, as the tenant has it.
     """
-    role: Literal["viewer", "editor", "owner", "admin", "member"]
+    role: Literal["viewer", "editor", "owner", "admin"]
     """
-    Role on a project membership.
+    A role to give on a project: `owner`, `admin`, `editor` or `viewer`, each including the ones after it. `member` is refused (400): give `viewer`.
     """
 
 
@@ -8589,9 +9317,9 @@ class UpdateProjectMembershipBody(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    role: Literal["viewer", "editor", "owner", "admin", "member"]
+    role: Literal["viewer", "editor", "owner", "admin"]
     """
-    Role on a project membership.
+    A role to give on a project: `owner`, `admin`, `editor` or `viewer`, each including the ones after it. `member` is refused (400): give `viewer`.
     """
 
 
@@ -8604,7 +9332,7 @@ class AddProjectMembershipResult(BaseModel):
     user_id: Annotated[str, Field(alias="userId")]
     role: Literal["viewer", "editor", "owner", "admin", "member"]
     """
-    Role on a project membership.
+    Role on a project, as read. `member` is only read, on a role given before it was retired: it grants what `viewer` does, and writes refuse it.
     """
 
 
@@ -9052,6 +9780,10 @@ class SecretSetRequest(BaseModel):
     tags: dict[str, str] | None = None
     rotation_due_at: Annotated[AwareDatetime | None, Field(alias="rotationDueAt")] = None
     if_version: Annotated[int | None, Field(alias="ifVersion", ge=0)] = None
+    app_env_file: Annotated[bool | None, Field(alias="appEnvFile")] = None
+    """
+    Under `kindgi dev` only: write the app's own env file (the last of `dev.envFiles`, `.env.local` by default) instead of Kindgi's `.kindgi/secrets.env`, for a value the app reads too, such as a webhook signing secret. A runtime with a secrets store refuses it with `bad-input`.
+    """
 
 
 class SecretSetResponse(BaseModel):
@@ -9134,6 +9866,10 @@ class TriggerOwner(BaseModel):
     )
     kind: Literal["user", "service"]
     id: str
+    display_name: Annotated[str | None, Field(alias="displayName")] = None
+    """
+    The owner's name at the time of the response: the person's display name, or the service account's name. Absent when it can't be read (no directory, a removed account) and from a runtime before Kindgi 0.1.6: show the id then.
+    """
 
 
 class ScheduleFire(BaseModel):
@@ -10047,7 +10783,24 @@ class ServiceAccountGrantProject(BaseModel):
     project_id: Annotated[UUID, Field(alias="projectId")]
     role: Literal["viewer", "editor", "owner", "admin", "member"]
     """
-    Role on a project membership.
+    Role on a project, as read. `member` is only read, on a role given before it was retired: it grants what `viewer` does, and writes refuse it.
+    """
+
+
+class ServiceAccountGrantProjectBody(BaseModel):
+    """
+    A role to give on one project; it replaces the account's role there.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["project"]
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    role: Literal["viewer", "editor", "owner", "admin"]
+    """
+    A role to give on a project: `owner`, `admin`, `editor` or `viewer`, each including the ones after it. `member` is refused (400): give `viewer`.
     """
 
 
@@ -10055,13 +10808,13 @@ class ServiceAccountGrantBody(
     RootModel[
         ServiceAccountGrantTenantAdmin
         | ServiceAccountGrantTenantMember
-        | ServiceAccountGrantProject
+        | ServiceAccountGrantProjectBody
     ]
 ):
     root: Annotated[
         ServiceAccountGrantTenantAdmin
         | ServiceAccountGrantTenantMember
-        | ServiceAccountGrantProject,
+        | ServiceAccountGrantProjectBody,
         Field(discriminator="kind"),
     ]
     """
@@ -10128,7 +10881,7 @@ class CreateServiceAccountBody(BaseModel):
             Annotated[
                 ServiceAccountGrantTenantAdmin
                 | ServiceAccountGrantTenantMember
-                | ServiceAccountGrantProject,
+                | ServiceAccountGrantProjectBody,
                 Field(discriminator="kind"),
             ]
         ]
@@ -10210,9 +10963,13 @@ class ApprovalCollectionPage(BaseModel):
     data: list[Approval]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     """
-    Opaque cursor for the next page; treat as opaque on the client.
+    Opaque cursor for the next page, in the same order; treat as opaque on the client.
     """
     has_more: Annotated[bool, Field(alias="hasMore")]
+    order: Literal["asc", "desc"] | None = None
+    """
+    The order the page is in: `asc` (oldest first) or `desc` (newest first). Absent from a runtime before Kindgi 0.1.6, which lists newest first and ignores `order`.
+    """
 
 
 class CompleteApprovalResult(BaseModel):
@@ -10265,7 +11022,7 @@ class JudgeClass(BaseModel):
     How much a judgment of this class counts, relative to the others.
     """
     description: str | None = None
-    assertable_by: Annotated[JudgeClassAssertableBy | None, Field(alias="assertableBy")] = None
+    assertable_by: Annotated[JudgeClassAssertableByView | None, Field(alias="assertableBy")] = None
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
     unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
@@ -10327,6 +11084,10 @@ class Agent(BaseModel):
     version: str
     """
     Semver.
+    """
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The agent's project: every version of an agent is in the one project. Absent when the runtime doesn't record it: a pack `kindgi dev` serves from disk, or a runtime before Kindgi 0.1.6.
     """
     name: str
     description: str | None = None
@@ -10722,51 +11483,6 @@ class CostRecordCollectionPage(BaseModel):
     has_more: Annotated[bool, Field(alias="hasMore")]
 
 
-class WhoamiResult(BaseModel):
-    """
-    Introspection of the caller's current authentication context. Always carries `tenantId` and `scopes` (empty for static bearer tokens), plus `userId` when the token carries one; `principal` says whom the caller acts as, and an API key adds `tokenId`, its `role` and the `projectId` it is limited to; session-token callers additionally see `sessionId`, `providerId`, and `expiresAt`. `user` is the caller's directory record, present when the deployment wires an identity directory and it knows the `userId`. `reviewerRole` is set when the caller is a reviewer — its token carries a reviewer role, or its user is a registered reviewer — so clients can gate reviewer-only UI (the approvals surface) without a second round trip.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    tenant_id: Annotated[UUID, Field(alias="tenantId")]
-    actor: str | None = None
-    """
-    The caller as approvals name a person: `user:<id>` or `service_account:<id>`, the same string as an approval's `requestedBy` and a decision's `decidedBy`.
-    """
-    user_id: Annotated[str | None, Field(alias="userId")] = None
-    session_id: Annotated[str | None, Field(alias="sessionId")] = None
-    provider_id: Annotated[str | None, Field(alias="providerId")] = None
-    scopes: list[str]
-    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
-    reviewer_role: Annotated[
-        Literal["standard", "senior", "admin"] | None, Field(alias="reviewerRole")
-    ] = None
-    """
-    Reviewer role class. Hierarchy: standard < senior < admin.
-    """
-    user: UserRecord | None = None
-    principal: ApiKeyPrincipal | None = None
-    token_id: Annotated[str | None, Field(alias="tokenId")] = None
-    """
-    The caller's API key, when it is one.
-    """
-    role: Literal["admin", "member"] | None = None
-    """
-    The caller's API key role, when the key has one.
-    """
-    project_id: Annotated[str | None, Field(alias="projectId")] = None
-    """
-    The project the caller's API key is limited to, when it is.
-    """
-    tenant_admin: Annotated[bool | None, Field(alias="tenantAdmin")] = None
-    """
-    Whether the caller is a tenant admin, decided as the admin routes decide it: `admin` on the tenant when the runtime authorizes, otherwise the `tenant-admin` scope of a full key (never a `member` key or one limited to a project). A console shows its admin pages by it. Absent from older servers: read `scopes`.
-    """
-
-
 class PersonProjectRole(BaseModel):
     """
     A person's direct role on a project.
@@ -10779,7 +11495,7 @@ class PersonProjectRole(BaseModel):
     project_id: Annotated[str, Field(alias="projectId")]
     role: Literal["viewer", "editor", "owner", "admin", "member"]
     """
-    Role on a project membership.
+    Role on a project, as read. `member` is only read, on a role given before it was retired: it grants what `viewer` does, and writes refuse it.
     """
 
 
@@ -11197,3 +11913,99 @@ class PersonGrants(BaseModel):
     Team memberships.
     """
     reviewer: PersonReviewerRole | None = None
+
+
+class UserRecord(BaseModel):
+    """
+    Tenant-scoped user record (admin plane). `primaryEmail` may be redacted on the wire based on tenant policy (the routes treat it as opaque). `metadata` is free-form JSON — deployments carry IdP claims / provisioning source / roles here.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    user_id: Annotated[str, Field(alias="userId")]
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    primary_email: Annotated[str | None, Field(alias="primaryEmail")] = None
+    display_name: Annotated[str | None, Field(alias="displayName")] = None
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    last_active_at: Annotated[AwareDatetime | None, Field(alias="lastActiveAt")] = None
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+    """
+    When they were removed from the tenant (`POST /v1/identity/users/{userId}/unregister`); absent while they are here.
+    """
+    metadata: dict[str, Any] | None = None
+    grants: PersonGrants | None = None
+    """
+    The person's grants: only on `GET /v1/identity/users?include=grants`, and only from a runtime that reads grants.
+    """
+
+
+class UnregisterUserResult(BaseModel):
+    """
+    A removed person, and what removing them took away (each 0 when they were already removed).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    user: UserRecord
+    keys_revoked: Annotated[int, Field(alias="keysRevoked", ge=0)]
+    sessions_revoked: Annotated[int, Field(alias="sessionsRevoked", ge=0)]
+    grants_removed: Annotated[int, Field(alias="grantsRemoved", ge=0)]
+
+
+class UserCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[UserRecord]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class WhoamiResult(BaseModel):
+    """
+    Introspection of the caller's current authentication context. Always carries `tenantId` and `scopes` (empty for static bearer tokens), plus `userId` when the token carries one; `principal` says whom the caller acts as, and an API key adds `tokenId`, its `role` and the `projectId` it is limited to; session-token callers additionally see `sessionId`, `providerId`, and `expiresAt`. `user` is the caller's directory record, present when the deployment wires an identity directory and it knows the `userId`. `reviewerRole` is set when the caller is a reviewer — its token carries a reviewer role, or its user is a registered reviewer — so clients can gate reviewer-only UI (the approvals surface) without a second round trip.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    actor: str | None = None
+    """
+    The caller as approvals name a person: `user:<id>` or `service_account:<id>`, the same string as an approval's `requestedBy` and a decision's `decidedBy`.
+    """
+    user_id: Annotated[str | None, Field(alias="userId")] = None
+    session_id: Annotated[str | None, Field(alias="sessionId")] = None
+    provider_id: Annotated[str | None, Field(alias="providerId")] = None
+    scopes: list[str]
+    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
+    reviewer_role: Annotated[
+        Literal["standard", "senior", "admin"] | None, Field(alias="reviewerRole")
+    ] = None
+    """
+    Reviewer role class. Hierarchy: standard < senior < admin.
+    """
+    user: UserRecord | None = None
+    principal: ApiKeyPrincipal | None = None
+    token_id: Annotated[str | None, Field(alias="tokenId")] = None
+    """
+    The caller's API key, when it is one.
+    """
+    role: Literal["admin", "member"] | None = None
+    """
+    The caller's API key role, when the key has one.
+    """
+    project_id: Annotated[str | None, Field(alias="projectId")] = None
+    """
+    The project the caller's API key is limited to, when it is.
+    """
+    tenant_admin: Annotated[bool | None, Field(alias="tenantAdmin")] = None
+    """
+    Whether the caller is a tenant admin, decided as the admin routes decide it: `admin` on the tenant when the runtime authorizes, otherwise the `tenant-admin` scope of a full key (never a `member` key or one limited to a project). A console shows its admin pages by it. Absent from older servers: read `scopes`.
+    """

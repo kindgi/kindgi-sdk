@@ -55,6 +55,8 @@ const MUST_REFUSE: Readonly<Record<string, readonly string[]>> = {
     'GET /v1/audit/authz',
     'POST /v1/service-accounts',
     'POST /v1/approvals/reviewers',
+    // The roster names people: only tenant admins and reviewers read it.
+    'GET /v1/approvals/reviewers',
     // A narrowed key opens no console session.
     'POST /v1/auth/token-sign-in token-sign-in-not-allowed',
   ],

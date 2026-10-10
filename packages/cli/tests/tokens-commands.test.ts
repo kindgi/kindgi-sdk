@@ -232,6 +232,16 @@ describe('kindgi service-accounts', () => {
     );
     const noRole = await run(['service-accounts', 'grant', 'sa-1', `--project=${PROJECT}`]);
     expect(noRole.out.stderr).toContain('--role must be one of');
+    const member = await run([
+      'service-accounts',
+      'grant',
+      'sa-1',
+      `--project=${PROJECT}`,
+      '--role=member',
+    ]);
+    expect(member.out.exitCode).toBe(2);
+    expect(member.out.stderr).toContain('--role must be one of viewer, editor, owner, admin');
+    expect(member.calls).toEqual([]);
     const badProject = await run(['service-accounts', 'create', 'x', `--project=${PROJECT}`]);
     expect(badProject.out.stderr).toContain('--project must be <project-id>:<role>');
   });

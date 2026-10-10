@@ -16,7 +16,7 @@ kindgi sso providers start acme-entra --idp=entra
 Sign-in with "acme-entra" (OpenID Connect). Send this to whoever runs your identity provider:
 
   Create an OpenID Connect web application (a confidential client) for Kindgi.
-  Redirect URI:  http://localhost:18096/auth/sso/callback/idp-4mwf5hewovngvluv2ppaxrpdre
+  Redirect URI:  http://localhost:18096/auth/sso/callback/idp-ml6sriyaafkkzfsohwylwcarja
   Scopes:        openid email profile
   Let in only the people who should use Kindgi (assign users or groups).
 
@@ -34,7 +34,7 @@ Microsoft Entra admin center → App registrations → New registration:
      Users and groups: who may sign in.
 Issuer: https://login.microsoftonline.com/<directory-tenant-id>/v2.0 (never `common`).
 
-Step by step: https://docs.kindgi.com/guides/sso/entra-id/
+Step by step: https://docs.kindgi.com/v0.1/guides/sso/entra-id/
 
 Then register it:
   kindgi sso providers finish acme-entra --kind=oidc --issuer=<issuer> --client-id=<client-id> --client-secret-ref=<NAME> --domains=<your-domain>

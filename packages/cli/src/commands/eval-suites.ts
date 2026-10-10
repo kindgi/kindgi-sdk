@@ -64,10 +64,15 @@ const list: LeafCommand = {
   kind: 'leaf',
   name: 'list',
   description: 'List eval suites (the latest version of each).',
-  usage: `kindgi eval-suites list [--project=<id>] [--kind=${KINDS.join('|')}] [--limit=<n>] [--cursor=<c>]`,
+  usage: `kindgi eval-suites list [--project=<id>] [--kind=${KINDS.join('|')}] [--include-retired] [--limit=<n>] [--cursor=<c>]`,
   optionSpec: {
     project: { type: 'string', description: 'Only suites in this project.' },
     kind: { type: 'string', description: `Only this kind: ${KINDS.join(', ')}.` },
+    'include-retired': {
+      type: 'boolean',
+      description:
+        'Include retired suites (every version unregistered), each as its highest version with `unregisteredAt`.',
+    },
     ...PAGE_FLAGS,
   },
   run: (ctx) =>
@@ -84,6 +89,7 @@ const list: LeafCommand = {
         ...(projectId !== undefined && { scopeKind: 'project' as const, scopeId: projectId }),
         ...(limit !== undefined && { limit }),
         ...(cursor !== undefined && { cursor }),
+        ...(ctx.options['include-retired'] === true && { includeRetired: true }),
       });
     }),
 };

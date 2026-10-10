@@ -9,7 +9,9 @@ sidebar:
 Kindgi is self-host first: the runtime you run on your machine with
 `kindgi dev` is the same image you deploy into your own infrastructure, next
 to your data. Your pack's code runs beside it, in a pack service built from
-your app.
+your app. (The 0.1.5 CLI's `kindgi dev` runs runtime 0.1.5; deploy 0.1.5.1,
+its [security fix](operate/#runtime-0151) for authorization, which changes
+nothing under `kindgi dev`.)
 
 :::note[Access to the runtime image]
 The runtime image is in private preview: request access at contact@kindgi.com.

@@ -105,6 +105,23 @@ export interface ListApprovalsBindingInput {
   /** Only one project's approvals, or every project's in an org. Absent: the tenant's. */
   readonly scope?: ListScope;
   readonly status?: ApprovalStatus;
+  /**
+   * Only approvals in one of these statuses. With `status` too, both
+   * apply. A binding that ignores it lists more: the route keeps only
+   * these.
+   */
+  readonly statuses?: readonly ApprovalStatus[];
+  /**
+   * Only approvals assigned to this reviewer. A binding that ignores it
+   * lists more: the route keeps only these.
+   */
+  readonly assignedTo?: ReviewerId;
+  /**
+   * `asc`: oldest first (`createdAt` asc, then `id` asc), and `after`
+   * continues in that order. Default `desc`. A binding says which it
+   * applied in `ListApprovalsBindingResult.order`.
+   */
+  readonly order?: 'asc' | 'desc';
   readonly requiredRole?: ReviewerRole;
   readonly since?: Timestamp;
   /** A bare time: approvals created before it. Milliseconds, no tie-breaker; `after` replaces it. */
@@ -121,8 +138,9 @@ export interface ListApprovalsBindingInput {
   readonly run?: { readonly runId: RunId; readonly includeDescendants: boolean };
   /**
    * Only approvals after this one in the list's order (`createdAt` desc,
-   * then `id` desc): where a page that ended on it continues. Its
-   * `createdAt` is the binding's `exactCreatedAt` for it.
+   * then `id` desc; ascending with `order: 'asc'`): where a page that
+   * ended on it continues. Its `createdAt` is the binding's
+   * `exactCreatedAt` for it.
    */
   readonly after?: ApprovalPosition;
 }
@@ -141,6 +159,12 @@ export interface ApprovalPosition {
 export interface ListApprovalsBindingResult {
   readonly approvals: readonly Approval[];
   readonly nextCursor?: Cursor;
+  /**
+   * The order the approvals are in: `asc` when the binding applied
+   * `order: 'asc'`. Absent: `desc` (newest first), as a binding that
+   * doesn't know `order` lists.
+   */
+  readonly order?: 'asc' | 'desc';
   /**
    * Each listed approval's `createdAt` as stored (microseconds), by id:
    * with the id, the `after` that continues past it. Absent from a binding

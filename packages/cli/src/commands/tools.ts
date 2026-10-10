@@ -30,9 +30,14 @@ const list: LeafCommand = {
   kind: 'leaf',
   name: 'list',
   description: 'List registered tools.',
-  usage: 'kindgi tools list [--name=<prefix>] [--limit=<n>] [--cursor=<c>]',
+  usage: 'kindgi tools list [--name=<prefix>] [--include-retired] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
     name: { type: 'string', description: 'Only the tools whose id starts with this prefix.' },
+    'include-retired': {
+      type: 'boolean',
+      description:
+        'Include retired tools (every version unregistered), each as its highest version with `unregisteredAt`.',
+    },
     limit: {
       type: 'string',
       description: 'The most tools to return (default 25, at most 100).',
@@ -56,6 +61,7 @@ const list: LeafCommand = {
         }
         return await ctx.client().tools.list({
           ...(name !== undefined && { name }),
+          ...(ctx.options['include-retired'] === true && { includeRetired: true }),
           ...(cursor !== undefined && { cursor: cursor as never }),
           ...(limit !== undefined && { limit }),
         });
@@ -121,10 +127,10 @@ const unregister: LeafCommand = {
 const versions: LeafCommand = {
   kind: 'leaf',
   name: 'versions',
-  description: 'List published versions of a tool (active + optionally tombstoned).',
-  usage: 'kindgi tools versions <tool-id> [--include-tombstoned] [--limit=<n>] [--cursor=<c>]',
+  description: 'List published versions of a tool (active, and optionally unregistered).',
+  usage: 'kindgi tools versions <tool-id> [--include-unregistered] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
-    'include-tombstoned': {
+    'include-unregistered': {
       type: 'boolean',
       description: 'Include unregistered versions too, each with its `unregisteredAt`.',
     },
@@ -146,7 +152,7 @@ const versions: LeafCommand = {
       if (limit !== undefined && Number.isNaN(limit)) {
         throw new UsageError(`--limit must be an integer, got "${limitStr}"`);
       }
-      const includeTombstoned = ctx.options['include-tombstoned'] === true;
+      const includeTombstoned = ctx.options['include-unregistered'] === true;
       return await ctx.client().tools.versions.list(toolId as ToolId, {
         ...(cursor !== undefined && { cursor: cursor as never }),
         ...(limit !== undefined && { limit }),

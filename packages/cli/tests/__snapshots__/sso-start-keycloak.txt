@@ -16,7 +16,7 @@ Keycloak admin console → your realm → Clients → Create client → OpenID C
   4. Each person needs an email with "Email verified" on, or sign-in is refused.
 Issuer: https://<keycloak-host>/realms/<realm>
 
-Step by step: https://docs.kindgi.com/guides/sso/keycloak/
+Step by step: https://docs.kindgi.com/v0.1/guides/sso/keycloak/
 
 Then register it:
   kindgi sso providers finish acme-google --kind=oidc --issuer=<issuer> --client-id=<client-id> --client-secret-ref=<NAME> --domains=<your-domain>

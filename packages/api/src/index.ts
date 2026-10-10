@@ -127,6 +127,26 @@ export type {
   ServiceAccountRef,
 } from './service-account-binding.js';
 export type {
+  JudgingClassResult,
+  JudgingError,
+  JudgingErrorCode,
+  JudgingItemRule,
+  JudgingQueueBinding,
+  JudgingQueueItem,
+  JudgingQueueListInput,
+  JudgingQueuePage,
+  JudgingQueueState,
+  JudgingRule,
+  JudgingRulePage,
+  JudgingRulePatch,
+  JudgingResultGroup,
+  JudgingRulePreview,
+  JudgingRuleResults,
+  JudgingRuleSpec,
+  JudgingRuleWhen,
+  JudgingRunStatus,
+} from './judging-queue-binding.js';
+export type {
   PersonGrant,
   PersonGrantChange,
   PersonGrantError,
@@ -135,6 +155,12 @@ export type {
   PersonGrantsBinding,
   PersonRef,
 } from './person-grants-binding.js';
+export type {
+  AccessPrincipal,
+  ProjectAccessBinding,
+  ProjectAccessHolder,
+  ProjectAccessPath,
+} from './project-access-binding.js';
 export type {
   AccessPath,
   MyAccess,
@@ -517,6 +543,7 @@ export type {
   EvalSuitePage,
   EvalSuitePublishInput,
   EvalSuitePublishOutcome,
+  EvalSuiteRecord,
   EvalSuiteRegistryBinding,
   EvalSuiteReinstateVersionInput,
   EvalSuiteReinstateVersionOutcome,
@@ -625,6 +652,7 @@ export type {
   ToolPage,
   ToolPublishInput,
   ToolPublishOutcome,
+  ToolRecord,
   ToolRegistryBinding,
   ToolReinstateVersionInput,
   ToolReinstateVersionOutcome,
@@ -635,11 +663,18 @@ export type {
   ToolRefreshCodeInput,
   RegistryRefreshOutcome,
   ToolVersionPage,
+  ToolVersionRow,
 } from './tool-binding.js';
 export type {
+  GuardrailBlockedRun,
   GuardrailGetInput,
   GuardrailListInput,
+  GuardrailOutcomeCounts,
+  GuardrailOutcomes,
+  GuardrailOutcomesByAgentVersion,
+  GuardrailOutcomesInput,
   GuardrailPage,
+  GuardrailRecord,
   GuardrailRegisterInput,
   GuardrailRegisterOutcome,
   GuardrailRegistryBinding,
@@ -647,6 +682,7 @@ export type {
   GuardrailUnregisterOutcome,
   GuardrailRefreshInput,
 } from './guardrail-binding.js';
+export { GUARDRAIL_OUTCOMES_MAX_AGENT_VERSIONS } from './guardrail-binding.js';
 export type {
   MemoryBinding,
   MemoryDeleteFactInput,
@@ -830,6 +866,19 @@ export type {
   SecretVersionRecord,
 } from './secrets-binding.js';
 export { RESERVED_SECRET_NAME_PREFIX } from './secrets-binding.js';
+// A model provider's key is used by its provider only.
+export {
+  guardProviderKeys,
+  providerKeyRefusal,
+  providerKeysOf,
+  usersOfSecret,
+} from './provider-keys.js';
+export type {
+  ProviderKeys,
+  SecretUse,
+  SecretUser,
+  SecretUsersDeps,
+} from './provider-keys.js';
 export type {
   ListProvenanceRecordsInput,
   ListProvenanceRecordsResult,

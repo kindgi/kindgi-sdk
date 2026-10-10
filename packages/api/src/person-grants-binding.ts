@@ -69,6 +69,15 @@ export interface PersonGrantError {
 export interface PersonGrantsBinding {
   /** The person's grants, or `null` when there's no such person. */
   read(input: PersonRef): Promise<PersonGrants | null>;
+  /**
+   * Several people's grants in one call, keyed by user id (people the
+   * tenant doesn't have are left out): `GET /v1/identity/users?include=grants`.
+   * Optional: without it, that route reads each person, a few at a time.
+   */
+  readMany?(input: {
+    readonly tenantId: TenantId;
+    readonly userIds: readonly string[];
+  }): Promise<ReadonlyMap<string, PersonGrants>>;
   /** Grant (a no-op when held); answers with the grants after. */
   grant(input: PersonGrantChange): Promise<Result<PersonGrants, PersonGrantError>>;
   /** Remove (a no-op when not held); answers with the grants after. */
