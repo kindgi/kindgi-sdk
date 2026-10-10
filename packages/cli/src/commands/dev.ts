@@ -65,6 +65,15 @@ import {
 } from '@kindgi/env-schema';
 
 import type { CommandContext } from '../context.js';
+import { ALREADY_RUNNING_EXIT_CODE, alreadyRunning } from '../dev/already-running.js';
+import {
+  DEV_LOCK_FILE,
+  type DevLockOutcome,
+  type HeldDevLock,
+  osProcesses,
+  ownerIsLive,
+  takeDevLock,
+} from '../dev/dev-lock.js';
 import { createDevOnlyImportsCheck } from '../dev/dev-only-imports.js';
 import {
   DEV_GOOGLE_CREDENTIALS_VAR,
@@ -113,7 +122,7 @@ import type {
   RunningApiServer,
   WatchHandle,
 } from '../dev/runners.js';
-import { RuntimeStartStopped } from '../dev/runtime-container.js';
+import { RuntimeOwnedElsewhere, RuntimeStartStopped } from '../dev/runtime-container.js';
 import { DEFAULT_RUNTIME_IMAGE } from '../dev/runtime-image.js';
 import { describeEnvDiagnostics, loadLocalEnvSettings } from '../env/project-env.js';
 import { PYPI_NO_BUNDLER } from '../esbuild-loader.js';
@@ -130,7 +139,8 @@ import type { CommandResult, LeafCommand } from './types.js';
 export const devCommand: LeafCommand = {
   kind: 'leaf',
   name: 'dev',
-  description: 'Run the Kindgi runtime as a container + hot-reload the pack under cwd.',
+  description:
+    'Run the Kindgi runtime as a container + hot-reload the pack under cwd. One per pack: a second exits 3 ("already running"), saying where the first is.',
   usage:
     'kindgi dev [--port <n>] [--database-url <url>] [--tenant <id>] [--dev-token <token>] [--no-watch] [--open] [--path <dir>] [--reset [--yes]] [--recreate-services] [--runtime-image <ref> | --runtime-url <url>] [--log-level <level>] [--log <subsystem>=<level>]... [--log-format pretty|json] [--quiet]',
   optionSpec: {
@@ -381,6 +391,44 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
     };
   }
 
+  // One kindgi dev per pack: a second would take the first's runtime
+  // container and repoint `.kindgirc.json`. It refuses before anything
+  // starts, saying where the running one is (exit 3).
+  let taken: DevLockOutcome;
+  try {
+    taken = await takeDevLock(args.packDir, dev.devLockProcesses);
+  } catch (cause) {
+    return { kind: 'error', stderr: `kindgi dev: ${(cause as Error).message}\n`, exitCode: 1 };
+  }
+  if (taken.kind === 'held') {
+    return alreadyRunning(taken.holder, {
+      fetch: ctx.fetch,
+      format: ctx.globals.format,
+      formatRequested: ctx.globals.formatRequested,
+    });
+  }
+  if (taken.stale !== undefined) {
+    emitProgress(
+      `  a previous kindgi dev (pid ${taken.stale.pid}) ended without removing ${DEV_LOCK_FILE}; continuing`,
+    );
+  }
+  const lock = taken.lock;
+  try {
+    return await runDevForPack(ctx, args, dev, configFile, stderrIsTTY, lock);
+  } finally {
+    await lock.release();
+  }
+}
+
+/** `kindgi dev` for a pack it holds the lock of (`.kindgi/dev/dev.lock`). */
+async function runDevForPack(
+  ctx: CommandContext,
+  args: ResolvedDevArgs,
+  dev: DevRunners,
+  configFile: NonNullable<Awaited<ReturnType<typeof findKindgiConfig>>>,
+  stderrIsTTY: boolean,
+  lock: HeldDevLock,
+): Promise<CommandResult> {
   // The project's env files — Kindgi runtime config (`KINDGI_*`) for
   // this process, everything else for the pack's agents via the dev
   // secret binding.
@@ -686,6 +734,8 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
     server = await withHeartbeat('still starting the runtime', 3000, () =>
       dev.startApiServer({
         port: port.port,
+        owner: lock.owner,
+        ownerIsLive: (owner) => ownerIsLive(owner, dev.devLockProcesses ?? osProcesses()),
         databaseUrl,
         tenantId: effectiveTenantId,
         token: effectiveToken,
@@ -724,6 +774,14 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
         kind: 'error',
         stderr: 'kindgi dev stopped before the Kindgi runtime served.\n',
         exitCode: 130,
+      };
+    }
+    // Another live kindgi dev's runtime container, for this pack: untouched.
+    if (err instanceof RuntimeOwnedElsewhere) {
+      return {
+        kind: 'error',
+        stderr: `kindgi dev: ${err.message}. Stop that kindgi dev first, then run kindgi dev again.\n`,
+        exitCode: ALREADY_RUNNING_EXIT_CODE,
       };
     }
     return {
@@ -854,6 +912,14 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
     // Best effort — if the pack dir is read-only or something goes wrong,
     // don't fail boot. The user can still pass --url/--token flags.
   }
+
+  // Where it serves, for a second kindgi dev to say (`dev.lock`).
+  await lock
+    .update({
+      apiUrl: server.baseUrl,
+      ...(server.consoleMounted === true && { consoleUrl: consoleUrlOf(server.baseUrl) }),
+    })
+    .catch(() => undefined);
 
   // Emit the "you're up, here's what to do next" block live to stderr
   // so watch-mode users see it immediately. (With --no-watch, the returned

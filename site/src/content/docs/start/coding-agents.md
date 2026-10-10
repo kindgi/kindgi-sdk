@@ -91,6 +91,12 @@ works the way you would: write, run, look, fix.
 It runs the CLI the project pins: `pnpm exec kindgi` in a TypeScript
 project, `uv run kindgi` in a Python one.
 
+There's one `kindgi dev` per pack. When yours is already running, a
+`kindgi dev` the agent starts exits with code 3 and says where yours is:
+its process, the console and the API. Nothing of yours is touched, and
+the agent goes on with the one that runs (`--json` gives the same as
+`{ "running": { … } }`).
+
 ## What stays with you
 
 - **The names.** You name your pack and its agents. The pack's id prefixes

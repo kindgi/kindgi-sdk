@@ -437,6 +437,8 @@ export async function startApiServerContainerReal(
     }),
     onLog: opts.onLog ?? (() => undefined),
     ...(opts.signal !== undefined && { signal: opts.signal }),
+    ...(opts.owner !== undefined && { owner: opts.owner }),
+    ...(opts.ownerIsLive !== undefined && { ownerIsLive: opts.ownerIsLive }),
   });
   try {
     const project = await fetch(`${runtime.baseUrl}/v1/projects/default`, {

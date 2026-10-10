@@ -14,6 +14,7 @@ import type {
   PackServiceSupervisor,
   PackServiceSupervisorEvent,
 } from '@kindgi/handler-runtime/pack-service';
+import type { DevLockProcesses } from './dev-lock.js';
 import type { ProjectDatabases } from './project-database.js';
 import type { ProjectOutcome } from './project.js';
 
@@ -49,6 +50,12 @@ export interface RunningApiServer {
 export interface StartApiServerOptions {
   /** The host port the API is reached on (`127.0.0.1` only). */
   readonly port: number;
+  /**
+   * This `kindgi dev` (its lock's owner): the runtime container is labeled
+   * with it, and one another live `kindgi dev` owns isn't removed.
+   */
+  readonly owner?: string;
+  readonly ownerIsLive?: (owner: string) => Promise<boolean>;
   /**
    * `kindgi dev`'s stop (Ctrl+C, SIGTERM): a wait for the runtime ends at
    * once with `RuntimeStartStopped`, and a container it started is removed.
@@ -295,6 +302,11 @@ export type StartServicesResult =
  * to bypass Postgres, real file watchers, or the real indexer.
  */
 export interface DevRunners {
+  /**
+   * How `.kindgi/dev/dev.lock` sees processes (`osProcesses()` when
+   * absent): a test gives its own pids and start times.
+   */
+  readonly devLockProcesses?: DevLockProcesses;
   /** Boot the api-server. Resolves once the HTTP listener is bound. */
   readonly startApiServer: (opts: StartApiServerOptions) => Promise<RunningApiServer>;
   /**
