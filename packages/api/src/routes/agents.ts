@@ -36,6 +36,7 @@ import {
 } from './agent-releases.js';
 import { liveScopeToWire } from './live-scope-wire.js';
 import { clampLimit } from './pagination.js';
+import { projectMismatch } from './project-mismatch.js';
 import { parseScopeParams } from './scope-params.js';
 
 /**
@@ -392,6 +393,9 @@ export function agentsRouter(
     if (outcome.kind === 'already-registered') {
       return alreadyRegistered(c, binding, tenantId, outcome.agentId, outcome.version);
     }
+    if (outcome.kind === 'project-mismatch') {
+      return projectMismatch(c, 'agent', outcome.agentId as unknown as string, outcome.projectId);
+    }
     if (outcome.kind === 'project-not-found') {
       // Caller supplied a `projectId` that does not resolve within
       // this tenant. Distinct signal from `already-registered` so the
@@ -679,6 +683,8 @@ function derived(
         code: 'bad-input',
         message: `\`projectId\` "${outcome.projectId as unknown as string}" does not resolve to a project in this tenant`,
       });
+    case 'project-mismatch':
+      return projectMismatch(c, 'agent', agentId as unknown as string, outcome.projectId, 'derive');
   }
 }
 

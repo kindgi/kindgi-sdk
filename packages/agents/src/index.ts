@@ -99,6 +99,7 @@ export { persistProvenance } from './provenance-emit.js';
 export type { ProvenanceBindings } from './provenance-emit.js';
 export type {
   AgentMessageEvent,
+  GuardrailErrorEvent,
   GuardrailViolatedEvent,
   ModelCallCompletedEvent,
   ModelCallStartedEvent,

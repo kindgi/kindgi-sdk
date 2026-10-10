@@ -9,7 +9,9 @@ import {
   type EvaluationOutcome,
   type EvaluationResult,
   type Guardrail,
+  type GuardrailSeverity,
   type ModelCallRecord,
+  type OnViolation,
   type RunTrace,
   type ToolCallRecord,
   type ToolResultRecord,
@@ -201,7 +203,20 @@ export async function evaluateGate(
   abortSignal?: AbortSignal,
   usage?: UsageSink,
 ): Promise<readonly EvaluationOutcome[]> {
-  if (guardrails.length === 0 || bindings.checks === undefined) return [];
+  if (guardrails.length === 0) return [];
+  // No check registry at all: every guardrail is one whose check can't run, never one that
+  // passed, so a `halt` guardrail fails the turn here too (it fails closed).
+  if (bindings.checks === undefined) {
+    return guardrails.map((g) => ({
+      kind: 'err' as const,
+      error: {
+        code: 'unknown-check' as const,
+        message: `guardrail "${g.id}": no check registry is bound, so its check "${g.check}" can't run`,
+        guardrailId: g.id,
+        checkId: g.check,
+      },
+    }));
+  }
   const evalBindings: EvaluationBindings = {
     ...(bindings.providerRegistry !== undefined && { providerRegistry: bindings.providerRegistry }),
     ...(bindings.compliance !== undefined && { compliance: bindings.compliance }),
@@ -213,6 +228,20 @@ export async function evaluateGate(
 }
 
 /**
+ * A guardrail whose check couldn't run (no such check, a bad configuration, a judge that couldn't
+ * be routed), with what the guardrail would have done. Never counted as a violation.
+ */
+export interface GuardrailEvaluationError {
+  readonly guardrailId: string;
+  readonly message: string;
+  /** The engine's error code: `unknown-check`, `invalid-check-config`, `judge-routing-failed`, … */
+  readonly code: string;
+  /** The guardrail's `on-violation` action and severity; absent when the guardrail is unknown. */
+  readonly action?: OnViolation;
+  readonly severity?: GuardrailSeverity;
+}
+
+/**
  * Sort evaluation outcomes by the failed guardrail's action. `halt` is
  * blocking — the turn fails with `guardrail-violation`. `log-only` and
  * `noop` are warnings; every other action (`retry`, `escalate`,
@@ -220,38 +249,58 @@ export async function evaluateGate(
  * `other`. Warnings and `other` are attached to the successful turn
  * result under `result.violations`; the turn does not carry out those
  * actions. Evaluation errors (a check that could not run) are collected
- * in `errors`.
+ * in `errors`; those of a `halt` guardrail are also in `blockingErrors`,
+ * which fail the turn as a violation would (a guardrail that can't check
+ * fails closed). `guardrails` is the list the outcomes came from, one
+ * outcome per guardrail in order (`evaluateGate`), which says each error's
+ * action; without it, an error's guardrail is looked up by id.
  */
-export function categorizeOutcomes(outcomes: readonly EvaluationOutcome[]): {
+export function categorizeOutcomes(
+  outcomes: readonly EvaluationOutcome[],
+  guardrails: readonly Guardrail[] = [],
+): {
   readonly blocking: readonly EvaluationResult[];
   readonly warnings: readonly EvaluationResult[];
   readonly other: readonly EvaluationResult[];
-  readonly errors: readonly { readonly guardrailId: string; readonly message: string }[];
+  readonly errors: readonly GuardrailEvaluationError[];
+  readonly blockingErrors: readonly GuardrailEvaluationError[];
 } {
   const blocking: EvaluationResult[] = [];
   const warnings: EvaluationResult[] = [];
   const other: EvaluationResult[] = [];
-  const errors: { guardrailId: string; message: string }[] = [];
-  for (const outcome of outcomes) {
+  const errors: GuardrailEvaluationError[] = [];
+  const blockingErrors: GuardrailEvaluationError[] = [];
+  const byId = new Map(guardrails.map((g) => [g.id as string, g]));
+  const inOrder = guardrails.length === outcomes.length;
+  outcomes.forEach((outcome, i) => {
     if (outcome.kind === 'err') {
-      errors.push({
-        guardrailId:
-          'guardrailId' in outcome.error && typeof outcome.error.guardrailId === 'string'
-            ? outcome.error.guardrailId
-            : '<unknown>',
+      const named =
+        'guardrailId' in outcome.error && typeof outcome.error.guardrailId === 'string'
+          ? outcome.error.guardrailId
+          : undefined;
+      const guardrail = inOrder ? guardrails[i] : named !== undefined ? byId.get(named) : undefined;
+      const error: GuardrailEvaluationError = {
+        guardrailId: guardrail?.id ?? named ?? '<unknown>',
         message: outcome.error.message,
-      });
-      continue;
+        code: outcome.error.code,
+        ...(guardrail !== undefined && {
+          action: guardrail.action['on-violation'],
+          severity: guardrail.severity ?? 'error',
+        }),
+      };
+      errors.push(error);
+      if (error.action === 'halt') blockingErrors.push(error);
+      return;
     }
-    if (outcome.kind === 'skip') continue;
+    if (outcome.kind === 'skip') return;
     const evalResult = outcome.value;
-    if (evalResult.result.passed) continue;
+    if (evalResult.result.passed) return;
     if (evalResult.action === 'halt') blocking.push(evalResult);
     else if (evalResult.action === 'log-only' || evalResult.action === 'noop') {
       warnings.push(evalResult);
     } else other.push(evalResult);
-  }
-  return { blocking, warnings, other, errors };
+  });
+  return { blocking, warnings, other, errors, blockingErrors };
 }
 
 /**
@@ -261,21 +310,33 @@ export function categorizeOutcomes(outcomes: readonly EvaluationOutcome[]): {
  *   Turn blocked by guardrail 'no-pii': Response contains an email address
  *   Turn blocked by 2 guardrails: 'no-pii' (Response contains …); 'max-length'
  */
-export function describeBlockingViolations(blocking: readonly EvaluationResult[]): string {
+export function describeBlockingViolations(
+  blocking: readonly EvaluationResult[],
+  blockingErrors: readonly GuardrailEvaluationError[] = [],
+): string {
   const reasonOf = (v: EvaluationResult): string | undefined => {
     const reason = v.result.reason?.trim();
     return reason === undefined || reason === '' ? undefined : reason;
   };
+  const couldNotRun = (e: GuardrailEvaluationError) =>
+    `'${e.guardrailId}' couldn't run its check (${e.code}: ${e.message})`;
   const [only] = blocking;
-  if (blocking.length === 1 && only !== undefined) {
+  const [onlyError] = blockingErrors;
+  if (blocking.length === 1 && only !== undefined && blockingErrors.length === 0) {
     const reason = reasonOf(only);
     return `Turn blocked by guardrail '${only.guardrailId}'${reason !== undefined ? `: ${reason}` : ''}`;
   }
-  const named = blocking.map((v) => {
-    const reason = reasonOf(v);
-    return `'${v.guardrailId}'${reason !== undefined ? ` (${reason})` : ''}`;
-  });
-  return `Turn blocked by ${blocking.length} guardrails: ${named.join('; ')}`;
+  if (blocking.length === 0 && blockingErrors.length === 1 && onlyError !== undefined) {
+    return `Turn blocked: guardrail ${couldNotRun(onlyError)}`;
+  }
+  const named = [
+    ...blocking.map((v) => {
+      const reason = reasonOf(v);
+      return `'${v.guardrailId}'${reason !== undefined ? ` (${reason})` : ''}`;
+    }),
+    ...blockingErrors.map(couldNotRun),
+  ];
+  return `Turn blocked by ${named.length} guardrails: ${named.join('; ')}`;
 }
 
 /**
@@ -324,8 +385,11 @@ export interface GuardrailViolationError {
   readonly code: 'guardrail-violation';
   readonly message: string;
   readonly violations: readonly EvaluationResult[];
-  /** Errors from checks that couldn't even evaluate (missing check, bad config). */
-  readonly evaluationErrors: readonly { readonly guardrailId: string; readonly message: string }[];
+  /**
+   * Guardrails whose check couldn't even evaluate (missing check, bad config). A `halt`
+   * guardrail's error blocks the turn on its own, so `violations` can be empty.
+   */
+  readonly evaluationErrors: readonly GuardrailEvaluationError[];
 }
 
 /**

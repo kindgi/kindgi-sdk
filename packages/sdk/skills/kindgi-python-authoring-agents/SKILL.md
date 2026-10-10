@@ -169,6 +169,10 @@ brief_writer = Agent(
   fails the turn (`semantic-unavailable`). `{"source": "conversations",
   "scope": "same-user"}` recalls this agent's earlier conversations: the
   people's own words only, unless `"roles": ["user", "agent"]`.
+  `same-user` memory (facts, recall or `remember`) is the run's end user's:
+  pass `participantId` on every run. A run without one reads and keeps
+  none (its result warns `memory-needs-participant`), never the memory of
+  the user a key acts for, who may serve many people.
 - **`memory`** — `{"remember": {"types": ["acme.preference"], "scope":
   "same-user", "keepDays": 30}}` gives the turn the built-in tool
   `kindgi_remember` (name it exactly so in the instructions). The model

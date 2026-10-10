@@ -11,9 +11,8 @@ Python: two tools, an agent that calls them, a guardrail and a flow.
 
 **Before you start**, set up what the [Install page](../install/) describes:
 Docker, Python 3.11 and uv, and access to the runtime image. No Node: the CLI
-comes from PyPI. For the runtime image, sign in at
-[access.kindgi.com](https://access.kindgi.com) with GitHub, copy your pull
-token, then log in once with `kindgi auth registry`.
+comes from PyPI. The runtime image is in private preview: request access at
+contact@kindgi.com, then log in once with `kindgi auth registry`.
 
 ## 1. Create the pack
 

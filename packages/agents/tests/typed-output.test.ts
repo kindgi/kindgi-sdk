@@ -248,6 +248,41 @@ describe('the turn result', () => {
     expect(await result(onProvider(false), kctx())).not.toHaveProperty('warnings');
   });
 
+  test('same-user memory in a run that names no end user carries memory-needs-participant', async () => {
+    const recalls = {
+      ...agent(),
+      retrieval: [{ source: 'conversations', scope: 'same-user' }],
+    } as unknown as Agent;
+    const remembers = {
+      ...agent(),
+      memory: { remember: { types: ['acme.note'], scope: 'same-user' } },
+    } as unknown as Agent;
+    for (const a of [recalls, remembers]) {
+      const got = (await result(composed(a, 'hi').handler, kctx())) as {
+        warnings: { code: string; message: string }[];
+      };
+      expect(got.warnings).toEqual([
+        {
+          code: 'memory-needs-participant',
+          message: expect.stringContaining("Pass the person's `participantId` on each run"),
+        },
+      ]);
+    }
+    // With the end user named, none.
+    const named = composed(recalls, 'hi');
+    named.ctx.conversation = {
+      turnCount: 2,
+      participantId: 'cus_ben',
+    } as NonNullable<TurnContext['conversation']>;
+    expect(await result(named.handler, kctx())).not.toHaveProperty('warnings');
+    // Memory that isn't per person: none either.
+    const project = {
+      ...agent(),
+      retrieval: [{ types: ['acme.note'], scope: 'same-project' }],
+    } as unknown as Agent;
+    expect(await result(composed(project, 'hi').handler, kctx())).not.toHaveProperty('warnings');
+  });
+
   test("a provider's own warnings follow, one per code (dev-echo's dev-echo-not-a-model)", async () => {
     const c = composed(agent(), 'hi');
     c.ctx.provider = {

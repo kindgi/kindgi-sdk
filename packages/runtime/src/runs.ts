@@ -100,6 +100,12 @@ export type RunListScope =
  * `{ createdAt, id }` internally.
  */
 export interface RunListCursor {
+  /**
+   * The last run's `createdAt`, as the binding's `nextCursor` carries it:
+   * as stored (Postgres keeps microseconds). A binding compares it as given,
+   * never through a JS `Date`, which keeps milliseconds and would skip the
+   * runs created earlier in the same millisecond.
+   */
   readonly createdAt: Timestamp;
   readonly id: RunId;
 }
