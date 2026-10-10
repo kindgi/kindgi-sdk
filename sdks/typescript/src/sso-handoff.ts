@@ -10,6 +10,10 @@
  * No dependencies, so a browser app can import it without the client.
  */
 
+import { docsUrl } from './docs-links.js';
+
+export { docsUrl };
+
 /** What to give the identity provider so it can send people back. */
 export type HandoffSignIn =
   | { readonly redirectUri: string }
@@ -28,14 +32,11 @@ export interface IdentityProviderPresetInfo {
   /** Its name, as a picker shows it. */
   readonly label: string;
   readonly kind: 'oidc' | 'saml';
-  /** Its guide's path under {@link SSO_GUIDES}. */
+  /** Its guide's page, under the docs' `guides/sso/`. */
   readonly guide: string;
   /** The steps in its console, and its issuer. */
   readonly steps: string;
 }
-
-/** The setup guides, at the docs' root (always the latest release). */
-export const SSO_GUIDES = 'https://docs.kindgi.com/guides/sso';
 
 export const IDENTITY_PROVIDER_PRESETS: Readonly<
   Record<IdentityProviderPreset, IdentityProviderPresetInfo>
@@ -107,18 +108,21 @@ export interface IdentityProviderHandoff {
   readonly message: string;
   /** The steps in that identity provider's console, when there are some. */
   readonly steps?: string;
-  /** The step-by-step guide. */
+  /** The step-by-step guide, on the release line of `options.version` ({@link docsUrl}). */
   readonly guideUrl: string;
 }
 
 /**
  * The message for IT, the identity provider's steps (with `preset`) and
  * the guide, for a provider's URLs. Lines are joined with `\n`, with no
- * trailing newline.
+ * trailing newline. `options.version`: the Kindgi version whose docs the
+ * guide link names (the CLI's, or the runtime's in a console); without it,
+ * the docs' root, which moves on to the next release line.
  */
 export function identityProviderHandoff(
   urls: HandoffUrls,
   preset?: IdentityProviderPreset,
+  options: { readonly version?: string } = {},
 ): IdentityProviderHandoff {
   const { providerId, signIn } = urls;
   const message =
@@ -152,6 +156,6 @@ export function identityProviderHandoff(
   return {
     message: message.join('\n'),
     ...(info !== undefined && { steps: info.steps }),
-    guideUrl: `${SSO_GUIDES}/${guide}/`,
+    guideUrl: docsUrl(`guides/sso/${guide}/`, options.version),
   };
 }

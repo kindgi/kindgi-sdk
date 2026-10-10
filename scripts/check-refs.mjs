@@ -22,8 +22,8 @@
  *      When a release changes the minor, this fails until the links follow.
  *      So do the links in what a package or SDK ships from its `src/` (a
  *      message the CLI prints, a template `kindgi init` writes; not tests).
- *      The CLI builds its links with `docsUrl()` (`packages/cli/src/docs-links.ts`),
- *      which follows the release on its own.
+ *      A program builds its links with `@kindgi/client`'s `docsUrl(path, version)`
+ *      (the CLI passes its own version), which follows the release on its own.
  *
  * A reference to `.claude/skills/<name>/SKILL.md` is a path in a user's
  * project, where `kindgi init` installs this repository's skills: it
@@ -111,7 +111,7 @@ for (const file of tracked) {
         problems.push(
           skill
             ? `${file}: links ${url}; a skill links this release line's docs (${docsLine}…)`
-            : `${file}: links ${url}; what ships links this release line's docs (${docsLine}…; in the CLI, docsUrl() builds it)`,
+            : `${file}: links ${url}; what ships links this release line's docs (${docsLine}…; build it with @kindgi/client's docsUrl(path, version))`,
         );
     }
   }

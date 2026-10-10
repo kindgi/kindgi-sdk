@@ -17,7 +17,7 @@ Google Cloud console → Google Auth Platform:
   5. Download the client ID and secret (Google shows the secret once).
 Issuer: https://accounts.google.com
 
-Step by step: https://docs.kindgi.com/guides/sso/google/
+Step by step: https://docs.kindgi.com/v0.1/guides/sso/google/
 
 Then register it:
   kindgi sso providers finish acme-google --kind=oidc --issuer=<issuer> --client-id=<client-id> --client-secret-ref=<NAME> --domains=<your-domain>

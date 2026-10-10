@@ -17,6 +17,7 @@ import {
 
 import type { CommandContext } from '../context.js';
 import { type Rendered, renderJson } from '../output.js';
+import { CLI_VERSION } from '../version-info.js';
 import {
   listFlag,
   readJsonInput,
@@ -121,7 +122,8 @@ export function handoffText(
   idp?: IdentityProviderPreset,
 ): string {
   const { providerId, signIn } = urls;
-  const handoff = identityProviderHandoff(urls, idp);
+  // The guide on this CLI's release line, not the docs' root.
+  const handoff = identityProviderHandoff(urls, idp, { version: CLI_VERSION });
   const out: string[] = [handoff.message];
   if (handoff.steps !== undefined) out.push('', handoff.steps);
   out.push('', `Step by step: ${handoff.guideUrl}`);

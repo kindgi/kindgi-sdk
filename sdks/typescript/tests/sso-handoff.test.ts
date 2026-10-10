@@ -16,10 +16,12 @@ import { describe, expect, test } from 'vitest';
 
 import {
   IDENTITY_PROVIDER_PRESETS,
-  SSO_GUIDES,
   identityProviderHandoff,
   isIdentityProviderPreset,
 } from '../src/sso-handoff.js';
+
+/** The guides at the docs' root: what a handoff links without a version. */
+const ROOT_GUIDES = 'https://docs.kindgi.com/guides/sso';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -44,7 +46,7 @@ describe('identityProviderHandoff', () => {
     expect(h.message).toContain('never by email or chat');
     expect(h.message.endsWith('\n')).toBe(false);
     expect(h.steps).toBeUndefined();
-    expect(h.guideUrl).toBe(`${SSO_GUIDES}/oidc/`);
+    expect(h.guideUrl).toBe(`${ROOT_GUIDES}/oidc/`);
   });
 
   test('SAML: the ACS URL, entity ID and metadata URL; the SAML guide', () => {
@@ -52,14 +54,23 @@ describe('identityProviderHandoff', () => {
     expect(h.message).toContain(`ACS URL (single sign-on URL):  ${SAML.signIn.acsUrl}`);
     expect(h.message).toContain(`Entity ID (audience):          ${SAML.signIn.spEntityId}`);
     expect(h.message).toContain("Send back: the identity provider's metadata XML.");
-    expect(h.guideUrl).toBe(`${SSO_GUIDES}/saml/`);
+    expect(h.guideUrl).toBe(`${ROOT_GUIDES}/saml/`);
   });
 
   test("a preset adds its console's steps and its own guide", () => {
     const h = identityProviderHandoff(OIDC, 'entra');
     expect(h.steps).toBe(IDENTITY_PROVIDER_PRESETS.entra.steps);
     expect(h.steps).toContain('never `common`');
-    expect(h.guideUrl).toBe(`${SSO_GUIDES}/entra-id/`);
+    expect(h.guideUrl).toBe(`${ROOT_GUIDES}/entra-id/`);
+  });
+
+  test("with a version, the guide is on that version's release line", () => {
+    expect(identityProviderHandoff(OIDC, 'google', { version: '0.1.6' }).guideUrl).toBe(
+      'https://docs.kindgi.com/v0.1/guides/sso/google/',
+    );
+    expect(identityProviderHandoff(SAML, undefined, { version: '0.2.0-rc.1' }).guideUrl).toBe(
+      'https://docs.kindgi.com/v0.2/guides/sso/saml/',
+    );
   });
 
   test('the presets: names a picker shows; anything else is not one', () => {
