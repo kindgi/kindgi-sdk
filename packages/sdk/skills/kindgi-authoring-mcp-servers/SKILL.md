@@ -258,8 +258,8 @@ gotcha #4.
 The invariants this skill inherits — every bullet here is enforced by
 you, the coding agent, in the session where MCP is wired:
 
-- **Never Read `.env`, `.env.local` or `.env.<envName>` files.** Their contents are the raw
-  secret values. Reading them puts the secret in your tool result and
+- **Never Read `.env`, `.env.local`, `.env.<envName>`, `.kindgi/secrets.env`
+  or `.kindgi/dev/runtime.env`.** Their contents are the raw secret values. Reading them puts the secret in your tool result and
   from there in every subsequent turn's context sent to the model
   provider.
 - **Never run `env | grep SECRET_NAME`, `printenv SECRET_NAME`, or

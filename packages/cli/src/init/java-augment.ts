@@ -26,6 +26,7 @@ import type { CommandResult } from '../commands/types.js';
 import { renderJson } from '../output.js';
 import { binDisplay } from '../package-manager.js';
 import { CLI_VERSION } from '../version-info.js';
+import { agentAccessRows, patchAgentAccess } from './agent-access.js';
 import { JVM_PREVIEW, type KindgiJavaSource, resolveKindgiJavaSource } from './dependency-specs.js';
 import { patchGitignore } from './gitignore-patcher.js';
 
@@ -34,6 +35,8 @@ const FOLDERS = ['tools', 'guardrails', 'agents', 'flows'] as const;
 
 export interface RunInitJavaAugmentInputs {
   readonly targetDir: string;
+  /** The CLI's home folder: a repository rooted there gets no settings from init (`agent-access.ts`). */
+  readonly home?: string;
   /** Where the java template's `kindgiw` wrappers are. */
   readonly templatesRoot: string;
   readonly skillsRoot?: string;
@@ -166,6 +169,15 @@ export async function runInitJavaAugment(inputs: RunInitJavaAugmentInputs): Prom
   if (gitignore.kind === 'patched') {
     created.push(`${gitignorePath} (patched: +${gitignore.appended.join(', +')})`);
   }
+  // Keep the coding agent out of the files that hold keys (`agent-access.ts`).
+  const access = agentAccessRows(
+    inputs.targetDir,
+    await patchAgentAccess(inputs.targetDir, {
+      ...(inputs.home !== undefined && { home: inputs.home }),
+    }),
+  );
+  created.push(...access.created);
+  skipped.push(...access.skipped);
 
   const hasDependency = /<artifactId>\s*kindgi-pack\s*<\/artifactId>/.test(pom);
   const nextSteps = [
@@ -196,6 +208,7 @@ export async function runInitJavaAugment(inputs: RunInitJavaAugmentInputs): Prom
     dependencyInPom: hasDependency,
     created,
     skipped,
+    warnings: access.warnings,
     nextSteps,
   };
   return {
@@ -208,6 +221,8 @@ export async function runInitJavaAugment(inputs: RunInitJavaAugmentInputs): Prom
         `  ${JVM_PREVIEW}`,
         `  Pack id: ${packId}    Version: ${version}`,
         `  Wrote ${created.length} file${created.length === 1 ? '' : 's'}; skipped ${skipped.length}.`,
+        ...access.outside.map((line) => `  ✓ ${line}`),
+        ...access.warnings.map((warning) => `  ⚠ ${warning}`),
         '',
         '  Next steps:',
         ...nextSteps.map((step) => `    ${step}`),

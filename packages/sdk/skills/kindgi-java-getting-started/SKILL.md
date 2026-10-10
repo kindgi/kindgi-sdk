@@ -251,6 +251,27 @@ names it; one the pack doesn't declare is dropped before the code loads
   primitive (`<pack-id>.<name>`): pick it once.
 - **Model credentials.** Ask for the key; never invent or hard-code one.
 
+## Keys and tokens: hands off
+
+Never open, read, grep, `cat`, copy or print the files that hold keys and
+tokens, in any folder of the repository (not only the pack's), and never
+print their values (`env`, `printenv`, or code that echoes the process
+environment):
+
+- `.env`, `.env.local` and any other `.env.*`: the app's settings, and any key
+  put there by hand;
+- `.kindgi/secrets.env`: Kindgi's own secrets, where `./kindgiw secrets set` writes;
+- `.kindgi/dev/runtime.env`: the dev runtime's token and database URL;
+- a self-hosted deployment's `kindgi.env` or `pack.env`.
+
+A value you read lands in your context and in every later request to the
+model provider. To see which secrets exist, run
+`./kindgiw secrets list --env=local --scope=tenant` (names only). To store one,
+ask the person to run `./kindgiw secrets set NAME --env=local --scope=tenant`
+themselves: it prompts without echoing. Never put a value on a command line.
+`kindgi init` adds these files to the deny rules in `.claude/settings.json`;
+in a monorepo, also to the repository root's, under the pack's path.
+
 ## Next
 
 - A tool: `kindgi-java-authoring-tools`.

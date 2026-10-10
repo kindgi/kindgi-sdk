@@ -37,6 +37,7 @@ import type { CommandResult } from '../commands/types.js';
 import { renderJson } from '../output.js';
 import { type BinRunner, binDisplay } from '../package-manager.js';
 import { CLI_VERSION } from '../version-info.js';
+import { agentAccessRows, patchAgentAccess } from './agent-access.js';
 import {
   type KindgiPythonSource,
   kindgiCliRequirement,
@@ -62,6 +63,8 @@ export type PythonInstaller = 'uv' | 'poetry' | 'pip';
 
 export interface RunInitPythonAugmentInputs {
   readonly targetDir: string;
+  /** The CLI's home folder: a repository rooted there gets no settings from init (`agent-access.ts`). */
+  readonly home?: string;
   readonly skillsRoot?: string;
   readonly packIdOverride?: string;
   /** Overwrite locally edited skills. */
@@ -139,6 +142,15 @@ export async function runInitPythonAugment(
   if (gitignore.kind === 'patched') {
     created.push(`${gitignorePath} (patched: +${gitignore.appended.join(', +')})`);
   }
+  // Keep the coding agent out of the files that hold keys (`agent-access.ts`).
+  const access = agentAccessRows(
+    inputs.targetDir,
+    await patchAgentAccess(inputs.targetDir, {
+      ...(inputs.home !== undefined && { home: inputs.home }),
+    }),
+  );
+  created.push(...access.created);
+  skipped.push(...access.skipped);
 
   const nextSteps = [
     ...pythonAugmentNextSteps(
@@ -160,6 +172,7 @@ export async function runInitPythonAugment(
     kindgi: source,
     created,
     skipped,
+    warnings: access.warnings,
     nextSteps,
   };
   return {
@@ -171,6 +184,8 @@ export async function runInitPythonAugment(
         `  Kindgi added to ${inputs.targetDir} (a Python pack in the app).`,
         `  Pack id: ${packId.id}    Version: ${version}`,
         `  Wrote ${created.length} file${created.length === 1 ? '' : 's'}; skipped ${skipped.length}.`,
+        ...access.outside.map((line) => `  ✓ ${line}`),
+        ...access.warnings.map((warning) => `  ⚠ ${warning}`),
         '',
         '  Next steps:',
         ...nextSteps.map((step) => `    ${step}`),
