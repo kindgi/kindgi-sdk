@@ -26,13 +26,13 @@ later.
 ## 1. Create the pack
 
 ```sh tutorial=run
-npx --yes @kindgi/cli@0.1 init my-pack --template=scala
+npx --yes @kindgi/cli@0.1.5-rc.0 init my-pack --template=scala
 cd my-pack
 sbt -batch test    # the template's tests: the tools, called directly
 ```
 
 Without Node, run `init` from PyPI instead:
-`uvx --from "kindgi-cli>=0.1,<0.2" kindgi init my-pack --template=scala`.
+`uvx --from "kindgi-cli==0.1.5rc0" kindgi init my-pack --template=scala`.
 
 The pack is an sbt project. Its config is `kindgi.config.json`; its tools,
 guardrails, agents and flows are objects in four packages:

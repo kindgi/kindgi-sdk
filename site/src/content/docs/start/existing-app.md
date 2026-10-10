@@ -244,13 +244,13 @@ The build ends with the image and a check of what's in it:
 In the app's directory (where its `pyproject.toml` is):
 
 ```sh
-uv add --dev "kindgi-cli>=0.1,<0.2"   # the CLI, pinned to Kindgi's minor version
+uv add --dev "kindgi-cli==0.1.5rc0"   # the CLI, pinned to this release candidate
 uv run kindgi init     # --pack-id=<id> if the app's name doesn't make one
 uv sync                # or what it prints for Poetry or pip
 uv run kindgi dev
 ```
 
-With Poetry, add the CLI with `poetry add --group dev "kindgi-cli>=0.1,<0.2"`
+With Poetry, add the CLI with `poetry add --group dev "kindgi-cli==0.1.5rc0"`
 and run it as `poetry run kindgi`.
 
 `init` edits your `pyproject.toml` in place, keeping its layout and
@@ -315,7 +315,7 @@ In the app's directory (where its `pom.xml` is), with a JDK 17 or later and
 `JAVA_HOME` set:
 
 ```sh
-npx --yes @kindgi/cli@0.1 init   # --pack-id=<id> if the app's artifactId doesn't make one
+npx --yes @kindgi/cli@0.1.5-rc.0 init   # --pack-id=<id> if the app's artifactId doesn't make one
 ./kindgiw dev
 ```
 
@@ -391,7 +391,7 @@ In the app's directory (where its `build.sbt` is), with a JDK 17 or later,
 `JAVA_HOME` set, and sbt:
 
 ```sh
-npx --yes @kindgi/cli@0.1 init   # --pack-id=<id> if the build's name doesn't make one
+npx --yes @kindgi/cli@0.1.5-rc.0 init   # --pack-id=<id> if the build's name doesn't make one
 ./kindgiw dev
 ```
 

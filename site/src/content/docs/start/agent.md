@@ -29,8 +29,8 @@ thing at a time, and wait until they say they've done it.
 - **When something fails, run doctor** (below) and read what it says before
   you guess.
 - **`kindgi` in the commands below** means, until step 2 makes a project:
-  `npx --yes @kindgi/cli@0.1` if `node --version` works; else, for someone
-  using Python without Node, `uvx --from "kindgi-cli>=0.1,<0.2" kindgi`
+  `npx --yes @kindgi/cli@0.1.5-rc.0` if `node --version` works; else, for someone
+  using Python without Node, `uvx --from "kindgi-cli==0.1.5rc0" kindgi`
   (the CLI from PyPI; it needs no Node). From step 2 on, from the project's
   folder:
   - a TypeScript project: `pnpm exec kindgi` if `pnpm --version` works,
@@ -136,28 +136,28 @@ runtime: skip this step.
 
    ```sh
    # TypeScript
-   npx --yes @kindgi/cli@0.1 init my-agents
+   npx --yes @kindgi/cli@0.1.5-rc.0 init my-agents
    cd my-agents
    pnpm install     # if pnpm --version works; else: npm install
    ```
 
    ```sh
    # Python (no Node needed)
-   uvx --from "kindgi-cli>=0.1,<0.2" kindgi init my-agents --template=python
+   uvx --from "kindgi-cli==0.1.5rc0" kindgi init my-agents --template=python
    cd my-agents
    uv sync          # brings the CLI too: from now on, uv run kindgi …
    ```
 
    ```sh
    # Java (preview)
-   npx --yes @kindgi/cli@0.1 init my-agents --template=java   # from now on: ./kindgiw …
+   npx --yes @kindgi/cli@0.1.5-rc.0 init my-agents --template=java   # from now on: ./kindgiw …
    cd my-agents
    ./mvnw -q test
    ```
 
    ```sh
    # Scala (preview)
-   npx --yes @kindgi/cli@0.1 init my-agents --template=scala   # from now on: ./kindgiw …
+   npx --yes @kindgi/cli@0.1.5-rc.0 init my-agents --template=scala   # from now on: ./kindgiw …
    cd my-agents
    sbt -batch test
    ```

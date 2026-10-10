@@ -18,7 +18,7 @@ Anthropic API key for step 6. About 20 minutes.
 ## 1. Create the pack
 
 ```sh tutorial=run
-uvx --from "kindgi-cli>=0.1,<0.2" kindgi init acme-desk --template=python
+uvx --from "kindgi-cli==0.1.5rc0" kindgi init acme-desk --template=python
 cd acme-desk
 rm tools/echo.py tools/greet.py agents/echo_agent.py flows/echo_flow.py guardrails/response_not_empty.py tests/test_tools.py
 mkdir support && touch support/__init__.py
