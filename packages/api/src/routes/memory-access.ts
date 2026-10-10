@@ -62,24 +62,28 @@ async function isTenantAdmin(c: Context<AppEnv>, authorizer: Authorizer): Promis
 /**
  * The projects the caller may `action`, and the orgs whose org-wide facts
  * it reads: listed by the authorizer (`read` on the org), else the
- * projects checked one by one and the orgs of those it may read.
+ * projects checked one by one and the orgs of those it may read. A key
+ * limited to a project is always checked: the listing gives every org its
+ * user may read, and the key reaches only its own project's.
  */
 async function readerContainers(
   c: Context<AppEnv>,
   deps: MemoryAccessDeps & { readonly authorizer: Authorizer },
 ): Promise<{ readable: ProjectId[]; writable: ProjectId[]; orgs: OrgId[] }> {
   const { authorizer } = deps;
-  const [readable, writable, orgs] = await Promise.all([
-    authorizer.listObjects?.(c, 'read', 'project'),
-    authorizer.listObjects?.(c, 'write', 'project'),
-    authorizer.listObjects?.(c, 'read', 'org'),
-  ]);
-  if (readable !== undefined && writable !== undefined && orgs !== undefined) {
-    return {
-      readable: readable.map((id) => id as ProjectId),
-      writable: writable.map((id) => id as ProjectId),
-      orgs: orgs.map((id) => id as OrgId),
-    };
+  if (c.get('tokenProjectId') === undefined) {
+    const [readable, writable, orgs] = await Promise.all([
+      authorizer.listObjects?.(c, 'read', 'project'),
+      authorizer.listObjects?.(c, 'write', 'project'),
+      authorizer.listObjects?.(c, 'read', 'org'),
+    ]);
+    if (readable !== undefined && writable !== undefined && orgs !== undefined) {
+      return {
+        readable: readable.map((id) => id as ProjectId),
+        writable: writable.map((id) => id as ProjectId),
+        orgs: orgs.map((id) => id as OrgId),
+      };
+    }
   }
   const all = await allProjects(c, deps.projects);
   const projectRef = (p: ProjectRow) => ref('project', p.id as unknown as string);
