@@ -108,3 +108,20 @@ describe('Guardrail.configSchema', () => {
     expect(r.kind === 'ok' && r.value.configSchema).toEqual(SCHEMA);
   });
 });
+
+describe('Guardrail.checkBuiltIn', () => {
+  const naming = {
+    id: 'my-pack.grounded',
+    kind: 'zero-llm',
+    check: 'must-cite',
+    action: { 'on-violation': 'halt' },
+    codeArtifactRef: { kind: 'filesystem', modulePath: 'guardrails/grounded.ts' },
+  };
+
+  test('the spec takes the marker (true), and only true', () => {
+    const marked = validateGuardrailSpec({ ...naming, checkBuiltIn: true });
+    expect(marked.kind === 'ok' && marked.value.checkBuiltIn).toBe(true);
+    expect(validateGuardrailSpec({ ...naming, checkBuiltIn: false }).kind).toBe('err');
+    expect(validateGuardrailSpec(naming).kind).toBe('ok');
+  });
+});

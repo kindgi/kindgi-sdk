@@ -56,13 +56,15 @@ type Ctx = Context<AppEnv>;
  *   POST /:id/evaluate     publish the block version and derive the agent
  *                          version (inert until promoted), then compare it
  *                          on a test set (202)
+ *   POST /:id/rescore      the latest evaluation scored again, with what
+ *                          people judged on its replays since (202)
  *   POST /:id/request      a gated promotion of the candidate for the scope
  *                          (201 promoted, 202 in review, 422 gate-failed)
  *   POST /:id/rollback     the scope goes back to what served it before
  *   POST /:id/withdraw     closed by a person
  *
  * Authorized on the proposal's agent: reading is `read`, drafting,
- * evaluating and withdrawing are `publish` (they make versions), and
+ * evaluating, rescoring and withdrawing are `publish`, and
  * requesting and rolling back are `promote`. A proposal the caller can't
  * read answers 404, as one that doesn't exist.
  */
@@ -212,6 +214,27 @@ export function proposalsRouter(
       objective: parsed.objective,
       ...(parsed.comparison !== undefined && { comparison: parsed.comparison }),
       actor: actorOf(c),
+    });
+    if (outcome.kind === 'err') return failWith(c, outcome.error);
+    return answer(c, outcome.value, 202);
+  });
+
+  // ---------- POST /:proposalId/rescore ----------
+  // The latest evaluation scored again, with what people judged on its
+  // replays since; the new eval run becomes the proposal's evaluation.
+  r.post('/:proposalId/rescore', async (c) => {
+    const ready = await prepare(c, 'publish');
+    if (ready instanceof Response) return ready;
+    const extra = Object.keys(ready.body);
+    if (extra.length > 0) {
+      return badInput(
+        c,
+        `\`${extra[0]}\` isn't a field of a rescore: it takes none (the latest evaluation's test set version and settings)`,
+      );
+    }
+    const outcome = await service.rescore({
+      tenantId: c.get('tenantId') as TenantId,
+      proposal: ready.proposal,
     });
     if (outcome.kind === 'err') return failWith(c, outcome.error);
     return answer(c, outcome.value, 202);
