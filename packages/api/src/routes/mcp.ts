@@ -24,6 +24,7 @@ import type { Authorizer } from '../middleware/authorize.js';
 import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
 import { type TenantHostAccess, deniesHostReach, stdioRefusal } from '../tenant-host-access.js';
 import type { AppEnv } from '../types.js';
+import { refused } from './denied.js';
 import { clampLimit } from './pagination.js';
 import { parseScopeParams, scopeResourceRef } from './scope-params.js';
 import { parseSecretRef } from './secret-ref.js';
@@ -220,13 +221,15 @@ export function mcpRouter(
     }
 
     if (validation.value.transport === 'stdio' && deniesHostReach(options.hostAccess, 'exec')) {
-      c.status(statusFor('host-access-denied') as never);
-      return c.json(
-        toWireError(
-          { code: 'host-access-denied', message: stdioRefusal(validation.value.endpointId) },
-          requestId,
-        ),
-      );
+      // The deployment rules it out: recorded, as every refusal the API
+      // decides itself is.
+      return refused(c, authorizer, {
+        action: 'admin',
+        resource: ref('mcp_endpoint', validation.value.endpointId),
+        message: stdioRefusal(validation.value.endpointId),
+        failing: 'scope',
+        code: 'host-access-denied',
+      });
     }
 
     // Policy/config: register requires an explicit scope. Wire

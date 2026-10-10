@@ -82,17 +82,19 @@ interface TurnReads {
 
 /**
  * With `grants`, the app checks authorization: it allows exactly the
- * `action type:id` pairs listed, and records every check in `checked`.
+ * `action type:id` pairs listed (`*`: every one), and records every check
+ * in `checked`, and every refusal the API decides itself in `recorded`.
  */
 interface Authz {
   readonly grants: readonly string[];
   readonly checked: string[];
+  readonly recorded?: { action: Action; resource: string; decision: Decision }[];
 }
 
 function decision(authz: Authz, action: Action, resource: ResourceRef): Decision {
   const key = `${action} ${resource.type}:${resource.id}`;
   authz.checked.push(key);
-  const allowed = authz.grants.includes(key);
+  const allowed = authz.grants.includes('*') || authz.grants.includes(key);
   return {
     allowed,
     reason: allowed ? 'test: granted' : 'test: not granted',
@@ -143,6 +145,13 @@ function harness(
           check: async (_principal, action, resource) => decision(authz, action, resource),
           checkBatch: async (_principal, action, resources) =>
             resources.map((resource) => decision(authz, action, resource)),
+          recordDecision: (_principal, action, resource, refusal) => {
+            authz.recorded?.push({
+              action,
+              resource: `${resource.type}:${resource.id}`,
+              decision: refusal,
+            });
+          },
         } satisfies AuthzCheckBinding,
       },
     }),
@@ -873,6 +882,29 @@ describe('restricted judge classes (assertableBy, T200)', () => {
     const recorded = await judge(h, run.runId, classId, SENIOR_TOKEN);
     expect(recorded.status).toBe(201);
     expect(recorded.body.restricted).toBe(true);
+  });
+
+  test('a refusal is in the access audit: who the caller is rules it out', async () => {
+    const run = row();
+    const authz: Authz = { grants: ['*'], checked: [], recorded: [] };
+    const h = harness([run], {}, authz);
+    const classId = await restrictedClass(h, { minReviewerRole: 'senior' });
+    const refused = await judge(h, run.runId, classId);
+    expect(refused.status).toBe(403);
+    expect(refused.body.error.code).toBe('judge-class-not-allowed');
+    const resource = `project:${run.projectId}`;
+    expect(authz.recorded).toEqual([
+      {
+        action: 'write',
+        resource,
+        decision: expect.objectContaining({
+          allowed: false,
+          failing: 'actor',
+          reason: refused.body.error.message,
+        }),
+      },
+    ]);
+    expect(refused.body.error.details).toMatchObject({ action: 'write', resource });
   });
 
   test('principal kinds and ids', async () => {
