@@ -54,7 +54,8 @@ import type { SecretBinding } from '../secrets-binding.js';
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from '../signing-key-binding.js';
 import type { ToolRegistryBinding } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
-import { hasCapability, requireEnvName } from './env.js';
+import { capabilityRefusal } from './denied.js';
+import { requireEnvName } from './env.js';
 import type { GuardrailWriteHook } from './guardrails.js';
 import { clampLimit } from './pagination.js';
 import { tenantResourceAccess } from './tenant-access.js';
@@ -850,19 +851,8 @@ export function deploymentsRouter(
       );
     }
 
-    if (!hasCapability(c, 'secrets:write')) {
-      c.status(statusFor('permission-denied') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'permission-denied',
-            message:
-              'Bearer token is missing the `secrets:write` capability required for deployment secret sync.',
-          },
-          requestId,
-        ),
-      );
-    }
+    const missing = capabilityRefusal(c, authorizer, 'secrets:write', 'for deployment secret sync');
+    if (missing !== undefined) return missing;
 
     // Resolve the target deployment first — its `(tenantId, projectId?)`
     // is what determines the write scope.

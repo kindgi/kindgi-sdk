@@ -93,9 +93,10 @@ export function redirects({ lines }) {
 }
 
 /**
- * Which git ref a release's docs build from. A release's docs are fixed after
- * it ships on its `release-docs/<version>` branch (reviewed through a PR, as
- * every docs change is): the branch starts at the release's tag and changes
+ * Which git ref a release's docs build from (the pre-release on `/next/`
+ * too). A release's docs are fixed after it ships on its
+ * `release-docs/<version>` branch (reviewed through a PR, as every docs
+ * change is): the branch starts at the release's tag and changes
  * only `site/`, so the release's pages are fixed while its code and its
  * generated reference stay the tag's. Without the branch, the tag. A branch
  * that doesn't start at the tag, or that changes anything outside `site/`,

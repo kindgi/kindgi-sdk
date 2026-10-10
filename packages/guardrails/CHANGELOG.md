@@ -1,5 +1,65 @@
 # @kindgi/guardrails
 
+## 0.1.5
+
+### Patch Changes
+
+- cb20b9a: The built-in guardrail checks check their config. A guardrail naming one (`must-cite`, `never-call-tool`, `max-tool-calls`, `output-matches`, `tool-order`, `required-substring`, `forbidden-substring`) with a config the check doesn't take is refused when it's registered (`POST /v1/guardrails`: `422 guardrail-config-invalid`, each problem in `details.issues`) or deployed (`deployment-validation-failed`), and if one still reaches a turn it's a check that can't run (`invalid-check-config`), so a `halt` guardrail fails closed. Before, a mistake could silently disable the rule: `never-call-tool` with `tools: "acme.refund"` (not a list) forbade nothing. Each built-in publishes its config as JSON Schema (`configSchema` on its registered check), refuses a setting it doesn't know, and checks that a regular expression compiles. A deployment's index guardrail carrying a field this version doesn't know (from a newer CLI) now deploys, the field dropped, instead of failing the deployment; `POST /v1/guardrails` stays strict. `GUARDRAIL_SPEC_KEYS` is exported from `@kindgi/guardrails`. **When you upgrade:** a guardrail registered earlier that names a built-in check with a config it doesn't take never ran its check before (the built-ins weren't running), so nothing showed; now each of its turns gets `invalid-check-config`, and with `halt` its agents' turns are blocked. List your guardrails (`kindgi guardrails list`); for each that names a built-in with a config it doesn't take, unregister it (`kindgi guardrails unregister <id>`), then register it again or redeploy, with a config that fits. The runtime also warns at start about each one it finds.
+- a211c34: **A guardrail whose config its pack check would refuse can be refused at registration.**
+  - **The gap:** `POST /v1/guardrails` naming a pack's check with a config that breaks the check's `configSchema` was accepted. Then the pack service refused every call, so every turn the guardrail checked failed.
+  - **`createApp({ checkGuardrailConfig })`:** a runtime passes this optional hook, and the route answers **`422 guardrail-config-invalid`**:
+    - the message is one sentence naming the guardrail, the check and the first problem: `Guardrail "acme.strict" doesn't fit check "my-pack.checks.answer-length": config.maxChars must be > 0.`;
+    - `details.issues` lists every problem, `{ path, message }`, with `path` a JSON pointer into the guardrail (`/config/maxChars`) and `message` naming the setting (`config.maxChars must be > 0.`), the provider check's shape.
+    - Without the hook, nothing changes.
+  - **`Guardrail.configSchema`** is a new optional runtime-declaration field, like `codeArtifactRef`. `POST /v1/deployments` now keeps the pack index's `configSchema` on each guardrail it registers, so a runtime can check against it.
+  - **`@kindgi/guardrails`:**
+    - `guardrailConfigProblems({ configSchema, config })` checks the config as declared, without filling in defaults, as the indexer and the pack service do;
+    - `describeGuardrailConfigProblems` words the message.
+  - **Both clients** read `guardrail-config-invalid` as an invalid request, with its `issues`. The CLI prints the message and one line per issue.
+- a432049: A halting guardrail whose check can't run now stops the turn; it used to let it through. A guardrail whose check isn't registered, has an invalid configuration, or whose judge can't be routed to a model (or with no check registry bound at all) no longer passes silently. A check that throws (pack code that crashed, a pack service that couldn't be reached, a judge call that failed) is one of these too: a `check-failed` evaluation error with what it threw, where it used to fail the turn whatever the guardrail's action; a cancelled turn still ends as it did. With `halt`, the turn fails with `guardrail-violation`: `violations` is empty, and `evaluationErrors` names the guardrail, the error code and why. With any other action, the turn goes on. In both cases every such error emits a `guardrail.error` turn event, adds the guardrail's provenance node (`evaluated: false`), and is listed under `errors` in the `evaluate-guardrails` step's output. `categorizeOutcomes` takes the guardrails the outcomes came from, so each error carries its guardrail's action and severity (`blockingErrors` holds the `halt` ones), and `describeBlockingViolations` names guardrails that couldn't run.
+- Updated dependencies [0919fe6]
+- Updated dependencies [490d083]
+- Updated dependencies [e27d050]
+- Updated dependencies [88953c7]
+- Updated dependencies [70c5737]
+- Updated dependencies [eff6249]
+- Updated dependencies [0fe157e]
+- Updated dependencies [646a906]
+  - @kindgi/compliance@0.1.5
+  - @kindgi/capabilities@0.1.5
+  - @kindgi/schema@0.1.5
+  - @kindgi/types@0.1.5
+
+## 0.1.5-rc.0
+
+### Patch Changes
+
+- cb20b9a: The built-in guardrail checks check their config. A guardrail naming one (`must-cite`, `never-call-tool`, `max-tool-calls`, `output-matches`, `tool-order`, `required-substring`, `forbidden-substring`) with a config the check doesn't take is refused when it's registered (`POST /v1/guardrails`: `422 guardrail-config-invalid`, each problem in `details.issues`) or deployed (`deployment-validation-failed`), and if one still reaches a turn it's a check that can't run (`invalid-check-config`), so a `halt` guardrail fails closed. Before, a mistake could silently disable the rule: `never-call-tool` with `tools: "acme.refund"` (not a list) forbade nothing. Each built-in publishes its config as JSON Schema (`configSchema` on its registered check), refuses a setting it doesn't know, and checks that a regular expression compiles. A deployment's index guardrail carrying a field this version doesn't know (from a newer CLI) now deploys, the field dropped, instead of failing the deployment; `POST /v1/guardrails` stays strict. `GUARDRAIL_SPEC_KEYS` is exported from `@kindgi/guardrails`. **When you upgrade:** a guardrail registered earlier that names a built-in check with a config it doesn't take never ran its check before (the built-ins weren't running), so nothing showed; now each of its turns gets `invalid-check-config`, and with `halt` its agents' turns are blocked. List your guardrails (`kindgi guardrails list`); for each that names a built-in with a config it doesn't take, unregister it (`kindgi guardrails unregister <id>`), then register it again or redeploy, with a config that fits. The runtime also warns at start about each one it finds.
+- a211c34: **A guardrail whose config its pack check would refuse can be refused at registration.**
+  - **The gap:** `POST /v1/guardrails` naming a pack's check with a config that breaks the check's `configSchema` was accepted. Then the pack service refused every call, so every turn the guardrail checked failed.
+  - **`createApp({ checkGuardrailConfig })`:** a runtime passes this optional hook, and the route answers **`422 guardrail-config-invalid`**:
+    - the message is one sentence naming the guardrail, the check and the first problem: `Guardrail "acme.strict" doesn't fit check "my-pack.checks.answer-length": config.maxChars must be > 0.`;
+    - `details.issues` lists every problem, `{ path, message }`, with `path` a JSON pointer into the guardrail (`/config/maxChars`) and `message` naming the setting (`config.maxChars must be > 0.`), the provider check's shape.
+    - Without the hook, nothing changes.
+  - **`Guardrail.configSchema`** is a new optional runtime-declaration field, like `codeArtifactRef`. `POST /v1/deployments` now keeps the pack index's `configSchema` on each guardrail it registers, so a runtime can check against it.
+  - **`@kindgi/guardrails`:**
+    - `guardrailConfigProblems({ configSchema, config })` checks the config as declared, without filling in defaults, as the indexer and the pack service do;
+    - `describeGuardrailConfigProblems` words the message.
+  - **Both clients** read `guardrail-config-invalid` as an invalid request, with its `issues`. The CLI prints the message and one line per issue.
+- a432049: A halting guardrail whose check can't run now stops the turn; it used to let it through. A guardrail whose check isn't registered, has an invalid configuration, or whose judge can't be routed to a model (or with no check registry bound at all) no longer passes silently. A check that throws (pack code that crashed, a pack service that couldn't be reached, a judge call that failed) is one of these too: a `check-failed` evaluation error with what it threw, where it used to fail the turn whatever the guardrail's action; a cancelled turn still ends as it did. With `halt`, the turn fails with `guardrail-violation`: `violations` is empty, and `evaluationErrors` names the guardrail, the error code and why. With any other action, the turn goes on. In both cases every such error emits a `guardrail.error` turn event, adds the guardrail's provenance node (`evaluated: false`), and is listed under `errors` in the `evaluate-guardrails` step's output. `categorizeOutcomes` takes the guardrails the outcomes came from, so each error carries its guardrail's action and severity (`blockingErrors` holds the `halt` ones), and `describeBlockingViolations` names guardrails that couldn't run.
+- Updated dependencies [0919fe6]
+- Updated dependencies [490d083]
+- Updated dependencies [e27d050]
+- Updated dependencies [88953c7]
+- Updated dependencies [70c5737]
+- Updated dependencies [eff6249]
+- Updated dependencies [0fe157e]
+- Updated dependencies [646a906]
+  - @kindgi/compliance@0.1.5-rc.0
+  - @kindgi/capabilities@0.1.5-rc.0
+  - @kindgi/schema@0.1.5-rc.0
+  - @kindgi/types@0.1.5-rc.0
+
 ## 0.1.4
 
 ### Patch Changes

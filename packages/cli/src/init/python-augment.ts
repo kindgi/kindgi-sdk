@@ -390,7 +390,7 @@ export function pythonAugmentNextSteps(
     `Boot the dev server: ${binDisplay(runner, 'kindgi', ['dev'])}`,
     'Write tools, guardrails and agents under kindgi/ — see .claude/skills/kindgi-python-getting-started/SKILL.md',
     'Secrets: kindgi dev reads your .env and .env.local; tools read them from os.environ',
-    `Model provider: agents answer with the dev-echo fallback until you register one — e.g. ${binDisplay(runner, 'kindgi', ['providers', 'register', '--preset=anthropic'])} (ANTHROPIC_API_KEY in .env)`,
+    `Model provider: until you register one, agents under kindgi dev answer with its dev-echo fallback (canned replies) — e.g. ${binDisplay(runner, 'kindgi', ['providers', 'register', '--preset=anthropic'])} (ANTHROPIC_API_KEY in .env)`,
   ];
 }
 

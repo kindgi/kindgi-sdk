@@ -10,8 +10,7 @@ import type { AuditEventBinding } from '@kindgi/audit-events';
 import type { AuthzCheckBinding } from '@kindgi/authz';
 import type { AdapterFactoryRegistry } from '@kindgi/capabilities';
 import type { ComplianceEvidenceGenerator, LoadedClassifier } from '@kindgi/compliance';
-import { exportSignerFromSigningKeyBinding } from '@kindgi/crypto';
-import type { ExportSigningBinding, SigningKeyBinding } from '@kindgi/crypto';
+import type { ExportSigningBinding } from '@kindgi/crypto';
 import type { TenantHierarchyBinding } from '@kindgi/platform';
 import type {
   OrgBinding,
@@ -69,6 +68,7 @@ import {
   idempotencyMiddleware,
 } from './middleware/idempotency.js';
 import { refuseOtherProjectForKey } from './middleware/key-project.js';
+import { noStoreMiddleware } from './middleware/no-store.js';
 import { principalMiddleware } from './middleware/principal.js';
 import { PROJECT_REF_ROUTES, refuseBadProjectId } from './middleware/project-ref.js';
 import { publicRunCorsMiddleware, publicRunRouteMatcher } from './middleware/public-run-routes.js';
@@ -284,7 +284,7 @@ export interface CreateAppInput {
    * `auditEvents` + `complianceClassifier` are provided (i.e., when
    * `/v1/compliance/*` mounts). The Kindgi runtime supplies the
    * generator (or pass a bespoke implementation). The public interface
-   * has recordFromRun / exportSigned / describe; implementations may add
+   * has recordFromRun / describe; implementations may add
    * more (e.g. subscriptions), which @kindgi/api doesn't use.
    */
   readonly complianceGenerator?: ComplianceEvidenceGenerator;
@@ -475,11 +475,6 @@ export interface CreateAppInput {
    * binding.
    */
   readonly exportSigning?: ExportSigningBinding;
-  /**
-   * @deprecated Use `exportSigning`. Still read, as its Ed25519 keys
-   * (`exportSignerFromSigningKeyBinding`), when `exportSigning` isn't given.
-   */
-  readonly signingKey?: SigningKeyBinding;
   /**
    * Optional. Issue and accept public run tokens (`kgi_pt_…`):
    * short-lived, read-only tokens a browser uses to follow specific runs
@@ -1018,11 +1013,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
 
   const runBinding = input.kernelBinding.run;
-  const exportSigning =
-    input.exportSigning ??
-    (input.signingKey !== undefined
-      ? exportSignerFromSigningKeyBinding(input.signingKey)
-      : undefined);
+  const exportSigning = input.exportSigning;
   const exportOptions = {
     ...(exportSigning !== undefined && { exportSigning }),
     ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
@@ -1032,6 +1023,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   app.use('*', requestIdMiddleware());
   // The request's trace context and logger, and its access line.
   app.use('*', requestLogMiddleware(input.logger ?? noopLogger));
+  // No `/v1` answer is kept by a browser or a proxy (data and errors alike).
+  app.use('/v1/*', noStoreMiddleware());
   // A thrown exception: a 500 wire error with its message and request id, logged.
   app.onError(mapThrownError);
 
@@ -1386,7 +1379,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     }),
   );
   if (input.cost !== undefined) {
-    v1.route('/cost', costRouter(input.cost, authorizer));
+    v1.route('/cost', costRouter(input.cost, authorizer, input.projectBinding));
   }
   if (input.adapterRegistry !== undefined) {
     v1.route(
