@@ -6354,6 +6354,7 @@ class ProjectsJudgingRulesResource:
         include_dry_runs: bool | None = None,
         sample: float | None = None,
         last: int | None = None,
+        rule_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.JudgingRulePreview:
         """What a rule would have queued. `GET /v1/projects/{projectId}/judging-rules/preview`
@@ -6371,6 +6372,7 @@ class ProjectsJudgingRulesResource:
                 "includeDryRuns": include_dry_runs,
                 "sample": sample,
                 "last": last,
+                "ruleId": rule_id,
             },
             headers={},
             response=_models.JudgingRulePreview,
@@ -13365,6 +13367,7 @@ class AsyncProjectsJudgingRulesResource:
         include_dry_runs: bool | None = None,
         sample: float | None = None,
         last: int | None = None,
+        rule_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.JudgingRulePreview:
         """What a rule would have queued. `GET /v1/projects/{projectId}/judging-rules/preview`
@@ -13382,6 +13385,7 @@ class AsyncProjectsJudgingRulesResource:
                 "includeDryRuns": include_dry_runs,
                 "sample": sample,
                 "last": last,
+                "ruleId": rule_id,
             },
             headers={},
             response=_models.JudgingRulePreview,

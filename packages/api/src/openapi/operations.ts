@@ -6579,6 +6579,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
         description: 'How many recent runs to look at, 1 to 500. Default 100.',
         schema: { type: 'integer', minimum: 1, maximum: 500 },
       },
+      {
+        name: 'ruleId',
+        in: 'query',
+        required: false,
+        description:
+          "An existing rule's id, to sample as that rule does: `matched` is then exactly the runs it would take. Without it, `matched` is an estimate.",
+        schema: { type: 'string' },
+      },
     ],
     responses: {
       '200': { description: 'The preview.', schema: ref('JudgingRulePreview') },

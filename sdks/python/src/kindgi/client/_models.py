@@ -7317,7 +7317,7 @@ class PersonGrantBody(BaseModel):
 
 class JudgingRuleWhen(BaseModel):
     """
-    Which of a project's runs a rule matches as they end. Every field narrows; absent fields don't. Top-level runs only (an agent's own runs, not its turns as a flow's step); replays never match.
+    Which of a project's runs a rule matches as they end. Every field narrows; absent fields don't. `agentIds` or `flowIds`, not both. Top-level runs only (an agent's own runs, not its turns as a flow's step); replays never match.
     """
 
     model_config = ConfigDict(
@@ -7359,7 +7359,7 @@ class JudgingRuleSpec(BaseModel):
     when: JudgingRuleWhen
     sample: Annotated[float | None, Field(gt=0.0, le=1.0)] = None
     """
-    The share of matching runs queued, decided by the run and rule ids (the same every time). Default 1.
+    The share of matching runs queued, decided by the run and rule ids: the same every time and across the rule's versions, so raising it keeps the runs it took before. Default 1.
     """
     max_open: Annotated[int | None, Field(alias="maxOpen", ge=1, le=10000)] = None
     """
@@ -7388,7 +7388,7 @@ class JudgingRulePatch(BaseModel):
     when: JudgingRuleWhen | None = None
     sample: Annotated[float | None, Field(gt=0.0, le=1.0)] = None
     """
-    The share of matching runs queued, decided by the run and rule ids (the same every time). Default 1.
+    The share of matching runs queued, decided by the run and rule ids: the same every time and across the rule's versions, so raising it keeps the runs it took before. Default 1.
     """
     max_open: Annotated[int | None, Field(alias="maxOpen", ge=1, le=10000)] = None
     """
@@ -7607,7 +7607,7 @@ class JudgingResultGroup(BaseModel):
     erased: Annotated[int, Field(ge=0)]
     skipped_by_cap: Annotated[int, Field(alias="skippedByCap", ge=0)]
     """
-    Runs the rule matched and sampled but didn't queue, because `maxOpen` were waiting. Non-zero: the queued runs lean toward quiet times. `added` + `skippedByCap` = every run the rule matched and sampled.
+    Runs the rule matched and sampled but didn't queue, because `maxOpen` were waiting, even when another rule queued them. Non-zero: the queued runs lean toward quiet times. `added` + `skippedByCap` = every run the rule matched and sampled.
     """
     judgments: Annotated[int, Field(ge=0)]
     """

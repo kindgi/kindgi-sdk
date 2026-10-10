@@ -249,9 +249,9 @@ and `maxOpen: 2`:
 
 What a rule matches (`when`, each field narrowing it):
 
-- **`agentIds`** or **`flowIds`**: runs of these agents or flows. A rule
-  naming an agent matches the agent's own runs, not its turns as a step of a
-  flow.
+- **`agentIds`** or **`flowIds`**: runs of these agents or flows (one or the
+  other, not both). A rule naming an agent matches the agent's own runs, not
+  its turns as a step of a flow.
 - **`versions`**: these versions exactly, or `live`: runs that ran the
   agent's live version rather than one the caller named, so the rule follows
   each release.
@@ -263,7 +263,8 @@ What a rule matches (`when`, each field narrowing it):
 And how much of it to queue:
 
 - **`sample`**: the share of matching runs, `0.05` for 5%. The same run and
-  rule always give the same answer.
+  rule always give the same answer, across the rule's versions too: raising
+  it later keeps the runs it took before, and adds more.
 - **`maxOpen`**: the rule adds nothing while this many of its runs wait, and
   starts again as they're judged.
 - **`judgeClassId`**: whose judgment the rule wants, a
@@ -272,7 +273,8 @@ And how much of it to queue:
 A rule applies to runs that end after it's made. To try one before you make
 it, `judgingRules.preview` takes the same fields and answers how many of the
 project's last 100 runs (`last`, up to 500) it would have queued, with its
-`sample` but not its `maxOpen`. Runs from before the runtime recorded how
+`sample` but not its `maxOpen`. Give an existing rule's `ruleId` to sample
+as it does; without one, the count is an estimate. Runs from before the runtime recorded how
 their version was chosen never match `live`.
 
 A rule only lists runs: it never runs a model or spends anything.
@@ -367,8 +369,9 @@ a run does.
   - **The `yes` share is per judgment:** one person's verdict on one item
     of a run's output.
   - **`skippedByCap`** counts the runs the rule matched and sampled but
-    didn't queue because `maxOpen` were waiting, so `added` + `skippedByCap`
-    is every run it matched and sampled. When it isn't 0, the queued runs
+    didn't queue because `maxOpen` were waiting, even when another rule
+    queued them, so `added` + `skippedByCap` is every run it matched and
+    sampled. When it isn't 0, the queued runs
     lean toward quiet times.
   - **Never pooled:** each version of each rule is a sample of its own
     `when`, so its results are never added to another's.

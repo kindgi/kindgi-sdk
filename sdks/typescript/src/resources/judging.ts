@@ -62,6 +62,8 @@ export interface JudgingRulePreviewInput extends JudgingRuleWhen {
   readonly sample?: number;
   /** How many recent runs to look at, 1 to 500. Default 100. */
   readonly last?: number;
+  /** An existing rule's id: sample as it does, so `matched` is exactly the runs it would take. */
+  readonly ruleId?: string;
 }
 
 export interface JudgingRulesClient {
@@ -164,6 +166,7 @@ export function makeJudgingRulesClient(transport: Transport): JudgingRulesClient
           ...(input.includeDryRuns !== undefined && { includeDryRuns: input.includeDryRuns }),
           ...(input.sample !== undefined && { sample: input.sample }),
           ...(input.last !== undefined && { last: input.last }),
+          ...(input.ruleId !== undefined && { ruleId: input.ruleId }),
         },
       }),
   };

@@ -135,11 +135,16 @@ export function judgingRouter(
     if (!Number.isInteger(last) || last < 1 || last > MAX_PREVIEW) {
       return fail(c, 'bad-input', `\`last\` must be a whole number from 1 to ${MAX_PREVIEW}`);
     }
+    const ruleId = c.req.query('ruleId');
+    if (ruleId !== undefined && (ruleId === '' || ruleId.length > MAX_TEXT)) {
+      return fail(c, 'bad-input', '`ruleId` must be a rule id');
+    }
     return c.json(
       await binding.preview({
         ...inProject(c),
         spec: { name: 'preview', ...spec } as JudgingRuleSpec,
         last,
+        ...(ruleId !== undefined && { ruleId }),
       }),
     );
   });
@@ -396,6 +401,10 @@ function parseSpec(raw: unknown, mode: 'create' | 'patch' | 'preview'): JudgingR
     if (w.includeDryRuns !== undefined) {
       if (typeof w.includeDryRuns !== 'boolean') return '`when.includeDryRuns` must be a boolean';
       parsed.includeDryRuns = w.includeDryRuns;
+    }
+    // An agent's turn runs the turn flow, so both together would match nothing.
+    if (parsed.agentIds !== undefined && parsed.flowIds !== undefined) {
+      return '`when` names agents (`agentIds`) or flows (`flowIds`), not both';
     }
     out.when = parsed;
   }

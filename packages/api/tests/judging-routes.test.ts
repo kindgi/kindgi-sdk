@@ -97,7 +97,11 @@ function memoryBinding() {
   const rules = new Map<string, JudgingRule[]>();
   const items = new Map<string, JudgingQueueItem>();
   const asked: JudgingQueueListInput[] = [];
-  const previewed: { readonly spec: JudgingRuleSpec; readonly last: number }[] = [];
+  const previewed: {
+    readonly spec: JudgingRuleSpec;
+    readonly last: number;
+    readonly ruleId?: string;
+  }[] = [];
   let seq = 0;
   const at = () => new Date(Date.UTC(2026, 9, 10, 12, 0, seq++)).toISOString() as Timestamp;
   const rule = (
@@ -187,8 +191,8 @@ function memoryBinding() {
         ? { kind: 'ok', value: { ruleId, groups: [] } }
         : { kind: 'err', error: { code: 'judging-rule-not-found', message: 'no' } };
     },
-    async preview({ spec, last }) {
-      previewed.push({ spec, last });
+    async preview({ spec, last, ruleId }) {
+      previewed.push({ spec, last, ...(ruleId !== undefined && { ruleId }) });
       return { considered: last, matched: 3 };
     },
   };
@@ -302,6 +306,10 @@ describe('judging rules', () => {
         { ...RULE, when: { agentIds: [] } },
         '`when.agentIds` must be a list of 1 to 50 non-empty strings',
       ],
+      [
+        { ...RULE, when: { agentIds: ['acme.refunds'], flowIds: ['acme.flow'] } },
+        '`when` names agents (`agentIds`) or flows (`flowIds`), not both',
+      ],
       [{ when: {} }, '`name` must be a non-empty string of at most 200 characters'],
     ] as const) {
       const r = await h.call(EDITOR, 'POST', '/judging-rules', body);
@@ -340,6 +348,8 @@ describe('judging rules', () => {
     expect((await h.call(VIEWER, 'GET', '/judging-rules/preview?last=501')).status).toBe(400);
     expect((await h.call(VIEWER, 'GET', '/judging-rules/preview?status=crashed')).status).toBe(400);
     expect((await h.call(VIEWER, 'GET', '/judging-rules/preview?status=failed')).status).toBe(400);
+    await h.call(VIEWER, 'GET', '/judging-rules/preview?agentIds=acme.refunds&ruleId=r-1');
+    expect(h.previewed.at(-1)).toMatchObject({ ruleId: 'r-1' });
   });
 });
 

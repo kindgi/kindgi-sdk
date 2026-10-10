@@ -7781,7 +7781,7 @@ export const JudgingRuleWhenSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description:
-    "Which of a project's runs a rule matches as they end. Every field narrows; absent fields don't. Top-level runs only (an agent's own runs, not its turns as a flow's step); replays never match.",
+    "Which of a project's runs a rule matches as they end. Every field narrows; absent fields don't. `agentIds` or `flowIds`, not both. Top-level runs only (an agent's own runs, not its turns as a flow's step); replays never match.",
   properties: {
     agentIds: { type: 'array', minItems: 1, maxItems: 50, items: { type: 'string' } },
     flowIds: { type: 'array', minItems: 1, maxItems: 50, items: { type: 'string' } },
@@ -7812,7 +7812,7 @@ const JUDGING_RULE_FIELDS: Record<string, JsonSchema> = {
     exclusiveMinimum: 0,
     maximum: 1,
     description:
-      'The share of matching runs queued, decided by the run and rule ids (the same every time). Default 1.',
+      "The share of matching runs queued, decided by the run and rule ids: the same every time and across the rule's versions, so raising it keeps the runs it took before. Default 1.",
   },
   maxOpen: {
     type: 'integer',
@@ -8042,7 +8042,7 @@ export const JudgingResultGroupSchema: JsonSchema = {
       type: 'integer',
       minimum: 0,
       description:
-        "Runs the rule matched and sampled but didn't queue, because `maxOpen` were waiting. Non-zero: the queued runs lean toward quiet times. `added` + `skippedByCap` = every run the rule matched and sampled.",
+        "Runs the rule matched and sampled but didn't queue, because `maxOpen` were waiting, even when another rule queued them. Non-zero: the queued runs lean toward quiet times. `added` + `skippedByCap` = every run the rule matched and sampled.",
     },
     judgments: {
       type: 'integer',

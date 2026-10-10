@@ -44,7 +44,11 @@ export interface JudgingRuleWhen {
 export interface JudgingRuleSpec {
   readonly name: string;
   readonly when: JudgingRuleWhen;
-  /** The share of matching runs queued, 0 < sample ≤ 1. Decided by the run and rule ids, the same every time. Default 1. */
+  /**
+   * The share of matching runs queued, 0 < sample ≤ 1. Decided by the run and
+   * rule ids, the same every time and across the rule's versions: raising it
+   * keeps the runs it took before. Default 1.
+   */
   readonly sample?: number;
   /** Add nothing while this rule has this many open items. Absent: no cap. */
   readonly maxOpen?: number;
@@ -149,7 +153,8 @@ export interface JudgingResultGroup {
   /**
    * Runs the rule matched and sampled but didn't queue, because `maxOpen`
    * were waiting. Non-zero: the queued runs lean toward quiet times.
-   * `added` + `skippedByCap` = every run the rule matched and sampled.
+   * `added` + `skippedByCap` = every run the rule matched and sampled. A
+   * skipped run counts here even when another rule queued it.
    */
   readonly skippedByCap: number;
   /** Live judgments on the queued runs: each is one person's verdict on one item of a run's output. */
@@ -262,8 +267,16 @@ export interface JudgingQueueBinding {
   results(
     input: InProject & { readonly ruleId: string; readonly since?: Timestamp },
   ): Promise<Result<JudgingRuleResults, JudgingError>>;
-  /** What `spec` would have queued among the project's last `last` runs. */
+  /**
+   * What `spec` would have queued among the project's last `last` runs.
+   * With an existing rule's `ruleId`, sampled as that rule samples: exactly
+   * the runs it would take. Without, an estimate.
+   */
   preview(
-    input: InProject & { readonly spec: JudgingRuleSpec; readonly last: number },
+    input: InProject & {
+      readonly spec: JudgingRuleSpec;
+      readonly last: number;
+      readonly ruleId?: string;
+    },
   ): Promise<JudgingRulePreview>;
 }

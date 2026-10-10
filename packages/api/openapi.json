@@ -14130,7 +14130,7 @@
       "JudgingRuleWhen": {
         "type": "object",
         "additionalProperties": false,
-        "description": "Which of a project's runs a rule matches as they end. Every field narrows; absent fields don't. Top-level runs only (an agent's own runs, not its turns as a flow's step); replays never match.",
+        "description": "Which of a project's runs a rule matches as they end. Every field narrows; absent fields don't. `agentIds` or `flowIds`, not both. Top-level runs only (an agent's own runs, not its turns as a flow's step); replays never match.",
         "properties": {
           "agentIds": {
             "type": "array",
@@ -14192,7 +14192,7 @@
             "type": "number",
             "exclusiveMinimum": 0,
             "maximum": 1,
-            "description": "The share of matching runs queued, decided by the run and rule ids (the same every time). Default 1."
+            "description": "The share of matching runs queued, decided by the run and rule ids: the same every time and across the rule's versions, so raising it keeps the runs it took before. Default 1."
           },
           "maxOpen": {
             "type": "integer",
@@ -14227,7 +14227,7 @@
             "type": "number",
             "exclusiveMinimum": 0,
             "maximum": 1,
-            "description": "The share of matching runs queued, decided by the run and rule ids (the same every time). Default 1."
+            "description": "The share of matching runs queued, decided by the run and rule ids: the same every time and across the rule's versions, so raising it keeps the runs it took before. Default 1."
           },
           "maxOpen": {
             "type": [
@@ -14632,7 +14632,7 @@
           "skippedByCap": {
             "type": "integer",
             "minimum": 0,
-            "description": "Runs the rule matched and sampled but didn't queue, because `maxOpen` were waiting. Non-zero: the queued runs lean toward quiet times. `added` + `skippedByCap` = every run the rule matched and sampled."
+            "description": "Runs the rule matched and sampled but didn't queue, because `maxOpen` were waiting, even when another rule queued them. Non-zero: the queued runs lean toward quiet times. `added` + `skippedByCap` = every run the rule matched and sampled."
           },
           "judgments": {
             "type": "integer",
@@ -40179,6 +40179,15 @@
             },
             "required": false,
             "description": "How many recent runs to look at, 1 to 500. Default 100."
+          },
+          {
+            "name": "ruleId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "An existing rule's id, to sample as that rule does: `matched` is then exactly the runs it would take. Without it, `matched` is an estimate."
           }
         ],
         "security": [
