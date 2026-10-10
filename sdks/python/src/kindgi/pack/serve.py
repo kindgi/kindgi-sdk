@@ -47,6 +47,7 @@ from typing import Any, cast
 import uvicorn
 
 from ..log import LogConfigError
+from .env_filter import ENV_FILTER_VAR, ENV_FILTERS, EnvFilter, undeclared_pack_env
 from .records import PackServiceLogs, pack_service_logs
 from .service import ENV_CHECKS, EnvCheck, PackService, log_json
 
@@ -65,6 +66,11 @@ class ServeConfig:
     host: str | None
     max_concurrency: int | None
     env_check: EnvCheck = "strict"
+    # `on`: before the pack's code loads, drop from this process's environment every
+    # name the pack doesn't declare (but `KINDGI_*` and the platform's). `read_config`
+    # sets it from KINDGI_PACK_ENV_FILTER (default `on`); a config built in-process
+    # leaves it `off`, so its caller's environment is left alone.
+    env_filter: EnvFilter = "off"
 
 
 def read_config(argv: Sequence[str], env: Mapping[str, str]) -> ServeConfig | list[str]:
@@ -108,6 +114,9 @@ def read_config(argv: Sequence[str], env: Mapping[str, str]) -> ServeConfig | li
         problems.append(
             f"KINDGI_PACK_ENV_CHECK must be `strict` or `warn`, not {json.dumps(env_check)}"
         )
+    env_filter = env.get(ENV_FILTER_VAR) or "on"
+    if env_filter not in ENV_FILTERS:
+        problems.append(f"{ENV_FILTER_VAR} must be `on` or `off`, not {json.dumps(env_filter)}")
     if problems:
         return problems
     return ServeConfig(
@@ -118,6 +127,7 @@ def read_config(argv: Sequence[str], env: Mapping[str, str]) -> ServeConfig | li
         host or None,
         max_concurrency,
         cast("EnvCheck", env_check),
+        cast("EnvFilter", env_filter),
     )
 
 
@@ -142,6 +152,26 @@ def load_service(
     missing = [f"Missing module: {p}" for p in paths if not (config.module_root / p).is_file()]
     if missing:
         return missing
+    # Before the pack's code loads: keep only the names it declares (and Kindgi's and
+    # the platform's). A variable meant for something else, a model key in a
+    # self-hosted `--env-file`, never reaches a handler; `os.environ.pop` unsets it,
+    # so a process a handler starts doesn't inherit it either.
+    if config.env_filter == "on":
+        dropped = undeclared_pack_env(index.get("env"), os.environ)
+        for name in dropped:
+            os.environ.pop(name, None)
+        if dropped:
+            noun = "a variable" if len(dropped) == 1 else f"{len(dropped)} variables"
+            message = (
+                f"Dropped {noun} the pack doesn't declare: {', '.join(dropped)} "
+                f"(declare them in the pack's env, or set {ENV_FILTER_VAR}=off)"
+            )
+            if logs is None:
+                log_json({"kind": "env-dropped", "names": dropped})
+            else:
+                logs.log.warn(
+                    message, {"event": "env-dropped", "kind": "env-dropped", "names": dropped}
+                )
     kwargs: dict[str, Any] = {}
     if config.max_concurrency is not None:
         kwargs["max_concurrency"] = config.max_concurrency

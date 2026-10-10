@@ -340,8 +340,8 @@ export interface RecordFromRunOptions {
 }
 
 /**
- * Filter shape shared by evidence listing and signed export
- * (`ComplianceEvidenceGenerator.exportSigned`). `ComplianceProvider.list`
+ * Filter shape shared by evidence listing and the signed compliance
+ * export (`@kindgi/api` collects, then signs). `ComplianceProvider.list`
  * takes `ListEvidenceFilter` instead. Every field is optional; an empty
  * filter is "everything in the tenant". Composition is AND — all
  * populated fields must match.

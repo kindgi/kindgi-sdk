@@ -10,8 +10,7 @@ import type { AuditEventBinding } from '@kindgi/audit-events';
 import type { AuthzCheckBinding } from '@kindgi/authz';
 import type { AdapterFactoryRegistry } from '@kindgi/capabilities';
 import type { ComplianceEvidenceGenerator, LoadedClassifier } from '@kindgi/compliance';
-import { exportSignerFromSigningKeyBinding } from '@kindgi/crypto';
-import type { ExportSigningBinding, SigningKeyBinding } from '@kindgi/crypto';
+import type { ExportSigningBinding } from '@kindgi/crypto';
 import type { TenantHierarchyBinding } from '@kindgi/platform';
 import type {
   OrgBinding,
@@ -31,6 +30,7 @@ import type { AgentRegistryBinding } from './agent-binding.js';
 import type { BlockRegistryBinding } from './block-binding.js';
 import type { CapabilityRegistryBinding } from './capability-binding.js';
 import type { CostBinding } from './cost-binding.js';
+import type { CursorSealer } from './cursor-seal.js';
 import type { DeploymentBinding } from './deployment-binding.js';
 import type { EnvBinding } from './env-binding.js';
 import type { WireErrorBody } from './errors.js';
@@ -43,11 +43,7 @@ import type { GuardrailRegistryBinding } from './guardrail-binding.js';
 import type { RunHandlerBinding } from './handler-binding.js';
 import type { HitlBinding } from './hitl-binding.js';
 import type { IdentityDirectoryBinding } from './identity-directory-binding.js';
-import type {
-  ExchangeCodeFn,
-  IdentityProviderBinding,
-  RefreshTokenFn,
-} from './identity-provider-binding.js';
+import type { IdentityProviderBinding } from './identity-provider-binding.js';
 import type { ImageRegistryBinding } from './image-registry-binding.js';
 import type { ImprovementPassBinding } from './improvement-pass-binding.js';
 import type { JudgingQueueBinding } from './judging-queue-binding.js';
@@ -57,10 +53,10 @@ import type { MCPClientProbeBinding, MCPEndpointRegistryBinding } from './mcp-en
 import type { MemoryBinding } from './memory-binding.js';
 import type { MemoryErasureBinding } from './memory-erasure-binding.js';
 import {
-  SESSION_COOKIE_NAME,
   type SessionCookieOptions,
   type TokenResolver,
   bearerAuthMiddleware,
+  sessionCookieOf,
 } from './middleware/auth.js';
 import { type Authorizer, createAuthorizer } from './middleware/authorize.js';
 import { mapThrownError } from './middleware/error-mapper.js';
@@ -70,12 +66,15 @@ import {
   idempotencyMiddleware,
 } from './middleware/idempotency.js';
 import { refuseOtherProjectForKey } from './middleware/key-project.js';
+import { noStoreMiddleware } from './middleware/no-store.js';
 import { principalMiddleware } from './middleware/principal.js';
 import { PROJECT_REF_ROUTES, refuseBadProjectId } from './middleware/project-ref.js';
 import { publicRunCorsMiddleware, publicRunRouteMatcher } from './middleware/public-run-routes.js';
 import { requestIdMiddleware } from './middleware/request-id.js';
 import { requestLogMiddleware } from './middleware/request-log.js';
+import { sealedCursors } from './middleware/sealed-cursors.js';
 import { sigv4Middleware } from './middleware/sigv4.js';
+import type { MyAccessBinding } from './my-access-binding.js';
 import { type GenerateOptions, generateOpenApiDocument } from './openapi/generate.js';
 import type { PersonGrantsBinding } from './person-grants-binding.js';
 import type { ProvenanceBinding } from './provenance-binding.js';
@@ -96,7 +95,7 @@ import { agentsRouter } from './routes/agents.js';
 import { approvalsRouter } from './routes/approvals.js';
 import { artifactsRouter } from './routes/artifacts.js';
 import { auditRouter } from './routes/audit.js';
-import { authRouters, logoutHandler } from './routes/auth.js';
+import { authRouter, logoutHandler } from './routes/auth.js';
 import { blocksRouter } from './routes/blocks.js';
 import { capabilitiesRouter } from './routes/capabilities.js';
 import { complianceRouter } from './routes/compliance.js';
@@ -148,7 +147,6 @@ import type { SecretBinding } from './secrets-binding.js';
 import type { ServiceAccountBinding } from './service-account-binding.js';
 import type { SessionStoreBinding } from './session-store-binding.js';
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from './signing-key-binding.js';
-import { type OauthStateStore, createInMemoryOauthStateStore } from './state-store-binding.js';
 import type { SupervisorBinding } from './supervisor-binding.js';
 import type { TenantHostAccess } from './tenant-host-access.js';
 import type { TokenAdmin } from './token-admin.js';
@@ -267,6 +265,10 @@ export interface CreateAppInput {
    *   - `/v1/compliance/*` is mounted as a view filtered to
    *     classifier-marked exportable kinds (needs
    *     `complianceClassifier` too).
+   *   - Every secret and env write through `/v1/secrets` and `/v1/env` is
+   *     recorded at the route (`secret-set`, `secret-rotated`,
+   *     `secret-revoked`, `env-set`, `env-deleted`, …): the caller as
+   *     `actor`, the request as `correlationId`, never a value.
    * Absent = no durable audit trail; every subsystem's audit
    * writes become no-ops.
    *
@@ -286,7 +288,7 @@ export interface CreateAppInput {
    * `auditEvents` + `complianceClassifier` are provided (i.e., when
    * `/v1/compliance/*` mounts). The Kindgi runtime supplies the
    * generator (or pass a bespoke implementation). The public interface
-   * has recordFromRun / exportSigned / describe; implementations may add
+   * has recordFromRun / describe; implementations may add
    * more (e.g. subscriptions), which @kindgi/api doesn't use.
    */
   readonly complianceGenerator?: ComplianceEvidenceGenerator;
@@ -297,6 +299,14 @@ export interface CreateAppInput {
    * store (Postgres, Redis, etc.).
    */
   readonly idempotencyStore?: IdempotencyStore;
+  /**
+   * Optional. Seals every list's page cursors (`createAeadCursorSealer`
+   * with the runtime's pagination key): a cursor then shows nothing of the
+   * row it points after, and opens only for the tenant, caller, list and
+   * filters it was handed out for, for a day. Absent: cursors are the
+   * bindings' own, readable positions.
+   */
+  readonly cursorSealer?: CursorSealer;
   /**
    * Optional. When present, mounts the API-key routes: `POST /v1/tokens`
    * (mint), `GET /v1/tokens` (list), `GET /v1/tokens/:tokenId` and
@@ -317,6 +327,13 @@ export interface CreateAppInput {
    * `501 person-grants-unsupported`. Needs `identityDirectory`.
    */
   readonly personGrants?: PersonGrantsBinding;
+  /**
+   * Optional. What the caller holds, for `GET /v1/identity/me/permissions`:
+   * its projects with their roles, its orgs and teams, and what each
+   * project role allows, from the authorization model. Without it, that
+   * route answers `501 permissions-unsupported`.
+   */
+  readonly myAccess?: MyAccessBinding;
   /**
    * Optional. When present, mounts the HITL surface:
    *   - `GET /v1/approvals` (list, role-scoped)
@@ -477,11 +494,6 @@ export interface CreateAppInput {
    * binding.
    */
   readonly exportSigning?: ExportSigningBinding;
-  /**
-   * @deprecated Use `exportSigning`. Still read, as its Ed25519 keys
-   * (`exportSignerFromSigningKeyBinding`), when `exportSigning` isn't given.
-   */
-  readonly signingKey?: SigningKeyBinding;
   /**
    * Optional. Issue and accept public run tokens (`kgi_pt_…`):
    * short-lived, read-only tokens a browser uses to follow specific runs
@@ -735,9 +747,9 @@ export interface CreateAppInput {
    */
   readonly s3Credentials?: S3CredentialBinding;
   /**
-   * Optional. When present, mounts the OAuth session persistence
-   * surface. Combined with `identityProvider` + `exchangeCode` (below),
-   * this activates the full `/v1/auth/*` route family. The static
+   * Optional. When present, mounts the session persistence surface.
+   * Combined with `identityProvider` (below), this activates the
+   * `/v1/auth/*` route family. The static
    * bearer-token flow remains available on the same routes byte-
    * shape-identical; the middleware detects `kgi_sk_*` prefixed
    * tokens and routes them through this store.
@@ -757,44 +769,23 @@ export interface CreateAppInput {
   readonly session?: SessionConfig;
   /**
    * Optional. When present alongside `sessionStore`, mounts the
-   * identity-provider catalog, refresh and logout at `/v1/auth/*`; with
-   * `exchangeCode` too, also this package's own OAuth flow
-   * (`/login/:providerId` and the callback).
+   * identity-provider catalog, refresh and logout at `/v1/auth/*`. Sign-in
+   * itself runs in the deployment (its browser flow), which reads the
+   * catalog.
    *
-   * Deployments register their OAuth/OIDC providers at boot (or via
+   * Deployments register their OIDC and SAML providers at boot (or via
    * `POST /v1/auth/providers`); the framework does NOT bake in a
    * provider list.
    */
   readonly identityProvider?: IdentityProviderBinding;
   /**
-   * Optional: the deployment's own code exchange. With it (and
-   * `identityProvider` + `sessionStore`), `POST /v1/auth/login/:providerId`
-   * and `POST /v1/auth/callback/:providerId` mount; a deployment whose
-   * sign-in runs elsewhere (a browser flow of its own) leaves it out.
-   * Called by `POST /v1/auth/callback/:providerId` to exchange the authorization
-   * code for provider tokens + userinfo. Deployments implementing
-   * `IdentityProviderBinding` typically pair it with their own
-   * `exchangeCode` that speaks OAuth 2.0 + PKCE against the provider's
-   * `tokenEndpoint`.
+   * Who may add, change and remove the tenant's identity providers:
+   * `tenant` (default) its admins; `operator` only the deployment's own
+   * token (`kindgi:system`), for a deployment whose operator manages
+   * sign-in. Changes answer `403 identity-providers-operator-managed`
+   * otherwise; reads and sign-in are unchanged.
    */
-  readonly exchangeCode?: ExchangeCodeFn;
-  /**
-   * Optional. When present, `POST /v1/auth/refresh` rotates the
-   * underlying provider tokens via this callback before re-issuing a
-   * session token. When absent, refresh only rotates the framework's
-   * session token (still useful for scoping expiry to the framework
-   * boundary; the provider tokens keep their original TTL).
-   */
-  readonly refreshToken?: RefreshTokenFn;
-  /**
-   * Optional. Short-lived CSRF-`state` + PKCE-`code_verifier` cache
-   * used between login initiation and callback. When absent, a per-app
-   * in-memory store is used — appropriate for single-process dev + tests.
-   * Multi-pod deployments MUST plug in a shared store (Redis, Postgres)
-   * because the callback frequently lands on a different pod than the
-   * login. Mirror of the `idempotencyStore` caller-plugged pattern.
-   */
-  readonly oauthStateStore?: OauthStateStore;
+  readonly identityProviderChanges?: 'tenant' | 'operator';
   /**
    * The rate limit on `GET /v1/auth/sign-in-options` (unauthenticated):
    * requests per client per window, and how to tell clients apart.
@@ -1027,11 +1018,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   const app = new Hono<AppEnv>();
 
   const runBinding = input.kernelBinding.run;
-  const exportSigning =
-    input.exportSigning ??
-    (input.signingKey !== undefined
-      ? exportSignerFromSigningKeyBinding(input.signingKey)
-      : undefined);
+  const exportSigning = input.exportSigning;
   const exportOptions = {
     ...(exportSigning !== undefined && { exportSigning }),
     ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
@@ -1041,6 +1028,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   app.use('*', requestIdMiddleware());
   // The request's trace context and logger, and its access line.
   app.use('*', requestLogMiddleware(input.logger ?? noopLogger));
+  // No `/v1` answer is kept by a browser or a proxy (data and errors alike).
+  app.use('/v1/*', noStoreMiddleware());
   // A thrown exception: a 500 wire error with its message and request id, logged.
   app.onError(mapThrownError);
 
@@ -1125,6 +1114,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   });
   // A key limited to a project names no other one.
   v1.use('*', refuseOtherProjectForKey());
+  // Page cursors are sealed at the edge, for every list.
+  if (input.cursorSealer !== undefined) v1.use('*', sealedCursors(input.cursorSealer));
   const authorizer: Authorizer | undefined =
     input.authz !== undefined ? createAuthorizer(input.authz.authzCheckBinding) : undefined;
 
@@ -1142,6 +1133,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       runBinding,
       {
         ...(input.eventBus !== undefined && { eventBus: input.eventBus }),
+        ...(input.hitlBinding !== undefined && { hitl: input.hitlBinding }),
         ...(input.agentRegistry !== undefined &&
           input.flowRegistry !== undefined && {
             targetExists: async (tenantId, target) =>
@@ -1392,10 +1384,12 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(input.reviewerBinding !== undefined && { reviewerBinding: input.reviewerBinding }),
       ...(authorizer !== undefined && { authorizer }),
       ...(input.personGrants !== undefined && { personGrants: input.personGrants }),
+      ...(input.myAccess !== undefined && { myAccess: input.myAccess }),
+      ...(input.envBinding !== undefined && { tenantConfig: input.envBinding }),
     }),
   );
   if (input.cost !== undefined) {
-    v1.route('/cost', costRouter(input.cost, authorizer));
+    v1.route('/cost', costRouter(input.cost, authorizer, input.projectBinding));
   }
   if (input.adapterRegistry !== undefined) {
     v1.route(
@@ -1524,7 +1518,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // store — an in-memory reference is used when the caller doesn't
   // plug in a durable one.
   if (input.envBinding !== undefined) {
-    v1.route('/env', envRouter(input.envBinding, authorizer));
+    v1.route('/env', envRouter(input.envBinding, authorizer, input.auditEvents));
   }
   // Audit query surface. Admin-only PEP applied inside the router
   // (self-contained; no plumbing here).
@@ -1538,6 +1532,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         secretsBinding: input.secretsBinding,
         rotationStatusStore: input.rotationStatusStore ?? createInMemoryRotationStatusStore(),
         ...(authorizer !== undefined && { authorizer }),
+        ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
       }),
     );
   }
@@ -1618,41 +1613,42 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     v1.route('/eval-runs', evalRuns.readback);
   }
   // ---------- auth routes ----------
-  // Requires all three bindings: session store + identity-provider
-  // catalog + code exchange. When wired, the authed sub-router mounts
-  // under `/v1/auth/*` (protected by the same bearer chain, so callers
-  // authenticate with either a static bearer or a session token to
-  // reach it), and the callback sub-router mounts OUTSIDE the bearer
-  // chain at `/v1/auth/callback/*` because the redirect from the
-  // provider carries no framework token yet.
+  // The session store + identity-provider catalog: the auth router mounts
+  // under `/v1/auth/*`, behind the same bearer chain (a static bearer or a
+  // session token reaches it).
   if (input.sessionStore !== undefined && input.identityProvider !== undefined) {
-    const routers = authRouters({
-      sessionStore: input.sessionStore,
-      identityProvider: input.identityProvider,
-      ...(input.exchangeCode !== undefined && { exchangeCode: input.exchangeCode }),
-      ...(input.refreshToken !== undefined && { refreshToken: input.refreshToken }),
-      stateStore: input.oauthStateStore ?? createInMemoryOauthStateStore(),
-      ...(authorizer !== undefined && { authorizer }),
-      ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
-    });
-    v1.route('/auth', routers.authed);
-    // Callback mounts on the parent `app` under /v1/auth/callback so it
-    // bypasses the bearer chain. The v1 router's use('*', bearer) has
-    // already been installed above, so we mount at the parent scope.
-    // Only the deployment's own code exchange serves it.
-    if (input.exchangeCode !== undefined) app.route('/v1/auth/callback', routers.callback);
+    v1.route(
+      '/auth',
+      authRouter({
+        sessionStore: input.sessionStore,
+        identityProvider: input.identityProvider,
+        ...(authorizer !== undefined && { authorizer }),
+        ...(input.identityProviderChanges !== undefined && {
+          providerChanges: input.identityProviderChanges,
+        }),
+        ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
+      }),
+    );
   }
   // How a person can sign in, before anyone is: outside the bearer chain
-  // too (mounted ahead of `/v1`, like the callback). Always mounted, so the
+  // (mounted ahead of `/v1`). Always mounted, so the
   // console and `kindgi doctor` get a definite answer even when there is no
   // way in at all: the case an operator most needs to hear about.
   const cookieSessions = input.sessionStore !== undefined && input.session?.cookie !== undefined;
   const tokenSignIn = cookieSessions && input.session?.tokenSignIn === true;
+  const sessionCookie = sessionCookieOf(input.session?.cookie);
+  // A browser refuses `__Host-` / `__Secure-` cookies that aren't `Secure`.
+  if (!sessionCookie.secure && /^__(Host|Secure)-/.test(sessionCookie.name)) {
+    throw new Error(
+      `createApp: session.cookie.secure is false, so its name can't start with __Host- or __Secure- (got ${sessionCookie.name}); leave name unset for ${'`kindgi_session`'}.`,
+    );
+  }
   app.route(
     '/v1/auth/sign-in-options',
     signInOptionsRouter({
       ...(input.identityProvider !== undefined && { identityProvider: input.identityProvider }),
       tokenSignIn,
+      ...(cookieSessions && { sessionCookie: sessionCookie.secure ? 'secure' : 'plain' }),
       ...(input.signInOptionsRateLimit !== undefined && {
         rateLimit: input.signInOptionsRateLimit,
       }),
@@ -1678,7 +1674,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
             enabled: true,
             sessionStore: input.sessionStore,
             ttlMs: input.session.ttl ?? DEFAULT_TOKEN_SIGN_IN_TTL_MS,
-            cookieName: input.session.cookie.name ?? SESSION_COOKIE_NAME,
+            cookieName: sessionCookieOf(input.session.cookie).name,
+            cookieSecure: sessionCookieOf(input.session.cookie).secure,
             ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
           }
         : { enabled: false },

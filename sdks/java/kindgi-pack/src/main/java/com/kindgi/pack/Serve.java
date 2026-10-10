@@ -15,9 +15,12 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.TreeSet;
 import java.util.regex.Pattern;
 import org.jspecify.annotations.Nullable;
 
@@ -39,6 +42,10 @@ import org.jspecify.annotations.Nullable;
  *   <li>port: {@code PORT} (default 8080; {@code 0} picks one)
  *   <li>host: {@code --host}, else every interface
  *   <li>env check: {@code KINDGI_PACK_ENV_CHECK}, {@code strict} (default) or {@code warn}
+ *   <li>env filter: {@code KINDGI_PACK_ENV_FILTER}, {@code on} (default) or {@code off}. On, a
+ *       name the pack doesn't declare must not reach the service ({@link PackEnv}): the launcher
+ *       drops them, and the service logs their names ({@code env-dropped}) or, when one still
+ *       reaches it, fails the boot
  * </ul>
  *
  * Logs are {@code com.kindgi.log} records on stderr (subsystem {@code pack}), at {@code
@@ -70,8 +77,11 @@ final class Serve {
    * @param host the address to listen on; {@code null} for every interface
    * @param maxConcurrency calls run at once
    * @param envCheck {@code strict} or {@code warn}
+   * @param envFilter {@code on} or {@code off}
    */
-  record Config(Path index, String token, int port, @Nullable String host, int maxConcurrency, String envCheck) {}
+  record Config(
+      Path index, String token, int port, @Nullable String host, int maxConcurrency, String envCheck,
+      String envFilter) {}
 
   static int main(List<String> argv, PrintStream err) {
     // The process has a terminal (Java 17 can't ask about stderr alone): a supervisor's pipes never do.
@@ -92,7 +102,7 @@ final class Serve {
     }
     Config c = (Config) config;
     ClassLoader loader = Thread.currentThread().getContextClassLoader();
-    Object service = load(c, System.getenv(), loader, logs);
+    Object service = load(c, System.getenv(), System.getProperty(PackEnv.DROPPED_PROPERTY), loader, logs);
     if (service instanceof List) {
       logs.event(PackLogs.Event.BOOT_FAILED, "The pack service failed to boot", Map.of("problems", service));
       return 1;
@@ -161,10 +171,15 @@ final class Serve {
     if (!envCheck.equals("strict") && !envCheck.equals("warn")) {
       problems.add("KINDGI_PACK_ENV_CHECK must be `strict` or `warn`, not " + Json.compactString(envCheck));
     }
-    if (!problems.isEmpty()) {
+    String rawFilter = env.get(PackEnv.FILTER_VAR);
+    String envFilter = PackEnv.parseFilter(rawFilter);
+    if (envFilter == null) {
+      problems.add(PackEnv.FILTER_VAR + " must be `on` or `off`, not " + Json.compactString(rawFilter));
+    }
+    if (!problems.isEmpty() || envFilter == null) {
       return problems;
     }
-    return new Config(index, token, port, args.get("--host"), maxConcurrency, envCheck);
+    return new Config(index, token, port, args.get("--host"), maxConcurrency, envCheck, envFilter);
   }
 
   /** The token the launcher wrote on a file descriptor: read once (a pipe, so nothing is left to read). */
@@ -178,9 +193,15 @@ final class Serve {
     }
   }
 
-  /** Reads the index, loads every class it names; the service, or the problems. */
+  /**
+   * Reads the index, loads every class it names; the service, or the problems.
+   *
+   * @param envDropped the names the launcher dropped, comma-separated ({@code
+   *     -Dkindgi.pack.envDropped}); {@code null} when it dropped none
+   */
   @SuppressWarnings("unchecked")
-  static Object load(Config config, Map<String, String> environ, ClassLoader loader, PackLogs logs) {
+  static Object load(
+      Config config, Map<String, String> environ, @Nullable String envDropped, ClassLoader loader, PackLogs logs) {
     Map<String, Object> index;
     try {
       Object parsed = Json.parse(Files.readAllBytes(config.index()));
@@ -195,13 +216,32 @@ final class Serve {
     if (!(v instanceof Number) || ((Number) v).doubleValue() != Indexer.INDEX_ENVELOPE_VERSION) {
       return List.of("Index envelope v" + v + " is not v1");
     }
+    Map<String, Object> pack = new LinkedHashMap<>();
+    pack.put("packId", index.get("packId"));
+    pack.put("artifactVersion", index.get("artifactVersion"));
+    // Before a class of the pack's loads: only the names it declares (and Kindgi's and the
+    // platform's) may reach it. The launcher dropped the rest; the service checks.
+    if (config.envFilter().equals("on")) {
+      List<String> problems = envProblems(index.get("env"), environ);
+      if (!problems.isEmpty()) {
+        return problems;
+      }
+      List<String> dropped = new ArrayList<>(PackEnv.names(envDropped == null ? "" : envDropped));
+      if (!dropped.isEmpty()) {
+        Collections.sort(dropped);
+        Map<String, Object> fields = new LinkedHashMap<>();
+        fields.put("event", "env-dropped");
+        fields.put("kind", "env-dropped");
+        fields.put("names", dropped);
+        logs.log().child(pack).warn("Dropped " + (dropped.size() == 1 ? "a variable" : dropped.size() + " variables")
+            + " the pack doesn't declare: " + String.join(", ", dropped) + " (declare them in the pack's env, or set "
+            + PackEnv.FILTER_VAR + "=off)", fields);
+      }
+    }
     List<String> missing = PackService.missingModules(index, loader);
     if (!missing.isEmpty()) {
       return missing;
     }
-    Map<String, Object> pack = new LinkedHashMap<>();
-    pack.put("packId", index.get("packId"));
-    pack.put("artifactVersion", index.get("artifactVersion"));
     // Logs a missing variable before the classes load: it's often why one fails.
     PackService service = new PackService(
         index, config.token(), config.maxConcurrency(), config.envCheck(), environ, logs.log().child(pack));
@@ -210,6 +250,29 @@ final class Serve {
       return failures;
     }
     return service;
+  }
+
+  /**
+   * With the filter on: names the pack doesn't declare that reach the service (the launcher didn't
+   * drop them), or a launcher list that isn't the pack's declared names.
+   */
+  private static List<String> envProblems(@Nullable Object env, Map<String, String> environ) {
+    List<String> undeclared = PackEnv.reachingTheJvm(env, environ);
+    if (!undeclared.isEmpty()) {
+      return List.of((undeclared.size() == 1 ? "A variable" : undeclared.size() + " variables")
+          + " the pack doesn't declare " + (undeclared.size() == 1 ? "reaches" : "reach") + " the service: "
+          + String.join(", ", undeclared) + ". Start it through kindgi-pack-java with " + PackEnv.DECLARED_VAR
+          + " set to the names the pack declares (a kindgi build image does both), declare them in the pack's env,"
+          + " or set " + PackEnv.FILTER_VAR + "=off");
+    }
+    String listed = environ.get(PackEnv.DECLARED_VAR);
+    Set<String> declared = PackEnv.declared(env);
+    if (listed != null && !new TreeSet<>(PackEnv.names(listed)).equals(declared)) {
+      return List.of(PackEnv.DECLARED_VAR + " (" + Json.compactString(listed) + ") isn't the pack's declared env ("
+          + Json.compactString(String.join(",", declared)) + "): rebuild the image, or set it to the index's"
+          + " env.required and env.optional");
+    }
+    return List.of();
   }
 
   static void serve(Config config, PackService service, PackLogs logs) {
