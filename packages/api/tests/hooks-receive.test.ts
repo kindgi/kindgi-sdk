@@ -59,6 +59,8 @@ function setup(options: { publicUrl?: string } = {}) {
     [PROVIDER_KEY, 'sk-acme-provider'],
   ]);
   const resolved: string[] = [];
+  // A name here fails to read with this code (a store or provider failure).
+  const failing = new Map<string, string>();
   // While set, a read takes its value, then waits here (a slow store).
   let held: Promise<void> | undefined;
   const holdReads = () => {
@@ -74,6 +76,10 @@ function setup(options: { publicUrl?: string } = {}) {
   const secrets = {
     async resolve(input: { name: string }) {
       resolved.push(input.name);
+      const failure = failing.get(input.name);
+      if (failure !== undefined) {
+        return { kind: 'err', error: { code: failure, message: 'the store failed' } };
+      }
       const value = stored.get(input.name);
       if (held !== undefined) await held;
       return value === undefined
@@ -197,6 +203,7 @@ function setup(options: { publicUrl?: string } = {}) {
     answers,
     writeSecret,
     holdReads,
+    failing,
   };
 }
 
@@ -622,6 +629,32 @@ describe("the trigger's signing key", () => {
     expect(
       (await deliver(t.webhookId, one, wooHeaders(one, 'w1', 'acmeWrittenSecret8'))).status,
     ).toBe(202);
+  });
+
+  test("a secret that can't verify until it's written: one read a TTL, and a write ends it at once", async () => {
+    const { register, deliver, resolved, stored, writeSecret } = setup();
+    const t = await register(WOO);
+    stored.delete(WOO_SECRET);
+    const reads = () => resolved.filter((n) => n === WOO_SECRET).length;
+    for (let i = 0; i < 20; i++) {
+      const res = await deliver(t.webhookId, ORDER, wooHeaders(ORDER, `u${i}`));
+      expect(res.status).toBe(401);
+    }
+    expect(reads()).toBe(1);
+    await writeSecret(WOO_SECRET, WOO_SECRET);
+    expect((await deliver(t.webhookId, ORDER, wooHeaders(ORDER, 'u-written'))).status).toBe(202);
+  });
+
+  test("a store that fails isn't kept: the next request reads again", async () => {
+    const { register, deliver, resolved, failing } = setup();
+    const t = await register(WOO);
+    failing.set(WOO_SECRET, 'secret-provider-unavailable');
+    for (let i = 0; i < 3; i++) {
+      expect((await deliver(t.webhookId, ORDER, wooHeaders(ORDER, `f${i}`))).status).toBe(401);
+    }
+    expect(resolved.filter((n) => n === WOO_SECRET)).toHaveLength(3);
+    failing.delete(WOO_SECRET);
+    expect((await deliver(t.webhookId, ORDER, wooHeaders(ORDER, 'f-back'))).status).toBe(202);
   });
 
   test('a read a write overtook is used once, not kept', async () => {

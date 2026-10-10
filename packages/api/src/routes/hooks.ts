@@ -85,6 +85,16 @@ const WARN_EVERY_MS = 60_000;
 /** The most signing keys kept at once; past it, the expired go, else the oldest. */
 const MAX_SIGNING_KEYS = 1_000;
 const SCHEME_KINDS = ['hmac-sha256', 'standard-webhooks'] as const;
+/**
+ * A secret that won't verify anything until someone writes it: kept as
+ * unavailable for the TTL too, so a flood at its trigger costs one read.
+ * A store or provider failure isn't kept: it may pass in a second.
+ */
+const SECRET_UNAVAILABLE_UNTIL_WRITTEN = new Set([
+  'secret-not-found',
+  'secret-revoked',
+  'provider-key-refused',
+]);
 /** WooCommerce's save-time ping: `webhook_id=<n>`, unsigned. */
 const WOO_PING_RE = /^webhook_id=\d{1,20}$/;
 
@@ -128,10 +138,14 @@ export function hooksRouter(options: HooksRouterOptions): Hono<AppEnv> {
   const now = options.now ?? Date.now;
   /**
    * Signing keys by tenant, secret name and scheme, each until its TTL: a
-   * `KeyObject`, never the secret as a string. `writes` counts the writes
-   * heard, so a read that a write overtook isn't kept.
+   * `KeyObject`, never the secret as a string, or `undefined` for a secret
+   * that can't verify until it's written. `writes` counts the writes heard,
+   * so a read that a write overtook isn't kept.
    */
-  const signingKeys = new Map<string, { readonly key: KeyObject; readonly until: number }>();
+  const signingKeys = new Map<
+    string,
+    { readonly key: KeyObject | undefined; readonly until: number }
+  >();
   let writes = 0;
   options.secretWrites?.subscribe((written) => {
     writes += 1;
@@ -167,8 +181,10 @@ export function hooksRouter(options: HooksRouterOptions): Hono<AppEnv> {
   /**
    * The trigger's signing key: kept from an earlier read for up to the TTL,
    * else its secret read and the key derived. `undefined` when the secret
-   * can't be read or used with the scheme (never kept, so a fix is seen at
-   * once).
+   * can't be read or used with the scheme: kept too when only a write can
+   * change that (missing, revoked, a provider's key, a value the scheme
+   * can't use), and a write through this app drops it at once; a store
+   * failure isn't kept.
    */
   async function signingKeyOf(found: FoundWebhookTrigger): Promise<KeyObject | undefined> {
     const id = signingKeyId(found.tenantId, found.hmacSecretName, found.signature.kind);
@@ -181,14 +197,18 @@ export function hooksRouter(options: HooksRouterOptions): Hono<AppEnv> {
       name: found.hmacSecretName,
       resolveContext: { caller: 'webhook-receiver' },
     });
-    if (secret.kind === 'err') return undefined;
-    const derived = inboundSigningKey(found.signature, secret.value.value);
-    if (derived.kind === 'err') return undefined;
-    if (writes === writesBefore) keep(id, derived.key);
-    return derived.key;
+    const derived =
+      secret.kind === 'err' ? undefined : inboundSigningKey(found.signature, secret.value.value);
+    const key = derived?.kind === 'ok' ? derived.key : undefined;
+    const lasting =
+      key !== undefined ||
+      derived?.kind === 'err' ||
+      (secret.kind === 'err' && SECRET_UNAVAILABLE_UNTIL_WRITTEN.has(secret.error.code));
+    if (lasting && writes === writesBefore) keep(id, key);
+    return key;
   }
 
-  function keep(id: string, key: KeyObject): void {
+  function keep(id: string, key: KeyObject | undefined): void {
     signingKeys.delete(id);
     if (signingKeys.size >= MAX_SIGNING_KEYS) {
       const at = now();

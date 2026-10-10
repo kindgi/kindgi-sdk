@@ -111,6 +111,26 @@ export interface SecretWrites {
 }
 
 /**
+ * Every member of {@link SecretBinding}, by how a wrapper passes it on. A
+ * member added to the interface (optional ones too) fails the typecheck
+ * here until it's listed, and a test holds {@link observeSecretWrites} to
+ * the list, so no wrapper drops one unseen.
+ */
+export const SECRET_BINDING_MEMBERS: Readonly<
+  Record<keyof SecretBinding, 'read' | 'write' | 'flag'>
+> = {
+  list: 'read',
+  get: 'read',
+  resolve: 'read',
+  getVersion: 'read',
+  listVersions: 'read',
+  set: 'write',
+  rotate: 'write',
+  revoke: 'write',
+  writesAppEnvFiles: 'flag',
+};
+
+/**
  * `binding`, with each write through it (`set`, `rotate`, `revoke`) told to
  * the listeners once it returns or throws, whatever its outcome: a listener
  * drops what it kept of that secret, and a needless drop costs one read. A
