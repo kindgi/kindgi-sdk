@@ -138,7 +138,9 @@ export async function emitLifecycleEvent(input: EmitLifecycleEventInput): Promis
   const payload = buildLifecyclePayload(input);
   const actor =
     input.actor ??
-    (input.resolveContext !== undefined ? actorFromResolveContext(input.resolveContext) : undefined);
+    (input.resolveContext !== undefined
+      ? actorFromResolveContext(input.resolveContext)
+      : undefined);
   const event = buildEvent({
     tenantId: input.tenantId,
     ...(input.projectId !== undefined && { projectId: input.projectId }),
