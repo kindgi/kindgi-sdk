@@ -265,14 +265,15 @@ to use Chrome or Firefox: Safari can't keep the local sign-in over http yet
    kindgi providers register --preset=openai
    ```
 
-   `secrets set` writes the key to the project's `.env.local`, which git
-   ignores. It needs `kindgi dev` running. `kindgi providers presets` lists
+   `secrets set` writes the key to Kindgi's own `.kindgi/secrets.env`, which
+   git ignores and the app doesn't load. It needs `kindgi dev` running. `kindgi providers presets` lists
    the presets and their models.
 3. Clear the clipboard, if this OS lets you.
 4. Run doctor again; `model-key` and `provider` should pass.
 
 Doctor's `model-key` only checks that a key is saved: a wrong key shows as a
-`401` on the first run. Then don't open, measure or print `.env.local`. Ask
+`401` on the first run. Then don't open, measure or print
+`.kindgi/secrets.env` or the app's env files. Ask
 the person to copy the key again (they can check it in their provider's
 console), and run the
 `secrets set` command again with `--write-mode=add-version`: without it, a
@@ -301,7 +302,7 @@ register the provider again or to restart `kindgi dev`.
 Tell the person, in your own words:
 
 > **Your first agent answered.** It runs on your machine, with your model
-> key in `.env.local`; Kindgi keeps running in the background until you stop
+> key in `.kindgi/secrets.env`; Kindgi keeps running in the background until you stop
 > it with `kill <the process id>`. Three things to try next:
 >
 > 1. **Give it a tool:** ask me "add a tool that looks up an order, and let

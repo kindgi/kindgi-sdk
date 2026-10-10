@@ -279,15 +279,17 @@ your staging or production one, gets its providers with
 
 ## Keys
 
-With `kindgi dev`, a provider's key is read from the pack's env files, `.env`
-and then `.env.local`, when a turn calls the model. To store one without
+With `kindgi dev`, a provider's key is read from your app's env files, `.env`
+and then `.env.local`, and then Kindgi's own `.kindgi/secrets.env`, which wins
+on a clash, when a turn calls the model. To store one without
 echoing it, with `kindgi dev` running:
 
 ```sh
 kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant
 ```
 
-It prompts for the value and writes it to `.env.local`. In a script, pipe it
+It prompts for the value and writes it to `.kindgi/secrets.env`, which your
+app doesn't load. In a script, pipe it
 in with `--from-stdin`. To replace a key that's already set, add
 `--write-mode=add-version`.
 

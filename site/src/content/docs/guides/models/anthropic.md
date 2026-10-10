@@ -1,6 +1,6 @@
 ---
 title: Connect Anthropic
-description: Register Claude from the Anthropic preset, with your API key in the pack's env files instead of your code.
+description: Register Claude from the Anthropic preset, with your API key stored as a secret instead of in your code.
 sidebar:
   order: 1
 ---
@@ -17,10 +17,12 @@ With `kindgi dev` running, in the pack:
 kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant
 ```
 
-It prompts for the key without echoing it and writes it to the pack's
-`.env.local`. A line `ANTHROPIC_API_KEY=…` in the pack's `.env` works too, so a
-pack inside an app whose `.env` already has the key needs nothing more. Keep
-both files out of git.
+It prompts for the key without echoing it and writes it to Kindgi's own
+`.kindgi/secrets.env`, a file only you can read, which your app doesn't load.
+A line `ANTHROPIC_API_KEY=…` in your app's `.env` or `.env.local` works too,
+and `kindgi secrets copy` gives Kindgi its own copy of it
+([Keep local values in env files](../../secrets/env-files/#a-key-your-apps-env-files-already-hold)).
+Keep your env files out of git; `kindgi init` already keeps `.kindgi/` out.
 
 ## 2. Register the preset
 

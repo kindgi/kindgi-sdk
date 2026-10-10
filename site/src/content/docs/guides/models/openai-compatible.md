@@ -81,7 +81,7 @@ There's no `secret_ref`: Ollama takes no key.
 ## An endpoint with a key
 
 A hosted endpoint takes a key. Name the secret that holds it in `secret_ref`,
-and store the key in the pack's env files (see [Keys](../#keys)). The
+and store the key as a secret (see [Keys](../#keys)). The
 endpoint's documentation gives its base URL and its model names:
 
 ```json
