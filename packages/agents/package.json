@@ -20,6 +20,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./migrations": {
+      "types": "./dist/migrations-dir.d.ts",
+      "import": "./dist/migrations-dir.js",
+      "default": "./dist/migrations-dir.js"
     }
   },
   "files": ["dist", "src", "migrations", "README.md", "SPEC.md", "type-manifest.json"],
