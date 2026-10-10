@@ -35,6 +35,7 @@ export const PROJECT_REF_ROUTES: readonly string[] = [
   '/eval-runs/:runId/rescore',
   '/blocks',
   '/schedules',
+  '/webhooks',
   '/service-accounts/:serviceAccountId/grant',
   '/service-accounts/:serviceAccountId/ungrant',
 ];

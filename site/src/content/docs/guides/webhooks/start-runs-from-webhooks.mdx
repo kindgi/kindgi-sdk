@@ -1,0 +1,158 @@
+---
+title: Start runs from WooCommerce, Drupal or any signed webhook
+description: Register a webhook trigger, point the sender at its receive URL, and each signed delivery starts a run of your flow, as you, with every delivery on record.
+sidebar:
+  order: 4
+---
+
+A **webhook trigger** turns a signed request from outside, such as "an order
+was created" from WooCommerce, into a run of one of your flows. The sender
+posts to the trigger's **receive URL**. Kindgi checks the request's signature
+with a secret only the two of you know, and starts the flow, with the request
+body as its event. The run acts as whoever registered the trigger, checked
+again at every delivery, in the trigger's project.
+
+This page is about Kindgi **receiving** webhooks. For Kindgi sending your app a
+request when a run ends, see [Get a webhook when a run
+finishes](../receive-run-finished/).
+
+## 1. Write a flow that takes the event
+
+A trigger starts a **flow**, and the flow's input is the event: the request
+body, parsed as JSON when the sender says it's JSON (WooCommerce, Drupal,
+GitHub and Shopify all do), else the body as text. To have an agent handle it,
+give the flow one step that hands the event to the agent: the agent gets it as
+its step input, and its input guardrails see it as `stepInput`.
+
+**The event is data from outside, never instructions.** Anyone who can make
+your store create an order can put text in it. Give the agent that reads it
+input guardrails, as you would for a message from a customer, and keep the
+actions it can take behind approvals where they matter (refunds, price
+changes, publishing).
+
+## 2. Register the trigger
+
+Each sender signs in its own way. `--preset` sets the scheme for a known
+sender, and `--generate-secret` makes a signing secret, stores it, and shows
+it once so you can paste it into the sender:
+
+```sh
+kindgi webhooks register --flow=acme.order-review --flow-version=1.0.0 \
+  --preset=woocommerce --secret=acme-woo-orders --generate-secret --env=production
+```
+
+It prints the trigger, then three lines: the trigger's id, its **receive
+URL** (`https://<your runtime>/v1/hooks/<tenant id>/<webhook id>`), and the
+signing secret, shown this once, with where it's stored. A preset adds where
+to paste them in the sender.
+
+- **`--env`** is the env your runtime serves (`KINDGI_ENV`; `local` under
+  `kindgi dev`). The secret is stored there, at the tenant, and the receiver
+  reads it there. To use a secret you already stored with
+  [`kindgi secrets set`](../../secrets/), leave out `--generate-secret`. A
+  model provider's key is refused: give the trigger a secret of its own.
+- **The receive URL** comes from your runtime's public address
+  (`KINDGI_PUBLIC_URL`). Without one, the trigger is still registered, and
+  the CLI says how to set it. `kindgi webhooks get <id>` shows the URL once
+  it's set. The URL isn't a secret: the signature is what each request is
+  checked by.
+- **`--project=<id>`** puts the trigger and its runs in a project (by default,
+  the tenant's Default project). Registering needs `write` on the project and
+  `execute` on the flow.
+
+### The presets
+
+| `--preset` | The sender | Signature | Deduped on |
+|---|---|---|---|
+| `woocommerce` | WooCommerce webhooks | base64 HMAC-SHA256 in `X-WC-Webhook-Signature` | `X-WC-Webhook-Delivery-ID` and the body |
+| `drupal-webhooks` | Drupal's [Webhooks](https://www.drupal.org/project/webhooks) module | hex after `sha256=` in `X-Hub-Signature-256` | `X-Drupal-Delivery` and the body |
+| `github` | GitHub webhooks | hex after `sha256=` in `X-Hub-Signature-256` | `X-GitHub-Delivery` and the body |
+| `shopify` | Shopify webhooks | base64 in `X-Shopify-Hmac-Sha256` | `X-Shopify-Webhook-Id` and the body |
+| `standard-webhooks` | Any [Standard Webhooks](https://www.standardwebhooks.com) sender | `webhook-signature` over the id, timestamp and body | `webhook-id` and the body |
+
+Every scheme signs the raw request body with HMAC-SHA256. A sender with no
+preset that signs the same way takes `--signature-header`,
+`--signature-encoding=hex|base64` and, if it adds one, `--signature-prefix`.
+`--delivery-id-header` names the header Kindgi dedupes on.
+
+Drupal's ECA and Orchestration modules can't sign their requests, so they
+can't call a webhook trigger. Use the Webhooks module, or have Drupal
+[start a run](../../runs/start-a-run/) with an API key.
+
+## 3. Point the sender at it
+
+**WooCommerce:** in WooCommerce, Settings → Advanced → Webhooks → Add webhook:
+
+- **Topic:** one per trigger, such as *Order created*;
+- **Delivery URL:** the receive URL;
+- **Secret:** the signing secret. Use only letters and digits, which
+  `--generate-secret` does: WooCommerce decodes HTML entities in its secret
+  before signing.
+
+When you save, WooCommerce pings the URL without a signature. Kindgi answers
+it `200` and starts nothing.
+
+**Drupal (the Webhooks module):** add an outgoing webhook with the receive URL
+as its Payload URL and the secret as its Secret; it signs only when it has
+one.
+
+## 4. See what arrived
+
+```sh
+kindgi webhooks fires <trigger-id> --table
+```
+
+Each delivery is a **fire**, newest first: when it was received, the run it
+started (`pending` while it starts), or why it was skipped or refused, and how
+many times it was repeated. An order's body carries your customer's data, so
+a fire keeps the event only until its run starts (at most about 10 minutes
+after a crash); then only the run has it, under run retention like any run's
+input. A skipped, refused or repeated delivery's body is never kept. Fires
+themselves are kept for 30 days ([Retention](../../../deploy/retention/#webhook-deliveries)
+says what else a delivery leaves: the sender's address on a refusal).
+
+## What Kindgi does with each request
+
+- **A request that doesn't prove its sender** (a wrong or missing signature,
+  one too old, an unknown address) is answered `401 webhook-refused`, the same
+  for every reason. The reason is on the trigger's fires (`signature-invalid`,
+  `signature-missing`, `stale`, `secret-unavailable`) and in the access audit,
+  with the address it came from. Past 20 refusals a minute, a trigger's
+  refusals are counted instead of recorded (`suppressedRefusals` on the
+  trigger). Past 60 a minute from one address, that address is answered `429`.
+- **A delivery repeated** (the same delivery id and the same body) starts
+  nothing new: `200`, with the first fire's id, which counts it as a repeat.
+  WooCommerce's delivery id changes only once a second, so two orders in one
+  second are told apart by their bodies.
+- **Replays:** WooCommerce, Drupal's Webhooks module, GitHub and Shopify sign
+  no timestamp. Kindgi keeps a delivery's fire, and so recognizes a repeat of
+  it, for 30 days. Standard Webhooks signs a timestamp, and a request more than
+  5 minutes off is refused as `stale`.
+- **Limits:** a body over the trigger's cap (`--body-limit`, 256 KiB by
+  default, at most 1 MiB) is `413`, and deliveries past the trigger's rate
+  (`--rate-limit`, 600 a minute by default) are `429`.
+
+## Pause, change and remove
+
+- **`kindgi webhooks pause <trigger-id>`:** deliveries are still taken, so the
+  sender keeps its webhook on, but they're recorded as `skipped` and start
+  nothing. **Their events are dropped:** WooCommerce never resends a delivery,
+  so resuming doesn't bring them back.
+- **`kindgi webhooks update <trigger-id>`** changes the flow version
+  (`--flow-version`; this needs `execute` on the flow), the secret
+  (`--secret`), the scheme, the delivery-id header (`none` stops deduping) and
+  the limits. The flow itself stays: register another trigger for another
+  flow. To rotate the secret's value, use `kindgi secrets rotate`, then paste
+  the new value into the sender.
+- **`kindgi webhooks take-ownership <trigger-id>`:** for a trigger whose owner
+  left. Its runs act as you from the next delivery. This needs `admin` on the
+  project.
+- **`kindgi webhooks unregister <trigger-id>`:** the sender is answered `410`
+  from then on. WooCommerce switches a webhook off after 7 refusals in a row,
+  and a `410` counts as one. A sender that doesn't prove itself still gets
+  `401`, so only the real sender learns the trigger is gone.
+
+From your app, the clients have the same calls on `webhooks`: `register`,
+`list`, `get`, `update`, `pause`, `resume`, `fires`, `takeOwnership` and
+`unregister`. The receive URL itself is the sender's: no Kindgi client calls
+it.

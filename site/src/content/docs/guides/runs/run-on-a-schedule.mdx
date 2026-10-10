@@ -10,9 +10,9 @@ expression gives. Its runs act as whoever made the schedule, checked again
 at every run. They land in the schedule's project, and each names the
 schedule that started it.
 
-Schedules are the one way the runtime starts runs by itself today: event
-triggers and inbound webhooks aren't served yet. To react to something outside,
-have it [start a run](../start-a-run/) with `POST /v1/runs`.
+To start a run when something happens outside instead, such as an order in
+your WooCommerce store, use a [webhook trigger](../../webhooks/start-runs-from-webhooks/),
+or have the other system [start a run](../start-a-run/) with `POST /v1/runs`.
 
 ## Create one
 

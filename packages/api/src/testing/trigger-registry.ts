@@ -5,6 +5,8 @@ import { randomUUID } from 'node:crypto';
 
 import {
   type CronTriggerRecord,
+  DEFAULT_WEBHOOK_SIGNATURE,
+  type FireWebhookInput,
   type ListTriggerFiresInput,
   type RegisterTriggerInput,
   SCHEDULE_DEFAULTS,
@@ -15,6 +17,12 @@ import {
   type TriggerRecord,
   type TriggerRegistryBinding,
   type UpdateTriggerInput,
+  WEBHOOK_BODY_LIMITS,
+  WEBHOOK_RATE_LIMITS,
+  WEBHOOK_REFUSALS_RECORDED_PER_MINUTE,
+  type WebhookFire,
+  type WebhookRefusalInput,
+  type WebhookTriggerRecord,
 } from '@kindgi/runtime';
 import type { Cursor, ProjectId, TenantId, TriggerId } from '@kindgi/types';
 
@@ -22,12 +30,18 @@ import type { Cursor, ProjectId, TenantId, TriggerId } from '@kindgi/types';
  * An in-memory `TriggerRegistryBinding` for app and route tests: the
  * admin surface over stored triggers, with fire history and `run-now`.
  * It computes no occurrences (`nextFireAt` stays `null`) and starts no
- * runs; `fireNow` records a `pending` fire, and `recordFire` lets a test
- * add fires as a scheduler would.
+ * runs; `fireNow` and `fireWebhook` record a `pending` fire, and
+ * `recordFire` lets a test add fires as a scheduler would. A webhook
+ * delivery's event and the access-audit refusals are kept for the test
+ * to read (`webhookEvents`, `webhookAudit`).
  */
 export interface InMemoryTriggerRegistry extends TriggerRegistryBinding {
   /** Add a fire to a trigger's history, as a scheduler would. */
   recordFire(fire: Omit<TriggerFire, 'fireId'> & { readonly fireId?: string }): TriggerFire;
+  /** Each started webhook fire's event, by fire id. */
+  readonly webhookEvents: ReadonlyMap<string, unknown>;
+  /** The access-audit records `recordWebhookRefusal` wrote (`audit: true`, not suppressed). */
+  readonly webhookAudit: readonly WebhookRefusalInput[];
 }
 
 export function createInMemoryTriggerRegistry(
@@ -39,6 +53,12 @@ export function createInMemoryTriggerRegistry(
 ): InMemoryTriggerRegistry {
   const rows = new Map<string, TriggerRecord & { unregistered?: boolean }>();
   const fires: TriggerFire[] = [];
+  /** A webhook fire's dedupe key, per trigger: `triggerId|key` → fire id. */
+  const dedupe = new Map<string, string>();
+  const webhookEvents = new Map<string, unknown>();
+  const webhookAudit: WebhookRefusalInput[] = [];
+  /** Refusals recorded in the current minute, per trigger. */
+  const refusalWindows = new Map<string, { since: number; recorded: number; suppressed: number }>();
   const now = () => (options.now ?? (() => new Date()))().toISOString();
   const defaultProject =
     options.defaultProjectId ?? ('00000000-0000-4000-8000-000000000000' as ProjectId);
@@ -96,21 +116,27 @@ export function createInMemoryTriggerRegistry(
         };
       }
       const flow = { flowId: input.flowId, flowVersion: input.flowVersion };
-      return {
-        kind: 'ok',
-        value: save(
-          input.kind === 'event'
-            ? { ...base, ...flow, kind: 'event', config: input.config }
-            : {
-                ...base,
-                ...flow,
-                kind: 'webhook',
-                config: input.config,
-                webhookId: input.webhookId,
-                hmacSecretName: input.hmacSecretName,
-              },
-        ),
+      if (input.kind === 'event') {
+        return {
+          kind: 'ok',
+          value: save({ ...base, ...flow, kind: 'event', config: input.config }),
+        };
+      }
+      const webhook: WebhookTriggerRecord = {
+        ...base,
+        ...flow,
+        kind: 'webhook',
+        projectId: input.projectId ?? defaultProject,
+        owner: input.owner,
+        config: input.config,
+        webhookId: input.webhookId,
+        hmacSecretName: input.hmacSecretName,
+        signature: input.signature ?? DEFAULT_WEBHOOK_SIGNATURE,
+        ...(input.deliveryIdHeader !== undefined && { deliveryIdHeader: input.deliveryIdHeader }),
+        bodyLimitBytes: input.bodyLimitBytes ?? WEBHOOK_BODY_LIMITS.defaultBytes,
+        rateLimitPerMinute: input.rateLimitPerMinute ?? WEBHOOK_RATE_LIMITS.defaultPerMinute,
       };
+      return { kind: 'ok', value: save(webhook) };
     },
 
     async update(input: UpdateTriggerInput) {
@@ -136,13 +162,34 @@ export function createInMemoryTriggerRegistry(
           } as CronTriggerRecord),
         };
       }
+      if (row.kind === 'webhook' && input.kind === 'webhook') {
+        const { deliveryIdHeader: _, ...kept } = row;
+        const next: WebhookTriggerRecord = {
+          ...(input.deliveryIdHeader === null ? kept : row),
+          ...common,
+          config: { ...row.config, ...input.config },
+          ...(input.flowVersion !== undefined && { flowVersion: input.flowVersion }),
+          ...(input.hmacSecretName !== undefined && { hmacSecretName: input.hmacSecretName }),
+          ...(input.signature !== undefined && { signature: input.signature }),
+          ...(typeof input.deliveryIdHeader === 'string' && {
+            deliveryIdHeader: input.deliveryIdHeader,
+          }),
+          ...(input.bodyLimitBytes !== undefined && {
+            bodyLimitBytes: input.bodyLimitBytes ?? WEBHOOK_BODY_LIMITS.defaultBytes,
+          }),
+          ...(input.rateLimitPerMinute !== undefined && {
+            rateLimitPerMinute: input.rateLimitPerMinute ?? WEBHOOK_RATE_LIMITS.defaultPerMinute,
+          }),
+        };
+        return { kind: 'ok', value: save(next) };
+      }
       return {
         kind: 'ok',
         value: save({
           ...row,
           ...common,
           config: { ...row.config, ...input.config },
-          ...(input.kind !== 'cron' &&
+          ...(input.kind === 'event' &&
             input.flowVersion !== undefined && { flowVersion: input.flowVersion }),
         } as TriggerRecord),
       };
@@ -157,7 +204,7 @@ export function createInMemoryTriggerRegistry(
             (input.kind === undefined || r.kind === input.kind) &&
             (input.status === undefined || r.status === input.status) &&
             (input.projectId === undefined ||
-              (r.kind === 'cron' && r.projectId === input.projectId)),
+              (r.kind !== 'event' && r.projectId === input.projectId)),
         )
         .map(strip);
       const start = input.cursor === undefined ? 0 : Number(input.cursor);
@@ -189,16 +236,74 @@ export function createInMemoryTriggerRegistry(
       return { triggerId: input.triggerId, unregistered: true };
     },
 
-    async fetchActiveByWebhookId(input) {
+    async findWebhook(input) {
       const row = [...rows.values()].find(
         (r) =>
-          r.kind === 'webhook' &&
-          r.tenantId === input.tenantId &&
-          r.webhookId === input.webhookId &&
-          r.status === 'active' &&
-          r.unregistered !== true,
+          r.kind === 'webhook' && r.tenantId === input.tenantId && r.webhookId === input.webhookId,
       );
-      return row?.kind === 'webhook' ? row : null;
+      if (row?.kind !== 'webhook') return null;
+      return { ...(strip(row) as WebhookTriggerRecord), unregistered: row.unregistered === true };
+    },
+
+    async fireWebhook(input: FireWebhookInput) {
+      const row = live(input.tenantId, input.triggerId);
+      if (row === undefined || row.kind !== 'webhook') return notFound(input.triggerId);
+      const key = `${input.triggerId as unknown as string}|${input.dedupeKey}`;
+      const held = dedupe.get(key);
+      if (held !== undefined) {
+        const i = fires.findIndex((f) => f.fireId === held);
+        const first = fires[i];
+        if (first !== undefined) {
+          fires[i] = { ...first, duplicates: (first.duplicates ?? 0) + 1, lastDuplicateAt: now() };
+        }
+        const duplicate: WebhookFire = { fireId: held, duplicate: true };
+        return { kind: 'ok', value: duplicate };
+      }
+      const fire = registry.recordFire({
+        triggerId: input.triggerId,
+        kind: 'webhook',
+        firedAt: now(),
+        outcome: 'pending',
+      });
+      dedupe.set(key, fire.fireId);
+      webhookEvents.set(fire.fireId, input.event);
+      save({ ...row, lastFiredAt: fire.firedAt });
+      const started: WebhookFire = { fireId: fire.fireId, duplicate: false };
+      return { kind: 'ok', value: started };
+    },
+
+    async recordWebhookRefusal(input: WebhookRefusalInput) {
+      const id = input.triggerId as unknown as string;
+      const at = (options.now ?? (() => new Date()))().getTime();
+      const open = refusalWindows.get(id);
+      const window =
+        open === undefined || at - open.since >= 60_000
+          ? { since: at, recorded: 0, suppressed: 0 }
+          : open;
+      refusalWindows.set(id, window);
+      if (window.recorded >= WEBHOOK_REFUSALS_RECORDED_PER_MINUTE) {
+        window.suppressed += 1;
+        const row = rows.get(id);
+        if (row?.kind === 'webhook') {
+          rows.set(id, {
+            ...row,
+            suppressedRefusals: {
+              since: new Date(window.since).toISOString(),
+              count: window.suppressed,
+            },
+          });
+        }
+        return;
+      }
+      window.recorded += 1;
+      registry.recordFire({
+        triggerId: input.triggerId,
+        kind: 'webhook',
+        firedAt: now(),
+        outcome: input.outcome,
+        detail: input.reason,
+      });
+      if (input.audit) webhookAudit.push(input);
     },
 
     async listFires(input: ListTriggerFiresInput): Promise<TriggerFirePage> {
@@ -230,7 +335,7 @@ export function createInMemoryTriggerRegistry(
 
     async setOwner(input: TriggerLifecycleInput & { readonly owner: TriggerOwner }) {
       const row = live(input.tenantId, input.triggerId);
-      if (row === undefined || row.kind !== 'cron') return notFound(input.triggerId);
+      if (row === undefined || row.kind === 'event') return notFound(input.triggerId);
       return { kind: 'ok', value: save({ ...row, owner: input.owner, updatedAt: now() }) };
     },
 
@@ -239,6 +344,9 @@ export function createInMemoryTriggerRegistry(
       fires.push(recorded);
       return recorded;
     },
+
+    webhookEvents,
+    webhookAudit,
   };
 
   async function setStatus(input: TriggerLifecycleInput, status: 'active' | 'paused') {

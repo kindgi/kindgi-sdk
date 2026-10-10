@@ -5,7 +5,11 @@ import { Hono } from 'hono';
 
 import { statusFor, toWireError } from '../errors.js';
 import type { IdentityProviderBinding, SignInOption } from '../identity-provider-binding.js';
-import { type RateLimitStore, createInMemoryRateLimitStore } from '../rate-limit-store.js';
+import {
+  type RateLimitStore,
+  createInMemoryRateLimitStore,
+  nearestForwardedClient,
+} from '../rate-limit-store.js';
 import type { AppEnv } from '../types.js';
 
 /**
@@ -82,7 +86,7 @@ export function signInOptionsRouter(options: SignInOptionsRouteOptions): Hono<Ap
   const { identityProvider } = options;
   const limit = options.rateLimit?.limit ?? DEFAULT_LIMIT;
   const windowMs = options.rateLimit?.windowMs ?? DEFAULT_WINDOW_MS;
-  const clientKey = options.rateLimit?.clientKey ?? defaultClientKey;
+  const clientKey = options.rateLimit?.clientKey ?? nearestForwardedClient;
   const store = options.rateLimit?.store ?? createInMemoryRateLimitStore();
   let lastWarnedAt: number | undefined;
   let uncounted = 0;
@@ -167,12 +171,4 @@ export function signInOptionsRouter(options: SignInOptionsRouteOptions): Hono<Ap
     });
   });
   return router;
-}
-
-function defaultClientKey(request: Request): string {
-  const hops = (request.headers.get('x-forwarded-for') ?? '')
-    .split(',')
-    .map((h) => h.trim())
-    .filter((h) => h !== '');
-  return hops.at(-1) ?? 'shared';
 }

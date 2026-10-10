@@ -71,3 +71,18 @@ export function createInMemoryRateLimitStore(now: () => number = Date.now): Rate
     },
   };
 }
+
+/**
+ * Who a client is when the deployment doesn't say: the nearest
+ * `X-Forwarded-For` hop (the rightmost, written by the proxy in front),
+ * else one shared bucket; never the leftmost, which the client writes. A
+ * deployment that knows its client's address (the socket's, or past its
+ * trusted proxies) passes its own.
+ */
+export function nearestForwardedClient(request: Request): string {
+  const hops = (request.headers.get('x-forwarded-for') ?? '')
+    .split(',')
+    .map((h) => h.trim())
+    .filter((h) => h !== '');
+  return hops.at(-1) ?? 'shared';
+}

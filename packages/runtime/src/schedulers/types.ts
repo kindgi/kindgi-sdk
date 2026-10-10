@@ -59,17 +59,7 @@ export interface TriggerBindingError {
  * Union of every error the trigger runtime primitives can return. The
  * kind-specific shapes are declared below.
  */
-export type TriggerError = WebhookTriggerError | CronTriggerError | EventTriggerError;
-
-export interface WebhookTriggerError {
-  readonly code:
-    | 'webhook-not-found'
-    | 'webhook-signature-invalid'
-    | 'webhook-inactive'
-    | 'webhook-flow-not-found';
-  readonly message: string;
-  readonly webhookId: string;
-}
+export type TriggerError = CronTriggerError | EventTriggerError;
 
 export interface CronTriggerError {
   readonly code: 'cron-config-invalid' | 'cron-flow-not-found';
@@ -105,8 +95,9 @@ export interface EventTriggerConfig {
 
 export interface WebhookTriggerConfig {
   /**
-   * Optional input override. When absent, the parsed request body (as
-   * passed to `fireByWebhookId`) is used as the flow input.
+   * Optional input override. When absent, the delivery's event (the
+   * request body, parsed as JSON for a JSON content type, else its text)
+   * is the flow input.
    */
   readonly input?: unknown;
 }

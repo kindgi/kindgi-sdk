@@ -7,6 +7,7 @@ heading into its version.
 
 ## Unreleased
 
+- `kindgi-client`: **`webhooks()`**, webhook triggers: a signed request from WooCommerce, Drupal's Webhooks module, GitHub, Shopify or a Standard Webhooks sender starts a flow run. `register`, `list`, `get`, `update`, `pause`, `resume`, `unregister`, `fires` and `takeOwnership`. The receive URL itself is the sender's (marked `x-kindgi-sender-only`), so the client has no method for it.
 - `kindgi-pack`, `kindgi-pack-scala`: **`ToolContext.idempotencyKey()`**, the same every time a
   tool call runs (resumed, retried, or run again after a crash) and different for every other
   call, so a tool that writes can dedupe on it. `null` from a runtime before 0.1.6. The

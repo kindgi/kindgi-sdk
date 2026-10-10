@@ -190,7 +190,8 @@ function parseSecret(secret: string): Buffer | null {
   return key.length === 0 ? null : key;
 }
 
-function readHeader(headers: WebhookRequestHeaders, name: string): string | undefined {
+/** A header's first value (`name` in lower case, matched case-insensitively); `undefined` when absent or empty. */
+export function readHeader(headers: WebhookRequestHeaders, name: string): string | undefined {
   if (typeof (headers as { get?: unknown }).get === 'function') {
     const value = (headers as { get(name: string): string | null }).get(name);
     return value === null || value.length === 0 ? undefined : value;

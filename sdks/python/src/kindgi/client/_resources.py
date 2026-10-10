@@ -856,6 +856,27 @@ OPERATIONS: dict[str, Operation] = {
     "schedules.takeOwnership": Operation(
         "schedules.takeOwnership", "POST", "/v1/schedules/{triggerId}/owner", "json", True
     ),
+    "webhooks.list": Operation("webhooks.list", "GET", "/v1/webhooks", "json", False),
+    "webhooks.register": Operation("webhooks.register", "POST", "/v1/webhooks", "json", True),
+    "webhooks.get": Operation("webhooks.get", "GET", "/v1/webhooks/{triggerId}", "json", False),
+    "webhooks.update": Operation(
+        "webhooks.update", "PATCH", "/v1/webhooks/{triggerId}", "json", True
+    ),
+    "webhooks.pause": Operation(
+        "webhooks.pause", "POST", "/v1/webhooks/{triggerId}/pause", "json", True
+    ),
+    "webhooks.resume": Operation(
+        "webhooks.resume", "POST", "/v1/webhooks/{triggerId}/resume", "json", True
+    ),
+    "webhooks.unregister": Operation(
+        "webhooks.unregister", "POST", "/v1/webhooks/{triggerId}/unregister", "json", True
+    ),
+    "webhooks.fires": Operation(
+        "webhooks.fires", "GET", "/v1/webhooks/{triggerId}/fires", "json", False
+    ),
+    "webhooks.takeOwnership": Operation(
+        "webhooks.takeOwnership", "POST", "/v1/webhooks/{triggerId}/owner", "json", True
+    ),
     "webhookEndpoints.list": Operation(
         "webhookEndpoints.list", "GET", "/v1/webhook-endpoints", "json", False
     ),
@@ -7774,6 +7795,196 @@ class SchedulesResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.ScheduleRecord,
+            timeout=timeout,
+        )
+
+
+class WebhooksResource:
+    """`client.webhooks` — the `webhooks` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        status: Literal["active", "paused"] | None = None,
+        project_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.WebhookTriggerCollectionPage:
+        """List webhook triggers. `GET /v1/webhooks`
+
+        The tenant's webhook triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it).
+        """
+        return self._client._request(
+            _OPERATIONS["webhooks.list"],
+            path={},
+            query={"limit": limit, "cursor": cursor, "status": status, "projectId": project_id},
+            headers={},
+            response=_models.WebhookTriggerCollectionPage,
+            timeout=timeout,
+        )
+
+    def register(
+        self,
+        body: _models.RegisterWebhookTriggerBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.WebhookTriggerRecord:
+        """Register a webhook trigger. `POST /v1/webhooks`
+
+        A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`). `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the tenant's Default project. Needs `write` on the project and `execute` on the flow.
+        """
+        return self._client._request(
+            _OPERATIONS["webhooks.register"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.RegisterWebhookTriggerBody, body, fields),
+            response=_models.WebhookTriggerRecord,
+            timeout=timeout,
+        )
+
+    def get(
+        self, trigger_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.WebhookTriggerRecord:
+        """Fetch a webhook trigger. `GET /v1/webhooks/{triggerId}`"""
+        return self._client._request(
+            _OPERATIONS["webhooks.get"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={},
+            response=_models.WebhookTriggerRecord,
+            timeout=timeout,
+        )
+
+    def update(
+        self,
+        trigger_id: str | UUID,
+        body: _models.PatchWebhookTriggerBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.WebhookTriggerRecord:
+        """Update a webhook trigger. `PATCH /v1/webhooks/{triggerId}`
+
+        Changes the flow version (which needs `execute` on the flow), the input, the label, which secret signs (`hmacSecretName`, never a model provider's key), the signature scheme, the delivery-id header, the body cap or the rate (`null` clears the last three). The flow itself stays: register another trigger for another flow. Rotating the secret's value goes through `POST /v1/secrets/{name}/rotate`.
+        """
+        return self._client._request(
+            _OPERATIONS["webhooks.update"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PatchWebhookTriggerBody, body, fields),
+            response=_models.WebhookTriggerRecord,
+            timeout=timeout,
+        )
+
+    def pause(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.WebhookTriggerRecord:
+        """Pause a webhook trigger. `POST /v1/webhooks/{triggerId}/pause`
+
+        While paused, a signed delivery is answered `202` and recorded as a `skipped` fire, and no run starts: **its event is dropped**. Senders such as WooCommerce never resend, so resuming doesn't bring those events back.
+        """
+        return self._client._request(
+            _OPERATIONS["webhooks.pause"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.WebhookTriggerRecord,
+            timeout=timeout,
+        )
+
+    def resume(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.WebhookTriggerRecord:
+        """Resume a webhook trigger. `POST /v1/webhooks/{triggerId}/resume`"""
+        return self._client._request(
+            _OPERATIONS["webhooks.resume"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.WebhookTriggerRecord,
+            timeout=timeout,
+        )
+
+    def unregister(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.WebhookTriggerUnregisterResult:
+        """Soft-delete a webhook trigger (tombstone). `POST /v1/webhooks/{triggerId}/unregister`"""
+        return self._client._request(
+            _OPERATIONS["webhooks.unregister"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.WebhookTriggerUnregisterResult,
+            timeout=timeout,
+        )
+
+    def fires(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.WebhookFirePage:
+        """A webhook trigger's deliveries. `GET /v1/webhooks/{triggerId}/fires`
+
+        Newest first: each delivery the trigger received and what came of it: the run it started (`started`, or `pending` while it starts), or why it was `skipped` (paused) or `refused` (`detail`: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `rate-limited`, `body-too-large`, `body-not-json`, or the owner's lost access). A delivery that repeated an earlier one's dedupe key counts on that one (`duplicates`). A fire keeps the event only until its run starts. Refusals past 20 a minute only count (the trigger's `suppressedRefusals`).
+        """
+        return self._client._request(
+            _OPERATIONS["webhooks.fires"],
+            path={"triggerId": trigger_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.WebhookFirePage,
+            timeout=timeout,
+        )
+
+    def take_ownership(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.WebhookTriggerRecord:
+        """Take over a webhook trigger. `POST /v1/webhooks/{triggerId}/owner`
+
+        The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project and `execute` on its flow. For a trigger whose owner left or lost access.
+        """
+        return self._client._request(
+            _OPERATIONS["webhooks.takeOwnership"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.WebhookTriggerRecord,
             timeout=timeout,
         )
 
@@ -14854,6 +15065,196 @@ class AsyncSchedulesResource:
         )
 
 
+class AsyncWebhooksResource:
+    """`client.webhooks` — the `webhooks` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        status: Literal["active", "paused"] | None = None,
+        project_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.WebhookTriggerCollectionPage:
+        """List webhook triggers. `GET /v1/webhooks`
+
+        The tenant's webhook triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it).
+        """
+        return await self._client._request(
+            _OPERATIONS["webhooks.list"],
+            path={},
+            query={"limit": limit, "cursor": cursor, "status": status, "projectId": project_id},
+            headers={},
+            response=_models.WebhookTriggerCollectionPage,
+            timeout=timeout,
+        )
+
+    async def register(
+        self,
+        body: _models.RegisterWebhookTriggerBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.WebhookTriggerRecord:
+        """Register a webhook trigger. `POST /v1/webhooks`
+
+        A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`). `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the tenant's Default project. Needs `write` on the project and `execute` on the flow.
+        """
+        return await self._client._request(
+            _OPERATIONS["webhooks.register"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.RegisterWebhookTriggerBody, body, fields),
+            response=_models.WebhookTriggerRecord,
+            timeout=timeout,
+        )
+
+    async def get(
+        self, trigger_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.WebhookTriggerRecord:
+        """Fetch a webhook trigger. `GET /v1/webhooks/{triggerId}`"""
+        return await self._client._request(
+            _OPERATIONS["webhooks.get"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={},
+            response=_models.WebhookTriggerRecord,
+            timeout=timeout,
+        )
+
+    async def update(
+        self,
+        trigger_id: str | UUID,
+        body: _models.PatchWebhookTriggerBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.WebhookTriggerRecord:
+        """Update a webhook trigger. `PATCH /v1/webhooks/{triggerId}`
+
+        Changes the flow version (which needs `execute` on the flow), the input, the label, which secret signs (`hmacSecretName`, never a model provider's key), the signature scheme, the delivery-id header, the body cap or the rate (`null` clears the last three). The flow itself stays: register another trigger for another flow. Rotating the secret's value goes through `POST /v1/secrets/{name}/rotate`.
+        """
+        return await self._client._request(
+            _OPERATIONS["webhooks.update"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.PatchWebhookTriggerBody, body, fields),
+            response=_models.WebhookTriggerRecord,
+            timeout=timeout,
+        )
+
+    async def pause(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.WebhookTriggerRecord:
+        """Pause a webhook trigger. `POST /v1/webhooks/{triggerId}/pause`
+
+        While paused, a signed delivery is answered `202` and recorded as a `skipped` fire, and no run starts: **its event is dropped**. Senders such as WooCommerce never resend, so resuming doesn't bring those events back.
+        """
+        return await self._client._request(
+            _OPERATIONS["webhooks.pause"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.WebhookTriggerRecord,
+            timeout=timeout,
+        )
+
+    async def resume(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.WebhookTriggerRecord:
+        """Resume a webhook trigger. `POST /v1/webhooks/{triggerId}/resume`"""
+        return await self._client._request(
+            _OPERATIONS["webhooks.resume"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.WebhookTriggerRecord,
+            timeout=timeout,
+        )
+
+    async def unregister(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.WebhookTriggerUnregisterResult:
+        """Soft-delete a webhook trigger (tombstone). `POST /v1/webhooks/{triggerId}/unregister`"""
+        return await self._client._request(
+            _OPERATIONS["webhooks.unregister"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.WebhookTriggerUnregisterResult,
+            timeout=timeout,
+        )
+
+    async def fires(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.WebhookFirePage:
+        """A webhook trigger's deliveries. `GET /v1/webhooks/{triggerId}/fires`
+
+        Newest first: each delivery the trigger received and what came of it: the run it started (`started`, or `pending` while it starts), or why it was `skipped` (paused) or `refused` (`detail`: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `rate-limited`, `body-too-large`, `body-not-json`, or the owner's lost access). A delivery that repeated an earlier one's dedupe key counts on that one (`duplicates`). A fire keeps the event only until its run starts. Refusals past 20 a minute only count (the trigger's `suppressedRefusals`).
+        """
+        return await self._client._request(
+            _OPERATIONS["webhooks.fires"],
+            path={"triggerId": trigger_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.WebhookFirePage,
+            timeout=timeout,
+        )
+
+    async def take_ownership(
+        self,
+        trigger_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.WebhookTriggerRecord:
+        """Take over a webhook trigger. `POST /v1/webhooks/{triggerId}/owner`
+
+        The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project and `execute` on its flow. For a trigger whose owner left or lost access.
+        """
+        return await self._client._request(
+            _OPERATIONS["webhooks.takeOwnership"],
+            path={"triggerId": trigger_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.WebhookTriggerRecord,
+            timeout=timeout,
+        )
+
+
 class AsyncWebhookEndpointsResource:
     """`client.webhook_endpoints` — the `webhookEndpoints` operations."""
 
@@ -15088,6 +15489,7 @@ class Resources:
     env: EnvResource
     secrets: SecretsResource
     schedules: SchedulesResource
+    webhooks: WebhooksResource
     webhook_endpoints: WebhookEndpointsResource
 
     def __init__(self) -> None:
@@ -15135,6 +15537,7 @@ class Resources:
         self.env = EnvResource(client)
         self.secrets = SecretsResource(client)
         self.schedules = SchedulesResource(client)
+        self.webhooks = WebhooksResource(client)
         self.webhook_endpoints = WebhookEndpointsResource(client)
 
 
@@ -15184,6 +15587,7 @@ class AsyncResources:
     env: AsyncEnvResource
     secrets: AsyncSecretsResource
     schedules: AsyncSchedulesResource
+    webhooks: AsyncWebhooksResource
     webhook_endpoints: AsyncWebhookEndpointsResource
 
     def __init__(self) -> None:
@@ -15231,4 +15635,5 @@ class AsyncResources:
         self.env = AsyncEnvResource(client)
         self.secrets = AsyncSecretsResource(client)
         self.schedules = AsyncSchedulesResource(client)
+        self.webhooks = AsyncWebhooksResource(client)
         self.webhook_endpoints = AsyncWebhookEndpointsResource(client)

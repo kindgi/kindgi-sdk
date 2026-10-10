@@ -431,7 +431,7 @@ const ENTRIES: readonly Entry[] = [
     name: 'webhooks',
     path: '/v1/webhooks',
     bindings: () => {
-      const l = page('list', () => ({ flowId: 'hid-flow' }));
+      const l = page('list', () => ({ projectId: 'hid-project' }));
       return { bindings: { triggerRegistry: l.binding }, received: l.received };
     },
   },
