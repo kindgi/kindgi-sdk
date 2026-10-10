@@ -154,6 +154,8 @@ export const PROPOSAL_ACTIONS = {
     'superseded',
     'expired',
   ],
+  // Its latest evaluation scored again: once that comparison completed.
+  rescore: ['evaluated', 'not-better', 'refused', 'superseded', 'expired'],
   // The gate decides what goes live: a candidate that isn't measurably
   // better (a wording change) can still be requested through it.
   request: ['evaluated', 'not-better', 'refused', 'superseded', 'expired'],

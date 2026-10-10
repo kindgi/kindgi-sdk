@@ -77,6 +77,13 @@ export interface OperationSpec {
     readonly encoding?: Readonly<Record<string, Record<string, unknown>>>;
   };
   readonly responses: Readonly<Record<string, ResponseSpec>>;
+  /**
+   * Why the runtime doesn't serve this operation yet. Set, it stays
+   * registered (its route mounts where a runtime supplies what it needs,
+   * and the drift tests see it), but the public document leaves it out,
+   * with the schemas only it uses, so no client offers it.
+   */
+  readonly unserved?: string;
 }
 
 // ---------------- shared parameters ----------------
@@ -126,7 +133,8 @@ const CursorQueryParam: ParameterSpec = {
   name: 'cursor',
   in: 'query',
   required: false,
-  description: 'Opaque cursor from a prior response. Absent → first page.',
+  description:
+    'Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page.',
   schema: { type: 'string' },
 };
 
@@ -1247,6 +1255,11 @@ const CommonMutationErrors: Readonly<Record<string, ResponseSpec>> = {
   '500': ErrorResponse('Server error (unmapped domain code or framework crash).'),
 };
 
+/** A change to the tenant's identity providers: not a tenant admin, or the operator manages sign-in. */
+const ProviderChangeRefused: ResponseSpec = ErrorResponse(
+  "Not a tenant admin (`permission-denied`), or this deployment's operator manages sign-in (`identity-providers-operator-managed`, `KINDGI_AUTH_TENANT_PROVIDERS=off`): only the deployment's own token can change its providers.",
+);
+
 // ---------------- operation registry ----------------
 
 export const OPERATIONS: readonly OperationSpec[] = [
@@ -1833,6 +1846,21 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ApprovalRequiredRoleQueryParam,
       CreatedAfterQueryParam,
       WaitTokenIdQueryParam,
+      {
+        name: 'runId',
+        in: 'query',
+        required: false,
+        description: 'Only the approvals this run asked for.',
+        schema: { type: 'string', format: 'uuid' },
+      },
+      {
+        name: 'includeDescendants',
+        in: 'query',
+        required: false,
+        description:
+          "With `runId`: also the approvals its child runs asked for, at any depth (a flow's agent steps).",
+        schema: { type: 'boolean' },
+      },
     ],
     responses: {
       '200': { description: 'Page of approvals.', schema: ref('ApprovalCollectionPage') },
@@ -2808,7 +2836,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "The body's `projectId` names no project of this tenant (`project-not-found`).",
       ),
       '422': ErrorResponse(
-        "`guardrail-config-invalid`: the guardrail's `config` breaks the `configSchema` of the pack check it names, which the pack service would refuse on every call. `details.issues` lists each problem, `{ path, message }` with `path` a JSON pointer into the guardrail (`/config/maxChars`); the message names the guardrail, the check and the setting. Checked when the check's deployment carries its schema.",
+        "`guardrail-config-invalid`: the guardrail's `config` breaks the `configSchema` of the check it names (a pack check's, or a built-in's), which would refuse it on every call. `details.issues` lists each problem, `{ path, message }` with `path` a JSON pointer into the guardrail (`/config/maxChars`); the message names the guardrail, the check and the setting. Checked when the check's deployment carries its schema.",
       ),
     },
   },
@@ -3372,6 +3400,28 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse('No such proposal, or no such test set.'),
       '409': ErrorResponse(
         "`proposal-needs-pin`: the agent has no live version for the whole tenant. `proposal-invalid-state-transition`: the proposal's status doesn't allow it. `registry-read-only`: the agent registry takes no writes (under `kindgi dev`).",
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/proposals/:proposalId/rescore',
+    openapiPath: '/v1/proposals/{proposalId}/rescore',
+    operationId: 'proposals.rescore',
+    summary: "Rescore a proposal's latest evaluation",
+    description:
+      "After people judge a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison eval run scores the same replays again, counting those judgments, as `POST /v1/eval-runs/{runId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the proposal's evaluation, so the proposal is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.",
+    tags: ['proposals'],
+    security: 'bearer',
+    parameters: [ProposalIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '202': { description: 'The proposal, `evaluating`.', schema: ref('FixProposal') },
+      ...CommonMutationErrors,
+      '404': ErrorResponse(
+        'No such proposal, or its candidate version is unregistered (`agent-version-not-found`).',
+      ),
+      '409': ErrorResponse(
+        "`proposal-invalid-state-transition`: the proposal's status doesn't allow it. `eval-run-not-rescorable`: the latest evaluation isn't a completed comparison.",
       ),
     },
   },
@@ -5027,6 +5077,30 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'post',
+    honoPath: '/v1/eval-runs/:runId/rescore',
+    openapiPath: '/v1/eval-runs/{runId}/rescore',
+    operationId: 'evalRuns.rescore',
+    summary: 'Rescore a comparison eval run',
+    description:
+      "Starts a new comparison eval run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the judgments recorded on them since (a changed answer judged on the replay itself; `changes.new` lists the items to judge). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's suite and `write` on its project.",
+    tags: ['eval-runs'],
+    security: 'bearer',
+    parameters: [EvalRunIdPathParam],
+    requestBody: { required: false, schema: ref('RescoreEvalRunBody') },
+    responses: {
+      '201': { description: 'The rescore started.', schema: ref('StartEvalRunResult') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse(
+        "`bad-input`: `projectId` is required (this runtime doesn't record the run's project), or isn't a project here. `dispatcher-input-invalid`: this runtime can't rescore (it doesn't read replays and their judgments again).",
+      ),
+      '404': ErrorResponse('No eval run with that id under this tenant.'),
+      '409': ErrorResponse(
+        '`eval-run-not-rescorable`: only a completed comparison of a test set can be rescored.',
+      ),
+    },
+  },
+  {
     method: 'get',
     honoPath: '/v1/eval-runs/:runId/events',
     openapiPath: '/v1/eval-runs/{runId}/events',
@@ -5055,7 +5129,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'auth.providers.list',
     summary: 'List identity providers configured for the tenant',
     description:
-      "Returns the tenant's identity providers (OIDC, SAML, OAuth 2.0), each with `signIn` when the deployment sets it. Secrets appear only as REFERENCES (`clientSecretRef`, `spSigningKeyRef`…); a plaintext secret is never on the wire.",
+      "Returns the tenant's identity providers (OIDC, SAML), each with `signIn` when the deployment sets it. Secrets appear only as REFERENCES (`clientSecretRef`, `spSigningKeyRef`…); a plaintext secret is never on the wire.",
     tags: ['auth'],
     security: 'bearer',
     responses: {
@@ -5123,9 +5197,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/auth/providers',
     openapiPath: '/v1/auth/providers',
     operationId: 'auth.providers.register',
-    summary: 'Register an identity provider (OIDC, SAML or OAuth 2.0)',
+    summary: 'Register an identity provider (OIDC or SAML)',
     description:
-      'Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered`; change it with `PATCH /v1/auth/providers/{providerId}`, which keeps its sign-in URLs. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`. The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.',
+      'Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered`; change it with `PATCH /v1/auth/providers/{providerId}`, which keeps its sign-in URLs. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`, as is `allowedRedirectUris`, which nothing would enforce (sign-in runs in the deployment, at its own callback URL). The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.',
     tags: ['auth'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -5136,8 +5210,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('RegisterIdentityProviderResult'),
       },
       ...CommonMutationErrors,
+      '403': ProviderChangeRefused,
       '422': ErrorResponse(
-        'The deployment could not use the configuration (`identity-provider-invalid`).',
+        'The deployment could not use the configuration, or `kind` is `oauth2`, a plain OAuth 2.0 provider, which sign-in does not use (`identity-provider-invalid`).',
       ),
     },
   },
@@ -5224,6 +5299,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Updated.', schema: ref('UpdateIdentityProviderResult') },
       ...CommonMutationErrors,
+      '403': ProviderChangeRefused,
       '404': ErrorResponse('No identity provider registered with that id under this tenant.'),
       '422': ErrorResponse(
         'The deployment could not use the configuration (`identity-provider-invalid`).',
@@ -5253,61 +5329,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('UnregisterIdentityProviderResult'),
       },
       ...CommonMutationErrors,
+      '403': ProviderChangeRefused,
       '404': ErrorResponse('No identity provider registered with that id under this tenant.'),
-    },
-  },
-  {
-    method: 'post',
-    honoPath: '/v1/auth/login/:providerId',
-    openapiPath: '/v1/auth/login/{providerId}',
-    operationId: 'auth.login',
-    summary: 'Initiate OAuth/OIDC login',
-    description:
-      'Framework generates `state` + PKCE `code_verifier` (S256 challenge). Caller redirects the user-agent to `authorizationUrl`. Provider redirects back to `redirectUri` with `code` + `state`; caller POSTs those to `/v1/auth/callback/:providerId` to complete the flow. When the provider config populated `allowedRedirectUris`, the effective redirect_uri MUST be an exact match — otherwise `400 redirect-uri-not-allowed`.',
-    tags: ['auth'],
-    security: 'bearer',
-    parameters: [
-      {
-        name: 'providerId',
-        in: 'path',
-        required: true,
-        schema: { type: 'string', minLength: 1 },
-      },
-      IdempotencyKeyParam,
-    ],
-    requestBody: { required: false, schema: ref('LoginBody') },
-    responses: {
-      '200': {
-        description: 'Authorization URL + PKCE parameters.',
-        schema: ref('AuthorizationResponse'),
-      },
-      ...CommonMutationErrors,
-      '404': ErrorResponse('No identity provider registered with that id under this tenant.'),
-    },
-  },
-  {
-    method: 'post',
-    honoPath: '/v1/auth/callback/:providerId',
-    openapiPath: '/v1/auth/callback/{providerId}',
-    operationId: 'auth.callback',
-    summary: 'Complete an OAuth/OIDC callback',
-    description:
-      "Public — the caller has not yet obtained a session token. Verifies `state`, exchanges `code` for provider tokens via the deployment's `exchangeCode`, fetches userinfo, and persists a session via `SessionStoreBinding`. Returns an opaque `kgi_sk_*` session token the caller uses on subsequent requests. The underlying provider access-token never leaves the server. When the provider config populated `allowedRedirectUris`, the stored redirect_uri is re-checked against the current allowlist — a mismatch (allowlist tightened between login and callback) returns `400 redirect-uri-mismatch`.",
-    tags: ['auth'],
-    security: 'public',
-    parameters: [
-      {
-        name: 'providerId',
-        in: 'path',
-        required: true,
-        schema: { type: 'string', minLength: 1 },
-      },
-    ],
-    requestBody: { required: true, schema: ref('CallbackBody') },
-    responses: {
-      '201': { description: 'Session created.', schema: ref('CallbackResult') },
-      '400': ErrorResponse('Malformed body or `state` unknown/expired/consumed.'),
-      '422': ErrorResponse('Code exchange with the provider failed.'),
     },
   },
   {
@@ -5317,7 +5340,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'auth.refresh',
     summary: 'Refresh the current session token',
     description:
-      'Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. When the deployment wired a `refreshToken` callback and the provider issued a refresh token, provider tokens rotate too; otherwise only the framework session token rotates. OAuth 2.1 BCP refresh-token rotation: the OLD session token is invalidated (marked rotated) — reusing it after refresh returns `401 refresh-token-invalid` so compliant clients can retry with the fresh token instead of prompting a re-auth. A browser session (the session cookie) is not refreshed: `400 cookie-session-not-refreshable`, so a new token never reaches page scripts; it ends at its TTL.',
+      'Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. The session token rotates: the new session keeps the person, scopes and expiry, and the provider is not called. OAuth 2.1 BCP refresh-token rotation: the OLD session token is invalidated (marked rotated) — reusing it after refresh returns `401 refresh-token-invalid` so compliant clients can retry with the fresh token instead of prompting a re-auth. A browser session (the session cookie) is not refreshed: `400 cookie-session-not-refreshable`, so a new token never reaches page scripts; it ends at its TTL.',
     tags: ['auth'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -5491,6 +5514,27 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       '403': ErrorResponse("Another person's sessions, and not a tenant admin."),
       '500': ErrorResponse('Session revocation failed inside the caller-plugged binding.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/identity/me/permissions',
+    openapiPath: '/v1/identity/me/permissions',
+    operationId: 'identity.me.permissions',
+    summary: 'What I may do',
+    description:
+      "What the caller may do, so a client can hide what it can't: tenant admin, its reviewer role and the roles it decides, its API key's limits and capabilities, the projects it may read with its role in each and every way it holds it (directly, a team, an org it administers, tenant admin), its orgs and teams, and what each project role allows (from the runtime's authorization model). The key's limits are applied: a `member` key is never tenant admin, and a key limited to a project sees that project alone. Only what the caller may see. The server still checks every call. `501 permissions-unsupported` on a runtime without an authorization store: read whoami's `tenantAdmin` and `reviewerRole` instead.",
+    tags: ['identity'],
+    security: 'bearer',
+    responses: {
+      '200': { description: 'What the caller may do.', schema: ref('MyPermissions') },
+      ...CommonAuthErrors,
+      '501': ErrorResponse(
+        'The runtime has no authorization store (`permissions-unsupported`): read whoami instead.',
+      ),
+      '503': ErrorResponse(
+        "The authorization store couldn't be read (`authz-backend-unavailable`): try again.",
+      ),
     },
   },
   {
@@ -5819,6 +5863,85 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
 
   // ---------- audit query surface (unified audit substrate) ----------
+  {
+    method: 'get',
+    honoPath: '/v1/audit/sign-ins',
+    openapiPath: '/v1/audit/sign-ins',
+    operationId: 'audit.signIns.list',
+    summary: 'List sign-in audit events',
+    description:
+      "The tenant's sign-in history: who signed in and out, how (`method`), when and from where (`clientAddress`), what was refused and why, and emailed links sent or capped. `?userId=` narrows to one person's own sign-ins and sign-outs. Oldest first; `?order=desc` for newest first. A tenant admin's to read (403 `permission-denied` otherwise). Only mounted when `CreateAppInput.auditEvents` is wired.",
+    tags: ['audit'],
+    security: 'bearer',
+    parameters: [
+      LimitQueryParam,
+      CursorQueryParam,
+      {
+        name: 'userId',
+        in: 'query',
+        required: false,
+        description: "One person's own sign-ins and sign-outs.",
+        schema: { type: 'string' },
+      },
+      {
+        name: 'kind',
+        in: 'query',
+        required: false,
+        description: 'One kind of event.',
+        schema: {
+          type: 'string',
+          enum: [
+            'signed-in',
+            'signed-out',
+            'sign-in-refused',
+            'sign-in-link-sent',
+            'sign-in-link-capped',
+            'sessions-revoked',
+            'sessions-ended',
+          ],
+        },
+      },
+      {
+        name: 'from',
+        in: 'query',
+        required: false,
+        description: 'Inclusive lower bound on `timestamp`.',
+        schema: { type: 'string', format: 'date-time' },
+      },
+      {
+        name: 'to',
+        in: 'query',
+        required: false,
+        description: 'Inclusive upper bound on `timestamp`.',
+        schema: { type: 'string', format: 'date-time' },
+      },
+      {
+        name: 'order',
+        in: 'query',
+        required: false,
+        description:
+          '`asc` (the default): oldest first. `desc`: newest first. `nextCursor` continues in the same order.',
+        schema: { type: 'string', enum: ['asc', 'desc'] },
+      },
+    ],
+    responses: {
+      '200': {
+        description: 'A page of sign-in audit events.',
+        schema: {
+          type: 'object',
+          required: ['data', 'hasMore'],
+          properties: {
+            data: { type: 'array', items: ref('SignInEvent') },
+            hasMore: { type: 'boolean' },
+            nextCursor: { type: 'string' },
+          },
+        },
+      },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('Malformed cursor, `kind`, `from`, `to`, or `order`.'),
+      '403': ErrorResponse('Not a tenant admin (`permission-denied`).'),
+    },
+  },
   {
     method: 'get',
     honoPath: '/v1/audit/authz',
@@ -7236,6 +7359,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/event-triggers',
     openapiPath: '/v1/event-triggers',
     operationId: 'eventTriggers.register',
+    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
     summary: 'Register an event trigger',
     description:
       'Registers a `kind=event` trigger. The event-trigger scheduler in the runtime subscribes on the deployment event bus for the given `eventKind`; matching events start a flow run.',
@@ -7253,6 +7377,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/event-triggers',
     openapiPath: '/v1/event-triggers',
     operationId: 'eventTriggers.list',
+    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
     summary: 'List event triggers',
     tags: ['event-triggers'],
     security: 'bearer',
@@ -7267,6 +7392,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/event-triggers/:triggerId',
     openapiPath: '/v1/event-triggers/{triggerId}',
     operationId: 'eventTriggers.get',
+    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
     summary: 'Fetch an event trigger',
     tags: ['event-triggers'],
     security: 'bearer',
@@ -7282,6 +7408,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/event-triggers/:triggerId',
     openapiPath: '/v1/event-triggers/{triggerId}',
     operationId: 'eventTriggers.update',
+    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
     summary: 'Update an event trigger',
     tags: ['event-triggers'],
     security: 'bearer',
@@ -7298,6 +7425,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/event-triggers/:triggerId/pause',
     openapiPath: '/v1/event-triggers/{triggerId}/pause',
     operationId: 'eventTriggers.pause',
+    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
     summary: 'Pause an event trigger',
     tags: ['event-triggers'],
     security: 'bearer',
@@ -7313,6 +7441,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/event-triggers/:triggerId/resume',
     openapiPath: '/v1/event-triggers/{triggerId}/resume',
     operationId: 'eventTriggers.resume',
+    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
     summary: 'Resume an event trigger',
     tags: ['event-triggers'],
     security: 'bearer',
@@ -7328,6 +7457,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/event-triggers/:triggerId/unregister',
     openapiPath: '/v1/event-triggers/{triggerId}/unregister',
     operationId: 'eventTriggers.unregister',
+    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
     summary: 'Soft-delete an event trigger (tombstone)',
     tags: ['event-triggers'],
     security: 'bearer',
@@ -7344,6 +7474,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/webhooks',
     openapiPath: '/v1/webhooks',
     operationId: 'webhooks.register',
+    unserved: "Inbound webhooks aren't served yet: the runtime fires schedules only.",
     summary: 'Register a webhook trigger',
     description:
       'Registers a `kind=webhook` trigger. The route mints `webhookId` (a random UUID). Caller must have written the plaintext HMAC secret to `/v1/secrets` first and passes the resulting name as `hmacSecretName` — the trigger never stores the plaintext. Rotation flows through `POST /v1/secrets/:name/rotate`.',
@@ -7362,6 +7493,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/webhooks',
     openapiPath: '/v1/webhooks',
     operationId: 'webhooks.list',
+    unserved: "Inbound webhooks aren't served yet: the runtime fires schedules only.",
     summary: 'List webhook triggers',
     tags: ['webhooks'],
     security: 'bearer',
@@ -7379,6 +7511,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/webhooks/:triggerId',
     openapiPath: '/v1/webhooks/{triggerId}',
     operationId: 'webhooks.get',
+    unserved: "Inbound webhooks aren't served yet: the runtime fires schedules only.",
     summary: 'Fetch a webhook trigger',
     tags: ['webhooks'],
     security: 'bearer',
@@ -7394,6 +7527,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/webhooks/:triggerId',
     openapiPath: '/v1/webhooks/{triggerId}',
     operationId: 'webhooks.update',
+    unserved: "Inbound webhooks aren't served yet: the runtime fires schedules only.",
     summary: 'Update a webhook trigger',
     description:
       'HMAC secret rotation is NOT here — rotate via `POST /v1/secrets/:name/rotate` on the referenced secret.',
@@ -7412,6 +7546,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/webhooks/:triggerId/pause',
     openapiPath: '/v1/webhooks/{triggerId}/pause',
     operationId: 'webhooks.pause',
+    unserved: "Inbound webhooks aren't served yet: the runtime fires schedules only.",
     summary: 'Pause a webhook trigger',
     tags: ['webhooks'],
     security: 'bearer',
@@ -7427,6 +7562,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/webhooks/:triggerId/resume',
     openapiPath: '/v1/webhooks/{triggerId}/resume',
     operationId: 'webhooks.resume',
+    unserved: "Inbound webhooks aren't served yet: the runtime fires schedules only.",
     summary: 'Resume a webhook trigger',
     tags: ['webhooks'],
     security: 'bearer',
@@ -7442,6 +7578,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/webhooks/:triggerId/unregister',
     openapiPath: '/v1/webhooks/{triggerId}/unregister',
     operationId: 'webhooks.unregister',
+    unserved: "Inbound webhooks aren't served yet: the runtime fires schedules only.",
     summary: 'Soft-delete a webhook trigger (tombstone)',
     tags: ['webhooks'],
     security: 'bearer',

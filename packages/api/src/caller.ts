@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import { createHash } from 'node:crypto';
+
 import type { Context } from 'hono';
 
 import { ref } from '@kindgi/authz';
@@ -59,4 +61,21 @@ export function callerRef(c: Context<AppEnv>): string | undefined {
   return caller.kind === 'user'
     ? `user:${caller.userId}`
     : `service_account:${caller.serviceAccountId}`;
+}
+
+/**
+ * Who the request comes from, always: the caller's principal (`user:…`,
+ * `service_account:…`; an API key with neither is its own service account),
+ * else the session it came with, else the credential itself (`token:` and
+ * the first 16 hex of its sha256: one per credential, never a shared one,
+ * and nothing a reader could use). The idempotency cache keys on it, and
+ * audit records name it as the actor.
+ */
+export function callerIdentity(c: Context<AppEnv>): string {
+  const ref = callerRef(c);
+  if (ref !== undefined) return ref;
+  const sessionId = c.get('sessionId');
+  if (sessionId !== undefined) return `session:${sessionId as unknown as string}`;
+  const credential = c.req.header('authorization') ?? '';
+  return `token:${createHash('sha256').update(credential).digest('hex').slice(0, 16)}`;
 }
