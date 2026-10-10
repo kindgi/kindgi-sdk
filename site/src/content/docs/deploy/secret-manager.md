@@ -66,9 +66,10 @@ KINDGI_SECRETS_GCP_PROJECT_ID=<project id>
 
 - **The project:** one used for Kindgi's secrets alone, with the Secret
   Manager API on.
-- **The identity:** the server's service account needs to create secrets,
-  add versions to them and disable them there, for example with Secret
-  Manager Admin (`roles/secretmanager.admin`).
+- **The identity:** the server's service account needs to create and
+  delete secrets there, and add, read and disable their versions: Secret
+  Manager Admin (`roles/secretmanager.admin`), the predefined role that can
+  create secrets.
 - **What Kindgi writes:** one Secret Manager secret per Kindgi secret, under
   a hashed id, labelled with its tenant (`kindgi_tenant_id`) and annotated
   with its Kindgi path (`kindgi-path`). Its versions are numbered as
