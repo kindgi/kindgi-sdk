@@ -176,15 +176,23 @@ only from what `--scope` sets.
 
 ## Test it
 
-A test passes the values in the context it builds:
+A test passes the values in the context it builds.
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
+`invokeTool` decides them as a run does:
+- a name the test doesn't set takes its schema's `default`;
+- each value is checked against its schema;
+- the handler sees the declared names only.
+
+A missing or invalid value is `precondition-failed` (`env-value-missing`,
+`env-value-invalid`), and the handler doesn't run. `toolContextForTest`
+builds the context:
+
 ```ts
 // tools/find-order/index.test.ts
-import { invokeTool } from '@kindgi/sdk/define';
-import type { TenantId } from '@kindgi/sdk/types';
+import { invokeTool, toolContextForTest } from '@kindgi/sdk/define';
 import { expect, test } from 'vitest';
 
 import findOrder from './index.js';
@@ -193,15 +201,12 @@ test('builds the URL from the env values', async () => {
   const result = await invokeTool(
     findOrder,
     { orderId: 'ord_1001' },
-    {
-      tenantId: 'test-tenant' as TenantId,
-      abortSignal: new AbortController().signal,
-      env: { ORDERS_BASE_URL: 'https://orders.example.com', ORDERS_REGION: 'us' },
-    },
+    toolContextForTest({ env: { ORDERS_BASE_URL: 'https://orders.example.com' } }),
   );
+  // ORDERS_REGION isn't set, so it's its default, `eu`, as in a run.
   expect(result).toEqual({
     kind: 'ok',
-    value: { url: 'https://orders.example.com/us/orders/ord_1001' },
+    value: { url: 'https://orders.example.com/eu/orders/ord_1001' },
   });
 });
 ```

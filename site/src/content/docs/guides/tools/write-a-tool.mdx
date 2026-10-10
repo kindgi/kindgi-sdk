@@ -475,8 +475,12 @@ finds no order at all. Start a run in a project with `projectId` on
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
 
-`invokeTool` calls a tool the way the runtime does: input checked, handler
-called, output checked. It returns a result rather than throwing:
+`invokeTool` calls a tool the way the runtime does: the env values it
+declares decided (from the context's `env`, else their defaults, each
+checked), input checked, handler called, output checked. It returns a result
+rather than throwing. `toolContextForTest()`, also from `@kindgi/sdk/define`,
+builds a context like the one below, and takes what to change:
+`toolContextForTest({ env: { … } })`.
 
 ```ts
 // tools/lookup-order/index.test.ts
