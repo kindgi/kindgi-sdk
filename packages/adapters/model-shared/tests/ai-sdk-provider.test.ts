@@ -13,6 +13,7 @@ import {
   type LanguageModelV4,
   type LanguageModelV4CallOptions,
   type LanguageModelV4Content,
+  type LanguageModelV4Prompt,
 } from '@ai-sdk/provider';
 import type { ModelInfo, ProviderMetadata } from '@kindgi/capabilities';
 import { attemptsOf } from '@kindgi/capabilities/attempts';
@@ -23,6 +24,7 @@ import {
   attemptPrepared,
   createAiSdkModelProvider,
 } from '../src/ai-sdk/index.js';
+import { withCacheMarks } from '../src/ai-sdk/provider.js';
 import { ModelProviderError } from '../src/index.js';
 
 const MODEL: ModelInfo = {
@@ -265,6 +267,116 @@ test('a stop the library has no unified reason for: out of context is length, ot
     ]).invoke(ask);
   expect((await stopped('model_context_window_exceeded')).finishReason).toBe('length');
   expect((await stopped('malformed_model_output')).finishReason).toBe('error');
+});
+
+describe('prompt-cache marks (cacheMark)', () => {
+  const MARK = { acme: { cache: 'here' } };
+  const marking = { cacheMark: () => MARK };
+  const tools = [{ name: 'acme.lookup', description: 'd', inputSchema: { type: 'object' } }];
+  const marks = (options: LanguageModelV4CallOptions | undefined) =>
+    options?.prompt.map((m) => m.providerOptions);
+
+  test('a call with tools: the first system message and the last one; a later system message stays unmarked', async () => {
+    const seen: LanguageModelV4CallOptions[] = [];
+    await provider([ANSWER], seen, marking).invoke({
+      model: 'acme-large',
+      messages: [
+        { role: 'system', content: 'You answer about orders.' },
+        { role: 'system', content: 'Context: A-1 left the warehouse.' },
+        { role: 'user', content: 'Where is A-1?' },
+      ],
+      tools,
+    });
+    expect(marks(seen[0])).toEqual([MARK, undefined, MARK]);
+  });
+
+  test('a one-off call (no tools, no earlier answer): the system message only', async () => {
+    const seen: LanguageModelV4CallOptions[] = [];
+    await provider([ANSWER], seen, marking).invoke({
+      model: 'acme-large',
+      messages: [
+        { role: 'system', content: 'Judge the answer.' },
+        { role: 'user', content: 'Shipped.' },
+      ],
+    });
+    expect(marks(seen[0])).toEqual([MARK, undefined]);
+  });
+
+  test('a conversation with an earlier answer, no tools: its last message too', async () => {
+    const seen: LanguageModelV4CallOptions[] = [];
+    await provider([ANSWER], seen, marking).invoke({
+      model: 'acme-large',
+      messages: [
+        { role: 'user', content: 'Where is A-1?' },
+        { role: 'assistant', content: 'Shipped.' },
+        { role: 'user', content: 'And A-2?' },
+      ],
+    });
+    expect(marks(seen[0])).toEqual([undefined, undefined, MARK]);
+  });
+
+  test("after a tool call: the tool results are marked, and the carried answer's own state is untouched", async () => {
+    const seen: LanguageModelV4CallOptions[] = [];
+    const p = provider(
+      [
+        {
+          content: [
+            { type: 'reasoning', text: 'Look.', providerMetadata: { acme: { signature: 's' } } },
+            { type: 'tool-call', toolCallId: 'c1', toolName: 'acme__lookup', input: '{}' },
+          ],
+        },
+        ANSWER,
+      ],
+      seen,
+      marking,
+    );
+    const first = await p.invoke({ ...ask, tools });
+    await p.invoke({
+      model: 'acme-large',
+      messages: [...ask.messages, first.message, { role: 'tool', toolCallId: 'c1', content: '{}' }],
+      tools,
+    });
+    const prompt = seen[1]?.prompt ?? [];
+    expect(prompt.map((m) => [m.role, m.providerOptions])).toEqual([
+      ['user', undefined],
+      ['assistant', undefined],
+      ['tool', MARK],
+    ]);
+    expect(prompt[1]?.content[0]).toEqual({
+      type: 'reasoning',
+      text: 'Look.',
+      providerOptions: { acme: { signature: 's' } },
+    });
+  });
+
+  test('no cacheMark, or one that answers undefined for the model: nothing is marked', async () => {
+    for (const extra of [{}, { cacheMark: () => undefined }]) {
+      const seen: LanguageModelV4CallOptions[] = [];
+      await provider([ANSWER], seen, extra).invoke({
+        model: 'acme-large',
+        messages: [
+          { role: 'system', content: 'You answer about orders.' },
+          { role: 'user', content: 'Where is A-1?' },
+        ],
+        tools,
+      });
+      expect(marks(seen[0])).toEqual([undefined, undefined]);
+    }
+  });
+
+  test("the mark merges into a message's own options, per provider; the prompt passed in isn't changed", () => {
+    const prompt: LanguageModelV4Prompt = [
+      { role: 'system', content: 'S', providerOptions: { acme: { a: 1 }, other: { b: 2 } } },
+      { role: 'user', content: [{ type: 'text', text: 'U' }] },
+    ];
+    const before = structuredClone(prompt);
+    const out = withCacheMarks(prompt, MARK, true);
+    expect(out.map((m) => m.providerOptions)).toEqual([
+      { acme: { a: 1, cache: 'here' }, other: { b: 2 } },
+      MARK,
+    ]);
+    expect(prompt).toEqual(before);
+  });
 });
 
 describe('the reasoning state across a pause (A5)', () => {

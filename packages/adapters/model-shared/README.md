@@ -48,6 +48,7 @@ Today's engine for sending the requests is the [AI SDK](https://ai-sdk.dev)'s pr
 - `metadata`: the registration's `ProviderMetadata`;
 - `languageModel(name, fetch)`: the engine's model for a model name, sending with the `fetch` it's given (each HTTP attempt is counted through it);
 - `providerOptions?(model)`: provider options on every call (Azure: `{ azure: { store: false } }`);
+- `cacheMark?(model)`: for a vendor that caches only the prompt prefixes a request marks, the provider options that mark a prompt message for this model, or `undefined` for none (Bedrock: `{ bedrock: { cachePoint: { type: 'default' } } }` for Claude and Nova). The first system message is marked, and the last message when the call will be sent again (it has tools, or an earlier answer), as the Anthropic adapter places `cache_control`;
 - `cost(model, usage)`: the adapter's cost formula;
 - `attempts?`: HTTP attempts in all on a retryable failure (default 3);
 - `fetch?`: the fetch each attempt goes through, for an endpoint the registration chose: the runtime's (`AdapterFactoryInput.fetch`, which refuses the hosts its deployment forbids). Default: the global `fetch`;
