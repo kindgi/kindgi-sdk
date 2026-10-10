@@ -57,14 +57,25 @@ export {
   main as kindgiIndexMain,
   runIndexer,
 } from './kindgi-index.js';
-export type { PackEnvCheck, PackEnvConfig, PackEnvDeclaration, PackEnvResult } from './pack-env.js';
+export type {
+  PackEnvCheck,
+  PackEnvConfig,
+  PackEnvDeclaration,
+  PackEnvFilter,
+  PackEnvResult,
+} from './pack-env.js';
 export {
   PACK_ENV_CHECK_VAR,
+  PACK_ENV_FILTER_VAR,
   PACK_ENV_NAME,
+  PLATFORM_ENV_NAMES,
+  PLATFORM_ENV_PREFIXES,
   RESERVED_ENV_PREFIX,
   missingPackEnv,
   parsePackEnvCheck,
+  parsePackEnvFilter,
   resolvePackEnv,
+  undeclaredPackEnv,
 } from './pack-env.js';
 export {
   TEST_FILE_REGEX,
