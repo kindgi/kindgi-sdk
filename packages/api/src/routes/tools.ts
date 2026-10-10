@@ -449,6 +449,25 @@ export function toolsRouter(
     const toolId = c.req.param('toolId') as ToolId;
     const version = c.req.param('version') as never;
 
+    // A model provider's key is never a tool's: a version naming one, retired
+    // before its provider was registered, stays retired.
+    if (options.providerKeys !== undefined) {
+      const retired = await binding.getVersion({ tenantId, toolId, version });
+      const refusal =
+        retired === null
+          ? undefined
+          : await refuseProviderKeys(
+              options.providerKeys,
+              tenantId,
+              toolSecretNames(retired),
+              'a tool',
+            );
+      if (refusal !== undefined) {
+        c.status(statusFor(refusal.code) as never);
+        return c.json(toWireError(refusal, requestId));
+      }
+    }
+
     const outcome = await binding.reinstateVersion({ tenantId, toolId, version });
     if (outcome.kind === 'not-found') {
       c.status(statusFor('tool-not-found') as never);
