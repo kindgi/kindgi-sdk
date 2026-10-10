@@ -141,7 +141,7 @@ const defined = defineTool({
 });
 ```
 
-The runtime resolves every declared secret on every call, for the call's tenant, in its env (`KINDGI_ENV`; in `kindgi dev`, `local`: the pack's `.env` and `.env.local`). It checks each value against its schema, and fails the call, naming the secret, when one is missing or doesn't match. Every declared secret is required, so in a runtime call `ctx.secrets` holds them all; it's optional in the type because a unit test builds its own context and passes `secrets: { CITATOR_KEY: '…' }`.
+The runtime resolves every declared secret on every call, for the call's tenant, in its env (`KINDGI_ENV`; in `kindgi dev`, `local`: the pack's `.env` and `.env.local`). It checks each value against its schema, and fails the call, naming the secret, when one is missing or doesn't match. A declared secret is required, so in a runtime call `ctx.secrets` holds it; it's optional in the type because a unit test builds its own context and passes `secrets: { CITATOR_KEY: '…' }`. **An optional secret** has a schema that names `null` (`{ type: ['string', 'null'] }`; an unconstrained `{}` stays required): one never stored, or empty, is left out of `ctx.secrets`, and the call goes on, its log line naming it. One revoked, or gone at its provider though mapped, still fails the call. Optional secrets need runtime 0.1.6 or later; an older runtime requires them.
 
 A value that differs per tenant, org or project but isn't secret (a base URL, a region, an account id) is an **env value**: declared in `needsSpec.env`, read from `ctx.env`:
 

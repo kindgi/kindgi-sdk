@@ -298,6 +298,40 @@ describe('kindgi secrets set — TTY prompt', () => {
     expect(out.stderr).not.toContain('sk_live_x');
   });
 
+  test('--rotation-due-at: a date goes as its start in UTC; a loose time is refused, nothing sent', async () => {
+    const fixtures = makeFixtures({ ttyValues: ['sk_live_x', 'sk_live_x'] });
+    const clientFactory = (): unknown =>
+      makeFakeClient({
+        set: async (args: unknown) => {
+          fixtures.state.setCalls.push(args);
+          return { kind: 'ok', record: { name: 'stripe.key', currentVersion: 1 }, versionId: 1 };
+        },
+      });
+    const argv = ['secrets', 'set', 'stripe.key', '--env=staging', '--scope=tenant'];
+    const out = await runCli({
+      ...baseInputs(fixtures, [
+        ...argv,
+        '--rotation-due-at=2027-01-15',
+        '--url=https://x',
+        '--token=t',
+      ]),
+      clientFactory: clientFactory as never,
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect((fixtures.state.setCalls[0] as { rotationDueAt?: string }).rotationDueAt).toBe(
+      '2027-01-15T00:00:00.000Z',
+    );
+
+    const loose = makeFixtures({ ttyValues: ['sk_live_x', 'sk_live_x'] });
+    const refused = await runCli({
+      ...baseInputs(loose, [...argv, '--rotation-due-at=Oct 9', '--url=https://x', '--token=t']),
+      clientFactory: clientFactory as never,
+    });
+    expect(refused.exitCode).toBe(2);
+    expect(refused.stderr).toContain('--rotation-due-at must be an ISO 8601 time with a zone');
+    expect(loose.state.setCalls).toEqual([]);
+  });
+
   test('rejects on TTY mismatch', async () => {
     const fixtures = makeFixtures({
       ttyValues: ['sk_live_x', 'DIFFERENT'],

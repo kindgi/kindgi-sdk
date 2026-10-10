@@ -17,6 +17,7 @@ import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
 import { callerRef } from './memory-access.js';
 import { clampLimit } from './pagination.js';
+import { parseTimeInput } from './time-input.js';
 
 /**
  * Erasing a person's words (T273 M-5):
@@ -223,7 +224,7 @@ function parseLedger(body: unknown): MemoryErasureLedgerEntry[] | string {
     for (const k of ['createdAt', 'completedAt'] as const) {
       const v = e[k];
       if (v === undefined && k === 'completedAt') continue;
-      if (typeof v !== 'string' || Number.isNaN(Date.parse(v))) return `${at}.${k} must be a time`;
+      if (parseTimeInput(v) === null) return `${at}.${k} must be a time`;
     }
     out.push({
       id: e.id,

@@ -26,6 +26,7 @@ import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
 import { projectMismatch } from './project-mismatch.js';
 import { parseSegmentsBody } from './segments.js';
+import { parseTimeInput } from './time-input.js';
 
 /** The most cases a test set built from judgments holds. */
 export const MAX_JUDGED_CASES = 1000;
@@ -300,7 +301,7 @@ function parseStringFilters(b: Record<string, unknown>): Record<string, string> 
     const v = b[field];
     if (v === undefined) continue;
     if (typeof v !== 'string' || v.length === 0) return `${field} must be a non-empty string.`;
-    if ((field === 'since' || field === 'until') && Number.isNaN(Date.parse(v))) {
+    if ((field === 'since' || field === 'until') && parseTimeInput(v) === null) {
       return `${field} must be an ISO 8601 time.`;
     }
     query[field] = v;

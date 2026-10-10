@@ -59,6 +59,7 @@ import { requireEnvName } from './env.js';
 import type { GuardrailWriteHook } from './guardrails.js';
 import { clampLimit } from './pagination.js';
 import { tenantResourceAccess } from './tenant-access.js';
+import { parseTimeInput } from './time-input.js';
 import type { ToolWriteHook } from './tools.js';
 
 /**
@@ -1139,7 +1140,7 @@ function parseWireBody(body: unknown): ParseResult {
       message: 'indexHash must be sha256:<64-hex> (or bare 64-hex)',
     });
   }
-  if (publishedAt !== undefined && Number.isNaN(Date.parse(publishedAt))) {
+  if (publishedAt !== undefined && parseTimeInput(publishedAt) === null) {
     issues.push({ path: 'publishedAt', message: 'publishedAt must be ISO-8601' });
   }
 

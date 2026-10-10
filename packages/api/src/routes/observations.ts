@@ -25,6 +25,7 @@ import type {
 } from '../supervisor-binding.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit, decodeCursor, encodeCursor, isCursorTime } from './pagination.js';
+import { parseTimeInput } from './time-input.js';
 
 const OBSERVATION_STATUSES: ReadonlySet<ObservationStatus> = new Set([
   'succeeded',
@@ -98,9 +99,8 @@ export function observationsRouter(
 
     const validIso = (raw: string | undefined): string | undefined | 'invalid' => {
       if (raw === undefined || raw.length === 0) return undefined;
-      const d = new Date(raw);
-      if (Number.isNaN(d.getTime())) return 'invalid';
-      return d.toISOString();
+      const d = parseTimeInput(raw);
+      return d === null ? 'invalid' : d.toISOString();
     };
     const since = validIso(sinceRaw);
     if (since === 'invalid') {

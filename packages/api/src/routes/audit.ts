@@ -35,6 +35,7 @@ import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
+import { parseTimeInput } from './time-input.js';
 
 /**
  * Wire projection for the `/v1/audit/authz` route. Denormalizes the
@@ -137,13 +138,13 @@ export function auditRouter(binding: AuditEventBinding, authorizer?: Authorizer)
       );
     }
 
-    if (from !== undefined && Number.isNaN(new Date(from).getTime())) {
+    if (from !== undefined && parseTimeInput(from) === null) {
       c.status(statusFor('bad-input') as never);
       return c.json(
         toWireError({ code: 'bad-input', message: '`from` must be an ISO timestamp' }, requestId),
       );
     }
-    if (to !== undefined && Number.isNaN(new Date(to).getTime())) {
+    if (to !== undefined && parseTimeInput(to) === null) {
       c.status(statusFor('bad-input') as never);
       return c.json(
         toWireError({ code: 'bad-input', message: '`to` must be an ISO timestamp' }, requestId),
