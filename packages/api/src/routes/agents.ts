@@ -801,6 +801,7 @@ function serializeAgent(a: AgentVersionRecord): Record<string, unknown> {
   return {
     id: a.id as unknown as string,
     version: a.version as unknown as string,
+    ...(a.projectId !== undefined && { projectId: a.projectId as unknown as string }),
     name: a.name,
     ...(a.description !== undefined && { description: a.description }),
     instructions: a.instructions,

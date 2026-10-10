@@ -2683,6 +2683,10 @@ class Tool(BaseModel):
     """
     ToolId — dotted namespace (e.g. `acme.verify-citation`).
     """
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The tool's project: every version of a tool is in the one project. Absent when the runtime doesn't record it: a pack `kindgi dev` serves from disk, or a runtime before Kindgi 0.1.6.
+    """
     description: Annotated[str, Field(min_length=1)]
     version: Annotated[str | None, Field(pattern="^\\d+\\.\\d+\\.\\d+$")] = None
     input: dict[str, Any]
@@ -2734,6 +2738,10 @@ class RegisterToolBody(BaseModel):
     """
     ToolId — dotted namespace (e.g. `acme.verify-citation`).
     """
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    """
+    Project this belongs to (its content scope). Required: missing, or not a project in the caller's tenant → `400 bad-input`.
+    """
     description: Annotated[str, Field(min_length=1)]
     version: Annotated[str | None, Field(pattern="^\\d+\\.\\d+\\.\\d+$")] = None
     input: dict[str, Any]
@@ -2770,10 +2778,6 @@ class RegisterToolBody(BaseModel):
     Handler-artifact pointer. Discriminated on `kind`: `oci` is the deploy-pipeline shape (image + module path + artifactVersion); `filesystem` is the local-development shape — absolute host path at the pack's on-disk handler file. Production servers SHOULD reject `filesystem`.
     """
     spec: ToolSpec | None = None
-    project_id: Annotated[UUID, Field(alias="projectId")]
-    """
-    Project this belongs to (its content scope). Required: missing, or not a project in the caller's tenant → `400 bad-input`.
-    """
 
 
 class RegisterToolResult(BaseModel):
@@ -2828,6 +2832,10 @@ class ToolVersionRow(BaseModel):
     id: Annotated[str, Field(min_length=1)]
     """
     ToolId — dotted namespace (e.g. `acme.verify-citation`).
+    """
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The tool's project: every version of a tool is in the one project. Absent when the runtime doesn't record it: a pack `kindgi dev` serves from disk, or a runtime before Kindgi 0.1.6.
     """
     description: Annotated[str, Field(min_length=1)]
     version: Annotated[str | None, Field(pattern="^\\d+\\.\\d+\\.\\d+$")] = None
@@ -2939,6 +2947,10 @@ class Guardrail(BaseModel):
         populate_by_name=True,
     )
     id: Annotated[str, Field(min_length=1)]
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The guardrail's project. Absent when the runtime doesn't record it: a pack `kindgi dev` serves from disk, or a runtime before Kindgi 0.1.6.
+    """
     name: str | None = None
     description: str | None = None
     kind: Annotated[str, Field(examples=["zero-llm", "llm-judge", "external"], min_length=1)]
@@ -2967,6 +2979,10 @@ class RegisterGuardrailBody(BaseModel):
         populate_by_name=True,
     )
     id: Annotated[str, Field(min_length=1)]
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    """
+    Project this belongs to (its content scope). Required: missing, or not a project in the caller's tenant → `400 bad-input`.
+    """
     name: str | None = None
     description: str | None = None
     kind: Annotated[str, Field(examples=["zero-llm", "llm-judge", "external"], min_length=1)]
@@ -2983,10 +2999,6 @@ class RegisterGuardrailBody(BaseModel):
     scope: GuardrailScope | None = None
     budget: Budget | None = None
     judge_capabilities: Annotated[dict[str, Any] | None, Field(alias="judgeCapabilities")] = None
-    project_id: Annotated[UUID, Field(alias="projectId")]
-    """
-    Project this belongs to (its content scope). Required: missing, or not a project in the caller's tenant → `400 bad-input`.
-    """
 
 
 class RegisterGuardrailResult(BaseModel):
@@ -10210,6 +10222,10 @@ class Agent(BaseModel):
     version: str
     """
     Semver.
+    """
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The agent's project: every version of an agent is in the one project. Absent when the runtime doesn't record it: a pack `kindgi dev` serves from disk, or a runtime before Kindgi 0.1.6.
     """
     name: str
     description: str | None = None

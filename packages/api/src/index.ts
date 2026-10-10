@@ -598,6 +598,7 @@ export type {
   ToolPage,
   ToolPublishInput,
   ToolPublishOutcome,
+  ToolRecord,
   ToolRegistryBinding,
   ToolReinstateVersionInput,
   ToolReinstateVersionOutcome,
@@ -606,11 +607,13 @@ export type {
   ToolUnregisterInput,
   ToolUnregisterOutcome,
   ToolVersionPage,
+  ToolVersionRow,
 } from './tool-binding.js';
 export type {
   GuardrailGetInput,
   GuardrailListInput,
   GuardrailPage,
+  GuardrailRecord,
   GuardrailRegisterInput,
   GuardrailRegisterOutcome,
   GuardrailRegistryBinding,

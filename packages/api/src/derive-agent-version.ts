@@ -50,9 +50,10 @@ export interface SwapIssue {
 }
 
 export type DeriveAgentVersionOutcome =
-  | { readonly kind: 'ok'; readonly agent: Agent }
+  /** The new version, in the project it was published to. */
+  | { readonly kind: 'ok'; readonly agent: AgentVersionRecord }
   /** An active version already has this definition and these pins: that one, unchanged. */
-  | { readonly kind: 'reused'; readonly agent: Agent }
+  | { readonly kind: 'reused'; readonly agent: AgentVersionRecord }
   | { readonly kind: 'not-found' }
   | { readonly kind: 'unpinned' }
   | { readonly kind: 'invalid'; readonly issues: readonly SwapIssue[] }
@@ -142,7 +143,7 @@ async function publishNextFree(
       agent,
       enqueueTuples: input.tuplesFor(projectId),
     });
-    if (outcome.kind === 'ok') return { kind: 'ok', agent };
+    if (outcome.kind === 'ok') return { kind: 'ok', agent: { ...agent, projectId } };
     if (outcome.kind === 'project-not-found') return { kind: 'project-not-found', projectId };
     if (outcome.kind === 'project-mismatch') {
       return { kind: 'project-mismatch', projectId: outcome.projectId };

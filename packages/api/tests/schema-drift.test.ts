@@ -138,10 +138,13 @@ function asWire(node: unknown): unknown {
  * first cut, and the declarative-HTTP `$defs`, are held equal to the spec.
  */
 describe('OpenAPI ↔ specs drift — Tool carries the whole manifest', () => {
-  test("the wire declares exactly the spec's properties", async () => {
+  /** What the registry sets on a tool it reads: where it keeps it, not what it is. */
+  const REGISTRY_SET = ['projectId'];
+
+  test("the wire declares exactly the spec's properties, and what the registry sets", async () => {
     const spec = await loadSpec('tool');
     expect(Object.keys(ToolSchema.properties as object).sort()).toEqual(
-      Object.keys(spec.properties ?? {}).sort(),
+      [...Object.keys(spec.properties ?? {}), ...REGISTRY_SET].sort(),
     );
   });
 

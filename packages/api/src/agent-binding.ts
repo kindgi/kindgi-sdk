@@ -42,7 +42,7 @@ export interface AgentRegistryBinding {
    * Latest version of the given agent id, or `null` if unknown. The
    * route surfaces `null` as `404 agent-not-found`.
    */
-  get(input: AgentGetInput): Promise<Agent | null>;
+  get(input: AgentGetInput): Promise<AgentVersionRecord | null>;
   /**
    * Specific `(agentId, version)` lookup, or `null` if unknown.
    * Returns unregistered (tombstoned) versions too, unlike `list` /
@@ -102,11 +102,20 @@ export interface AgentRegistryBinding {
   reinstateVersion(input: AgentReinstateVersionInput): Promise<AgentReinstateVersionOutcome>;
 }
 
-/** An agent version as `getVersion` reads it: `unregisteredAt` is set when it's unregistered. */
+/**
+ * An agent version as the registry reads it (`get`, `getVersion`,
+ * `list` and `listVersions`): the definition, the agent's project when
+ * the store records it, and `unregisteredAt` on an unregistered version
+ * `getVersion` reads.
+ */
 export type AgentVersionRecord = Agent & {
   /** ISO-8601; present only on an unregistered version. */
   readonly unregisteredAt?: string;
-  /** The project the version belongs to, when the store records it (a derived version is published there). */
+  /**
+   * The agent's project, when the store records it: agents never move
+   * between projects, so every version reads the same one (a derived
+   * version is published there).
+   */
   readonly projectId?: ProjectId;
 };
 
@@ -208,7 +217,7 @@ export interface AgentReinstateVersionInput {
 }
 
 export interface AgentPage {
-  readonly data: readonly Agent[];
+  readonly data: readonly AgentVersionRecord[];
   readonly nextCursor?: Cursor;
 }
 
