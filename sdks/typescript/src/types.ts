@@ -2802,6 +2802,16 @@ export interface JudgeClassAssertableBy {
   readonly principalIds?: readonly string[];
 }
 
+/**
+ * Who may assert a judge class, as the caller sees it. `principalIds` comes
+ * only to an admin on the class's scope; `principalCount` to every reader.
+ * Matches `@kindgi/api/openapi.json#JudgeClassAssertableByView`.
+ */
+export interface JudgeClassAssertableByView extends JudgeClassAssertableBy {
+  /** How many principals the class is restricted to; absent when it names none. */
+  readonly principalCount?: number;
+}
+
 /** Matches `@kindgi/api/openapi.json#JudgeClass`. */
 export interface JudgeClass {
   readonly id: string;
@@ -2813,7 +2823,7 @@ export interface JudgeClass {
   readonly weight: number;
   readonly description?: string;
   /** Who may assert it; absent: anyone who may judge the run. */
-  readonly assertableBy?: JudgeClassAssertableBy;
+  readonly assertableBy?: JudgeClassAssertableByView;
   readonly createdAt: import('@kindgi/types').Timestamp;
   readonly updatedAt: import('@kindgi/types').Timestamp;
   /** Set when the class was retired. */

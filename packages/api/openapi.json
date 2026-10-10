@@ -3577,7 +3577,7 @@
             "type": "string"
           },
           "assertableBy": {
-            "$ref": "#/components/schemas/JudgeClassAssertableBy"
+            "$ref": "#/components/schemas/JudgeClassAssertableByView"
           },
           "createdAt": {
             "type": "string",
@@ -4232,6 +4232,50 @@
               "minLength": 1
             },
             "description": "Only these principals: user ids, or service token ids."
+          }
+        }
+      },
+      "JudgeClassAssertableByView": {
+        "type": "object",
+        "additionalProperties": false,
+        "minProperties": 1,
+        "description": "Who may assert the class, as the caller sees it: every part that is set must hold. `principalIds` is sent only to an admin on the class's scope; `principalCount` to everyone who reads it.",
+        "properties": {
+          "minReviewerRole": {
+            "type": "string",
+            "enum": [
+              "standard",
+              "senior",
+              "admin"
+            ],
+            "description": "The caller's reviewer role is at least this (its token's, or the roster's)."
+          },
+          "principalKinds": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string",
+              "enum": [
+                "user",
+                "service"
+              ]
+            },
+            "description": "Users, service tokens, or both."
+          },
+          "principalIds": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 100,
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Only these principals: user ids, or service token ids. Sent only to an admin on the class's scope."
+          },
+          "principalCount": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "How many principals the class is restricted to (`principalIds`), for every reader. Absent when it names none."
           }
         }
       },

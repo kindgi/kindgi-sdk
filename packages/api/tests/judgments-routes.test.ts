@@ -697,6 +697,34 @@ describe('POST /v1/judgments/:id/unregister', () => {
 });
 
 describe('/v1/judge-classes', () => {
+  test("whom a class names is for its scope's admins; every reader gets the count", async () => {
+    const grants = [`admin project:${projectA}`, `read project:${projectA}`];
+    const h = harness([], {}, { grants, checked: [] });
+    const created = await h.call('POST', '/v1/judge-classes', {
+      scope: { kind: 'project', projectId: projectA },
+      name: 'expert',
+      weight: 3,
+      assertableBy: { minReviewerRole: 'senior', principalIds: ['user-ada', 'user-bo'] },
+    });
+    expect([created.status, created.body.assertableBy]).toEqual([
+      201,
+      { minReviewerRole: 'senior', principalIds: ['user-ada', 'user-bo'], principalCount: 2 },
+    ]);
+    const id = created.body.id as string;
+    const asAdmin = await h.call('GET', `/v1/judge-classes/${id}`);
+    expect(asAdmin.body.assertableBy.principalIds).toEqual(['user-ada', 'user-bo']);
+
+    // A viewer of the project reads the class, but not whom it names.
+    grants.splice(0, 1);
+    const asViewer = { minReviewerRole: 'senior', principalCount: 2 };
+    expect((await h.call('GET', `/v1/judge-classes/${id}`)).body.assertableBy).toEqual(asViewer);
+    const listed = await h.call('GET', '/v1/judge-classes');
+    expect(listed.body.data.map((k: Record<string, unknown>) => k.assertableBy)).toEqual([
+      asViewer,
+    ]);
+    expect(JSON.stringify(listed.body)).not.toContain('user-ada');
+  });
+
   test('create, get, list, update, unregister', async () => {
     const h = harness([]);
     const created = await h.call('POST', '/v1/judge-classes', {

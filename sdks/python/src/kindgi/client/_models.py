@@ -1752,6 +1752,39 @@ class JudgeClassAssertableBy(BaseModel):
     """
 
 
+class JudgeClassAssertableByView(BaseModel):
+    """
+    Who may assert the class, as the caller sees it: every part that is set must hold. `principalIds` is sent only to an admin on the class's scope; `principalCount` to everyone who reads it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    min_reviewer_role: Annotated[
+        Literal["standard", "senior", "admin"] | None, Field(alias="minReviewerRole")
+    ] = None
+    """
+    The caller's reviewer role is at least this (its token's, or the roster's).
+    """
+    principal_kinds: Annotated[
+        list[Literal["user", "service"]] | None, Field(alias="principalKinds", min_length=1)
+    ] = None
+    """
+    Users, service tokens, or both.
+    """
+    principal_ids: Annotated[
+        list[PrincipalId] | None, Field(alias="principalIds", max_length=100, min_length=1)
+    ] = None
+    """
+    Only these principals: user ids, or service token ids. Sent only to an admin on the class's scope.
+    """
+    principal_count: Annotated[int | None, Field(alias="principalCount", ge=1)] = None
+    """
+    How many principals the class is restricted to (`principalIds`), for every reader. Absent when it names none.
+    """
+
+
 class JudgedEvalCase(BaseModel):
     """
     One case of a `judged` eval suite: a copy of a judged run with its items' judgments summed up.
@@ -10148,7 +10181,7 @@ class JudgeClass(BaseModel):
     How much a judgment of this class counts, relative to the others.
     """
     description: str | None = None
-    assertable_by: Annotated[JudgeClassAssertableBy | None, Field(alias="assertableBy")] = None
+    assertable_by: Annotated[JudgeClassAssertableByView | None, Field(alias="assertableBy")] = None
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
     unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
