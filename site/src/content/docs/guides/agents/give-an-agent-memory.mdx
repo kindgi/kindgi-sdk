@@ -420,6 +420,9 @@ agent's earlier conversations. It takes no `types`:
   customer), whoever had them.
 - **`same-project`:** the project's conversations, whoever had them.
 
+A comparison's replays are never recalled, in any scope: a replay re-runs a
+past turn on another version, and its answers are no one's.
+
 **The people's own words, by default.** Recall returns users' messages only,
 and the messages either side of a hit follow the same rule. `roles: ['user',
 'agent']` adds the agent's earlier answers too. Those can carry its earlier
