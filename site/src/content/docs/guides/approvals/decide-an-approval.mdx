@@ -86,6 +86,27 @@ approval starts waiting:
   them within five minutes comes as one digest at the end of the five
   minutes. An approval decided in the meantime is left out.
 
+One approval, as a reviewer gets it (ids elided):
+
+```text
+Subject: Approval needed: Refund over the limit
+
+An approval is waiting for you.
+
+Refund over the limit
+  Project: Default
+  Needs: a standard reviewer or above
+  Asked: 2026-10-10 01:37 UTC
+  https://…/console/approvals/…
+
+Sign in to decide: what each approval is about is only in the console.
+
+You're getting this because you're a reviewer in Kindgi.
+```
+
+Several in one digest have the subject "2 approvals are waiting for you",
+with the same lines for each.
+
 It uses the emailed sign-in link's server (`KINDGI_AUTH_EMAIL_SMTP_URL` and
 `KINDGI_AUTH_EMAIL_FROM`). Turned on without them, the runtime refuses to
 start. It's off by default. For a system of your own, an

@@ -193,7 +193,27 @@ assigned, `createdAt`, `expiresAt`, and `url`, its page in the console when
 the runtime knows its public address. It never carries what the approval is
 about (no `context`, no tool call or run input): that stays behind sign-in.
 Of the filter, only `projectId` (the approval's project) applies. An
-approval that's rolled back before it's saved sends nothing. To email the
+approval that's rolled back before it's saved sends nothing. One, as an
+endpoint gets it (ids elided; `webhook-id` is the approval's id), with
+`assignedTo` and `expiresAt` there when they're set:
+
+```json
+{
+  "id": "…",
+  "type": "approval.requested",
+  "createdAt": "2026-10-10T01:37:31.198Z",
+  "data": {
+    "approval": {
+      "approvalId": "…",
+      "projectId": "…",
+      "requiredRole": "standard",
+      "title": "Refund over the limit",
+      "createdAt": "2026-10-10T01:37:31.198Z",
+      "url": "https://…/console/approvals/…"
+    }
+  }
+}
+``` To email the
 reviewers themselves instead, see
 [reviewer email](../../approvals/decide-an-approval/#reviewer-email).
 
