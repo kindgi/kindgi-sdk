@@ -231,8 +231,9 @@ check_token = http_tool(
   key in its own header, use
   `{ kind: 'header', headerName: 'X-Api-Key', secretRef: … }`.
 - `secretRef` names the secret and the environment it lives in. Under
-  `kindgi dev`, `local` is the pack's `.env` and `.env.local`; any other name
-  is that environment's file, `.env.<name>`.
+  `kindgi dev`, `local` is your app's `.env` and `.env.local`, then Kindgi's
+  own `.kindgi/secrets.env`; any other name is that environment's file,
+  `.env.<name>`.
 
 Until the secret exists, the call fails and names it:
 

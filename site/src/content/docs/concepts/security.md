@@ -152,8 +152,9 @@ can:
   runtime none, whatever login this machine has
   ([Connect Gemini on Vertex AI](../../guides/models/gemini-on-vertex-ai/)).
 
-The values live where your other secrets live: `.env` files in development,
-and in production Postgres, envelope-encrypted with a key held in your
+The values live where your other secrets live: in development, Kindgi's own
+`.kindgi/secrets.env` beside your app's env files, a file your app doesn't
+load; in production Postgres, envelope-encrypted with a key held in your
 cloud's KMS (`KINDGI_SECRETS_BACKEND=postgres`,
 `KINDGI_SECRETS_BACKEND_KMS=gcp`).
 
