@@ -25,6 +25,7 @@ import { statusFor, toWireError } from '../errors.js';
 import type { RunHandlerBinding, RunTrace } from '../handler-binding.js';
 import type {
   Approval,
+  ApprovalPosition,
   ApprovalStatus,
   HitlBinding,
   ReviewDecisionKind,
@@ -42,7 +43,8 @@ import {
   signingNotConfigured,
 } from '../signed-export.js';
 import type { AppEnv } from '../types.js';
-import { clampLimit } from './pagination.js';
+import { refused } from './denied.js';
+import { clampLimit, decodeCursor, encodeCursor, isCursorTime } from './pagination.js';
 import { parseListScope } from './scope-params.js';
 
 const APPROVAL_STATUSES: ReadonlySet<ApprovalStatus> = new Set([
@@ -158,20 +160,15 @@ export function approvalsRouter(
   // A reviewer: a token that carries a role, or whose user the roster
   // names (a session or API key of a registered reviewer).
   r.use('*', async (c, next) => {
-    const requestId = c.get('requestId');
     const role = await callerReviewerRole(c, reviewerBinding);
     if (role === undefined) {
-      c.status(statusFor('permission-denied') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'permission-denied',
-            message:
-              "The caller isn't a reviewer: its token carries no reviewer role, and its user isn't registered as one (`kindgi reviewers register`). The approvals surface is reviewer-only.",
-          },
-          requestId,
-        ),
-      );
+      return refused(c, authorizer, {
+        action: c.req.method === 'GET' ? 'read' : 'admin',
+        resource: ref('tenant', c.get('tenantId') as unknown as string),
+        message:
+          "The caller isn't a reviewer: its token carries no reviewer role, and its user isn't registered as one (`kindgi reviewers register`). The approvals surface is reviewer-only.",
+        failing: 'actor',
+      });
     }
     await next();
     return;
@@ -227,16 +224,12 @@ export function approvalsRouter(
       // preserves the "reviewer never sees above their tier" guardrail
       // regardless of what the caller passes.
       if (REVIEWER_ROLE_RANK[requiredRoleFilter] > REVIEWER_ROLE_RANK[role]) {
-        c.status(statusFor('permission-denied') as never);
-        return c.json(
-          toWireError(
-            {
-              code: 'permission-denied',
-              message: `Role ${role} cannot query approvals scoped to ${requiredRoleFilter}.`,
-            },
-            requestId,
-          ),
-        );
+        return refused(c, authorizer, {
+          action: 'read',
+          resource: ref('tenant', c.get('tenantId') as unknown as string),
+          message: `Role ${role} cannot query approvals scoped to ${requiredRoleFilter}.`,
+          failing: 'actor',
+        });
       }
     }
 
@@ -273,10 +266,19 @@ export function approvalsRouter(
       );
     }
 
-    const cursor = c.req.query('cursor');
-    if (cursor !== undefined && cursor.length > 0) {
-      const parsed = new Date(cursor);
-      if (Number.isNaN(parsed.getTime())) {
+    // The cursor: where the last page ended (an approval's exact
+    // `createdAt` and its id), or a bare time from before that (milliseconds,
+    // no tie-breaker), which still answers as it did.
+    const rawCursor = c.req.query('cursor');
+    let after: ApprovalPosition | undefined;
+    let cursor: string | undefined;
+    if (rawCursor !== undefined && rawCursor.length > 0) {
+      const decoded = decodeCursor(rawCursor);
+      if (decoded !== null && isCursorTime(decoded.createdAt)) {
+        after = { createdAt: decoded.createdAt, id: decoded.id as unknown as ApprovalId };
+      } else if (decoded === null && isCursorTime(rawCursor)) {
+        cursor = rawCursor;
+      } else {
         c.status(statusFor('bad-input') as never);
         return c.json(
           toWireError({ code: 'bad-input', message: '`cursor` is malformed' }, requestId),
@@ -284,10 +286,9 @@ export function approvalsRouter(
       }
     }
 
-    // `listApprovals` takes an ISO-timestamp cursor. Over-fetch up to 4×
-    // the page size (capped at 500) so a page still fills when
-    // role-scoping filters rows out; the extra rows (or the binding's
-    // own cursor) also tell us `hasMore`.
+    // Over-fetch up to 4× the page size (capped at 500) so a page still
+    // fills when role-scoping filters rows out; the extra rows (or the
+    // binding's own cursor) also tell us `hasMore`.
     const HITL_LIMIT_CAP = Math.min(limit * 4, 500);
     const listInput = {
       tenantId,
@@ -296,7 +297,8 @@ export function approvalsRouter(
       ...(statusFilter !== undefined && { status: statusFilter }),
       ...(requiredRoleFilter !== undefined && { requiredRole: requiredRoleFilter }),
       ...(createdAfterIso !== undefined && { since: createdAfterIso as unknown as Timestamp }),
-      ...(cursor !== undefined && cursor.length > 0 && { cursor: cursor as Cursor }),
+      ...(after !== undefined && { after }),
+      ...(cursor !== undefined && { cursor: cursor as Cursor }),
       ...(waitTokenIds.length > 0 && { waitTokenIds }),
     };
     const listed = await hitlBinding.listApprovals(listInput);
@@ -322,8 +324,15 @@ export function approvalsRouter(
     const page = visible.slice(0, limit);
     const hasMore = visible.length > limit || listed.value.nextCursor !== undefined;
     const last = page[page.length - 1];
+    // Continue after the last approval shown: at its exact `createdAt` when
+    // the binding gives it, else (a binding from before) at its time.
+    const exact = last !== undefined ? listed.value.exactCreatedAt?.[last.id] : undefined;
     const nextCursor =
-      hasMore && last !== undefined ? (last.createdAt as unknown as string) : undefined;
+      !hasMore || last === undefined
+        ? undefined
+        : exact !== undefined
+          ? encodeCursor({ createdAt: exact, id: last.id as unknown as string })
+          : (last.createdAt as unknown as string);
     return c.json({
       data: page.map(serializeApproval),
       hasMore,
@@ -374,17 +383,13 @@ export function approvalsRouter(
     const approvalId = c.req.param('approvalId') as ApprovalId;
 
     if (userId === undefined) {
-      c.status(statusFor('permission-denied') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'permission-denied',
-            message:
-              'Token has a reviewer role but no user identity — cannot resolve reviewer for decision.',
-          },
-          requestId,
-        ),
-      );
+      return refused(c, authorizer, {
+        action: 'admin',
+        resource: ref('tenant', c.get('tenantId') as unknown as string),
+        message:
+          'Token has a reviewer role but no user identity — cannot resolve reviewer for decision.',
+        failing: 'actor',
+      });
     }
 
     let body: unknown;
@@ -446,16 +451,12 @@ export function approvalsRouter(
       userId: userId as UserId,
     });
     if (reviewerId === null) {
-      c.status(statusFor('permission-denied') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'permission-denied',
-            message: 'No reviewer row registered for this user under this tenant.',
-          },
-          requestId,
-        ),
-      );
+      return refused(c, authorizer, {
+        action: 'admin',
+        resource: ref('tenant', c.get('tenantId') as unknown as string),
+        message: 'No reviewer row registered for this user under this tenant.',
+        failing: 'actor',
+      });
     }
 
     const submitted = await hitlBinding.submitReview({

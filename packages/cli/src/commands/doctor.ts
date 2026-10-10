@@ -558,7 +558,7 @@ async function registryCheck(
 ): Promise<DoctorCheck> {
   const access = await checkImageAccess(run, image);
   const host = registryOf(image);
-  const login = `${kindgi('auth', 'registry', '--username', '<robot name>', '--password-stdin')} (the robot name and token come from access.kindgi.com; pipe the token in, never paste it into a chat)`;
+  const login = `${kindgi('auth', 'registry', '--username', '<robot name>', '--password-stdin')} (request the robot name and token at contact@kindgi.com; pipe the token in, never paste it into a chat)`;
   switch (access.kind) {
     case 'ok':
       return pass('registry', `Docker can pull the runtime image (${image}).`);

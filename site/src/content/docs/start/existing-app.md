@@ -334,9 +334,10 @@ prints the dependency to add to it:
 </dependency>
 ```
 
-kindgi-pack comes from Maven Central, at the CLI's version. An app with both a
-`package.json` and a `pom.xml` gets a TypeScript pack unless you pass
-`--template=java`.
+kindgi-pack comes from Maven Central, at the CLI's version. It needs Jackson
+2.18 or later in your app (it declares 2.18.11): in a Spring Boot app, Spring
+Boot 3.4 or later. An app with both a `package.json` and a `pom.xml` gets a
+TypeScript pack unless you pass `--template=java`.
 
 `kindgi dev` runs the app's own Maven (its `mvnw`, else `mvn`; `dev.maven` in
 `kindgi.config.json` names another, such as `["mvn", "-s", "settings.xml"]`)
@@ -406,7 +407,7 @@ libraryDependencies += "com.kindgi" %% "kindgi-pack-scala" % "…"
 ```
 
 kindgi-pack-scala, and kindgi-pack under it, come from Maven Central at the
-CLI's version. An app with a `build.sbt` next to a `package.json` or a
+CLI's version. Like kindgi-pack, it needs Jackson 2.18 or later in your app. An app with a `build.sbt` next to a `package.json` or a
 `pom.xml` gets a TypeScript or Java pack unless you pass `--template=scala`.
 
 `kindgi dev` builds through the app's sbt server (`sbt --client`): it starts
@@ -462,6 +463,12 @@ app as `KINDGI_API_URL` and `KINDGI_API_TOKEN` in your env file (`.env` /
 KINDGI_API_URL=http://127.0.0.1:4000
 KINDGI_API_TOKEN=kgi_bt_…
 ```
+
+The client looks for them when it's first used, not when you create it. So
+`const kindgi = createClient()` at the top of a module is safe in a
+production build that runs without them: `next build`, for one, loads every
+route's module. If they're still missing when your app first uses the client,
+that use throws an error that names what to set.
 
 The banner's first line, `Console`, is the console's address
 (`http://127.0.0.1:4000/console/`; `kindgi console` opens it). Sign in there

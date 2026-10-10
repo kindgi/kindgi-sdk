@@ -176,9 +176,18 @@ after 90 days and denied ones after 365 (see
 
 `actorSubject`, `action`, `resource`, `outcome` (`allowed` or `denied`), `from`, `to` and `runId` narrow the list.
 
+Refusals the API decides before it asks the authorization model are kept too,
+with a `reason` that says which check refused (runtime 0.1.6 or later):
+
+- what the caller's API key rules out: a `member` key asking for a tenant
+  admin's action, a key limited to a project reaching outside it, a key
+  without the capability a write needs (`env:write`, `secrets:write`, …);
+- a caller who isn't a reviewer, on the approvals routes.
+
 ### In the console
 
-**Access audit** lists the same decisions, 50 at a time, newest first:
+**Access audit**, for tenant admins (the only people its API answers), lists
+the same decisions, 50 at a time, newest first:
 **Next page** leads to the older ones. A denied one has a ✗ and a red row. Narrow
 the list by who, on what, action, result (allowed or denied), and time with
 From and To, which are in UTC like the times in the list. The filters are in

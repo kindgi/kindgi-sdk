@@ -65,6 +65,7 @@ import {
   idempotencyMiddleware,
 } from './middleware/idempotency.js';
 import { refuseOtherProjectForKey } from './middleware/key-project.js';
+import { noStoreMiddleware } from './middleware/no-store.js';
 import { principalMiddleware } from './middleware/principal.js';
 import { PROJECT_REF_ROUTES, refuseBadProjectId } from './middleware/project-ref.js';
 import { publicRunCorsMiddleware, publicRunRouteMatcher } from './middleware/public-run-routes.js';
@@ -998,6 +999,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   app.use('*', requestIdMiddleware());
   // The request's trace context and logger, and its access line.
   app.use('*', requestLogMiddleware(input.logger ?? noopLogger));
+  // No `/v1` answer is kept by a browser or a proxy (data and errors alike).
+  app.use('/v1/*', noStoreMiddleware());
   // A thrown exception: a 500 wire error with its message and request id, logged.
   app.onError(mapThrownError);
 
@@ -1352,7 +1355,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     }),
   );
   if (input.cost !== undefined) {
-    v1.route('/cost', costRouter(input.cost, authorizer));
+    v1.route('/cost', costRouter(input.cost, authorizer, input.projectBinding));
   }
   if (input.adapterRegistry !== undefined) {
     v1.route(

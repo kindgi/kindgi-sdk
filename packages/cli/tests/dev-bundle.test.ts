@@ -11,13 +11,15 @@
  * `@kindgi/sdk` resolves as it would from an app.
  */
 
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { afterAll, beforeAll, describe, expect, onTestFinished, test, vi } from 'vitest';
 
+import { resolvedSpecifier } from '../src/build/bundle.js';
 import { esbuildBundleReal } from '../src/build/defaults.js';
 import { STAMP_SAFETY_GAP_MS, createDevPackBuilder, stampOf } from '../src/dev/bundler.js';
 import { runIndexerReadReal } from '../src/dev/defaults.js';
@@ -109,8 +111,8 @@ describe('the dev bundler', () => {
     const bundle = await readFile(join(packDir, '.kindgi/dev/dist/tools/greet.mjs'), 'utf8');
     // The shared module is inlined …
     expect(bundle).toContain('PACK_GREETING');
-    // … the dependency is imported from its installed location.
-    expect(bundle).toMatch(/from ".*node_modules\/shouty\/index\.js"/);
+    // … the dependency is imported from its installed location, by file URL.
+    expect(bundle).toMatch(/from "file:\/\/\/.*node_modules\/shouty\/index\.js"/);
     expect(bundle).toContain('//# sourceMappingURL=greet.mjs.map');
   });
 
@@ -360,5 +362,99 @@ describe("a build's stamp (what it read)", () => {
 
   test('a file that is gone: no stamp', async () => {
     expect(await stampOf(resultOf('a.ts', 'gone.ts'), dir, later())).toBeUndefined();
+  });
+});
+
+// Node's ESM loader takes a URL: a Windows path (`C:\…`) is rejected,
+// and a `#` in any path starts a fragment. `require` takes a path.
+describe('how a dev bundle names what it loads from node_modules', () => {
+  const WIN = 'C:\\Users\\acme\\my pack\\node_modules\\shouty\\index.js';
+
+  test('an import of a Windows path: a file URL', () => {
+    expect(resolvedSpecifier(WIN, 'import-statement', 'win32')).toBe(
+      'file:///C:/Users/acme/my%20pack/node_modules/shouty/index.js',
+    );
+    expect(resolvedSpecifier(WIN, 'dynamic-import', 'win32')).toBe(
+      'file:///C:/Users/acme/my%20pack/node_modules/shouty/index.js',
+    );
+  });
+
+  test('an import of a path with a #: a file URL, the # escaped', () => {
+    expect(
+      resolvedSpecifier(
+        '/home/acme/pack #1/node_modules/shouty/index.js',
+        'import-statement',
+        'linux',
+      ),
+    ).toBe('file:///home/acme/pack%20%231/node_modules/shouty/index.js');
+  });
+
+  test('a require keeps the path, on Windows too', () => {
+    expect(resolvedSpecifier(WIN, 'require-call', 'win32')).toBe(WIN);
+    expect(resolvedSpecifier(WIN, 'require-resolve', 'win32')).toBe(WIN);
+  });
+
+  describe('a pack in a folder with a # in its name', () => {
+    let dir: string;
+    const put = async (rel: string, body: string): Promise<void> => {
+      await mkdir(join(dir, rel, '..'), { recursive: true });
+      await writeFile(join(dir, rel), body, 'utf8');
+    };
+
+    beforeAll(async () => {
+      dir = await mkdtemp(join(PACKAGE_DIR, 'tmp', 'dev-specifiers #1 '));
+      await put(
+        'node_modules/shouty/package.json',
+        JSON.stringify({ name: 'shouty', version: '1.0.0', type: 'module', exports: './index.js' }),
+      );
+      await put('node_modules/shouty/index.js', 'export const shout = (s) => `${s}!`;\n');
+      // CommonJS, required from CommonJS code the bundle inlines.
+      await put(
+        'node_modules/bracketed/package.json',
+        JSON.stringify({ name: 'bracketed', version: '1.0.0', main: 'index.js' }),
+      );
+      await put('node_modules/bracketed/index.js', 'exports.bracket = (s) => `[${s}]`;\n');
+      await put(
+        'src/legacy.cjs',
+        "const { bracket } = require('bracketed');\nmodule.exports = { tag: (s) => bracket(s) };\n",
+      );
+      await put(
+        'tools/both.ts',
+        "import { shout } from 'shouty';\nimport legacy from '../src/legacy.cjs';\nexport const run = (): string => legacy.tag(shout('hi'));\n",
+      );
+    });
+
+    afterAll(async () => {
+      await rm(dir, { recursive: true, force: true });
+    });
+
+    test('its bundle imports and runs: the import by file URL, the require by path', async () => {
+      const b = createDevPackBuilder({ packDir: dir, patterns: PATTERNS });
+      builders.push(b);
+      const build = await b.build();
+      expect(build).toMatchObject({
+        kind: 'ok',
+        bundleMap: { 'tools/both.ts': '.kindgi/dev/dist/tools/both.mjs' },
+      });
+      const bundlePath = join(dir, '.kindgi/dev/dist/tools/both.mjs');
+      const bundle = await readFile(bundlePath, 'utf8');
+      expect(bundle).toContain(
+        `from "${pathToFileURL(join(dir, 'node_modules/shouty/index.js')).href}"`,
+      );
+      expect(bundle).toContain(JSON.stringify(join(dir, 'node_modules/bracketed/index.js')));
+      // In plain Node, as `kindgi dev`'s indexer child loads it (vitest's
+      // own loader doesn't decode the URL).
+      const ran = execFileSync(
+        process.execPath,
+        [
+          '--input-type=module',
+          '-e',
+          'const m = await import(process.argv[1]); process.stdout.write(m.run());',
+          pathToFileURL(bundlePath).href,
+        ],
+        { encoding: 'utf8' },
+      );
+      expect(ran).toBe('[hi!]');
+    });
   });
 });

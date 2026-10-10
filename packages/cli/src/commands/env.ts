@@ -705,7 +705,7 @@ export interface EnvInitInputSeam {
 }
 
 const SECRETS_BACKEND_CHOICES = ['none', 'postgres', 'secret-manager'] as const;
-const SECRETS_BACKEND_KMS_CHOICES = ['gcp', 'aws', 'libsodium', 'vault'] as const;
+const SECRETS_BACKEND_KMS_CHOICES = ['gcp', 'azure', 'aws', 'libsodium', 'vault'] as const;
 
 const initCmd: LeafCommand = {
   kind: 'leaf',
@@ -713,7 +713,7 @@ const initCmd: LeafCommand = {
   description:
     'Scaffold `.env.example` for a deployment target. Interactive prompt when flags omit an axis and stdin is a TTY.',
   usage:
-    'kindgi env init [--secrets-backend=<none|postgres|secret-manager>] [--kms=<gcp|aws|libsodium|vault>] [--out=<path>] [--force] [--non-interactive]',
+    'kindgi env init [--secrets-backend=<none|postgres|secret-manager>] [--kms=<gcp|azure|aws|libsodium|vault>] [--out=<path>] [--force] [--non-interactive]',
   optionSpec: {
     'secrets-backend': {
       type: 'string' as const,
@@ -723,7 +723,7 @@ const initCmd: LeafCommand = {
     kms: {
       type: 'string' as const,
       description:
-        'The KMS for the `postgres` or `secret-manager` backend: `gcp`, `aws`, `libsodium` or `vault`. Asked for when needed and omitted.',
+        'The KMS for the `postgres` or `secret-manager` backend: `gcp`, `azure`, `aws`, `libsodium` or `vault`. Asked for when needed and omitted.',
     },
     out: {
       type: 'string' as const,
