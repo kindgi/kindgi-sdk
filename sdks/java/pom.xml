@@ -9,7 +9,7 @@
   <groupId>com.kindgi</groupId>
   <artifactId>kindgi-java-parent</artifactId>
   <!-- Moves in lockstep with the npm packages and the Python SDK. -->
-  <version>0.1.4</version>
+  <version>0.1.5-rc.0</version>
   <packaging>pom</packaging>
 
   <name>Kindgi Java SDK (parent)</name>
