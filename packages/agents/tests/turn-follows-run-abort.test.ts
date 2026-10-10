@@ -17,8 +17,10 @@ import type { NodeId, ProjectId, RunId, TenantId } from '@kindgi/types';
 import { MODEL_CALL_NODE } from '../src/agent-turn-flow.js';
 import { defineAgent } from '../src/define.js';
 import type { TurnContext } from '../src/handlers/context.js';
+import { turnFailureMessage } from '../src/handlers/errors.js';
 import { buildHandlers } from '../src/handlers/index.js';
 import type { InvokeAgentBindings } from '../src/handlers/public-types.js';
+import { projectRunResult } from '../src/project-run-result.js';
 import type { ConversationId } from '../src/types.js';
 import { testNodeContext } from './node-context.js';
 
@@ -123,5 +125,42 @@ describe("a turn follows its run's abort", () => {
     run.abort();
     await Promise.resolve(modelCall(ctx)({ nextMessages: [] }, kctx)).catch((e) => e);
     expect(ctx.abortReason).toBe('timeout');
+  });
+});
+
+describe('a cancelled turn says it was cancelled, in plain words', () => {
+  const ctxFor = (): TurnContext => {
+    const { ctx } = turnWithSlowModel();
+    return { ...ctx, bindings: {} as InvokeAgentBindings };
+  };
+  const cancelled = (failureMessage: string | undefined) =>
+    ({
+      kind: 'ok',
+      value: {
+        runId: 'run-1',
+        status: 'cancelled',
+        ...(failureMessage !== undefined && { failureMessage }),
+      },
+    }) as never;
+
+  test("the step its cancel aborted adds nothing: never the turn's serialized failure", async () => {
+    const aborted = turnFailureMessage({
+      code: 'agent-turn-aborted',
+      message: 'Agent turn aborted: Request was aborted.',
+      reason: 'external',
+    });
+    // As a cancelled run reports it: the step's failure, and the loop's attribution of it.
+    const r = await projectRunResult(cancelled(`${aborted}; [body-failure] ${aborted}`), ctxFor());
+    expect(r).toEqual({
+      kind: 'err',
+      error: { code: 'agent-turn-aborted', message: 'Agent turn cancelled', reason: 'external' },
+    });
+  });
+
+  test('other words are kept, and none is none', async () => {
+    const said = await projectRunResult(cancelled('erased'), ctxFor());
+    expect(said.kind === 'err' && said.error.message).toBe('Agent turn cancelled: erased');
+    const bare = await projectRunResult(cancelled(undefined), ctxFor());
+    expect(bare.kind === 'err' && bare.error.message).toBe('Agent turn cancelled');
   });
 });

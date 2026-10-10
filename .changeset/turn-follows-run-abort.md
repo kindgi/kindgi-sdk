@@ -7,5 +7,6 @@ An agent turn stops when its run is stopped. The runtime aborts a step's `abortS
 
 - **Now:** each step of a turn links the step's `abortSignal` to the turn's, so a call in flight is aborted at once, and the turn ends as aborted from outside (`agent-turn-aborted`, reason `external`).
 - **A wall-clock timeout keeps its own reason** (`timeout`).
+- **A cancelled turn's message stays plain:** `Agent turn cancelled`. The failure of the step its cancel aborted only restates the cancel, and is no longer appended as the turn's serialized failure. Any other words are kept.
 - **No API change.**
 - **`@kindgi/env-schema`** lists `KINDGI_RUN_ENDED_CHECK_MS`: how often a server stops the runs it executes that were ended from outside, so a step that writes nothing for a while, such as a long model call, stops within this time of a cancel. Default 5000 ms; at least 1000.
