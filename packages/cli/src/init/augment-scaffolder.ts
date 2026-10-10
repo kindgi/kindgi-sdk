@@ -59,6 +59,7 @@ import {
   detectPackageManager,
   installCommand,
 } from '../package-manager.js';
+import { agentAccessRows, patchAgentAccess } from './agent-access.js';
 import { type KindgiDependencySpecs, resolveKindgiDependencySpecs } from './dependency-specs.js';
 import { patchGitignore, patchPrettierignore } from './gitignore-patcher.js';
 import {
@@ -677,6 +678,12 @@ async function applyAugmentPatches(args: {
   if (patchPrettier.kind === 'patched') {
     created.push(`${prettierignorePath} (patched: +${patchPrettier.appended.join(', +')})`);
   }
+
+  // Keep the coding agent out of the files that hold keys (`agent-access.ts`).
+  const access = agentAccessRows(args.targetDir, await patchAgentAccess(args.targetDir));
+  created.push(...access.created);
+  skipped.push(...access.skipped);
+  warnings.push(...access.warnings);
 
   const esbuild =
     args.packageManager === 'pnpm'

@@ -108,6 +108,7 @@ describe('kindgi init — minimal template', () => {
     expect(out.exitCode).toBe(0);
     const files = await listRecursive(join(cwd, 'my-pack'));
     expect(files).toEqual([
+      '.claude/settings.json',
       '.claude/skills/.kindgi-manifest.json',
       '.claude/skills/kindgi-authoring-agents/SKILL.md',
       '.claude/skills/kindgi-authoring-flows/SKILL.md',
@@ -404,6 +405,7 @@ describe('kindgi init — python template', () => {
     expect(out.exitCode).toBe(0);
     const files = await listRecursive(join(cwd, 'my-pack'));
     expect(files).toEqual([
+      '.claude/settings.json',
       '.claude/skills/.kindgi-manifest.json',
       // Only the skills written for Python packs: the shared ones and the
       // Python getting-started and authoring skills — none of the TypeScript ones.
@@ -449,6 +451,7 @@ describe('kindgi init — java template', () => {
     // The skills written for Java packs: the shared ones and the Java getting-started and
     // authoring skills, none of the TypeScript or Python ones.
     expect(all.filter((f) => f.startsWith('.claude/'))).toEqual([
+      '.claude/settings.json',
       '.claude/skills/.kindgi-manifest.json',
       '.claude/skills/kindgi-authoring-mcp-servers/SKILL.md',
       '.claude/skills/kindgi-authoring-providers/SKILL.md',
@@ -517,6 +520,7 @@ describe('kindgi init — scala template', () => {
     expect(await listRecursive(join(cwd, 'type'))).toEqual([
       // The skills written for Scala packs: the shared ones and the Scala getting-started and
       // authoring skills.
+      '.claude/settings.json',
       '.claude/skills/.kindgi-manifest.json',
       '.claude/skills/kindgi-authoring-mcp-servers/SKILL.md',
       '.claude/skills/kindgi-authoring-providers/SKILL.md',
@@ -600,6 +604,7 @@ describe('kindgi init — sample template', () => {
     expect(out.exitCode).toBe(0);
     const files = await listRecursive(join(cwd, 'my-pack'));
     expect(files).toEqual([
+      '.claude/settings.json',
       '.claude/skills/.kindgi-manifest.json',
       '.claude/skills/kindgi-authoring-agents/SKILL.md',
       '.claude/skills/kindgi-authoring-flows/SKILL.md',

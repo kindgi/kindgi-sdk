@@ -10,6 +10,7 @@ import type { PackLanguage } from '@kindgi/handler-runtime';
 
 import { PACK_UV_REQUIRED_VERSION } from '../build/python-image.js';
 import type { CommandContext } from '../context.js';
+import { writeAgentAccess } from '../init/agent-access.js';
 import { runInitAugment } from '../init/augment-scaffolder.js';
 import {
   JVM_PREVIEW,
@@ -335,6 +336,8 @@ async function runInitFresh(
     language: 'node',
   });
   for (const s of skillsWritten) filesWritten.push(s);
+  // Keep the coding agent out of the files that hold keys (`init/agent-access.ts`).
+  for (const f of await writeAgentAccess(args.targetDir)) filesWritten.push(f);
 
   // A standalone pack pins the pnpm that will install it, so the image
   // (`kindgi build`), CI and a teammate all use that one (T196).
@@ -509,6 +512,8 @@ async function runInitPython(
     language: 'python',
   });
   for (const s of skillsWritten) filesWritten.push(s);
+  // Keep the coding agent out of the files that hold keys (`init/agent-access.ts`).
+  for (const f of await writeAgentAccess(args.targetDir)) filesWritten.push(f);
   const displayPath = relative(ctx.cwd, args.targetDir) || '.';
   const nextSteps = [
     `cd ${displayPath}`,
@@ -576,6 +581,8 @@ async function runInitJava(
     language: 'java',
   });
   for (const s of skillsWritten) filesWritten.push(s);
+  // Keep the coding agent out of the files that hold keys (`init/agent-access.ts`).
+  for (const f of await writeAgentAccess(args.targetDir)) filesWritten.push(f);
   const displayPath = relative(ctx.cwd, args.targetDir) || '.';
   const install =
     source.kind === 'local-checkout'
@@ -689,6 +696,8 @@ async function runInitScala(
   })) {
     filesWritten.push(s);
   }
+  // Keep the coding agent out of the files that hold keys (`init/agent-access.ts`).
+  for (const f of await writeAgentAccess(args.targetDir)) filesWritten.push(f);
   filesWritten.sort();
   const displayPath = relative(ctx.cwd, args.targetDir) || '.';
   const install =

@@ -159,10 +159,30 @@ Most of the setup is automatable, but two require your knowledge:
   returns canned responses (great for the loop test, useless for real
   agents). It is a fallback, so it steps aside once a real provider is
   registered. Declare it in `kindgi.config.ts`
-  (`providers: [{ preset: 'anthropic' }]`, the key in `.env`) and `kindgi dev`
+  (`providers: [{ preset: 'anthropic' }]`, the key stored by the person with
+  `kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant`) and `kindgi dev`
   registers it on every boot, in every worktree and after `--reset`; or once,
   by hand: `kindgi providers register --preset=anthropic`. See
   `kindgi-authoring-providers`.
+
+## Keys and tokens: hands off
+
+Never open, read, grep, `cat`, copy or print the files that hold keys and
+tokens, and never print their values (`env`, `printenv`, or code that echoes
+the process environment):
+
+- `.env`, `.env.local` and any other `.env.*`: the app's settings, and any key
+  put there by hand;
+- `.kindgi/secrets.env`: Kindgi's own secrets, where `kindgi secrets set` writes;
+- `.kindgi/dev/runtime.env`: the dev runtime's token and database URL;
+- a self-hosted deployment's `kindgi.env` or `pack.env`.
+
+A value you read lands in your context and in every later request to the
+model provider. To see which secrets exist, run
+`kindgi secrets list --env=local --scope=tenant` (names only). To store one,
+ask the person to run `kindgi secrets set NAME --env=local --scope=tenant`
+themselves: it prompts without echoing. Never put a value on a command line.
+`kindgi init` adds these files to the deny rules in `.claude/settings.json`.
 
 ## Your app and Kindgi's data
 

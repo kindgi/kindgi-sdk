@@ -37,6 +37,7 @@ import type { CommandResult } from '../commands/types.js';
 import { renderJson } from '../output.js';
 import { type BinRunner, binDisplay } from '../package-manager.js';
 import { CLI_VERSION } from '../version-info.js';
+import { agentAccessRows, patchAgentAccess } from './agent-access.js';
 import {
   type KindgiPythonSource,
   kindgiCliRequirement,
@@ -139,6 +140,10 @@ export async function runInitPythonAugment(
   if (gitignore.kind === 'patched') {
     created.push(`${gitignorePath} (patched: +${gitignore.appended.join(', +')})`);
   }
+  // Keep the coding agent out of the files that hold keys (`agent-access.ts`).
+  const access = agentAccessRows(inputs.targetDir, await patchAgentAccess(inputs.targetDir));
+  created.push(...access.created);
+  skipped.push(...access.skipped, ...access.warnings);
 
   const nextSteps = [
     ...pythonAugmentNextSteps(
