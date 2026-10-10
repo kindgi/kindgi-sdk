@@ -225,7 +225,9 @@ describe('without an authorizer: the grant binding', () => {
       projectName: 'Support',
       grantedAt: expect.any(String),
     });
-    expect((await h.call('admin', 'POST', grants, { teamId, role: 'editor' })).status).toBe(200);
+    // A role already held: 201 again, with the grant as it is.
+    const again = await h.call('admin', 'POST', grants, { teamId, role: 'editor' });
+    expect([again.status, again.body.grantedAt]).toEqual([201, added.body.grantedAt]);
     const other = await h.call('admin', 'POST', grants, { teamId, role: 'admin' });
     expect([other.status, other.body.error?.code, other.body.error?.details]).toEqual([
       409,

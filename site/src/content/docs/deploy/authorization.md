@@ -153,8 +153,8 @@ Python). Changing members takes `admin` on the project: a tenant admin, or
 the project's own admins.
 
 Adding someone who's a member already keeps their role. The same role answers
-`201` again; another one is `409 membership-exists`, with the role they hold
-in `details.role`. Use `PATCH` to change it.
+`201` with the existing membership; another one is `409 membership-exists`,
+with the role they hold in `details.role`. Use `PATCH` to change it.
 
 Listing a project's members takes `write` on it: its editors and admins. A
 viewer sees the project, not who else works in it, and reads their own roles
@@ -176,14 +176,14 @@ curl -X POST "$KINDGI_API_URL/v1/projects/<project-id>/team-grants" \
 Giving a team a role takes `admin` on the project and `read` on the team:
 you give your project only to a team you can see. Giving a team `admin`
 hands "who works here" to the team's admins, since anyone they add to the
-team gets it. Repeating the role the team holds answers `200`; another role is
-`409 team-grant-exists`. `PATCH …/team-grants/<team-id>` with
+team gets it. Adding a role the team already holds answers `201` with the
+existing grant; another role is `409 team-grant-exists`. `PATCH …/team-grants/<team-id>` with
 `{"role":"viewer"}` changes it, and `DELETE …/team-grants/<team-id>` takes it
 away.
 
 In the clients: `projects.teamGrants.list`, `add`, `updateRole` and `remove`
-(`projects.team_grants` in Python), and `teams.projectGrants.list` for the
-projects a team works in.
+(`projects.team_grants` in Python), and `teams.projectGrants.list`
+(`teams.project_grants.list`) for the projects a team works in.
 
 Who sees the grants:
 
@@ -193,8 +193,8 @@ Who sees the grants:
   **its members** (`GET /v1/teams/<team-id>/memberships`): the team's admins
   and tenant admins. A plain member sees the team, not who else is in it.
 
-Deleting a team takes its tuples with it: its members' roles and its project
-grants. Nobody keeps access through a team that's gone.
+Deleting a team removes the access it gave: its members' roles and its
+project grants. Nobody keeps access through a team that's gone.
 
 ## The access audit
 

@@ -6236,7 +6236,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'teams.memberships.add',
     summary: 'Add a user to a team',
     description:
-      'Re-adding a member with the role they hold answers 201 again; with another role, 409 `membership-exists` names the role they hold (`details.role`), which is kept: use PATCH to change it.',
+      'Adding a role the member already holds answers 201 with the existing record; another role, 409 `membership-exists` naming the role they hold (`details.role`), which is kept: use PATCH to change it.',
     tags: ['teams'],
     security: 'bearer',
     parameters: [
@@ -6514,7 +6514,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.memberships.add',
     summary: 'Add a user directly to a project',
     description:
-      'Names the person by exactly one of `userId` and `email` (matched as the runtime matches emails when it adds a person); someone who is not a person of this tenant, or was removed from it, is refused with 404 `identity-user-not-found`. Re-adding a member with the role they hold answers 201 again; with another role, 409 `membership-exists` names the role they hold (`details.role`), which is kept: use PATCH to change it.',
+      'Names the person by exactly one of `userId` and `email` (matched as the runtime matches emails when it adds a person); someone who is not a person of this tenant, or was removed from it, is refused with 404 `identity-user-not-found`. Adding a role the member already holds answers 201 with the existing record; another role, 409 `membership-exists` naming the role they hold (`details.role`), which is kept: use PATCH to change it.',
     tags: ['projects'],
     security: 'bearer',
     parameters: [
@@ -6566,14 +6566,16 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.teamGrants.add',
     summary: 'Give a team a role on a project',
     description:
-      "Every member of the team (its admins included) then holds the role on the project. Takes `admin` on the project and `read` on the team: a project is given only to a team you can read. A team's role is `viewer`, `editor` or `admin`: a team never owns a project. Repeating the role the team holds answers 200; another role, 409 `team-grant-exists` naming the one it holds (`details.role`): use PATCH to change it.",
+      "Every member of the team (its admins included) then holds the role on the project. Takes `admin` on the project and `read` on the team: a project is given only to a team you can read. A team's role is `viewer`, `editor` or `admin`: a team never owns a project. Adding a role the team already holds answers 201 with the existing grant; another role, 409 `team-grant-exists` naming the one it holds (`details.role`): use PATCH to change it.",
     tags: ['projects'],
     security: 'bearer',
     parameters: [ProjectIdPathParam, IdempotencyKeyParam],
     requestBody: { required: true, schema: ref('AddTeamProjectGrantBody') },
     responses: {
-      '201': { description: 'The team was given the role.', schema: ref('TeamProjectGrant') },
-      '200': { description: 'The team holds that role already.', schema: ref('TeamProjectGrant') },
+      '201': {
+        description: 'The team holds the role: given now, or already (the existing grant).',
+        schema: ref('TeamProjectGrant'),
+      },
       ...CommonMutationErrors,
       '404': ErrorResponse(
         'No project (`project-not-found`) or team (`team-not-found`) with that id under this tenant.',

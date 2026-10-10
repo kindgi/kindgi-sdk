@@ -65,7 +65,7 @@ export interface ProjectTeamGrantsClient {
   list(projectId: string, filter?: ListTeamGrantsFilter): Promise<TeamProjectGrantPage>;
   /**
    * Give a team a role on the project. Takes `read` on the team too.
-   * Repeating the role the team holds answers it again; another role is
+   * A role the team already holds answers with the existing grant; another role is
    * `409 team-grant-exists` (`details.role`): change it with `updateRole`.
    *
    * @wire POST /v1/projects/:projectId/team-grants

@@ -27,8 +27,9 @@ import { clampLimit } from './pagination.js';
  *
  * - `GET    /projects/:projectId/team-grants`          project `write`
  * - `POST   /projects/:projectId/team-grants`          project `admin`, and
- *   `read` on the team: `{teamId, role}`; 201, 200 when the team holds that
- *   role already, 409 `team-grant-exists` when it holds another
+ *   `read` on the team: `{teamId, role}`; 201, also when the team holds
+ *   that role already (with the grant as it is), 409 `team-grant-exists`
+ *   when it holds another
  * - `PATCH  /projects/:projectId/team-grants/:teamId`  project `admin`: `{role}`
  * - `DELETE /projects/:projectId/team-grants/:teamId`  project `admin`
  * - `GET    /teams/:teamId/project-grants`             team `admin`
@@ -168,7 +169,8 @@ export function projectTeamGrantsRouter(deps: TeamGrantsDeps): Hono<AppEnv> {
         ),
       );
     }
-    c.status(created ? 201 : 200);
+    // A role already held answers as its first add did: 201, with the grant as it is.
+    c.status(201);
     return c.json(wire(grant, team.name, project.name));
   });
 
