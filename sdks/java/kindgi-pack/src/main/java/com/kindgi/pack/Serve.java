@@ -236,10 +236,19 @@ final class Serve {
     server.serve();
   }
 
+  /**
+   * Stops taking calls, then says so. In that order: a supervisor that reads the {@code draining}
+   * record and asks {@code /readyz} at once must get 503. The shutdown hook runs on its own thread,
+   * beside the server's, so a record written first left a moment in which readyz still answered 200.
+   */
+  static void beginDraining(PackService service, PackLogs logs) {
+    service.beginDrain();
+    logs.event(PackLogs.Event.DRAINING, "Draining: finishing the calls in flight");
+  }
+
   /** SIGTERM (or SIGINT): stop taking calls, let in-flight ones finish for up to 8 s, exit 0. */
   private static void drainThenHalt(HttpServer server, PackService service, PackLogs logs) {
-    logs.event(PackLogs.Event.DRAINING, "Draining: finishing the calls in flight");
-    service.beginDrain();
+    beginDraining(service, logs);
     long deadline = System.nanoTime() + DRAIN_MS * 1_000_000L;
     while (service.inFlight() > 0 && System.nanoTime() < deadline) {
       try {

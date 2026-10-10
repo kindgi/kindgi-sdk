@@ -17,7 +17,7 @@ docker rm kindgi-server
 docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
   --add-host registry.localhost:host-gateway \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
-  quay.io/kindgi/runtime:0.1.4
+  quay.io/kindgi/runtime:0.1.5
 ```
 
 On a stop, the runtime stops taking requests and gives the runs it's executing up to 7 seconds to finish, then exits with code 0. `--time 30` gives it that time before Docker kills it.
@@ -340,6 +340,13 @@ and what's different after:
   sessions. A project admin adds a member by email
   (`POST /v1/projects/<id>/memberships` with `email`), and a project admin's
   member key can manage that project's members.
+- **A project editor can start an eval run** (compare a version on a test
+  set); it took a project admin. Unregistering or reinstating a test set
+  version still does.
+- **The cost aggregate counts only what you may read.** Across projects (no
+  scope, the tenant, or an org), it counts the projects the caller may read,
+  and records with no project; a tenant admin's counts every project. `read`
+  on the tenant used to show every project's spend.
 - **With authorization on, every route checks what it touches.** Reading
   tenant-wide settings (providers, policies, adapters, capabilities, signing
   keys, deployments, sign-in providers) needs `read` on the tenant, and
@@ -359,6 +366,17 @@ and what's different after:
   written; 0.1.4 accepted it. A deploy that includes one is refused whole,
   even when it's unchanged. The refusal carries the id, not the other project
   ([Organize work by org and project](../../guides/projects/organize-by-org-and-project/)).
+- **If your Postgres `DateStyle` is `SQL, DMY` or `German`, check the times
+  earlier releases saved.** Run `SHOW DateStyle;`
+  ([DateStyle](https://www.postgresql.org/docs/16/runtime-config-client.html#GUC-DATESTYLE)).
+  With either style, earlier releases read a date on the 1st to the 12th of a
+  month with day and month swapped, and saved some that way: session expiries,
+  approval deadlines and decision times, wait timeouts, schedule fire times,
+  memory facts' validity times and stored webhook bodies. A date after the
+  12th failed outright. With any other style, a time was read correctly or
+  failed outright, so nothing was saved wrong. 0.1.5 reads and writes times
+  correctly on any `DateStyle`, but it can't repair a swapped time, which
+  looks like a real one.
 - **Run OpenFGA v1.22.0.** Published OpenFGA advisories affect v1.9.0
   ([An OpenFGA you already run](../authorization/#an-openfga-you-already-run)).
 - **Expired rows are deleted every hour:** idempotency answers, sessions and
@@ -403,6 +421,37 @@ and what's different after:
   refuses it with `reserved-check-id` (Python: `DefinitionError`), saying to
   rename the check. Rebuild your packs with the 0.1.5 CLI: a pack built with
   an earlier one that ships such a check runs the built-in instead.
+- **Before you upgrade, check every guardrail that names a built-in check.**
+  In 0.1.4 such a guardrail never ran. In 0.1.5 the built-ins run and check
+  their config, but a guardrail registered before the upgrade isn't checked
+  again: if its config doesn't fit the built-in's settings, its check can't
+  run at any turn, and with `halt` it blocks every turn of the agents that
+  list it. The runtime warns about each one when it loads it:
+
+  ```text
+  20:40:17.669 WARN  [guardrails] guardrail config invalid traceId=… tenantId=… guardrailId=acme.tool-budget check=max-tool-calls problems="config must NOT have additional properties" fix="unregister it (kindgi guardrails unregister <id>), then register it again or redeploy, with a config that fits; with several runtime instances, restart the others"
+  ```
+
+  List your guardrails (`kindgi guardrails list`), and check each one
+  whose `check` is a built-in against
+  [its settings](../../guides/guardrails/use-a-built-in-check/#the-built-in-checks).
+  To fix one, unregister it (`kindgi guardrails unregister <id>`), then deploy
+  your pack, or register it again, with a config that fits: a deploy doesn't
+  change a registered guardrail's config. If you run several runtime
+  instances, restart them afterwards (below).
+- **The built-in guardrail checks check their config.** A guardrail naming one
+  with a config the check doesn't take is refused when it's registered
+  (`422 guardrail-config-invalid`, each problem in `details.issues`) or
+  deployed (`deployment-validation-failed`); one that still reaches a turn is a
+  check that can't run, so a `halt` guardrail stops the turn.
+- **A deploy keeps a registered guardrail only if it's the deploy's own:** in
+  the project the deploy registers into, with the same definition. A pack
+  whose guardrail changed is refused (`409 guardrail-already-registered`):
+  unregister the guardrail, and deploy again. A guardrail with that id in
+  another project is refused too (`409 guardrail-project-mismatch`, without
+  naming the project). Either way nothing is deployed. Both used to pass
+  silently, and the old definition stayed in force. An unchanged pack still
+  redeploys, from a new image and across releases.
 - **The runtime signs exports** (audit bundles, provenance, compliance
   evidence) with the deployment's export key: set
   `KINDGI_EXPORT_SIGNING_KEY_PATH`, `KINDGI_EXPORT_SIGNING_KEY` or
@@ -414,6 +463,12 @@ and what's different after:
 - **The runtime's own address, `/`, leads to the console,** or lists what it
   serves; it answered `404`. Health checks stay on `/ready`
   ([Check health and logs](#check-health-and-logs)).
+- **The console:** a run whose answer a guardrail blocked shows that answer
+  as not sent, with the guardrail; it used to look sent
+  ([A halted turn](../../guides/guardrails/halt-or-record/#a-halted-turn)).
+  The dashboard's API keys, Service accounts and People cards open their own
+  pages (they opened Deleted data), and ⌘K and the breadcrumbs reach them.
+  **Access audit** shows to tenant admins only, the people its API answers.
 - **Anthropic retires Claude Sonnet 4.5** (`claude-sonnet-4-5-20250929`) on
   2026-11-30. A provider registration that names it should move to
   `claude-sonnet-5-5`, the `anthropic` preset's default. No preset lists it,
@@ -429,10 +484,24 @@ and what's different after:
   changes. A retrieval that searches by meaning (`semantic`) on a runtime
   without embeddings fails the turn with `semantic-unavailable`; 0.1.4
   skipped that search without a word.
+- **`same-user` memory is the run's end user's, never the key's user.** A run
+  that names no `participantId` reads no `same-user` memory, isn't offered
+  `kindgi_remember`, and its result warns `memory-needs-participant`. Such a
+  run used to read and keep that memory as the user its key acts for, so an
+  app's service account serving many customers mixed their memory; facts kept
+  that way are no longer read as anyone's. Pass the person's `participantId`
+  on each run
+  ([Give an agent memory](../../guides/agents/give-an-agent-memory/)).
+- **A comparison's replays run for the past turn's end user,** with the same
+  tools, `kindgi_remember` included (a replayed one stores nothing). A
+  replay's conversation is never recalled as an earlier conversation.
 - **Your pack's service writes log records** on stderr, as the runtime does:
   one per tool call, at the levels `KINDGI_LOG_LEVEL` and `KINDGI_LOG_LEVELS`
   set ([Logs](../logs/)). Printing a tool's context (`console.log(ctx)`,
   `print(ctx)`) no longer shows its secrets.
+- **A turn's warnings are logged,** at `WARN` under `[runs]`, once per tenant,
+  agent and warning while the runtime runs, as well as in the run's result
+  ([Logs](../logs/#records-from-a-run)).
 - **The clients read every `409` as a conflict** (TypeScript
   `code: 'conflict'`, Python `ConflictError`). Twenty codes used to come back
   as a server error, among them `run-lease-lost`, `agent-version-mismatch` and
@@ -442,6 +511,11 @@ and what's different after:
   end, as in Python, which gains `runs.follow` too. `runs.stream` and
   `runs.streamProgress` are deprecated
   ([Follow a run](../../guides/runs/follow-a-run/)).
+- **Paging conversations, approvals and runs no longer skips rows.** A row
+  created in the same millisecond as a page's last row (for approvals, at the
+  same instant) could be left out of the next page. Cursors you hold keep
+  working. A cursor whose time isn't a time is now `400 bad-input` on
+  conversations and runs, as it already was on approvals.
 - **The CLI:**
   - a usage error (a missing argument, a bad flag value) exits `2`; `1` is
     for a call that failed;
@@ -454,7 +528,11 @@ and what's different after:
     `KINDGI_DEV_GOOGLE_CREDENTIALS` names them: a pack that uses Vertex AI
     adds `KINDGI_DEV_GOOGLE_CREDENTIALS=adc` to its `.env`
     ([Gemini on Vertex AI](../../guides/models/gemini-on-vertex-ai/));
-  - `kindgi console` opens the console, and so does `kindgi dev --open`.
+  - `kindgi console` opens the console, and so does `kindgi dev --open`;
+  - under `kindgi dev`, **Sign in as seeded user** shows only when the console
+    is at a loopback address (`localhost`, `127.0.0.1` or `[::1]`); from
+    another address, sign in with the dev token. A deployed console no longer
+    asks for it.
 - **New in 0.1.5:**
   - **Sign-in** with your organization's identity provider
     ([Set up SSO](../../guides/sso/)), and with Google, Microsoft or GitHub
@@ -501,13 +579,15 @@ and what's different after:
   `http://localhost`, where Chrome and Firefox do. Open the local console in
   Chrome or Firefox. A fix is planned. A deployment's console needs `https`
   in every browser (above).
-
-- **The built-in guardrail checks don't check their config yet.** A setting
-  of the wrong type is ignored: `never-call-tool` with
-  `tools: 'my-pack.issue-refund'` (a string, not a list) forbids nothing and
-  passes every turn. Copy the shapes in
-  [Use a built-in check](../../guides/guardrails/use-a-built-in-check/#the-built-in-checks)
-  exactly. A fix is planned.
+- **Run one runtime instance.** Several aren't supported yet (the Cloud Run
+  module runs one). For one thing, a guardrail change reaches other instances
+  only when they restart: registering, unregistering or deploying a guardrail
+  takes effect at once on the instance that took the request, and other
+  instances keep the guardrails they had. If you run several anyway, restart
+  the others after changing a guardrail. A fix is planned.
+- **Cancelling a flow while it runs a loop can let a few more of the loop's
+  steps start** before it stops: in our tests up to a few dozen, within
+  seconds. The run still ends `cancelled`. A later release fixes it.
 
 ### Runtime 0.1.4.2
 
@@ -782,7 +862,7 @@ docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
   --add-host registry.localhost:host-gateway \
   -v "$PWD/public-token-signing.pem:/etc/kindgi/public-token-signing.pem:ro" \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
-  quay.io/kindgi/runtime:0.1.4
+  quay.io/kindgi/runtime:0.1.5
 ```
 
 The file must have mode 0600, and the runtime's user in the container (uid 10001) must be able to read it. The log says:

@@ -5,6 +5,7 @@ package com.kindgi.pack;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.kindgi.log.Logger;
 import com.kindgi.pack.internal.Json;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -66,6 +67,21 @@ class PackLogsTest {
     PackLogs.Outcome typo = PackLogs.fromEnv(Map.of("KINDGI_LOG_LEVELS", "pakc=debug"), lines::add, false);
     assertThat(((PackLogs.Ok) typo).problems())
         .containsExactly("KINDGI_LOG_LEVELS names \"pakc\", which no subsystem logs under; it has no effect.");
+  }
+
+  @Test
+  void aDrainStopsTakingCallsBeforeItSaysSo() {
+    Map<String, Object> index = Map.of("v", 1, "packId", "acme", "packVersion", "1.0.0", "artifactVersion", "1");
+    PackService service = new PackService(index, "t0ken", 4, "strict", Map.of(), Logger.noop());
+    List<Boolean> drainingWhenSaid = new ArrayList<>();
+    PackLogs.Outcome built = PackLogs.fromEnv(Map.of(), line -> {
+      if (line.contains("\"event\":\"draining\"")) {
+        drainingWhenSaid.add(service.draining());
+      }
+    }, false);
+    Serve.beginDraining(service, ((PackLogs.Ok) built).logs());
+    // A supervisor that reads the record and asks readyz at once must already get 503.
+    assertThat(drainingWhenSaid).containsExactly(true);
   }
 
   @Test

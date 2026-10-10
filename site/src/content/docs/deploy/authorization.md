@@ -178,7 +178,8 @@ after 90 days and denied ones after 365 (see
 
 ### In the console
 
-**Access audit** lists the same decisions, 50 at a time, newest first:
+**Access audit**, for tenant admins (the only people its API answers), lists
+the same decisions, 50 at a time, newest first:
 **Next page** leads to the older ones. A denied one has a ✗ and a red row. Narrow
 the list by who, on what, action, result (allowed or denied), and time with
 From and To, which are in UTC like the times in the list. The filters are in
