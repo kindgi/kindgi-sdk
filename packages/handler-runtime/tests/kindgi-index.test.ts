@@ -444,6 +444,42 @@ describe("check ids without the pack's prefix (a warning)", () => {
 // Zod → JSON Schema pass
 // -----------------------------------------------------------------------
 
+describe('runIndexer — needsSpec', () => {
+  test("a tool's needsSpec is kept as written: an optional secret (its schema accepts null) included", async () => {
+    const needsSpec = {
+      secrets: {
+        ANTHROPIC_API_KEY: { type: 'string', minLength: 8 },
+        GROQ_API_KEY: { type: ['string', 'null'], minLength: 8 },
+      },
+      env: { REGION: { type: 'string', default: 'eu' } },
+    };
+    const fixture = await makeFixture({
+      files: {
+        'kindgi.config.mjs': config(),
+        'tools/sense.mjs': {
+          module: {
+            default: {
+              id: 'acme.sense',
+              input: { type: 'object' },
+              output: { type: 'object' },
+              needsSpec,
+              handler: async () => ({}),
+            },
+          },
+        },
+      },
+    });
+    const outcome = await runIndexer({
+      packDir: fixture.packDir,
+      publishedAt: FIXED_TIMESTAMP,
+      importModule: fixture.importModule,
+    });
+    if (outcome.kind !== 'ok') throw new Error(outcome.error.message);
+    const parsed = await readValidIndex(outcome.value.outputPath);
+    expect(parsed.tools[0].needsSpec).toEqual(needsSpec);
+  });
+});
+
 describe('runIndexer — Zod schemas', () => {
   test('Zod input on a tool is converted to JSON Schema', async () => {
     const InputZod = z.object({

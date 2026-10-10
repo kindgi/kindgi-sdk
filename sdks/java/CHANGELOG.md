@@ -28,6 +28,11 @@ heading into its version.
   (`"type": ["string", "number"]`, what Zod writes for a union of scalars in a
   TypeScript tool's schema). It used to be refused as unsupported, matching the
   TypeScript pack service's old strict mode; both take it now. (#477)
+- `kindgi-pack`, `kindgi-pack-scala`: **a secret whose schema names null is
+  optional** (`.set("needsSpec", …)` with `"type": ["string", "null"]`): with
+  runtime 0.1.6 or later, one the env doesn't have, or has empty, is absent
+  from `ctx.secrets()`, and the call goes on. The index keeps the schema as
+  written. (#478)
 
 ## 0.1.5
 
