@@ -49,7 +49,19 @@ The verifiers below check either, and refuse an algorithm they don't know (see [
   For a P-256 key, put `openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256` in place of the first command; the rest is the same.
 
   Or set `export_signing = "kms"` and `export_signing_kms_key` to a key version: the module grants the server's service account `roles/cloudkms.signerVerifier` and `roles/cloudkms.publicKeyViewer` on its key.
-- **On Azure Container Apps,** set `export_signing = "kms"` in the Terraform module: it makes an EC P-256 key in the deployment's vault, gives the server's identity Key Vault Crypto User on it, and the server signs there. Exports are `ecdsa-p256-sha256`: Key Vault has no Ed25519. Or `export_signing = "secret"`, with the key's PEM, base64, as the vault secret `export-signing-key`.
+- **On Azure, a Key Vault key:** set `KINDGI_EXPORT_SIGNING_KMS_KEY` to the
+  key version's URL, `https://<vault>.vault.azure.net/keys/<name>/<version>`.
+  The version is required, so exports keep the key id of the version that
+  signs them. The key must be EC P-256 (`EC` or `EC-HSM`) and allowed to
+  sign, so exports are `ecdsa-p256-sha256` (Key Vault has no Ed25519):
+
+  ```sh
+  az keyvault key create --vault-name <vault> -n <name> --kty EC --curve P-256 --ops sign verify
+  ```
+
+  The runtime signs as its managed identity: `KINDGI_AZURE_CLIENT_ID` names a
+  user-assigned one, else it's the system-assigned one. Give that identity
+  Key Vault Crypto User on the key. The private key never leaves Key Vault.
 - **Without a key** (outside development), the exports answer `404 signing-not-configured`.
 
 The runtime publishes its key's public half. Pin it, so you can tell your deployment's exports from anyone else's:
