@@ -805,7 +805,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_SECRETS_MANAGER',
     description:
-      "Which secret manager the `secret-manager` backend keeps secrets in: `azure` (Azure Key Vault, see `KINDGI_SECRETS_AZURE_VAULT_URL`), `gcp` (Google Secret Manager, in the project `KINDGI_SECRETS_GCP_PROJECT_ID` names; the server's service account needs roles/secretmanager.admin there) `vault` (HashiCorp Vault or OpenBao, see `KINDGI_SECRETS_VAULT_ADDR`) or `aws` (AWS Secrets Manager, used from runtime 0.1.7: in the region `KINDGI_SECRETS_AWS_REGION` names, signed in as the server's AWS identity, `KINDGI_AWS_IDENTITY`; runtime 0.1.6 refuses it at startup). Kindgi reads and writes them with the server's own identity and keeps only their names and version numbers in its database.",
+      "Which secret manager the `secret-manager` backend keeps secrets in: `azure` (Azure Key Vault, see `KINDGI_SECRETS_AZURE_VAULT_URL`), `gcp` (Google Secret Manager, in the project `KINDGI_SECRETS_GCP_PROJECT_ID` names; the server's service account needs roles/secretmanager.admin there), `vault` (HashiCorp Vault or OpenBao, see `KINDGI_SECRETS_VAULT_ADDR`) or `aws` (AWS Secrets Manager, used from runtime 0.1.7: in the region `KINDGI_SECRETS_AWS_REGION` names, signed in as the server's AWS identity, `KINDGI_AWS_IDENTITY`; runtime 0.1.6 refuses it at startup). Kindgi reads and writes them with the server's own identity and keeps only their names and version numbers in its database.",
     example: 'azure',
     required: true,
     appliesTo: appliesToSecretManagerBackend,
