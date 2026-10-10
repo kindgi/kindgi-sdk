@@ -376,6 +376,146 @@ describe('API — mcp endpoints register + get', () => {
     });
   });
 
+  describe('auth: basic and oauth2-client-credentials', () => {
+    const http = {
+      endpointId: 'acme.shop',
+      name: 'Shop',
+      transport: 'streamable-http',
+      config: {
+        transport: 'streamable-http',
+        url: 'https://shop.acme.test/wp-json/mcp/mcp-adapter-default-server',
+      },
+      scopeKind: 'tenant',
+    };
+    const basic = {
+      scheme: 'basic',
+      username: 'acme-agent',
+      secretRef: { envName: 'local', name: 'SHOP_APP_PASSWORD' },
+    };
+    const oauth = {
+      scheme: 'oauth2-client-credentials',
+      tokenUrl: 'https://cms.acme.test/oauth/token',
+      clientId: 'kindgi',
+      secretRef: { envName: 'local', name: 'CMS_CLIENT_SECRET' },
+      scope: 'mcp_server',
+    };
+    const post = (app: ReturnType<typeof makeApp>['app'], body: Record<string, unknown>) =>
+      app.request('/v1/mcp/endpoints', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    const read = async (app: ReturnType<typeof makeApp>['app'], id: string) =>
+      (await (
+        await app.request(`/v1/mcp/endpoints/${id}`, {
+          headers: { authorization: `Bearer ${TOKEN}` },
+        })
+      ).json()) as MCPEndpoint;
+    const refusal = async (res: Response) => {
+      const error = (
+        (await res.json()) as { error: { code: string; details?: { reason?: string } } }
+      ).error;
+      return [res.status, error.code, error.details?.reason];
+    };
+
+    test('each scheme is stored and read back as registered, its secret by reference only', async () => {
+      const { app } = makeApp();
+      expect((await post(app, { ...http, auth: basic })).status).toBe(201);
+      expect((await read(app, 'acme.shop')).auth).toEqual(basic);
+      const full = {
+        ...oauth,
+        audience: 'https://cms.acme.test',
+        clientAuth: 'client_secret_post',
+      };
+      expect((await post(app, { ...http, endpointId: 'acme.cms', auth: full })).status).toBe(201);
+      const cms = await read(app, 'acme.cms');
+      expect(cms.auth).toEqual(full);
+      expect(cms.secretRef).toBeUndefined();
+    });
+
+    test('a token URL over plain http is for this machine only', async () => {
+      const { app } = makeApp();
+      for (const [i, tokenUrl] of [
+        'http://localhost:8080/oauth/token',
+        'http://127.0.0.1/oauth/token',
+        'http://[::1]:8080/oauth/token',
+      ].entries()) {
+        const res = await post(app, {
+          ...http,
+          endpointId: `acme.local${i}`,
+          auth: { ...oauth, tokenUrl },
+        });
+        expect(res.status).toBe(201);
+      }
+      for (const tokenUrl of [
+        'http://cms.acme.test/oauth/token',
+        'https://user:pass@cms.acme.test/oauth/token',
+        'https://cms.acme.test/oauth/token#frag',
+        'ftp://cms.acme.test/token',
+        'not a url',
+      ]) {
+        expect(await refusal(await post(app, { ...http, auth: { ...oauth, tokenUrl } }))).toEqual([
+          400,
+          'invalid-mcp-endpoint',
+          'invalid-token-url',
+        ]);
+      }
+    });
+
+    test('auth beside secretRef, on stdio, or beside an Authorization header → 400, each with its reason', async () => {
+      const { app } = makeApp();
+      const cases: [Record<string, unknown>, string][] = [
+        [
+          { ...http, auth: basic, secretRef: { envName: 'local', name: 'TOKEN' } },
+          'auth-with-secret-ref',
+        ],
+        [{ ...stdioEndpoint(), scopeKind: 'tenant', auth: basic }, 'auth-on-stdio'],
+        [
+          {
+            ...http,
+            config: { ...http.config, headers: { 'X-Trace': 'on', AUTHORIZATION: 'Basic abc' } },
+            auth: basic,
+          },
+          'auth-with-authorization-header',
+        ],
+      ];
+      for (const [body, reason] of cases) {
+        expect(await refusal(await post(app, body))).toEqual([400, 'invalid-mcp-endpoint', reason]);
+      }
+      // A header that isn't Authorization is fine beside auth.
+      const traced = {
+        ...http,
+        config: { ...http.config, headers: { 'X-Trace': 'on' } },
+        auth: basic,
+      };
+      expect((await post(app, traced)).status).toBe(201);
+    });
+
+    test("a scheme's fields are checked: unknown ones, the user name, the client, the secret", async () => {
+      const { app } = makeApp();
+      const cases: [unknown, string][] = [
+        ['basic', 'invalid-auth'],
+        [{ scheme: 'bearer', secretRef: basic.secretRef }, 'invalid-auth'],
+        [{ ...basic, tokenUrl: oauth.tokenUrl }, 'invalid-auth'],
+        [{ ...oauth, username: 'x' }, 'invalid-auth'],
+        [{ ...basic, username: 'acme:agent' }, 'invalid-auth'],
+        [{ ...basic, username: '' }, 'invalid-auth'],
+        [{ ...oauth, clientId: '' }, 'invalid-auth'],
+        [{ ...oauth, scope: '' }, 'invalid-auth'],
+        [{ ...oauth, clientAuth: 'private_key_jwt' }, 'invalid-auth'],
+        [{ ...basic, secretRef: { envName: 'local' } }, 'invalid-secret-ref'],
+        [{ ...oauth, secretRef: 'CMS_CLIENT_SECRET' }, 'invalid-secret-ref'],
+      ];
+      for (const [auth, reason] of cases) {
+        expect(await refusal(await post(app, { ...http, auth })), JSON.stringify(auth)).toEqual([
+          400,
+          'invalid-mcp-endpoint',
+          reason,
+        ]);
+      }
+    });
+  });
+
   test('non-JSON body → 400 bad-input', async () => {
     const { app } = makeApp();
     const res = await app.request('/v1/mcp/endpoints', {

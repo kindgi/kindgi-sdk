@@ -188,6 +188,25 @@ describe("a model provider's key, named where it's not the provider", () => {
       secretRef: { envName: 'local', name: MODEL_KEY },
     });
     expect([mcp.status, mcp.body.error?.message]).toEqual([400, REFUSED('an MCP endpoint')]);
+    // As an endpoint's auth secret too: a Basic password, an OAuth client secret.
+    const http = {
+      endpointId: 'acme.shop',
+      name: 'Shop MCP',
+      transport: 'streamable-http',
+      config: { transport: 'streamable-http', url: 'https://shop.acme.example/mcp' },
+    };
+    for (const auth of [
+      { scheme: 'basic', username: 'agent', secretRef: { envName: 'local', name: MODEL_KEY } },
+      {
+        scheme: 'oauth2-client-credentials',
+        tokenUrl: 'https://shop.acme.example/oauth/token',
+        clientId: 'kindgi',
+        secretRef: { envName: 'local', name: MODEL_KEY },
+      },
+    ]) {
+      const named = await h.call('POST', '/v1/mcp/endpoints', { ...http, auth });
+      expect([named.status, named.body.error?.message]).toEqual([400, REFUSED('an MCP endpoint')]);
+    }
     const hook = await h.call('POST', '/v1/webhook-endpoints', {
       url: 'https://app.acme.example/hooks',
       events: ['run.finished'],

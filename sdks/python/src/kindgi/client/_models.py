@@ -5399,7 +5399,7 @@ class Config2(BaseModel):
 
 class MCPEndpointSecretRef(BaseModel):
     """
-    The secret an MCP endpoint authenticates with: a name in the deployment's secrets store, resolved at the endpoint's tenant scope when the runtime connects (the shape webhooks and providers use). It is sent as the endpoint's bearer. The endpoint keeps only this reference.
+    The secret an MCP endpoint authenticates with: a name in the deployment's secrets store, resolved at the endpoint's tenant scope by the runtime (the shape webhooks and providers use). As the endpoint's own `secretRef`, it is sent as its bearer; inside `auth`, it is the scheme's password or client secret. The endpoint keeps only this reference.
     """
 
     model_config = ConfigDict(
@@ -5408,6 +5408,55 @@ class MCPEndpointSecretRef(BaseModel):
     )
     env_name: Annotated[str, Field(alias="envName", pattern="^[a-z][a-z0-9-]{0,62}$")]
     name: Annotated[str, Field(max_length=256, min_length=1)]
+
+
+class MCPBasicAuth(BaseModel):
+    """
+    HTTP Basic: the runtime sends `Authorization: Basic base64(<username>:<secret>)`, with the secret `secretRef` names (a WordPress Application Password, for one).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    scheme: Literal["basic"]
+    username: Annotated[str, Field(max_length=256, min_length=1, pattern="^[^:]+$")]
+    """
+    The user name. Not a secret, and without `:`.
+    """
+    secret_ref: Annotated[MCPEndpointSecretRef, Field(alias="secretRef")]
+
+
+class MCPOAuth2ClientCredentialsAuth(BaseModel):
+    """
+    OAuth 2 client credentials: the runtime asks `tokenUrl` for an access token (`grant_type=client_credentials`) as `clientId`, with the client secret `secretRef` names, sends it as the endpoint's bearer, and asks for a new one before it expires (Drupal's Simple OAuth, for one). The token is never stored.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    scheme: Literal["oauth2-client-credentials"]
+    token_url: Annotated[AnyUrl, Field(alias="tokenUrl")]
+    """
+    The token endpoint: https, or http to a loopback host (`localhost`, `127.0.0.1`, `[::1]`).
+    """
+    client_id: Annotated[str, Field(alias="clientId", max_length=512, min_length=1)]
+    secret_ref: Annotated[MCPEndpointSecretRef, Field(alias="secretRef")]
+    scope: Annotated[str | None, Field(max_length=1024, min_length=1)] = None
+    """
+    The scopes to ask for, space-separated, sent as-is. Absent: none asked for.
+    """
+    audience: Annotated[str | None, Field(max_length=1024, min_length=1)] = None
+    """
+    An `audience` parameter, for identity providers that need one. Absent: none sent.
+    """
+    client_auth: Annotated[
+        Literal["client_secret_basic", "client_secret_post"] | None, Field(alias="clientAuth")
+    ] = None
+    """
+    How the client authenticates to the token endpoint (RFC 6749 §2.3.1): `client_secret_basic` (an `Authorization: Basic` header, the default) or `client_secret_post` (`client_id` and `client_secret` in the form).
+    """
 
 
 class Config3(BaseModel):
@@ -11298,49 +11347,6 @@ class ProviderCapabilitiesResult(BaseModel):
     data: list[CapabilityDescriptor]
 
 
-class MCPEndpoint(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    endpoint_id: Annotated[str, Field(alias="endpointId", min_length=1)]
-    name: Annotated[str, Field(min_length=1)]
-    """
-    Human-readable display name.
-    """
-    transport: Literal["stdio", "http-sse", "streamable-http"]
-    """
-    MCP transport variant. `stdio` — local subprocess (spawn a command). `http-sse` — the older MCP HTTP+SSE transport (separate POST + SSE endpoints). `streamable-http` — the Streamable HTTP transport (single endpoint, session id via header).
-    """
-    config: Config | Config1 | Config2
-    """
-    Transport-tagged config union. Server enforces `config.transport === transport` at registration.
-    """
-    secret_ref: Annotated[MCPEndpointSecretRef | None, Field(alias="secretRef")] = None
-    instructions: str | None = None
-    """
-    Optional pass-through to the MCP client `serverInfo.instructions`.
-    """
-    metadata: dict[str, Any] | None = None
-    """
-    Optional caller-defined metadata bag.
-    """
-    send_traceparent: Annotated[bool | None, Field(alias="sendTraceparent")] = None
-    """
-    Send the W3C `traceparent` of the run calling a tool to this endpoint, as a request header, so the server's logs can be matched to the run. Ids only, never content. Default `false`. HTTP transports only: `true` on a `stdio` endpoint is refused (`invalid-mcp-endpoint`, reason `invalid-send-traceparent`). An older runtime ignores it and sends none.
-    """
-
-
-class MCPEndpointCollectionPage(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[MCPEndpoint]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
-    has_more: Annotated[bool, Field(alias="hasMore")]
-
-
 class RegisterMCPEndpointBody(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -11360,6 +11366,12 @@ class RegisterMCPEndpointBody(BaseModel):
     Transport-tagged config union. Server enforces `config.transport === transport` at registration.
     """
     secret_ref: Annotated[MCPEndpointSecretRef | None, Field(alias="secretRef")] = None
+    auth: Annotated[
+        MCPBasicAuth | MCPOAuth2ClientCredentialsAuth | None, Field(discriminator="scheme")
+    ] = None
+    """
+    How the endpoint signs in when it isn't a plain bearer: `basic` or `oauth2-client-credentials`. Not with `secretRef` (`invalid-mcp-endpoint`, reason `auth-with-secret-ref`), not on a `stdio` endpoint (reason `auth-on-stdio`), and not with an `Authorization` header in `config.headers` (reason `auth-with-authorization-header`). An older runtime refuses the field as unknown.
+    """
     instructions: str | None = None
     """
     Optional pass-through to the MCP client `serverInfo.instructions`.
@@ -11882,6 +11894,55 @@ class WebhookDeliveryCollectionPage(BaseModel):
         populate_by_name=True,
     )
     data: list[WebhookDelivery]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class MCPEndpoint(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    endpoint_id: Annotated[str, Field(alias="endpointId", min_length=1)]
+    name: Annotated[str, Field(min_length=1)]
+    """
+    Human-readable display name.
+    """
+    transport: Literal["stdio", "http-sse", "streamable-http"]
+    """
+    MCP transport variant. `stdio` — local subprocess (spawn a command). `http-sse` — the older MCP HTTP+SSE transport (separate POST + SSE endpoints). `streamable-http` — the Streamable HTTP transport (single endpoint, session id via header).
+    """
+    config: Config | Config1 | Config2
+    """
+    Transport-tagged config union. Server enforces `config.transport === transport` at registration.
+    """
+    secret_ref: Annotated[MCPEndpointSecretRef | None, Field(alias="secretRef")] = None
+    auth: Annotated[
+        MCPBasicAuth | MCPOAuth2ClientCredentialsAuth | None, Field(discriminator="scheme")
+    ] = None
+    """
+    How the endpoint signs in when it isn't a plain bearer: `basic` or `oauth2-client-credentials`. Not with `secretRef` (`invalid-mcp-endpoint`, reason `auth-with-secret-ref`), not on a `stdio` endpoint (reason `auth-on-stdio`), and not with an `Authorization` header in `config.headers` (reason `auth-with-authorization-header`). An older runtime refuses the field as unknown.
+    """
+    instructions: str | None = None
+    """
+    Optional pass-through to the MCP client `serverInfo.instructions`.
+    """
+    metadata: dict[str, Any] | None = None
+    """
+    Optional caller-defined metadata bag.
+    """
+    send_traceparent: Annotated[bool | None, Field(alias="sendTraceparent")] = None
+    """
+    Send the W3C `traceparent` of the run calling a tool to this endpoint, as a request header, so the server's logs can be matched to the run. Ids only, never content. Default `false`. HTTP transports only: `true` on a `stdio` endpoint is refused (`invalid-mcp-endpoint`, reason `invalid-send-traceparent`). An older runtime ignores it and sends none.
+    """
+
+
+class MCPEndpointCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[MCPEndpoint]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     has_more: Annotated[bool, Field(alias="hasMore")]
 
