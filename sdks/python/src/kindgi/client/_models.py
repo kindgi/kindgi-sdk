@@ -1571,10 +1571,6 @@ class JudgedRunContext(BaseModel):
     """
     The env values each tool's calls were sent (`needsSpec.env`), by tool id: its first call's, as the run recorded them. A replay sends them to a read-only tool it runs live, so the tool reads the config the run saw, not today's. Absent for a run from before env was recorded.
     """
-    replay_of: Annotated[str | None, Field(alias="replayOf")] = None
-    """
-    When the judged run is a comparison's replay: the run it re-ran, stamped at its first judgment. A test set built from judgments leaves replays out.
-    """
 
 
 class JudgedRunCopy(BaseModel):
@@ -1889,7 +1885,7 @@ class RetrievalIntent(BaseModel):
     """
     scope: Literal["same-conversation", "same-user", "same-segment", "same-project", "tenant"]
     """
-    What the intent selects within what the run may see. Facts: this conversation's; the run's end user's only (`same-user`: none when the run names no `participantId`); the run's project's (none without a project); or every fact of the type it may see (`tenant`). Conversations: this end user's other conversations with the agent (`same-user`: none when the run names no `participantId`); this conversation's messages older than the history window (`same-conversation`); conversations in the run's segment path (`same-segment`) or its project (`same-project`), whoever had them: those two quote other people's conversations, so publishing warns and their messages are marked as another person's. `same-segment` is for conversations only, `tenant` for facts only.
+    What the intent selects within what the run may see. Facts: this conversation's; this run's end user's and user's; the run's project's (none without a project); or every fact of the type it may see (`tenant`). Conversations: this person's other conversations with the agent (`same-user`); this conversation's messages older than the history window (`same-conversation`); conversations in the run's segment path (`same-segment`) or its project (`same-project`), whoever had them: those two quote other people's conversations, so publishing warns and their messages are marked as another person's. `same-segment` is for conversations only, `tenant` for facts only.
     """
     limit: Annotated[int | None, Field(ge=1)] = None
     mode: Literal["keyword", "semantic", "both"] | None = None
@@ -6188,10 +6184,6 @@ class EvalComparison(BaseModel):
     """
     overrides: EvalOverrides | None = None
     sample: EvalSample | None = None
-    rescore_of: Annotated[str | None, Field(alias="rescoreOf")] = None
-    """
-    Rescore that comparison eval run instead of replaying: its replays' outputs are scored again, with the judgments recorded on them since (a changed answer judged on the replay itself). Nothing runs, and the run rescored stays as it was. Set by `POST /v1/eval-runs/{runId}/rescore`.
-    """
 
 
 class ComparisonMetric(BaseModel):
@@ -6218,10 +6210,6 @@ class ComparisonMetric(BaseModel):
     spread: float | None = None
     """
     With more than one repetition: the candidate's max − min across them.
-    """
-    fresh_weight: Annotated[float | None, Field(alias="freshWeight", ge=0.0)] = None
-    """
-    Of `weight`, the part judged on the candidate's replays themselves (a rescore, after people judged a changed answer there). Absent when none. Not on `weightedPrecisionAtK`.
     """
 
 
@@ -6409,14 +6397,6 @@ class JudgedComparisonSummary(BaseModel):
     """
     Cases an erasure cleared (a person's words were erased): left out of the run and the metrics. Absent: none.
     """
-    rescore_of: Annotated[str | None, Field(alias="rescoreOf")] = None
-    """
-    A rescore: the comparison eval run whose replays it scored again.
-    """
-    not_rescored: Annotated[int | None, Field(alias="notRescored", ge=1)] = None
-    """
-    A rescore: cases whose replays couldn't be read again (a retention purge, say), kept at their earlier scores. Absent: none.
-    """
     stopped: Annotated[int, Field(ge=0)]
     """
     Flow cases that stopped at a write the replay refused: no output to score, so they're left out of the metrics.
@@ -6446,20 +6426,6 @@ class TopK(BaseModel):
     total_weight: Annotated[float, Field(alias="totalWeight")]
 
 
-class Fresh(BaseModel):
-    """
-    The part of these sums judged on this output itself (a replay judged after it ran). Absent when none was.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    yes_weight: Annotated[float, Field(alias="yesWeight")]
-    total_weight: Annotated[float, Field(alias="totalWeight")]
-    items: Annotated[int, Field(ge=1)]
-
-
 class Baseline2(BaseModel):
     """
     An output's score: Σ yesWeight and Σ totalWeight over its judged items, and over those among the first `k` ranked items.
@@ -6474,10 +6440,6 @@ class Baseline2(BaseModel):
     items: Annotated[int, Field(ge=0)]
     judged_items: Annotated[int, Field(alias="judgedItems", ge=0)]
     top_k: Annotated[TopK, Field(alias="topK")]
-    fresh: Fresh | None = None
-    """
-    The part of these sums judged on this output itself (a replay judged after it ran). Absent when none was.
-    """
 
 
 class CandidateItem(BaseModel):
@@ -6494,10 +6456,6 @@ class CandidateItem(BaseModel):
     items: Annotated[int, Field(ge=0)]
     judged_items: Annotated[int, Field(alias="judgedItems", ge=0)]
     top_k: Annotated[TopK, Field(alias="topK")]
-    fresh: Fresh | None = None
-    """
-    The part of these sums judged on this output itself (a replay judged after it ran). Absent when none was.
-    """
 
 
 class KeptItem(BaseModel):
@@ -6519,19 +6477,6 @@ class DroppedItem(BaseModel):
     rank_before: Annotated[int | None, Field(alias="rankBefore")] = None
 
 
-class Judged(BaseModel):
-    """
-    What people said about this item on the replay itself, once they judged it there.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    yes_weight: Annotated[float, Field(alias="yesWeight")]
-    total_weight: Annotated[float, Field(alias="totalWeight")]
-
-
 class NewItem(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -6540,10 +6485,6 @@ class NewItem(BaseModel):
     key: str
     pointer: str
     rank: int | None = None
-    judged: Judged | None = None
-    """
-    What people said about this item on the replay itself, once they judged it there.
-    """
 
 
 class Changes(BaseModel):
@@ -6630,10 +6571,6 @@ class ComparisonCaseResult(BaseModel):
     stopped: Stopped | None = None
     """
     Set when the replay stopped at a refused write: what it would have done.
-    """
-    rescored: Literal[False] | None = None
-    """
-    Set in a rescore when this case's replays can't be read again: its scores are the run rescored's.
     """
 
 
@@ -6722,21 +6659,6 @@ class StartEvalRunBody(BaseModel):
     sample: EvalSample | None = None
 
 
-class RescoreEvalRunBody(BaseModel):
-    """
-    Body of `POST /v1/eval-runs/{runId}/rescore`: optional.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    project_id: Annotated[str | None, Field(alias="projectId")] = None
-    """
-    The run's project, needed only from a runtime that doesn't record it on the run.
-    """
-
-
 class StartEvalRunResult(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -6781,7 +6703,7 @@ class ClaimMappingSpec(BaseModel):
 
 class IdentityProviderSignIn1(BaseModel):
     """
-    What to give the identity provider so it can send people back: set by the deployment on what it returns, ignored on registration. OIDC: `redirectUri`. SAML: `spEntityId`, `acsUrl`, `spMetadataUrl`.
+    What to give the identity provider so it can send people back: set by the deployment on what it returns, ignored on registration. OIDC / OAuth 2.0: `redirectUri`. SAML: `spEntityId`, `acsUrl`, `spMetadataUrl`.
     """
 
     model_config = ConfigDict(
@@ -6793,7 +6715,7 @@ class IdentityProviderSignIn1(BaseModel):
 
 class IdentityProviderSignIn2(BaseModel):
     """
-    What to give the identity provider so it can send people back: set by the deployment on what it returns, ignored on registration. OIDC: `redirectUri`. SAML: `spEntityId`, `acsUrl`, `spMetadataUrl`.
+    What to give the identity provider so it can send people back: set by the deployment on what it returns, ignored on registration. OIDC / OAuth 2.0: `redirectUri`. SAML: `spEntityId`, `acsUrl`, `spMetadataUrl`.
     """
 
     model_config = ConfigDict(
@@ -6806,6 +6728,10 @@ class IdentityProviderSignIn2(BaseModel):
 
 
 class Domain(RootModel[str]):
+    root: Annotated[str, Field(min_length=1)]
+
+
+class AllowedRedirectUri(RootModel[str]):
     root: Annotated[str, Field(min_length=1)]
 
 
@@ -6835,7 +6761,7 @@ class OidcIdentityProviderConfig(BaseModel):
         IdentityProviderSignIn1 | IdentityProviderSignIn2 | None, Field(alias="signIn")
     ] = None
     """
-    What to give the identity provider so it can send people back: set by the deployment on what it returns, ignored on registration. OIDC: `redirectUri`. SAML: `spEntityId`, `acsUrl`, `spMetadataUrl`.
+    What to give the identity provider so it can send people back: set by the deployment on what it returns, ignored on registration. OIDC / OAuth 2.0: `redirectUri`. SAML: `spEntityId`, `acsUrl`, `spMetadataUrl`.
     """
     metadata: dict[str, Any] | None = None
     kind: Literal["oidc"]
@@ -6853,6 +6779,12 @@ class OidcIdentityProviderConfig(BaseModel):
     token_endpoint: Annotated[AnyUrl | None, Field(alias="tokenEndpoint")] = None
     userinfo_endpoint: Annotated[AnyUrl | None, Field(alias="userinfoEndpoint")] = None
     jwks_endpoint: Annotated[AnyUrl | None, Field(alias="jwksEndpoint")] = None
+    allowed_redirect_uris: Annotated[
+        list[AllowedRedirectUri] | None, Field(alias="allowedRedirectUris")
+    ] = None
+    """
+    OAuth 2.1 BCP redirect-URI allowlist. Exact-string match required at /v1/auth/login. Absent/empty means no redirect-URI allowlist check (pass-through).
+    """
     claim_mapping: Annotated[ClaimMappingSpec | None, Field(alias="claimMapping")] = None
 
 
@@ -6900,7 +6832,7 @@ class SamlIdentityProviderConfig(BaseModel):
         IdentityProviderSignIn1 | IdentityProviderSignIn2 | None, Field(alias="signIn")
     ] = None
     """
-    What to give the identity provider so it can send people back: set by the deployment on what it returns, ignored on registration. OIDC: `redirectUri`. SAML: `spEntityId`, `acsUrl`, `spMetadataUrl`.
+    What to give the identity provider so it can send people back: set by the deployment on what it returns, ignored on registration. OIDC / OAuth 2.0: `redirectUri`. SAML: `spEntityId`, `acsUrl`, `spMetadataUrl`.
     """
     metadata: dict[str, Any] | None = None
     kind: Literal["saml"]
@@ -6934,20 +6866,76 @@ class SamlIdentityProviderConfig(BaseModel):
     """
 
 
+class OAuth2IdentityProviderConfig(BaseModel):
+    """
+    A plain OAuth 2.0 provider that isn't OpenID Connect (e.g. GitHub), run by this API's own OAuth flow (`/v1/auth/login` + callback). For a provider that speaks OpenID Connect, use `oidc`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    provider_id: Annotated[str, Field(alias="providerId", min_length=1)]
+    display_name: Annotated[str | None, Field(alias="displayName", min_length=1)] = None
+    """
+    The name a sign-in page shows ("Sign in with …"). Default: `providerId`.
+    """
+    domains: list[Domain] | None = None
+    """
+    The email domains whose people sign in with this provider (lowercase, e.g. `acme.com`): how an email-first sign-in page finds it.
+    """
+    join: Literal["invite", "domain"] | None = None
+    """
+    Who may sign in the first time: `invite` (default) only people a tenant admin added; `domain` also anyone from one of `domains`, once the deployment has verified them.
+    """
+    sign_in: Annotated[
+        IdentityProviderSignIn1 | IdentityProviderSignIn2 | None, Field(alias="signIn")
+    ] = None
+    """
+    What to give the identity provider so it can send people back: set by the deployment on what it returns, ignored on registration. OIDC / OAuth 2.0: `redirectUri`. SAML: `spEntityId`, `acsUrl`, `spMetadataUrl`.
+    """
+    metadata: dict[str, Any] | None = None
+    kind: Literal["oauth2"]
+    client_id: Annotated[str, Field(alias="clientId", min_length=1)]
+    client_secret_ref: Annotated[str, Field(alias="clientSecretRef", min_length=1)]
+    """
+    Opaque reference resolved server-side. Never a plaintext secret.
+    """
+    authorization_endpoint: Annotated[AnyUrl, Field(alias="authorizationEndpoint")]
+    token_endpoint: Annotated[AnyUrl, Field(alias="tokenEndpoint")]
+    userinfo_endpoint: Annotated[AnyUrl | None, Field(alias="userinfoEndpoint")] = None
+    scopes: list[str]
+    allowed_redirect_uris: Annotated[
+        list[AllowedRedirectUri] | None, Field(alias="allowedRedirectUris")
+    ] = None
+    """
+    OAuth 2.1 BCP redirect-URI allowlist. Exact-string match required at /v1/auth/login. Absent/empty means no redirect-URI allowlist check (pass-through).
+    """
+    claim_mapping: Annotated[ClaimMappingSpec | None, Field(alias="claimMapping")] = None
+
+
 class RegisterIdentityProviderBody(
-    RootModel[OidcIdentityProviderConfig | SamlIdentityProviderConfig]
+    RootModel[
+        OidcIdentityProviderConfig | SamlIdentityProviderConfig | OAuth2IdentityProviderConfig
+    ]
 ):
     root: Annotated[
-        OidcIdentityProviderConfig | SamlIdentityProviderConfig, Field(discriminator="kind")
+        OidcIdentityProviderConfig | SamlIdentityProviderConfig | OAuth2IdentityProviderConfig,
+        Field(discriminator="kind"),
     ]
     """
-    The identity provider to register, one shape per `kind`: `oidc` or `saml`. Secrets by reference only (`clientSecretRef`, `spSigningKeyRef`, `spDecryptionKeyRef`); a `clientSecret` field is refused.
+    The identity provider to register, one shape per `kind`: `oidc`, `saml` or `oauth2`. Secrets by reference only (`clientSecretRef`, `spSigningKeyRef`, `spDecryptionKeyRef`); a `clientSecret` field is refused.
     """
 
 
-class GetIdentityProviderResult(RootModel[OidcIdentityProviderConfig | SamlIdentityProviderConfig]):
+class GetIdentityProviderResult(
+    RootModel[
+        OidcIdentityProviderConfig | SamlIdentityProviderConfig | OAuth2IdentityProviderConfig
+    ]
+):
     root: Annotated[
-        OidcIdentityProviderConfig | SamlIdentityProviderConfig, Field(discriminator="kind")
+        OidcIdentityProviderConfig | SamlIdentityProviderConfig | OAuth2IdentityProviderConfig,
+        Field(discriminator="kind"),
     ]
     """
     An identity provider as stored, one shape per `kind`, with `signIn` when the deployment sets it. Secrets appear only as references.
@@ -6961,16 +6949,13 @@ class IdentityProviderCollectionPage(BaseModel):
     )
     data: list[
         Annotated[
-            OidcIdentityProviderConfig | SamlIdentityProviderConfig, Field(discriminator="kind")
+            OidcIdentityProviderConfig | SamlIdentityProviderConfig | OAuth2IdentityProviderConfig,
+            Field(discriminator="kind"),
         ]
     ]
     has_more: Annotated[bool | None, Field(alias="hasMore")] = None
     """
     Always `false`: the list comes whole. Absent from older servers.
-    """
-    changes: Literal["tenant", "operator"] | None = None
-    """
-    Who may add, change and remove the providers here: `tenant`, its admins; `operator`, only the deployment's own token, because the operator manages sign-in (`KINDGI_AUTH_TENANT_PROVIDERS=off`). The providers there sign people in either way. Absent from older servers: read it as `tenant`.
     """
 
 
@@ -7027,12 +7012,6 @@ class Methods(BaseModel):
     """
     Sign-in to the console with an API token (`POST /v1/auth/token-sign-in`).
     """
-    session_cookie: Annotated[Literal["secure", "plain"] | None, Field(alias="sessionCookie")] = (
-        None
-    )
-    """
-    The browser session cookie's kind: `secure` (`Secure` and `__Host-`, kept by browsers only over https, and by some on http://localhost), or `plain` (development on a loopback address only, so every browser keeps it there). A sign-in page can check the browser keeps that kind before offering sign-in. Absent from older servers, and where there are no browser sessions: treat as `secure`.
-    """
     email_link: Annotated[EmailLink | None, Field(alias="emailLink")] = None
     """
     Present when the deployment emails sign-in links: a sign-in page offers "Email me a sign-in link". With `captchaSiteKey`, the request needs a Cloudflare Turnstile token (`x-captcha-response`).
@@ -7066,52 +7045,6 @@ class TokenSignInResult(BaseModel):
     """
 
 
-class SignInEvent(BaseModel):
-    """
-    One sign-in audit event, flattened: who signed in or out, how, from where, and what was refused.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    id: str
-    timestamp: AwareDatetime
-    kind: Literal[
-        "signed-in",
-        "signed-out",
-        "sign-in-refused",
-        "sign-in-link-sent",
-        "sign-in-link-capped",
-        "sessions-revoked",
-        "sessions-ended",
-    ]
-    """
-    `signed-in` / `signed-out`; `sign-in-refused` (with `reason`); `sign-in-link-sent` / `sign-in-link-capped` (an emailed link, for `userId`; `reason` is the limit that held); `sessions-revoked` ("sign out everywhere", or removing a person); `sessions-ended` (a changed boot token).
-    """
-    outcome: str
-    """
-    `succeeded` or `denied`.
-    """
-    user_id: Annotated[str | None, Field(alias="userId")] = None
-    """
-    The person: who signed in or out, or whom a link was for. Absent on a refusal.
-    """
-    method: str | None = None
-    """
-    How: `api-token`, `email-link`, `google`, `microsoft`, `github`, or a workspace identity provider's id.
-    """
-    client_address: Annotated[str | None, Field(alias="clientAddress")] = None
-    """
-    The client's address, as the runtime trusts it.
-    """
-    reason: str | None = None
-    """
-    Why a sign-in was refused, or which limit held.
-    """
-    session_id: Annotated[str | None, Field(alias="sessionId")] = None
-
-
 class RegisterIdentityProviderResult(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -7119,7 +7052,11 @@ class RegisterIdentityProviderResult(BaseModel):
     )
     provider_id: Annotated[str, Field(alias="providerId", min_length=1)]
     provider: Annotated[
-        OidcIdentityProviderConfig | SamlIdentityProviderConfig | None, Field(discriminator="kind")
+        OidcIdentityProviderConfig
+        | SamlIdentityProviderConfig
+        | OAuth2IdentityProviderConfig
+        | None,
+        Field(discriminator="kind"),
     ] = None
     """
     The provider as stored: discovered endpoints, and `signIn` (what to give the identity provider). Absent from older servers.
@@ -7158,9 +7095,9 @@ class UpdateIdentityProviderBody(BaseModel):
     """
     Must match the path when given.
     """
-    kind: Literal["oidc", "saml"] | None = None
+    kind: Literal["oauth2", "oidc", "saml"] | None = None
     """
-    `oidc`: an OpenID Connect identity provider people sign in with (Okta, Entra ID, Google, Keycloak…); its endpoints come from its discovery document. `saml`: a SAML 2.0 identity provider people sign in with.
+    `oidc`: an OpenID Connect identity provider people sign in with (Okta, Entra ID, Google, Keycloak…); its endpoints come from its discovery document. `saml`: a SAML 2.0 identity provider people sign in with. `oauth2`: a plain OAuth 2.0 provider that isn't OpenID Connect (e.g. GitHub), with its endpoints given; pick `oidc` for any provider that speaks OpenID Connect.
     """
     display_name: Annotated[str | None, Field(alias="displayName", min_length=1)] = None
     domains: list[Domain] | None = None
@@ -7177,6 +7114,9 @@ class UpdateIdentityProviderBody(BaseModel):
     token_endpoint: Annotated[AnyUrl | None, Field(alias="tokenEndpoint")] = None
     userinfo_endpoint: Annotated[AnyUrl | None, Field(alias="userinfoEndpoint")] = None
     jwks_endpoint: Annotated[AnyUrl | None, Field(alias="jwksEndpoint")] = None
+    allowed_redirect_uris: Annotated[
+        list[AllowedRedirectUri] | None, Field(alias="allowedRedirectUris")
+    ] = None
     claim_mapping: Annotated[ClaimMappingSpec | None, Field(alias="claimMapping")] = None
     idp_metadata_xml: Annotated[str | None, Field(alias="idpMetadataXml", min_length=1)] = None
     idp_entity_id: Annotated[str | None, Field(alias="idpEntityId", min_length=1)] = None
@@ -7197,7 +7137,8 @@ class UpdateIdentityProviderResult(BaseModel):
     )
     provider_id: Annotated[str, Field(alias="providerId", min_length=1)]
     provider: Annotated[
-        OidcIdentityProviderConfig | SamlIdentityProviderConfig, Field(discriminator="kind")
+        OidcIdentityProviderConfig | SamlIdentityProviderConfig | OAuth2IdentityProviderConfig,
+        Field(discriminator="kind"),
     ]
     """
     The provider as stored now; its `signIn` is unchanged.
@@ -7214,18 +7155,66 @@ class IdentityProviderSignInUrls(BaseModel):
         populate_by_name=True,
     )
     provider_id: Annotated[str, Field(alias="providerId", min_length=1)]
-    kind: Literal["oidc", "saml"]
+    kind: Literal["oauth2", "oidc", "saml"]
     """
-    `oidc`: an OpenID Connect identity provider people sign in with (Okta, Entra ID, Google, Keycloak…); its endpoints come from its discovery document. `saml`: a SAML 2.0 identity provider people sign in with.
+    `oidc`: an OpenID Connect identity provider people sign in with (Okta, Entra ID, Google, Keycloak…); its endpoints come from its discovery document. `saml`: a SAML 2.0 identity provider people sign in with. `oauth2`: a plain OAuth 2.0 provider that isn't OpenID Connect (e.g. GitHub), with its endpoints given; pick `oidc` for any provider that speaks OpenID Connect.
     """
     sign_in: Annotated[IdentityProviderSignIn1 | IdentityProviderSignIn2, Field(alias="signIn")]
     """
-    What to give the identity provider so it can send people back: set by the deployment on what it returns, ignored on registration. OIDC: `redirectUri`. SAML: `spEntityId`, `acsUrl`, `spMetadataUrl`.
+    What to give the identity provider so it can send people back: set by the deployment on what it returns, ignored on registration. OIDC / OAuth 2.0: `redirectUri`. SAML: `spEntityId`, `acsUrl`, `spMetadataUrl`.
     """
     registered: bool
     """
     Whether a provider is registered under this `providerId` now.
     """
+
+
+class LoginBody(BaseModel):
+    """
+    Optional body for `POST /v1/auth/login/:providerId`. `redirectUri` overrides `metadata.defaultRedirectUri` on the provider config; at least one MUST be supplied.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    redirect_uri: Annotated[AnyUrl | None, Field(alias="redirectUri")] = None
+
+
+class AuthorizationResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    authorization_url: Annotated[AnyUrl, Field(alias="authorizationUrl")]
+    """
+    URL the caller redirects the user-agent to. Includes `client_id`, `redirect_uri`, `scope`, `state`, `code_challenge`, `code_challenge_method=S256`.
+    """
+    state: Annotated[str, Field(min_length=1)]
+    code_challenge: Annotated[str, Field(alias="codeChallenge", min_length=1)]
+    code_challenge_method: Annotated[Literal["S256"], Field(alias="codeChallengeMethod")]
+
+
+class CallbackBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    code: Annotated[str, Field(min_length=1)]
+    state: Annotated[str, Field(min_length=1)]
+
+
+class CallbackResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    session_token: Annotated[str, Field(alias="sessionToken")]
+    """
+    Opaque session token (`kgi_sk_…`), shown once: the server keeps only a hash of it. Never parse it. Send as `Authorization: Bearer <sessionToken>` on subsequent requests. The underlying provider access-token never leaves the server.
+    """
+    session_id: Annotated[str, Field(alias="sessionId")]
+    expires_at: Annotated[AwareDatetime, Field(alias="expiresAt")]
 
 
 class RefreshResult(BaseModel):
@@ -9205,8 +9194,7 @@ class CreateWebhookEndpointBody(BaseModel):
     Absolute https URL (http only where the deployment allows it, e.g. development). No credentials in the URL. The deployment may refuse private network addresses (`400 webhook-url-refused`).
     """
     events: Annotated[
-        list[Literal["run.finished", "improvement-pass.finished", "approval.requested"]],
-        Field(min_length=1),
+        list[Literal["run.finished", "improvement-pass.finished"]], Field(min_length=1)
     ]
     filter: WebhookEndpointFilter | None = None
     secret_ref: Annotated[WebhookSecretRef, Field(alias="secretRef")]
@@ -9224,8 +9212,7 @@ class PatchWebhookEndpointBody(BaseModel):
     )
     url: AnyUrl | None = None
     events: Annotated[
-        list[Literal["run.finished", "improvement-pass.finished", "approval.requested"]] | None,
-        Field(min_length=1),
+        list[Literal["run.finished", "improvement-pass.finished"]] | None, Field(min_length=1)
     ] = None
     filter: WebhookEndpointFilter | None = None
     secret_ref: Annotated[WebhookSecretRef | None, Field(alias="secretRef")] = None
@@ -9261,55 +9248,6 @@ class RunTreeUsage(BaseModel):
     tokens: CostTokenTotals
 
 
-class FinishedRun(BaseModel):
-    """
-    A finished top-level run: its identity and outcome, never its input or output. Field names match `GET /v1/runs/{runId}`.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    id: UUID
-    """
-    RunId.
-    """
-    project_id: Annotated[UUID, Field(alias="projectId")]
-    flow_id: Annotated[str, Field(alias="flowId")]
-    flow_version: Annotated[str, Field(alias="flowVersion")]
-    status: Literal["completed", "failed", "cancelled"]
-    dry_run: Annotated[bool, Field(alias="dryRun")]
-    failure_message: Annotated[str | None, Field(alias="failureMessage")]
-    """
-    Why the run failed or was cancelled; `null` when it completed.
-    """
-    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
-    completed_at: Annotated[AwareDatetime, Field(alias="completedAt")]
-    usage: RunTreeUsage | None = None
-
-
-class Data(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    run: FinishedRun
-
-
-class RunFinishedEvent(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    id: str
-    """
-    Event id, also sent as the `webhook-id` header; the same on every retry.
-    """
-    type: Literal["run.finished"]
-    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
-    data: Data
-
-
 class Data1(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -9337,60 +9275,6 @@ class ImprovementPassFinishedEvent(BaseModel):
     type: Literal["improvement-pass.finished"]
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
     data: Data1
-
-
-class RequestedApproval(BaseModel):
-    """
-    The approval an `approval.requested` event names. What it is about stays behind sign-in: no `context`, no tool call or run input.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    approval_id: Annotated[str, Field(alias="approvalId")]
-    project_id: Annotated[str | None, Field(alias="projectId")] = None
-    required_role: Annotated[Literal["standard", "senior", "admin"], Field(alias="requiredRole")]
-    """
-    The least reviewer role that may decide it.
-    """
-    title: str | None = None
-    assigned_to: Annotated[str | None, Field(alias="assignedTo")] = None
-    """
-    The one reviewer it is assigned to, when it is.
-    """
-    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
-    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
-    url: str | None = None
-    """
-    Its page in the console, when the runtime knows its public address.
-    """
-
-
-class ApprovalRequestedEventData(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    approval: RequestedApproval
-
-
-class ApprovalRequestedEvent(BaseModel):
-    """
-    An approval was asked for: a reviewer's decision is waiting. Sent once per approval (an escalation is a new approval). `projectId` in the endpoint's filter narrows it to the approval's project.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    id: str
-    """
-    Event id, also sent as the `webhook-id` header; the same on every retry.
-    """
-    type: Literal["approval.requested"]
-    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
-    data: ApprovalRequestedEventData
 
 
 class ImproveScheduleTarget(BaseModel):
@@ -9497,49 +9381,6 @@ class WebhookTestEvent(BaseModel):
     data: Data2
 
 
-class WebhookDelivery(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    delivery_id: Annotated[str, Field(alias="deliveryId")]
-    endpoint_id: Annotated[str, Field(alias="endpointId")]
-    event: Annotated[
-        RunFinishedEvent | ImprovementPassFinishedEvent | ApprovalRequestedEvent | WebhookTestEvent,
-        Field(discriminator="type"),
-    ]
-    """
-    The JSON body of every webhook request.
-    """
-    status: Literal["pending", "delivered", "failed"]
-    """
-    `pending`: waiting for its next attempt. `delivered`: the endpoint answered 2xx. `failed`: every attempt failed, or the endpoint was unregistered first; redeliver queues it again.
-    """
-    attempts: Annotated[int, Field(ge=0)]
-    next_attempt_at: Annotated[AwareDatetime | None, Field(alias="nextAttemptAt")]
-    last_attempt_at: Annotated[AwareDatetime | None, Field(alias="lastAttemptAt")]
-    last_response_status: Annotated[int | None, Field(alias="lastResponseStatus")]
-    """
-    HTTP status of the last attempt; `null` when it got no response.
-    """
-    last_error: Annotated[str | None, Field(alias="lastError")]
-    """
-    Why the last attempt failed (`timeout`, `connection-refused`, `url-refused`, …).
-    """
-    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
-    delivered_at: Annotated[AwareDatetime | None, Field(alias="deliveredAt")]
-
-
-class WebhookDeliveryCollectionPage(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[WebhookDelivery]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
-    has_more: Annotated[bool, Field(alias="hasMore")]
-
-
 class SystemOpenapiResponse(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -9556,16 +9397,6 @@ class AdaptersPrepareBody(BaseModel):
 
 class AdaptersPrepareResponse(RootModel[str]):
     root: str
-
-
-class AuditSignInsListResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[SignInEvent]
-    has_more: Annotated[bool, Field(alias="hasMore")]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
 class Datum4(BaseModel):
@@ -10166,29 +9997,7 @@ class Approval(BaseModel):
     expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
     decision: ApprovalDecisionRecord | None = None
     """
-    The reviewer's decision, once one is recorded. Absent while the approval is open, and when it ended without one (it expired, a timeout escalated it, or its run's end withdrew it).
-    """
-    requested_by: Annotated[str | None, Field(alias="requestedBy")] = None
-    """
-    Who asked for it, when recorded: `user:<id>`, `service_account:<id>` or `system:<what>`.
-    """
-    separate_approver: Annotated[bool | None, Field(alias="separateApprover")] = None
-    """
-    Whether the person who asked may not approve it (four eyes). A runtime that knows it always sends it, `false` included.
-    """
-    withdrawn_because: Annotated[
-        Literal["run-cancelled", "run-ended"] | None, Field(alias="withdrawnBecause")
-    ] = None
-    """
-    Why it was withdrawn, when its run's end withdrew it (a reviewer's withdrawal has its `decision` instead).
-    """
-    escalated_from: Annotated[UUID | None, Field(alias="escalatedFrom")] = None
-    """
-    The approval this one was escalated from.
-    """
-    escalated_to: Annotated[UUID | None, Field(alias="escalatedTo")] = None
-    """
-    The approval this one was escalated to.
+    The reviewer's decision, once one is recorded. Absent while the approval is open, and when it ended without one (it expired, or a timeout escalated it).
     """
 
 
@@ -10206,10 +10015,6 @@ class ApprovalCollectionPage(BaseModel):
 
 
 class CompleteApprovalResult(BaseModel):
-    """
-    A recorded decision, and what it did to the run waiting on the approval. `runStatus` is the run's status when the decision couldn't resolve its waitpoint because the run had already ended (e.g. `cancelled` after the decision was recorded); the decision stands.
-    """
-
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -10223,12 +10028,8 @@ class CompleteApprovalResult(BaseModel):
     """
     waitpoint_resolved: Annotated[bool, Field(alias="waitpointResolved")]
     """
-    True when the approval had a `waitTokenId` and this call resolved the run's waitpoint: approve and reject complete it; withdraw cancels it, so the run ends (`failed`, `hitl-withdrawn`).
+    True when the approval had a `waitTokenId` + terminal accept/reject and the run waitpoint was completed as part of this call.
     """
-    run_status: Annotated[
-        Literal["pending", "running", "suspended", "completed", "failed", "cancelled"] | None,
-        Field(alias="runStatus"),
-    ] = None
     resume: Resume | Resume1 | None = None
     """
     How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone. The decision stands either way.
@@ -10722,10 +10523,6 @@ class WhoamiResult(BaseModel):
         populate_by_name=True,
     )
     tenant_id: Annotated[UUID, Field(alias="tenantId")]
-    actor: str | None = None
-    """
-    The caller as approvals name a person: `user:<id>` or `service_account:<id>`, the same string as an approval's `requestedBy` and a decision's `decidedBy`.
-    """
     user_id: Annotated[str | None, Field(alias="userId")] = None
     session_id: Annotated[str | None, Field(alias="sessionId")] = None
     provider_id: Annotated[str | None, Field(alias="providerId")] = None
@@ -10994,7 +10791,7 @@ class WebhookEndpoint(BaseModel):
     )
     endpoint_id: Annotated[str, Field(alias="endpointId")]
     url: AnyUrl
-    events: list[Literal["run.finished", "improvement-pass.finished", "approval.requested"]]
+    events: list[Literal["run.finished", "improvement-pass.finished"]]
     filter: WebhookEndpointFilter
     description: str | None
     secret_ref: Annotated[WebhookSecretRef, Field(alias="secretRef")]
@@ -11008,6 +10805,102 @@ class WebhookEndpointCollectionPage(BaseModel):
         populate_by_name=True,
     )
     data: list[WebhookEndpoint]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class FinishedRun(BaseModel):
+    """
+    A finished top-level run: its identity and outcome, never its input or output. Field names match `GET /v1/runs/{runId}`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: UUID
+    """
+    RunId.
+    """
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    flow_id: Annotated[str, Field(alias="flowId")]
+    flow_version: Annotated[str, Field(alias="flowVersion")]
+    status: Literal["completed", "failed", "cancelled"]
+    dry_run: Annotated[bool, Field(alias="dryRun")]
+    failure_message: Annotated[str | None, Field(alias="failureMessage")]
+    """
+    Why the run failed or was cancelled; `null` when it completed.
+    """
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    completed_at: Annotated[AwareDatetime, Field(alias="completedAt")]
+    usage: RunTreeUsage | None = None
+    agent: RunAgent | None = None
+    """
+    On an agent's run: the agent, the version that ran and the conversation, as `GET /v1/runs/{runId}` shows them (an agent run's `flowId` is `agent.turn`). Absent on a flow's run, and from a runtime before Kindgi 0.1.6.
+    """
+
+
+class Data(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    run: FinishedRun
+
+
+class RunFinishedEvent(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    """
+    Event id, also sent as the `webhook-id` header; the same on every retry.
+    """
+    type: Literal["run.finished"]
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    data: Data
+
+
+class WebhookDelivery(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    delivery_id: Annotated[str, Field(alias="deliveryId")]
+    endpoint_id: Annotated[str, Field(alias="endpointId")]
+    event: Annotated[
+        RunFinishedEvent | ImprovementPassFinishedEvent | WebhookTestEvent,
+        Field(discriminator="type"),
+    ]
+    """
+    The JSON body of every webhook request.
+    """
+    status: Literal["pending", "delivered", "failed"]
+    """
+    `pending`: waiting for its next attempt. `delivered`: the endpoint answered 2xx. `failed`: every attempt failed, or the endpoint was unregistered first; redeliver queues it again.
+    """
+    attempts: Annotated[int, Field(ge=0)]
+    next_attempt_at: Annotated[AwareDatetime | None, Field(alias="nextAttemptAt")]
+    last_attempt_at: Annotated[AwareDatetime | None, Field(alias="lastAttemptAt")]
+    last_response_status: Annotated[int | None, Field(alias="lastResponseStatus")]
+    """
+    HTTP status of the last attempt; `null` when it got no response.
+    """
+    last_error: Annotated[str | None, Field(alias="lastError")]
+    """
+    Why the last attempt failed (`timeout`, `connection-refused`, `url-refused`, …).
+    """
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    delivered_at: Annotated[AwareDatetime | None, Field(alias="deliveredAt")]
+
+
+class WebhookDeliveryCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[WebhookDelivery]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     has_more: Annotated[bool, Field(alias="hasMore")]
 

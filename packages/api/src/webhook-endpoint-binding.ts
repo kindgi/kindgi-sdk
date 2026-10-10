@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import type { RunAgentRef } from '@kindgi/runtime';
 import type {
   Cursor,
   EnvName,
@@ -193,6 +194,13 @@ export interface FinishedRun {
     readonly costUsd: number;
     readonly tokens: CostTokenTotals;
   };
+  /**
+   * On an agent's run: the agent, the version that ran and the
+   * conversation, as `GET /v1/runs/:runId` shows them (its `flowId` is
+   * `agent.turn`). Absent on a flow's run, and from a runtime that doesn't
+   * send it yet.
+   */
+  readonly agent?: RunAgentRef;
 }
 
 export interface RunFinishedEvent {

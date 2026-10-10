@@ -10004,6 +10004,11 @@ export const FinishedRunSchema: JsonSchema = {
     createdAt: { type: 'string', format: 'date-time' },
     completedAt: { type: 'string', format: 'date-time' },
     usage: { $ref: '#/components/schemas/RunTreeUsage' },
+    agent: {
+      $ref: '#/components/schemas/RunAgent',
+      description:
+        "On an agent's run: the agent, the version that ran and the conversation, as `GET /v1/runs/{runId}` shows them (an agent run's `flowId` is `agent.turn`). Absent on a flow's run, and from a runtime before Kindgi 0.1.6.",
+    },
   },
 };
 
