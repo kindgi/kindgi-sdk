@@ -112,6 +112,7 @@ export function createStubKernelBinding(): KernelBinding {
       deleteRun: true,
       getRun: true,
       listRuns: true,
+      failureGroups: true,
     }),
     scheduler: createStubBinding<SchedulerBinding>('kernelBinding.scheduler', {
       startCronScheduler: true,

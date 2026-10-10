@@ -6,7 +6,7 @@ import type { AgentId, FlowId, RunId, TenantId, Timestamp } from '@kindgi/types'
 import type { ScopeRef } from '../scope-wire.js';
 
 import { KindgiApiError, notYetWired } from '../errors.js';
-import type { LiveScope, RunProgress, ScopeSegment } from '../generated/api.js';
+import type { LiveScope, RunFailureGroups, RunProgress, ScopeSegment } from '../generated/api.js';
 import { type RunProgressEvent, followRun } from '../run-follow.js';
 import { scopeToQuery } from '../scope-wire.js';
 import { type Transport, seconds } from '../transport.js';
@@ -202,6 +202,35 @@ export interface RunsClient {
    * @wire `GET /v1/runs/:runId/journal`
    */
   journal(runId: RunId, filter?: RunJournalFilter): Promise<RunJournalPage>;
+
+  /**
+   * A project's failed runs over a window (at most 90 days), grouped by
+   * cause and version: per group, how many failed, when the first and the
+   * latest failed, and the latest run. People's decisions (`hitl-*`) come
+   * apart as `outcomes`; runs that failed before their cause was recorded,
+   * as `unrecorded`. Needs `read` on the project.
+   *
+   * @wire `GET /v1/runs/failures`
+   */
+  failures(query: RunFailuresQuery): Promise<RunFailureGroups>;
+}
+
+export type { RunFailureGroups };
+
+export interface RunFailuresQuery {
+  readonly projectId: string;
+  /** Runs that failed at or after this time. */
+  readonly from: Date | string;
+  /** Runs that failed before this time. */
+  readonly to: Date | string;
+  /** Only this agent's turns (not with `flowId`). */
+  readonly agentId?: AgentId | string;
+  /** Only this flow's runs (not with `agentId`). */
+  readonly flowId?: FlowId | string;
+  /** What to group by: `['code', 'version']` by default. */
+  readonly groupBy?: readonly ('code' | 'version')[];
+  /** The most groups in each list, 1 to 200 (50 by default). */
+  readonly limit?: number;
 }
 
 export interface RunJournalFilter {
@@ -586,6 +615,23 @@ export function makeRunsClient(transport: Transport): RunsClient {
           ...(filter?.limit !== undefined && { limit: filter.limit }),
           ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
           ...(filter?.since !== undefined && { since: filter.since }),
+        },
+      });
+    },
+
+    async failures(query) {
+      const at = (t: Date | string) => (t instanceof Date ? t.toISOString() : t);
+      return transport.request<RunFailureGroups>({
+        method: 'GET',
+        path: '/v1/runs/failures',
+        query: {
+          projectId: query.projectId,
+          from: at(query.from),
+          to: at(query.to),
+          ...(query.agentId !== undefined && { agentId: query.agentId as string }),
+          ...(query.flowId !== undefined && { flowId: query.flowId as string }),
+          ...(query.groupBy !== undefined && { groupBy: query.groupBy.join(',') }),
+          ...(query.limit !== undefined && { limit: query.limit }),
         },
       });
     },

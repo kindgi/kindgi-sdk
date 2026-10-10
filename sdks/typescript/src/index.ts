@@ -436,7 +436,12 @@ export type {
   TokenSignInResultShape,
   RefreshResultShape,
 } from './resources/auth.js';
-export type { ListRunsFilter, RunPage } from './resources/runs.js';
+export type {
+  ListRunsFilter,
+  RunFailureGroups,
+  RunFailuresQuery,
+  RunPage,
+} from './resources/runs.js';
 export type { ListPage } from './list-page.js';
 export type { ScopeRef } from './scope-wire.js';
 

@@ -259,6 +259,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'item-not-found': 400,
   // The judgment binding can't list judged runs, so no test sets from judgments.
   'test-sets-not-supported': 501,
+  'run-failures-not-supported': 501,
   'memory-operation-unsupported': 501,
   // The conversation binding can't unregister (a runtime built before it).
   'conversation-unregister-unsupported': 501,

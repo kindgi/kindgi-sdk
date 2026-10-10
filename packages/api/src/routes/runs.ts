@@ -34,6 +34,7 @@ import { deniedBy } from './denied.js';
 import { liveScopeToWire } from './live-scope-wire.js';
 import type { DecodedCursor } from './pagination.js';
 import { clampLimit, decodeCursor, isCursorTime } from './pagination.js';
+import { runFailuresHandler } from './run-failures.js';
 import { parseListScope } from './scope-params.js';
 import { parseSegmentsBody } from './segments.js';
 import {
@@ -243,6 +244,10 @@ export function runsRouter(
       }),
     });
   });
+
+  // ---------- GET /failures ----------
+  // Before `/:runId`, which would read `failures` as a run id.
+  r.get('/failures', runFailuresHandler(runBinding, authorizer));
 
   // ---------- GET /:runId ----------
   r.get('/:runId', refuseMalformedRunId, async (c) => {
