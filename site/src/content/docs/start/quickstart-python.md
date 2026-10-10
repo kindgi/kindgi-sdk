@@ -18,7 +18,7 @@ token, then log in once with `kindgi auth registry`.
 ## 1. Create the pack
 
 ```sh tutorial=run
-uvx --from "kindgi-cli>=0.1,<0.2" kindgi init my-pack --template=python
+uvx --from "kindgi-cli==0.1.5rc0" kindgi init my-pack --template=python
 cd my-pack
 uv sync          # a .venv with the kindgi package and the kindgi CLI
 uv run pytest    # the template's tests: the tools and the check, called directly

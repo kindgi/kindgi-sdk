@@ -30,8 +30,8 @@ it, hands both to `docker login` (Kindgi keeps no copy), and checks that you
 can pull the image it runs:
 
 ```sh
-npx --yes @kindgi/cli@0.1 auth registry --username <your robot name>
-# without Node: uvx --from "kindgi-cli>=0.1,<0.2" kindgi auth registry --username <your robot name>
+npx --yes @kindgi/cli@0.1.5-rc.0 auth registry --username <your robot name>
+# without Node: uvx --from "kindgi-cli==0.1.5rc0" kindgi auth registry --username <your robot name>
 ```
 
 ```text
@@ -49,8 +49,8 @@ dependencies, its model key, the runtime and a provider. Each check that
 fails says how to fix it, and it exits `1` until nothing does:
 
 ```sh
-npx --yes @kindgi/cli@0.1 doctor     # in a project: pnpm exec kindgi doctor, or npx --no kindgi doctor
-uvx --from "kindgi-cli>=0.1,<0.2" kindgi doctor   # without Node; in a Python project: uv run kindgi doctor
+npx --yes @kindgi/cli@0.1.5-rc.0 doctor     # in a project: pnpm exec kindgi doctor, or npx --no kindgi doctor
+uvx --from "kindgi-cli==0.1.5rc0" kindgi doctor   # without Node; in a Python project: uv run kindgi doctor
 ```
 
 Here, with a Docker config whose `credsStore` names a helper Docker can't
@@ -108,7 +108,7 @@ The CLI is the `kindgi-cli` package on PyPI. Start a new pack with it,
 pinned to Kindgi's minor version:
 
 ```sh
-uvx --from "kindgi-cli>=0.1,<0.2" kindgi init my-pack --template=python
+uvx --from "kindgi-cli==0.1.5rc0" kindgi init my-pack --template=python
 cd my-pack
 uv sync
 ```
@@ -122,12 +122,12 @@ project runs the CLI it pins. From then on, in a Python project, every
 In an existing app, add both yourself:
 
 ```sh
-uv add kindgi                          # the SDK
-uv add --dev "kindgi-cli>=0.1,<0.2"    # the CLI
+uv add "kindgi==0.1.5rc0"                          # the SDK
+uv add --dev "kindgi-cli==0.1.5rc0"    # the CLI
 ```
 
-With Poetry: `poetry add kindgi` and `poetry add --group dev "kindgi-cli>=0.1,<0.2"`.
-With pip: `pip install kindgi "kindgi-cli>=0.1,<0.2"`.
+With Poetry: `poetry add "kindgi==0.1.5rc0"` and `poetry add --group dev "kindgi-cli==0.1.5rc0"`.
+With pip: `pip install "kindgi==0.1.5rc0" "kindgi-cli==0.1.5rc0"`.
 
 ## Where `kindgi dev` keeps its data
 
