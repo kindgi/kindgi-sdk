@@ -2,8 +2,9 @@ name: Release
 
 # Two paths, both gated:
 #
-# 1. push to main → Changesets opens / updates the "Version Packages" PR.
-#    Nothing is published. Merging that PR bumps every @kindgi/* package
+# 1. push to main, or to a release branch (`release/0.1.X`, which carries
+#    a release's rc and final) → Changesets opens / updates the "Version
+#    Packages" PR into that branch. Nothing is published. Merging that PR bumps every @kindgi/* package
 #    to the next shared version (fixed group) and writes CHANGELOGs.
 #    The PR is opened with a short-lived token from the org's release
 #    GitHub App (repo variable RELEASE_APP_CLIENT_ID, secret
@@ -55,7 +56,7 @@ name: Release
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'release/**']
   workflow_dispatch:
     inputs:
       dry-run:
