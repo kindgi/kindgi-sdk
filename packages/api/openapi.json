@@ -133,7 +133,7 @@
     },
     {
       "name": "auth",
-      "description": "OIDC and SAML identity providers + session lifecycle. Layers browser-based auth on top of the static bearer-token surface: bearer tokens continue to work byte-shape-identical; session tokens use the `kgi_sk_*` prefix so the same middleware routes both flavors. Providers are caller-plugged via `IdentityProviderBinding` (no baked-in list); sign-in runs in the deployment, which reads them. Sessions persist via `SessionStoreBinding`. `clientSecretRef` is a REFERENCE — the plaintext secret never crosses the wire."
+      "description": "OAuth 2.0 / OIDC identity providers + session lifecycle. Layers browser-based auth on top of the static bearer-token surface: bearer tokens continue to work byte-shape-identical; session tokens use the `kgi_sk_*` prefix so the same middleware routes both flavors. Providers are caller-plugged via `IdentityProviderBinding` (no baked-in list). Sessions persist via `SessionStoreBinding`. Code exchange is caller-supplied via `exchangeCode`. PKCE (S256) is mandatory. `clientSecretRef` is a REFERENCE — the plaintext secret never crosses the wire."
     },
     {
       "name": "identity",
@@ -327,7 +327,6 @@
           "eval-suite-already-registered": 409,
           "eval-suite-project-mismatch": 409,
           "eval-run-not-found": 404,
-          "eval-run-not-rescorable": 409,
           "judgment-not-found": 404,
           "judge-class-not-found": 404,
           "judge-class-name-taken": 409,
@@ -385,6 +384,11 @@
           "identity-provider-not-found": 404,
           "identity-provider-already-registered": 409,
           "identity-provider-invalid": 422,
+          "identity-providers-operator-managed": 403,
+          "oauth-state-invalid": 400,
+          "oauth-code-exchange-failed": 422,
+          "oauth-refresh-failed": 422,
+          "oauth-refresh-not-supported": 422,
           "invalid-provider-config": 400,
           "auth-not-session-token": 400,
           "cookie-session-not-refreshable": 400,
@@ -2856,34 +2860,8 @@
             "format": "date-time"
           },
           "decision": {
-            "description": "The reviewer's decision, once one is recorded. Absent while the approval is open, and when it ended without one (it expired, a timeout escalated it, or its run's end withdrew it).",
+            "description": "The reviewer's decision, once one is recorded. Absent while the approval is open, and when it ended without one (it expired, or a timeout escalated it).",
             "$ref": "#/components/schemas/ApprovalDecisionRecord"
-          },
-          "requestedBy": {
-            "type": "string",
-            "description": "Who asked for it, when recorded: `user:<id>`, `service_account:<id>` or `system:<what>`."
-          },
-          "separateApprover": {
-            "type": "boolean",
-            "description": "Whether the person who asked may not approve it (four eyes). A runtime that knows it always sends it, `false` included."
-          },
-          "withdrawnBecause": {
-            "type": "string",
-            "enum": [
-              "run-cancelled",
-              "run-ended"
-            ],
-            "description": "Why it was withdrawn, when its run's end withdrew it (a reviewer's withdrawal has its `decision` instead)."
-          },
-          "escalatedFrom": {
-            "type": "string",
-            "format": "uuid",
-            "description": "The approval this one was escalated from."
-          },
-          "escalatedTo": {
-            "type": "string",
-            "format": "uuid",
-            "description": "The approval this one was escalated to."
           }
         }
       },
@@ -3032,7 +3010,6 @@
       "CompleteApprovalResult": {
         "type": "object",
         "additionalProperties": false,
-        "description": "A recorded decision, and what it did to the run waiting on the approval. `runStatus` is the run's status when the decision couldn't resolve its waitpoint because the run had already ended (e.g. `cancelled` after the decision was recorded); the decision stands.",
         "required": [
           "kind",
           "approval",
@@ -3059,18 +3036,7 @@
           },
           "waitpointResolved": {
             "type": "boolean",
-            "description": "True when the approval had a `waitTokenId` and this call resolved the run's waitpoint: approve and reject complete it; withdraw cancels it, so the run ends (`failed`, `hitl-withdrawn`)."
-          },
-          "runStatus": {
-            "type": "string",
-            "enum": [
-              "pending",
-              "running",
-              "suspended",
-              "completed",
-              "failed",
-              "cancelled"
-            ]
+            "description": "True when the approval had a `waitTokenId` + terminal accept/reject and the run waitpoint was completed as part of this call."
           },
           "resume": {
             "description": "How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone. The decision stands either way.",
@@ -3996,10 +3962,6 @@
               }
             },
             "description": "The env values each tool's calls were sent (`needsSpec.env`), by tool id: its first call's, as the run recorded them. A replay sends them to a read-only tool it runs live, so the tool reads the config the run saw, not today's. Absent for a run from before env was recorded."
-          },
-          "replayOf": {
-            "type": "string",
-            "description": "When the judged run is a comparison's replay: the run it re-ran, stamped at its first judgment. A test set built from judgments leaves replays out."
           }
         }
       },
@@ -12019,10 +11981,6 @@
           },
           "sample": {
             "$ref": "#/components/schemas/EvalSample"
-          },
-          "rescoreOf": {
-            "type": "string",
-            "description": "Rescore that comparison eval run instead of replaying: its replays' outputs are scored again, with the judgments recorded on them since (a changed answer judged on the replay itself). Nothing runs, and the run rescored stays as it was. Set by `POST /v1/eval-runs/{runId}/rescore`."
           }
         }
       },
@@ -12089,11 +12047,6 @@
           "spread": {
             "type": "number",
             "description": "With more than one repetition: the candidate's max − min across them."
-          },
-          "freshWeight": {
-            "type": "number",
-            "minimum": 0,
-            "description": "Of `weight`, the part judged on the candidate's replays themselves (a rescore, after people judged a changed answer there). Absent when none. Not on `weightedPrecisionAtK`."
           }
         }
       },
@@ -12347,15 +12300,6 @@
             "minimum": 1,
             "description": "Cases an erasure cleared (a person's words were erased): left out of the run and the metrics. Absent: none."
           },
-          "rescoreOf": {
-            "type": "string",
-            "description": "A rescore: the comparison eval run whose replays it scored again."
-          },
-          "notRescored": {
-            "type": "integer",
-            "minimum": 1,
-            "description": "A rescore: cases whose replays couldn't be read again (a retention purge, say), kept at their earlier scores. Absent: none."
-          },
           "stopped": {
             "type": "integer",
             "minimum": 0,
@@ -12506,28 +12450,6 @@
                     "type": "number"
                   }
                 }
-              },
-              "fresh": {
-                "type": "object",
-                "additionalProperties": false,
-                "required": [
-                  "yesWeight",
-                  "totalWeight",
-                  "items"
-                ],
-                "description": "The part of these sums judged on this output itself (a replay judged after it ran). Absent when none was.",
-                "properties": {
-                  "yesWeight": {
-                    "type": "number"
-                  },
-                  "totalWeight": {
-                    "type": "number"
-                  },
-                  "items": {
-                    "type": "integer",
-                    "minimum": 1
-                  }
-                }
               }
             }
           },
@@ -12572,28 +12494,6 @@
                     },
                     "totalWeight": {
                       "type": "number"
-                    }
-                  }
-                },
-                "fresh": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "required": [
-                    "yesWeight",
-                    "totalWeight",
-                    "items"
-                  ],
-                  "description": "The part of these sums judged on this output itself (a replay judged after it ran). Absent when none was.",
-                  "properties": {
-                    "yesWeight": {
-                      "type": "number"
-                    },
-                    "totalWeight": {
-                      "type": "number"
-                    },
-                    "items": {
-                      "type": "integer",
-                      "minimum": 1
                     }
                   }
                 }
@@ -12668,23 +12568,6 @@
                     },
                     "rank": {
                       "type": "integer"
-                    },
-                    "judged": {
-                      "type": "object",
-                      "additionalProperties": false,
-                      "required": [
-                        "yesWeight",
-                        "totalWeight"
-                      ],
-                      "description": "What people said about this item on the replay itself, once they judged it there.",
-                      "properties": {
-                        "yesWeight": {
-                          "type": "number"
-                        },
-                        "totalWeight": {
-                          "type": "number"
-                        }
-                      }
                     }
                   }
                 }
@@ -12771,13 +12654,6 @@
                 "type": "string"
               }
             }
-          },
-          "rescored": {
-            "type": "boolean",
-            "enum": [
-              false
-            ],
-            "description": "Set in a rescore when this case's replays can't be read again: its scores are the run rescored's."
           }
         }
       },
@@ -12962,17 +12838,6 @@
         },
         "description": "Exactly one of `agentRef` or `flowRef` MUST be supplied. `dryRun: true` returns a plan preview without invoking the subject. For a `judged` suite (a test set), the run is a comparison: `agentRef` or `flowRef` with its `version` is the candidate, replayed on each case without doing anything the past run didn't (a flow stops at a write the replay refuses); `baseline` (default `'recorded'`), `reads` (default `recorded`), `repetitions` (default 1) and `k` (default 10) set how. With `flowRef`, `versions` runs the flow with some of its agents or tools at other versions; an id the flow doesn't use, or a version that isn't published, is refused (`400 validation-failed`, each under `details.issues`)."
       },
-      "RescoreEvalRunBody": {
-        "type": "object",
-        "additionalProperties": false,
-        "description": "Body of `POST /v1/eval-runs/{runId}/rescore`: optional.",
-        "properties": {
-          "projectId": {
-            "type": "string",
-            "description": "The run's project, needed only from a runtime that doesn't record it on the run."
-          }
-        }
-      },
       "StartEvalRunResult": {
         "type": "object",
         "additionalProperties": false,
@@ -12993,10 +12858,11 @@
       "IdentityProviderKind": {
         "type": "string",
         "enum": [
+          "oauth2",
           "oidc",
           "saml"
         ],
-        "description": "`oidc`: an OpenID Connect identity provider people sign in with (Okta, Entra ID, Google, Keycloak…); its endpoints come from its discovery document. `saml`: a SAML 2.0 identity provider people sign in with."
+        "description": "`oidc`: an OpenID Connect identity provider people sign in with (Okta, Entra ID, Google, Keycloak…); its endpoints come from its discovery document. `saml`: a SAML 2.0 identity provider people sign in with. `oauth2`: a plain OAuth 2.0 provider that isn't OpenID Connect (e.g. GitHub), with its endpoints given; pick `oidc` for any provider that speaks OpenID Connect."
       },
       "ClaimMappingScopesSpec": {
         "description": "Claim path + optional delimiter for extracting Kindgi OAuth scopes from provider claims. When absent, scopes come from the token response `scope` field instead.",
@@ -13045,7 +12911,7 @@
         }
       },
       "IdentityProviderSignIn": {
-        "description": "What to give the identity provider so it can send people back: set by the deployment on what it returns, ignored on registration. OIDC: `redirectUri`. SAML: `spEntityId`, `acsUrl`, `spMetadataUrl`.",
+        "description": "What to give the identity provider so it can send people back: set by the deployment on what it returns, ignored on registration. OIDC / OAuth 2.0: `redirectUri`. SAML: `spEntityId`, `acsUrl`, `spMetadataUrl`.",
         "oneOf": [
           {
             "type": "object",
@@ -13169,6 +13035,14 @@
             "type": "string",
             "format": "uri"
           },
+          "allowedRedirectUris": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "OAuth 2.1 BCP redirect-URI allowlist. Exact-string match required at /v1/auth/login. Absent/empty means no redirect-URI allowlist check (pass-through)."
+          },
           "claimMapping": {
             "$ref": "#/components/schemas/ClaimMappingSpec"
           }
@@ -13275,6 +13149,96 @@
           }
         }
       },
+      "OAuth2IdentityProviderConfig": {
+        "description": "A plain OAuth 2.0 provider that isn't OpenID Connect (e.g. GitHub), run by this API's own OAuth flow (`/v1/auth/login` + callback). For a provider that speaks OpenID Connect, use `oidc`.",
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "providerId",
+          "kind",
+          "clientId",
+          "clientSecretRef",
+          "authorizationEndpoint",
+          "tokenEndpoint",
+          "scopes"
+        ],
+        "properties": {
+          "providerId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The name a sign-in page shows (\"Sign in with …\"). Default: `providerId`."
+          },
+          "domains": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "The email domains whose people sign in with this provider (lowercase, e.g. `acme.com`): how an email-first sign-in page finds it."
+          },
+          "join": {
+            "type": "string",
+            "enum": [
+              "invite",
+              "domain"
+            ],
+            "description": "Who may sign in the first time: `invite` (default) only people a tenant admin added; `domain` also anyone from one of `domains`, once the deployment has verified them."
+          },
+          "signIn": {
+            "$ref": "#/components/schemas/IdentityProviderSignIn"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "kind": {
+            "type": "string",
+            "const": "oauth2"
+          },
+          "clientId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "clientSecretRef": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Opaque reference resolved server-side. Never a plaintext secret."
+          },
+          "authorizationEndpoint": {
+            "type": "string",
+            "format": "uri"
+          },
+          "tokenEndpoint": {
+            "type": "string",
+            "format": "uri"
+          },
+          "userinfoEndpoint": {
+            "type": "string",
+            "format": "uri"
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "allowedRedirectUris": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "OAuth 2.1 BCP redirect-URI allowlist. Exact-string match required at /v1/auth/login. Absent/empty means no redirect-URI allowlist check (pass-through)."
+          },
+          "claimMapping": {
+            "$ref": "#/components/schemas/ClaimMappingSpec"
+          }
+        }
+      },
       "IdentityProviderConfig": {
         "description": "An identity provider registered on a tenant, one shape per `kind` (narrow on `kind` before reading kind-specific fields). Secrets are always REFERENCES resolved server-side (`clientSecretRef`, `spSigningKeyRef`, `spDecryptionKeyRef`); a plaintext secret never crosses the wire, and a `clientSecret` field is refused.",
         "oneOf": [
@@ -13283,31 +13247,39 @@
           },
           {
             "$ref": "#/components/schemas/SamlIdentityProviderConfig"
+          },
+          {
+            "$ref": "#/components/schemas/OAuth2IdentityProviderConfig"
           }
         ],
         "discriminator": {
           "propertyName": "kind",
           "mapping": {
             "oidc": "#/components/schemas/OidcIdentityProviderConfig",
-            "saml": "#/components/schemas/SamlIdentityProviderConfig"
+            "saml": "#/components/schemas/SamlIdentityProviderConfig",
+            "oauth2": "#/components/schemas/OAuth2IdentityProviderConfig"
           }
         }
       },
       "RegisterIdentityProviderBody": {
-        "description": "The identity provider to register, one shape per `kind`: `oidc` or `saml`. Secrets by reference only (`clientSecretRef`, `spSigningKeyRef`, `spDecryptionKeyRef`); a `clientSecret` field is refused.",
+        "description": "The identity provider to register, one shape per `kind`: `oidc`, `saml` or `oauth2`. Secrets by reference only (`clientSecretRef`, `spSigningKeyRef`, `spDecryptionKeyRef`); a `clientSecret` field is refused.",
         "oneOf": [
           {
             "$ref": "#/components/schemas/OidcIdentityProviderConfig"
           },
           {
             "$ref": "#/components/schemas/SamlIdentityProviderConfig"
+          },
+          {
+            "$ref": "#/components/schemas/OAuth2IdentityProviderConfig"
           }
         ],
         "discriminator": {
           "propertyName": "kind",
           "mapping": {
             "oidc": "#/components/schemas/OidcIdentityProviderConfig",
-            "saml": "#/components/schemas/SamlIdentityProviderConfig"
+            "saml": "#/components/schemas/SamlIdentityProviderConfig",
+            "oauth2": "#/components/schemas/OAuth2IdentityProviderConfig"
           }
         }
       },
@@ -13319,13 +13291,17 @@
           },
           {
             "$ref": "#/components/schemas/SamlIdentityProviderConfig"
+          },
+          {
+            "$ref": "#/components/schemas/OAuth2IdentityProviderConfig"
           }
         ],
         "discriminator": {
           "propertyName": "kind",
           "mapping": {
             "oidc": "#/components/schemas/OidcIdentityProviderConfig",
-            "saml": "#/components/schemas/SamlIdentityProviderConfig"
+            "saml": "#/components/schemas/SamlIdentityProviderConfig",
+            "oauth2": "#/components/schemas/OAuth2IdentityProviderConfig"
           }
         }
       },
@@ -13345,6 +13321,14 @@
           "hasMore": {
             "type": "boolean",
             "description": "Always `false`: the list comes whole. Absent from older servers."
+          },
+          "changes": {
+            "type": "string",
+            "enum": [
+              "tenant",
+              "operator"
+            ],
+            "description": "Who may add, change and remove the providers here: `tenant`, its admins; `operator`, only the deployment's own token, because the operator manages sign-in (`KINDGI_AUTH_TENANT_PROVIDERS=off`). The providers there sign people in either way. Absent from older servers: read it as `tenant`."
           }
         }
       },
@@ -13595,6 +13579,20 @@
             ],
             "format": "uri"
           },
+          "allowedRedirectUris": {
+            "oneOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "claimMapping": {
             "oneOf": [
               {
@@ -13732,6 +13730,88 @@
           }
         }
       },
+      "LoginBody": {
+        "description": "Optional body for `POST /v1/auth/login/:providerId`. `redirectUri` overrides `metadata.defaultRedirectUri` on the provider config; at least one MUST be supplied.",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "redirectUri": {
+            "type": "string",
+            "format": "uri"
+          }
+        }
+      },
+      "AuthorizationResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "authorizationUrl",
+          "state",
+          "codeChallenge",
+          "codeChallengeMethod"
+        ],
+        "properties": {
+          "authorizationUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "URL the caller redirects the user-agent to. Includes `client_id`, `redirect_uri`, `scope`, `state`, `code_challenge`, `code_challenge_method=S256`."
+          },
+          "state": {
+            "type": "string",
+            "minLength": 1
+          },
+          "codeChallenge": {
+            "type": "string",
+            "minLength": 1
+          },
+          "codeChallengeMethod": {
+            "type": "string",
+            "enum": [
+              "S256"
+            ]
+          }
+        }
+      },
+      "CallbackBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "state"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1
+          },
+          "state": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "CallbackResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sessionToken",
+          "sessionId",
+          "expiresAt"
+        ],
+        "properties": {
+          "sessionToken": {
+            "type": "string",
+            "description": "Opaque session token (`kgi_sk_…`), shown once: the server keeps only a hash of it. Never parse it. Send as `Authorization: Bearer <sessionToken>` on subsequent requests. The underlying provider access-token never leaves the server."
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "RefreshResult": {
         "type": "object",
         "additionalProperties": false,
@@ -13782,10 +13862,6 @@
           "tenantId": {
             "type": "string",
             "format": "uuid"
-          },
-          "actor": {
-            "type": "string",
-            "description": "The caller as approvals name a person: `user:<id>` or `service_account:<id>`, the same string as an approval's `requestedBy` and a decision's `decidedBy`."
           },
           "userId": {
             "type": "string"
@@ -17485,8 +17561,7 @@
         "type": "string",
         "enum": [
           "run.finished",
-          "improvement-pass.finished",
-          "approval.requested"
+          "improvement-pass.finished"
         ],
         "description": "An event type an endpoint can subscribe to."
       },
@@ -17864,87 +17939,6 @@
           }
         }
       },
-      "RequestedApproval": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "approvalId",
-          "requiredRole",
-          "createdAt"
-        ],
-        "description": "The approval an `approval.requested` event names. What it is about stays behind sign-in: no `context`, no tool call or run input.",
-        "properties": {
-          "approvalId": {
-            "type": "string"
-          },
-          "projectId": {
-            "type": "string"
-          },
-          "requiredRole": {
-            "$ref": "#/components/schemas/ReviewerRole",
-            "description": "The least reviewer role that may decide it."
-          },
-          "title": {
-            "type": "string"
-          },
-          "assignedTo": {
-            "type": "string",
-            "description": "The one reviewer it is assigned to, when it is."
-          },
-          "createdAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "expiresAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "url": {
-            "type": "string",
-            "description": "Its page in the console, when the runtime knows its public address."
-          }
-        }
-      },
-      "ApprovalRequestedEventData": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "approval"
-        ],
-        "properties": {
-          "approval": {
-            "$ref": "#/components/schemas/RequestedApproval"
-          }
-        }
-      },
-      "ApprovalRequestedEvent": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "id",
-          "type",
-          "createdAt",
-          "data"
-        ],
-        "description": "An approval was asked for: a reviewer's decision is waiting. Sent once per approval (an escalation is a new approval). `projectId` in the endpoint's filter narrows it to the approval's project.",
-        "properties": {
-          "id": {
-            "type": "string",
-            "description": "Event id, also sent as the `webhook-id` header; the same on every retry."
-          },
-          "type": {
-            "type": "string",
-            "const": "approval.requested"
-          },
-          "createdAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "data": {
-            "$ref": "#/components/schemas/ApprovalRequestedEventData"
-          }
-        }
-      },
       "ImproveScheduleTarget": {
         "type": "object",
         "additionalProperties": false,
@@ -18105,9 +18099,6 @@
             "$ref": "#/components/schemas/ImprovementPassFinishedEvent"
           },
           {
-            "$ref": "#/components/schemas/ApprovalRequestedEvent"
-          },
-          {
             "$ref": "#/components/schemas/WebhookTestEvent"
           }
         ],
@@ -18116,7 +18107,6 @@
           "mapping": {
             "run.finished": "#/components/schemas/RunFinishedEvent",
             "improvement-pass.finished": "#/components/schemas/ImprovementPassFinishedEvent",
-            "approval.requested": "#/components/schemas/ApprovalRequestedEvent",
             "webhook.test": "#/components/schemas/WebhookTestEvent"
           }
         }
@@ -18466,7 +18456,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "scopeKind",
@@ -19294,7 +19284,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "includeRevoked",
@@ -19647,7 +19637,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "limit",
@@ -20011,7 +20001,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "limit",
@@ -20637,7 +20627,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "scopeKind",
@@ -20699,25 +20689,6 @@
             },
             "required": false,
             "description": "Only approvals linked to one of these run waits (an approval's `waitTokenId`; a run's journal names its open waits in `wait.suspended` entries). Repeat it for several, at most 50."
-          },
-          {
-            "name": "runId",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "required": false,
-            "description": "Only the approvals this run asked for."
-          },
-          {
-            "name": "includeDescendants",
-            "in": "query",
-            "schema": {
-              "type": "boolean"
-            },
-            "required": false,
-            "description": "With `runId`: also the approvals its child runs asked for, at any depth (a flow's agent steps)."
           }
         ],
         "security": [
@@ -20975,7 +20946,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "role",
@@ -21437,7 +21408,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "name",
@@ -21708,7 +21679,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           }
         ],
         "security": [
@@ -22457,7 +22428,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "scopeKind",
@@ -22739,7 +22710,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "agentId",
@@ -23591,7 +23562,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "name",
@@ -23862,7 +23833,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           }
         ],
         "security": [
@@ -24211,7 +24182,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "name",
@@ -24493,7 +24464,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "includeTombstoned",
@@ -24852,7 +24823,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "name",
@@ -25221,7 +25192,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "scopeKind",
@@ -25725,7 +25696,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           }
         ],
         "security": [
@@ -25795,7 +25766,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "type",
@@ -26743,7 +26714,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           }
         ],
         "security": [
@@ -27147,7 +27118,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "status",
@@ -27605,105 +27576,6 @@
         ]
       }
     },
-    "/v1/proposals/{proposalId}/rescore": {
-      "post": {
-        "operationId": "proposals.rescore",
-        "summary": "Rescore a proposal's latest evaluation",
-        "tags": [
-          "proposals"
-        ],
-        "responses": {
-          "202": {
-            "description": "The proposal, `evaluating`.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/FixProposal"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "Malformed request body.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing / malformed / expired / revoked bearer token.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No such proposal, or its candidate version is unregistered (`agent-version-not-found`).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "`proposal-invalid-state-transition`: the proposal's status doesn't allow it. `eval-run-not-rescorable`: the latest evaluation isn't a completed comparison.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "500": {
-            "description": "Server error (unmapped domain code or framework crash).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          }
-        },
-        "description": "After people judge a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison eval run scores the same replays again, counting those judgments, as `POST /v1/eval-runs/{runId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the proposal's evaluation, so the proposal is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.",
-        "parameters": [
-          {
-            "name": "proposalId",
-            "in": "path",
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "required": true,
-            "description": "The proposal id (a UUID)."
-          },
-          {
-            "name": "Idempotency-Key",
-            "in": "header",
-            "schema": {
-              "type": "string",
-              "minLength": 1
-            },
-            "required": false,
-            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
-          }
-        ],
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ]
-      }
-    },
     "/v1/proposals/{proposalId}/request": {
       "post": {
         "operationId": "proposals.request",
@@ -28111,7 +27983,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "agentId",
@@ -28367,7 +28239,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "scopeKind",
@@ -28690,7 +28562,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "ownerRunId",
@@ -29121,7 +28993,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "status",
@@ -29254,7 +29126,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "feature",
@@ -29390,7 +29262,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "feature",
@@ -29955,7 +29827,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "runId",
@@ -30382,7 +30254,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "scopeKind",
@@ -30770,7 +30642,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "transport",
@@ -31448,7 +31320,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "runId",
@@ -31937,7 +31809,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "kind",
@@ -32280,7 +32152,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "kind",
@@ -32523,7 +32395,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "includeTombstoned",
@@ -32917,7 +32789,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           }
         ],
         "security": [
@@ -33172,7 +33044,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "kind",
@@ -33454,7 +33326,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           }
         ],
         "security": [
@@ -33741,7 +33613,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           }
         ],
         "security": [
@@ -34028,7 +33900,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "kind",
@@ -34310,7 +34182,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "includeTombstoned",
@@ -34816,7 +34688,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "suiteId",
@@ -35038,95 +34910,6 @@
         ]
       }
     },
-    "/v1/eval-runs/{runId}/rescore": {
-      "post": {
-        "operationId": "evalRuns.rescore",
-        "summary": "Rescore a comparison eval run",
-        "tags": [
-          "eval-runs"
-        ],
-        "responses": {
-          "201": {
-            "description": "The rescore started.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/StartEvalRunResult"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "`bad-input`: `projectId` is required (this runtime doesn't record the run's project), or isn't a project here. `dispatcher-input-invalid`: this runtime can't rescore (it doesn't read replays and their judgments again).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing / malformed / expired / revoked bearer token.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "No eval run with that id under this tenant.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "`eval-run-not-rescorable`: only a completed comparison of a test set can be rescored.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          }
-        },
-        "description": "Starts a new comparison eval run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the judgments recorded on them since (a changed answer judged on the replay itself; `changes.new` lists the items to judge). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's suite and `write` on its project.",
-        "parameters": [
-          {
-            "name": "runId",
-            "in": "path",
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "required": true,
-            "description": "EvalRunId — opaque branded UUID."
-          }
-        ],
-        "requestBody": {
-          "required": false,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/RescoreEvalRunBody"
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ]
-      }
-    },
     "/v1/eval-runs/{runId}/events": {
       "get": {
         "operationId": "evalRuns.events",
@@ -35217,7 +35000,7 @@
             }
           }
         },
-        "description": "Returns the tenant's identity providers (OIDC, SAML), each with `signIn` when the deployment sets it. Secrets appear only as REFERENCES (`clientSecretRef`, `spSigningKeyRef`…); a plaintext secret is never on the wire.",
+        "description": "Returns the tenant's identity providers (OIDC, SAML, OAuth 2.0), each with `signIn` when the deployment sets it. Secrets appear only as REFERENCES (`clientSecretRef`, `spSigningKeyRef`…); a plaintext secret is never on the wire. `changes` says who may add, change and remove them here: `tenant` (its admins) or `operator` (the deployment's own token only; `KINDGI_AUTH_TENANT_PROVIDERS=off`).",
         "security": [
           {
             "bearerAuth": []
@@ -35226,7 +35009,7 @@
       },
       "post": {
         "operationId": "auth.providers.register",
-        "summary": "Register an identity provider (OIDC or SAML)",
+        "summary": "Register an identity provider (OIDC, SAML or OAuth 2.0)",
         "tags": [
           "auth"
         ],
@@ -35261,6 +35044,16 @@
               }
             }
           },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`), or this deployment's operator manages sign-in (`identity-providers-operator-managed`, `KINDGI_AUTH_TENANT_PROVIDERS=off`): only the deployment's own token can change its providers.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "409": {
             "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
             "content": {
@@ -35272,7 +35065,7 @@
             }
           },
           "422": {
-            "description": "The deployment could not use the configuration, or `kind` is `oauth2`, a plain OAuth 2.0 provider, which sign-in does not use (`identity-provider-invalid`).",
+            "description": "The deployment could not use the configuration (`identity-provider-invalid`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -35292,7 +35085,7 @@
             }
           }
         },
-        "description": "Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered`; change it with `PATCH /v1/auth/providers/{providerId}`, which keeps its sign-in URLs. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`, as is `allowedRedirectUris`, which nothing would enforce (sign-in runs in the deployment, at its own callback URL). The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.",
+        "description": "Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered`; change it with `PATCH /v1/auth/providers/{providerId}`, which keeps its sign-in URLs. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`. The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -35538,6 +35331,16 @@
               }
             }
           },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`), or this deployment's operator manages sign-in (`identity-providers-operator-managed`, `KINDGI_AUTH_TENANT_PROVIDERS=off`): only the deployment's own token can change its providers.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No identity provider registered with that id under this tenant.",
             "content": {
@@ -35723,6 +35526,16 @@
               }
             }
           },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`), or this deployment's operator manages sign-in (`identity-providers-operator-managed`, `KINDGI_AUTH_TENANT_PROVIDERS=off`): only the deployment's own token can change its providers.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No identity provider registered with that id under this tenant.",
             "content": {
@@ -35780,6 +35593,178 @@
             "bearerAuth": []
           }
         ]
+      }
+    },
+    "/v1/auth/login/{providerId}": {
+      "post": {
+        "operationId": "auth.login",
+        "summary": "Initiate OAuth/OIDC login",
+        "tags": [
+          "auth"
+        ],
+        "responses": {
+          "200": {
+            "description": "Authorization URL + PKCE parameters.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuthorizationResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No identity provider registered with that id under this tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Framework generates `state` + PKCE `code_verifier` (S256 challenge). Caller redirects the user-agent to `authorizationUrl`. Provider redirects back to `redirectUri` with `code` + `state`; caller POSTs those to `/v1/auth/callback/:providerId` to complete the flow. When the provider config populated `allowedRedirectUris`, the effective redirect_uri MUST be an exact match — otherwise `400 redirect-uri-not-allowed`.",
+        "parameters": [
+          {
+            "name": "providerId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/auth/callback/{providerId}": {
+      "post": {
+        "operationId": "auth.callback",
+        "summary": "Complete an OAuth/OIDC callback",
+        "tags": [
+          "auth"
+        ],
+        "responses": {
+          "201": {
+            "description": "Session created.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallbackResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed body or `state` unknown/expired/consumed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Code exchange with the provider failed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Public — the caller has not yet obtained a session token. Verifies `state`, exchanges `code` for provider tokens via the deployment's `exchangeCode`, fetches userinfo, and persists a session via `SessionStoreBinding`. Returns an opaque `kgi_sk_*` session token the caller uses on subsequent requests. The underlying provider access-token never leaves the server. When the provider config populated `allowedRedirectUris`, the stored redirect_uri is re-checked against the current allowlist — a mismatch (allowlist tightened between login and callback) returns `400 redirect-uri-mismatch`.",
+        "parameters": [
+          {
+            "name": "providerId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CallbackBody"
+              }
+            }
+          }
+        },
+        "security": []
       }
     },
     "/v1/auth/refresh": {
@@ -35861,7 +35846,7 @@
             }
           }
         },
-        "description": "Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. The session token rotates: the new session keeps the person, scopes and expiry, and the provider is not called. OAuth 2.1 BCP refresh-token rotation: the OLD session token is invalidated (marked rotated) — reusing it after refresh returns `401 refresh-token-invalid` so compliant clients can retry with the fresh token instead of prompting a re-auth. A browser session (the session cookie) is not refreshed: `400 cookie-session-not-refreshable`, so a new token never reaches page scripts; it ends at its TTL.",
+        "description": "Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. When the deployment wired a `refreshToken` callback and the provider issued a refresh token, provider tokens rotate too; otherwise only the framework session token rotates. OAuth 2.1 BCP refresh-token rotation: the OLD session token is invalidated (marked rotated) — reusing it after refresh returns `401 refresh-token-invalid` so compliant clients can retry with the fresh token instead of prompting a re-auth. A browser session (the session cookie) is not refreshed: `400 cookie-session-not-refreshable`, so a new token never reaches page scripts; it ends at its TTL.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -36020,7 +36005,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "query",
@@ -37015,7 +37000,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "imageRefPrefix",
@@ -37280,7 +37265,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "runId",
@@ -37642,7 +37627,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "actorSubject",
@@ -37803,7 +37788,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "nameContains",
@@ -38182,7 +38167,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "orgId",
@@ -38578,7 +38563,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           }
         ],
         "security": [
@@ -38997,7 +38982,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "orgId",
@@ -39395,7 +39380,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           }
         ],
         "security": [
@@ -39804,7 +39789,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "kind",
@@ -40017,7 +40002,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "namePrefix",
@@ -40470,7 +40455,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "namePrefix",
@@ -40933,7 +40918,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           }
         ],
         "security": [
@@ -41559,7 +41544,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "status",
@@ -42121,7 +42106,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           }
         ],
         "security": [
@@ -42485,7 +42470,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "status",
@@ -43088,7 +43073,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           },
           {
             "name": "status",
@@ -43702,7 +43687,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           }
         ],
         "security": [
@@ -44098,7 +44083,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+            "description": "Opaque cursor from a prior response. Absent → first page."
           }
         ],
         "security": [
@@ -44414,61 +44399,6 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/ImprovementPassFinishedEvent"
-              }
-            }
-          }
-        },
-        "responses": {
-          "2XX": {
-            "description": "Received. Any other answer, or none within 10 seconds, is retried."
-          }
-        }
-      }
-    },
-    "approval.requested": {
-      "post": {
-        "operationId": "webhook.approval.requested",
-        "summary": "An approval was asked for: a reviewer's decision is waiting",
-        "tags": [
-          "webhook-endpoints"
-        ],
-        "security": [],
-        "parameters": [
-          {
-            "name": "webhook-id",
-            "in": "header",
-            "required": true,
-            "description": "The event id; the same on every retry. Deduplicate on it.",
-            "schema": {
-              "type": "string"
-            }
-          },
-          {
-            "name": "webhook-timestamp",
-            "in": "header",
-            "required": true,
-            "description": "Unix seconds when the request was signed. Reject requests far from your clock.",
-            "schema": {
-              "type": "string",
-              "pattern": "^[0-9]+$"
-            }
-          },
-          {
-            "name": "webhook-signature",
-            "in": "header",
-            "required": true,
-            "description": "`v1,<base64 HMAC-SHA256 of \"{webhook-id}.{webhook-timestamp}.{body}\">` under the endpoint's secret; space-separated when two secrets sign during a rotation.",
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/ApprovalRequestedEvent"
               }
             }
           }

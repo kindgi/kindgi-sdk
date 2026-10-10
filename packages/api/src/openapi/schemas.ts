@@ -7457,6 +7457,12 @@ export const IdentityProviderCollectionPageSchema: JsonSchema = {
       type: 'boolean',
       description: 'Always `false`: the list comes whole. Absent from older servers.',
     },
+    changes: {
+      type: 'string',
+      enum: ['tenant', 'operator'],
+      description:
+        "Who may add, change and remove the providers here: `tenant`, its admins; `operator`, only the deployment's own token, because the operator manages sign-in (`KINDGI_AUTH_TENANT_PROVIDERS=off`). The providers there sign people in either way. Absent from older servers: read it as `tenant`.",
+    },
   },
 };
 

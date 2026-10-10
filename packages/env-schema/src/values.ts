@@ -84,6 +84,9 @@ export const AUTH_TURNSTILE_SITE_KEY_VAR = 'KINDGI_AUTH_TURNSTILE_SITE_KEY';
 /** Which hops in front of the runtime to trust for the client's address: a hop count, or IPs/CIDRs. */
 export const TRUSTED_PROXIES_VAR = 'KINDGI_TRUSTED_PROXIES';
 
+/** Whether a tenant's admins may change its identity providers (`on` / `off`). */
+export const AUTH_TENANT_PROVIDERS_VAR = 'KINDGI_AUTH_TENANT_PROVIDERS';
+
 /** A browser session's absolute lifetime, in milliseconds. */
 export const SESSION_TTL_MS_VAR = 'KINDGI_SESSION_TTL_MS';
 

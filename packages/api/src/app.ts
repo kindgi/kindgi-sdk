@@ -762,6 +762,14 @@ export interface CreateAppInput {
    */
   readonly identityProvider?: IdentityProviderBinding;
   /**
+   * Who may add, change and remove the tenant's identity providers:
+   * `tenant` (default) its admins; `operator` only the deployment's own
+   * token (`kindgi:system`), for a deployment whose operator manages
+   * sign-in. Changes answer `403 identity-providers-operator-managed`
+   * otherwise; reads and sign-in are unchanged.
+   */
+  readonly identityProviderChanges?: 'tenant' | 'operator';
+  /**
    * The rate limit on `GET /v1/auth/sign-in-options` (unauthenticated):
    * requests per client per window, and how to tell clients apart.
    * Default: 30 a minute, per nearest (rightmost) `X-Forwarded-For` hop.
@@ -1584,6 +1592,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         sessionStore: input.sessionStore,
         identityProvider: input.identityProvider,
         ...(authorizer !== undefined && { authorizer }),
+        ...(input.identityProviderChanges !== undefined && {
+          providerChanges: input.identityProviderChanges,
+        }),
         ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
       }),
     );

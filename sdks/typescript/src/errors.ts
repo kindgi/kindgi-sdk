@@ -246,6 +246,7 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'permission-denied':
     case 'role-exceeds-principal':
     case 'key-project-mismatch':
+    case 'identity-providers-operator-managed':
       return { code: 'auth', message, reason: 'forbidden' };
     case 'rate-limited':
     case 'rate-limit-exceeded':
