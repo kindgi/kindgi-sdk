@@ -1390,7 +1390,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     }),
   );
   if (input.cost !== undefined) {
-    v1.route('/cost', costRouter(input.cost, authorizer));
+    v1.route('/cost', costRouter(input.cost, authorizer, input.projectBinding));
   }
   if (input.adapterRegistry !== undefined) {
     v1.route(

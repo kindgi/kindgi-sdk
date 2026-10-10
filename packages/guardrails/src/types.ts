@@ -20,6 +20,7 @@ import type {
   Timestamp,
   ToolId,
 } from '@kindgi/types';
+import type { GuardrailConfigProblem } from './config-problems.js';
 
 /**
  * How a guardrail is checked. Open string — the engine dispatches
@@ -464,6 +465,13 @@ export interface RegisteredCheck {
   readonly kind: GuardrailKind;
   readonly evaluate: CheckFunction;
   readonly validateConfig?: (config: unknown) => string | undefined;
+  /** The check's config as JSON Schema (Draft 2020-12), when it publishes one (the built-ins do). */
+  readonly configSchema?: Readonly<Record<string, unknown>>;
+  /**
+   * Every way a guardrail's `config` doesn't fit this check, as an API answer's issues (paths
+   * under `/config`): what registration refuses up front. `validateConfig` words the first.
+   */
+  readonly configProblems?: (config: unknown) => readonly GuardrailConfigProblem[];
 }
 
 /**

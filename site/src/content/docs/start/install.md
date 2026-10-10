@@ -23,9 +23,9 @@ runs for you.
 
 ### Access to the runtime image
 
-Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub: it
-shows the runtime image's pull credentials, a robot name and a token. Log in
-to its registry once with them. The CLI asks for the token without showing
+The runtime image is in private preview: request access at
+contact@kindgi.com. You get its pull credentials, a robot name and a token.
+Log in to its registry once with them. The CLI asks for the token without showing
 it, hands both to `docker login` (Kindgi keeps no copy), and checks that you
 can pull the image it runs:
 
