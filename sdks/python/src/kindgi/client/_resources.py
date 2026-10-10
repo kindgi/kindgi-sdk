@@ -6088,7 +6088,7 @@ class TeamsMembershipsResource:
     ) -> _models.AddTeamMembershipResult:
         """Add a user to a team. `POST /v1/teams/{teamId}/memberships`
 
-        Re-adding a member with the role they hold answers 201 again; with another role, 409 `membership-exists` names the role they hold (`details.role`), which is kept: use PATCH to change it.
+        Adding a role the member already holds answers 201 with the existing record; another role, 409 `membership-exists` naming the role they hold (`details.role`), which is kept: use PATCH to change it.
         """
         return self._client._request(
             _OPERATIONS["teams.memberships.add"],
@@ -6317,7 +6317,7 @@ class ProjectsMembershipsResource:
     ) -> _models.AddProjectMembershipResult:
         """Add a user directly to a project. `POST /v1/projects/{projectId}/memberships`
 
-        Names the person by exactly one of `userId` and `email` (matched as the runtime matches emails when it adds a person); someone who is not a person of this tenant, or was removed from it, is refused with 404 `identity-user-not-found`. Re-adding a member with the role they hold answers 201 again; with another role, 409 `membership-exists` names the role they hold (`details.role`), which is kept: use PATCH to change it.
+        Names the person by exactly one of `userId` and `email` (matched as the runtime matches emails when it adds a person); someone who is not a person of this tenant, or was removed from it, is refused with 404 `identity-user-not-found`. Adding a role the member already holds answers 201 with the existing record; another role, 409 `membership-exists` naming the role they hold (`details.role`), which is kept: use PATCH to change it.
         """
         return self._client._request(
             _OPERATIONS["projects.memberships.add"],
@@ -6409,7 +6409,7 @@ class ProjectsTeamGrantsResource:
     ) -> _models.TeamProjectGrant:
         """Give a team a role on a project. `POST /v1/projects/{projectId}/team-grants`
 
-        Every member of the team (its admins included) then holds the role on the project. Takes `admin` on the project and `read` on the team: a project is given only to a team you can read. A team's role is `viewer`, `editor` or `admin`: a team never owns a project. Repeating the role the team holds answers 200; another role, 409 `team-grant-exists` naming the one it holds (`details.role`): use PATCH to change it.
+        Every member of the team (its admins included) then holds the role on the project. Takes `admin` on the project and `read` on the team: a project is given only to a team you can read. A team's role is `viewer`, `editor` or `admin`: a team never owns a project. Adding a role the team already holds answers 201 with the existing grant; another role, 409 `team-grant-exists` naming the one it holds (`details.role`): use PATCH to change it.
         """
         return self._client._request(
             _OPERATIONS["projects.teamGrants.add"],
@@ -12948,7 +12948,7 @@ class AsyncTeamsMembershipsResource:
     ) -> _models.AddTeamMembershipResult:
         """Add a user to a team. `POST /v1/teams/{teamId}/memberships`
 
-        Re-adding a member with the role they hold answers 201 again; with another role, 409 `membership-exists` names the role they hold (`details.role`), which is kept: use PATCH to change it.
+        Adding a role the member already holds answers 201 with the existing record; another role, 409 `membership-exists` naming the role they hold (`details.role`), which is kept: use PATCH to change it.
         """
         return await self._client._request(
             _OPERATIONS["teams.memberships.add"],
@@ -13177,7 +13177,7 @@ class AsyncProjectsMembershipsResource:
     ) -> _models.AddProjectMembershipResult:
         """Add a user directly to a project. `POST /v1/projects/{projectId}/memberships`
 
-        Names the person by exactly one of `userId` and `email` (matched as the runtime matches emails when it adds a person); someone who is not a person of this tenant, or was removed from it, is refused with 404 `identity-user-not-found`. Re-adding a member with the role they hold answers 201 again; with another role, 409 `membership-exists` names the role they hold (`details.role`), which is kept: use PATCH to change it.
+        Names the person by exactly one of `userId` and `email` (matched as the runtime matches emails when it adds a person); someone who is not a person of this tenant, or was removed from it, is refused with 404 `identity-user-not-found`. Adding a role the member already holds answers 201 with the existing record; another role, 409 `membership-exists` naming the role they hold (`details.role`), which is kept: use PATCH to change it.
         """
         return await self._client._request(
             _OPERATIONS["projects.memberships.add"],
@@ -13269,7 +13269,7 @@ class AsyncProjectsTeamGrantsResource:
     ) -> _models.TeamProjectGrant:
         """Give a team a role on a project. `POST /v1/projects/{projectId}/team-grants`
 
-        Every member of the team (its admins included) then holds the role on the project. Takes `admin` on the project and `read` on the team: a project is given only to a team you can read. A team's role is `viewer`, `editor` or `admin`: a team never owns a project. Repeating the role the team holds answers 200; another role, 409 `team-grant-exists` naming the one it holds (`details.role`): use PATCH to change it.
+        Every member of the team (its admins included) then holds the role on the project. Takes `admin` on the project and `read` on the team: a project is given only to a team you can read. A team's role is `viewer`, `editor` or `admin`: a team never owns a project. Adding a role the team already holds answers 201 with the existing grant; another role, 409 `team-grant-exists` naming the one it holds (`details.role`): use PATCH to change it.
         """
         return await self._client._request(
             _OPERATIONS["projects.teamGrants.add"],
