@@ -35,7 +35,8 @@ export async function deniedBy(
  * holds it, and answered `403 permission-denied` with what was refused in
  * the details. The message stays the route's own words. `failing`:
  * `actor` when it's who the caller is, `scope` when it's what their key
- * carries.
+ * carries. `code`: a 403 code of the refusal's own, when the API names one
+ * (`identity-providers-operator-managed`); else `permission-denied`.
  */
 export function refused(
   c: Context<AppEnv>,
@@ -45,9 +46,10 @@ export function refused(
     readonly resource: ResourceRef;
     readonly message: string;
     readonly failing: 'actor' | 'scope';
+    readonly code?: string;
   },
 ): Response {
-  const { action, resource, message, failing } = refusal;
+  const { action, resource, message, failing, code } = refusal;
   const decision: Decision = {
     allowed: false,
     failing,
@@ -66,7 +68,7 @@ export function refused(
   return c.json(
     toWireError(
       {
-        code: deny.code,
+        code: code ?? deny.code,
         message,
         action: deny.action,
         resource: deny.resource,

@@ -7,6 +7,7 @@ import { Hono } from 'hono';
 import type { Context, MiddlewareHandler } from 'hono';
 
 import type { AuditEventBinding } from '@kindgi/audit-events';
+import { ref } from '@kindgi/authz';
 import type { SessionId, TenantId, Timestamp } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
@@ -22,7 +23,7 @@ import type { Authorizer } from '../middleware/authorize.js';
 import { withholdFromReplay } from '../middleware/idempotency.js';
 import type { SessionCreateOutput, SessionStoreBinding } from '../session-store-binding.js';
 import type { AppEnv } from '../types.js';
-import { hasCapability } from './denied.js';
+import { hasCapability, refused } from './denied.js';
 import { tenantResourceAccess } from './tenant-access.js';
 
 /**
@@ -85,13 +86,15 @@ export function authRouter(options: AuthRouterOptions): Hono<AppEnv> {
       if (c.req.method === 'GET' || c.req.method === 'HEAD' || hasCapability(c, 'kindgi:system')) {
         return next();
       }
-      c.status(statusFor('identity-providers-operator-managed') as never);
-      return c.json(
-        toWireError(
-          { code: 'identity-providers-operator-managed', message: OPERATOR_MANAGED_MESSAGE },
-          c.get('requestId'),
-        ),
-      );
+      // Recorded with the authorizer, as every refusal the API decides
+      // itself is, under its own code.
+      return refused(c, options.authorizer, {
+        action: 'admin',
+        resource: ref('tenant', c.get('tenantId') as unknown as string),
+        message: OPERATOR_MANAGED_MESSAGE,
+        failing: 'scope',
+        code: 'identity-providers-operator-managed',
+      });
     };
     authed.use('/providers', operatorOnly);
     authed.use('/providers/*', operatorOnly);

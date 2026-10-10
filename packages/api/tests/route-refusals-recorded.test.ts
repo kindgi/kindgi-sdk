@@ -30,6 +30,15 @@ const MEMBER_KEY = 'member-key-token';
 const NO_CAPS_KEY = 'no-caps-admin-key-token';
 const ID = '00000000-0000-4000-8000-0000000000ff';
 
+/**
+ * The codes a refusal the API decides itself answers: `permission-denied`,
+ * or its own 403 code where the API names one (`refused`'s `code`).
+ */
+const REFUSAL_CODES: ReadonlySet<string> = new Set([
+  'permission-denied',
+  'identity-providers-operator-managed',
+]);
+
 /** What each caller must be refused (and have recorded): the sweep's floor. */
 const MUST_REFUSE: Readonly<Record<string, readonly string[]>> = {
   // A member key takes no tenant admin action.
@@ -41,6 +50,19 @@ const MUST_REFUSE: Readonly<Record<string, readonly string[]>> = {
   ],
   // An admin key without the capability a write needs; a caller who isn't a reviewer.
   [NO_CAPS_KEY]: ['PUT /v1/env/{name}', 'POST /v1/secrets', 'GET /v1/approvals'],
+};
+
+/**
+ * With the operator managing sign-in, the floor also has a provider change
+ * by an admin key without `kindgi:system`, under its own code.
+ */
+const MUST_REFUSE_OPERATOR_MANAGED: Readonly<Record<string, readonly string[]>> = {
+  ...MUST_REFUSE,
+  [NO_CAPS_KEY]: [
+    ...(MUST_REFUSE[NO_CAPS_KEY] ?? []),
+    'POST /v1/auth/providers identity-providers-operator-managed',
+    'PATCH /v1/auth/providers/{providerId} identity-providers-operator-managed',
+  ],
 };
 
 interface Recorded {
@@ -77,7 +99,7 @@ const grant = (action: Action, r: ResourceRef): Decision => ({
   evidence: { action, relation: '', resource: `${r.type}:${r.id}`, actorSubject: '' },
 });
 
-function sweepApp() {
+function sweepApp(options: { readonly identityProviderChanges?: 'operator' } = {}) {
   const recorded: Recorded[] = [];
   const authzCheckBinding: AuthzCheckBinding = {
     check: async (_p, action, r) => grant(action, r),
@@ -96,6 +118,7 @@ function sweepApp() {
     ...fullAppInput(),
     resolveToken,
     authz: { fgaApiUrl: 'http://fga.invalid', authzCheckBinding },
+    ...options,
   });
   return { app, recorded };
 }
@@ -106,45 +129,56 @@ const NO_BODY: ReadonlySet<string> = new Set(['GET', 'HEAD', 'DELETE']);
 const urlOf = (honoPath: string): string => honoPath.replace(/:[A-Za-z]+/g, ID);
 
 describe('every refusal the API decides itself is recorded', () => {
-  test('each 403 permission-denied has its decision recorded for that request; no route asks an undefined relation', async () => {
-    const { app, recorded } = sweepApp();
-    const unrecorded: string[] = [];
-    const missed: string[] = [];
-    for (const token of [MEMBER_KEY, NO_CAPS_KEY]) {
-      const refused: string[] = [];
-      for (const op of OPERATIONS) {
-        const method = op.method.toUpperCase();
-        const key = `${method} ${op.openapiPath}`;
-        const res = await app.request(urlOf(op.honoPath), {
-          method,
-          headers: {
-            authorization: `Bearer ${token}`,
-            ...(!NO_BODY.has(method) && { 'content-type': 'application/json' }),
-          },
-          ...(!NO_BODY.has(method) && { body: '{}' }),
-        });
-        if (res.status !== 403) continue;
-        const body = (await res.json().catch(() => ({}))) as {
-          error?: { code?: string; requestId?: string };
-        };
-        if (body.error?.code !== 'permission-denied') continue;
-        refused.push(key);
-        const requestId = body.error.requestId;
-        if (!recorded.some((r) => r.correlationId === requestId && !r.decision.allowed)) {
-          unrecorded.push(`${token}: ${key}`);
+  test.each([
+    ['tenant', {}, MUST_REFUSE],
+    [
+      'the operator',
+      { identityProviderChanges: 'operator' as const },
+      MUST_REFUSE_OPERATOR_MANAGED,
+    ],
+  ])(
+    'identity providers managed by %s: each refusal has its decision recorded for that request; no route asks an undefined relation',
+    async (_name, options, floor) => {
+      const { app, recorded } = sweepApp(options);
+      const unrecorded: string[] = [];
+      const missed: string[] = [];
+      for (const token of [MEMBER_KEY, NO_CAPS_KEY]) {
+        const refused: string[] = [];
+        for (const op of OPERATIONS) {
+          const method = op.method.toUpperCase();
+          const key = `${method} ${op.openapiPath}`;
+          const res = await app.request(urlOf(op.honoPath), {
+            method,
+            headers: {
+              authorization: `Bearer ${token}`,
+              ...(!NO_BODY.has(method) && { 'content-type': 'application/json' }),
+            },
+            ...(!NO_BODY.has(method) && { body: '{}' }),
+          });
+          if (res.status !== 403) continue;
+          const body = (await res.json().catch(() => ({}))) as {
+            error?: { code?: string; requestId?: string };
+          };
+          const code = body.error?.code;
+          if (code === undefined || !REFUSAL_CODES.has(code)) continue;
+          refused.push(key, `${key} ${code}`);
+          const requestId = body.error?.requestId;
+          if (!recorded.some((r) => r.correlationId === requestId && !r.decision.allowed)) {
+            unrecorded.push(`${token}: ${key} ${code}`);
+          }
+        }
+        for (const key of floor[token] ?? []) {
+          if (!refused.includes(key)) missed.push(`${token}: ${key}`);
         }
       }
-      for (const key of MUST_REFUSE[token] ?? []) {
-        if (!refused.includes(key)) missed.push(`${token}: ${key}`);
-      }
-    }
-    expect(unrecorded, 'a 403 with no recorded decision for its request').toEqual([]);
-    expect(
-      recorded
-        .filter((r) => r.decision.failing === 'invalid-action')
-        .map((r) => `${r.action} ${r.resource}`),
-      'a route asks a relation the authorization model does not define',
-    ).toEqual([]);
-    expect(missed, 'the floor: refusals the sweep must see').toEqual([]);
-  });
+      expect(unrecorded, 'a 403 with no recorded decision for its request').toEqual([]);
+      expect(
+        recorded
+          .filter((r) => r.decision.failing === 'invalid-action')
+          .map((r) => `${r.action} ${r.resource}`),
+        'a route asks a relation the authorization model does not define',
+      ).toEqual([]);
+      expect(missed, 'the floor: refusals the sweep must see').toEqual([]);
+    },
+  );
 });
