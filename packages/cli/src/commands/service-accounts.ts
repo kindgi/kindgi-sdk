@@ -26,7 +26,7 @@ import type { Command, LeafCommand } from './types.js';
  * keys: `kindgi tokens create --for=sa:<id>`. Tenant admins only.
  */
 
-const PROJECT_ROLES = ['viewer', 'editor', 'owner', 'admin', 'member'] as const;
+const PROJECT_ROLES = ['viewer', 'editor', 'owner', 'admin'] as const;
 type ProjectRole = (typeof PROJECT_ROLES)[number];
 
 /** `--project=<project-id>:<role>`, repeatable: project grants. */

@@ -201,6 +201,7 @@ export type {
 export type {
   AddProjectMembershipInput,
   AddProjectMembershipOutcome,
+  AssignableProjectRoleValue,
   CreateProjectInput,
   ListProjectMembershipsFilter,
   ListProjectsFilter,
@@ -624,6 +625,7 @@ export type {
   ScheduleSpec,
   ServiceAccount,
   ServiceAccountGrant,
+  ServiceAccountGrantInput,
   ServiceAccountGrantTarget,
   SearchInput,
   Session,

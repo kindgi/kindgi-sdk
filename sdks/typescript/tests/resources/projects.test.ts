@@ -43,7 +43,7 @@ describe('projects — wire round-trips', () => {
     await client.projects.delete('p1');
     await client.projects.memberships.list('p1');
     await client.projects.memberships.add('p1', { userId: 'u1', role: 'admin' });
-    await client.projects.memberships.updateRole('p1', 'u1', 'member');
+    await client.projects.memberships.updateRole('p1', 'u1', 'viewer');
     await client.projects.memberships.remove('p1', 'u1');
     expect(stub.calls.map((c) => `${c.method} ${new URL(c.url).pathname}`)).toEqual([
       'POST /v1/projects',

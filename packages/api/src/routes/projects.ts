@@ -28,6 +28,7 @@ import {
   slugConflictError,
 } from './hierarchy-errors.js';
 import { clampLimit } from './pagination.js';
+import { parseAssignableProjectRole } from './project-roles.js';
 
 /**
  * Projects resource routes — part of the multi-tenant hierarchy.
@@ -462,17 +463,10 @@ export function projectsRouter(
       c.status(statusFor('bad-input') as never);
       return c.json(toWireError({ code: 'bad-input', message: named }, requestId));
     }
-    if (!isProjectRole(b.role)) {
+    const role = parseAssignableProjectRole(b.role, '`role`');
+    if (role.kind === 'err') {
       c.status(statusFor('bad-input') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'bad-input',
-            message: '`role` must be one of: viewer, editor, owner, admin, member',
-          },
-          requestId,
-        ),
-      );
+      return c.json(toWireError({ code: 'bad-input', message: role.message }, requestId));
     }
     const resolved = await resolveMember(tenantId, named);
     if (resolved.kind === 'refused') {
@@ -502,7 +496,7 @@ export function projectsRouter(
         tenantId,
         projectId,
         userId,
-        role: b.role as ProjectRole,
+        role: role.value,
       });
       if (res.kind === 'err') {
         if (res.error.code === 'project-not-found') return projectGone();
@@ -512,7 +506,7 @@ export function projectsRouter(
       const outcome = await membershipBinding.add(tenantId, {
         projectId,
         userId,
-        role: b.role,
+        role: role.value,
       });
       if (outcome.kind === 'project-not-found') return projectGone();
     }
@@ -520,7 +514,7 @@ export function projectsRouter(
     return c.json({
       projectId: projectId as unknown as string,
       userId: userId as unknown as string,
-      role: b.role,
+      role: role.value,
     });
   });
 
@@ -569,19 +563,12 @@ export function projectsRouter(
       );
     }
     const b = body as Record<string, unknown>;
-    if (!isProjectRole(b.role)) {
+    const role = parseAssignableProjectRole(b.role, '`role`');
+    if (role.kind === 'err') {
       c.status(statusFor('bad-input') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'bad-input',
-            message: '`role` must be one of: viewer, editor, owner, admin, member',
-          },
-          requestId,
-        ),
-      );
+      return c.json(toWireError({ code: 'bad-input', message: role.message }, requestId));
     }
-    const updated = await updateMemberRole(tenantId, projectId, userId, b.role);
+    const updated = await updateMemberRole(tenantId, projectId, userId, role.value);
     if (updated.kind === 'refused') {
       c.status(statusFor(updated.error.code) as never);
       return c.json(toWireError(updated.error, requestId));
@@ -772,10 +759,6 @@ function parseMemberName(b: Record<string, unknown>): MemberName | string {
     return '`email` must be a non-empty string';
   }
   return { email: b.email.trim() };
-}
-
-function isProjectRole(x: unknown): x is 'viewer' | 'editor' | 'owner' | 'admin' | 'member' {
-  return x === 'viewer' || x === 'editor' || x === 'owner' || x === 'admin' || x === 'member';
 }
 
 function serializeProject(p: Project): Record<string, unknown> {
