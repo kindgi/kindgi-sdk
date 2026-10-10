@@ -127,7 +127,7 @@ const CursorQueryParam: ParameterSpec = {
   in: 'query',
   required: false,
   description:
-    "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page.",
+    'Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page.',
   schema: { type: 'string' },
 };
 
