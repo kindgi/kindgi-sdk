@@ -21,7 +21,9 @@ export {
   defineTool,
   defineToolAsync,
   invokeTool,
+  invokeToolForTest,
   registerToolSpecSynthesizer,
+  toolContextForTest,
 } from '@kindgi/tools';
 export type {
   DefinedTool,
