@@ -44,9 +44,6 @@ export type {
   SamlProviderConfig,
   SignInOption,
   SignInOptionsInput,
-  ExchangeCodeOutcome,
-  RefreshTokenFn,
-  RefreshTokenInput,
 } from './identity-provider-binding.js';
 export type {
   Session,

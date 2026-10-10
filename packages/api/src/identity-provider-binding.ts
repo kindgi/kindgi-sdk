@@ -298,32 +298,3 @@ export interface IdentityProviderUnregisterInput {
 export interface IdentityProviderUnregisterOutcome {
   readonly unregistered: boolean;
 }
-
-/**
- * What a provider's token endpoint answered (`RefreshTokenFn`). Distinct
- * from `SessionCreateInput` because the framework decides the `SessionId`
- * (opaque), while the provider decides `userId` / `accessToken` / `scopes`.
- */
-export interface ExchangeCodeOutcome {
-  readonly userId: string;
-  readonly accessToken: string;
-  readonly refreshToken?: string;
-  readonly expiresAt: Date;
-  readonly scopes: readonly string[];
-  readonly claims?: Record<string, unknown>;
-}
-
-/**
- * Optional refresh-token exchange. When present, `POST /v1/auth/refresh`
- * rotates the underlying provider tokens before minting a new session
- * token. When absent, the refresh route simply revokes the old session
- * and re-issues a session token with the same expiry (still useful for
- * key rotation on the framework side even when the provider stays put).
- */
-export interface RefreshTokenInput {
-  readonly tenantId: TenantId;
-  readonly providerId: string;
-  readonly refreshToken: string;
-}
-
-export type RefreshTokenFn = (input: RefreshTokenInput) => Promise<ExchangeCodeOutcome>;

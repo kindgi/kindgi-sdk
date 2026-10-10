@@ -291,10 +291,6 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // discovery failed, its SAML metadata didn't parse, a host it may not
   // reach): 422 with what went wrong.
   'identity-provider-invalid': 422,
-  'oauth-state-invalid': 400,
-  'oauth-code-exchange-failed': 422,
-  'oauth-refresh-failed': 422,
-  'oauth-refresh-not-supported': 422,
   'invalid-provider-config': 400,
   'auth-not-session-token': 400,
   // `POST /v1/auth/refresh` with a browser session (cookie): refused, so a
