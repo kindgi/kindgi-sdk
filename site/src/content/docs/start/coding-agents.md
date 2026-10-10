@@ -142,8 +142,10 @@ The root's file then holds `"Read(./apps/agent/.env*)"`,
 `"Read(./apps/agent/.kindgi/secrets.env)"` and so on, merged the same way, and
 a `.cursorignore`, `.geminiignore` or `.aiderignore` at the root gets the same
 paths. An agent started in the pack's folder uses the pack's own file. One
-started in another folder of the repository loads neither, and the pack's
-files are outside its folder, so Claude Code asks you before it reads them.
+started in another folder of the repository loads neither. The pack's files
+are outside its folder, so Claude Code asks you before it reads them, unless
+reads are already allowed (in your settings, or with `--allowedTools`): then it
+reads them. Start the agent in the pack's folder or at the repository's root.
 A bare `./.env*` matches at any depth below the session's folder; a rule with
 a folder in it, such as `./.kindgi/secrets.env`, matches only there.
 
