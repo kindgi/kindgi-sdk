@@ -106,8 +106,9 @@ print(endpoint.endpoint_id, endpoint.url)
   metadata addresses stay refused. A URL the deployment refuses gets
   `400 webhook-url-refused`, with the reason: `The deployment refuses this
   URL: private network addresses are not allowed`.
-- **`events`**: `run.finished` (and `improvement-pass.finished` and
-  `approval.requested`, [below](#improvement-passes)).
+- **`events`**: `run.finished`, and
+  [`improvement-pass.finished`](#improvement-passes) and
+  [`approval.requested`](#approvals), both below.
 - **`secretRef`** names the secret: the environment it's in (`local` in
   development) and its name. Kindgi checks that it exists and is strong
   enough, and keeps only the name:
