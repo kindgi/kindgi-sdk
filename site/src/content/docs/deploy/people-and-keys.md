@@ -113,8 +113,9 @@ a role.
 
 - **`tenant`:** `{admin, member}`.
 - **`reviewer`:** when you're a reviewer, your role, your reviewer `id` (an
-  approval assigned to you names it in `assignedTo`), the approvals' roles you
-  may decide (your rank and below), and whether you can decide at all.
+  approval assigned to you names it in `assignedTo`; absent without a roster
+  row, or from a runtime before 0.1.6), the approvals' roles you may decide
+  (your rank and below), and whether you can decide at all.
 - **`key`:** when you call with an API key, its role and the project it's
   limited to.
 - **`tokenCapabilities`:** what your token itself carries for secret, env and
