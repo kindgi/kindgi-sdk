@@ -22,12 +22,14 @@ import type { IdentityDirectoryBinding } from '../identity-directory-binding.js'
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
 import {
+  membershipExistsError,
   membershipNotKeptInStepError,
   orgNotFoundError,
   projectDefaultAlreadyExistsError,
   slugConflictError,
 } from './hierarchy-errors.js';
 import { clampLimit } from './pagination.js';
+import { parseAssignableProjectRole } from './project-roles.js';
 
 /**
  * Projects resource routes — part of the multi-tenant hierarchy.
@@ -259,15 +261,17 @@ export function projectsRouter(
       return mw(c, next);
     });
     // Membership routes: reads require read, mutations admin on the project.
+    // Who's in a project is for its editors and admins: a viewer reads
+    // their own roles through their grants, not the other people here.
     r.use('/:projectId/memberships', async (c, next) => {
       const projectId = c.req.param('projectId');
-      const action = c.req.method === 'GET' ? 'read' : 'admin';
+      const action = c.req.method === 'GET' ? 'write' : 'admin';
       const mw = authorizer.authorize(action, () => ref('project', projectId));
       return mw(c, next);
     });
     r.use('/:projectId/memberships/:userId', async (c, next) => {
       const projectId = c.req.param('projectId');
-      const action = c.req.method === 'GET' ? 'read' : 'admin';
+      const action = c.req.method === 'GET' ? 'write' : 'admin';
       const mw = authorizer.authorize(action, () => ref('project', projectId));
       return mw(c, next);
     });
@@ -462,17 +466,10 @@ export function projectsRouter(
       c.status(statusFor('bad-input') as never);
       return c.json(toWireError({ code: 'bad-input', message: named }, requestId));
     }
-    if (!isProjectRole(b.role)) {
+    const role = parseAssignableProjectRole(b.role, '`role`');
+    if (role.kind === 'err') {
       c.status(statusFor('bad-input') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'bad-input',
-            message: '`role` must be one of: viewer, editor, owner, admin, member',
-          },
-          requestId,
-        ),
-      );
+      return c.json(toWireError({ code: 'bad-input', message: role.message }, requestId));
     }
     const resolved = await resolveMember(tenantId, named);
     if (resolved.kind === 'refused') {
@@ -481,6 +478,10 @@ export function projectsRouter(
     }
     const userId = resolved.userId;
     // Racy — the project can be deleted between the preliminary get and the add.
+    const exists = (role: string) => {
+      c.status(statusFor('membership-exists') as never);
+      return c.json(toWireError(membershipExistsError(role), requestId));
+    };
     const projectGone = () => {
       c.status(statusFor('project-not-found') as never);
       return c.json(
@@ -502,25 +503,27 @@ export function projectsRouter(
         tenantId,
         projectId,
         userId,
-        role: b.role as ProjectRole,
+        role: role.value,
       });
       if (res.kind === 'err') {
         if (res.error.code === 'project-not-found') return projectGone();
+        if (res.error.code === 'membership-exists') return exists(res.error.role);
         throw new Error(res.error.message, { cause: res.error });
       }
     } else {
       const outcome = await membershipBinding.add(tenantId, {
         projectId,
         userId,
-        role: b.role,
+        role: role.value,
       });
       if (outcome.kind === 'project-not-found') return projectGone();
+      if (outcome.kind === 'membership-exists') return exists(outcome.role);
     }
     c.status(201);
     return c.json({
       projectId: projectId as unknown as string,
       userId: userId as unknown as string,
-      role: b.role,
+      role: role.value,
     });
   });
 
@@ -569,19 +572,12 @@ export function projectsRouter(
       );
     }
     const b = body as Record<string, unknown>;
-    if (!isProjectRole(b.role)) {
+    const role = parseAssignableProjectRole(b.role, '`role`');
+    if (role.kind === 'err') {
       c.status(statusFor('bad-input') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'bad-input',
-            message: '`role` must be one of: viewer, editor, owner, admin, member',
-          },
-          requestId,
-        ),
-      );
+      return c.json(toWireError({ code: 'bad-input', message: role.message }, requestId));
     }
-    const updated = await updateMemberRole(tenantId, projectId, userId, b.role);
+    const updated = await updateMemberRole(tenantId, projectId, userId, role.value);
     if (updated.kind === 'refused') {
       c.status(statusFor(updated.error.code) as never);
       return c.json(toWireError(updated.error, requestId));
@@ -772,10 +768,6 @@ function parseMemberName(b: Record<string, unknown>): MemberName | string {
     return '`email` must be a non-empty string';
   }
   return { email: b.email.trim() };
-}
-
-function isProjectRole(x: unknown): x is 'viewer' | 'editor' | 'owner' | 'admin' | 'member' {
-  return x === 'viewer' || x === 'editor' || x === 'owner' || x === 'admin' || x === 'member';
 }
 
 function serializeProject(p: Project): Record<string, unknown> {

@@ -17,7 +17,15 @@
 import type { OrgId, ProjectId, Result, TeamId, TenantId, UserId } from '@kindgi/types';
 import type { ProjectMembershipUpdateRoleOutcome } from './project-binding.js';
 import type { TeamMembershipUpdateRoleOutcome } from './team-binding.js';
-import type { OrgSpec, ProjectRole, ProjectSpec, TeamRole, TeamSpec } from './types.js';
+import type { TeamProjectGrant } from './team-project-grant-binding.js';
+import type {
+  OrgSpec,
+  ProjectRole,
+  ProjectSpec,
+  TeamProjectRole,
+  TeamRole,
+  TeamSpec,
+} from './types.js';
 
 export interface CreateOrgParams {
   readonly tenantId: TenantId;
@@ -74,6 +82,12 @@ export type AddTeamMemberError =
       readonly code: 'team-not-found';
       readonly message: string;
     }
+  | {
+      /** A member already, with another role: kept, and nothing written. */
+      readonly code: 'membership-exists';
+      readonly message: string;
+      readonly role: TeamRole;
+    }
   | { readonly code: 'add-failed'; readonly message: string; readonly cause?: unknown };
 
 export type AddProjectMemberError =
@@ -81,6 +95,12 @@ export type AddProjectMemberError =
       /** No project with this id in the tenant. */
       readonly code: 'project-not-found';
       readonly message: string;
+    }
+  | {
+      /** A member already, with another role: kept, and nothing written. */
+      readonly code: 'membership-exists';
+      readonly message: string;
+      readonly role: ProjectRole;
     }
   | { readonly code: 'add-failed'; readonly message: string; readonly cause?: unknown };
 
@@ -104,6 +124,43 @@ export interface UpdateTeamMemberRoleParams extends RemoveTeamMemberParams {
 
 export interface UpdateProjectMemberRoleParams extends RemoveProjectMemberParams {
   readonly role: ProjectRole;
+}
+
+/** A team's role on a project, given or changed. */
+export interface TeamProjectGrantParams {
+  readonly tenantId: TenantId;
+  readonly projectId: ProjectId;
+  readonly teamId: TeamId;
+  readonly role: TeamProjectRole;
+}
+
+/** Which team's grant on a project to remove. */
+export interface RemoveTeamProjectGrantParams {
+  readonly tenantId: TenantId;
+  readonly projectId: ProjectId;
+  readonly teamId: TeamId;
+}
+
+export type AddTeamProjectGrantError =
+  | { readonly code: 'project-not-found'; readonly message: string }
+  | { readonly code: 'team-not-found'; readonly message: string }
+  | { readonly code: 'write-failed'; readonly message: string; readonly cause?: unknown };
+
+/** The grant added, or the one the team already held there (`created: false`: nothing written). */
+export interface AddTeamProjectGrantResult {
+  readonly created: boolean;
+  readonly grant: TeamProjectGrant;
+}
+
+export type TeamProjectGrantUpdateRoleOutcome =
+  | { readonly kind: 'ok'; readonly grant: TeamProjectGrant }
+  | { readonly kind: 'project-not-found' }
+  | { readonly kind: 'team-grant-not-found' };
+
+/** Which team to delete. */
+export interface DeleteTeamParams {
+  readonly tenantId: TenantId;
+  readonly teamId: TeamId;
 }
 
 /** A membership change that couldn't be written (the row and its tuple both left as they were). */
@@ -164,6 +221,34 @@ export interface TenantHierarchyBinding {
   updateProjectMemberRole?(
     params: UpdateProjectMemberRoleParams,
   ): Promise<Result<ProjectMembershipUpdateRoleOutcome, MembershipWriteError>>;
+  /**
+   * Give a team a role on a project: the grant's row and its tuple
+   * together. A team that already holds a role there keeps it, and nothing
+   * is written (`created: false`, with the grant it holds). With an
+   * authorizer, the team-grant routes need this, `updateTeamProjectGrantRole`
+   * and `removeTeamProjectGrant`; without them they refuse the change.
+   */
+  addTeamProjectGrant?(
+    params: TeamProjectGrantParams,
+  ): Promise<Result<AddTeamProjectGrantResult, AddTeamProjectGrantError>>;
+  /** Change a team's role on a project, row and tuples together. */
+  updateTeamProjectGrantRole?(
+    params: TeamProjectGrantParams,
+  ): Promise<Result<TeamProjectGrantUpdateRoleOutcome, MembershipWriteError>>;
+  /** Remove a team's role on a project and its tuples together. No-op when it has none. */
+  removeTeamProjectGrant?(
+    params: RemoveTeamProjectGrantParams,
+  ): Promise<Result<void, MembershipWriteError>>;
+  /**
+   * Delete a team with every tuple it holds or gives (its parent, its
+   * members' roles, its project grants), in one transaction, so nobody
+   * keeps access through a team that's gone. With an authorizer, the team
+   * delete route needs it, and refuses without it. `deleted: false` when
+   * there was no such team.
+   */
+  deleteTeam?(
+    params: DeleteTeamParams,
+  ): Promise<Result<{ readonly deleted: boolean }, MembershipWriteError>>;
   /**
    * Look up a tenant by id. Returns `null` when no tenant exists.
    * Not itself tenant-scoped: it is how a caller finds out which

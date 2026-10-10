@@ -46,6 +46,7 @@ import type { IdentityDirectoryBinding } from './identity-directory-binding.js';
 import type { IdentityProviderBinding } from './identity-provider-binding.js';
 import type { ImageRegistryBinding } from './image-registry-binding.js';
 import type { ImprovementPassBinding } from './improvement-pass-binding.js';
+import type { JudgingQueueBinding } from './judging-queue-binding.js';
 import type { JudgmentRegistryBinding } from './judgment-binding.js';
 import type { AgentReleaseBindings } from './live-version-binding.js';
 import type { MCPClientProbeBinding, MCPEndpointRegistryBinding } from './mcp-endpoint-binding.js';
@@ -76,8 +77,10 @@ import { sigv4Middleware } from './middleware/sigv4.js';
 import type { MyAccessBinding } from './my-access-binding.js';
 import { type GenerateOptions, generateOpenApiDocument } from './openapi/generate.js';
 import type { PersonGrantsBinding } from './person-grants-binding.js';
+import type { ProjectAccessBinding } from './project-access-binding.js';
 import type { ProvenanceBinding } from './provenance-binding.js';
 import type { ProviderRegistryBinding } from './provider-binding.js';
+import { providerKeysOf, usersOfSecret } from './provider-keys.js';
 import {
   type PublicRunTokenConfig,
   mintPublicRunToken,
@@ -112,6 +115,7 @@ import { guardrailsRouter } from './routes/guardrails.js';
 import { identityRouter } from './routes/identity.js';
 import { improvementPassesRouter, mountImproveRoute } from './routes/improvement-passes.js';
 import { judgedSuitesRouter } from './routes/judged-suites.js';
+import { judgingRouter } from './routes/judging.js';
 import { judgeClassesRouter, judgmentsRouter } from './routes/judgments.js';
 import { mcpRouter } from './routes/mcp.js';
 import { memoryErasuresRouter } from './routes/memory-erasures.js';
@@ -119,6 +123,7 @@ import { memoryRouter } from './routes/memory.js';
 import { observationsRouter } from './routes/observations.js';
 import { orgsRouter } from './routes/orgs.js';
 import { policiesRouter } from './routes/policies.js';
+import { projectAccessRouter } from './routes/project-access.js';
 import { projectsRouter } from './routes/projects.js';
 import { proposalsRouter } from './routes/proposals.js';
 import { provenanceRouter } from './routes/provenance.js';
@@ -133,6 +138,7 @@ import { secretsRouter } from './routes/secrets.js';
 import { serviceAccountsRouter } from './routes/service-accounts.js';
 import { type SignInOptionsRateLimit, signInOptionsRouter } from './routes/sign-in-options.js';
 import { signingKeysRouter } from './routes/signing-keys.js';
+import { projectTeamGrantsRouter, teamProjectGrantsRouter } from './routes/team-grants.js';
 import { teamsRouter } from './routes/teams.js';
 import { tenantRouter } from './routes/tenant.js';
 import { tokenSignInRouter } from './routes/token-sign-in.js';
@@ -697,6 +703,13 @@ export interface CreateAppInput {
    */
   readonly judgmentRegistry?: JudgmentRegistryBinding;
   /**
+   * Optional. A project's judging rules and the queue they fill, under
+   * `/v1/projects/:projectId/judging-rules` and `…/judging-queue`: which
+   * runs need a person's judgment. Without it, those routes aren't
+   * mounted.
+   */
+  readonly judgingQueue?: JudgingQueueBinding;
+  /**
    * Optional. With `evalSuiteRegistry` and `judgmentRegistry`, mounts test
    * sets built from judgments: `POST /v1/eval-suites/:suiteId/versions/from-judgments`
    * and `GET /v1/eval-suites/:suiteId/versions/:version/cases`.
@@ -868,11 +881,18 @@ export interface CreateAppInput {
   readonly projectBinding?: ProjectBinding;
   readonly projectMembershipBinding?: ProjectMembershipBinding;
   /**
-   * Optional. The team↔project grant binding. Not consumed by this
-   * package's routes; the authz backend uses it to resolve
-   * team-mediated project grants.
+   * Optional. The team↔project grant binding. With `projectBinding` and
+   * `teamBinding`, it mounts `/v1/projects/:projectId/team-grants` and
+   * `/v1/teams/:teamId/project-grants`. With an authorizer, writes go
+   * through the tenant-hierarchy binding (row and tuple together).
    */
   readonly teamProjectGrantBinding?: TeamProjectGrantBinding;
+  /**
+   * Optional. Who has access to a project and how
+   * (`GET /v1/projects/:projectId/access`), read from the authorization
+   * store. Without it, that route answers `501 project-access-unsupported`.
+   */
+  readonly projectAccess?: ProjectAccessBinding;
   /**
    * Optional. Non-sensitive per-env values. When present alongside or
    * separately from `secretsBinding`, mounts the `/v1/tenant/config`
@@ -1168,7 +1188,10 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // so `/v1/approvals/reviewers/*` resolves here rather than being
   // captured by the `:approvalId` param on the approvals router.
   if (input.reviewerRegistry !== undefined) {
-    v1.route('/approvals/reviewers', reviewersRouter(input.reviewerRegistry, authorizer));
+    v1.route(
+      '/approvals/reviewers',
+      reviewersRouter(input.reviewerRegistry, authorizer, input.reviewerBinding),
+    );
   }
   if (input.reviewerBinding !== undefined && input.hitlBinding !== undefined) {
     v1.route(
@@ -1240,8 +1263,24 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ),
     );
   }
+  // A model provider's key is used by its provider only: the routes that
+  // write a tool, an endpoint or a provider check names against it.
+  const providerKeys = providerKeysOf(input.providerRegistry);
+  const secretUsers = (tenantId: import('@kindgi/types').TenantId, name: string) =>
+    usersOfSecret(
+      {
+        ...(input.toolRegistry !== undefined && { tools: input.toolRegistry }),
+        ...(input.mcpEndpointRegistry !== undefined && { mcpEndpoints: input.mcpEndpointRegistry }),
+        ...(input.webhookEndpoints !== undefined && { webhookEndpoints: input.webhookEndpoints }),
+      },
+      tenantId,
+      name,
+    );
   if (input.toolRegistry !== undefined) {
-    v1.route('/tools', toolsRouter(input.toolRegistry, authorizer, input.onToolWrite));
+    v1.route(
+      '/tools',
+      toolsRouter(input.toolRegistry, authorizer, input.onToolWrite, { providerKeys }),
+    );
   }
   if (input.guardrailRegistry !== undefined) {
     v1.route(
@@ -1352,6 +1391,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         input.onProviderWrite,
         input.adapterFactories,
         authorizer,
+        { secretUsers },
       ),
     );
   }
@@ -1360,6 +1400,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       '/mcp',
       mcpRouter(input.mcpEndpointRegistry, input.mcpClientProbe, authorizer, {
         hostAccess: input.tenantHostAccess ?? 'deployed',
+        providerKeys,
       }),
     );
   }
@@ -1397,7 +1438,12 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     if (kinds.has('cron')) {
       v1.route(
         '/schedules',
-        schedulesRouter(input.triggerRegistry, authorizer, input.projectBinding),
+        schedulesRouter(input.triggerRegistry, authorizer, input.projectBinding, {
+          ...(input.identityDirectory !== undefined && { directory: input.identityDirectory }),
+          ...(input.serviceAccountBinding !== undefined && {
+            serviceAccounts: input.serviceAccountBinding,
+          }),
+        }),
       );
     }
     if (kinds.has('event')) {
@@ -1408,7 +1454,10 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     }
   }
   if (input.webhookEndpoints !== undefined) {
-    v1.route('/webhook-endpoints', webhookEndpointsRouter(input.webhookEndpoints, authorizer));
+    v1.route(
+      '/webhook-endpoints',
+      webhookEndpointsRouter(input.webhookEndpoints, authorizer, { providerKeys }),
+    );
   }
   if (input.policyRegistry !== undefined) {
     v1.route('/policies', policiesRouter(input.policyRegistry, authorizer));
@@ -1432,6 +1481,17 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ),
     );
     v1.route('/judge-classes', judgeClassesRouter(input.judgmentRegistry, authorizer));
+  }
+  if (input.judgingQueue !== undefined) {
+    v1.route(
+      '/projects',
+      judgingRouter(input.judgingQueue, {
+        ...(authorizer !== undefined && { authorizer }),
+        ...(input.judgmentRegistry !== undefined && { judgments: input.judgmentRegistry }),
+        ...(input.reviewerBinding !== undefined && { reviewers: input.reviewerBinding }),
+        ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
+      }),
+    );
   }
   if (
     input.evalSuiteRegistry !== undefined &&
@@ -1477,6 +1537,31 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         input.identityDirectory,
       ),
     );
+  }
+  if (input.projectBinding !== undefined && input.projectMembershipBinding !== undefined) {
+    v1.route(
+      '/projects',
+      projectAccessRouter({
+        projects: input.projectBinding,
+        ...(input.projectAccess !== undefined && { access: input.projectAccess }),
+        ...(authorizer !== undefined && { authorizer }),
+      }),
+    );
+  }
+  if (
+    input.teamProjectGrantBinding !== undefined &&
+    input.projectBinding !== undefined &&
+    input.teamBinding !== undefined
+  ) {
+    const teamGrants = {
+      grants: input.teamProjectGrantBinding,
+      projects: input.projectBinding,
+      teams: input.teamBinding,
+      tenantHierarchy: tenantHierarchyBinding,
+      ...(authorizer !== undefined && { authorizer }),
+    };
+    v1.route('/projects', projectTeamGrantsRouter(teamGrants));
+    v1.route('/teams', teamProjectGrantsRouter(teamGrants));
   }
   // `/v1/tenant` is always mounted (reads the tenant through the
   // tenant-hierarchy binding);
@@ -1540,6 +1625,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         {
           deploymentRegistry: input.deploymentRegistry,
           signingKeyRegistry: input.signingKeyRegistry,
+          providerKeys,
           imageRegistry: input.imageRegistry,
           ...(input.toolRegistry !== undefined && { toolRegistry: input.toolRegistry }),
           ...(input.blockRegistry !== undefined && { blockRegistry: input.blockRegistry }),

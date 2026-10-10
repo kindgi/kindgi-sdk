@@ -44,7 +44,12 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { isAbsolute, join, resolve } from 'node:path';
 
 import { type KindgiConfig, packLanguage } from '@kindgi/handler-runtime';
-import { displayEnvPath, packValues, readPackEnv } from '@kindgi/secrets-dotenv';
+import {
+  describeUnreadable,
+  displayEnvPath,
+  packValues,
+  readPackEnv,
+} from '@kindgi/secrets-dotenv';
 
 import type { CommandContext } from '../context.js';
 import { loadLocalEnvSettings } from '../env/project-env.js';
@@ -282,6 +287,13 @@ const addCmd: LeafCommand = {
     });
     const label = (paths: readonly string[]): string =>
       paths.map((p) => displayEnvPath(packDir, p)).join(', ');
+    if (env.unreadable.length > 0 && !Object.hasOwn(packValues(env.values), secretName)) {
+      return {
+        kind: 'error',
+        stderr: `Couldn't check that ${secretName} is set: can't read ${describeUnreadable(packDir, env.unreadable)}. Run \`kindgi mcp add\` in a terminal of your own, where the env files can be read.\n`,
+        exitCode: 1,
+      };
+    }
     if (env.present.length === 0) {
       return {
         kind: 'error',

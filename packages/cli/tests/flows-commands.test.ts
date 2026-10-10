@@ -111,6 +111,15 @@ describe('kindgi flows (T238)', () => {
     expect(noVersion.calls).toEqual([]);
   });
 
+  test('a retired flow and unregistered versions: list --include-retired, versions --include-unregistered', async () => {
+    expect((await flows(['list', '--include-retired'])).calls).toEqual([
+      ['list', { includeRetired: true }],
+    ]);
+    expect((await flows(['versions', 'acme.intake', '--include-unregistered'])).calls).toEqual([
+      ['versions.list', 'acme.intake', { includeTombstoned: true }],
+    ]);
+  });
+
   test('help lists every flows command', async () => {
     const { out } = await flows(['--help']);
     for (const sub of ['list', 'get', 'publish', 'unregister', 'versions', 'reinstate']) {

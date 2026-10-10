@@ -3,7 +3,7 @@
 
 /** `kindgi doctor` (T130): each check, from fakes of the tools, Docker, the runtime and the client. */
 
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -140,7 +140,9 @@ async function doctor(
   return { out, report, check };
 }
 
-async function tsProject(options: { installed?: boolean; rc?: object; envLocal?: string } = {}) {
+async function tsProject(
+  options: { installed?: boolean; rc?: object; envLocal?: string; kindgiSecrets?: string } = {},
+) {
   await writeFile(join(dir, 'kindgi.config.ts'), 'export default {};\n');
   await writeFile(join(dir, 'package.json'), '{"name":"acme-pack"}\n');
   if (options.installed === true)
@@ -148,6 +150,10 @@ async function tsProject(options: { installed?: boolean; rc?: object; envLocal?:
   if (options.rc !== undefined)
     await writeFile(join(dir, '.kindgirc.json'), JSON.stringify(options.rc));
   if (options.envLocal !== undefined) await writeFile(join(dir, '.env.local'), options.envLocal);
+  if (options.kindgiSecrets !== undefined) {
+    await mkdir(join(dir, '.kindgi'), { recursive: true });
+    await writeFile(join(dir, '.kindgi', 'secrets.env'), options.kindgiSecrets, { mode: 0o600 });
+  }
 }
 
 const SECRET = 'sk-ant-do-not-print-me';
@@ -291,17 +297,60 @@ describe('a TypeScript project', () => {
   });
 
   test('the key is named with its file, never its value', async () => {
-    await tsProject({ installed: true, envLocal: `ANTHROPIC_API_KEY=${SECRET}\n` });
+    await tsProject({ installed: true, kindgiSecrets: `ANTHROPIC_API_KEY=${SECRET}\n` });
     const { out, check } = await doctor();
     expect(check('dependencies')).toMatchObject({ status: 'pass' });
     expect(check('model-key')).toMatchObject({
       status: 'pass',
-      message: 'ANTHROPIC_API_KEY is set in .env.local.',
+      message: 'ANTHROPIC_API_KEY is set in .kindgi/secrets.env.',
     });
     expect(out.stdout).not.toContain(SECRET);
     const text = await doctor({ json: false });
     expect(text.out.stdout).not.toContain(SECRET);
   });
+
+  test('a key in a file the app loads too: a warning, with `kindgi secrets copy`, never the value', async () => {
+    await tsProject({ installed: true, envLocal: `ANTHROPIC_API_KEY=${SECRET}\n` });
+    const { out, check } = await doctor();
+    expect(check('model-key')).toMatchObject({
+      status: 'warn',
+      message:
+        'ANTHROPIC_API_KEY is set in .env.local, which your app loads too: its routes, and a coding agent working in it, can read it.',
+    });
+    expect(check('model-key')?.fix).toContain('secrets copy');
+    expect(check('model-key')?.fix).toContain('.kindgi/secrets.env');
+    expect(out.stdout).not.toContain(SECRET);
+  });
+
+  test("Kindgi's own copy wins: a pass, even with the app's key in .env.local", async () => {
+    await tsProject({
+      installed: true,
+      envLocal: 'ANTHROPIC_API_KEY=app-own-key\n',
+      kindgiSecrets: `ANTHROPIC_API_KEY=${SECRET}\n`,
+    });
+    const { check } = await doctor();
+    expect(check('model-key')).toMatchObject({
+      status: 'pass',
+      message: 'ANTHROPIC_API_KEY is set in .kindgi/secrets.env.',
+    });
+  });
+
+  test.skipIf(process.getuid?.() === 0)(
+    "an env file it can't read (a coding agent's read guard): skipped, not a crash",
+    async () => {
+      await tsProject({ installed: true, envLocal: `ANTHROPIC_API_KEY=${SECRET}\n` });
+      await chmod(join(dir, '.env.local'), 0o000);
+      try {
+        const { check } = await doctor();
+        expect(check('model-key')).toMatchObject({
+          status: 'skip',
+          message: "Not checked: couldn't read .env.local (permission denied).",
+        });
+      } finally {
+        await chmod(join(dir, '.env.local'), 0o600);
+      }
+    },
+  );
 
   test('a key only in the shell: said so, since kindgi dev reads the env files', async () => {
     await tsProject({ installed: true });
@@ -564,7 +613,7 @@ describe('a registration whose default model the preset no longer gives: a warni
   /** The bundled presets, as `kindgi providers register --preset` reads them. */
   const withPresets = (): DoctorSeam => ({ ...seam(), presets: () => loadProviderPresets() });
   const run = async (providers: unknown[], json = true) => {
-    await tsProject({ installed: true, rc: RC, envLocal: `ANTHROPIC_API_KEY=${SECRET}\n` });
+    await tsProject({ installed: true, rc: RC, kindgiSecrets: `ANTHROPIC_API_KEY=${SECRET}\n` });
     return doctor({ fetchImpl: healthy, providers, seam: withPresets(), json });
   };
 

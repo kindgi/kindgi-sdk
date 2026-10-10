@@ -31,6 +31,7 @@ const SCHEDULE = {
   timezone: 'America/Toronto',
   status: 'active',
   label: 'weekday digest',
+  owner: { kind: 'user', id: '22222222-2222-4222-8222-222222222222', displayName: 'Ada Lovelace' },
   nextFireAt: '2026-10-08T11:00:00.000Z',
   lastFiredAt: null,
   createdAt: '2026-10-07T00:00:00.000Z',
@@ -232,6 +233,14 @@ describe('kindgi schedules', () => {
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([['list', { status: 'active' }]]);
     expect(out.stdout).toMatch(/agent acme\.digest\s+0 7 \* \* 1-5\s+America\/Toronto\s+active/);
+  });
+
+  test("list --project: one project's schedules; the table names each owner", async () => {
+    const { out, calls } = await schedules(['list', `--project=${ID}`, '--table']);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['list', { projectId: ID }]]);
+    expect(out.stdout).toMatch(/OWNER/);
+    expect(out.stdout).toMatch(/Ada Lovelace/);
   });
 
   test('get with upcoming; update; the lifecycle verbs by id', async () => {
