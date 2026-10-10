@@ -5,11 +5,14 @@
  * Every operation, called with an API key that takes no admin action
  * (`role: member`) whose user the authorizer grants everything: so the
  * only refusals are the ones the API decides itself, before asking the
- * binding. Every 403 (a known caller refused) must have its decision
- * recorded for that request (`recordDecision`), as the binding records
- * its own, so the access audit holds every refusal, whatever the route
- * and whatever its code; a 401 (an unknown caller) is a sign-in matter. A route asking a relation the model
- * doesn't define fails here too: a check that can never pass.
+ * binding. Every 403 the sweep meets (a known caller refused) must have
+ * its decision recorded for that request (`recordDecision`), as the
+ * binding records its own, so the access audit holds the refusal,
+ * whatever the route and whatever its code; a 401 (an unknown caller) is
+ * a sign-in matter. It meets only what an empty body reaches: a refusal
+ * deeper in a route (a body, a project, a signed artifact) isn't swept.
+ * A route asking a relation the model doesn't define fails here too: a
+ * check that can never pass.
  *
  * It's an invariant, not a list: a new route gated on a tenant admin is
  * swept as it lands. The floor (`MUST_REFUSE`) keeps it from passing with
@@ -21,6 +24,7 @@ import { describe, expect, test } from 'vitest';
 import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
 import type { TenantId, UserId } from '@kindgi/types';
 
+import { statusFor } from '../src/errors.js';
 import { OPERATIONS, createApp } from '../src/index.js';
 import type { TokenResolver } from '../src/index.js';
 import { fullAppInput } from './support/full-app.js';
@@ -216,4 +220,9 @@ describe('every refusal the API decides itself is recorded', () => {
       expect(missed, 'the floor: refusals the sweep must see').toEqual([]);
     },
   );
+});
+
+test('every refusal code the sweep names is a 403', () => {
+  // `refused` answers 403 whatever code it's given: its codes must be 403s.
+  expect([...REFUSAL_CODES].filter((code) => statusFor(code) !== 403)).toEqual([]);
 });
