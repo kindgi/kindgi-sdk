@@ -4,7 +4,7 @@
 import { Hono } from 'hono';
 
 import type { AgentId } from '@kindgi/agents';
-import type { KernelRunRecord, ListRunsInput, RunBinding } from '@kindgi/runtime';
+import type { KernelRunRecord, ListRunsInput, RunBinding, RunStatus } from '@kindgi/runtime';
 import type {
   FlowId,
   ListScope,
@@ -13,6 +13,7 @@ import type {
   ScopeSegment,
   Semver,
   TenantId,
+  Timestamp,
   TriggerId,
 } from '@kindgi/types';
 
@@ -26,14 +27,17 @@ import type {
   RunHandlerOutcome,
   RunTrace,
 } from '../handler-binding.js';
+import type { HitlBinding } from '../hitl-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { MintPublicRunTokenResult } from '../public-run-token.js';
 import { type RunFailure, runFailure } from '../run-failure.js';
+import { runWaitingFor } from '../run-waiting-for.js';
 import type { AppEnv } from '../types.js';
 import { deniedBy } from './denied.js';
 import { liveScopeToWire } from './live-scope-wire.js';
 import type { DecodedCursor } from './pagination.js';
 import { clampLimit, decodeCursor, isCursorTime } from './pagination.js';
+import { runFailuresHandler } from './run-failures.js';
 import { parseListScope } from './scope-params.js';
 import { parseSegmentsBody } from './segments.js';
 import {
@@ -49,6 +53,11 @@ const KERNEL_RUN_CHANNEL_PREFIX = 'kernel:run:';
 
 /** Options for `runsRouter`. */
 export interface RunsRouterOptions {
+  /**
+   * The approvals, for a suspended run's `waitingFor` (the approvals linked
+   * to its open waits). Absent: those waits are `unattributed`.
+   */
+  readonly hitl?: HitlBinding;
   /**
    * Optional push-based event bus. When present, `GET /:runId/stream`
    * subscribes on `kernel:run:<runId>` and delivers events
@@ -244,19 +253,33 @@ export function runsRouter(
     });
   });
 
+  // ---------- GET /failures ----------
+  // Before `/:runId`, which would read `failures` as a run id.
+  r.get('/failures', runFailuresHandler(runBinding, authorizer));
+
   // ---------- GET /:runId ----------
   r.get('/:runId', refuseMalformedRunId, async (c) => {
     const requestId = c.get('requestId');
     const runId = c.req.param('runId') as RunId;
 
-    const loaded = await runBinding.getRun(c.get('tenantId') as TenantId, runId);
+    const tenantId = c.get('tenantId') as TenantId;
+    const loaded = await runBinding.getRun(tenantId, runId);
     if (loaded === null) {
       c.status(statusFor('run-not-found') as never);
       return c.json(
         toWireError({ code: 'run-not-found', message: `No run with id ${runId}` }, requestId),
       );
     }
-    return c.json(serializeRun(loaded, { output: true }));
+    // A suspended run says what it waits for (left out when that can't be read).
+    const waitingFor = await runWaitingFor(
+      { runBinding, ...(options.hitl !== undefined && { hitl: options.hitl }) },
+      tenantId,
+      { id: loaded.runId, status: loaded.status },
+    );
+    return c.json({
+      ...serializeRun(loaded, { output: true }),
+      ...(waitingFor !== undefined && { waitingFor }),
+    });
   });
 
   // ---------- GET /:runId/progress ----------
@@ -306,7 +329,7 @@ export function runsRouter(
         toWireError({ code: 'scope-invalid', message: scopeParsed.message }, requestId),
       );
     }
-    const listFilter = parseRunListFilter(c.req.query());
+    const listFilter = parseRunListFilter(c.req.query(), c.req.queries('status'));
     if (listFilter.kind === 'err') {
       c.status(statusFor('bad-input') as never);
       return c.json(toWireError({ code: 'bad-input', message: listFilter.message }, requestId));
@@ -837,6 +860,12 @@ function listRunsInput(input: {
     replays: filter.replays,
     ...(filter.evalRunId !== undefined && { evalRunId: filter.evalRunId }),
     ...(filter.triggerId !== undefined && { triggerId: filter.triggerId }),
+    ...(filter.statuses !== undefined && { statuses: filter.statuses }),
+    ...(filter.createdAfter !== undefined && { createdAfter: filter.createdAfter }),
+    ...(filter.createdBefore !== undefined && { createdBefore: filter.createdBefore }),
+    ...(filter.agentVersion !== undefined && { agentVersion: filter.agentVersion }),
+    ...(filter.flowId !== undefined && { flowId: filter.flowId }),
+    ...(filter.flowVersion !== undefined && { flowVersion: filter.flowVersion }),
   };
 }
 
@@ -847,17 +876,122 @@ interface RunListFilter {
   readonly replays: 'exclude' | 'include' | 'only';
   readonly evalRunId?: string;
   readonly triggerId?: TriggerId;
+  readonly statuses?: readonly RunStatus[];
+  readonly createdAfter?: Timestamp;
+  readonly createdBefore?: Timestamp;
+  readonly agentVersion?: string;
+  readonly flowId?: string;
+  readonly flowVersion?: string;
   readonly includeOutput: boolean;
+}
+
+/** Every run status: a `Record` over the type, so a new status fails the build here. */
+const RUN_STATUSES: Readonly<Record<RunStatus, true>> = {
+  pending: true,
+  running: true,
+  suspended: true,
+  completed: true,
+  failed: true,
+  cancelled: true,
+};
+
+type Parsed<T> = { kind: 'ok'; value: T } | { kind: 'err'; message: string };
+
+/** `?status=`, repeated or comma-separated (`status=failed&status=cancelled`, `status=failed,cancelled`), de-duplicated. */
+function parseStatuses(raw: readonly string[] | undefined): Parsed<RunStatus[] | undefined> {
+  if (raw === undefined || raw.length === 0) return { kind: 'ok', value: undefined };
+  const given = raw.flatMap((v) => v.split(',')).map((s) => s.trim());
+  const unknown = given.filter((s) => !Object.hasOwn(RUN_STATUSES, s));
+  if (unknown.length > 0) {
+    const named = unknown.join(', ') || '(empty)';
+    return {
+      kind: 'err',
+      message: `Unknown \`status\` value(s): ${named}. Expected one or more of: ${Object.keys(RUN_STATUSES).join(', ')}`,
+    };
+  }
+  return { kind: 'ok', value: [...new Set(given as RunStatus[])] };
+}
+
+/** `?createdAfter=` / `?createdBefore=`: strict bounds, as ISO times, after before before. */
+function parseCreatedBounds(
+  createdAfter: string | undefined,
+  createdBefore: string | undefined,
+): Parsed<{ readonly createdAfter?: Timestamp; readonly createdBefore?: Timestamp }> {
+  const iso = (raw: string | undefined) =>
+    raw === undefined || Number.isNaN(Date.parse(raw))
+      ? undefined
+      : (new Date(Date.parse(raw)).toISOString() as Timestamp);
+  const after = iso(createdAfter);
+  const before = iso(createdBefore);
+  if (createdAfter !== undefined && after === undefined) {
+    return { kind: 'err', message: '`createdAfter` must be a date-time' };
+  }
+  if (createdBefore !== undefined && before === undefined) {
+    return { kind: 'err', message: '`createdBefore` must be a date-time' };
+  }
+  if (after !== undefined && before !== undefined && after >= before) {
+    return { kind: 'err', message: '`createdAfter` must be earlier than `createdBefore`' };
+  }
+  return {
+    kind: 'ok',
+    value: {
+      ...(after !== undefined && { createdAfter: after }),
+      ...(before !== undefined && { createdBefore: before }),
+    },
+  };
+}
+
+/** The narrowing filters: `status`, the creation bounds, the agent's version, and the flow with its version. */
+function parseRunNarrowing(
+  query: Readonly<Record<string, string>>,
+  status: readonly string[] | undefined,
+): Parsed<
+  Pick<
+    RunListFilter,
+    'statuses' | 'createdAfter' | 'createdBefore' | 'agentVersion' | 'flowId' | 'flowVersion'
+  >
+> {
+  const { agentId, agentVersion, flowId, flowVersion } = query;
+  const statuses = parseStatuses(status);
+  if (statuses.kind === 'err') return statuses;
+  const bounds = parseCreatedBounds(query.createdAfter, query.createdBefore);
+  if (bounds.kind === 'err') return bounds;
+  const empty = (
+    [
+      ['agentVersion', agentVersion],
+      ['flowId', flowId],
+      ['flowVersion', flowVersion],
+    ] as const
+  ).find(([, value]) => value !== undefined && value.trim() === '');
+  if (empty !== undefined) return { kind: 'err', message: `\`${empty[0]}\` must not be empty` };
+  if (agentVersion !== undefined && agentId === undefined) {
+    return { kind: 'err', message: '`agentVersion` needs `agentId`' };
+  }
+  if (flowVersion !== undefined && flowId === undefined) {
+    return { kind: 'err', message: '`flowVersion` needs `flowId`' };
+  }
+  return {
+    kind: 'ok',
+    value: {
+      ...(statuses.value !== undefined && { statuses: statuses.value }),
+      ...bounds.value,
+      ...(agentVersion !== undefined && { agentVersion }),
+      ...(flowId !== undefined && { flowId }),
+      ...(flowVersion !== undefined && { flowVersion }),
+    },
+  };
 }
 
 /**
  * `?parentRunId=` (children of a run), `?topLevel=true`, `?agentId=` (an
  * agent's turns), `?replays=exclude|include|only` (default `exclude`),
  * `?evalRunId=` (one eval run's replays; implies they are included),
- * `?triggerId=` (the runs a trigger started), `?include=output`.
+ * `?triggerId=` (the runs a trigger started), `?include=output`, and the
+ * narrowing in `parseRunNarrowing`.
  */
 function parseRunListFilter(
   query: Readonly<Record<string, string>>,
+  status?: readonly string[],
 ): { kind: 'ok'; value: RunListFilter } | { kind: 'err'; message: string } {
   const { parentRunId, topLevel, agentId, replays, evalRunId, triggerId, include } = query;
   if (triggerId !== undefined && !UUID_RE.test(triggerId)) {
@@ -895,9 +1029,12 @@ function parseRunListFilter(
   if (unknown.length > 0) {
     return { kind: 'err', message: `Unknown \`include\` value(s): ${unknown.join(', ')}` };
   }
+  const narrowing = parseRunNarrowing(query, status);
+  if (narrowing.kind === 'err') return narrowing;
   return {
     kind: 'ok',
     value: {
+      ...narrowing.value,
       ...(parentRunId !== undefined && { parentRunId: parentRunId as RunId }),
       topLevelOnly,
       ...(agentId !== undefined && { agentId }),

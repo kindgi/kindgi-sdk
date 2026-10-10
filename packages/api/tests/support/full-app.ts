@@ -35,13 +35,13 @@ import type {
   EvalCaseStoreBinding,
   EvalRunBinding,
   EvalSuiteRegistryBinding,
-  ExchangeCodeFn,
   FlowRegistryBinding,
   GuardrailRegistryBinding,
   HitlBinding,
   IdentityDirectoryBinding,
   IdentityProviderBinding,
   ImageRegistryBinding,
+  JudgingQueueBinding,
   JudgmentRegistryBinding,
   MCPEndpointRegistryBinding,
   MemoryBinding,
@@ -345,6 +345,32 @@ const noopJudgmentRegistry: JudgmentRegistryBinding = {
   unregister: async () => ({ unregistered: false }),
 };
 
+const noopJudgingQueue: JudgingQueueBinding = {
+  createRule: async () => ({
+    kind: 'err',
+    error: { code: 'judging-rule-not-found', message: 'noop' },
+  }),
+  updateRule: async () => ({
+    kind: 'err',
+    error: { code: 'judging-rule-not-found', message: 'noop' },
+  }),
+  unregisterRule: async () => ({ unregistered: false }),
+  getRule: async () => null,
+  listRules: async () => ({ data: [], hasMore: false }),
+  ruleVersions: async () => ({ data: [], hasMore: false }),
+  listQueue: async () => ({ data: [], hasMore: false, total: 0 }),
+  dismiss: async () => ({
+    kind: 'err',
+    error: { code: 'judging-item-not-found', message: 'noop' },
+  }),
+  reopen: async () => ({ kind: 'err', error: { code: 'judging-item-not-found', message: 'noop' } }),
+  results: async () => ({
+    kind: 'err',
+    error: { code: 'judging-rule-not-found', message: 'noop' },
+  }),
+  preview: async () => ({ considered: 0, matched: 0, failed: 0 }),
+};
+
 const noopEvalRunBinding: EvalRunBinding = {
   start: async () => ({ kind: 'suite-not-found', suiteId: 'noop' }),
   get: async () => null,
@@ -457,13 +483,6 @@ const noopServiceAccounts: ServiceAccountBinding = {
   ungrant: async () => serviceAccountNotFound,
   unregister: async () => serviceAccountNotFound,
 };
-
-const noopExchangeCode: ExchangeCodeFn = async () => ({
-  userId: 'noop-user',
-  accessToken: 'noop',
-  expiresAt: new Date(Date.now() + 60_000),
-  scopes: [],
-});
 
 const noopDeploymentRegistry: DeploymentBinding = {
   register: async () => ({
@@ -602,11 +621,11 @@ export function fullAppInput(): CreateAppInput {
     blockRegistry: noopBlockRegistry,
     evalRunBinding: noopEvalRunBinding,
     judgmentRegistry: noopJudgmentRegistry,
+    judgingQueue: noopJudgingQueue,
     evalCaseStore: noopEvalCaseStore,
     sessionStore: noopSessionStore,
     session: { cookie: { allowedOrigins: ['https://console.example.com'] }, tokenSignIn: true },
     identityProvider: noopIdentityProvider,
-    exchangeCode: noopExchangeCode,
     identityDirectory: noopIdentityDirectory,
     deploymentRegistry: noopDeploymentRegistry,
     signingKeyRegistry: noopSigningKeyRegistry,

@@ -16,7 +16,7 @@ import {
   validateGuardrailSpec,
 } from '@kindgi/guardrails';
 import type { ProjectBinding, Scope } from '@kindgi/platform';
-import { validateToolManifest } from '@kindgi/tools';
+import { toolSecretNames, validateToolManifest } from '@kindgi/tools';
 import type {
   Cursor,
   FlowId,
@@ -48,6 +48,7 @@ import type { GuardrailRegistryBinding } from '../guardrail-binding.js';
 import type { ImageRegistryBinding } from '../image-registry-binding.js';
 import type { LiveVersionBinding } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
 import { PublishRefused } from '../publish-refused.js';
 import { type RegistryReadOnly, refuseReadOnly } from '../registry-read-only.js';
 import type { SecretBinding } from '../secrets-binding.js';
@@ -59,6 +60,7 @@ import { requireEnvName } from './env.js';
 import type { GuardrailWriteHook } from './guardrails.js';
 import { clampLimit } from './pagination.js';
 import { tenantResourceAccess } from './tenant-access.js';
+import { parseTimeInput } from './time-input.js';
 import type { ToolWriteHook } from './tools.js';
 
 /**
@@ -125,6 +127,8 @@ import type { ToolWriteHook } from './tools.js';
  * The route is register-only + read-only.
  */
 export interface DeploymentsRouterBindings {
+  /** The tenant's model providers' keys: no tool a deployment brings may name one. */
+  readonly providerKeys?: ProviderKeys;
   readonly deploymentRegistry: DeploymentBinding;
   readonly signingKeyRegistry: SigningKeyRegistryBinding;
   readonly imageRegistry: ImageRegistryBinding;
@@ -508,6 +512,42 @@ export function deploymentsRouter(
     }
     const validated = validation.value;
 
+    // A model provider's key is never a tool's: each tool naming one is an issue.
+    const keyIssues: ValidationDetail[] = [];
+    if (bindings.providerKeys !== undefined && validated.tools.length > 0) {
+      const tenantId = c.get('tenantId') as TenantId;
+      for (const [index, tool] of validated.tools.entries()) {
+        const refusal = await refuseProviderKeys(
+          bindings.providerKeys,
+          tenantId,
+          toolSecretNames(tool),
+          'a tool',
+        );
+        if (refusal !== undefined) {
+          keyIssues.push({
+            primitive: 'tool',
+            index,
+            id: tool.id as unknown as string,
+            path: `/secrets/${refusal.secret}`,
+            message: refusal.message,
+          });
+        }
+      }
+    }
+    if (keyIssues.length > 0) {
+      c.status(statusFor('deployment-validation-failed') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'deployment-validation-failed',
+            message: `Deployment manifest validation failed (${keyIssues.length} issue${keyIssues.length === 1 ? '' : 's'})`,
+            issues: keyIssues as unknown as Record<string, unknown>[],
+          },
+          requestId,
+        ),
+      );
+    }
+
     // A read-only registry (under `kindgi dev`, the pack's files) takes
     // nothing a deployment brings: refuse before any write.
     const readOnly = readOnlyTarget(validated, bindings);
@@ -592,7 +632,9 @@ export function deploymentsRouter(
             rolled.push(async () => {
               await bindings.toolRegistry?.unregister({ tenantId, toolId, version });
             });
-          } else if (outcome.kind !== 'already-registered') {
+          } else if (outcome.kind === 'already-registered') {
+            await refreshToolCode(bindings.toolRegistry, tenantId, tool, rolled);
+          } else {
             throw new PublishRefused('tool', `${tool.id}@${tool.version}`, outcome);
           }
         }
@@ -625,11 +667,19 @@ export function deploymentsRouter(
               guardrail,
             );
             // Unregistered since the registry answered: registered afresh.
-            if (kept === 'registered') {
+            if (kept.kind === 'registered') {
               const guardrailId = guardrail.id;
               rolled.push(async () => {
                 await bindings.guardrailRegistry?.unregister({ tenantId, guardrailId });
               });
+            } else {
+              await refreshGuardrailFields(
+                bindings.guardrailRegistry,
+                tenantId,
+                guardrail,
+                kept.existing,
+                rolled,
+              );
             }
           } else {
             throw new PublishRefused('guardrail', guardrail.id, outcome);
@@ -1129,7 +1179,7 @@ function parseWireBody(body: unknown): ParseResult {
       message: 'indexHash must be sha256:<64-hex> (or bare 64-hex)',
     });
   }
-  if (publishedAt !== undefined && Number.isNaN(Date.parse(publishedAt))) {
+  if (publishedAt !== undefined && parseTimeInput(publishedAt) === null) {
     issues.push({ path: 'publishedAt', message: 'publishedAt must be ISO-8601' });
   }
 
@@ -1251,14 +1301,17 @@ interface DeployedImage {
  * `get` answers a guardrail without its project, so whether the id is in
  * this project comes from the project's list. When the row is gone by the
  * time it's looked at (unregistered meanwhile), the guardrail is
- * registered again: `'registered'`, for the deploy to roll back.
+ * registered again: `registered`, for the deploy to roll back. A kept one
+ * comes back with the row as it is (`existing`).
  */
 async function keepRegisteredGuardrail(
   registry: GuardrailRegistryBinding,
   tenantId: TenantId,
   projectId: ProjectId,
   guardrail: Guardrail,
-): Promise<'kept' | 'registered'> {
+): Promise<
+  { readonly kind: 'kept'; readonly existing: Guardrail } | { readonly kind: 'registered' }
+> {
   for (let attempt = 0; attempt < 3; attempt++) {
     const existing = await registry.get({ tenantId, guardrailId: guardrail.id });
     if (existing !== null) {
@@ -1274,7 +1327,7 @@ async function keepRegisteredGuardrail(
           reason: `it is already registered with a different definition; unregister it (\`kindgi guardrails unregister ${guardrail.id}\`) and deploy again`,
         });
       }
-      return 'kept';
+      return { kind: 'kept', existing };
     }
     const again = await registry.register({
       tenantId,
@@ -1288,12 +1341,76 @@ async function keepRegisteredGuardrail(
           projectId,
         }),
     });
-    if (again.kind === 'ok') return 'registered';
+    if (again.kind === 'ok') return { kind: 'registered' };
     if (again.kind !== 'already-registered') {
       throw new PublishRefused('guardrail', guardrail.id, again);
     }
   }
   throw new Error(`guardrail ${guardrail.id}: registered and unregistered while deploying`);
+}
+
+/**
+ * A tool version a deploy finds already published gets this deploy's code
+ * pointer (a new image of the same pack), when its registry can take it
+ * (`refreshCodeArtifactRef`); rolling the deploy back puts the old one
+ * back, unless another deploy has refreshed it since (compare-and-set on
+ * this deploy's pointer). Without it, the version keeps its first
+ * pointer, as before.
+ */
+async function refreshToolCode(
+  registry: ToolRegistryBinding,
+  tenantId: TenantId,
+  tool: import('@kindgi/tools').ToolManifest,
+  rolled: RollbackAction[],
+): Promise<void> {
+  const refresh = registry.refreshCodeArtifactRef?.bind(registry);
+  if (refresh === undefined || tool.codeArtifactRef === undefined) return;
+  const version = tool.version as unknown as Semver;
+  const stored = await registry.getVersion({ tenantId, toolId: tool.id, version });
+  if (stored === null) return;
+  const was = stored.codeArtifactRef ?? null;
+  if (canonicalJson(was) === canonicalJson(tool.codeArtifactRef)) return;
+  const now = tool.codeArtifactRef;
+  const done = await refresh({ tenantId, toolId: tool.id, version, codeArtifactRef: now });
+  if (!done.refreshed) return;
+  // Only while it still points where this deploy put it.
+  rolled.push(async () => {
+    await refresh({ tenantId, toolId: tool.id, version, codeArtifactRef: was, expected: now });
+  });
+}
+
+/**
+ * A guardrail a deploy keeps gets what this deploy derived for it: its
+ * code pointer and its check's config schema, when its registry can take
+ * them (`refreshDeployedFields`); rolling the deploy back restores the old
+ * ones, unless another deploy has refreshed them since (compare-and-set on
+ * what this deploy wrote). Without it, the guardrail keeps what its first
+ * deploy derived.
+ */
+async function refreshGuardrailFields(
+  registry: GuardrailRegistryBinding,
+  tenantId: TenantId,
+  guardrail: Guardrail,
+  existing: Guardrail,
+  rolled: RollbackAction[],
+): Promise<void> {
+  const refresh = registry.refreshDeployedFields?.bind(registry);
+  if (refresh === undefined) return;
+  const now = {
+    codeArtifactRef: guardrail.codeArtifactRef ?? null,
+    configSchema: guardrail.configSchema ?? null,
+  };
+  const was = {
+    codeArtifactRef: existing.codeArtifactRef ?? null,
+    configSchema: existing.configSchema ?? null,
+  };
+  if (canonicalJson(now) === canonicalJson(was)) return;
+  const done = await refresh({ tenantId, guardrailId: guardrail.id, ...now });
+  if (!done.refreshed) return;
+  // Only while it still holds what this deploy gave it.
+  rolled.push(async () => {
+    await refresh({ tenantId, guardrailId: guardrail.id, ...was, expected: now });
+  });
 }
 
 /** Whether the live guardrail `id` is in `projectId`, by that project's list. */

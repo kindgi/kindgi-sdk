@@ -10,7 +10,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -155,6 +155,53 @@ function alive(pid: number): boolean {
     return false;
   }
 }
+
+describe('createPackServiceSupervisor — a command worked out at every start', () => {
+  test('a function command is called before each start, and its argv runs', async () => {
+    const index = await writePack({
+      'cwd.mjs': 'export async function handler() { return { cwd: process.cwd() }; }',
+    });
+    let calls = 0;
+    const running = await supervisor({}, [], [], {
+      command: async () => {
+        calls += 1;
+        return [process.execPath, entrypoint];
+      },
+    });
+    expect((await running.supervisor.start(index)).kind).toBe('ok');
+    expect((await running.supervisor.start(index)).kind).toBe('ok');
+    expect(calls).toBe(2);
+  });
+
+  test('its rejection fails that start, with its message; the serving child keeps serving', async () => {
+    const index = await writePack({
+      'cwd.mjs': 'export async function handler() { return { cwd: process.cwd() }; }',
+    });
+    let fail = false;
+    const running = await supervisor({}, [], [], {
+      command: async () => {
+        if (fail) throw new Error('no sandbox for this start');
+        return [process.execPath, entrypoint];
+      },
+    });
+    expect((await running.supervisor.start(index)).kind).toBe('ok');
+    fail = true;
+    expect(await running.supervisor.start(index)).toEqual({
+      kind: 'err',
+      error: { problems: ['no sandbox for this start'] },
+    });
+    expect(await output(running, 'cwd')).toMatchObject({ cwd: expect.any(String) });
+  });
+
+  test('cwd: the child runs there', async () => {
+    const index = await writePack({
+      'cwd.mjs': 'export async function handler() { return { cwd: process.cwd() }; }',
+    });
+    const running = await supervisor({}, [], [], { cwd: dir });
+    expect((await running.supervisor.start(index)).kind).toBe('ok');
+    expect(await output(running, 'cwd')).toEqual({ cwd: await realpath(dir) });
+  });
+});
 
 describe('createPackServiceSupervisor — children', () => {
   test('pack code sees exactly the environment it is given — not the service token', async () => {

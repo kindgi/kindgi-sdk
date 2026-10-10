@@ -144,6 +144,12 @@ describe('kindgi tokens', () => {
     expect(out.stderr).toContain('shown once');
   });
 
+  test("create --expires with a date: that day's start in UTC, as the API takes a time", async () => {
+    const { out, calls } = await run(['tokens', 'create', '--expires=2027-01-15']);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['tokens.create', { expiresAt: '2027-01-15T00:00:00.000Z' }]]);
+  });
+
   test('create with nothing: a member key for you', async () => {
     const { out, calls } = await run(['tokens', 'create']);
     expect(out.exitCode, out.stderr).toBe(0);
@@ -155,6 +161,8 @@ describe('kindgi tokens', () => {
     [['--for=user:'], '--for must be'],
     [['--role=owner'], '--role must be member or admin'],
     [['--expires=soon'], '--expires must be like 30d'],
+    [['--expires=Oct 9'], '--expires must be like 30d'],
+    [['--expires=2026-10-09T12:00:00'], '--expires must be like 30d'],
   ])('create refuses %j before any call', async (flags, message) => {
     const { out, calls } = await run(['tokens', 'create', ...flags]);
     // Usage errors.
@@ -224,6 +232,16 @@ describe('kindgi service-accounts', () => {
     );
     const noRole = await run(['service-accounts', 'grant', 'sa-1', `--project=${PROJECT}`]);
     expect(noRole.out.stderr).toContain('--role must be one of');
+    const member = await run([
+      'service-accounts',
+      'grant',
+      'sa-1',
+      `--project=${PROJECT}`,
+      '--role=member',
+    ]);
+    expect(member.out.exitCode).toBe(2);
+    expect(member.out.stderr).toContain('--role must be one of viewer, editor, owner, admin');
+    expect(member.calls).toEqual([]);
     const badProject = await run(['service-accounts', 'create', 'x', `--project=${PROJECT}`]);
     expect(badProject.out.stderr).toContain('--project must be <project-id>:<role>');
   });

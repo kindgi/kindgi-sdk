@@ -200,6 +200,7 @@ function makeFixtures(
   } as const;
 
   const runners: DevRunners = {
+    detectSandbox: async () => ({ kind: 'available', engine: 'seatbelt' }),
     checkPackPython: async (python) => {
       pythonChecks.push(python);
       return opts.pythonProblem !== undefined
@@ -1202,7 +1203,7 @@ describe('kindgi dev — boot flow (no watch)', () => {
     expect(first).toContain('  ✓ gemini: registered\n');
     // Its key isn't in the env files: one line, and the boot goes on.
     expect(first).toContain(
-      '  ⚠ anthropic: not registered: ANTHROPIC_API_KEY is not in .env, .env.local. Set it (npx --no kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant), then restart kindgi dev',
+      '  ⚠ anthropic: not registered: ANTHROPIC_API_KEY is not in .env, .env.local, .kindgi/secrets.env. Set it (npx --no kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant), then restart kindgi dev',
     );
     expect(first).toContain(
       'Providers          dev-echo (fallback) · gemini (gemini-3.5-flash-lite)\n',
@@ -1219,6 +1220,19 @@ describe('kindgi dev — boot flow (no watch)', () => {
     const second = await boot();
     expect(second).toContain('  · gemini: unchanged\n');
     expect(second).toContain('  ✓ anthropic: registered\n');
+    // Its key sits in a file the app loads too: one hint; the file is never edited.
+    const hint =
+      "  ⚠ ANTHROPIC_API_KEY is in .env, which your app loads too. To give Kindgi its own copy: npx --no kindgi secrets copy (it never edits your app's files).";
+    expect(second).toContain(hint);
+    expect(await readFile(join(packDir, '.env'), 'utf8')).toBe('ANTHROPIC_API_KEY=sk-test\n');
+    expect(
+      JSON.parse(await readFile(join(packDir, '.kindgi', 'dev', 'provider-keys.json'), 'utf8')),
+    ).toEqual({ names: ['ANTHROPIC_API_KEY'] });
+    expect(second).not.toContain('sk-test');
+
+    // With Kindgi's own copy, no hint.
+    await writeFile(join(packDir, '.kindgi', 'secrets.env'), 'ANTHROPIC_API_KEY=sk-kindgi\n');
+    expect(await boot()).not.toContain(hint);
   });
 
   test('a malformed provider in the config stops the boot before anything starts', async () => {
@@ -1911,12 +1925,12 @@ describe("kindgi dev — imports a deployed pack wouldn't have", () => {
         ...baseInputs(fixtures, { stopSignal: controller.signal }),
         argv: ['dev', '--json', `--path=${packDir}`],
       });
-      await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2));
+      await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2), WAIT);
       expect(linesWith(writes, { stderr: '' }, 'The pack imports ms')).toHaveLength(1);
 
       // A save that imports nanoid too: a warning for nanoid only.
       fixtures.triggerChange(build(ms, nanoid));
-      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(2));
+      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(2), WAIT);
       expect(linesWith(writes, { stderr: '' }, WARNING)).toEqual([
         expect.stringContaining('The pack imports ms (in tools/clock/index.ts), which'),
         expect.stringContaining('The pack imports nanoid (in lib/ids.ts, tools/a.ts), which'),
@@ -1924,17 +1938,17 @@ describe("kindgi dev — imports a deployed pack wouldn't have", () => {
 
       // The same imports again (another save, an env-file change): nothing new.
       fixtures.triggerChange(build(ms, nanoid));
-      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(3));
+      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(3), WAIT);
       fixtures.triggerEnvChange();
-      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(4));
+      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(4), WAIT);
       expect(linesWith(writes, { stderr: '' }, WARNING)).toHaveLength(2);
 
       // ms moves to dependencies: the next refresh says so, once.
       await manifest({ dependencies: { ms: '^2.1.3' }, devDependencies: { nanoid: '^5.0.0' } });
       fixtures.triggerChange(build(ms, nanoid));
-      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(5));
+      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(5), WAIT);
       fixtures.triggerChange(build(ms, nanoid));
-      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(6));
+      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(6), WAIT);
       controller.abort();
       out = await promise;
     } finally {

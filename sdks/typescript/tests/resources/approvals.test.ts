@@ -50,6 +50,19 @@ describe('approvals.list / get — /v1/approvals mapping', () => {
     expect(url.searchParams.get('limit')).toBe('10');
   });
 
+  it("lists a run's approvals, and its child runs'", async () => {
+    const stub = jsonFetch({ data: [], hasMore: false });
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    await client.approvals.list({ runId: 'run-1', includeDescendants: true });
+    const url = new URL(stub.calls[0]?.url);
+    expect(url.searchParams.get('runId')).toBe('run-1');
+    expect(url.searchParams.get('includeDescendants')).toBe('true');
+  });
+
   it('GETs /v1/approvals/{approvalId}', async () => {
     const stub = jsonFetch(WIRE_APPROVAL);
     const client = createClient({
@@ -320,7 +333,7 @@ describe('approvals not-yet-wired surface', () => {
   });
 });
 
-describe('approvals.list — status (GET /v1/approvals takes one status)', () => {
+describe('approvals.list — status, assignedTo, order (a reviewer inbox in one read)', () => {
   it('sends a single status as ?status=', async () => {
     const stub = jsonFetch({ data: [], hasMore: false });
     const client = createClient({
@@ -334,8 +347,9 @@ describe('approvals.list — status (GET /v1/approvals takes one status)', () =>
     expect(new URL(stub.calls[0]?.url ?? '').searchParams.getAll('status')).toEqual(['approved']);
   });
 
-  it('sends a one-element array as that status and an empty array as no filter', async () => {
+  it('sends several statuses comma-separated, a one-element list as that status, an empty list as no filter', async () => {
     const stub = recordingFetch([
+      { status: 200, body: JSON.stringify({ data: [], hasMore: false }) },
       { status: 200, body: JSON.stringify({ data: [], hasMore: false }) },
       { status: 200, body: JSON.stringify({ data: [], hasMore: false }) },
     ]);
@@ -345,33 +359,43 @@ describe('approvals.list — status (GET /v1/approvals takes one status)', () =>
       fetch: stub.fetch,
     });
 
-    await client.approvals.list({ status: ['approved'] } as never);
-    await client.approvals.list({ status: [] } as never);
+    await client.approvals.list({ status: ['pending', 'assigned', 'in_review'] });
+    await client.approvals.list({ status: ['approved'] });
+    await client.approvals.list({ status: [] });
 
     expect(stub.calls.map((c) => new URL(c.url).searchParams.getAll('status'))).toEqual([
+      ['pending,assigned,in_review'],
       ['approved'],
       [],
     ]);
   });
 
-  it('rejects several statuses without sending a request the API would refuse', async () => {
-    const stub = errorFetch(400, { code: 'bad-input', message: 'Unknown `status` value' });
+  it("sends assignedTo=me and order, and the page says which order it's in", async () => {
+    const stub = jsonFetch({ data: [], hasMore: false, order: 'asc' });
     const client = createClient({
       apiUrl: 'https://api.example.com',
       auth: AUTH,
       fetch: stub.fetch,
     });
 
-    const err = await client.approvals
-      .list({ status: ['pending', 'approved'] } as never)
-      .catch((e: unknown) => e);
+    const page = await client.approvals.list({ assignedTo: 'me', order: 'asc' });
 
-    // No request goes out: the API refuses a comma-joined `status`.
-    expect(stub.calls.map((c) => new URL(c.url).search)).toEqual([]);
-    expect(err).toMatchObject({
-      name: 'KindgiApiError',
-      error: { code: 'invalid-request', issues: [{ path: '/status' }] },
+    const sent = new URL(stub.calls[0]?.url ?? '').searchParams;
+    expect([sent.get('assignedTo'), sent.get('order')]).toEqual(['me', 'asc']);
+    expect(page.order).toBe('asc');
+  });
+
+  it("a page from a runtime that doesn't say has no order (it's newest first)", async () => {
+    const stub = jsonFetch({ data: [], hasMore: false });
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
     });
+
+    const page = await client.approvals.list({ order: 'asc' });
+
+    expect(page.order).toBeUndefined();
   });
 });
 

@@ -24,6 +24,7 @@ import type {
   ProviderRuntimeEntry,
   ProviderSecretRef,
 } from '../provider-binding.js';
+import type { SecretUse } from '../provider-keys.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
 import { tenantResourceAccess } from './tenant-access.js';
@@ -66,6 +67,10 @@ export function providersRouter(
   onWrite?: ProviderWriteHook,
   factories?: AdapterFactoryRegistry,
   authorizer?: Authorizer,
+  options: {
+    /** What in the tenant uses a secret: a provider's key can't be one of them. */
+    readonly secretUsers?: (tenantId: TenantId, name: string) => Promise<readonly SecretUse[]>;
+  } = {},
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   r.use('*', tenantResourceAccess(authorizer));
@@ -262,6 +267,28 @@ export function providersRouter(
       );
     }
 
+    // A model provider's key is used by its provider only: a key a tool or
+    // an endpoint already uses would be taken from it, so say so now.
+    const keyName = secretRefResult.value?.name;
+    const usedBy =
+      keyName === undefined || options.secretUsers === undefined
+        ? []
+        : await options.secretUsers(tenantId, keyName);
+    if (usedBy.length > 0) {
+      c.status(statusFor('provider-key-in-use') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'provider-key-in-use',
+            message: `\`${keyName}\` is used by ${usedBy.map((u) => `${u.kind} "${u.id}"`).join(', ')}: a model provider's key is used by its provider only. Store the provider's key under its own name, or give each of them a key of its own (the same value is fine)`,
+            secret: keyName,
+            usedBy,
+          },
+          requestId,
+        ),
+      );
+    }
+
     const outcome = await binding.register({
       tenantId,
       metadata: validation.value,
@@ -333,6 +360,11 @@ export function providersRouter(
       adapterId: entry.adapterId,
       checked: problems !== undefined,
       issues: problems ?? [],
+      // Where its key resolves from, by name only (never a value), so
+      // `kindgi dev` can keep a provider's key out of the pack's environment.
+      ...(entry.secretRef !== undefined && {
+        secretRef: { envName: entry.secretRef.envName, name: entry.secretRef.name },
+      }),
     });
   });
 

@@ -103,13 +103,120 @@ agent uses yours (with `--json`, it gets the same as
   every tool, agent and flow (`<pack-id>.<name>`), so pick it once; the skills
   tell the agent to ask you for it rather than guess.
 - **The credentials.** You provide them, such as your model provider's API
-  key: put it in your env file (`.env` / `.env.local`), or type it into
-  `kindgi secrets set`, which asks for it without showing it. The agent never
-  invents one or writes one into code. Then it registers the provider.
+  key: type it into `kindgi secrets set`, which asks for it without showing it
+  and keeps it in Kindgi's own `.kindgi/secrets.env`. The agent never invents
+  one or writes one into code. Then it registers the provider.
+- **What the code can reach.** `kindgi dev` runs the code the agent writes
+  sandboxed: it can't read your keys, your other projects or the Docker
+  socket, though it keeps the network and the app's own files
+  ([Keep your tools' code away from your keys](../../guides/secrets/dev-sandbox/)).
 
 Logging in to the runtime image's registry is yours too:
 `kindgi auth registry` asks for your token the same way
 ([Install](../install/)).
+
+## Keep it out of your keys
+
+`kindgi init` adds deny rules to your project's `.claude/settings.json`, so
+Claude Code's file tools never read the files that hold keys and tokens:
+
+```json
+{
+  "permissions": {
+    "deny": [
+      "Read(./.env*)",
+      "Read(./.kindgi/secrets.env)",
+      "Read(./.kindgi/dev/runtime.env)",
+      "Read(./kindgi.env)",
+      "Read(./pack.env)"
+    ]
+  }
+}
+```
+
+It merges them into a settings file you already have, and leaves one it can't
+read as JSON alone, saying what to add. A project with a `.cursorignore`,
+`.geminiignore` or `.aiderignore` gets the same files added to it.
+
+**In a monorepo,** mind where the agent starts. Claude Code reads
+`.claude/settings.json` from the folder a session starts in, and a `./` rule
+is relative to that folder. So when your pack sits below its repository's
+root, `kindgi init` also adds the rules, under the pack's path, to the root's
+`.claude/settings.json` (creating it if there's none), and says so:
+
+```text
+✓ /…/acme/.claude/settings.json: created with 5 deny rules for apps/agent/, so an agent started at the repo root can't read this pack's keys
+```
+
+The root's file then holds `"Read(./apps/agent/.env*)"`,
+`"Read(./apps/agent/.kindgi/secrets.env)"` and so on, merged the same way, and
+a `.cursorignore`, `.geminiignore` or `.aiderignore` at the root gets the same
+paths. A repository rooted at your home folder (your dotfiles, say) is left
+alone: its `.claude/settings.json` is Claude Code's settings for every
+project, so `init` only says what you could add there. An agent started in the pack's folder uses the pack's own file. One
+started in another folder of the repository loads neither. The pack's files
+are outside its folder, so Claude Code asks you before it reads them, unless
+reads are already allowed (in your settings, or with `--allowedTools`): then it
+reads them. Start the agent in the pack's folder or at the repository's root.
+A bare `./.env*` matches at any depth below the session's folder; a rule with
+a folder in it, such as `./.kindgi/secrets.env`, matches only there.
+
+The rules stop the agent's file tools, and a plain `cat .env.local` too. A
+program its shell runs (`node -e …`, a script) can still read the files. To
+close that, turn on Claude Code's
+[sandbox](https://code.claude.com/docs/en/sandboxing) with the same files.
+Tested with Claude Code 2.1.288:
+
+```json
+{
+  "permissions": {
+    "deny": [
+      "Read(./.env*)",
+      "Read(./.kindgi/secrets.env)",
+      "Read(./.kindgi/dev/runtime.env)",
+      "Read(./kindgi.env)",
+      "Read(./pack.env)"
+    ]
+  },
+  "sandbox": {
+    "enabled": true,
+    "failIfUnavailable": true,
+    "allowUnsandboxedCommands": false,
+    "filesystem": {
+      "denyRead": [
+        "./.env*",
+        "./.kindgi/secrets.env",
+        "./.kindgi/dev/runtime.env",
+        "./kindgi.env",
+        "./pack.env"
+      ],
+      "allowWrite": ["~/.npm"]
+    },
+    "network": { "allowedDomains": ["registry.npmjs.org"], "allowLocalBinding": true }
+  }
+}
+```
+
+- **`allowLocalBinding`** lets the agent's `kindgi` commands reach
+  `kindgi dev`, and its `curl` reach your app, on `localhost`. Without it,
+  every `kindgi runs start` fails.
+- **The npm registry and `~/.npm`** let it install packages.
+- **`.kindgirc.json` isn't on either list:** it holds the dev token the
+  agent's own `kindgi` commands read to find `kindgi dev`. With the sandbox
+  on, a `Read` deny rule binds the agent's shell commands too, so denying it
+  would break them.
+- **In a monorepo,** put the sandbox in the root's settings, with the same
+  paths under the pack's folder in both lists (`"./apps/agent/.env*"`, …).
+- **Some things then run in a terminal of your own:** `kindgi dev`, your
+  app's dev server, and anything that needs Docker, such as `kindgi build`.
+  `kindgi doctor` works, and says which checks it skipped because it couldn't
+  read a file.
+
+These settings keep the agent's own tools and commands out of your keys. The
+code it writes still runs in your app and in `kindgi dev`, with your access.
+Under `kindgi dev`, your pack's tools never get a secret stored with
+`kindgi secrets set`, nor a model provider's key, in their environment. Your
+app's routes do see what its own env files hold. Read what the agent writes.
 
 ## Other coding agents
 

@@ -228,9 +228,9 @@ const evaluate: LeafCommand = {
   kind: 'leaf',
   name: 'evaluate',
   description:
-    'Evaluate a proposal on a test set: a comparison of the candidate with the version it changes. The first evaluation publishes the block version and derives the agent version; they serve no scope until promoted, so the agent needs a live version for the whole tenant (`kindgi agents promote <agent-id> <version> --tenant`). The proposal is `evaluating`, then `evaluated` (better), `not-better` or `evaluation-failed`. Needs `publish` on the agent.',
+    "Evaluate a proposal on a test set: a comparison of the candidate with the version it changes. The first evaluation publishes the block version and derives the agent version; they serve no scope until promoted, so the agent needs a live version for the whole tenant (`kindgi agents promote <agent-id> <version> --tenant`). The proposal is `evaluating`, then `evaluated` (better), `not-better` or `evaluation-failed`. With `--rescore`, after people judged the comparison's new answers on its replay runs: the latest evaluation scored again, counting those judgments, on the same replays (no other flag). Needs `publish` on the agent.",
   usage:
-    'kindgi proposals evaluate <proposal-id> --test-set=<suite-id> [--objective=weightedYesShare|weightedPrecisionAtK] [--reads=recorded|live] [--repetitions=<n>] [--k=<n>] [--class-weights=as-recorded|restricted-only] [--wait]',
+    'kindgi proposals evaluate <proposal-id> --test-set=<suite-id> [--objective=weightedYesShare|weightedPrecisionAtK] [--reads=recorded|live] [--repetitions=<n>] [--k=<n>] [--class-weights=as-recorded|restricted-only] [--wait]\n       kindgi proposals evaluate <proposal-id> --rescore [--wait]',
   optionSpec: {
     'test-set': { type: 'string', description: 'The test set: a judged eval suite, by id.' },
     objective: {
@@ -257,6 +257,11 @@ const evaluate: LeafCommand = {
       description:
         '`as-recorded` (the default) or `restricted-only`: only judgments of restricted judge classes count.',
     },
+    rescore: {
+      type: 'boolean',
+      description:
+        "Score the latest evaluation's replays again, with what people judged on them since: same test set version and settings, nothing replayed.",
+    },
     wait: {
       type: 'boolean',
       description:
@@ -267,13 +272,29 @@ const evaluate: LeafCommand = {
   run: (ctx) =>
     runSdk(ctx, 'proposals evaluate', async () => {
       const id = requiredPositional(ctx, 0, 'proposal-id');
+      const proposals = ctx.client().proposals;
+      const follow = () =>
+        followEvalRun(id, {
+          get: (proposalId) => proposals.get(proposalId),
+          inProgress: EVALUATING,
+          showCommand: 'kindgi proposals get',
+        });
+      if (ctx.options.rescore === true) {
+        const set = COMPARISON_FLAGS.filter((flag) => ctx.options[flag] !== undefined);
+        if (set.length > 0) {
+          throw new UsageError(
+            `--rescore cannot be combined with --${set[0]}: it reruns the latest evaluation's test set version and settings`,
+          );
+        }
+        const started = await proposals.rescore(id, { ...idempotency(ctx) });
+        return ctx.options.wait === true ? await follow() : started;
+      }
       const suiteId = required(ctx, 'test-set');
       const objective = oneOfFlag(ctx, 'objective', OBJECTIVES);
       const reads = oneOfFlag(ctx, 'reads', READS);
       const classWeights = oneOfFlag(ctx, 'class-weights', CLASS_WEIGHTS);
       const repetitions = integerFlag(ctx, 'repetitions');
       const k = integerFlag(ctx, 'k');
-      const proposals = ctx.client().proposals;
       const started = await proposals.evaluate(id, {
         suiteId,
         ...(objective !== undefined && { objective }),
@@ -283,14 +304,19 @@ const evaluate: LeafCommand = {
         ...(classWeights !== undefined && { classWeights }),
         ...idempotency(ctx),
       });
-      if (ctx.options.wait !== true) return started;
-      return await followEvalRun(id, {
-        get: (proposalId) => proposals.get(proposalId),
-        inProgress: EVALUATING,
-        showCommand: 'kindgi proposals get',
-      });
+      return ctx.options.wait === true ? await follow() : started;
     }),
 };
+
+/** The evaluate flags a rescore takes from the evaluation it rescores. */
+const COMPARISON_FLAGS = [
+  'test-set',
+  'objective',
+  'reads',
+  'repetitions',
+  'k',
+  'class-weights',
+] as const;
 
 const request: LeafCommand = {
   kind: 'leaf',

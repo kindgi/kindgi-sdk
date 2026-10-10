@@ -84,6 +84,11 @@ export interface InvalidRequestError {
   readonly message: string;
   /** JSON-pointer issues, matching the shape used across `packages/*` validators. */
   readonly issues: readonly { readonly path: string; readonly message: string }[];
+  /**
+   * The server's details (`secret` and `providerId` for a
+   * `provider-key-refused`, …), when it sent any besides `issues`.
+   */
+  readonly fields?: Readonly<Record<string, unknown>>;
 }
 
 /**
@@ -246,6 +251,7 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'permission-denied':
     case 'role-exceeds-principal':
     case 'key-project-mismatch':
+    case 'identity-providers-operator-managed':
       return { code: 'auth', message, reason: 'forbidden' };
     case 'rate-limited':
     case 'rate-limit-exceeded':
@@ -325,6 +331,7 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'seed-user-admin':
     case 'identity-user-unregister-refused':
     case 'identity-user-unregistered':
+    case 'provider-key-in-use':
       return conflict(code, message, details);
     case 'invalid-request':
     case 'validation-failed':
@@ -341,6 +348,7 @@ function classify(body: unknown, status: number | undefined): KindgiError {
     case 'invalid-provider':
     case 'guardrail-config-invalid':
     case 'provider-config-invalid':
+    case 'provider-key-refused':
     case 'supervisor-header-missing':
     case 'scope-invalid':
     case 'artifact-too-large':
@@ -431,13 +439,15 @@ function invalidRequest(
   obj: WireFields,
   details: WireFields | undefined,
 ): KindgiError {
+  const { issues: detailIssues, ...rest } = details ?? {};
   return {
     code: 'invalid-request',
     message,
     issues:
       (obj.issues as InvalidRequestError['issues'] | undefined) ??
-      (details?.issues as InvalidRequestError['issues'] | undefined) ??
+      (detailIssues as InvalidRequestError['issues'] | undefined) ??
       [],
+    ...(Object.keys(rest).length > 0 && { fields: rest }),
   };
 }
 

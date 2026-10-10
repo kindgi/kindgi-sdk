@@ -7,4 +7,4 @@
 - `KINDGI_AWS_PROFILE`;
 - `KINDGI_AWS_ROLE_ARN`, a role to assume, with `KINDGI_AWS_ROLE_SESSION_NAME` and `KINDGI_AWS_STS_REGION`.
 
-The runtime that reads them signs in to AWS only as they name, never with the AWS SDK's default chain. The Bedrock adapter's `auth: aws-identity` is its first user.
+The runtime reads them from 0.1.7 on (0.1.6 ignores them), and then signs in to AWS only as they name, never with the AWS SDK's default chain.

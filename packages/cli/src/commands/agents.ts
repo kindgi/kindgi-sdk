@@ -57,6 +57,7 @@ const AGENTS_TABLE: TableSpec<AgentCollectionPage, Agent> = {
     { header: 'ID', get: (a) => a.id },
     { header: 'VERSION', get: (a) => a.version },
     { header: 'NAME', get: (a) => a.name },
+    { header: 'UNREGISTERED', get: (a) => a.unregisteredAt ?? '' },
   ],
 };
 
@@ -64,9 +65,14 @@ const list: LeafCommand = {
   kind: 'leaf',
   name: 'list',
   description: 'List registered agents (the latest version of each).',
-  usage: 'kindgi agents list [--name=<prefix>] [--limit=<n>] [--cursor=<c>]',
+  usage: 'kindgi agents list [--name=<prefix>] [--include-retired] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
     name: { type: 'string', description: 'Only agents whose id starts with this.' },
+    'include-retired': {
+      type: 'boolean',
+      description:
+        'Include retired agents (every version unregistered), each as its highest version with `unregisteredAt`.',
+    },
     ...PAGE_FLAGS,
   },
   run: (ctx) =>
@@ -75,9 +81,11 @@ const list: LeafCommand = {
       'agents list',
       async () => {
         const name = stringFlag(ctx, 'name');
-        return await ctx
-          .client()
-          .agents.list({ ...page(ctx), ...(name !== undefined && { name }) });
+        return await ctx.client().agents.list({
+          ...page(ctx),
+          ...(name !== undefined && { name }),
+          ...(ctx.options['include-retired'] === true && { includeRetired: true }),
+        });
       },
       AGENTS_TABLE,
     ),
@@ -213,15 +221,25 @@ const versions: LeafCommand = {
   kind: 'leaf',
   name: 'versions',
   description: 'List the registered versions of an agent.',
-  usage: 'kindgi agents versions <agent-id> [--limit=<n>] [--cursor=<c>]',
-  optionSpec: PAGE_FLAGS,
+  usage: 'kindgi agents versions <agent-id> [--include-unregistered] [--limit=<n>] [--cursor=<c>]',
+  optionSpec: {
+    'include-unregistered': {
+      type: 'boolean',
+      description:
+        "Include unregistered versions (each with `unregisteredAt`), a retired agent's too.",
+    },
+    ...PAGE_FLAGS,
+  },
   run: (ctx) =>
     runSdk(
       ctx,
       'agents versions',
       async () => {
         const agentId = requiredPositional(ctx, 0, 'agent-id') as never;
-        return await ctx.client().agents.versions.list(agentId, page(ctx));
+        return await ctx.client().agents.versions.list(agentId, {
+          ...page(ctx),
+          ...(ctx.options['include-unregistered'] === true && { includeTombstoned: true }),
+        });
       },
       AGENTS_TABLE,
     ),

@@ -189,18 +189,24 @@ A secret that belongs to the tenant, such as an API key a customer gives
 you, is declared with `set("needsSpec", …)` and read from `ctx.secrets()`, as
 above. The runtime resolves every declared secret on every call, for the
 call's tenant, in its env (`KINDGI_ENV`; under `kindgi dev`, `local`: the
-pack's `.env` and `.env.local`). It checks each against its schema, and fails
-the call, naming the secret, when one is missing or doesn't match. Every
-declared secret is required.
+pack's `.env` and `.env.local`, then Kindgi's own `.kindgi/secrets.env`, where
+`./kindgiw secrets set` writes). It checks each against its schema, and fails
+the call, naming the secret, when one is missing or doesn't match. A
+declared secret is required, unless its schema names null
+(`"type": ["string", "null"]`): an optional one the env doesn't have, or has
+empty, is absent from `ctx.secrets`, and the call goes on (runtime 0.1.6 or
+later; an older runtime requires it).
 
 Everything else comes from the process environment: `System.getenv("CITATOR_URL")`.
 Under `kindgi dev`, the pack service gets the pack's `.env` and `.env.local`,
 and restarts when they change. Nothing else from your shell reaches it
 except `PATH`, `HOME` and `TMPDIR`; `MAVEN_ARGS` and `MAVEN_OPTS` reach Maven
-only. Put a secret there by hand, or with
-`./kindgiw secrets set NAME --env=local --scope=tenant` (a no-echo prompt),
-and keep the env files out of git. A deployed service names the variables
-it needs in `kindgi.config.json`: `"env": {"required": ["DATABASE_URL"],
+only. Put a setting there by hand, and keep the env files out of git. A
+secret stored with `./kindgiw secrets set NAME --env=local --scope=tenant` (a
+no-echo prompt) never reaches the process environment: declare it and read it
+from `ctx.secrets()`. A model provider's key reaches no tool at all: a tool
+that calls a model declares a key of its own. A deployed service names the
+variables it needs in `kindgi.config.json`: `"env": {"required": ["DATABASE_URL"],
 "optional": ["SENTRY_DSN"]}`. Without a required one it isn't ready, and
 every variable it doesn't declare is dropped before your code loads
 (`kindgi dev` keeps them), so an undeclared one works locally and is unset
@@ -336,6 +342,13 @@ removed field, a narrower type), not on every save.
     kindgi-pack finds modules as `findAndRegisterModules()` does, through
     `META-INF/services`. Declare it there, or the tool's input and schema
     won't see it.
+
+11. **Turning the dev sandbox off for a file the tool needs.** Under `kindgi dev`
+    the tool's code runs sandboxed: it can't read outside the app (the home
+    folder, `~/.aws`) or any `.env*` file, and gets `EPERM` there. A tool that
+    needs a path names it in `kindgi.config.json`: `"dev": {"sandbox": {"allowRead": ["~/.aws"]}}`.
+    Never set `KINDGI_DEV_SANDBOX=off` or `dev.sandbox: false` to get past it
+    (https://docs.kindgi.com/v0.1/guides/secrets/dev-sandbox/).
 
 ## When the framework itself is the problem
 

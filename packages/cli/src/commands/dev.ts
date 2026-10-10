@@ -35,6 +35,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { chmod, readFile, unlink, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { basename, isAbsolute, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 
@@ -50,13 +51,15 @@ import {
 import {
   LOCAL_ENV_NAME,
   type PackEnv,
+  describeUnreadable,
   displayEnvPath,
+  namesInAppFiles,
   packValues,
   readPackEnv,
   runtimeValues,
 } from '@kindgi/secrets-dotenv';
 
-import type { KindgiClient, Provider } from '@kindgi/client';
+import type { KindgiClient } from '@kindgi/client';
 import {
   CORS_ORIGINS_VAR,
   EXPORT_SIGNING_KEY_PATH_VAR,
@@ -124,7 +127,15 @@ import type {
 } from '../dev/runners.js';
 import { RuntimeOwnedElsewhere, RuntimeStartStopped } from '../dev/runtime-container.js';
 import { DEFAULT_RUNTIME_IMAGE } from '../dev/runtime-image.js';
+import { resolveDevSandbox } from '../dev/sandbox/notices.js';
 import { describeEnvDiagnostics, loadLocalEnvSettings } from '../env/project-env.js';
+import {
+  declaredProviderKeyNames,
+  listAllProviders,
+  providerKeyNamesFromRuntime,
+  readProviderKeysRecord,
+  writeProviderKeysRecord,
+} from '../env/provider-keys.js';
 import { PYPI_NO_BUNDLER } from '../esbuild-loader.js';
 import { openUrlInBrowser } from '../open-url.js';
 import { renderJson } from '../output.js';
@@ -483,6 +494,23 @@ async function runDevForPack(
     emitProgress(`⚠ ${vertexCredentialsHint(declaredVertex, ctx.env)}`);
   }
 
+  // The pack service runs sandboxed where this machine can: the code a
+  // coding agent writes can't read your keys or reach Docker. Where it
+  // can't, a warning; required (KINDGI_DEV_SANDBOX=required): refused now,
+  // before anything starts.
+  const devSandbox = await resolveDevSandbox({
+    config: projectEnv.config,
+    env: ctx.env,
+    packDir: args.packDir,
+    home: ctx.env.HOME ?? homedir(),
+    detect: dev.detectSandbox,
+  });
+  if (devSandbox.kind === 'error') {
+    return { kind: 'error', stderr: `kindgi dev: ${devSandbox.message}\n`, exitCode: 1 };
+  }
+  for (const line of devSandbox.lines) emitProgress(line);
+  const sandboxNotices = new Set<string>();
+
   // The runtime's port, before anything starts. Taken without `--port`
   // (another `kindgi dev`, say): the next free one, which `.kindgirc.json`
   // then records for every client. Taken with `--port`: refused.
@@ -641,11 +669,19 @@ async function runDevForPack(
   // starts once the pack is bundled and indexed; the api-server gets
   // its transport now.
   // The pack service and the indexer write records at the levels shown.
+  // A model provider's key never reaches the pack service, whatever file
+  // holds it (`env/provider-keys.ts`): the declared ones and the ones the
+  // last start learned now, the runtime's once it answers.
+  let providerKeyNames: ReadonlySet<string> = new Set([
+    ...declaredProviderKeyNames(declared.providers),
+    ...(await readProviderKeysRecord(args.packDir)),
+  ]);
   const packEnv = async () => ({
     ...(await devPackEnv({
       packDir: args.packDir,
       ...(projectEnv.localEnvFiles !== undefined && { localEnvFiles: projectEnv.localEnvFiles }),
       hostEnv: ctx.env,
+      providerKeyNames,
     })),
     ...sourceLogEnv(logView),
   });
@@ -669,6 +705,13 @@ async function runDevForPack(
     packDir: args.packDir,
     code: code.value,
     env: packEnv,
+    ...(devSandbox.sandbox !== undefined && { sandbox: devSandbox.sandbox }),
+    // Once per session each: a reload starts the service again.
+    onNotice: (line: string) => {
+      if (sandboxNotices.has(line)) return;
+      sandboxNotices.add(line);
+      emitProgress(`⚠ ${line}`);
+    },
     onLog: (line: string, stream: 'stdout' | 'stderr') =>
       emitOutput(showText('pack', line, logView, stream)),
     onEvent: (event: Parameters<typeof showPackEvent>[0]) => {
@@ -712,6 +755,9 @@ async function runDevForPack(
     env: packEnv,
     code: code.value,
     onIndexerOutput: (line) => emitOutput(showIndexerLine(line, logView)),
+    // The indexer imports every primitive's module: the pack's code, so sandboxed too.
+    ...(devSandbox.sandbox !== undefined && { sandbox: devSandbox.sandbox }),
+    onNotice: packOptions.onNotice,
     ...(devOnly !== undefined && {
       onBuild: async (build) => {
         if (build.externals === undefined) return;
@@ -844,6 +890,17 @@ async function runDevForPack(
     envFiles: projectEnv.envFilesLabel,
   });
   const providers = await registeredProviders(client);
+  providerKeyNames = await settleProviderKeys({
+    client,
+    packDir: args.packDir,
+    localEnvFiles: projectEnv.localEnvFiles,
+    known: providerKeyNames,
+    declared: declaredProviderKeyNames(declared.providers),
+    restartPack: async () => {
+      await refresher.refresh();
+    },
+    kindgi,
+  });
   const registerProviderCommand = await registerProviderHint(kindgi);
   // A Vertex provider registered by hand (the `gemini` preset) has no
   // credentials either; a declared one was named before the start.
@@ -1227,6 +1284,11 @@ async function loadDevProjectEnv(ctx: CommandContext, packDir: string): Promise<
     });
   } catch (err) {
     return fail(`could not read the env files: ${(err as Error).message}`);
+  }
+  if (env.unreadable.length > 0) {
+    return fail(
+      `can't read ${describeUnreadable(packDir, env.unreadable)}. It reads the pack's env files: run it in a terminal of your own, where they can be read.`,
+    );
   }
   const label = (paths: readonly string[]): string =>
     paths.map((p) => displayEnvPath(packDir, p)).join(', ');
@@ -1824,19 +1886,57 @@ export interface BannerProvider {
   readonly fallback?: boolean;
 }
 
-/** Every provider of the tenant, all pages. */
-async function listProviders(client: KindgiClient): Promise<readonly Provider[]> {
-  const providers: Provider[] = [];
-  let cursor: string | undefined;
-  do {
-    const page = await client.providers.list({
-      limit: 100,
-      ...(cursor !== undefined && { cursor }),
-    });
-    providers.push(...page.data);
-    cursor = page.hasMore ? page.nextCursor : undefined;
-  } while (cursor !== undefined);
-  return providers;
+/** How long the start waits on the runtime for its providers' key names. */
+const PROVIDER_KEYS_TIMEOUT_MS = 5_000;
+
+/**
+ * Once the runtime answers: the names its providers' keys resolve from,
+ * recorded for the next start and kept out of the pack service (restarted
+ * when one was in its environment). Then a one-time hint for each provider
+ * key Kindgi borrows from the app's env files: `kindgi secrets copy` gives
+ * Kindgi its own copy, and never edits the app's files. When the runtime's
+ * providers can't be read, the names known before stand.
+ */
+async function settleProviderKeys(inputs: {
+  readonly client: KindgiClient;
+  readonly packDir: string;
+  readonly localEnvFiles: readonly string[] | undefined;
+  readonly known: ReadonlySet<string>;
+  readonly declared: ReadonlySet<string>;
+  readonly restartPack: () => Promise<void>;
+  readonly kindgi: (...args: string[]) => string;
+}): Promise<ReadonlySet<string>> {
+  let learned: Set<string>;
+  try {
+    // A runtime that answers slowly (or not) never holds up the start.
+    const presets = await loadProviderPresets();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    learned = await Promise.race([
+      providerKeyNamesFromRuntime(inputs.client, presets),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('timed out')), PROVIDER_KEYS_TIMEOUT_MS);
+      }),
+    ]).finally(() => clearTimeout(timer));
+  } catch {
+    return inputs.known;
+  }
+  await writeProviderKeysRecord(inputs.packDir, learned);
+  const all = new Set([...inputs.declared, ...learned]);
+  const held = await namesInAppFiles({
+    packDir: inputs.packDir,
+    ...(inputs.localEnvFiles !== undefined && { localEnvFiles: inputs.localEnvFiles }),
+    names: [...all].sort(),
+  });
+  // A key the pack service started with: restart it without.
+  if (held.some((h) => !inputs.known.has(h.name) && !h.inKindgiFile)) await inputs.restartPack();
+  for (const h of held) {
+    if (h.inKindgiFile) continue;
+    const where = h.files.map((f) => displayEnvPath(inputs.packDir, f)).join(' and ');
+    emitProgress(
+      `  ⚠ ${h.name} is in ${where}, which your app loads too. To give Kindgi its own copy: ${inputs.kindgi('secrets', 'copy')} (it never edits your app's files).`,
+    );
+  }
+  return all;
 }
 
 /**
@@ -1847,7 +1947,7 @@ async function registeredProviders(
   client: KindgiClient,
 ): Promise<readonly BannerProvider[] | undefined> {
   try {
-    return (await listProviders(client)) as readonly BannerProvider[];
+    return (await listAllProviders(client)) as readonly BannerProvider[];
   } catch {
     return undefined;
   }
@@ -1879,7 +1979,7 @@ async function applyDeclaredProviders(inputs: {
       declared: inputs.declared,
       owned,
       client: {
-        list: () => listProviders(client),
+        list: () => listAllProviders(client),
         register: (input) => client.providers.register(input),
         unregister: (id) => client.providers.unregister(id),
       },

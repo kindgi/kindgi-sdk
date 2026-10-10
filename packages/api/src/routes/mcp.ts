@@ -21,8 +21,10 @@ import {
   MCP_TRANSPORTS,
 } from '../mcp-endpoint-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
 import { type TenantHostAccess, deniesHostReach, stdioRefusal } from '../tenant-host-access.js';
 import type { AppEnv } from '../types.js';
+import { refused } from './denied.js';
 import { clampLimit } from './pagination.js';
 import { parseScopeParams, scopeResourceRef } from './scope-params.js';
 import { parseSecretRef } from './secret-ref.js';
@@ -45,7 +47,7 @@ export function mcpRouter(
   binding: MCPEndpointRegistryBinding,
   clientProbe: MCPClientProbeBinding | undefined,
   authorizer: Authorizer | undefined,
-  options: { readonly hostAccess: TenantHostAccess },
+  options: { readonly hostAccess: TenantHostAccess; readonly providerKeys?: ProviderKeys },
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -206,14 +208,28 @@ export function mcpRouter(
       );
     }
 
+    // A model provider's key is never an MCP endpoint's.
+    const refusal = await refuseProviderKeys(
+      options.providerKeys,
+      tenantId,
+      validation.value.secretRef === undefined ? [] : [validation.value.secretRef.name],
+      'an MCP endpoint',
+    );
+    if (refusal !== undefined) {
+      c.status(statusFor(refusal.code) as never);
+      return c.json(toWireError(refusal, requestId));
+    }
+
     if (validation.value.transport === 'stdio' && deniesHostReach(options.hostAccess, 'exec')) {
-      c.status(statusFor('host-access-denied') as never);
-      return c.json(
-        toWireError(
-          { code: 'host-access-denied', message: stdioRefusal(validation.value.endpointId) },
-          requestId,
-        ),
-      );
+      // The deployment rules it out: recorded, as every refusal the API
+      // decides itself is.
+      return refused(c, authorizer, {
+        action: 'admin',
+        resource: ref('mcp_endpoint', validation.value.endpointId),
+        message: stdioRefusal(validation.value.endpointId),
+        failing: 'scope',
+        code: 'host-access-denied',
+      });
     }
 
     // Policy/config: register requires an explicit scope. Wire

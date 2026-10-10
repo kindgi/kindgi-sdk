@@ -9,7 +9,9 @@ sidebar:
 Kindgi is self-host first: the runtime you run on your machine with
 `kindgi dev` is the same image you deploy into your own infrastructure, next
 to your data. Your pack's code runs beside it, in a pack service built from
-your app.
+your app. (The 0.1.5 CLI's `kindgi dev` runs runtime 0.1.5; deploy 0.1.5.1,
+its [security fix](operate/#runtime-0151) for authorization, which changes
+nothing under `kindgi dev`.)
 
 :::note[Access to the runtime image]
 The runtime image is in private preview: request access at contact@kindgi.com.
@@ -21,6 +23,9 @@ You get its pull credentials, a robot name and a token, and log in once with
   service as containers, with your own Postgres.
 - **[Operate it](operate/):** health and logs, backups and restores,
   upgrades, and rotating its tokens and keys.
+- **[Keep secrets in your own secret manager](secret-manager/):** Azure Key
+  Vault, Google Secret Manager or HashiCorp Vault holds the secrets set
+  through Kindgi's API, and Kindgi keeps their names and versions.
 - **[Keep and purge deleted data](retention/):** how long deleted records
   are kept, and the retention policies and sweeps that purge them.
 - **[Run with authorization](authorization/):** what it gives today and

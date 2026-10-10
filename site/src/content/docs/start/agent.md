@@ -75,36 +75,68 @@ running and no model key yet:
 ```json
 {
   "ok": false,
-  "cliVersion": "0.1.4",
-  "project": { "dir": "/Users/you/my-agents", "language": "node" },
+  "cliVersion": "0.1.5",
+  "project": {
+    "dir": "…/my-agents",
+    "language": "node"
+  },
+  "consoleUrl": "http://127.0.0.1:4000/console/",
   "checks": [
-    {"id": "node", "status": "pass", "message": "Node 22.21.1."},
+    {
+      "id": "node",
+      "status": "pass",
+      "message": "Node 22.21.1."
+    },
     …,
-    {"id": "model-key", "status": "fail", "message": "No model key in .env or .env.local (looked for ANTHROPIC_API_KEY, GEMINI_API_KEY, GROQ_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY).", "fix": "With kindgi dev running, set one LLM provider's key: pnpm exec kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant, or the same with GEMINI_API_KEY, GROQ_API_KEY, OPENAI_API_KEY or OPENROUTER_API_KEY (it prompts without echoing; or pipe it in with --from-stdin). Never paste a key into a chat."},
-    {"id": "runtime", "status": "pass", "message": "The runtime answers at http://127.0.0.1:63421."},
-    {"id": "provider", "status": "fail", "message": "Only dev-echo is registered: agents get its canned replies, not a model's.", "fix": "Register the provider whose key you set: pnpm exec kindgi providers register --preset=<preset>, where <preset> is anthropic, gemini-api, groq, openai or openrouter (see Model key)."}
+    {
+      "id": "model-key",
+      "status": "fail",
+      "message": "No model key in .env or .env.local (looked for ANTHROPIC_API_KEY, GEMINI_API_KEY, GROQ_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY).",
+      "fix": "With kindgi dev running, set one LLM provider's key: pnpm exec kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant, or the same with GEMINI_API_KEY, GROQ_API_KEY, OPENAI_API_KEY or OPENROUTER_API_KEY (it prompts without echoing; or pipe it in with --from-stdin). Never paste a key into a chat."
+    },
+    {
+      "id": "runtime",
+      "status": "pass",
+      "message": "The runtime answers at http://127.0.0.1:4000; its console is at http://127.0.0.1:4000/console/."
+    },
+    {
+      "id": "provider",
+      "status": "fail",
+      "message": "Only dev-echo is registered: agents get its canned replies, not a model's.",
+      "fix": "Register the provider whose key you set: pnpm exec kindgi providers register --preset=<preset>, where <preset> is anthropic, gemini-api, groq, openai or openrouter (see Model key)."
+    },
+    {
+      "id": "erasures",
+      "status": "skip",
+      "message": "Erasures run, but a replay after a backup restore can't find whom they erased: the runtime has no KINDGI_ERASURE_LEDGER_KEY. Fine for development; set it where you run in production."
+    }
   ]
 }
 ```
 
 The checks come in this order: `node`, `npm`, `python`, `uv`, `java`,
-`maven`, `sbt`, `docker`, `registry`, `console-sign-in`, `project`,
-`dependencies`, `model-key`,
-`runtime`, `provider`.
+`maven`, `sbt`, `docker`, `registry`, `dev-sandbox`, `console-sign-in`,
+`project`, `dependencies`, `model-key`, `runtime`, `provider`, `erasures`.
 
 - **`fail`:** run its `fix`, as written: it names the CLI to use in that
   folder. When the fix needs the person (start Docker Desktop, sign in, copy
   a key), ask them, then run doctor again.
 - **`warn`:** it works now, but the person should know: tell them its
   `message` and `fix`, and go on. `ok` stays `true` and the exit code `0`.
-  In this release two checks warn. `provider`: when an agent that names no
+  In this release three checks warn. `dev-sandbox`: when `kindgi dev` can't
+  run the pack's code sandboxed on this machine (Linux without bubblewrap,
+  a container, Windows, or inside another sandbox); the code would then run
+  with the person's own access. `provider`: when an agent that names no
   model would get a model the preset no longer lists, or one other than the
   preset's default; or when the runtime can't build a registered provider
   (each problem is in the check's `details`). When it can build none,
   `provider` fails instead. `console-sign-in`: when nobody can sign in to the
   console of the runtime the CLI points at.
 - **`skip`:** not applicable yet. Outside a project, `project` and every
-  check after it skip; `runtime` skips while `kindgi dev` isn't running.
+  check after it skip; `runtime` skips while `kindgi dev` isn't running;
+  `dev-sandbox` skips when `KINDGI_DEV_SANDBOX=off`. `erasures` skips with a
+  note when the runtime has no erasure ledger key, as under `kindgi dev`: fine
+  for development.
 
 Fix every `fail` up to and including `docker` before you go on. `registry` is
 step 1.

@@ -4,7 +4,6 @@
 import type { Context } from 'hono';
 import { Hono } from 'hono';
 
-import type { ProjectRole } from '@kindgi/platform';
 import type { Cursor, Result, TenantId } from '@kindgi/types';
 
 import { callerRef, isTenantAdmin } from '../caller.js';
@@ -19,11 +18,11 @@ import type {
 } from '../service-account-binding.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
+import { parseAssignableProjectRole } from './project-roles.js';
 
 /** Lowercase letters, digits and hyphens, starting with a letter or digit. */
 const NAME_RE = /^[a-z0-9][a-z0-9-]{0,62}$/;
 const MAX_DESCRIPTION_LENGTH = 500;
-const PROJECT_ROLES: readonly ProjectRole[] = ['viewer', 'editor', 'owner', 'admin', 'member'];
 
 /**
  * Service accounts (`/v1/service-accounts`), for tenant admins:
@@ -240,11 +239,12 @@ function parseGrant(raw: unknown): Parsed<ServiceAccountGrant> {
   const target = parseGrantTarget(raw);
   if (target.kind === 'err') return target;
   if (target.value.kind !== 'project') return { kind: 'ok', value: target.value };
-  const role = (raw as { role?: unknown }).role;
-  if (typeof role !== 'string' || !PROJECT_ROLES.includes(role as ProjectRole)) {
-    return badInput(`A project grant's \`role\` must be one of: ${PROJECT_ROLES.join(', ')}`);
-  }
-  return { kind: 'ok', value: { ...target.value, role: role as ProjectRole } };
+  const role = parseAssignableProjectRole(
+    (raw as { role?: unknown }).role,
+    "A project grant's `role`",
+  );
+  if (role.kind === 'err') return badInput(role.message);
+  return { kind: 'ok', value: { ...target.value, role: role.value } };
 }
 
 /** `{kind: 'tenant-admin'}`, `{kind: 'tenant-member'}` or `{kind: 'project', projectId}`. */

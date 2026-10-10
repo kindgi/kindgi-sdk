@@ -5,14 +5,38 @@ import { describe, expect, test } from 'vitest';
 
 import {
   AZURE_KEY_ID_VAR,
+  AZURE_VAULT_URL_VAR,
   CORS_ORIGINS_VAR,
   KINDGI_ENV_SCHEMA,
   PUBLIC_TOKEN_KEY_PATH_VAR,
   parseAzureKeyId,
+  parseAzureVaultUrl,
   parseCorsOrigins,
   parsePackServiceToken,
   parsePublicUrl,
 } from '../src/index.js';
+
+describe('parseAzureVaultUrl', () => {
+  test("a vault's https origin; a trailing slash or whitespace is dropped; unset is undefined", () => {
+    expect(parseAzureVaultUrl('https://my-kindgi-secrets.vault.azure.net')).toBe(
+      'https://my-kindgi-secrets.vault.azure.net',
+    );
+    expect(parseAzureVaultUrl(' https://v.vault.azure.cn/\n')).toBe('https://v.vault.azure.cn');
+    expect(parseAzureVaultUrl(undefined)).toBeUndefined();
+    expect(parseAzureVaultUrl('')).toBeUndefined();
+  });
+
+  test.each([
+    ['my-vault.vault.azure.net'],
+    ['http://my-vault.vault.azure.net'],
+    ['https://my-vault.vault.azure.net/secrets/x'],
+    ['https://my-vault.vault.azure.net/?api-version=7.5'],
+  ])('refuses %j', (raw) => {
+    expect(() => parseAzureVaultUrl(raw)).toThrow(
+      `${AZURE_VAULT_URL_VAR} must be a Key Vault's URL with nothing after the host, like https://my-kindgi-secrets.vault.azure.net. Got: ${raw}.`,
+    );
+  });
+});
 
 describe('parseAzureKeyId', () => {
   test('a versionless key URL: the key, its vault and its name; a trailing slash is dropped', () => {

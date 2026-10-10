@@ -22,6 +22,7 @@ import { capabilityRefusal } from './denied.js';
 import { requireEnvName, requireScope, scopesEqual } from './env.js';
 import { clampLimit } from './pagination.js';
 import { queryScopeResourceRef, scopeResourceRef } from './scope-params.js';
+import { parseTimeInput } from './time-input.js';
 import { auditWrite } from './write-audit.js';
 
 /**
@@ -384,11 +385,13 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
         ),
       );
     }
-    if (b.rotationDueAt !== undefined && typeof b.rotationDueAt !== 'string') {
+    const rotationDueAt =
+      b.rotationDueAt === undefined ? undefined : parseTimeInput(b.rotationDueAt);
+    if (rotationDueAt === null) {
       c.status(statusFor('bad-input') as never);
       return c.json(
         toWireError(
-          { code: 'bad-input', message: '`rotationDueAt` must be an ISO 8601 string when present' },
+          { code: 'bad-input', message: '`rotationDueAt` must be an ISO 8601 time when present' },
           requestId,
         ),
       );
@@ -405,6 +408,28 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
         ),
       );
     }
+    if (b.appEnvFile !== undefined && typeof b.appEnvFile !== 'boolean') {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError(
+          { code: 'bad-input', message: '`appEnvFile` must be a boolean when present' },
+          requestId,
+        ),
+      );
+    }
+    if (b.appEnvFile === true && secretsBinding.writesAppEnvFiles !== true) {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'bad-input',
+            message:
+              "`appEnvFile` is for a runtime under `kindgi dev`, whose secrets live in the pack's env files. This runtime keeps secrets in its secrets store: set the value your app needs in its own configuration.",
+          },
+          requestId,
+        ),
+      );
+    }
 
     const setScope = bodyScope.scope;
     const outcome: SecretSetOutcome = await secretsBinding.set({
@@ -414,8 +439,10 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
       value: b.value,
       writeMode: b.writeMode,
       ...(b.tags !== undefined && { tags: b.tags as Readonly<Record<string, string>> }),
-      ...(b.rotationDueAt !== undefined && { rotationDueAt: b.rotationDueAt as string }),
+      ...(rotationDueAt !== undefined && { rotationDueAt: rotationDueAt.toISOString() }),
       ...(b.ifVersion !== undefined && { ifVersion: b.ifVersion as number }),
+      ...(b.appEnvFile === true && { appEnvFile: true }),
+      ...idempotencyKeyOf(c.req.header('Idempotency-Key')),
       // Authorization — write `secret#scope@X` tuple on fresh insert.
       enqueueTuples: (secretRowId) =>
         tuplesForCreate({ kind: 'secret', id: secretRowId, tenantId, scope: setScope }),
@@ -572,6 +599,7 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
       name,
       ...(b.newValue !== undefined && { newValue: b.newValue as string }),
       ...(b.revokeOldAfterMs !== undefined && { revokeOldAfterMs: b.revokeOldAfterMs as number }),
+      ...idempotencyKeyOf(c.req.header('Idempotency-Key')),
     });
 
     const rotateAudit = { scope, envName: envNameResult.envName, name } as const;
@@ -1015,4 +1043,13 @@ function serializeRotationStatus(s: RotationStatus): Record<string, unknown> {
     ...(s.oldVersionId !== undefined && { oldVersionId: s.oldVersionId }),
     ...(s.error !== undefined && { error: s.error }),
   };
+}
+
+/**
+ * The request's `Idempotency-Key`, for a binding that finishes a retried
+ * write (the secret-manager backend). Blank: none.
+ */
+function idempotencyKeyOf(raw: string | undefined): { readonly idempotencyKey?: string } {
+  const key = raw?.trim();
+  return key === undefined || key === '' ? {} : { idempotencyKey: key };
 }

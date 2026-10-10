@@ -10,6 +10,7 @@ import {
   runSdk,
   segmentsFlag,
   stringFlag,
+  timeFlag,
 } from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
 
@@ -63,10 +64,15 @@ const list: LeafCommand = {
   kind: 'leaf',
   name: 'list',
   description: 'List eval suites (the latest version of each).',
-  usage: `kindgi eval-suites list [--project=<id>] [--kind=${KINDS.join('|')}] [--limit=<n>] [--cursor=<c>]`,
+  usage: `kindgi eval-suites list [--project=<id>] [--kind=${KINDS.join('|')}] [--include-retired] [--limit=<n>] [--cursor=<c>]`,
   optionSpec: {
     project: { type: 'string', description: 'Only suites in this project.' },
     kind: { type: 'string', description: `Only this kind: ${KINDS.join(', ')}.` },
+    'include-retired': {
+      type: 'boolean',
+      description:
+        'Include retired suites (every version unregistered), each as its highest version with `unregisteredAt`.',
+    },
     ...PAGE_FLAGS,
   },
   run: (ctx) =>
@@ -83,6 +89,7 @@ const list: LeafCommand = {
         ...(projectId !== undefined && { scopeKind: 'project' as const, scopeId: projectId }),
         ...(limit !== undefined && { limit }),
         ...(cursor !== undefined && { cursor }),
+        ...(ctx.options['include-retired'] === true && { includeRetired: true }),
       });
     }),
 };
@@ -124,9 +131,14 @@ const fromJudgments: LeafCommand = {
     flow: { type: 'string', description: 'Use judged runs of this flow.' },
     since: {
       type: 'string',
-      description: 'Only runs first judged at or after this ISO 8601 time.',
+      description:
+        'Only runs first judged at or after this time: an ISO 8601 time with a zone, or a date (its start, UTC).',
     },
-    until: { type: 'string', description: 'Only runs first judged before this ISO 8601 time.' },
+    until: {
+      type: 'string',
+      description:
+        'Only runs first judged before this time: an ISO 8601 time with a zone, or a date (its start, UTC).',
+    },
     class: {
       type: 'string',
       multiple: true,
@@ -165,6 +177,8 @@ const fromJudgments: LeafCommand = {
       }
       const classes = listFlag(ctx, 'class');
       const segments = segmentsFlag(ctx);
+      const since = timeFlag(ctx, 'since');
+      const until = timeFlag(ctx, 'until');
       return await ctx.client().evalSuites.buildFromJudgments(suiteId, {
         version,
         projectId,
@@ -172,10 +186,10 @@ const fromJudgments: LeafCommand = {
           agent: 'agentId',
           'agent-version': 'agentVersion',
           flow: 'flowId',
-          since: 'since',
-          until: 'until',
           description: 'description',
         }),
+        ...(since !== undefined && { since }),
+        ...(until !== undefined && { until }),
         ...(classes.length > 0 && { judgeClassIds: classes }),
         ...(minJudgments !== undefined && { minJudgments }),
         ...(segments.length > 0 && { segments: [...segments] }),

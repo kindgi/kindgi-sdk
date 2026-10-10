@@ -120,8 +120,10 @@ A tool there is a `val` of an object in a `kindgi.tools` package under the
 app's own (`com.acme.app.kindgi.tools`), and calls the app's code directly. A
 library a tool uses must be on the runtime classpath (not `% Test` or
 `% Provided`): the image ships the runtime classpath only. `kindgi dev` reads
-the app's `.env` and `.env.local`: keys already there reach the tools as
-environment variables.
+the app's `.env` and `.env.local`: values already there reach the tools as
+environment variables. A secret stored with `kindgi secrets set` doesn't: a
+tool reads it from its context (`needsSpec.secrets`). Nor does a model
+provider's key, which no tool gets.
 
 ## Layout of the template
 
@@ -163,7 +165,7 @@ key and register its preset (Anthropic below; `./kindgiw providers presets`
 lists OpenAI, Gemini, Groq and OpenRouter too):
 
 ```sh
-./kindgiw secrets set ANTHROPIC_API_KEY --env=local --scope=tenant   # no-echo prompt; writes .env.local
+./kindgiw secrets set ANTHROPIC_API_KEY --env=local --scope=tenant   # no-echo prompt; writes .kindgi/secrets.env
 ./kindgiw providers register --preset=anthropic
 ```
 
@@ -284,6 +286,27 @@ names it; one the pack doesn't declare is dropped before the code loads
 - **The pack id and version** in `kindgi.config.json`. The id prefixes every
   primitive (`<pack-id>.<name>`): pick it once.
 - **Model credentials.** Ask for the key; never invent or hard-code one.
+
+## Keys and tokens: hands off
+
+Never open, read, grep, `cat`, copy or print the files that hold keys and
+tokens, in any folder of the repository (not only the pack's), and never
+print their values (`env`, `printenv`, or code that echoes the process
+environment):
+
+- `.env`, `.env.local` and any other `.env.*`: the app's settings, and any key
+  put there by hand;
+- `.kindgi/secrets.env`: Kindgi's own secrets, where `./kindgiw secrets set` writes;
+- `.kindgi/dev/runtime.env`: the dev runtime's token and database URL;
+- a self-hosted deployment's `kindgi.env` or `pack.env`.
+
+A value you read lands in your context and in every later request to the
+model provider. To see which secrets exist, run
+`./kindgiw secrets list --env=local --scope=tenant` (names only). To store one,
+ask the person to run `./kindgiw secrets set NAME --env=local --scope=tenant`
+themselves: it prompts without echoing. Never put a value on a command line.
+`kindgi init` adds these files to the deny rules in `.claude/settings.json`;
+in a monorepo, also to the repository root's, under the pack's path.
 
 ## Next
 

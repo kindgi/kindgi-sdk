@@ -17,7 +17,7 @@ kindgi sso providers start acme-oidc --kind=oidc
 Sign-in with "acme-oidc" (OpenID Connect). Send this to whoever runs your identity provider:
 
   Create an OpenID Connect web application (a confidential client) for Kindgi.
-  Redirect URI:  http://localhost:18096/auth/sso/callback/idp-jny2pmt3t5mmjbluxabrur26na
+  Redirect URI:  http://localhost:18096/auth/sso/callback/idp-lkwnp5mzjrocnhdwtd4dwjqy3m
   Scopes:        openid email profile
   Let in only the people who should use Kindgi (assign users or groups).
 
@@ -25,7 +25,7 @@ Sign-in with "acme-oidc" (OpenID Connect). Send this to whoever runs your identi
   Kindgi's secret store under a name, never by email or chat:
     kindgi secrets set <NAME> --env=<runtime env> --scope=tenant
 
-Step by step: https://docs.kindgi.com/guides/sso/oidc/
+Step by step: https://docs.kindgi.com/v0.1/guides/sso/oidc/
 
 Then register it:
   kindgi sso providers finish acme-oidc --kind=oidc --issuer=<issuer> --client-id=<client-id> --client-secret-ref=<NAME> --domains=<your-domain>

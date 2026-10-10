@@ -10,7 +10,7 @@
  */
 
 import { EventEmitter } from 'node:events';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -260,8 +260,23 @@ describe('resolveSecrets', () => {
       readSpy,
     );
     expect(result.kind).toBe('ok');
-    // `local` reads `.env` and `.env.local` — once each, for both secrets.
-    expect(readSpy).toHaveBeenCalledTimes(2);
+    // `local` reads `.env`, `.env.local` and `.kindgi/secrets.env` — once each, for both secrets.
+    expect(readSpy).toHaveBeenCalledTimes(3);
+  });
+
+  test("local: a secret stored with `kindgi secrets set` (Kindgi's own file) resolves, and wins", async () => {
+    await writeFile(join(packDir, '.env.local'), 'A=from-app\n');
+    await mkdir(join(packDir, '.kindgi'), { recursive: true });
+    await writeFile(join(packDir, '.kindgi', 'secrets.env'), 'A=from-kindgi\nB=only-kindgi\n');
+    const result = await resolveSecrets(
+      [
+        { child: 'A_CHILD', ref: { name: 'A', envName: 'local', scopeKind: 'tenant' } },
+        { child: 'B_CHILD', ref: { name: 'B', envName: 'local', scopeKind: 'tenant' } },
+      ],
+      packDir,
+      realReadFile,
+    );
+    expect(result).toEqual({ kind: 'ok', env: { A_CHILD: 'from-kindgi', B_CHILD: 'only-kindgi' } });
   });
 
   test('local: a secret in the project .env resolves; .env.local overrides it', async () => {

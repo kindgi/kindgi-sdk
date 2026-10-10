@@ -12,12 +12,12 @@
  * today: base64url `{createdAt, id}`, or a time alone where the binding
  * pages by time. The route hides both rows and answers `hasMore`.
  *
- * - "continues after the last row it fetched" holds today and must keep
- *   holding: the binding gets its own position back.
- * - "hands out no cursor naming a hidden row" fails today on every list
- *   (`test.fails`): the route returns the binding's cursor, which names the
- *   hidden row. A sealed cursor fixes it; then each `test.fails` flips to
- *   `test`, and this table is that fix's acceptance.
+ * With the app's cursor sealer (`cursorSealer`, as the runtime sets it):
+ * - "continues after the last row it fetched": the binding gets its own
+ *   position back, so paging never stops short;
+ * - "hands out no cursor naming a hidden row": the sealed cursor shows
+ *   nothing of it. Without a sealer the binding's cursor comes back as it
+ *   is, and names the hidden row (the last test).
  */
 
 import { randomUUID } from 'node:crypto';
@@ -28,7 +28,7 @@ import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/a
 import type { TenantId, UserId } from '@kindgi/types';
 import { createStubAppBindings } from '../src/testing/index.js';
 
-import { createApp } from '../src/index.js';
+import { createAeadCursorSealer, createApp } from '../src/index.js';
 import type { RunHandlerBinding, TokenResolver } from '../src/index.js';
 
 const tenantId = randomUUID() as TenantId;
@@ -437,8 +437,12 @@ const ENTRIES: readonly Entry[] = [
   },
 ];
 
+const sealer = createAeadCursorSealer({
+  keys: [{ kid: 'test', key: new Uint8Array(32).fill(7) }],
+});
+
 /** One list's app, with only its bindings (and what its router needs to mount). */
-function harness(entry: Entry) {
+function harness(entry: Entry, sealed = true) {
   const stubs = createStubAppBindings();
   const { bindings, received } = entry.bindings(stubs);
   const app = createApp({
@@ -446,6 +450,7 @@ function harness(entry: Entry) {
     resolveToken,
     runHandler: {} as RunHandlerBinding,
     ...bindings,
+    ...(sealed && { cursorSealer: sealer }),
     authz: {
       fgaApiUrl: 'http://fga.invalid',
       authzCheckBinding: {
@@ -485,9 +490,7 @@ describe('a list that hides the rows it fetched pages on without naming them', (
     },
   );
 
-  // Today every list returns its binding's cursor, which names the hidden
-  // row (T484). A sealed cursor fixes it: flip each to `test` then.
-  test.fails.each(ENTRIES.map((e) => [e.name, e] as const))(
+  test.each(ENTRIES.map((e) => [e.name, e] as const))(
     "%s: hands out no cursor naming a row the caller can't read",
     async (_name, entry) => {
       const { get } = harness(entry);
@@ -496,6 +499,16 @@ describe('a list that hides the rows it fetched pages on without naming them', (
       const text = readable(first.body.nextCursor as string);
       expect(text).not.toContain('hid');
       expect(text).not.toContain(HIDDEN_AT);
+    },
+  );
+
+  test.each(ENTRIES.map((e) => [e.name, e] as const))(
+    '%s, without a sealer: the binding’s cursor, which names the hidden row',
+    async (_name, entry) => {
+      const { get } = harness(entry, false);
+      const first = await get(entry.path);
+      expect(first.status).toBe(200);
+      expect(readable(first.body.nextCursor as string)).toMatch(new RegExp(`hid|${HIDDEN_AT}`));
     },
   );
 });
