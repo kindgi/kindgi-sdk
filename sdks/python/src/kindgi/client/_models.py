@@ -3191,6 +3191,105 @@ class GuardrailCollectionPage(BaseModel):
     has_more: Annotated[bool, Field(alias="hasMore")]
 
 
+class GuardrailOutcomeCounts(BaseModel):
+    """
+    How many of a guardrail's checks came to each outcome.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    passed: Annotated[int, Field(ge=0)]
+    """
+    The check ran and found nothing.
+    """
+    violated: Annotated[int, Field(ge=0)]
+    """
+    The check found something and the answer went through (`log-only`, `noop`, or an action handed back).
+    """
+    blocked: Annotated[int, Field(ge=0)]
+    """
+    The check found something and its `halt` failed the turn.
+    """
+    errored: Annotated[int, Field(ge=0)]
+    """
+    The check couldn't run (no such check, a bad configuration, a judge that couldn't be routed).
+    """
+
+
+class GuardrailOutcomesByAgentVersion(BaseModel):
+    """
+    The counts on one agent version's turns.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    agent_id: Annotated[str, Field(alias="agentId")]
+    agent_version: Annotated[str, Field(alias="agentVersion")]
+    passed: Annotated[int, Field(ge=0)]
+    """
+    The check ran and found nothing.
+    """
+    violated: Annotated[int, Field(ge=0)]
+    """
+    The check found something and the answer went through (`log-only`, `noop`, or an action handed back).
+    """
+    blocked: Annotated[int, Field(ge=0)]
+    """
+    The check found something and its `halt` failed the turn.
+    """
+    errored: Annotated[int, Field(ge=0)]
+    """
+    The check couldn't run (no such check, a bad configuration, a judge that couldn't be routed).
+    """
+
+
+class GuardrailBlockedRun(BaseModel):
+    """
+    A turn the guardrail blocked: its run, never its answer.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    run_id: Annotated[UUID, Field(alias="runId")]
+    at: AwareDatetime
+    """
+    When the guardrail checked.
+    """
+    agent_id: Annotated[str, Field(alias="agentId")]
+    agent_version: Annotated[str, Field(alias="agentVersion")]
+
+
+class GuardrailOutcomes(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    guardrail_id: Annotated[str, Field(alias="guardrailId")]
+    from_: Annotated[AwareDatetime, Field(alias="from")]
+    to: AwareDatetime
+    counts: GuardrailOutcomeCounts
+    by_agent_version: Annotated[
+        list[GuardrailOutcomesByAgentVersion], Field(alias="byAgentVersion")
+    ]
+    """
+    The same counts per agent version, the most checked first, at most 100.
+    """
+    recent_blocked: Annotated[list[GuardrailBlockedRun], Field(alias="recentBlocked")]
+    """
+    The window's latest blocked turns, newest first, at most `recent`.
+    """
+    recorded_since: Annotated[AwareDatetime | None, Field(alias="recordedSince")] = None
+    """
+    The earliest outcome kept for this guardrail in this project, in any window: nothing before it is counted. Outcomes were first recorded in 0.1.6, and they go with their run's retention. Absent when none is kept.
+    """
+
+
 class ConversationStatus(RootModel[Literal["open", "closed"]]):
     root: Literal["open", "closed"]
     """

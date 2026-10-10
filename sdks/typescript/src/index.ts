@@ -137,6 +137,8 @@ export type {
 export type {
   AuthorGuardrailOptions,
   GuardrailFilter,
+  GuardrailOutcomes,
+  GuardrailOutcomesQuery,
   GuardrailsClient,
 } from './resources/guardrails.js';
 export type {

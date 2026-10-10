@@ -2935,6 +2935,88 @@ export const UnregisterGuardrailResultSchema: JsonSchema = {
   },
 };
 
+const outcomeCountProperties = {
+  passed: { type: 'integer', minimum: 0, description: 'The check ran and found nothing.' },
+  violated: {
+    type: 'integer',
+    minimum: 0,
+    description:
+      'The check found something and the answer went through (`log-only`, `noop`, or an action handed back).',
+  },
+  blocked: {
+    type: 'integer',
+    minimum: 0,
+    description: 'The check found something and its `halt` failed the turn.',
+  },
+  errored: {
+    type: 'integer',
+    minimum: 0,
+    description:
+      "The check couldn't run (no such check, a bad configuration, a judge that couldn't be routed).",
+  },
+} as const;
+
+export const GuardrailOutcomeCountsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['passed', 'violated', 'blocked', 'errored'],
+  description: "How many of a guardrail's checks came to each outcome.",
+  properties: outcomeCountProperties,
+};
+
+export const GuardrailOutcomesByAgentVersionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['agentId', 'agentVersion', 'passed', 'violated', 'blocked', 'errored'],
+  description: "The counts on one agent version's turns.",
+  properties: {
+    agentId: { type: 'string' },
+    agentVersion: { type: 'string' },
+    ...outcomeCountProperties,
+  },
+};
+
+export const GuardrailBlockedRunSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['runId', 'at', 'agentId', 'agentVersion'],
+  description: 'A turn the guardrail blocked: its run, never its answer.',
+  properties: {
+    runId: { type: 'string', format: 'uuid' },
+    at: { type: 'string', format: 'date-time', description: 'When the guardrail checked.' },
+    agentId: { type: 'string' },
+    agentVersion: { type: 'string' },
+  },
+};
+
+export const GuardrailOutcomesSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['guardrailId', 'from', 'to', 'counts', 'byAgentVersion', 'recentBlocked'],
+  properties: {
+    guardrailId: { type: 'string' },
+    from: { type: 'string', format: 'date-time' },
+    to: { type: 'string', format: 'date-time' },
+    counts: { $ref: '#/components/schemas/GuardrailOutcomeCounts' },
+    byAgentVersion: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/GuardrailOutcomesByAgentVersion' },
+      description: 'The same counts per agent version, the most checked first, at most 100.',
+    },
+    recentBlocked: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/GuardrailBlockedRun' },
+      description: "The window's latest blocked turns, newest first, at most `recent`.",
+    },
+    recordedSince: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        "The earliest outcome kept for this guardrail in this project, in any window: nothing before it is counted. Outcomes were first recorded in 0.1.6, and they go with their run's retention. Absent when none is kept.",
+    },
+  },
+};
+
 export const GuardrailCollectionPageSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -11407,6 +11489,10 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['RegisterGuardrailResult', RegisterGuardrailResultSchema],
   ['UnregisterGuardrailResult', UnregisterGuardrailResultSchema],
   ['GuardrailCollectionPage', GuardrailCollectionPageSchema],
+  ['GuardrailOutcomeCounts', GuardrailOutcomeCountsSchema],
+  ['GuardrailOutcomesByAgentVersion', GuardrailOutcomesByAgentVersionSchema],
+  ['GuardrailBlockedRun', GuardrailBlockedRunSchema],
+  ['GuardrailOutcomes', GuardrailOutcomesSchema],
   ['ConversationStatus', ConversationStatusSchema],
   ['Conversation', ConversationSchema],
   ['ConversationMessage', ConversationMessageSchema],

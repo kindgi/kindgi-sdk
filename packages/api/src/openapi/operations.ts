@@ -2964,6 +2964,58 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'get',
+    honoPath: '/v1/guardrails/:guardrailId/outcomes',
+    openapiPath: '/v1/guardrails/{guardrailId}/outcomes',
+    operationId: 'guardrails.outcomes',
+    summary: "What a guardrail's checks came to in a project",
+    description:
+      "Counts from the server, over a window: how many of the guardrail's checks on agent turns in the project `passed`, were `violated` (the answer went through: `log-only`, `noop`, or an action handed back), `blocked` (a `halt` failed the turn) or `errored` (the check couldn't run; a `halt` guardrail's error fails the turn too, and is counted here). The same counts per agent version, and the window's latest blocked turns, by run id and time only: a blocked answer stays behind its run's page. A guardrail whose scope didn't match a turn wasn't checked on it. Replays and dry runs aren't counted. Outcomes go with their run's retention, so a window can hold fewer than asked; `recordedSince` says how far back they go. A guardrail no longer registered still has its outcomes. Needs `read` on the guardrail and on the project.",
+    tags: ['guardrails'],
+    security: 'bearer',
+    parameters: [
+      GuardrailIdPathParam,
+      {
+        name: 'projectId',
+        in: 'query',
+        required: true,
+        description: 'The project whose agent turns are counted.',
+        schema: { type: 'string', minLength: 1 },
+      },
+      {
+        name: 'from',
+        in: 'query',
+        required: true,
+        description: 'Checks at or after this time (ISO 8601).',
+        schema: { type: 'string', format: 'date-time' },
+      },
+      {
+        name: 'to',
+        in: 'query',
+        required: true,
+        description: 'Checks before this time (ISO 8601). At most 90 days after `from`.',
+        schema: { type: 'string', format: 'date-time' },
+      },
+      {
+        name: 'recent',
+        in: 'query',
+        required: false,
+        description: 'How many of the latest blocked turns to name: 0 to 50, 10 by default.',
+        schema: { type: 'integer', minimum: 0, maximum: 50 },
+      },
+    ],
+    responses: {
+      '200': { description: 'The outcomes.', schema: ref('GuardrailOutcomes') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse(
+        'A missing or malformed `projectId`, `from`, `to` or `recent`; a window over 90 days.',
+      ),
+      '501': ErrorResponse(
+        "`guardrail-outcomes-not-supported`: this deployment doesn't record guardrail outcomes.",
+      ),
+    },
+  },
+  {
     method: 'post',
     honoPath: '/v1/guardrails',
     openapiPath: '/v1/guardrails',

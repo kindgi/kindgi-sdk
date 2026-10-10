@@ -18,6 +18,7 @@ import type { GuardrailRecord, GuardrailRegistryBinding } from '../guardrail-bin
 import type { Authorizer } from '../middleware/authorize.js';
 import { refuseWritesWhenReadOnly } from '../registry-read-only.js';
 import type { AppEnv } from '../types.js';
+import { guardrailOutcomesHandler } from './guardrail-outcomes.js';
 import { clampLimit } from './pagination.js';
 import { parseScopeParams } from './scope-params.js';
 
@@ -165,6 +166,9 @@ export function guardrailsRouter(
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });
   });
+
+  // ---------- GET /:guardrailId/outcomes ----------
+  r.get('/:guardrailId/outcomes', guardrailOutcomesHandler(binding, authorizer));
 
   // ---------- GET /:guardrailId ----------
   r.get('/:guardrailId', async (c) => {
