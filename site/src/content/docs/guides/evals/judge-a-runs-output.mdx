@@ -228,11 +228,11 @@ What a rule matches (`when`, each field narrowing it):
 - **`agentIds`** or **`flowIds`**: runs of these agents or flows. A rule
   naming an agent matches the agent's own runs, not its turns as a step of a
   flow.
-- **`versions`**: these versions exactly, or `live` for runs that took the
-  agent's live version because it was live, so the rule doesn't go stale at
+- **`versions`**: these versions exactly, or `live`: runs that ran the
+  agent's live version rather than one the caller named, so the rule follows
   each release.
-- **`status`**: how the run ended, `completed`, `failed` or `cancelled`.
-  Without it, `completed` and `failed`.
+- **`status`**: how the run ended. Only `completed` for now, since only a
+  completed run can be judged; it's also the default.
 - **`includeDryRuns`**: dry runs are left out unless this is `true`. A
   comparison's runs on a test set are never queued.
 
@@ -247,8 +247,9 @@ And how much of it to queue:
 
 A rule applies to runs that end after it's made. To try one before you make
 it, `judgingRules.preview` takes the same fields and answers how many of the
-project's last 100 runs (`last`, up to 500) it would have queued, and how
-many of those failed.
+project's last 100 runs (`last`, up to 500) it would have queued, with its
+`sample` but not its `maxOpen`. Runs from before the runtime recorded how
+their version was chosen never match `live`.
 
 A rule only lists runs: it never runs a model or spends anything.
 
@@ -261,8 +262,8 @@ const waiting = await kindgi.projects.judgingQueue.list(project.id, { forMe: tru
 ```
 
 - **Each item** is a run: its agent or flow and version, how it ended, the
-  rules that queued it, the judge classes they want, and the judgments on
-  it so far, by class. It carries none of the run's content: open the run to
+  rules that queued it (each at the version that did), the judge classes
+  they want, and the judgments on it so far, by class. It carries none of the run's content: open the run to
   judge it.
 - **`forMe: true`** keeps the items you can close: those that want a class
   you may judge as, or any judgment.
@@ -284,10 +285,17 @@ a run does.
 
 - **`judgingRules.update`** writes a new version of the rule, and
   `judgingRules.versions` lists them all, newest first, with who wrote each
-  and when.
+  and when. Runs queued from then on count toward the new version.
 - **`judgingRules.unregister`** stops a rule. It queues nothing more; its
   versions and the runs it queued stay.
-- **`judgingRules.results`** gives, for each agent version, the runs the rule
-  queued, judged, dismissed and still waiting, and the weighted `yes` share
-  of their judgments. Each rule is a sample of its own `when`, so its results
-  are never added to another rule's.
+- **`judgingRules.results`** gives a group for each version of the rule and
+  each agent version: the runs it queued (waiting, judged, dismissed,
+  erased), the judgments on them with their weighted `yes` share, and the
+  judgments by class.
+  - **The `yes` share is per judgment:** one person's verdict on one item
+    of a run's output.
+  - **`skippedByCap`** counts the runs the rule matched but didn't queue
+    because `maxOpen` were waiting. When it isn't 0, the queued runs lean
+    toward quiet times.
+  - **Never pooled:** each version of each rule is a sample of its own
+    `when`, so its results are never added to another's.

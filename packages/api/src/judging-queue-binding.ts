@@ -25,9 +25,16 @@ export interface JudgingRuleWhen {
   readonly agentIds?: readonly string[];
   /** Runs of these flows. */
   readonly flowIds?: readonly string[];
-  /** These versions exactly, or `live`: the agent ran the version live for the run's scope. */
+  /**
+   * These versions exactly, or `live`: runs that got the agent's live version,
+   * not one the caller named. Runs from before the runtime recorded how their
+   * version was chosen never match `live`.
+   */
   readonly versions?: readonly string[];
-  /** How the run ended. Absent: `completed` and `failed`. */
+  /**
+   * How the run ended. Only `completed` today: a judgment needs a completed
+   * run, so `failed` and `cancelled` are refused. Absent: `completed`.
+   */
   readonly status?: readonly JudgingRunStatus[];
   /** Dry runs are left out unless this is `true`. Replays never match. */
   readonly includeDryRuns?: boolean;
@@ -68,6 +75,12 @@ export interface JudgingRule {
 /** Where a queued run stands. `erased`: its content was erased; the item shows nothing of it. */
 export type JudgingQueueState = 'open' | 'judged' | 'dismissed' | 'erased';
 
+/** A rule that queued a run, at the version that queued it. */
+export interface JudgingItemRule {
+  readonly ruleId: string;
+  readonly version: number;
+}
+
 /** One queued run: never its content, only what it was and where it stands. */
 export interface JudgingQueueItem {
   readonly runId: string;
@@ -77,8 +90,8 @@ export interface JudgingQueueItem {
   readonly flowId: string;
   readonly runStatus: JudgingRunStatus;
   readonly completedAt: Timestamp;
-  /** The rules it matched. */
-  readonly ruleIds: readonly string[];
+  /** The rules that queued it, each at the version that did. */
+  readonly rules: readonly JudgingItemRule[];
   /** The judge classes its rules want; `anyJudgment` when one of them wants any judgment. */
   readonly wantedClassIds: readonly string[];
   readonly anyJudgment: boolean;
@@ -95,32 +108,53 @@ export interface JudgingQueueItem {
   readonly reason?: string;
 }
 
-/** A rule's results since a time, by agent version: never pooled with another rule's. */
+/**
+ * A rule's results since a time, by the rule's version and the agent's:
+ * never pooled with another rule's, or across two versions of one rule
+ * (each version is its own sampling design).
+ */
 export interface JudgingRuleResults {
   readonly ruleId: string;
   readonly since?: Timestamp;
-  readonly versions: readonly {
-    /** `null`: a flow run, or a run from before versions were recorded. */
-    readonly agentVersion: string | null;
-    readonly added: number;
-    readonly judged: number;
-    readonly dismissed: number;
-    readonly open: number;
-    /** Live judgments on those runs. */
-    readonly judgments: number;
-    /** Their `yes` share, each weighted by its class (unclassified: 1). `null` with no judgments. */
-    readonly yesShare: number | null;
-  }[];
+  /** Newest rule version first. */
+  readonly groups: readonly JudgingResultGroup[];
+}
+
+/** One rule version's runs of one agent version. `added` = `open` + `judged` + `dismissed` + `erased`. */
+export interface JudgingResultGroup {
+  readonly ruleVersion: number;
+  /** `null`: a flow run, or a run from before versions were recorded. */
+  readonly agentVersion: string | null;
+  readonly added: number;
+  readonly open: number;
+  readonly judged: number;
+  readonly dismissed: number;
+  readonly erased: number;
+  /**
+   * Runs the rule matched and sampled but didn't queue, because `maxOpen`
+   * were waiting. Non-zero: the queued runs lean toward quiet times.
+   */
+  readonly skippedByCap: number;
+  /** Live judgments on the queued runs: each is one person's verdict on one item of a run's output. */
+  readonly judgments: number;
+  /** The `yes` share of those judgments, each weighted by its class (unclassified: 1). `null` with no judgments. */
+  readonly yesShare: number | null;
+  /** The same judgments by class (`null`: unclassified), unweighted. */
+  readonly byClass: readonly JudgingClassResult[];
+}
+
+export interface JudgingClassResult {
+  readonly judgeClassId: string | null;
+  readonly judgments: number;
+  readonly yes: number;
 }
 
 /** What a rule would have queued among a project's recent runs. */
 export interface JudgingRulePreview {
   /** The recent runs looked at (top-level, not replays), newest first. */
   readonly considered: number;
-  /** Of those, the ones the rule (with its sample) would have queued. */
+  /** Of those, the ones the rule (with its sample) would have queued. `maxOpen` isn't applied. */
   readonly matched: number;
-  /** Of the matched, the ones that failed. */
-  readonly failed: number;
 }
 
 export type JudgingErrorCode =

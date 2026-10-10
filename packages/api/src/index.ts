@@ -134,8 +134,10 @@ export type {
   ServiceAccountRef,
 } from './service-account-binding.js';
 export type {
+  JudgingClassResult,
   JudgingError,
   JudgingErrorCode,
+  JudgingItemRule,
   JudgingQueueBinding,
   JudgingQueueItem,
   JudgingQueueListInput,
@@ -143,6 +145,7 @@ export type {
   JudgingQueueState,
   JudgingRule,
   JudgingRulePage,
+  JudgingResultGroup,
   JudgingRulePreview,
   JudgingRuleResults,
   JudgingRuleSpec,

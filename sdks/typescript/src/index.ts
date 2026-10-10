@@ -213,12 +213,15 @@ export type {
   UpdateProjectInput,
 } from './resources/projects.js';
 export type {
+  JudgingClassResult,
+  JudgingItemRule,
   JudgingQueueClient,
   JudgingQueueFilter,
   JudgingQueueItem,
   JudgingQueuePage,
   JudgingQueueState,
   JudgingRule,
+  JudgingResultGroup,
   JudgingRulePage,
   JudgingRulePatch,
   JudgingRulePreview,

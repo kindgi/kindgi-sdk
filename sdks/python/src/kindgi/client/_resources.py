@@ -6358,7 +6358,7 @@ class ProjectsJudgingRulesResource:
     ) -> _models.JudgingRulePreview:
         """What a rule would have queued. `GET /v1/projects/{projectId}/judging-rules/preview`
 
-        Among the project's last `last` top-level runs (not replays), how many a rule with these fields (and its `sample`) would have queued, and how many of those failed. The rule editor's "would have added N of the last 100". Lists are comma-separated. Needs `read` on the project.
+        Among the project's last `last` top-level runs (not replays), how many a rule with these fields (and its `sample`) would have queued. The rule editor's "would have added N of the last 100". Lists are comma-separated. Needs `read` on the project.
         """
         return self._client._request(
             _OPERATIONS["projects.judgingRules.preview"],
@@ -6467,7 +6467,7 @@ class ProjectsJudgingRulesResource:
     ) -> _models.JudgingRuleResults:
         """A judging rule's results. `GET /v1/projects/{projectId}/judging-rules/{ruleId}/results`
 
-        Per agent version: the runs it queued, judged, dismissed and still open, and the class-weighted `yes` share of the live judgments on them. Never pooled with another rule's: each rule is a sample of its own `when`. Needs `read` on the project.
+        By the rule's version and the agent's: the runs it queued (open, judged, dismissed, erased), the ones its `maxOpen` skipped, and the live judgments on them, with their class-weighted `yes` share and a count by class. Never pooled with another rule's, or across a rule's versions: each is a sample of its own `when`. Needs `read` on the project.
         """
         return self._client._request(
             _OPERATIONS["projects.judgingRules.results"],
@@ -13369,7 +13369,7 @@ class AsyncProjectsJudgingRulesResource:
     ) -> _models.JudgingRulePreview:
         """What a rule would have queued. `GET /v1/projects/{projectId}/judging-rules/preview`
 
-        Among the project's last `last` top-level runs (not replays), how many a rule with these fields (and its `sample`) would have queued, and how many of those failed. The rule editor's "would have added N of the last 100". Lists are comma-separated. Needs `read` on the project.
+        Among the project's last `last` top-level runs (not replays), how many a rule with these fields (and its `sample`) would have queued. The rule editor's "would have added N of the last 100". Lists are comma-separated. Needs `read` on the project.
         """
         return await self._client._request(
             _OPERATIONS["projects.judgingRules.preview"],
@@ -13478,7 +13478,7 @@ class AsyncProjectsJudgingRulesResource:
     ) -> _models.JudgingRuleResults:
         """A judging rule's results. `GET /v1/projects/{projectId}/judging-rules/{ruleId}/results`
 
-        Per agent version: the runs it queued, judged, dismissed and still open, and the class-weighted `yes` share of the live judgments on them. Never pooled with another rule's: each rule is a sample of its own `when`. Needs `read` on the project.
+        By the rule's version and the agent's: the runs it queued (open, judged, dismissed, erased), the ones its `maxOpen` skipped, and the live judgments on them, with their class-weighted `yes` share and a count by class. Never pooled with another rule's, or across a rule's versions: each is a sample of its own `when`. Needs `read` on the project.
         """
         return await self._client._request(
             _OPERATIONS["projects.judgingRules.results"],

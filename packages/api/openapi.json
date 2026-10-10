@@ -14155,7 +14155,7 @@
             "items": {
               "type": "string"
             },
-            "description": "These versions exactly, or `live`: the agent ran its live version."
+            "description": "These versions exactly, or `live`: runs that got the agent's live version, not one the caller named. Runs from before the runtime recorded how their version was chosen never match `live`."
           },
           "status": {
             "type": "array",
@@ -14163,7 +14163,7 @@
             "items": {
               "$ref": "#/components/schemas/JudgingRunStatus"
             },
-            "description": "How the run ended. Absent: `completed` and `failed`."
+            "description": "How the run ended. Only `completed` today: a judgment needs a completed run, so `failed` and `cancelled` are refused (400). Absent: `completed`."
           },
           "includeDryRuns": {
             "type": "boolean",
@@ -14407,6 +14407,23 @@
           }
         }
       },
+      "JudgingItemRule": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ruleId",
+          "version"
+        ],
+        "properties": {
+          "ruleId": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
       "JudgingQueueItem": {
         "type": "object",
         "additionalProperties": false,
@@ -14416,7 +14433,7 @@
           "flowId",
           "runStatus",
           "completedAt",
-          "ruleIds",
+          "rules",
           "wantedClassIds",
           "anyJudgment",
           "progress",
@@ -14448,12 +14465,12 @@
             "type": "string",
             "format": "date-time"
           },
-          "ruleIds": {
+          "rules": {
             "type": "array",
             "items": {
-              "type": "string"
+              "$ref": "#/components/schemas/JudgingItemRule"
             },
-            "description": "The rules that queued it."
+            "description": "The rules that queued it, each at the version that did."
           },
           "wantedClassIds": {
             "type": "array",
@@ -14531,19 +14548,54 @@
           }
         }
       },
-      "JudgingVersionResult": {
+      "JudgingClassResult": {
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "agentVersion",
-          "added",
-          "judged",
-          "dismissed",
-          "open",
+          "judgeClassId",
           "judgments",
-          "yesShare"
+          "yes"
         ],
         "properties": {
+          "judgeClassId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`null`: unclassified."
+          },
+          "judgments": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "yes": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "JudgingResultGroup": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ruleVersion",
+          "agentVersion",
+          "added",
+          "open",
+          "judged",
+          "dismissed",
+          "erased",
+          "skippedByCap",
+          "judgments",
+          "yesShare",
+          "byClass"
+        ],
+        "description": "One rule version's runs of one agent version. `added` = `open` + `judged` + `dismissed` + `erased`.",
+        "properties": {
+          "ruleVersion": {
+            "type": "integer",
+            "minimum": 1
+          },
           "agentVersion": {
             "type": [
               "string",
@@ -14555,6 +14607,10 @@
             "type": "integer",
             "minimum": 0
           },
+          "open": {
+            "type": "integer",
+            "minimum": 0
+          },
           "judged": {
             "type": "integer",
             "minimum": 0
@@ -14563,21 +14619,33 @@
             "type": "integer",
             "minimum": 0
           },
-          "open": {
+          "erased": {
             "type": "integer",
             "minimum": 0
+          },
+          "skippedByCap": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Runs the rule matched and sampled but didn't queue, because `maxOpen` were waiting. Non-zero: the queued runs lean toward quiet times."
           },
           "judgments": {
             "type": "integer",
             "minimum": 0,
-            "description": "Live judgments on those runs."
+            "description": "Live judgments on the queued runs: each is one person's verdict on one item of a run's output."
           },
           "yesShare": {
             "type": [
               "number",
               "null"
             ],
-            "description": "Their `yes` share, each weighted by its class (unclassified: 1). `null` with none."
+            "description": "The `yes` share of those judgments, each weighted by its class (unclassified: 1). `null` with none."
+          },
+          "byClass": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JudgingClassResult"
+            },
+            "description": "The same judgments by class, unweighted."
           }
         }
       },
@@ -14586,7 +14654,7 @@
         "additionalProperties": false,
         "required": [
           "ruleId",
-          "versions"
+          "groups"
         ],
         "properties": {
           "ruleId": {
@@ -14596,11 +14664,12 @@
             "type": "string",
             "format": "date-time"
           },
-          "versions": {
+          "groups": {
             "type": "array",
             "items": {
-              "$ref": "#/components/schemas/JudgingVersionResult"
-            }
+              "$ref": "#/components/schemas/JudgingResultGroup"
+            },
+            "description": "By the rule's version and the agent's, newest rule version first: two versions of a rule are two sampling designs, never pooled."
           }
         }
       },
@@ -14609,8 +14678,7 @@
         "additionalProperties": false,
         "required": [
           "considered",
-          "matched",
-          "failed"
+          "matched"
         ],
         "properties": {
           "considered": {
@@ -14621,12 +14689,7 @@
           "matched": {
             "type": "integer",
             "minimum": 0,
-            "description": "Those the rule would have queued."
-          },
-          "failed": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "Of the matched, those that failed."
+            "description": "Those the rule would have queued, with its `sample` (`maxOpen` isn't applied)."
           }
         }
       },
@@ -40035,7 +40098,7 @@
             }
           }
         },
-        "description": "Among the project's last `last` top-level runs (not replays), how many a rule with these fields (and its `sample`) would have queued, and how many of those failed. The rule editor's \"would have added N of the last 100\". Lists are comma-separated. Needs `read` on the project.",
+        "description": "Among the project's last `last` top-level runs (not replays), how many a rule with these fields (and its `sample`) would have queued. The rule editor's \"would have added N of the last 100\". Lists are comma-separated. Needs `read` on the project.",
         "parameters": [
           {
             "name": "projectId",
@@ -40511,7 +40574,7 @@
             }
           }
         },
-        "description": "Per agent version: the runs it queued, judged, dismissed and still open, and the class-weighted `yes` share of the live judgments on them. Never pooled with another rule's: each rule is a sample of its own `when`. Needs `read` on the project.",
+        "description": "By the rule's version and the agent's: the runs it queued (open, judged, dismissed, erased), the ones its `maxOpen` skipped, and the live judgments on them, with their class-weighted `yes` share and a count by class. Never pooled with another rule's, or across a rule's versions: each is a sample of its own `when`. Needs `read` on the project.",
         "parameters": [
           {
             "name": "projectId",

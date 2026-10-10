@@ -15,7 +15,7 @@ describe('projects — judging rules and queue', () => {
     const stub = recordingFetch([
       ok({ data: [], hasMore: false }),
       { status: 201, body: JSON.stringify({ ruleId: 'r-1' }) },
-      ok({ considered: 100, matched: 4, failed: 1 }),
+      ok({ considered: 100, matched: 4 }),
       ok({ data: [], hasMore: false, total: 3 }),
       ok({ runId: 'run-1', state: 'dismissed' }),
       ok({ runId: 'run-1', state: 'open' }),
@@ -23,13 +23,13 @@ describe('projects — judging rules and queue', () => {
     const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
     await client.projects.judgingRules.list('p-1');
     await client.projects.judgingRules.create('p-1', {
-      name: 'Failed refunds',
-      when: { agentIds: ['acme.refunds'], status: ['failed'] },
-      sample: 0.5,
+      name: 'Live refund runs',
+      when: { agentIds: ['acme.refunds'], versions: ['live'] },
+      sample: 0.05,
     });
     await client.projects.judgingRules.preview('p-1', {
       agentIds: ['acme.refunds'],
-      status: ['failed', 'cancelled'],
+      versions: ['live', '2.1.0'],
       sample: 0.05,
     });
     const queue = await client.projects.judgingQueue.list('p-1', { forMe: true, limit: 0 });
@@ -45,7 +45,7 @@ describe('projects — judging rules and queue', () => {
       'POST /v1/projects/p-1/judging-queue/run-1/reopen',
     ]);
     const preview = new URL(stub.calls[2]?.url ?? '').searchParams;
-    expect(preview.get('status')).toBe('failed,cancelled');
+    expect(preview.get('versions')).toBe('live,2.1.0');
     expect(preview.get('sample')).toBe('0.05');
     const list = new URL(stub.calls[3]?.url ?? '').searchParams;
     expect([list.get('forMe'), list.get('limit')]).toEqual(['true', '0']);

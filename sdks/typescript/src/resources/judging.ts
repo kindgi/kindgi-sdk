@@ -11,9 +11,12 @@
  */
 
 import type {
+  JudgingClassResult,
+  JudgingItemRule,
   JudgingQueueItem,
   JudgingQueuePage,
   JudgingQueueState,
+  JudgingResultGroup,
   JudgingRule,
   JudgingRulePage,
   JudgingRulePatch,
@@ -26,9 +29,12 @@ import type {
 import type { Transport } from '../transport.js';
 
 export type {
+  JudgingClassResult,
+  JudgingItemRule,
   JudgingQueueItem,
   JudgingQueuePage,
   JudgingQueueState,
+  JudgingResultGroup,
   JudgingRule,
   JudgingRulePage,
   JudgingRulePatch,
@@ -82,7 +88,7 @@ export interface JudgingRulesClient {
     ruleId: string,
     filter?: { readonly limit?: number; readonly cursor?: string },
   ): Promise<JudgingRulePage>;
-  /** Per agent version, never pooled. @wire GET /v1/projects/:projectId/judging-rules/:ruleId/results */
+  /** By the rule's version and the agent's, never pooled. @wire GET /v1/projects/:projectId/judging-rules/:ruleId/results */
   results(projectId: string, ruleId: string, since?: string): Promise<JudgingRuleResults>;
   /** What a rule would have queued. @wire GET /v1/projects/:projectId/judging-rules/preview */
   preview(projectId: string, input: JudgingRulePreviewInput): Promise<JudgingRulePreview>;

@@ -320,7 +320,13 @@ export function judgingRouter(
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STATES: readonly JudgingQueueState[] = ['open', 'judged', 'dismissed', 'erased'];
-const RUN_STATUSES: readonly JudgingRunStatus[] = ['completed', 'failed', 'cancelled'];
+/**
+ * The run endings a rule may match today: a judgment needs a completed run
+ * (`routes/judgments.ts`, `run-not-finished`), and an item that can't be
+ * judged could only ever be dismissed. `JudgingRunStatus` keeps `failed`
+ * and `cancelled`, so allowing them later changes no response type.
+ */
+const JUDGEABLE: readonly JudgingRunStatus[] = ['completed'];
 const MAX_PREVIEW = 500;
 const MAX_LIST = 50;
 const MAX_TEXT = 200;
@@ -384,8 +390,8 @@ function parseSpec(
       ) {
         return `\`when.${name}\` must be a list of 1 to ${MAX_LIST} non-empty strings`;
       }
-      if (name === 'status' && v.some((x) => !RUN_STATUSES.includes(x as JudgingRunStatus))) {
-        return `\`when.status\` values are: ${RUN_STATUSES.join(', ')}`;
+      if (name === 'status' && v.some((x) => !JUDGEABLE.includes(x as JudgingRunStatus))) {
+        return 'Only a completed run can be judged, so `when.status` takes `completed` only';
       }
       parsed[name] = [...new Set(v as string[])];
     }
@@ -463,7 +469,7 @@ function serializeItem(item: JudgingQueueItem, write: boolean): Record<string, u
     flowId: item.flowId,
     runStatus: item.runStatus,
     completedAt: item.completedAt,
-    ruleIds: item.ruleIds,
+    rules: item.rules.map((x) => ({ ruleId: x.ruleId, version: x.version })),
     wantedClassIds: item.wantedClassIds,
     anyJudgment: item.anyJudgment,
     progress: item.progress,

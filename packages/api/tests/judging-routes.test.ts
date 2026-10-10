@@ -96,6 +96,7 @@ function memoryBinding() {
   const rules = new Map<string, JudgingRule[]>();
   const items = new Map<string, JudgingQueueItem>();
   const asked: JudgingQueueListInput[] = [];
+  const previewed: { readonly spec: JudgingRuleSpec; readonly last: number }[] = [];
   let seq = 0;
   const at = () => new Date(Date.UTC(2026, 9, 10, 12, 0, seq++)).toISOString() as Timestamp;
   const rule = (
@@ -181,11 +182,12 @@ function memoryBinding() {
     },
     async results({ ruleId }) {
       return rules.has(ruleId)
-        ? { kind: 'ok', value: { ruleId, versions: [] } }
+        ? { kind: 'ok', value: { ruleId, groups: [] } }
         : { kind: 'err', error: { code: 'judging-rule-not-found', message: 'no' } };
     },
-    async preview({ last }) {
-      return { considered: last, matched: 3, failed: 1 };
+    async preview({ spec, last }) {
+      previewed.push({ spec, last });
+      return { considered: last, matched: 3 };
     },
   };
   const queue = (runId: string) =>
@@ -195,16 +197,16 @@ function memoryBinding() {
       agentId: 'acme.refunds',
       agentVersion: '2.1.0',
       flowId: 'agent-turn',
-      runStatus: 'failed',
+      runStatus: 'completed',
       completedAt: at(),
-      ruleIds: ['r-1'],
+      rules: [{ ruleId: 'r-1', version: 2 }],
       wantedClassIds: ['cls-expert'],
       anyJudgment: false,
       progress: { total: 0, byClass: [] },
       addedAt: at(),
       state: 'open',
     });
-  return { binding, asked, queue };
+  return { binding, asked, previewed, queue };
 }
 
 function harness(opts: { readonly projects?: boolean } = {}) {
@@ -237,8 +239,8 @@ function harness(opts: { readonly projects?: boolean } = {}) {
 }
 
 const RULE = {
-  name: 'Every failed refund run',
-  when: { agentIds: ['acme.refunds'], status: ['failed'] },
+  name: 'Live refund runs',
+  when: { agentIds: ['acme.refunds'], versions: ['live'], status: ['completed'] },
   sample: 0.5,
   maxOpen: 20,
   judgeClassId: 'cls-expert',
@@ -277,10 +279,13 @@ describe('judging rules', () => {
       [{ ...RULE, sample: 0 }, '`sample` must be a number greater than 0 and at most 1'],
       [{ ...RULE, sample: 1.5 }, '`sample` must be a number greater than 0 and at most 1'],
       [{ ...RULE, maxOpen: 0 }, '`maxOpen` must be a whole number from 1 to 10000'],
-      [
-        { ...RULE, when: { status: ['crashed'] } },
-        '`when.status` values are: completed, failed, cancelled',
-      ],
+      ...['crashed', 'failed', 'cancelled'].map(
+        (status) =>
+          [
+            { ...RULE, when: { status: ['completed', status] } },
+            'Only a completed run can be judged, so `when.status` takes `completed` only',
+          ] as const,
+      ),
       [
         { ...RULE, when: { agentIds: [] } },
         '`when.agentIds` must be a list of 1 to 50 non-empty strings',
@@ -313,11 +318,16 @@ describe('judging rules', () => {
     const r = await h.call(
       VIEWER,
       'GET',
-      '/judging-rules/preview?agentIds=acme.refunds&status=failed&sample=0.05&last=200',
+      '/judging-rules/preview?agentIds=acme.refunds&status=completed&sample=0.05&last=200',
     );
-    expect(r.body).toEqual({ considered: 200, matched: 3, failed: 1 });
+    expect(r.body).toEqual({ considered: 200, matched: 3 });
+    expect(h.previewed.at(-1)).toMatchObject({
+      spec: { when: { agentIds: ['acme.refunds'], status: ['completed'] }, sample: 0.05 },
+      last: 200,
+    });
     expect((await h.call(VIEWER, 'GET', '/judging-rules/preview?last=501')).status).toBe(400);
     expect((await h.call(VIEWER, 'GET', '/judging-rules/preview?status=crashed')).status).toBe(400);
+    expect((await h.call(VIEWER, 'GET', '/judging-rules/preview?status=failed')).status).toBe(400);
   });
 });
 
@@ -327,6 +337,7 @@ describe('the judging queue', () => {
     h.queue('run-1');
     const asEditor = await h.call(EDITOR, 'GET', '/judging-queue');
     expect(asEditor.body.data[0].can).toEqual({ dismiss: true, reopen: false });
+    expect(asEditor.body.data[0].rules).toEqual([{ ruleId: 'r-1', version: 2 }]);
     const asViewer = await h.call(VIEWER, 'GET', '/judging-queue');
     expect(asViewer.body.data[0].can).toEqual({ dismiss: false, reopen: false });
     expect(asViewer.body.total).toBe(1);

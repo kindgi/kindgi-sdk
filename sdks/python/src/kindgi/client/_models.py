@@ -7332,13 +7332,13 @@ class JudgingRuleWhen(BaseModel):
     )
     versions: Annotated[list[str] | None, Field(max_length=50, min_length=1)] = None
     """
-    These versions exactly, or `live`: the agent ran its live version.
+    These versions exactly, or `live`: runs that got the agent's live version, not one the caller named. Runs from before the runtime recorded how their version was chosen never match `live`.
     """
     status: Annotated[
         list[Literal["completed", "failed", "cancelled"]] | None, Field(min_length=1)
     ] = None
     """
-    How the run ended. Absent: `completed` and `failed`.
+    How the run ended. Only `completed` today: a judgment needs a completed run, so `failed` and `cancelled` are refused (400). Absent: `completed`.
     """
     include_dry_runs: Annotated[bool | None, Field(alias="includeDryRuns")] = None
     """
@@ -7493,6 +7493,15 @@ class JudgingItemCan(BaseModel):
     reopen: bool
 
 
+class JudgingItemRule(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    rule_id: Annotated[str, Field(alias="ruleId")]
+    version: Annotated[int, Field(ge=1)]
+
+
 class JudgingQueueItem(BaseModel):
     """
     A queued run: never its content, only what it was and where it stands.
@@ -7512,9 +7521,9 @@ class JudgingQueueItem(BaseModel):
     How a run ended.
     """
     completed_at: Annotated[AwareDatetime, Field(alias="completedAt")]
-    rule_ids: Annotated[list[str], Field(alias="ruleIds")]
+    rules: list[JudgingItemRule]
     """
-    The rules that queued it.
+    The rules that queued it, each at the version that did.
     """
     wanted_class_ids: Annotated[list[str], Field(alias="wantedClassIds")]
     """
@@ -7564,26 +7573,53 @@ class JudgingDismissBody(BaseModel):
     reason: Annotated[str | None, Field(max_length=500)] = None
 
 
-class JudgingVersionResult(BaseModel):
+class JudgingClassResult(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
+    judge_class_id: Annotated[str | None, Field(alias="judgeClassId")]
+    """
+    `null`: unclassified.
+    """
+    judgments: Annotated[int, Field(ge=0)]
+    yes: Annotated[int, Field(ge=0)]
+
+
+class JudgingResultGroup(BaseModel):
+    """
+    One rule version's runs of one agent version. `added` = `open` + `judged` + `dismissed` + `erased`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    rule_version: Annotated[int, Field(alias="ruleVersion", ge=1)]
     agent_version: Annotated[str | None, Field(alias="agentVersion")]
     """
     `null`: a flow run, or one from before versions were recorded.
     """
     added: Annotated[int, Field(ge=0)]
+    open: Annotated[int, Field(ge=0)]
     judged: Annotated[int, Field(ge=0)]
     dismissed: Annotated[int, Field(ge=0)]
-    open: Annotated[int, Field(ge=0)]
+    erased: Annotated[int, Field(ge=0)]
+    skipped_by_cap: Annotated[int, Field(alias="skippedByCap", ge=0)]
+    """
+    Runs the rule matched and sampled but didn't queue, because `maxOpen` were waiting. Non-zero: the queued runs lean toward quiet times.
+    """
     judgments: Annotated[int, Field(ge=0)]
     """
-    Live judgments on those runs.
+    Live judgments on the queued runs: each is one person's verdict on one item of a run's output.
     """
     yes_share: Annotated[float | None, Field(alias="yesShare")]
     """
-    Their `yes` share, each weighted by its class (unclassified: 1). `null` with none.
+    The `yes` share of those judgments, each weighted by its class (unclassified: 1). `null` with none.
+    """
+    by_class: Annotated[list[JudgingClassResult], Field(alias="byClass")]
+    """
+    The same judgments by class, unweighted.
     """
 
 
@@ -7594,7 +7630,10 @@ class JudgingRuleResults(BaseModel):
     )
     rule_id: Annotated[str, Field(alias="ruleId")]
     since: AwareDatetime | None = None
-    versions: list[JudgingVersionResult]
+    groups: list[JudgingResultGroup]
+    """
+    By the rule's version and the agent's, newest rule version first: two versions of a rule are two sampling designs, never pooled.
+    """
 
 
 class JudgingRulePreview(BaseModel):
@@ -7608,11 +7647,7 @@ class JudgingRulePreview(BaseModel):
     """
     matched: Annotated[int, Field(ge=0)]
     """
-    Those the rule would have queued.
-    """
-    failed: Annotated[int, Field(ge=0)]
-    """
-    Of the matched, those that failed.
+    Those the rule would have queued, with its `sample` (`maxOpen` isn't applied).
     """
 
 
