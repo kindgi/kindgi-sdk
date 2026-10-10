@@ -924,3 +924,17 @@ def test_a_model_s_uuid_id_passes_back_as_text_in_a_path_and_a_query() -> None:
     api.approvals.list(wait_token_id=[run_id, "wt-2"])
     assert seen[0].url.path == f"/v1/runs/{run_id}"
     assert seen[1].url.params.get_list("waitTokenId") == [str(run_id), "wt-2"]
+
+
+def test_a_reviewer_inbox_in_one_read() -> None:
+    page = {"data": [], "hasMore": False, "order": "asc"}
+    api, seen = client(lambda r: httpx.Response(200, json=page))
+    listed = api.approvals.list(
+        status=["pending", "assigned", "in_review"], assigned_to="me", order="asc"
+    )
+    assert seen[0].url.params.get_list("status") == ["pending", "assigned", "in_review"]
+    assert (seen[0].url.params.get("assignedTo"), seen[0].url.params.get("order")) == ("me", "asc")
+    assert listed.order == "asc"
+    # One status, as before.
+    api.approvals.list(status="pending")
+    assert seen[1].url.params.get_list("status") == ["pending"]

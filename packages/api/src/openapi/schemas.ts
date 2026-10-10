@@ -1306,9 +1306,15 @@ export const ApprovalCollectionPageSchema: JsonSchema = {
     nextCursor: {
       type: 'string',
       description:
-        'Opaque cursor for the next page. ISO timestamp of the tail row internally; treat as opaque on the client.',
+        'Opaque cursor for the next page, in the same order. Treat as opaque on the client.',
     },
     hasMore: { type: 'boolean' },
+    order: {
+      type: 'string',
+      enum: ['asc', 'desc'],
+      description:
+        'The order the page is in: `asc` (oldest first) or `desc` (newest first). Absent from a runtime before Kindgi 0.1.6, which lists newest first and ignores `order`.',
+    },
   },
 };
 

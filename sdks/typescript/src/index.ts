@@ -79,6 +79,7 @@ export type {
 export type { Transport, TransportRequest } from './transport.js';
 export type {
   ApprovalFilter,
+  ApprovalPage,
   ApprovalsClient,
   AuditClient,
   AuditExportInput,

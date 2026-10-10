@@ -14,7 +14,6 @@ import { KindgiApiError, notYetWired } from '../errors.js';
 import { type ListPage, type WirePage, listPage } from '../list-page.js';
 import type { ScopeRef } from '../scope-wire.js';
 import { scopeToQuery } from '../scope-wire.js';
-import { singleStatusQuery } from '../status-query.js';
 import type { Transport } from '../transport.js';
 import type {
   Approval,
@@ -59,10 +58,16 @@ import { verifySignedExport } from '../verify-export.js';
  */
 export interface ApprovalsClient {
   /**
+   * Role-scoped. `filter.status` takes one status or several (the open
+   * ones: `['pending', 'assigned', 'in_review']`), `filter.assignedTo:
+   * 'me'` the caller's own, and `filter.order: 'asc'` oldest first. The
+   * page's `order` says which order it's in: a runtime before 0.1.6 lists
+   * newest first and leaves it out.
+   *
    * @wire `GET /v1/approvals` — see
-   *   `@kindgi/api/openapi.json#/paths/~1v1~1approvals/get`. Role-scoped.
+   *   `@kindgi/api/openapi.json#/paths/~1v1~1approvals/get`.
    */
-  list(filter?: ApprovalFilter): Promise<ListPage<Approval>>;
+  list(filter?: ApprovalFilter): Promise<ApprovalPage>;
 
   /**
    * @wire `GET /v1/approvals/{approvalId}` — see
@@ -204,10 +209,15 @@ export interface AuditClient {
 
 export interface ApprovalFilter extends Omit<Filter<ApprovalStatus>, 'status'> {
   /**
-   * One status. `GET /v1/approvals` filters by a single `?status=`;
-   * passing several is rejected client-side with `invalid-request`.
+   * One status, or several (sent comma-separated: the open ones are
+   * `['pending', 'assigned', 'in_review']`). A runtime before 0.1.6 takes
+   * one, and answers several with `400 bad-input`.
    */
-  readonly status?: ApprovalStatus;
+  readonly status?: ApprovalStatus | readonly ApprovalStatus[];
+  /** `'me'`: only the approvals assigned to the caller's own reviewer row. */
+  readonly assignedTo?: 'me';
+  /** `'asc'`: oldest first. Default `'desc'` (newest first). */
+  readonly order?: 'asc' | 'desc';
   /** Only one project's approvals (`kind: 'project'`), or every project's in an org (`kind: 'org'`). */
   readonly scope?: ScopeRef;
   /** Filter by required reviewer role. Caller must have rank ≥ value (else 403). */
@@ -219,6 +229,15 @@ export interface ApprovalFilter extends Omit<Filter<ApprovalStatus>, 'status'> {
    * `waitTokenId`; a run's journal names its open waits). At most 50.
    */
   readonly waitTokenIds?: readonly string[];
+}
+
+/**
+ * A page of approvals: the list's page, and the order it's in (`asc`
+ * oldest first, `desc` newest first). Absent from a runtime before 0.1.6,
+ * which lists newest first.
+ */
+export interface ApprovalPage extends ListPage<Approval> {
+  readonly order?: 'asc' | 'desc';
 }
 
 export interface ReviewerFilter extends Filter {
@@ -262,14 +281,23 @@ export interface AuditExportInput {
 export function makeApprovalsClient(transport: Transport): ApprovalsClient {
   return {
     async list(filter) {
-      const statusParam = singleStatusQuery('approvals.list', filter?.status);
-      const page = await transport.request<WirePage<Approval>>({
+      const statuses =
+        filter?.status === undefined
+          ? []
+          : typeof filter.status === 'string'
+            ? [filter.status]
+            : filter.status;
+      const page = await transport.request<
+        WirePage<Approval> & { readonly order?: 'asc' | 'desc' }
+      >({
         method: 'GET',
         path: '/v1/approvals',
         query: {
           ...(filter?.limit !== undefined && { limit: filter.limit }),
           ...(filter?.cursor !== undefined && { cursor: filter.cursor as unknown as string }),
-          ...(statusParam !== undefined && { status: statusParam }),
+          ...(statuses.length > 0 && { status: statuses.join(',') }),
+          ...(filter?.assignedTo !== undefined && { assignedTo: filter.assignedTo }),
+          ...(filter?.order !== undefined && { order: filter.order }),
           ...(filter?.scope !== undefined && scopeToQuery(filter.scope)),
           ...(filter?.requiredRole !== undefined && { requiredRole: filter.requiredRole }),
           ...(filter?.createdAfter !== undefined && {
@@ -279,7 +307,8 @@ export function makeApprovalsClient(transport: Transport): ApprovalsClient {
             filter.waitTokenIds.length > 0 && { waitTokenId: filter.waitTokenIds }),
         },
       });
-      return listPage(page);
+      const result = listPage(page);
+      return page.order === undefined ? result : Object.assign(result, { order: page.order });
     },
 
     async get(id) {

@@ -130,8 +130,10 @@ def param_annotation(doc: dict[str, Any], schema: dict[str, Any], name: str = ""
         return "Literal[" + ", ".join(json.dumps(v) for v in resolved["enum"]) + "]"
     kind = resolved.get("type")
     if kind == "array":
-        # A repeated query parameter (`segment=a&segment=b`): httpx repeats a list's key.
-        return f"list[{param_annotation(doc, resolved.get('items', {}), name)}]"
+        # A repeated query parameter (`segment=a&segment=b`): httpx repeats a list's
+        # key. One value is one too, so a parameter that took one before still does.
+        item = param_annotation(doc, resolved.get("items", {}), name)
+        return f"{item} | list[{item}]"
     if kind == "string" and (resolved.get("format") == "uuid" or ID_PARAM.search(name)):
         # An id: the models carry ids as `UUID` (`format: uuid`), so a model's
         # id passes straight back in (`client.runs.get(run.id)`); it's sent as text.
