@@ -48,7 +48,7 @@ export interface GuardrailRegistryBinding {
    * The guardrail for the given id, or `null` if unknown. The route
    * surfaces `null` as `404 guardrail-not-found`.
    */
-  get(input: GuardrailGetInput): Promise<Guardrail | null>;
+  get(input: GuardrailGetInput): Promise<GuardrailRecord | null>;
   /**
    * Register a validated guardrail spec. The API route validates shape
    * via `validateGuardrailSpec(...)` before calling — the binding
@@ -156,9 +156,18 @@ export interface GuardrailUnregisterInput {
 }
 
 export interface GuardrailPage {
-  readonly data: readonly Guardrail[];
+  readonly data: readonly GuardrailRecord[];
   readonly nextCursor?: Cursor;
 }
+
+/**
+ * A guardrail as the registry reads it (`get`, `list`): the spec, and
+ * its project when the store records it.
+ */
+export type GuardrailRecord = Guardrail & {
+  /** The guardrail's project, when the store records it. */
+  readonly projectId?: ProjectId;
+};
 
 export type GuardrailRegisterOutcome =
   | {

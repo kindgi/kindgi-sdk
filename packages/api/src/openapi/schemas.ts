@@ -134,6 +134,20 @@ const ContentProjectIdProperty: JsonSchema = {
     "Project this belongs to (its content scope). Required: missing, or not a project in the caller's tenant → `400 bad-input`.",
 };
 
+/**
+ * `projectId` on an agent, flow, tool, test set or guardrail a read
+ * returns: the project the registry keeps it in. Optional, so a client
+ * handles a record without one (a pack `kindgi dev` serves from disk,
+ * or an older runtime).
+ */
+function recordProjectIdProperty(lead: string): JsonSchema {
+  return {
+    type: 'string',
+    format: 'uuid',
+    description: `${lead} Absent when the runtime doesn't record it: a pack \`kindgi dev\` serves from disk, or a runtime before Kindgi 0.1.6.`,
+  };
+}
+
 // ---------------- run resource ----------------
 
 export const RunStatusSchema: JsonSchema = {
@@ -1981,6 +1995,9 @@ export const AgentSchema: JsonSchema = {
   properties: {
     id: { type: 'string', description: 'AgentId — dotted namespace (e.g. `acme.drafting`).' },
     version: { type: 'string', description: 'Semver.' },
+    projectId: recordProjectIdProperty(
+      "The agent's project: every version of an agent is in the one project.",
+    ),
     name: { type: 'string' },
     description: { type: 'string' },
     instructions: {
@@ -2313,6 +2330,9 @@ export const FlowSchema: JsonSchema = {
   properties: {
     id: { type: 'string', description: 'FlowId — dotted namespace (e.g. `ingest.contract-pdf`).' },
     version: { type: 'string', description: 'Semver.' },
+    projectId: recordProjectIdProperty(
+      "The flow's project: every version of a flow is in the one project.",
+    ),
     name: { type: 'string' },
     description: { type: 'string' },
     nodes: { type: 'array', items: { $ref: '#/components/schemas/FlowNode' } },
@@ -2667,6 +2687,9 @@ export const ToolSchema: JsonSchema = {
       minLength: 1,
       description: 'ToolId — dotted namespace (e.g. `acme.verify-citation`).',
     },
+    projectId: recordProjectIdProperty(
+      "The tool's project: every version of a tool is in the one project.",
+    ),
     description: { type: 'string', minLength: 1 },
     version: { type: 'string', pattern: '^\\d+\\.\\d+\\.\\d+$' },
     input: {
@@ -2839,6 +2862,7 @@ export const GuardrailSchema: JsonSchema = {
   required: ['id', 'kind', 'check', 'action'],
   properties: {
     id: { type: 'string', minLength: 1 },
+    projectId: recordProjectIdProperty("The guardrail's project."),
     name: { type: 'string' },
     description: { type: 'string' },
     kind: {
@@ -6551,6 +6575,9 @@ export const EvalSuiteSchema: JsonSchema = {
   properties: {
     id: { type: 'string', minLength: 1 },
     tenantId: { type: 'string', format: 'uuid' },
+    projectId: recordProjectIdProperty(
+      "The test set's project: every version of a test set is in the one project.",
+    ),
     version: {
       type: 'string',
       pattern: '^\\d+\\.\\d+\\.\\d+$',

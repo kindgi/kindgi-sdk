@@ -5003,6 +5003,11 @@
             "type": "string",
             "description": "Semver."
           },
+          "projectId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The agent's project: every version of an agent is in the one project. Absent when the runtime doesn't record it: a pack `kindgi dev` serves from disk, or a runtime before Kindgi 0.1.6."
+          },
           "name": {
             "type": "string"
           },
@@ -5645,6 +5650,11 @@
             "type": "string",
             "description": "Semver."
           },
+          "projectId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The flow's project: every version of a flow is in the one project. Absent when the runtime doesn't record it: a pack `kindgi dev` serves from disk, or a runtime before Kindgi 0.1.6."
+          },
           "name": {
             "type": "string"
           },
@@ -6238,6 +6248,11 @@
             "minLength": 1,
             "description": "ToolId — dotted namespace (e.g. `acme.verify-citation`)."
           },
+          "projectId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The tool's project: every version of a tool is in the one project. Absent when the runtime doesn't record it: a pack `kindgi dev` serves from disk, or a runtime before Kindgi 0.1.6."
+          },
           "description": {
             "type": "string",
             "minLength": 1
@@ -6324,6 +6339,11 @@
             "minLength": 1,
             "description": "ToolId — dotted namespace (e.g. `acme.verify-citation`)."
           },
+          "projectId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Project this belongs to (its content scope). Required: missing, or not a project in the caller's tenant → `400 bad-input`."
+          },
           "description": {
             "type": "string",
             "minLength": 1
@@ -6390,11 +6410,6 @@
           },
           "spec": {
             "$ref": "#/components/schemas/ToolSpec"
-          },
-          "projectId": {
-            "type": "string",
-            "format": "uuid",
-            "description": "Project this belongs to (its content scope). Required: missing, or not a project in the caller's tenant → `400 bad-input`."
           }
         }
       },
@@ -6489,6 +6504,11 @@
             "type": "string",
             "minLength": 1,
             "description": "ToolId — dotted namespace (e.g. `acme.verify-citation`)."
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The tool's project: every version of a tool is in the one project. Absent when the runtime doesn't record it: a pack `kindgi dev` serves from disk, or a runtime before Kindgi 0.1.6."
           },
           "description": {
             "type": "string",
@@ -6674,6 +6694,11 @@
             "type": "string",
             "minLength": 1
           },
+          "projectId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The guardrail's project. Absent when the runtime doesn't record it: a pack `kindgi dev` serves from disk, or a runtime before Kindgi 0.1.6."
+          },
           "name": {
             "type": "string"
           },
@@ -6750,6 +6775,11 @@
             "type": "string",
             "minLength": 1
           },
+          "projectId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Project this belongs to (its content scope). Required: missing, or not a project in the caller's tenant → `400 bad-input`."
+          },
           "name": {
             "type": "string"
           },
@@ -6807,11 +6837,6 @@
           "judgeCapabilities": {
             "type": "object",
             "additionalProperties": true
-          },
-          "projectId": {
-            "type": "string",
-            "format": "uuid",
-            "description": "Project this belongs to (its content scope). Required: missing, or not a project in the caller's tenant → `400 bad-input`."
           }
         }
       },
@@ -11772,6 +11797,11 @@
           "tenantId": {
             "type": "string",
             "format": "uuid"
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The test set's project: every version of a test set is in the one project. Absent when the runtime doesn't record it: a pack `kindgi dev` serves from disk, or a runtime before Kindgi 0.1.6."
           },
           "version": {
             "type": "string",

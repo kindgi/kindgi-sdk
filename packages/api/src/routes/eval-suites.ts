@@ -12,6 +12,7 @@ import {
   EVAL_KINDS,
   type EvalKind,
   type EvalSuite,
+  type EvalSuiteRecord,
   type EvalSuiteRegistryBinding,
 } from '../eval-suite-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
@@ -425,10 +426,11 @@ export function evalSuitesRouter(
   return r;
 }
 
-function serializeEvalSuite(s: EvalSuite): Record<string, unknown> {
+function serializeEvalSuite(s: EvalSuiteRecord): Record<string, unknown> {
   return {
     id: s.id,
     tenantId: s.tenantId as unknown as string,
+    ...(s.projectId !== undefined && { projectId: s.projectId as unknown as string }),
     version: s.version,
     kind: s.kind,
     ...(s.description !== undefined && { description: s.description }),

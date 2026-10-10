@@ -39,12 +39,12 @@ export interface EvalSuiteRegistryBinding {
    * Latest version of the given suite id, or `null` if unknown. The
    * route surfaces `null` as `404 eval-suite-not-found`.
    */
-  get(input: EvalSuiteGetInput): Promise<EvalSuite | null>;
+  get(input: EvalSuiteGetInput): Promise<EvalSuiteRecord | null>;
   /**
    * Specific `(suiteId, version)` lookup, or `null` if unknown.
    * Returns tombstoned versions too (provenance paths).
    */
-  getVersion(input: EvalSuiteGetVersionInput): Promise<EvalSuite | null>;
+  getVersion(input: EvalSuiteGetVersionInput): Promise<EvalSuiteRecord | null>;
   /**
    * Head-row existence probe. Lets GET distinguish 410 gone from
    * 404 not-found.
@@ -212,9 +212,22 @@ export interface EvalSuiteReinstateVersionInput {
 }
 
 export interface EvalSuitePage {
-  readonly data: readonly EvalSuite[];
+  readonly data: readonly EvalSuiteRecord[];
   readonly nextCursor?: Cursor;
 }
+
+/**
+ * A test set version as the registry reads it (`get`, `getVersion`,
+ * `list`, `listVersions`): the suite, and its project when the store
+ * records it.
+ */
+export type EvalSuiteRecord = EvalSuite & {
+  /**
+   * The test set's project, when the store records it: test sets never
+   * move between projects, so every version reads the same one.
+   */
+  readonly projectId?: ProjectId;
+};
 
 export type EvalSuitePublishOutcome =
   | {

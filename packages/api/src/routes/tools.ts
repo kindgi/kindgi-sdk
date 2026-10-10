@@ -4,13 +4,13 @@
 import { Hono } from 'hono';
 
 import { type Principal, ref, tuplesForCreate } from '@kindgi/authz';
-import { type ToolManifest, validateToolManifest } from '@kindgi/tools';
+import { validateToolManifest } from '@kindgi/tools';
 import type { Cursor, ProjectId, TenantId, ToolId, UserId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { refuseWritesWhenReadOnly } from '../registry-read-only.js';
-import type { ToolRegistryBinding } from '../tool-binding.js';
+import type { ToolRecord, ToolRegistryBinding, ToolVersionRow } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
 import { projectMismatch } from './project-mismatch.js';
@@ -476,11 +476,13 @@ export function toolsRouter(
  * The manifest as the wire carries it: every `ToolManifest` field the
  * `Tool` schema declares (a mirror of `@kindgi/specs/tool.schema.json`),
  * including where the code runs (`codeArtifactRef`) and the declarative
- * `spec`. A secret appears only as a reference (`secretRef`), never a value.
+ * `spec`, and the tool's project when the registry records it. A secret
+ * appears only as a reference (`secretRef`), never a value.
  */
-function serializeTool(t: ToolManifest): Record<string, unknown> {
+function serializeTool(t: ToolRecord): Record<string, unknown> {
   return {
     id: t.id as unknown as string,
+    ...(t.projectId !== undefined && { projectId: t.projectId as unknown as string }),
     description: t.description,
     ...(t.version !== undefined && { version: t.version }),
     input: t.input,
@@ -506,9 +508,7 @@ function serializeTool(t: ToolManifest): Record<string, unknown> {
  * head-level `get` / `resolve` routes don't accidentally start emitting
  * a field consumers don't expect.
  */
-function serializeToolVersionRow(
-  t: ToolManifest & { readonly unregisteredAt?: string },
-): Record<string, unknown> {
+function serializeToolVersionRow(t: ToolVersionRow): Record<string, unknown> {
   return {
     ...serializeTool(t),
     ...(t.unregisteredAt !== undefined && { unregisteredAt: t.unregisteredAt }),
