@@ -15,13 +15,15 @@ import type { ConversationMessage } from '../types.js';
 import type { TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
 import { readHistory } from './history.js';
+import { outputSection } from './structured-output.js';
 
 /**
  * Compose the initial `modelMessages` array the loop's first iteration
  * feeds to the model:
  *
  *   [ system: rendered prompt
- *             (+ the memory rule, + "Policies (verified)", when there are),
+ *             (+ the memory rule, + "Policies (verified)", when there are,
+ *              + the output's section, for a typed agent),
  *     ...history,
  *     user: <memory> data block (if anything was retrieved),
  *     user: current message ]
@@ -71,6 +73,10 @@ export function buildBuildInitialMessagesHandler(ctx: TurnContext): NodeHandler 
       rendered,
       ...(memoryMessage !== undefined ? [MEMORY_DATA_RULE] : []),
       ...(policies.length > 0 ? [formatPoliciesForPrompt(policies)] : []),
+      // A typed agent's output, from the turn's start: the first answer can
+      // fit, and a repair (`budget-check`) is the fallback, not every turn's
+      // second model call.
+      ...(agent.output !== undefined ? [outputSection(agent.output)] : []),
     ].join('\n\n');
     const modelMessages: ModelMessage[] = [
       { role: 'system', content: system },

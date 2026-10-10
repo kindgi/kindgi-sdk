@@ -98,10 +98,14 @@ ticket_triage = Agent(
 - **`maxRepairs`** is how many times a wrong answer goes back to the model
   (default 1): see [below](#when-the-answer-doesnt-fit).
 
-Describe the JSON in the instructions too, as above. The model isn't sent the
-schema with its first call, so an agent that doesn't describe the shape spends
-an extra model call on a repair. `capabilities: [{ needs: [] }]` lets any
-registered model answer: this agent calls no tools.
+The model is sent the schema from its first call: the system message ends with
+it, in the words a repair repeats (below), and tells the model to call the
+tools it needs first. So its first answer can already fit. Describing the JSON
+in the instructions, as above, still helps it fill the fields well. A runtime
+before Kindgi 0.1.7 sends the schema only with a repair: there, an agent whose
+instructions don't describe the shape spends an extra model call on one.
+`capabilities: [{ needs: [] }]` lets any registered model answer: this agent
+calls no tools.
 
 ## Run it
 
@@ -187,9 +191,10 @@ It did not fit:
 Reply again with only the corrected triage JSON.
 ```
 
-That's from a version of the agent whose instructions didn't describe the JSON:
-its first answer was prose, the repair worked, and the turn took two steps
-instead of one. Each repair is a model call: it counts as a step against the
+That's from a runtime before Kindgi 0.1.7, which didn't send the schema with
+the first call, and a version of the agent whose instructions didn't describe
+the JSON: its first answer was prose, the repair worked, and the turn took two
+steps instead of one. Each repair is a model call: it counts as a step against the
 agent's [budget](../budgets/), and it costs.
 
 When the repairs run out (`maxRepairs`, default 1), the turn fails with
