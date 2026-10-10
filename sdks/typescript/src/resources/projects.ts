@@ -19,6 +19,9 @@ import type {
   ProjectRole as ProjectRoleWire,
   ProjectSpec as ProjectSpecBody,
   Project as ProjectWire,
+  TeamProjectGrantCollectionPage,
+  TeamProjectGrant as TeamProjectGrantWire,
+  TeamProjectRole as TeamProjectRoleWire,
 } from '../generated/api.js';
 import type { Transport } from '../transport.js';
 import {
@@ -51,6 +54,52 @@ export interface ListProjectMembershipsFilter {
   readonly cursor?: string;
 }
 
+/** A team's role on a project, with the team's and the project's names. */
+export type TeamProjectGrantShape = TeamProjectGrantWire;
+export type TeamProjectGrantPage = TeamProjectGrantCollectionPage;
+/** `viewer`, `editor` or `admin`: a team never owns a project. */
+export type TeamProjectRoleValue = TeamProjectRoleWire;
+
+export interface ListTeamGrantsFilter {
+  readonly limit?: number;
+  readonly cursor?: string;
+}
+
+/**
+ * The teams with a role on a project. Every member of a team holds it
+ * there. Reading takes `write` on the project (its editors and admins);
+ * changing takes `admin`.
+ */
+export interface ProjectTeamGrantsClient {
+  /** @wire GET /v1/projects/:projectId/team-grants */
+  list(projectId: string, filter?: ListTeamGrantsFilter): Promise<TeamProjectGrantPage>;
+  /**
+   * Give a team a role on the project. Takes `read` on the team too.
+   * A role the team already holds answers with the existing grant; another role is
+   * `409 team-grant-exists` (`details.role`): change it with `updateRole`.
+   *
+   * @wire POST /v1/projects/:projectId/team-grants
+   */
+  add(
+    projectId: string,
+    input: { readonly teamId: string; readonly role: TeamProjectRoleValue },
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<TeamProjectGrantShape>;
+  /** @wire PATCH /v1/projects/:projectId/team-grants/:teamId */
+  updateRole(
+    projectId: string,
+    teamId: string,
+    role: TeamProjectRoleValue,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<void>;
+  /** @wire DELETE /v1/projects/:projectId/team-grants/:teamId */
+  remove(
+    projectId: string,
+    teamId: string,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<void>;
+}
+
 export interface ProjectsClient {
   /** @wire POST /v1/projects */
   create(
@@ -76,6 +125,7 @@ export interface ProjectsClient {
   readonly judgingRules: JudgingRulesClient;
   /** The runs queued for a person's judgment. */
   readonly judgingQueue: JudgingQueueClient;
+  readonly teamGrants: ProjectTeamGrantsClient;
 }
 
 export interface ProjectMembershipsClient {
@@ -190,6 +240,43 @@ export function makeProjectsClient(transport: Transport): ProjectsClient {
         return transport.request<void>({
           method: 'DELETE',
           path: `/v1/projects/${seg(projectId)}/memberships/${seg(userId)}`,
+          discardResponse: true,
+          ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
+        });
+      },
+    },
+    teamGrants: {
+      async list(projectId, filter) {
+        return transport.request<TeamProjectGrantPage>({
+          method: 'GET',
+          path: `/v1/projects/${seg(projectId)}/team-grants`,
+          query: {
+            ...(filter?.limit !== undefined && { limit: filter.limit }),
+            ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
+          },
+        });
+      },
+      async add(projectId, input, options) {
+        return transport.request<TeamProjectGrantShape>({
+          method: 'POST',
+          path: `/v1/projects/${seg(projectId)}/team-grants`,
+          body: input,
+          ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
+        });
+      },
+      async updateRole(projectId, teamId, role, options) {
+        return transport.request<void>({
+          method: 'PATCH',
+          path: `/v1/projects/${seg(projectId)}/team-grants/${seg(teamId)}`,
+          body: { role },
+          discardResponse: true,
+          ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
+        });
+      },
+      async remove(projectId, teamId, options) {
+        return transport.request<void>({
+          method: 'DELETE',
+          path: `/v1/projects/${seg(projectId)}/team-grants/${seg(teamId)}`,
           discardResponse: true,
           ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
         });

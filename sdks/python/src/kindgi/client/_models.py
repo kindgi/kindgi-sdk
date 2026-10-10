@@ -8795,6 +8795,62 @@ class AddTeamMembershipResult(BaseModel):
     """
 
 
+class TeamProjectGrant(BaseModel):
+    """
+    A team's role on a project.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    team_id: Annotated[str, Field(alias="teamId")]
+    project_id: Annotated[str, Field(alias="projectId")]
+    role: Literal["viewer", "editor", "admin"]
+    """
+    A team's role on a project, held by every member of the team: `admin` includes `editor`, which includes `viewer`. A team never owns a project.
+    """
+    granted_at: Annotated[AwareDatetime | None, Field(alias="grantedAt")] = None
+    """
+    When the team was given the role. Absent from a runtime that does not record it.
+    """
+    team_name: Annotated[str | None, Field(alias="teamName")] = None
+    project_name: Annotated[str | None, Field(alias="projectName")] = None
+
+
+class TeamProjectGrantCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[TeamProjectGrant]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class AddTeamProjectGrantBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    team_id: Annotated[str, Field(alias="teamId", min_length=1)]
+    role: Literal["viewer", "editor", "admin"]
+    """
+    A team's role on a project, held by every member of the team: `admin` includes `editor`, which includes `viewer`. A team never owns a project.
+    """
+
+
+class UpdateTeamProjectGrantBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    role: Literal["viewer", "editor", "admin"]
+    """
+    A team's role on a project, held by every member of the team: `admin` includes `editor`, which includes `viewer`. A team never owns a project.
+    """
+
+
 class Project(BaseModel):
     model_config = ConfigDict(
         extra="allow",

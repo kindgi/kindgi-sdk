@@ -58,4 +58,41 @@ describe('projects — wire round-trips', () => {
       'DELETE /v1/projects/p1/memberships/u1',
     ]);
   });
+
+  it('teamGrants map to /v1/projects/:id/team-grants, and teams.projectGrants to /v1/teams/:id/project-grants', async () => {
+    const grant = {
+      teamId: 't1',
+      projectId: 'p1',
+      role: 'editor',
+      teamName: 'Crew',
+      projectName: 'Acme',
+    };
+    const stub = recordingFetch([
+      { status: 200, body: JSON.stringify({ data: [grant], hasMore: false }) },
+      { status: 201, body: JSON.stringify(grant) },
+      { status: 200, body: '{}' },
+      { status: 200, body: '{}' },
+      { status: 200, body: JSON.stringify({ data: [grant], hasMore: false }) },
+    ]);
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    const page = await client.projects.teamGrants.list('p1', { limit: 5 });
+    expect(page.data[0]?.teamName).toBe('Crew');
+    expect(await client.projects.teamGrants.add('p1', { teamId: 't1', role: 'editor' })).toEqual(
+      grant,
+    );
+    await client.projects.teamGrants.updateRole('p1', 't1', 'admin');
+    await client.projects.teamGrants.remove('p1', 't1');
+    await client.teams.projectGrants.list('t1');
+    expect(
+      stub.calls.map((c) => `${c.method} ${new URL(c.url).pathname}${new URL(c.url).search}`),
+    ).toEqual([
+      'GET /v1/projects/p1/team-grants?limit=5',
+      'POST /v1/projects/p1/team-grants',
+      'PATCH /v1/projects/p1/team-grants/t1',
+      'DELETE /v1/projects/p1/team-grants/t1',
+      'GET /v1/teams/t1/project-grants',
+    ]);
+    expect(JSON.parse(stub.calls[1]?.body as string)).toEqual({ teamId: 't1', role: 'editor' });
+    expect(JSON.parse(stub.calls[2]?.body as string)).toEqual({ role: 'admin' });
+  });
 });

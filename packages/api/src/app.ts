@@ -135,6 +135,7 @@ import { secretsRouter } from './routes/secrets.js';
 import { serviceAccountsRouter } from './routes/service-accounts.js';
 import { type SignInOptionsRateLimit, signInOptionsRouter } from './routes/sign-in-options.js';
 import { signingKeysRouter } from './routes/signing-keys.js';
+import { projectTeamGrantsRouter, teamProjectGrantsRouter } from './routes/team-grants.js';
 import { teamsRouter } from './routes/teams.js';
 import { tenantRouter } from './routes/tenant.js';
 import { tokenSignInRouter } from './routes/token-sign-in.js';
@@ -877,9 +878,10 @@ export interface CreateAppInput {
   readonly projectBinding?: ProjectBinding;
   readonly projectMembershipBinding?: ProjectMembershipBinding;
   /**
-   * Optional. The team↔project grant binding. Not consumed by this
-   * package's routes; the authz backend uses it to resolve
-   * team-mediated project grants.
+   * Optional. The team↔project grant binding. With `projectBinding` and
+   * `teamBinding`, it mounts `/v1/projects/:projectId/team-grants` and
+   * `/v1/teams/:teamId/project-grants`. With an authorizer, writes go
+   * through the tenant-hierarchy binding (row and tuple together).
    */
   readonly teamProjectGrantBinding?: TeamProjectGrantBinding;
   /**
@@ -1500,6 +1502,21 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         input.identityDirectory,
       ),
     );
+  }
+  if (
+    input.teamProjectGrantBinding !== undefined &&
+    input.projectBinding !== undefined &&
+    input.teamBinding !== undefined
+  ) {
+    const teamGrants = {
+      grants: input.teamProjectGrantBinding,
+      projects: input.projectBinding,
+      teams: input.teamBinding,
+      tenantHierarchy: tenantHierarchyBinding,
+      ...(authorizer !== undefined && { authorizer }),
+    };
+    v1.route('/projects', projectTeamGrantsRouter(teamGrants));
+    v1.route('/teams', teamProjectGrantsRouter(teamGrants));
   }
   // `/v1/tenant` is always mounted (reads the tenant through the
   // tenant-hierarchy binding);
