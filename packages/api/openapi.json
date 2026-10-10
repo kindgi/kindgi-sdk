@@ -23642,6 +23642,16 @@
               }
             }
           },
+          "400": {
+            "description": "`bad-input`: a `cursor` this list didn't issue.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
             "content": {
@@ -25816,6 +25826,16 @@
               }
             }
           },
+          "400": {
+            "description": "`bad-input`: a `cursor` this list didn't issue.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
             "content": {
@@ -26463,6 +26483,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ToolVersionCollectionPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`bad-input`: a `cursor` this list didn't issue.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
                 }
               }
             }
@@ -34605,6 +34635,16 @@
               }
             }
           },
+          "400": {
+            "description": "`bad-input`: a `cursor` this list didn't issue.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
             "content": {
@@ -35546,6 +35586,16 @@
               }
             }
           },
+          "400": {
+            "description": "`bad-input`: a `cursor` this list didn't issue.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
             "content": {
@@ -36408,6 +36458,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/BlockCollectionPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`bad-input`: a `cursor` this list didn't issue.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
                 }
               }
             }

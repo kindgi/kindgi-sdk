@@ -344,6 +344,33 @@ describe('POST /v1/agents/:agentId/promotions', () => {
 });
 
 describe('GET /v1/agents/:agentId/promotions', () => {
+  test('a cursor the binding didn’t issue: 400 bad-input, before the list is read', async () => {
+    const fake = fakeReleases();
+    const releases: AgentReleaseBindings = {
+      ...fake.bindings,
+      promotions: {
+        ...fake.bindings.promotions,
+        issuedCursor: (list, cursor) => list === 'promotions' && cursor === ('c-1' as Cursor),
+      },
+    };
+    const app = createApp({
+      ...createStubAppBindings(),
+      resolveToken,
+      runHandler,
+      agentRegistry: registryWith(['1.0.0']),
+      agentReleases: releases,
+    });
+    const refused = await app.request(`/v1/agents/${AGENT}/promotions?cursor=made-up`, {
+      headers: auth,
+    });
+    expect(refused.status).toBe(400);
+    expect(((await refused.json()) as { error: { code: string } }).error.code).toBe('bad-input');
+    expect(fake.calls).toEqual([]);
+    const next = await app.request(`/v1/agents/${AGENT}/promotions?cursor=c-1`, { headers: auth });
+    expect(next.status).toBe(200);
+    expect(fake.calls.map((c) => c.method)).toEqual(['promotions.list']);
+  });
+
   test('pages, newest first as the binding returns them', async () => {
     const { app, calls, state } = makeApp();
     const a = promotion();

@@ -69,6 +69,14 @@ export interface AgentRegistryBinding {
    */
   listVersions(input: AgentListVersionsInput): Promise<AgentPage>;
   /**
+   * Whether `cursor` is one this binding issued for `list` (`'versions'`:
+   * a `listVersions` page's `nextCursor`). Optional: without it, the route passes any
+   * cursor to the list, as before. With it, a cursor the binding didn't
+   * issue answers `400 bad-input` before the list is read, so a client
+   * paging until done is never sent back to the first page.
+   */
+  issuedCursor?(list: 'versions', cursor: Cursor): boolean;
+  /**
    * Publish a validated agent definition. The API route validates
    * shape via `defineAgent(...)` before calling — the binding receives
    * a well-formed `Agent`. Bindings MAY reject with `already-registered`

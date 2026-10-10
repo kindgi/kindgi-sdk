@@ -17,6 +17,7 @@ import {
 } from '../eval-suite-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
+import { refuseUnissuedCursor } from './issued-cursor.js';
 import { clampLimit } from './pagination.js';
 import { projectMismatch } from './project-mismatch.js';
 import { parseScopeParams } from './scope-params.js';
@@ -213,6 +214,8 @@ export function evalSuitesRouter(
     const suiteId = c.req.param('suiteId');
     const limit = clampLimit(c.req.query('limit'));
     const cursorRaw = c.req.query('cursor');
+    const refused = refuseUnissuedCursor(c, binding, 'versions', cursorRaw);
+    if (refused !== undefined) return refused;
     // `?includeTombstoned=true` lists unregistered versions too, each
     // with `unregisteredAt`. Anything else → active versions only.
     const includeTombstoned = c.req.query('includeTombstoned') === 'true';

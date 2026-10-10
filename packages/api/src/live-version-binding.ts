@@ -257,6 +257,14 @@ export interface PromotionBinding {
     readonly data: readonly Promotion[];
     readonly nextCursor?: Cursor;
   }>;
+  /**
+   * Whether `cursor` is one this binding issued for `list` (`'promotions'`:
+   * a `list` page's `nextCursor`). Optional: without it, the route passes any
+   * cursor to the list, as before. With it, a cursor the binding didn't
+   * issue answers `400 bad-input` before the list is read, so a client
+   * paging until done is never sent back to the first page.
+   */
+  issuedCursor?(list: 'promotions', cursor: Cursor): boolean;
   get(tenantId: TenantId, promotionId: string): Promise<Promotion | null>;
 }
 

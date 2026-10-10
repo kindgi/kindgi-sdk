@@ -19,6 +19,7 @@ import {
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
+import { refuseUnissuedCursor } from './issued-cursor.js';
 import { clampLimit } from './pagination.js';
 import { tenantResourceAccess } from './tenant-access.js';
 
@@ -132,6 +133,8 @@ export function policiesRouter(
     const policyId = c.req.param('policyId');
     const limit = clampLimit(c.req.query('limit'));
     const cursorRaw = c.req.query('cursor');
+    const refused = refuseUnissuedCursor(c, binding, 'versions', cursorRaw);
+    if (refused !== undefined) return refused;
     // `?includeTombstoned=true` surfaces soft-tombstoned rows alongside
     // active ones. Rows carry `unregisteredAt` (ISO string) iff
     // tombstoned. Absent / anything else → active-only (the default).
