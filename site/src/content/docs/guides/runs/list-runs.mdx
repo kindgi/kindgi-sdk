@@ -105,7 +105,11 @@ edaf7625-0585-40c3-805c-0c098f6846b8 acme.review-order failed
 - In Python, `paginate` follows `next_cursor` for you.
 
 A status that doesn't exist, a time that isn't one, an empty value, or a
-version without its id is refused with `400 bad-input`, naming it.
+version without its id is refused with `400 bad-input`, naming it:
+
+```json
+{ "error": { "code": "bad-input", "message": "`agentVersion` needs `agentId`", … } }
+```
 
 The filters combine. The runs created in the last day that failed or were
 cancelled, leaving out the runs inside them:
@@ -120,6 +124,11 @@ const ended = await kindgi.runs.list({
   createdAfter: since,
   topLevel: true,
 });
+for (const run of ended.data) console.log(run.id, run.status, run.agent?.version);
+```
+
+```text
+c231451d-c304-4466-bb37-3b72145470ed cancelled 2.1.0
 ```
 
 </TabItem>
@@ -130,6 +139,12 @@ from datetime import datetime, timedelta, timezone
 
 since = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
 ended = kindgi.runs.list(status=["failed", "cancelled"], created_after=since, top_level=True)
+for run in ended.data:
+    print(run.id, run.status, run.agent.version if run.agent else None)
+```
+
+```text
+c231451d-c304-4466-bb37-3b72145470ed cancelled 2.1.0
 ```
 
 </TabItem>
