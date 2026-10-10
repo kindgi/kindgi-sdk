@@ -116,16 +116,16 @@ function bwrapAvailability(probe: ProbeResult): SandboxAvailability {
   if (/uid map|setting up uid/i.test(probe.stderr)) {
     return unavailable(
       'this system blocks the user namespaces bwrap needs (Ubuntu 23.10 and later)',
-      `Allow bwrap to use them: ${DEV_SANDBOX_DOCS}#linux.`,
+      `Allow bwrap to use them: ${DEV_SANDBOX_DOCS}#where-it-runs.`,
     );
   }
   if (/new namespace|namespace failed|No permissions to create/i.test(probe.stderr)) {
     return unavailable(
       "this system doesn't allow user namespaces (a container, or a kernel setting)",
-      `In a container, the container is the boundary; elsewhere see ${DEV_SANDBOX_DOCS}#linux.`,
+      `In a container, the container is the boundary; elsewhere see ${DEV_SANDBOX_DOCS}#where-it-runs.`,
     );
   }
-  return unavailable(`bwrap failed: ${firstLine(probe.stderr)}`, `See ${DEV_SANDBOX_DOCS}#linux.`);
+  return unavailable(`bwrap failed: ${firstLine(probe.stderr)}`, `See ${DEV_SANDBOX_DOCS}#where-it-runs.`);
 }
 
 function firstLine(text: string): string {
