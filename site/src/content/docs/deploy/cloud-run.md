@@ -134,8 +134,8 @@ built for:
 ```sh
 REPO=$(terraform output -raw image_repository)
 gcloud auth configure-docker "${REPO%%/*}"
-docker buildx imagetools create --tag "$REPO/runtime:0.1.4" \
-  quay.io/kindgi/runtime:0.1.4@sha256:<the release's digest>
+docker buildx imagetools create --tag "$REPO/runtime:0.1.5-rc.1" \
+  quay.io/kindgi/runtime:0.1.5-rc.1@sha256:fea4290add562838e6bdbeed562b410524a3ea6ccd4b7250627ab0a554359f87
 ```
 
 The copy keeps the release's digest. (A plain `docker pull`, `tag` and `push`
