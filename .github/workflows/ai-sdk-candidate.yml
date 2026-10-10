@@ -16,6 +16,10 @@ name: AI SDK candidate
 # and `bump/`: the files the candidates changed (each moved adapter
 # `package.json` and `pnpm-lock.yaml`), as tested, so a pin bump proposes
 # exactly what passed.
+#
+# An optional `request_id` (8 to 64 lowercase hex characters, validated
+# too) goes in the run's name, so a caller that lost the dispatch's answer
+# finds its run instead of starting a second one.
 
 on:
   workflow_dispatch:
@@ -24,6 +28,13 @@ on:
         description: "Space-separated @ai-sdk/<name>@<major>.<minor>.<patch> pairs (packages a model adapter pins)"
         required: true
         type: string
+      request_id:
+        description: "Optional: the caller's id for this run, shown in its name (8 to 64 lowercase hex characters)"
+        required: false
+        type: string
+        default: ""
+
+run-name: AI SDK candidate ${{ inputs.request_id }}
 
 permissions:
   contents: read
@@ -38,6 +49,7 @@ jobs:
     timeout-minutes: 30
     env:
       CANDIDATES: ${{ inputs.packages }}
+      REQUEST_ID: ${{ inputs.request_id }}
     steps:
       - uses: actions/checkout@v5
         with:

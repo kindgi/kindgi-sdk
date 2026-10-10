@@ -130,10 +130,14 @@ describe('the script on a repository', () => {
     manifest({ zod: '4.6.5' }),
   );
 
-  const run = (command, candidates) =>
+  const run = (command, candidates, requestId) =>
     spawnSync(process.execPath, [SCRIPT, command], {
       cwd: root,
-      env: { PATH: process.env.PATH, CANDIDATES: candidates },
+      env: {
+        PATH: process.env.PATH,
+        CANDIDATES: candidates,
+        ...(requestId !== undefined && { REQUEST_ID: requestId }),
+      },
       encoding: 'utf8',
     });
 
@@ -148,6 +152,20 @@ describe('the script on a repository', () => {
     const r = run('apply', '@ai-sdk/openai@1.0.0');
     assert.equal(r.status, 1);
     assert.match(r.stderr, /isn't pinned by a model adapter/);
+    assert.match(
+      readFileSync(join(root, 'packages', 'adapters', 'model-azure', 'package.json'), 'utf8'),
+      /"4\.0\.97"/,
+    );
+  });
+
+  test('a request id is empty or lowercase hex; anything else refuses before the pins move', () => {
+    assert.equal(run('validate', '@ai-sdk/azure@4.1.0', '').status, 0);
+    assert.equal(run('validate', '@ai-sdk/azure@4.1.0', '3f2a9c0d1e4b5a67').status, 0);
+    for (const bad of ['3F2A9C0D', 'abc', '$(id)', `${'a'.repeat(65)}`, '3f2a9c0d 1e4b']) {
+      const r = run('apply', '@ai-sdk/azure@4.1.0', bad);
+      assert.equal(r.status, 1, bad);
+      assert.match(r.stderr, /isn't a request id/);
+    }
     assert.match(
       readFileSync(join(root, 'packages', 'adapters', 'model-azure', 'package.json'), 'utf8'),
       /"4\.0\.97"/,

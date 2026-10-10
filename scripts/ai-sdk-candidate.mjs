@@ -18,6 +18,9 @@
  *   `result.json` (`{ candidates, passed, failed: [{ file, test }] }`), and a
  *   summary for the run's page (`GITHUB_STEP_SUMMARY`).
  *
+ * `REQUEST_ID`, when set, must be 8 to 64 lowercase hex characters: it only
+ * names the run, and is checked like the candidates before anything runs.
+ *
  * Usage: `CANDIDATES='@ai-sdk/amazon-bedrock@5.0.120' node scripts/ai-sdk-candidate.mjs validate|apply|report`
  */
 
@@ -27,6 +30,8 @@ import { fileURLToPath } from 'node:url';
 
 const ADAPTERS = join('packages', 'adapters');
 const MAX_CANDIDATES = 10;
+/** A caller's id for a run (`REQUEST_ID`), shown in the run's name: empty, or lowercase hex. */
+const REQUEST_ID = /^(|[0-9a-f]{8,64})$/;
 const CANDIDATE = /^(@ai-sdk\/[a-z0-9][a-z0-9-]*)@(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 
 /** Each adapter's `package.json` path, with the `@ai-sdk/*` packages it pins and their versions. */
@@ -171,8 +176,14 @@ function main(argv, env) {
   }
   const pins = adapterPins();
   const parsed = parseCandidates(env.CANDIDATES, new Set(pins.flatMap((p) => Object.keys(p.pins))));
-  if (parsed.kind === 'err') {
-    for (const p of parsed.problems) console.error(`ai-sdk-candidate: ${p}`);
+  const problems = parsed.kind === 'err' ? [...parsed.problems] : [];
+  if (!REQUEST_ID.test(env.REQUEST_ID ?? '')) {
+    problems.push(
+      `"${printable(env.REQUEST_ID)}" isn't a request id (8 to 64 lowercase hex characters)`,
+    );
+  }
+  if (parsed.kind === 'err' || problems.length > 0) {
+    for (const p of problems) console.error(`ai-sdk-candidate: ${p}`);
     return 1;
   }
   if (command === 'apply') return applyCandidates(pins, parsed.candidates);
