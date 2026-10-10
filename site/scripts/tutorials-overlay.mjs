@@ -42,7 +42,7 @@ export function pinOf(source, file) {
   return parsed;
 }
 
-/** A page's path under `/tutorials/`: `woo.md` → `woo`, `woo/index.mdx` → `woo`, `index.md` → ``. */
+/** A page's path under `/tutorials/`: `woo.mdx` → `woo`, `woo/index.mdx` → `woo`, the section's index → ``. */
 export function slugOf(path) {
   const bare = path.replace(PAGE, '');
   if (bare === 'index') return '';

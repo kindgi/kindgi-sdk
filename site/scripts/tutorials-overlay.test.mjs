@@ -19,27 +19,27 @@ const unpinned = page('title: Build a support desk');
 const root = parse('0.1.6');
 
 test('the pin: a release version in the frontmatter, quoted or not', () => {
-  assert.equal(pinOf(pinned('0.1.6'), 'a.md').version, '0.1.6');
-  assert.equal(pinOf(pinned('"0.1.6"'), 'a.md').version, '0.1.6');
-  assert.equal(pinOf(pinned("'0.1.6'"), 'a.md').version, '0.1.6');
+  assert.equal(pinOf(pinned('0.1.6'), 'a.mdx').version, '0.1.6');
+  assert.equal(pinOf(pinned('"0.1.6"'), 'a.mdx').version, '0.1.6');
+  assert.equal(pinOf(pinned("'0.1.6'"), 'a.mdx').version, '0.1.6');
 });
 
 test('no pin: no frontmatter, or none named tested', () => {
-  assert.equal(pinOf(unpinned, 'a.md'), undefined);
-  assert.equal(pinOf('No frontmatter.\n\ntested: 0.1.6\n', 'a.md'), undefined);
+  assert.equal(pinOf(unpinned, 'a.mdx'), undefined);
+  assert.equal(pinOf('No frontmatter.\n\ntested: 0.1.6\n', 'a.mdx'), undefined);
 });
 
 test('a pin that is not a release stops the build, naming the page', () => {
   assert.throws(
-    () => pinOf(pinned('0.1.6-rc.0'), 'site/x.md'),
-    /site\/x\.md: "tested: 0\.1\.6-rc\.0" isn't a Kindgi release/,
+    () => pinOf(pinned('0.1.6-rc.0'), 'site/x.mdx'),
+    /site\/x\.mdx: "tested: 0\.1\.6-rc\.0" isn't a Kindgi release/,
   );
-  assert.throws(() => pinOf(pinned('latest'), 'site/x.md'), /isn't a Kindgi release/);
-  assert.throws(() => pinOf(pinned('0.1.5.1'), 'site/x.md'), /isn't a Kindgi release/);
+  assert.throws(() => pinOf(pinned('latest'), 'site/x.mdx'), /isn't a Kindgi release/);
+  assert.throws(() => pinOf(pinned('0.1.5.1'), 'site/x.mdx'), /isn't a Kindgi release/);
 });
 
 test('slugs: a page, a folder index, the section index', () => {
-  assert.equal(slugOf('add-kindgi.md'), 'add-kindgi');
+  assert.equal(slugOf('add-kindgi.mdx'), 'add-kindgi');
   assert.equal(slugOf('woo/index.mdx'), 'woo');
   assert.equal(slugOf('index.md'), '');
 });
@@ -47,12 +47,12 @@ test('slugs: a page, a folder index, the section index', () => {
 test('a tutorial pinned at or below the newest release is taken from main', () => {
   const overlay = pinnedTutorials(
     [
-      { path: 'add-kindgi.md', source: pinned('0.1.6') },
-      { path: 'older.md', source: pinned('0.1.5') },
+      { path: 'add-kindgi.mdx', source: pinned('0.1.6') },
+      { path: 'older.mdx', source: pinned('0.1.5') },
     ],
     root,
   );
-  assert.deepEqual(overlay.take, ['add-kindgi.md', 'older.md']);
+  assert.deepEqual(overlay.take, ['add-kindgi.mdx', 'older.mdx']);
   assert.deepEqual(overlay.pages, ['add-kindgi', 'older']);
   assert.deepEqual(overlay.later, []);
 });
@@ -70,10 +70,10 @@ test('control: an unpinned tutorial on main never reaches /', () => {
 });
 
 test('a tutorial pinned to a newer release waits for it', () => {
-  const overlay = pinnedTutorials([{ path: 'woo.md', source: pinned('0.1.7') }], root);
+  const overlay = pinnedTutorials([{ path: 'woo.mdx', source: pinned('0.1.7') }], root);
   assert.deepEqual(overlay.take, []);
   assert.deepEqual(overlay.pages, []);
-  assert.deepEqual(overlay.later, [{ path: 'woo.md', pin: '0.1.7' }]);
+  assert.deepEqual(overlay.later, [{ path: 'woo.mdx', pin: '0.1.7' }]);
 });
 
 test('a pinned folder brings its pictures; an unpinned folder brings nothing', () => {
@@ -114,7 +114,7 @@ test("a pinned page needs its imports in the newest release's site", () => {
 
 test('a plain markdown page imports nothing', () => {
   assert.deepEqual(
-    missingImports("import X from './x';", `${TUTORIALS}a.md`, () => false),
+    missingImports("import X from './x';", `${TUTORIALS}support-desk-typescript.md`, () => false),
     [],
   );
 });
