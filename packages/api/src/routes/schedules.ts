@@ -213,6 +213,13 @@ export function schedulesRouter(
       return bad(c, c.get('requestId'), '`projectId` must be a project id (a UUID)');
     }
     const projectId = projectRaw as ProjectId | undefined;
+    // A project filter needs read on that project, as the agents' and tools'
+    // lists do: else an empty page (with `hasMore` and a cursor into that
+    // project's rows) would say whether it has schedules.
+    if (projectId !== undefined) {
+      const refused = await denied(c, 'read', ref('project', projectId as unknown as string));
+      if (refused !== undefined) return refused;
+    }
 
     let statusFilter: 'active' | 'paused' | undefined;
     if (statusRaw === 'active' || statusRaw === 'paused') statusFilter = statusRaw;

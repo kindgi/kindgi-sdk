@@ -12,6 +12,7 @@
 
 import { randomUUID } from 'node:crypto';
 
+import { Hono } from 'hono';
 import { describe, expect, test } from 'vitest';
 
 import type { ProjectId, TenantId, UserId } from '@kindgi/types';
@@ -26,6 +27,9 @@ import type {
   ServiceAccountBinding,
   TokenResolver,
 } from '../src/index.js';
+import type { Authorizer } from '../src/middleware/authorize.js';
+import { schedulesRouter } from '../src/routes/schedules.js';
+import type { AppEnv } from '../src/types.js';
 
 const tenantId = randomUUID() as TenantId;
 const ADA = randomUUID() as UserId;
@@ -137,6 +141,61 @@ describe('one project’s schedules', () => {
     expect(h.asked.at(-1)).not.toHaveProperty('projectId');
     const bad = await h.call(ADA_TOKEN, 'GET', '/v1/schedules?projectId=not-a-project');
     expect([bad.status, bad.body.error.code]).toEqual([400, 'bad-input']);
+  });
+});
+
+describe('a project filter needs read on that project', () => {
+  /** The schedules router, behind an authorizer that grants `read` on `allowed` only. */
+  function gated(allowed: readonly string[]) {
+    const checked: string[] = [];
+    const listed: Record<string, unknown>[] = [];
+    const registry = createInMemoryTriggerRegistry({ defaultProjectId: PROJECT_A });
+    const authorizer = {
+      authorize:
+        (_action: string, resource: (c: unknown) => unknown) =>
+        async (c: never, next: () => Promise<void>) => {
+          const r = (await resource(c)) as { type: string; id: string };
+          checked.push(`${r.type}:${r.id}`);
+          if (!allowed.includes(`${r.type}:${r.id}`))
+            return (c as { json: (b: unknown, s: number) => Response }).json(
+              { error: { code: 'permission-denied' } },
+              403,
+            );
+          return next();
+        },
+      filterByCan: async (_c: unknown, _a: string, rows: readonly unknown[]) => rows,
+    } as unknown as Authorizer;
+    const binding = {
+      ...registry,
+      list: async (input: Record<string, unknown>) => {
+        listed.push(input);
+        return registry.list(input as never);
+      },
+    } as unknown as typeof registry;
+    const app = new Hono<AppEnv>();
+    app.use('*', async (c, next) => {
+      c.set('tenantId' as never, tenantId as never);
+      c.set('requestId' as never, 'req-schedules-project' as never);
+      return next();
+    });
+    app.route('/', schedulesRouter(binding, authorizer));
+    return { app, checked, listed };
+  }
+
+  test('without read on it: 403 before anything is listed (no empty page, no cursor into it)', async () => {
+    const { app, checked, listed } = gated([`project:${PROJECT_A}`]);
+    const res = await app.request(`/?projectId=${PROJECT_B}&limit=1`);
+    expect(res.status).toBe(403);
+    expect(checked).toEqual([`project:${PROJECT_B}`]);
+    expect(listed).toEqual([]);
+  });
+
+  test('with read on it: listed; without the filter, no project is checked', async () => {
+    const { app, checked } = gated([`project:${PROJECT_A}`]);
+    expect((await app.request(`/?projectId=${PROJECT_A}`)).status).toBe(200);
+    expect(checked).toEqual([`project:${PROJECT_A}`]);
+    expect((await app.request('/')).status).toBe(200);
+    expect(checked).toEqual([`project:${PROJECT_A}`]);
   });
 });
 
