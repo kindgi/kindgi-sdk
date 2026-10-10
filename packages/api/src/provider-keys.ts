@@ -165,7 +165,9 @@ export function guardProviderKeys(
     const providerId = (await keys.of(tenantId)).get(name);
     return providerId === undefined ? undefined : providerKeyRefusal(name, providerId, user);
   };
-  return {
+  // Every member listed, optional ones too: a method added to `SecretBinding`
+  // doesn't compile here until someone decides whether the guard covers it.
+  const guarded: { [K in keyof Required<SecretBinding>]: SecretBinding[K] } = {
     list: (input) => binding.list(input),
     get: (input) => binding.get(input),
     listVersions: (input) => binding.listVersions(input),
@@ -191,4 +193,5 @@ export function guardProviderKeys(
       return binding.getVersion(input);
     },
   };
+  return guarded;
 }
