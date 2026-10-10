@@ -15,7 +15,9 @@ locals {
     "run.googleapis.com",
     "secretmanager.googleapis.com",
     "sqladmin.googleapis.com",
-  ], local.kms ? ["cloudkms.googleapis.com"] : [], var.vertex_ai ? ["aiplatform.googleapis.com"] : [])
+    ], local.kms ? ["cloudkms.googleapis.com"] : [], var.vertex_ai ? ["aiplatform.googleapis.com"] : [],
+    # The scheduled license renewal (renewal.tf) and its alerts.
+  var.license_renewal_schedule != "" ? ["cloudscheduler.googleapis.com", "monitoring.googleapis.com"] : [])
 }
 
 resource "google_project_service" "apis" {
