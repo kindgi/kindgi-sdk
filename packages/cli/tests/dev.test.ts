@@ -1842,12 +1842,12 @@ describe("kindgi dev — imports a deployed pack wouldn't have", () => {
         ...baseInputs(fixtures, { stopSignal: controller.signal }),
         argv: ['dev', '--json', `--path=${packDir}`],
       });
-      await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2));
+      await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2), WAIT);
       expect(linesWith(writes, { stderr: '' }, 'The pack imports ms')).toHaveLength(1);
 
       // A save that imports nanoid too: a warning for nanoid only.
       fixtures.triggerChange(build(ms, nanoid));
-      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(2));
+      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(2), WAIT);
       expect(linesWith(writes, { stderr: '' }, WARNING)).toEqual([
         expect.stringContaining('The pack imports ms (in tools/clock/index.ts), which'),
         expect.stringContaining('The pack imports nanoid (in lib/ids.ts, tools/a.ts), which'),
@@ -1855,17 +1855,17 @@ describe("kindgi dev — imports a deployed pack wouldn't have", () => {
 
       // The same imports again (another save, an env-file change): nothing new.
       fixtures.triggerChange(build(ms, nanoid));
-      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(3));
+      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(3), WAIT);
       fixtures.triggerEnvChange();
-      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(4));
+      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(4), WAIT);
       expect(linesWith(writes, { stderr: '' }, WARNING)).toHaveLength(2);
 
       // ms moves to dependencies: the next refresh says so, once.
       await manifest({ dependencies: { ms: '^2.1.3' }, devDependencies: { nanoid: '^5.0.0' } });
       fixtures.triggerChange(build(ms, nanoid));
-      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(5));
+      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(5), WAIT);
       fixtures.triggerChange(build(ms, nanoid));
-      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(6));
+      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(6), WAIT);
       controller.abort();
       out = await promise;
     } finally {
