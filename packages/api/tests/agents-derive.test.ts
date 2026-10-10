@@ -87,6 +87,16 @@ function agentBinding(recordsProject = true): AgentRegistryBinding & {
       return at + 1 < all.length ? { data, nextCursor: String(at + 1) as never } : { data };
     },
     async publish({ agent, projectId: project }) {
+      // The agent stays in its first version's project, as a store keeps it.
+      const owner = projects.values().next().value;
+      if (owner !== undefined && owner !== project) {
+        return {
+          kind: 'project-mismatch',
+          agentId: agent.id,
+          version: agent.version,
+          projectId: owner,
+        };
+      }
       if (registry.get(agent.id, agent.version as unknown as string).kind === 'ok') {
         return { kind: 'already-registered', agentId: agent.id, version: agent.version };
       }
@@ -269,6 +279,26 @@ describe('POST /v1/agents/:agentId/versions derives a version', () => {
     expect(missing.status).toBe(400);
     expect(missing.body.error.message).toContain('`projectId` is required');
     expect((await call(...derive({ ...body, projectId }))).status).toBe(201);
+  });
+
+  test("another project in the body is refused (409 agent-project-mismatch): agents don't move", async () => {
+    const { call, settings, publishAgent } = await harness({ recordsProject: false });
+    await publishAgent('1.0.0');
+    await settings('acme.weights', '1.1.0', { recency: 0.5 });
+    const elsewhere = randomUUID();
+    const res = await call(
+      ...derive({
+        from: '1.0.0',
+        pins: { settings: { 'acme.weights': '1.1.0' } },
+        projectId: elsewhere,
+      }),
+    );
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('agent-project-mismatch');
+    expect(res.body.error.message).toContain(
+      'belongs to another project; derive its versions there',
+    );
+    expect(res.body.error.details).toEqual({ agentId: 'acme.intake' });
   });
 });
 

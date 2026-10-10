@@ -41,6 +41,7 @@ class IndexerTest {
   void aPackIndexesToCanonicalBytes() throws Exception {
     Map<String, Object> report = value(index("good"));
     assertThat(report.get("fileErrors")).isEqualTo(List.of());
+    assertThat(report.get("warnings")).isEqualTo(List.of());
     assertThat(report.get("counts")).isEqualTo(Map.of("tools", 2, "guardrails", 1, "agents", 1, "flows", 1));
     String text = Files.readString(out.resolve("good.json"), StandardCharsets.UTF_8);
     Map<String, Object> index = (Map<String, Object>) Json.parse(text.getBytes(StandardCharsets.UTF_8));
@@ -84,6 +85,26 @@ class IndexerTest {
     byte[] first = Files.readAllBytes(out.resolve("good.json"));
     value(index("good"));
     assertThat(Files.readAllBytes(out.resolve("good.json"))).isEqualTo(first);
+  }
+
+  @Test
+  @SuppressWarnings("unchecked")
+  void aCheckIdWithoutThePacksPrefixIsAWarningAndStillIndexes() throws Exception {
+    Map<String, Object> report = value(index("warn"));
+    assertThat(report.get("fileErrors")).isEqualTo(List.of());
+    assertThat(report.get("counts")).isEqualTo(Map.of("tools", 0, "guardrails", 4, "agents", 0, "flows", 0));
+    String rel = "src/main/java/com/kindgi/pack/testpacks/warn/guardrails/Checks.java";
+    List<Map<String, Object>> warnings = (List<Map<String, Object>>) report.get("warnings");
+    assertThat(warnings).extracting(w -> w.get("code")).containsOnly("check-id-unprefixed");
+    assertThat(warnings).extracting(w -> w.get("field")).containsOnly("check");
+    assertThat(warnings).extracting(w -> w.get("filePath")).containsOnly(rel);
+    assertThat(warnings).extracting(w -> (String) w.get("message")).containsExactlyInAnyOrder(
+        rel + ": check \"cites\" doesn't start with this pack's id (\"acme.\"). Name it \"acme.checks.<name>\""
+            + " so it can't collide with another pack's check in the same tenant. The pack builds as it is.",
+        rel + ": check \"checks.grounded\" doesn't start with this pack's id (\"acme.\"). Name it \"acme.checks.<name>\""
+            + " so it can't collide with another pack's check in the same tenant. The pack builds as it is.",
+        rel + ": check \"acmeplus.cites\" doesn't start with this pack's id (\"acme.\"). Name it \"acme.checks.<name>\""
+            + " so it can't collide with another pack's check in the same tenant. The pack builds as it is.");
   }
 
   @Test

@@ -22,6 +22,7 @@ import type {
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
+import { projectMismatch } from './project-mismatch.js';
 import { parseSegmentsBody } from './segments.js';
 
 /** The most cases a test set built from judgments holds. */
@@ -83,6 +84,9 @@ export function judgedSuitesRouter(
     }
     if (outcome.kind === 'project-not-found') {
       return fail(c, 'bad-input', `\`projectId\` "${body.projectId}" is not a project here.`);
+    }
+    if (outcome.kind === 'project-mismatch') {
+      return projectMismatch(c, 'eval-suite', suiteId, outcome.projectId, 'build');
     }
     c.status(201);
     return c.json({
@@ -150,7 +154,9 @@ export interface BuildJudgedSuiteInput {
 export type BuildJudgedSuiteOutcome =
   | { readonly kind: 'ok'; readonly caseCount: number; readonly truncated: boolean }
   | { readonly kind: 'already-registered' }
-  | { readonly kind: 'project-not-found' };
+  | { readonly kind: 'project-not-found' }
+  /** The suite belongs to another project: nothing is written. */
+  | { readonly kind: 'project-mismatch'; readonly projectId: ProjectId };
 
 /**
  * Build a test set and publish it as a `judged` suite version, as
@@ -193,6 +199,9 @@ export async function buildJudgedSuite(
   });
   if (outcome.kind === 'already-registered' || outcome.kind === 'project-not-found') {
     return { kind: outcome.kind };
+  }
+  if (outcome.kind === 'project-mismatch') {
+    return { kind: 'project-mismatch', projectId: outcome.projectId };
   }
   await deps.cases.putCases({ tenantId, suiteId, version, cases: built.cases });
   return { kind: 'ok', caseCount: built.cases.length, truncated: built.truncated };

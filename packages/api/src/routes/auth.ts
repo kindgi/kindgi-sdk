@@ -29,7 +29,7 @@ import type {
 } from '../session-store-binding.js';
 import type { OauthStateStore } from '../state-store-binding.js';
 import type { AppEnv } from '../types.js';
-import { hasCapability } from './env.js';
+import { hasCapability } from './denied.js';
 import { tenantResourceAccess } from './tenant-access.js';
 
 /**

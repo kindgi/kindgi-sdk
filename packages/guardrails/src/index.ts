@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-export { GUARDRAIL_SCHEMA_URI, defineGuardrail, validateGuardrailSpec } from './define.js';
+export {
+  GUARDRAIL_SCHEMA_URI,
+  GUARDRAIL_SPEC_KEYS,
+  defineGuardrail,
+  validateGuardrailSpec,
+} from './define.js';
 export { defineCheck } from './define-check.js';
 export { describeGuardrailConfigProblems, guardrailConfigProblems } from './config-problems.js';
 export type { GuardrailConfigProblem, GuardrailConfigProblemsInput } from './config-problems.js';
@@ -69,6 +74,7 @@ export type {
 } from './types.js';
 export { BUILT_IN_GUARDRAIL_KINDS, BUILT_IN_ON_VIOLATIONS } from './types.js';
 export type {
+  CheckFailedError,
   InvalidCheckConfigError,
   InvalidCheckDefinitionError,
   InvalidGuardrailError,

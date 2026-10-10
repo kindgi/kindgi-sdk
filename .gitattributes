@@ -1,0 +1,2 @@
+# Generated from design/tokens.json; check:tokens compares it byte for byte, so it keeps LF on every platform.
+design/tokens.css text eol=lf

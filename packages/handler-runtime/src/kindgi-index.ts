@@ -377,7 +377,21 @@ export type IndexerErrorCode =
   | 'zod-conversion-failed'
   | 'manifest-validation-failed'
   | 'output-write-failed'
-  | 'language-mismatch';
+  | 'language-mismatch'
+  | 'reserved-check-id';
+
+/**
+ * Something the pack should change that doesn't stop the build: the indexer
+ * reports it and the pack builds as it would without it.
+ */
+export type IndexerWarningCode = 'check-id-unprefixed';
+
+export interface IndexerWarning {
+  readonly code: IndexerWarningCode;
+  readonly message: string;
+  readonly filePath?: string;
+  readonly field?: string;
+}
 
 export interface IndexerError {
   readonly code: IndexerErrorCode;
@@ -410,6 +424,8 @@ export interface IndexerReport {
    * build log). Empty on a fully-clean pass.
    */
   readonly fileErrors: readonly IndexerError[];
+  /** What the pack should change but that doesn't stop the build. Empty when there's nothing. */
+  readonly warnings: readonly IndexerWarning[];
 }
 
 export interface RunIndexerOptions {
@@ -557,6 +573,7 @@ export async function runIndexer(
     return undefined;
   };
   const fileErrors: IndexerError[] = [];
+  const warnings: IndexerWarning[] = [];
 
   for (const { relPath, expectedKind } of discovered) {
     const bundle = bundleMap?.[relPath];
@@ -638,6 +655,12 @@ export async function runIndexer(
           fileErrors.push(built.error);
           continue;
         }
+        const reserved = reservedCheckIn(unwrapped, module_, relPath);
+        if (reserved !== undefined) {
+          fileErrors.push(reserved);
+          continue;
+        }
+        warnings.push(...unprefixedChecksIn(unwrapped, module_, relPath, config.pack.id));
         const duplicate = duplicateOf('guardrail', built.value.id, undefined, relPath);
         if (duplicate !== undefined) {
           fileErrors.push(duplicate);
@@ -717,6 +740,7 @@ export async function runIndexer(
       },
       outputPath,
       fileErrors,
+      warnings,
     },
   };
 }
@@ -1490,6 +1514,82 @@ function buildTool(
     modulePath: normalizeModulePath(relPath),
   };
   return { kind: 'ok', value: tool };
+}
+
+/**
+ * The built-in checks' ids (`BUILT_IN_CHECK_IDS` in `@kindgi/guardrails`; a test holds the two
+ * equal). A guardrail may name one (`check: 'must-cite'`) and the runtime runs the built-in; a
+ * pack may never ship its own check under one, which the runtime would silently replace.
+ */
+export const RESERVED_CHECK_IDS: readonly string[] = [
+  'must-cite',
+  'never-call-tool',
+  'max-tool-calls',
+  'output-matches',
+  'tool-order',
+  'required-substring',
+  'forbidden-substring',
+];
+
+/**
+ * A check implementation (an object with an `id` and an `evaluate` function) under a built-in
+ * id: the guardrail's own `check`, or any check the module exports. Naming a built-in by its id
+ * (a string) is the way to use it, and is fine.
+ */
+function reservedCheckIn(
+  guardrail: unknown,
+  module_: unknown,
+  relPath: string,
+): IndexerError | undefined {
+  const candidates: unknown[] = [
+    isObject(guardrail) ? (guardrail as Record<string, unknown>).check : undefined,
+    ...(isObject(module_) ? Object.values(module_ as Record<string, unknown>) : []),
+  ];
+  for (const c of candidates) {
+    if (!isObject(c)) continue;
+    const rec = c as Record<string, unknown>;
+    if (typeof rec.id !== 'string' || typeof rec.evaluate !== 'function') continue;
+    if (!RESERVED_CHECK_IDS.includes(rec.id)) continue;
+    return {
+      code: 'reserved-check-id',
+      message: `${relPath} ships its own check under "${rec.id}", a built-in check's id: a pack can't replace a built-in. Rename your check (for example "<pack>.checks.${rec.id}"), or, to use the built-in, name it (check: '${rec.id}') and drop your implementation.`,
+      filePath: relPath,
+      field: 'check',
+    };
+  }
+  return undefined;
+}
+
+/**
+ * The check implementations a guardrail module ships (the guardrail's own
+ * `check`, and any check the module exports) whose id doesn't start with
+ * the pack's id: `<packId>.`. Packs in one tenant share one space of
+ * check names, so a check named for its pack can't collide with another
+ * pack's. A warning, never a refusal: the pack builds as it did.
+ */
+function unprefixedChecksIn(
+  guardrail: unknown,
+  module_: unknown,
+  relPath: string,
+  packId: string,
+): IndexerWarning[] {
+  const candidates: unknown[] = [
+    isObject(guardrail) ? (guardrail as Record<string, unknown>).check : undefined,
+    ...(isObject(module_) ? Object.values(module_ as Record<string, unknown>) : []),
+  ];
+  const ids = new Set<string>();
+  for (const c of candidates) {
+    if (!isObject(c)) continue;
+    const rec = c as Record<string, unknown>;
+    if (typeof rec.id !== 'string' || typeof rec.evaluate !== 'function') continue;
+    if (!rec.id.startsWith(`${packId}.`)) ids.add(rec.id);
+  }
+  return [...ids].map((id) => ({
+    code: 'check-id-unprefixed',
+    message: `${relPath}: check "${id}" doesn't start with this pack's id ("${packId}."). Name it "${packId}.checks.<name>" so it can't collide with another pack's check in the same tenant. The pack builds as it is.`,
+    filePath: relPath,
+    field: 'check',
+  }));
 }
 
 function buildGuardrail(
