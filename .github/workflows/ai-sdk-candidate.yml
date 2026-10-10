@@ -12,10 +12,13 @@ name: AI SDK candidate
 # `scripts/ai-sdk-candidate.mjs validate` refuses anything but a pinned
 # package at a stable version before it's used.
 #
-# The `ai-sdk-candidate` artifact holds `result.json` (the adapters' tests)
-# and `bump/`: the files the candidates changed (each moved adapter
-# `package.json` and `pnpm-lock.yaml`), as tested, so a pin bump proposes
-# exactly what passed.
+# Two jobs. `bump` moves the pins and resolves the lockfile without
+# running any candidate code (no install, scripts off), and uploads the
+# files the candidates changed (each moved adapter `package.json` and
+# `pnpm-lock.yaml`) as `ai-sdk-candidate-bump`. `candidate` installs exactly
+# those files, frozen, and runs the adapters' tests on them: its artifact,
+# `ai-sdk-candidate`, holds `result.json`. A pin bump proposes the first
+# artifact's files, which the tests ran on and candidate code never wrote.
 #
 # An optional `request_id` (8 to 64 lowercase hex characters, validated
 # too) goes in the run's name, so a caller that lost the dispatch's answer
@@ -43,8 +46,50 @@ env:
   NODE_VERSION: "22"
 
 jobs:
+  bump:
+    # The pins moved and the lockfile resolved for them, with no candidate
+    # code run: nothing installed (`--lockfile-only`), install scripts off.
+    # Its artifact is what a pin bump proposes, uploaded before anything of
+    # the candidates' runs; the `candidate` job then tests exactly it.
+    name: The pins moved and resolved
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CANDIDATES: ${{ inputs.packages }}
+      REQUEST_ID: ${{ inputs.request_id }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Validate the candidates
+        run: node scripts/ai-sdk-candidate.mjs validate
+      - name: Move the pins and resolve them (no install, no scripts)
+        run: |
+          node scripts/ai-sdk-candidate.mjs apply
+          pnpm install --lockfile-only --ignore-scripts --no-frozen-lockfile
+      - name: Keep the files the candidates changed
+        run: |
+          mkdir -p .ai-sdk-candidate-bump
+          git diff --name-only -- pnpm-lock.yaml 'packages/adapters/*/package.json' |
+            while IFS= read -r file; do
+              mkdir -p ".ai-sdk-candidate-bump/$(dirname "$file")"
+              cp "$file" ".ai-sdk-candidate-bump/$file"
+            done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ai-sdk-candidate-bump
+          path: .ai-sdk-candidate-bump/
+          if-no-files-found: error
+          retention-days: 30
+
   candidate:
     name: The adapters on the candidate
+    needs: bump
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
@@ -61,19 +106,17 @@ jobs:
           cache: pnpm
       - name: Validate the candidates
         run: node scripts/ai-sdk-candidate.mjs validate
-      - run: pnpm install --frozen-lockfile
-      - name: Use the candidate versions
+      # This run's own bump artifact (no run-id: the same run).
+      - uses: actions/download-artifact@v4
+        with:
+          name: ai-sdk-candidate-bump
+          path: ${{ runner.temp }}/bump
+      - name: Use the bump, exactly
+        # The files the bump job resolved, in place, and an install frozen to
+        # them: the tests run on exactly what a pin bump proposes.
         run: |
-          node scripts/ai-sdk-candidate.mjs apply
-          pnpm install --no-frozen-lockfile
-      - name: Keep the files the candidates changed
-        run: |
-          mkdir -p .ai-sdk-candidate/bump
-          git diff --name-only -- pnpm-lock.yaml 'packages/adapters/*/package.json' |
-            while IFS= read -r file; do
-              mkdir -p ".ai-sdk-candidate/bump/$(dirname "$file")"
-              cp "$file" ".ai-sdk-candidate/bump/$file"
-            done
+          cp -R "$RUNNER_TEMP/bump/." .
+          pnpm install --frozen-lockfile
       - name: Build the adapters
         run: pnpm --filter "./packages/adapters/model-*..." run build
       - name: Test the adapters
