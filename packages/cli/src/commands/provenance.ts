@@ -4,7 +4,14 @@
 import type { ListPage, ProvenanceRecordMetadata } from '@kindgi/client';
 
 import { UsageError } from '../errors.js';
-import { type TableSpec, integerFlag, requiredPositional, runSdk, stringFlag } from './helpers.js';
+import {
+  type TableSpec,
+  integerFlag,
+  requiredPositional,
+  runSdk,
+  stringFlag,
+  timeFlag,
+} from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
 
 /** `provenance list --table`. */
@@ -32,7 +39,8 @@ const list: LeafCommand = {
     agent: { type: 'string', description: "Only the records of this agent's runs." },
     'created-after': {
       type: 'string',
-      description: 'Only the records created after this time (ISO 8601).',
+      description:
+        'Only the records created after this time: an ISO 8601 time with a zone, or a date (its start, UTC).',
     },
     project: { type: 'string', description: "Only this project's records." },
     org: { type: 'string', description: "Only the records of this org's projects." },
@@ -57,7 +65,7 @@ const list: LeafCommand = {
         }
         const runId = stringFlag(ctx, 'run');
         const agentId = stringFlag(ctx, 'agent');
-        const createdAfter = stringFlag(ctx, 'created-after');
+        const createdAfter = timeFlag(ctx, 'created-after');
         const limit = integerFlag(ctx, 'limit');
         const cursor = stringFlag(ctx, 'cursor');
         return await ctx.client().provenance.query({

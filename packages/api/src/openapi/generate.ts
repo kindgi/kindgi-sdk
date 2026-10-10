@@ -95,7 +95,7 @@ const TAG_DESCRIPTIONS: Readonly<Record<string, string>> = {
     'Judge classes (list, get, create, update, unregister): the deployment\'s named kinds of judge ("expert", "user", ...), each with a weight, scoped to the tenant, a project, or an agent in a project. A judgment may name a class; an unclassified judgment counts with weight 1. Caller-plugged via `JudgmentRegistryBinding`.',
   'eval-runs':
     'Eval-run data plane (start, list, get, cancel, events SSE). Dispatches an eval run against a registered suite. Dispatch is per-`EvalKind`; kinds without a registered dispatcher return `422 dispatcher-not-registered`. `result` is kind-specific opaque JSON on the wire — for `accuracy` it is `{ passCount, totalCount, meanScore, perCase[] }`. SSE events mirror run streaming: per-case progress followed by a terminal frame carrying the aggregate. Caller-plugged via `EvalRunBinding`.',
-  auth: 'OAuth 2.0 / OIDC identity providers + session lifecycle. Layers browser-based auth on top of the static bearer-token surface: bearer tokens continue to work byte-shape-identical; session tokens use the `kgi_sk_*` prefix so the same middleware routes both flavors. Providers are caller-plugged via `IdentityProviderBinding` (no baked-in list). Sessions persist via `SessionStoreBinding`. Code exchange is caller-supplied via `exchangeCode`. PKCE (S256) is mandatory. `clientSecretRef` is a REFERENCE — the plaintext secret never crosses the wire.',
+  auth: 'OIDC and SAML identity providers + session lifecycle. Layers browser-based auth on top of the static bearer-token surface: bearer tokens continue to work byte-shape-identical; session tokens use the `kgi_sk_*` prefix so the same middleware routes both flavors. Providers are caller-plugged via `IdentityProviderBinding` (no baked-in list); sign-in runs in the deployment, which reads them. Sessions persist via `SessionStoreBinding`. `clientSecretRef` is a REFERENCE — the plaintext secret never crosses the wire.',
   identity:
     'Tenant-scoped identity directory (list, get, list-active-sessions, revoke-sessions, whoami) — part of the admin control plane. Caller-plugged via `IdentityDirectoryBinding` — deployments plug in their own user store (LDAP, SCIM, or bespoke). Registry-only over HTTP: the framework does NOT own user persistence. The directory is flat; groups, roles, invitations, directory sync and impersonation are not part of this surface. `primaryEmail` may be redacted per tenant policy — the routes treat it as opaque. Provider access-token / refresh-token NEVER cross the wire, even to admins.',
   mcp: "MCP-endpoint catalog (list, get, register, unregister). Tenants declare the remote MCP servers (`stdio` / `http-sse` / `streamable-http`) they want the runtime to consume. The runtime discovers each endpoint's tools and registers them into `ToolRegistryBinding` under the same tenant — remote MCP tools become native Kindgi tools without a recompile. Secrets never cross the wire: `secretRef` names a secret in the deployment's store, resolved at the endpoint's tenant scope. A deployment refuses `stdio` endpoints unless `KINDGI_TENANT_HOST_ACCESS=local`. Caller-plugged via `MCPEndpointRegistryBinding`.",
@@ -125,9 +125,12 @@ export function generateOpenApiDocument(opts: GenerateOptions = {}): Record<stri
   const info: OpenApiInfo = { ...DEFAULT_INFO, ...opts.info };
   const servers = opts.servers ?? DEFAULT_SERVERS;
 
-  const paths = buildPaths(OPERATIONS);
+  // What the runtime doesn't serve yet stays out, with the schemas only it uses.
+  const served = OPERATIONS.filter((o) => o.unserved === undefined);
+  const paths = buildPaths(served);
+  const unservedOnly = schemasOnlyUnserved(OPERATIONS);
   const components = {
-    schemas: Object.fromEntries(COMPONENT_SCHEMAS),
+    schemas: Object.fromEntries(COMPONENT_SCHEMAS.filter(([name]) => !unservedOnly.has(name))),
     securitySchemes: {
       bearerAuth: {
         type: 'http',
@@ -144,7 +147,7 @@ export function generateOpenApiDocument(opts: GenerateOptions = {}): Record<stri
       },
     },
   };
-  const tags = uniqueTags(OPERATIONS).map((name) => ({
+  const tags = uniqueTags(served).map((name) => ({
     name,
     ...(TAG_DESCRIPTIONS[name] !== undefined && { description: TAG_DESCRIPTIONS[name] }),
   }));
@@ -158,6 +161,41 @@ export function generateOpenApiDocument(opts: GenerateOptions = {}): Record<stri
     paths,
     webhooks: buildOutboundWebhooks(),
   };
+}
+
+/**
+ * The component schemas only unserved operations reach: reachable from
+ * them and not from a served operation or the outbound webhooks. A schema
+ * nothing reaches (a shared type the clients use) is kept.
+ */
+function schemasOnlyUnserved(operations: readonly OperationSpec[]): ReadonlySet<string> {
+  const byName = new Map<string, JsonSchema>(COMPONENT_SCHEMAS);
+  const reach = (roots: readonly unknown[]): Set<string> => {
+    const seen = new Set<string>();
+    const stack: unknown[] = [...roots];
+    while (stack.length > 0) {
+      const x = stack.pop();
+      if (Array.isArray(x)) stack.push(...x);
+      else if (x !== null && typeof x === 'object') {
+        const ref = (x as { $ref?: unknown }).$ref;
+        if (typeof ref === 'string' && ref.startsWith('#/components/schemas/')) {
+          const name = ref.slice('#/components/schemas/'.length);
+          if (!seen.has(name)) {
+            seen.add(name);
+            stack.push(byName.get(name));
+          }
+        }
+        stack.push(...Object.values(x));
+      }
+    }
+    return seen;
+  };
+  const servedReach = reach([
+    ...operations.filter((o) => o.unserved === undefined),
+    buildOutboundWebhooks(),
+  ]);
+  const unservedReach = reach(operations.filter((o) => o.unserved !== undefined));
+  return new Set([...unservedReach].filter((name) => !servedReach.has(name)));
 }
 
 /**
@@ -220,6 +258,11 @@ function buildOutboundWebhooks(): Record<string, unknown> {
       'improvement-pass.finished',
       'An improvement pass completed, failed or was cancelled',
       'ImprovementPassFinishedEvent',
+    ),
+    'approval.requested': event(
+      'approval.requested',
+      "An approval was asked for: a reviewer's decision is waiting",
+      'ApprovalRequestedEvent',
     ),
     'webhook.test': event(
       'webhook.test',

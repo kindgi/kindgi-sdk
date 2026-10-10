@@ -43,8 +43,7 @@ export interface PersistenceError {
 /**
  * A caller-plugged `EvidenceSigner` function threw. Distinct from
  * `SigningFailureError` (which is specific to the generator's own
- * Ed25519 signing path, e.g. `exportSigned`) so callers can distinguish
- * the two signing paths.
+ * Ed25519 signing path) so callers can distinguish the two signing paths.
  */
 export interface SignerFailureError {
   readonly code: 'signer-failure';
