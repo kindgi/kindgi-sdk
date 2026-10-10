@@ -23,6 +23,7 @@ import type {
 } from '../live-version-binding.js';
 import type { AppEnv } from '../types.js';
 import { serializeGatePolicy } from './gate-policy-wire.js';
+import { refuseUnissuedCursor } from './issued-cursor.js';
 import { liveScopeToWire, parseLiveScopeBody } from './live-scope-wire.js';
 import { clampLimit } from './pagination.js';
 import { parseSegmentsQuery } from './segments.js';
@@ -200,6 +201,8 @@ export function mountAgentReleaseRoutes(
     const scope = scopeFromQuery((n) => c.req.query(n), c.req.queries('segment') ?? []);
     if (scope.kind === 'err') return badInput(c, requestId, scope.message);
     const cursor = c.req.query('cursor');
+    const refused = refuseUnissuedCursor(c, releases.promotions, 'promotions', cursor);
+    if (refused !== undefined) return refused;
     const page = await releases.promotions.list({
       tenantId: c.get('tenantId') as TenantId,
       agentId: c.req.param('agentId'),
