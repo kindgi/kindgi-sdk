@@ -186,6 +186,9 @@ the same schema to its standard error, under the subsystem `pack`:
   `requestId` and `toolId`, and the runtime's `traceId`.
 - **Its lifecycle:** `listening`, `boot-failed`, `config-invalid`,
   `draining` and `stopped`, written whatever the levels say.
+- **What it dropped from its environment:** `env-dropped` at `warn`, once at
+  start, naming each variable the pack doesn't declare, never its value
+  ([Declare the environment your code reads](../../guides/secrets/pack-env/#in-a-deployment)).
 - **What your tools log with `ctx.log`:** under `pack.tool`, with the same
   ids ([Log from a tool](../../guides/tools/write-a-tool/#log-from-a-tool)).
 

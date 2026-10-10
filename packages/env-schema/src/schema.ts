@@ -873,6 +873,25 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     allowedValues: ['strict', 'warn'],
   },
   {
+    name: 'KINDGI_PACK_ENV_FILTER',
+    description:
+      "Whether the pack service keeps only the names its pack declares (`env.required`, `env.optional`). `on` (default): before the pack's code loads, it drops every other variable from its environment but `KINDGI_*` and the platform's own (the process's basics, the language runtime's settings, `PORT`, proxies and certificates, and Cloud Run's, AWS's and Azure's workload identity and metadata), and logs the dropped names, never their values (`WARN env-dropped`). `off`: every variable reaches the pack's code. `kindgi dev` uses `off`.",
+    example: 'on',
+    required: false,
+    appliesTo: appliesToPackService,
+    group: 'pack-service',
+    allowedValues: ['on', 'off'],
+  },
+  {
+    name: 'KINDGI_PACK_ENV_DECLARED',
+    description:
+      "A Java or Scala pack service's declared names, comma-separated: the ones its launcher (`kindgi-pack-java`) keeps when `KINDGI_PACK_ENV_FILTER` is on, since a JVM can't drop a variable from its own environment. `kindgi build` sets it in the image from the pack's index; the service won't start when it differs from the index's `env`. Without it, the launcher drops nothing, and the service won't start while a name the pack doesn't declare reaches it.",
+    example: 'DATABASE_URL,CACHE_DIR',
+    required: false,
+    appliesTo: appliesToPackService,
+    group: 'pack-service',
+  },
+  {
     name: 'KINDGI_IMAGE_REGISTRY_HOST',
     description:
       'The registry host the credentials below are for, with its port when it has one (e.g. `registry.example`, `ghcr.io`). Other registries are read anonymously.',

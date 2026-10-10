@@ -247,6 +247,8 @@ describe('envVarsForTarget — the pack service', () => {
     'KINDGI_PACK_INDEX',
     'KINDGI_PACK_SERVICE_MAX_CONCURRENCY',
     'KINDGI_PACK_ENV_CHECK',
+    'KINDGI_PACK_ENV_FILTER',
+    'KINDGI_PACK_ENV_DECLARED',
   ];
 
   test("component=pack-service is the pack service's vars and none of the server's", () => {
