@@ -434,6 +434,11 @@ and what's different after:
   steps start after the cancel.
 - **Two runtime instances starting at once no longer deadlock or race on
   migrations:** one waits until the other's migrations finish.
+- **Paging no longer skips or repeats rows recorded in the same millisecond**
+  as a page's last row, on the lists that page by time: organizations,
+  projects, teams and their members, memory erasures, an agent's promotions,
+  a schedule's fires, cost records, observations, and the versions of agents,
+  flows, policies, test sets, blocks and tools.
 - **Safari signs in to `kindgi dev`'s console.** Under `kindgi dev` on
   `http://localhost` or `127.0.0.1`, the session cookie is a plain one,
   since Safari keeps a `Secure` cookie only over `https`. A deployment's
