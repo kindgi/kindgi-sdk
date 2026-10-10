@@ -412,6 +412,7 @@
           "membership-exists": 409,
           "team-grant-not-found": 404,
           "team-grant-exists": 409,
+          "project-access-unsupported": 501,
           "slug-conflict": 409,
           "project-default-already-exists": 409,
           "tenant-not-found": 404,
@@ -16959,6 +16960,201 @@
         "properties": {
           "role": {
             "$ref": "#/components/schemas/TeamProjectRole"
+          }
+        }
+      },
+      "AccessPrincipal": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "id"
+        ],
+        "description": "Whom access is held by: a person, or a service account.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "user",
+              "service-account"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "ProjectAccessDirect": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "role"
+        ],
+        "description": "The principal's own role on the project. `joinedAt` when a membership stands behind it: only then do the membership routes change or remove it.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "direct"
+            ]
+          },
+          "role": {
+            "$ref": "#/components/schemas/ProjectRole"
+          },
+          "joinedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ProjectAccessTeam": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "teamId",
+          "role"
+        ],
+        "description": "A team's grant on the project, held by every member of the team.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "team"
+            ]
+          },
+          "teamId": {
+            "type": "string"
+          },
+          "teamName": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/TeamProjectRole"
+          }
+        }
+      },
+      "ProjectAccessOrgAdmin": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "orgId"
+        ],
+        "description": "An admin of the project's org (directly or through a team): admin on the project.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "org-admin"
+            ]
+          },
+          "orgId": {
+            "type": "string"
+          },
+          "orgName": {
+            "type": "string"
+          }
+        }
+      },
+      "ProjectAccessTenantAdmin": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind"
+        ],
+        "description": "A tenant admin: admin on every project.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "tenant-admin"
+            ]
+          }
+        }
+      },
+      "ProjectAccessPath": {
+        "description": "One way into the project.",
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ProjectAccessDirect"
+          },
+          {
+            "$ref": "#/components/schemas/ProjectAccessTeam"
+          },
+          {
+            "$ref": "#/components/schemas/ProjectAccessOrgAdmin"
+          },
+          {
+            "$ref": "#/components/schemas/ProjectAccessTenantAdmin"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "kind"
+        }
+      },
+      "ProjectAccess": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "principal",
+          "role",
+          "via"
+        ],
+        "description": "Someone with access to the project, their effective role, and every way in.",
+        "properties": {
+          "principal": {
+            "$ref": "#/components/schemas/AccessPrincipal"
+          },
+          "displayName": {
+            "type": "string",
+            "description": "A person's name, or a service account's."
+          },
+          "primaryEmail": {
+            "type": "string",
+            "description": "A person's email: shown to the project's admins only."
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "admin",
+              "editor",
+              "viewer"
+            ],
+            "description": "The effective role: the highest any way in gives."
+          },
+          "via": {
+            "type": "array",
+            "minItems": 1,
+            "description": "Every way in, the highest role first.",
+            "items": {
+              "$ref": "#/components/schemas/ProjectAccessPath"
+            }
+          }
+        }
+      },
+      "ProjectAccessPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "hasMore"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectAccess"
+            }
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "nextCursor": {
+            "type": "string"
           }
         }
       },
@@ -42124,6 +42320,95 @@
             }
           }
         },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{projectId}/access": {
+      "get": {
+        "operationId": "projects.access.list",
+        "summary": "Who has access to a project, and how",
+        "tags": [
+          "projects"
+        ],
+        "responses": {
+          "200": {
+            "description": "Page of who has access.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectAccessPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No project with that id under this tenant.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "The runtime has no authorization store (`project-access-unsupported`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Everyone the authorization store lets into the project (people and service accounts), each with their effective role and every way in: a direct role, a team's grant, an admin of the project's org, a tenant admin. For the project's editors and admins (`write`): a viewer sees the project, not who else works in it. Emails show to the project's admins only. Ordered by role (owner first), then name. 501 `project-access-unsupported` from a runtime without an authorization store.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "ProjectId — opaque branded string."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "description": "1..100. Default 25."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+          }
+        ],
         "security": [
           {
             "bearerAuth": []

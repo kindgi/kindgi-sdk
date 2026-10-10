@@ -902,6 +902,37 @@ def test_team_grants() -> None:
     assert json.loads(seen[2].content) == {"role": "admin"}
 
 
+def test_project_access() -> None:
+    page = {
+        "data": [
+            {
+                "principal": {"kind": "user", "id": "u-1"},
+                "displayName": "Ada",
+                "role": "admin",
+                "via": [
+                    {"kind": "tenant-admin"},
+                    {"kind": "direct", "role": "editor", "joinedAt": "2026-10-01T00:00:00Z"},
+                    {"kind": "team", "teamId": "t-1", "teamName": "Crew", "role": "viewer"},
+                    {"kind": "org-admin", "orgId": "o-1"},
+                ],
+            }
+        ],
+        "hasMore": False,
+    }
+    api, seen = client(lambda r: httpx.Response(200, json=page))
+    listed = api.projects.access.list("p-1", limit=100)
+    assert seen[0].url.path == "/v1/projects/p-1/access"
+    assert seen[0].url.params["limit"] == "100"
+    entry = listed.data[0]
+    assert isinstance(entry, models.ProjectAccess) and entry.role == "admin"
+    assert [type(v) for v in entry.via] == [
+        models.ProjectAccessTenantAdmin,
+        models.ProjectAccessDirect,
+        models.ProjectAccessTeam,
+        models.ProjectAccessOrgAdmin,
+    ]
+
+
 def test_my_permissions() -> None:
     answer = {
         "tenantId": RUN["tenantId"],

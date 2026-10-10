@@ -9449,6 +9449,111 @@ export const AddTeamProjectGrantBodySchema: JsonSchema = {
   },
 };
 
+export const AccessPrincipalSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'id'],
+  description: 'Whom access is held by: a person, or a service account.',
+  properties: {
+    kind: { type: 'string', enum: ['user', 'service-account'] },
+    id: { type: 'string', minLength: 1 },
+  },
+};
+
+export const ProjectAccessDirectSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'role'],
+  description:
+    "The principal's own role on the project. `joinedAt` when a membership stands behind it: only then do the membership routes change or remove it.",
+  properties: {
+    kind: { type: 'string', enum: ['direct'] },
+    role: { $ref: '#/components/schemas/ProjectRole' },
+    joinedAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const ProjectAccessTeamSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'teamId', 'role'],
+  description: "A team's grant on the project, held by every member of the team.",
+  properties: {
+    kind: { type: 'string', enum: ['team'] },
+    teamId: { type: 'string' },
+    teamName: { type: 'string' },
+    role: { $ref: '#/components/schemas/TeamProjectRole' },
+  },
+};
+
+export const ProjectAccessOrgAdminSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'orgId'],
+  description: "An admin of the project's org (directly or through a team): admin on the project.",
+  properties: {
+    kind: { type: 'string', enum: ['org-admin'] },
+    orgId: { type: 'string' },
+    orgName: { type: 'string' },
+  },
+};
+
+export const ProjectAccessTenantAdminSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind'],
+  description: 'A tenant admin: admin on every project.',
+  properties: { kind: { type: 'string', enum: ['tenant-admin'] } },
+};
+
+export const ProjectAccessPathSchema: JsonSchema = {
+  description: 'One way into the project.',
+  oneOf: [
+    { $ref: '#/components/schemas/ProjectAccessDirect' },
+    { $ref: '#/components/schemas/ProjectAccessTeam' },
+    { $ref: '#/components/schemas/ProjectAccessOrgAdmin' },
+    { $ref: '#/components/schemas/ProjectAccessTenantAdmin' },
+  ],
+  discriminator: { propertyName: 'kind' },
+};
+
+export const ProjectAccessSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['principal', 'role', 'via'],
+  description: 'Someone with access to the project, their effective role, and every way in.',
+  properties: {
+    principal: { $ref: '#/components/schemas/AccessPrincipal' },
+    displayName: { type: 'string', description: "A person's name, or a service account's." },
+    primaryEmail: {
+      type: 'string',
+      description: "A person's email: shown to the project's admins only.",
+    },
+    role: {
+      type: 'string',
+      enum: ['owner', 'admin', 'editor', 'viewer'],
+      description: 'The effective role: the highest any way in gives.',
+    },
+    via: {
+      type: 'array',
+      minItems: 1,
+      description: 'Every way in, the highest role first.',
+      items: { $ref: '#/components/schemas/ProjectAccessPath' },
+    },
+  },
+};
+
+export const ProjectAccessPageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/ProjectAccess' } },
+    hasMore: { type: 'boolean' },
+    nextCursor: { type: 'string' },
+  },
+};
+
 export const UpdateTeamProjectGrantBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -11442,6 +11547,14 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['TeamProjectGrantCollectionPage', TeamProjectGrantCollectionPageSchema],
   ['AddTeamProjectGrantBody', AddTeamProjectGrantBodySchema],
   ['UpdateTeamProjectGrantBody', UpdateTeamProjectGrantBodySchema],
+  ['AccessPrincipal', AccessPrincipalSchema],
+  ['ProjectAccessDirect', ProjectAccessDirectSchema],
+  ['ProjectAccessTeam', ProjectAccessTeamSchema],
+  ['ProjectAccessOrgAdmin', ProjectAccessOrgAdminSchema],
+  ['ProjectAccessTenantAdmin', ProjectAccessTenantAdminSchema],
+  ['ProjectAccessPath', ProjectAccessPathSchema],
+  ['ProjectAccess', ProjectAccessSchema],
+  ['ProjectAccessPage', ProjectAccessPageSchema],
   ['Project', ProjectSchema],
   ['ProjectSpec', ProjectSpecSchema],
   ['ProjectPatch', ProjectPatchSchema],

@@ -8851,6 +8851,129 @@ class UpdateTeamProjectGrantBody(BaseModel):
     """
 
 
+class AccessPrincipal(BaseModel):
+    """
+    Whom access is held by: a person, or a service account.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["user", "service-account"]
+    id: Annotated[str, Field(min_length=1)]
+
+
+class ProjectAccessDirect(BaseModel):
+    """
+    The principal's own role on the project. `joinedAt` when a membership stands behind it: only then do the membership routes change or remove it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["direct"]
+    role: Literal["viewer", "editor", "owner", "admin", "member"]
+    """
+    Role on a project membership.
+    """
+    joined_at: Annotated[AwareDatetime | None, Field(alias="joinedAt")] = None
+
+
+class ProjectAccessTeam(BaseModel):
+    """
+    A team's grant on the project, held by every member of the team.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["team"]
+    team_id: Annotated[str, Field(alias="teamId")]
+    team_name: Annotated[str | None, Field(alias="teamName")] = None
+    role: Literal["viewer", "editor", "admin"]
+    """
+    A team's role on a project, held by every member of the team: `admin` includes `editor`, which includes `viewer`. A team never owns a project.
+    """
+
+
+class ProjectAccessOrgAdmin(BaseModel):
+    """
+    An admin of the project's org (directly or through a team): admin on the project.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["org-admin"]
+    org_id: Annotated[str, Field(alias="orgId")]
+    org_name: Annotated[str | None, Field(alias="orgName")] = None
+
+
+class ProjectAccessTenantAdmin(BaseModel):
+    """
+    A tenant admin: admin on every project.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["tenant-admin"]
+
+
+class ProjectAccess(BaseModel):
+    """
+    Someone with access to the project, their effective role, and every way in.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    principal: AccessPrincipal
+    display_name: Annotated[str | None, Field(alias="displayName")] = None
+    """
+    A person's name, or a service account's.
+    """
+    primary_email: Annotated[str | None, Field(alias="primaryEmail")] = None
+    """
+    A person's email: shown to the project's admins only.
+    """
+    role: Literal["owner", "admin", "editor", "viewer"]
+    """
+    The effective role: the highest any way in gives.
+    """
+    via: Annotated[
+        list[
+            Annotated[
+                ProjectAccessDirect
+                | ProjectAccessTeam
+                | ProjectAccessOrgAdmin
+                | ProjectAccessTenantAdmin,
+                Field(discriminator="kind"),
+            ]
+        ],
+        Field(min_length=1),
+    ]
+    """
+    Every way in, the highest role first.
+    """
+
+
+class ProjectAccessPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[ProjectAccess]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
 class Project(BaseModel):
     model_config = ConfigDict(
         extra="allow",

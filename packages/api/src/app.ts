@@ -77,6 +77,7 @@ import { sigv4Middleware } from './middleware/sigv4.js';
 import type { MyAccessBinding } from './my-access-binding.js';
 import { type GenerateOptions, generateOpenApiDocument } from './openapi/generate.js';
 import type { PersonGrantsBinding } from './person-grants-binding.js';
+import type { ProjectAccessBinding } from './project-access-binding.js';
 import type { ProvenanceBinding } from './provenance-binding.js';
 import type { ProviderRegistryBinding } from './provider-binding.js';
 import {
@@ -121,6 +122,7 @@ import { memoryRouter } from './routes/memory.js';
 import { observationsRouter } from './routes/observations.js';
 import { orgsRouter } from './routes/orgs.js';
 import { policiesRouter } from './routes/policies.js';
+import { projectAccessRouter } from './routes/project-access.js';
 import { projectsRouter } from './routes/projects.js';
 import { proposalsRouter } from './routes/proposals.js';
 import { provenanceRouter } from './routes/provenance.js';
@@ -885,6 +887,12 @@ export interface CreateAppInput {
    */
   readonly teamProjectGrantBinding?: TeamProjectGrantBinding;
   /**
+   * Optional. Who has access to a project and how
+   * (`GET /v1/projects/:projectId/access`), read from the authorization
+   * store. Without it, that route answers `501 project-access-unsupported`.
+   */
+  readonly projectAccess?: ProjectAccessBinding;
+  /**
    * Optional. Non-sensitive per-env values. When present alongside or
    * separately from `secretsBinding`, mounts the `/v1/tenant/config`
    * sub-routes at tenant scope. The base `GET /v1/tenant` route is
@@ -1501,6 +1509,16 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         authorizer,
         input.identityDirectory,
       ),
+    );
+  }
+  if (input.projectBinding !== undefined && input.projectMembershipBinding !== undefined) {
+    v1.route(
+      '/projects',
+      projectAccessRouter({
+        projects: input.projectBinding,
+        ...(input.projectAccess !== undefined && { access: input.projectAccess }),
+        ...(authorizer !== undefined && { authorizer }),
+      }),
     );
   }
   if (

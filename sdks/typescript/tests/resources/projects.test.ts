@@ -73,6 +73,7 @@ describe('projects — wire round-trips', () => {
       { status: 200, body: '{}' },
       { status: 200, body: '{}' },
       { status: 200, body: JSON.stringify({ data: [grant], hasMore: false }) },
+      { status: 200, body: JSON.stringify({ data: [], hasMore: false }) },
     ]);
     const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
     const page = await client.projects.teamGrants.list('p1', { limit: 5 });
@@ -83,6 +84,7 @@ describe('projects — wire round-trips', () => {
     await client.projects.teamGrants.updateRole('p1', 't1', 'admin');
     await client.projects.teamGrants.remove('p1', 't1');
     await client.teams.projectGrants.list('t1');
+    await client.projects.access.list('p1', { limit: 100 });
     expect(
       stub.calls.map((c) => `${c.method} ${new URL(c.url).pathname}${new URL(c.url).search}`),
     ).toEqual([
@@ -91,6 +93,7 @@ describe('projects — wire round-trips', () => {
       'PATCH /v1/projects/p1/team-grants/t1',
       'DELETE /v1/projects/p1/team-grants/t1',
       'GET /v1/teams/t1/project-grants',
+      'GET /v1/projects/p1/access?limit=100',
     ]);
     expect(JSON.parse(stub.calls[1]?.body as string)).toEqual({ teamId: 't1', role: 'editor' });
     expect(JSON.parse(stub.calls[2]?.body as string)).toEqual({ role: 'admin' });

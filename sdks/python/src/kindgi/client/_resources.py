@@ -750,6 +750,9 @@ OPERATIONS: dict[str, Operation] = {
     "projects.memberships.add": Operation(
         "projects.memberships.add", "POST", "/v1/projects/{projectId}/memberships", "json", True
     ),
+    "projects.access.list": Operation(
+        "projects.access.list", "GET", "/v1/projects/{projectId}/access", "json", False
+    ),
     "projects.teamGrants.list": Operation(
         "projects.teamGrants.list", "GET", "/v1/projects/{projectId}/team-grants", "json", False
     ),
@@ -6775,6 +6778,35 @@ class ProjectsMembershipsResource:
         )
 
 
+class ProjectsAccessResource:
+    """`client.projects.access` — the `projects.access` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        project_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ProjectAccessPage:
+        """Who has access to a project, and how. `GET /v1/projects/{projectId}/access`
+
+        Everyone the authorization store lets into the project (people and service accounts), each with their effective role and every way in: a direct role, a team's grant, an admin of the project's org, a tenant admin. For the project's editors and admins (`write`): a viewer sees the project, not who else works in it. Emails show to the project's admins only. Ordered by role (owner first), then name. 501 `project-access-unsupported` from a runtime without an authorization store.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.access.list"],
+            path={"projectId": project_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.ProjectAccessPage,
+            timeout=timeout,
+        )
+
+
 class ProjectsTeamGrantsResource:
     """`client.projects.team_grants` — the `projects.teamGrants` operations."""
 
@@ -6875,6 +6907,7 @@ class ProjectsResource:
         self.judging_rules = ProjectsJudgingRulesResource(client)
         self.judging_queue = ProjectsJudgingQueueResource(client)
         self.memberships = ProjectsMembershipsResource(client)
+        self.access = ProjectsAccessResource(client)
         self.team_grants = ProjectsTeamGrantsResource(client)
 
     def get_default(self, /, *, timeout: float | None = None) -> _models.Project:
@@ -13729,6 +13762,35 @@ class AsyncProjectsMembershipsResource:
         )
 
 
+class AsyncProjectsAccessResource:
+    """`client.projects.access` — the `projects.access` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        project_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.ProjectAccessPage:
+        """Who has access to a project, and how. `GET /v1/projects/{projectId}/access`
+
+        Everyone the authorization store lets into the project (people and service accounts), each with their effective role and every way in: a direct role, a team's grant, an admin of the project's org, a tenant admin. For the project's editors and admins (`write`): a viewer sees the project, not who else works in it. Emails show to the project's admins only. Ordered by role (owner first), then name. 501 `project-access-unsupported` from a runtime without an authorization store.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.access.list"],
+            path={"projectId": project_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.ProjectAccessPage,
+            timeout=timeout,
+        )
+
+
 class AsyncProjectsTeamGrantsResource:
     """`client.projects.team_grants` — the `projects.teamGrants` operations."""
 
@@ -13829,6 +13891,7 @@ class AsyncProjectsResource:
         self.judging_rules = AsyncProjectsJudgingRulesResource(client)
         self.judging_queue = AsyncProjectsJudgingQueueResource(client)
         self.memberships = AsyncProjectsMembershipsResource(client)
+        self.access = AsyncProjectsAccessResource(client)
         self.team_grants = AsyncProjectsTeamGrantsResource(client)
 
     async def get_default(self, /, *, timeout: float | None = None) -> _models.Project:
