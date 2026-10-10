@@ -69,7 +69,18 @@ export default defineConfig({
       favicon: '/favicon.svg',
       social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/kindgi/kindgi-sdk' }],
       editLink: { baseUrl: 'https://github.com/kindgi/kindgi-sdk/edit/main/site/' },
-      customCss: ['./src/styles/kindgi.css'],
+      // The fonts are served from the site itself (Fontsource), so a page asks no
+      // other host for them.
+      customCss: [
+        '@fontsource/ibm-plex-sans/400.css',
+        '@fontsource/ibm-plex-sans/500.css',
+        '@fontsource/ibm-plex-sans/600.css',
+        '@fontsource/ibm-plex-mono/400.css',
+        '@fontsource/ibm-plex-mono/500.css',
+        '@fontsource/ibm-plex-serif/500.css',
+        '@fontsource/ibm-plex-serif/600.css',
+        './src/styles/kindgi.css',
+      ],
       components: {
         // The version menu and the "not the latest" notice.
         ThemeSelect: './src/components/ThemeSelect.astro',
@@ -152,18 +163,6 @@ export default defineConfig({
       ],
       head: [
         ...(indexed ? [] : [{ tag: 'meta', attrs: { name: 'robots', content: 'noindex' } }]),
-        { tag: 'link', attrs: { rel: 'preconnect', href: 'https://fonts.googleapis.com' } },
-        {
-          tag: 'link',
-          attrs: { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: true },
-        },
-        {
-          tag: 'link',
-          attrs: {
-            rel: 'stylesheet',
-            href: 'https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@500;600&display=swap',
-          },
-        },
       ],
       sidebar: [
         { label: 'Start', items: [{ autogenerate: { directory: 'start' } }] },
