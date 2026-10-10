@@ -185,8 +185,12 @@ that is the pack's `.env` and `.env.local` (or `[tool.kindgi.dev]
 envFiles`), restarted when they change; nothing else from your shell
 reaches it except `PATH`, `HOME` and `TMPDIR`. Put a secret there by
 hand or with `kindgi secrets set NAME --env=local --scope=tenant` (a
-no-echo prompt), and keep the env files out of git. `KINDGI_*` names
-are Kindgi's own settings and never reach pack code.
+no-echo prompt), and keep the env files out of git. Declare every name
+the code reads in `[tool.kindgi.env]` (`required`, `optional`): in an image
+the pack service drops every other variable before your code loads
+(`kindgi dev` keeps them), so an undeclared one works locally and is unset
+once deployed. `KINDGI_*` names are Kindgi's own settings: a pack can't
+declare one.
 
 ## Errors and output
 

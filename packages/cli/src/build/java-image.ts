@@ -11,7 +11,9 @@
  * publish time — byte-identical to the CLI's local index, so the
  * integrity gate holds — and the launcher (`kindgi-pack-java`) from the
  * pack's own kindgi-pack jar. The image runs on a pinned JRE 17, as user
- * 65532: the pack service, through the launcher, on `PORT` (8080).
+ * 65532: the pack service, through the launcher, on `PORT` (8080). The
+ * launcher keeps the names the pack declares (`KINDGI_PACK_ENV_DECLARED`,
+ * from the local index) and drops the rest of the environment.
  * Debian packages the pack declares (`image.systemPackages`) install in
  * the final stage.
  *
@@ -62,6 +64,12 @@ export interface RenderJavaContainerfileInputs {
   readonly buildTarget: string;
   /** Debian packages for the final stage, checked (`checkAptPackages`). */
   readonly systemPackages: readonly string[];
+  /**
+   * The names the pack declares (`env.required`, `env.optional`), from the
+   * local index: `KINDGI_PACK_ENV_DECLARED`, the launcher's list of what to
+   * keep.
+   */
+  readonly declaredEnv: readonly string[];
 }
 
 export function renderJavaContainerfile(inputs: RenderJavaContainerfileInputs): string {
@@ -101,6 +109,7 @@ ARG KINDGI_ARTIFACT_VERSION=${artifactVersion}
 ARG KINDGI_PUBLISHED_AT=${publishedAt}
 ENV KINDGI_ARTIFACT_VERSION=\${KINDGI_ARTIFACT_VERSION} \\
     KINDGI_PUBLISHED_AT=\${KINDGI_PUBLISHED_AT} \\
+    KINDGI_PACK_ENV_DECLARED="${inputs.declaredEnv.join(',')}" \\
     PORT=8080
 ${apt === '' ? '' : `${apt}\n`}WORKDIR /app
 COPY --from=build /app/target/classes /app/classes

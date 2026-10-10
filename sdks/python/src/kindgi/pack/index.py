@@ -98,6 +98,7 @@ def run_indexer(
     # Per (kind, id), the versions defined so far and their files.
     owners: dict[tuple[PrimitiveKind, str], dict[str | None, str]] = {}
     file_errors: list[dict[str, Any]] = []
+    warnings: list[dict[str, Any]] = []
     flow_spec = _spec("flow")
 
     for rel_path, expected in discovered:
@@ -164,6 +165,10 @@ def run_indexer(
                 continue
             defined[version] = rel_path
             entries[kind].append(built["entry"])
+            if isinstance(primitive, Guardrail):
+                warning = _unprefixed_check(primitive, rel_path, config.id)
+                if warning is not None:
+                    warnings.append(warning)
 
     output = (output_path or pack_dir / "index.json").resolve()
     version = artifact_version or _auto_artifact_version(output)
@@ -210,6 +215,7 @@ def run_indexer(
             "counts": {kind_plural: len(entries[kind]) for kind_plural, kind in _FOLDERS.items()},
             "outputPath": str(output),
             "fileErrors": file_errors,
+            "warnings": warnings,
         },
     }
 
@@ -438,6 +444,24 @@ def _err(
 
 def _file_error(code: str, message: str, rel_path: str, **extra: Any) -> dict[str, Any]:
     return _compact({"code": code, "message": message, "filePath": rel_path, **extra})
+
+
+def _unprefixed_check(guardrail: Guardrail, rel_path: str, pack_id: str) -> dict[str, Any] | None:
+    """A warning when a guardrail's check id doesn't start with the pack's id (`<pack id>.`).
+
+    Packs in one tenant share one space of check names, so a check named for its pack can't
+    collide with another pack's. Never a refusal: the pack builds as it did.
+    """
+    if guardrail.check_id.startswith(f"{pack_id}."):
+        return None
+    return _file_error(
+        "check-id-unprefixed",
+        f"{rel_path}: check \"{guardrail.check_id}\" doesn't start with this pack's id "
+        f'("{pack_id}."). Name it "{pack_id}.checks.<name>" so it can\'t collide with another '
+        "pack's check in the same tenant. The pack builds as it is.",
+        rel_path,
+        field="check",
+    )
 
 
 def _manifest_error(rel_path: str, message: str) -> dict[str, Any]:
