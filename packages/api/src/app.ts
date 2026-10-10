@@ -1745,6 +1745,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
             ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
           }
         : { enabled: false },
+      authorizer,
     ),
   );
   app.route('/v1', v1);
