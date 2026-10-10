@@ -7774,7 +7774,7 @@ export const JudgingQueueStateSchema: JsonSchema = {
   type: 'string',
   enum: ['open', 'judged', 'dismissed', 'erased'],
   description:
-    "Where a queued run stands. `judged`: every rule that queued it has the judgment it wants. `erased`: the run's content was erased; the item shows nothing of it.",
+    "Where a queued run stands. `judged`: every rule that queued it has the judgment it wants. `erased`: the run's content is gone (erased, or the run purged); the item shows nothing of it.",
 };
 
 export const JudgingRuleWhenSchema: JsonSchema = {
@@ -7839,7 +7839,21 @@ export const JudgingRulePatchSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   description: 'The fields to change; `when` is replaced whole.',
-  properties: JUDGING_RULE_FIELDS,
+  properties: {
+    ...JUDGING_RULE_FIELDS,
+    maxOpen: {
+      type: ['integer', 'null'],
+      minimum: 1,
+      maximum: 10000,
+      description:
+        'Queue nothing while this rule has this many open items. `null` removes the cap.',
+    },
+    judgeClassId: {
+      type: ['string', 'null'],
+      description:
+        'Whose judgment it wants: one of this class closes it. `null`: any judgment does.',
+    },
+  },
 };
 
 export const JudgingRuleSchema: JsonSchema = {

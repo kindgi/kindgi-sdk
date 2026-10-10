@@ -16,6 +16,7 @@ import type {
   JudgingQueueItem,
   JudgingQueueState,
   JudgingRule,
+  JudgingRulePatch,
   JudgingRuleSpec,
   JudgingRunStatus,
 } from '../judging-queue-binding.js';
@@ -114,7 +115,7 @@ export function judgingRouter(
   r.post('/:projectId/judging-rules', async (c) => {
     const parsed = parseSpec(await c.req.json().catch(() => undefined), 'create');
     if (typeof parsed === 'string') return fail(c, 'bad-input', parsed);
-    const known = await classKnown(c, parsed.judgeClassId);
+    const known = await classKnown(c, parsed.judgeClassId ?? undefined);
     if (known !== undefined) return known;
     const created = await binding.createRule({
       ...inProject(c),
@@ -152,7 +153,7 @@ export function judgingRouter(
   r.patch('/:projectId/judging-rules/:ruleId', async (c) => {
     const parsed = parseSpec(await c.req.json().catch(() => undefined), 'patch');
     if (typeof parsed === 'string') return fail(c, 'bad-input', parsed);
-    const known = await classKnown(c, parsed.judgeClassId);
+    const known = await classKnown(c, parsed.judgeClassId ?? undefined);
     if (known !== undefined) return known;
     const updated = await binding.updateRule({
       ...inProject(c),
@@ -350,10 +351,7 @@ function specFromQuery(c: Context<AppEnv>): Record<string, unknown> {
 }
 
 /** A rule body, or why not. `patch`: every field optional; `preview`: no name. */
-function parseSpec(
-  raw: unknown,
-  mode: 'create' | 'patch' | 'preview',
-): Partial<JudgingRuleSpec> | string {
+function parseSpec(raw: unknown, mode: 'create' | 'patch' | 'preview'): JudgingRulePatch | string {
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
     return 'The body must be a JSON object';
   }
@@ -361,7 +359,7 @@ function parseSpec(
   const allowed = ['name', 'when', 'sample', 'maxOpen', 'judgeClassId', 'enabled'];
   const extra = Object.keys(b).filter((k) => !allowed.includes(k));
   if (extra.length > 0) return `Unknown field(s): ${extra.join(', ')}`;
-  const out: { -readonly [K in keyof JudgingRuleSpec]?: JudgingRuleSpec[K] } = {};
+  const out: { -readonly [K in keyof JudgingRulePatch]?: JudgingRulePatch[K] } = {};
 
   if (b.name !== undefined || mode === 'create') {
     if (typeof b.name !== 'string' || b.name.trim() === '' || b.name.length > MAX_TEXT) {
@@ -407,21 +405,23 @@ function parseSpec(
     }
     out.sample = b.sample;
   }
+  // A change may remove the cap or the class: `null`.
+  const removable = mode === 'patch' ? ', or `null` to remove it' : '';
   if (b.maxOpen !== undefined && mode !== 'preview') {
-    if (
+    if (b.maxOpen === null && mode === 'patch') out.maxOpen = null;
+    else if (
       !Number.isInteger(b.maxOpen) ||
       (b.maxOpen as number) < 1 ||
       (b.maxOpen as number) > MAX_OPEN
     ) {
-      return `\`maxOpen\` must be a whole number from 1 to ${MAX_OPEN}`;
-    }
-    out.maxOpen = b.maxOpen as number;
+      return `\`maxOpen\` must be a whole number from 1 to ${MAX_OPEN}${removable}`;
+    } else out.maxOpen = b.maxOpen as number;
   }
   if (b.judgeClassId !== undefined && mode !== 'preview') {
-    if (typeof b.judgeClassId !== 'string' || b.judgeClassId === '') {
-      return '`judgeClassId` must be a non-empty string';
-    }
-    out.judgeClassId = b.judgeClassId;
+    if (b.judgeClassId === null && mode === 'patch') out.judgeClassId = null;
+    else if (typeof b.judgeClassId !== 'string' || b.judgeClassId === '') {
+      return `\`judgeClassId\` must be a non-empty string${removable}`;
+    } else out.judgeClassId = b.judgeClassId;
   }
   if (b.enabled !== undefined && mode !== 'preview') {
     if (typeof b.enabled !== 'boolean') return '`enabled` must be a boolean';

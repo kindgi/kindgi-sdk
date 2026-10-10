@@ -173,7 +173,6 @@ restriction. A test set counts restricted judgments apart, and a comparison
 can count only them: see
 [Compare a version on a test set](../compare-an-agent-version/#count-only-restricted-judges).
 
-
 ## Queue the runs to judge
 
 Rather than have your experts pick runs one at a time, give the project
@@ -257,14 +256,27 @@ A rule only lists runs: it never runs a model or spends anything.
 
 `judgingQueue.list` gives the queue, oldest first:
 
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
 ```ts
 const waiting = await kindgi.projects.judgingQueue.list(project.id, { forMe: true });
 ```
 
+</TabItem>
+<TabItem label="Python">
+
+```python
+waiting = kindgi.projects.judging_queue.list(project.id, for_me=True)
+```
+
+</TabItem>
+</Tabs>
+
 - **Each item** is a run: its agent or flow and version, how it ended, the
   rules that queued it (each at the version that did), the judge classes
-  they want, and the judgments on it so far, by class. It carries none of the run's content: open the run to
-  judge it.
+  they want, and the judgments on it so far, by class. It carries none of
+  the run's content: open the run to judge it.
 - **`forMe: true`** keeps the items you can close: those that want a class
   you may judge as, or any judgment.
 - **An item closes** as `judged` once each rule that queued it has the
@@ -275,7 +287,9 @@ const waiting = await kindgi.projects.judgingQueue.list(project.id, { forMe: tru
   item's `can` says whether you may.
 - **Counts:** `limit: 0` answers only the `total`. With `state`,
   `addedAfter` and `closedAfter`, it gives "N waiting, M judged this week".
-- **An erased run's** item shows `erased` and nothing of the run.
+- **When a run's content is gone,** erased or purged by
+  [retention](../../../deploy/retention/), its waiting item closes as
+  `erased` and shows nothing of the run.
 
 Reading the rules and the queue takes read access to the project. Changing
 a rule, and dismissing or reopening an item, take write access, as judging
@@ -285,7 +299,8 @@ a run does.
 
 - **`judgingRules.update`** writes a new version of the rule, and
   `judgingRules.versions` lists them all, newest first, with who wrote each
-  and when. Runs queued from then on count toward the new version.
+  and when. Runs queued from then on count toward the new version. `null`
+  removes `maxOpen` or `judgeClassId`.
 - **`judgingRules.unregister`** stops a rule. It queues nothing more; its
   versions and the runs it queued stay.
 - **`judgingRules.results`** gives a group for each version of the rule and

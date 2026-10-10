@@ -145,6 +145,7 @@ export type {
   JudgingQueueState,
   JudgingRule,
   JudgingRulePage,
+  JudgingRulePatch,
   JudgingResultGroup,
   JudgingRulePreview,
   JudgingRuleResults,

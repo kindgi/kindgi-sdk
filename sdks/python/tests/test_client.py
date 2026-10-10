@@ -968,3 +968,23 @@ def test_a_judging_rule_takes_its_when_in_python_or_wire_case() -> None:
     sent = [json.loads(r.content) for r in seen]
     assert sent[0] == sent[1] == {k: rule[k] for k in ("name", "when", "sample", "maxOpen")}
     assert seen[0].url == f"http://kindgi.test/v1/projects/{project}/judging-rules"
+
+
+def test_a_judging_rule_change_sends_null_to_remove_the_cap() -> None:
+    project, rule_id = (
+        "d4910d76-7355-4022-8f3c-514361cfa986",
+        "6f1d9a0e-2b8c-4f4e-9d61-0c2a7e5b3f10",
+    )
+    rule = {
+        "ruleId": rule_id,
+        "projectId": project,
+        "version": 2,
+        "name": "Live refund runs",
+        "when": {},
+        "sample": 0.05,
+        "enabled": True,
+        "createdAt": "2026-10-10T09:00:00.000Z",
+    }
+    api, seen = client(lambda r: httpx.Response(200, json=rule))
+    api.projects.judging_rules.update(project, rule_id, max_open=None, sample=0.05)
+    assert json.loads(seen[0].content) == {"maxOpen": None, "sample": 0.05}

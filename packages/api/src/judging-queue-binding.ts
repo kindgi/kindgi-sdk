@@ -54,6 +54,19 @@ export interface JudgingRuleSpec {
   readonly enabled?: boolean;
 }
 
+/**
+ * A change to a rule: the fields given replace the latest version's
+ * (`when` whole). `null` removes `maxOpen` or `judgeClassId`.
+ */
+export interface JudgingRulePatch {
+  readonly name?: string;
+  readonly when?: JudgingRuleWhen;
+  readonly sample?: number;
+  readonly maxOpen?: number | null;
+  readonly judgeClassId?: string | null;
+  readonly enabled?: boolean;
+}
+
 /** One version of a rule. */
 export interface JudgingRule {
   readonly ruleId: string;
@@ -72,7 +85,10 @@ export interface JudgingRule {
   readonly unregisteredAt?: Timestamp;
 }
 
-/** Where a queued run stands. `erased`: its content was erased; the item shows nothing of it. */
+/**
+ * Where a queued run stands. `erased`: the run's content is gone (erased,
+ * or the run purged); the item shows nothing of it.
+ */
 export type JudgingQueueState = 'open' | 'judged' | 'dismissed' | 'erased';
 
 /** A rule that queued a run, at the version that queued it. */
@@ -211,7 +227,7 @@ export interface JudgingQueueBinding {
   updateRule(
     input: InProject & {
       readonly ruleId: string;
-      readonly patch: Partial<JudgingRuleSpec>;
+      readonly patch: JudgingRulePatch;
       readonly by?: string;
     },
   ): Promise<Result<JudgingRule, JudgingError>>;

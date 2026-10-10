@@ -26,6 +26,7 @@ import type {
   JudgingQueueItem,
   JudgingQueueListInput,
   JudgingRule,
+  JudgingRulePatch,
   JudgingRuleSpec,
   JudgmentRegistryBinding,
   RunHandlerBinding,
@@ -103,7 +104,7 @@ function memoryBinding() {
     projectId: string,
     ruleId: string,
     version: number,
-    spec: JudgingRuleSpec,
+    spec: JudgingRuleSpec | (JudgingRulePatch & Pick<JudgingRuleSpec, 'name' | 'when'>),
     by?: string,
   ): JudgingRule => ({
     ruleId,
@@ -112,8 +113,9 @@ function memoryBinding() {
     name: spec.name,
     when: spec.when,
     sample: spec.sample ?? 1,
-    ...(spec.maxOpen !== undefined && { maxOpen: spec.maxOpen }),
-    ...(spec.judgeClassId !== undefined && { judgeClassId: spec.judgeClassId }),
+    ...(spec.maxOpen !== undefined && spec.maxOpen !== null && { maxOpen: spec.maxOpen }),
+    ...(spec.judgeClassId !== undefined &&
+      spec.judgeClassId !== null && { judgeClassId: spec.judgeClassId }),
     enabled: spec.enabled ?? true,
     ...(by !== undefined && { createdBy: by }),
     createdAt: at(),
@@ -261,9 +263,19 @@ describe('judging rules', () => {
 
     const changed = await h.call(EDITOR, 'PATCH', `/judging-rules/${ruleId}`, { sample: 0.1 });
     expect(changed.body).toMatchObject({ version: 2, sample: 0.1, maxOpen: 20 });
+    // `null` removes the cap and the class; only a change takes it.
+    const uncapped = await h.call(EDITOR, 'PATCH', `/judging-rules/${ruleId}`, {
+      maxOpen: null,
+      judgeClassId: null,
+    });
+    expect(uncapped.body).toMatchObject({ version: 3, sample: 0.1 });
+    expect(uncapped.body).not.toHaveProperty('maxOpen');
+    expect(uncapped.body).not.toHaveProperty('judgeClassId');
+    const nullOnCreate = await h.call(EDITOR, 'POST', '/judging-rules', { ...RULE, maxOpen: null });
+    expect(nullOnCreate.status).toBe(400);
 
     const versions = await h.call(VIEWER, 'GET', `/judging-rules/${ruleId}/versions`);
-    expect(versions.body.data.map((v: JudgingRule) => v.version)).toEqual([2, 1]);
+    expect(versions.body.data.map((v: JudgingRule) => v.version)).toEqual([3, 2, 1]);
     expect((await h.call(VIEWER, 'GET', '/judging-rules')).body.data).toHaveLength(1);
   });
 

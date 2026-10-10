@@ -14125,7 +14125,7 @@
           "dismissed",
           "erased"
         ],
-        "description": "Where a queued run stands. `judged`: every rule that queued it has the judgment it wants. `erased`: the run's content was erased; the item shows nothing of it."
+        "description": "Where a queued run stands. `judged`: every rule that queued it has the judgment it wants. `erased`: the run's content is gone (erased, or the run purged); the item shows nothing of it."
       },
       "JudgingRuleWhen": {
         "type": "object",
@@ -14230,14 +14230,20 @@
             "description": "The share of matching runs queued, decided by the run and rule ids (the same every time). Default 1."
           },
           "maxOpen": {
-            "type": "integer",
+            "type": [
+              "integer",
+              "null"
+            ],
             "minimum": 1,
             "maximum": 10000,
-            "description": "Queue nothing while this rule has this many open items. Absent: no cap."
+            "description": "Queue nothing while this rule has this many open items. `null` removes the cap."
           },
           "judgeClassId": {
-            "type": "string",
-            "description": "Whose judgment it wants: one of this class closes it. Absent: any judgment does."
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Whose judgment it wants: one of this class closes it. `null`: any judgment does."
           },
           "enabled": {
             "type": "boolean",

@@ -7392,11 +7392,11 @@ class JudgingRulePatch(BaseModel):
     """
     max_open: Annotated[int | None, Field(alias="maxOpen", ge=1, le=10000)] = None
     """
-    Queue nothing while this rule has this many open items. Absent: no cap.
+    Queue nothing while this rule has this many open items. `null` removes the cap.
     """
     judge_class_id: Annotated[str | None, Field(alias="judgeClassId")] = None
     """
-    Whose judgment it wants: one of this class closes it. Absent: any judgment does.
+    Whose judgment it wants: one of this class closes it. `null`: any judgment does.
     """
     enabled: bool | None = None
     """
@@ -7537,7 +7537,7 @@ class JudgingQueueItem(BaseModel):
     added_at: Annotated[AwareDatetime, Field(alias="addedAt")]
     state: Literal["open", "judged", "dismissed", "erased"]
     """
-    Where a queued run stands. `judged`: every rule that queued it has the judgment it wants. `erased`: the run's content was erased; the item shows nothing of it.
+    Where a queued run stands. `judged`: every rule that queued it has the judgment it wants. `erased`: the run's content is gone (erased, or the run purged); the item shows nothing of it.
     """
     closed_at: Annotated[AwareDatetime | None, Field(alias="closedAt")] = None
     closed_by: Annotated[str | None, Field(alias="closedBy")] = None
