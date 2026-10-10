@@ -102,8 +102,8 @@
   --kg-series-5: #5c8ace;
   /* Warm stone: everything else, and the previous period (dashed). */
   --kg-series-muted: #8b7e6d;
-  /* Everything you read. Self-hosted. */
-  --kg-font: "IBM Plex Sans", Arial, sans-serif;
+  /* Everything you read. Self-host a variable IBM Plex Sans with the width axis: fontsource's "IBM Plex Sans Variable", or your own @font-face named "IBM Plex Sans". */
+  --kg-font: "IBM Plex Sans Variable", "IBM Plex Sans", Arial, sans-serif;
   /* Code, commands and ids. */
   --kg-font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
   /* font-stretch for headings and the wordmark (IBM Plex Sans at its narrowest). */
