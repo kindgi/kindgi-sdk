@@ -12,6 +12,8 @@ import type {
   AddProjectMembershipBody,
   AddProjectMembershipResult,
   CreateResourceResult,
+  ProjectAccessPage as ProjectAccessPageWire,
+  ProjectAccess as ProjectAccessWire,
   ProjectCollectionPage,
   ProjectMembershipCollectionPage,
   ProjectPatch as ProjectPatchBody,
@@ -42,6 +44,26 @@ export interface ListProjectsFilter {
 export interface ListProjectMembershipsFilter {
   readonly limit?: number;
   readonly cursor?: string;
+}
+
+/** Someone with access to a project: their effective role, and every way in. */
+export type ProjectAccessShape = ProjectAccessWire;
+export type ProjectAccessPage = ProjectAccessPageWire;
+
+export interface ListProjectAccessFilter {
+  readonly limit?: number;
+  readonly cursor?: string;
+}
+
+/**
+ * Who has access to a project, and how: a direct role, a team's grant, an
+ * admin of its org, a tenant admin. Takes `write` on the project (its
+ * editors and admins); emails show to its admins only. `501
+ * project-access-unsupported` from a runtime without an authorization store.
+ */
+export interface ProjectAccessClient {
+  /** @wire GET /v1/projects/:projectId/access */
+  list(projectId: string, filter?: ListProjectAccessFilter): Promise<ProjectAccessPage>;
 }
 
 /** A team's role on a project, with the team's and the project's names. */
@@ -112,6 +134,7 @@ export interface ProjectsClient {
   delete(projectId: string): Promise<void>;
   readonly memberships: ProjectMembershipsClient;
   readonly teamGrants: ProjectTeamGrantsClient;
+  readonly access: ProjectAccessClient;
 }
 
 export interface ProjectMembershipsClient {
@@ -226,6 +249,18 @@ export function makeProjectsClient(transport: Transport): ProjectsClient {
           path: `/v1/projects/${seg(projectId)}/memberships/${seg(userId)}`,
           discardResponse: true,
           ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
+        });
+      },
+    },
+    access: {
+      async list(projectId, filter) {
+        return transport.request<ProjectAccessPage>({
+          method: 'GET',
+          path: `/v1/projects/${seg(projectId)}/access`,
+          query: {
+            ...(filter?.limit !== undefined && { limit: filter.limit }),
+            ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
+          },
         });
       },
     },

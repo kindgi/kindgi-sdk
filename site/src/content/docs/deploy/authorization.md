@@ -196,6 +196,47 @@ Who sees the grants:
 Deleting a team removes the access it gave: its members' roles and its
 project grants. Nobody keeps access through a team that's gone.
 
+## Who has access to a project
+
+`GET /v1/projects/<project-id>/access` lists everyone OpenFGA lets into the
+project, people and service accounts, with their role and every way in:
+
+```json
+{
+  "data": [
+    {
+      "principal": { "kind": "user", "id": "6b1f…" },
+      "displayName": "Ada Lovelace",
+      "primaryEmail": "ada@acme.example",
+      "role": "admin",
+      "via": [
+        { "kind": "tenant-admin" },
+        { "kind": "direct", "role": "editor", "joinedAt": "2026-10-01T09:12:44.103Z" }
+      ]
+    },
+    {
+      "principal": { "kind": "user", "id": "9c2e…" },
+      "displayName": "Ben Okafor",
+      "role": "editor",
+      "via": [{ "kind": "team", "teamId": "…", "teamName": "Support crew", "role": "editor" }]
+    }
+  ],
+  "hasMore": false
+}
+```
+
+- **`role`** is the highest any way in gives. An admin of the project's org
+  (`org-admin`) and a tenant admin (`tenant-admin`) are admins of the project.
+- **A direct role with `joinedAt`** is a membership: change or remove it with
+  `…/memberships/<user-id>`. One without `joinedAt` has no membership behind
+  it, such as the owner who created the project.
+- **A team's role** is changed on its grant (`…/team-grants/<team-id>`).
+
+Reading it takes `write` on the project (its editors and admins); emails show
+to its admins only. It's ordered by role, owner first, then by name, and pages
+like other lists. In the clients: `projects.access.list` (the same in Python).
+A runtime without OpenFGA answers `501 project-access-unsupported`.
+
 ## The access audit
 
 Each decision, allowed or denied, is kept: `GET /v1/audit/authz` lists them,

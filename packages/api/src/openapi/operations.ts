@@ -6544,6 +6544,26 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
   {
     method: 'get',
+    honoPath: '/v1/projects/:projectId/access',
+    openapiPath: '/v1/projects/{projectId}/access',
+    operationId: 'projects.access.list',
+    summary: 'Who has access to a project, and how',
+    description:
+      "Everyone the authorization store lets into the project (people and service accounts), each with their effective role and every way in: a direct role, a team's grant, an admin of the project's org, a tenant admin. For the project's editors and admins (`write`): a viewer sees the project, not who else works in it. Emails show to the project's admins only. Ordered by role (owner first), then name. 501 `project-access-unsupported` from a runtime without an authorization store.",
+    tags: ['projects'],
+    security: 'bearer',
+    parameters: [ProjectIdPathParam, LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': { description: 'Page of who has access.', schema: ref('ProjectAccessPage') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No project with that id under this tenant.'),
+      '501': ErrorResponse(
+        'The runtime has no authorization store (`project-access-unsupported`).',
+      ),
+    },
+  },
+  {
+    method: 'get',
     honoPath: '/v1/projects/:projectId/team-grants',
     openapiPath: '/v1/projects/{projectId}/team-grants',
     operationId: 'projects.teamGrants.list',

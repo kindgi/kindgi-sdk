@@ -330,6 +330,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // A team's role on a project.
   'team-grant-not-found': 404,
   'team-grant-exists': 409,
+  // Who has access to a project: a runtime without an authorization store can't say.
+  'project-access-unsupported': 501,
   // A slug another org, team or project in the tenant already has; a
   // second Default project.
   'slug-conflict': 409,

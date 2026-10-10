@@ -143,6 +143,12 @@ export type {
   PersonRef,
 } from './person-grants-binding.js';
 export type {
+  AccessPrincipal,
+  ProjectAccessBinding,
+  ProjectAccessHolder,
+  ProjectAccessPath,
+} from './project-access-binding.js';
+export type {
   InvokeAgentBindingInput,
   InvokeFlowBindingInput,
   RunHandlerBinding,
