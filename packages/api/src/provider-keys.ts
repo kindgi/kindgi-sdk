@@ -165,15 +165,17 @@ export function guardProviderKeys(
     const providerId = (await keys.of(tenantId)).get(name);
     return providerId === undefined ? undefined : providerKeyRefusal(name, providerId, user);
   };
-  // Every member listed, optional ones too: a method added to `SecretBinding`
-  // doesn't compile here until someone decides whether the guard covers it.
-  const guarded: { [K in keyof Required<SecretBinding>]: SecretBinding[K] } = {
+  const guarded: SecretBinding = {
     list: (input) => binding.list(input),
     get: (input) => binding.get(input),
     listVersions: (input) => binding.listVersions(input),
     set: (input) => binding.set(input),
     rotate: (input) => binding.rotate(input),
     revoke: (input) => binding.revoke(input),
+    // Says how `set` writes, and `set` passes through: so does it.
+    ...(binding.writesAppEnvFiles !== undefined && {
+      writesAppEnvFiles: binding.writesAppEnvFiles,
+    }),
     async resolve(input) {
       const refused = await refusal(input.scope.tenantId, input.name);
       if (refused === undefined) return binding.resolve(input);
@@ -195,3 +197,23 @@ export function guardProviderKeys(
   };
   return guarded;
 }
+
+/**
+ * Every `SecretBinding` member `guardProviderKeys` handles. A member added
+ * to `SecretBinding`, an optional one too, doesn't compile below until it's
+ * listed here: someone decides whether the guard covers it.
+ */
+const GUARDED_MEMBERS = [
+  'list',
+  'get',
+  'listVersions',
+  'set',
+  'rotate',
+  'revoke',
+  'resolve',
+  'getVersion',
+  'writesAppEnvFiles',
+] as const satisfies readonly (keyof SecretBinding)[];
+type Unguarded = Exclude<keyof SecretBinding, (typeof GUARDED_MEMBERS)[number]>;
+// `true` while every member is listed; an unlisted one makes it its name, and this fails.
+export const EVERY_SECRET_MEMBER_GUARDED: [Unguarded] extends [never] ? true : Unguarded = true;
