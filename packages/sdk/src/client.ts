@@ -70,6 +70,11 @@ export function createClient(options: Partial<ClientOptions> = {}): KindgiClient
       if (client === undefined && (key === 'then' || typeof key === 'symbol')) return undefined;
       return Reflect.get(resolved(), key);
     },
+    // A write (a test swapping a resource) is a use: it lands on the client.
+    set: (_target, key, value) => Reflect.set(resolved(), key, value),
+    defineProperty: (_target, key, descriptor) =>
+      Reflect.defineProperty(resolved(), key, descriptor),
+    deleteProperty: (_target, key) => Reflect.deleteProperty(resolved(), key),
     has: (_target, key) => key in resolved(),
     ownKeys: () => Reflect.ownKeys(resolved()),
     getOwnPropertyDescriptor(_target, key) {

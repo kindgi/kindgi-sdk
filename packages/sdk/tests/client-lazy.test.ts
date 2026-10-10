@@ -83,4 +83,18 @@ describe('createClient() resolves on first use (T540)', () => {
     expect(Object.keys(kindgi)).toContain('agents');
     expect(kindgi.runs).toBe(kindgi.runs);
   });
+
+  test('a write lands on the client, as on the plain object: a test can swap a resource', () => {
+    const kindgi = createClient({
+      apiUrl: 'http://127.0.0.1:4000',
+      auth: { kind: 'apiToken', token: 't' },
+    });
+    const fake = { start: async () => ({ id: 'run-1' }) } as unknown as typeof kindgi.runs;
+    (kindgi as { runs: typeof kindgi.runs }).runs = fake;
+    expect(kindgi.runs).toBe(fake);
+    Object.defineProperty(kindgi, 'agents', { value: fake, configurable: true, enumerable: true });
+    expect(kindgi.agents).toBe(fake);
+    expect(Reflect.deleteProperty(kindgi, 'tools')).toBe(true);
+    expect('tools' in kindgi).toBe(false);
+  });
 });
