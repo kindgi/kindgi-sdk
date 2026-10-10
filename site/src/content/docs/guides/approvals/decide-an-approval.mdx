@@ -160,11 +160,21 @@ kindgi approvals complete <approval-id> --decision=approve --rationale="Confirme
 | `approve` | `approved` | Continues: the tool runs, or the turn runs. |
 | `reject` | `rejected` | A tool call: the tool doesn't run, and the agent gets the rejection as the tool's result. A turn: the run fails with `hitl-rejected`. |
 | `escalate` | `escalated`, and a new approval for the next role up | Keeps waiting for the new approval. |
-| `withdraw` | `withdrawn` | Keeps waiting; cancel it with `kindgi runs cancel <run-id>`. |
+| `withdraw` | `withdrawn` | Ends: its turn fails with `hitl-withdrawn`. |
 
-An approve or reject resumes the run within the same call, so the run has
-moved on by the time the command returns. A decided approval can't be decided
-again.
+An approve, reject or withdraw resolves the run within the same call, so the
+run has moved on by the time the command returns. A decided approval can't be
+decided again.
+
+Every `hitl-*` failure (`hitl-rejected`, `hitl-withdrawn`, `hitl-cancelled`)
+is a person's outcome, not an error: a reviewer decided, or nobody did in
+time.
+
+An approval whose run has ended can't be decided: the decision is refused
+with `409 run-already-terminal`, and nothing is recorded. Its `details` name
+the run that ended (it may be the run the approval's run is a step of) and
+its `status`. A decision recorded just before its run ended stands: the
+answer has `waitpointResolved: false` and the run's `runStatus`.
 
 Each decision also goes into the audit trail, as an `hitl-decision` event:
 who decided, how it ended and the rationale. It's kept for good, even when the
@@ -207,16 +217,19 @@ longer sees it. A `senior` (or `admin`) reviewer approves or rejects
 
 ### Withdraw
 
-Withdraw closes an approval without deciding what it asked. The run keeps
-waiting, so cancel it:
+Withdraw closes an approval without deciding what it asked, when the
+request is moot. The run waiting on it can't go on, so it ends: its turn
+fails with `hitl-withdrawn` ("The approval for tool call acme-desk.echo was
+withdrawn").
 
 ```sh
-kindgi approvals complete <approval-id> --decision=withdraw
-kindgi runs cancel <run-id>
+kindgi approvals complete <approval-id> --decision=withdraw --rationale="Asked by mistake"
 ```
 
-Cancelling a run doesn't close its approval either: withdraw the approval of
-a run you cancelled, so it leaves the pending list.
+Cancelling a run withdraws its open approvals by itself: see
+[Cancel a run](../../runs/cancel-a-run/#approvals-of-a-cancelled-run).
+Those approvals show `withdrawnBecause: "run-cancelled"` (or `run-failed`,
+when a run ended otherwise while they waited) and no `decision`.
 
 ### When nobody decides
 
@@ -316,7 +329,18 @@ approved True
 an org: `{ kind: 'project', projectId }` (`scope_kind="project", scope_id=…`)
 or `{ kind: 'org', orgId }`. An agent's approval is in its turn's project.
 Approvals from before Kindgi 0.1.3 have no project, so only a list without a
-scope shows them.
+scope shows them. `runId` lists the approvals one run asked for, and with
+`includeDescendants: true` those of the runs inside it.
+
+An approval also says:
+
+- **who asked for it** (`requestedBy`: `user:<id>`, `service_account:<id>`
+  or `system:<what>`), and whether that person may approve it
+  (`separateApprover: true` means they may not). Compare `requestedBy` with
+  the caller's `actor` from `identity.whoami()` to leave out an Approve
+  button they can't use.
+- **where an escalation came from and went:** `escalatedFrom` and
+  `escalatedTo`, approval ids.
 
 ## Reference
 

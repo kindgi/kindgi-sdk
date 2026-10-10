@@ -113,6 +113,10 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
       );
     }
     if (reviewerRole !== undefined) body.reviewerRole = reviewerRole;
+    // The caller as an approval names a person: `requestedBy` and a
+    // decision's `decidedBy` use the same string.
+    const actor = callerRef(c);
+    if (actor !== undefined) body.actor = actor;
     Object.assign(body, keyFacts(c));
 
     if (userId !== undefined) {

@@ -2858,8 +2858,32 @@
             "format": "date-time"
           },
           "decision": {
-            "description": "The reviewer's decision, once one is recorded. Absent while the approval is open, and when it ended without one (it expired, or a timeout escalated it).",
+            "description": "The reviewer's decision, once one is recorded. Absent while the approval is open, and when it ended without one (it expired, a timeout escalated it, or its run's end withdrew it).",
             "$ref": "#/components/schemas/ApprovalDecisionRecord"
+          },
+          "requestedBy": {
+            "type": "string",
+            "description": "Who asked for it, when recorded: `user:<id>`, `service_account:<id>` or `system:<what>`."
+          },
+          "separateApprover": {
+            "type": "boolean",
+            "description": "Whether the person who asked may not approve it (four eyes). A runtime that knows it always sends it, `false` included."
+          },
+          "withdrawnBecause": {
+            "type": "string",
+            "enum": [
+              "run-cancelled",
+              "run-failed"
+            ],
+            "description": "Why it was withdrawn, when its run's end withdrew it (a reviewer's withdrawal has its `decision` instead)."
+          },
+          "escalatedFrom": {
+            "type": "string",
+            "description": "The approval this one was escalated from."
+          },
+          "escalatedTo": {
+            "type": "string",
+            "description": "The approval this one was escalated to."
           }
         }
       },
@@ -3034,7 +3058,11 @@
           },
           "waitpointResolved": {
             "type": "boolean",
-            "description": "True when the approval had a `waitTokenId` + terminal accept/reject and the run waitpoint was completed as part of this call."
+            "description": "True when the approval had a `waitTokenId` and this call resolved the run's waitpoint: approve and reject complete it; withdraw cancels it, so the run ends (`failed`, `hitl-withdrawn`)."
+          },
+          "runStatus": {
+            "type": "string",
+            "description": "The run's status when the decision couldn't resolve its waitpoint because the run had already ended (e.g. `cancelled` after the decision was recorded). The decision stands."
           },
           "resume": {
             "description": "How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone. The decision stands either way.",
@@ -13853,6 +13881,10 @@
             "type": "string",
             "format": "uuid"
           },
+          "actor": {
+            "type": "string",
+            "description": "The caller as approvals name a person: `user:<id>` or `service_account:<id>`, the same string as an approval's `requestedBy` and a decision's `decidedBy`."
+          },
           "userId": {
             "type": "string"
           },
@@ -20765,6 +20797,25 @@
             },
             "required": false,
             "description": "Only approvals linked to one of these run waits (an approval's `waitTokenId`; a run's journal names its open waits in `wait.suspended` entries). Repeat it for several, at most 50."
+          },
+          {
+            "name": "runId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": false,
+            "description": "Only the approvals this run asked for."
+          },
+          {
+            "name": "includeDescendants",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            },
+            "required": false,
+            "description": "With `runId`: also the approvals its child runs asked for, at any depth (a flow's agent steps)."
           }
         ],
         "security": [

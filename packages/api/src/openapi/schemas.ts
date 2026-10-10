@@ -1258,9 +1258,27 @@ export const ApprovalSchema: JsonSchema = {
     expiresAt: { type: 'string', format: 'date-time' },
     decision: {
       description:
-        "The reviewer's decision, once one is recorded. Absent while the approval is open, and when it ended without one (it expired, or a timeout escalated it).",
+        "The reviewer's decision, once one is recorded. Absent while the approval is open, and when it ended without one (it expired, a timeout escalated it, or its run's end withdrew it).",
       $ref: '#/components/schemas/ApprovalDecisionRecord',
     },
+    requestedBy: {
+      type: 'string',
+      description:
+        'Who asked for it, when recorded: `user:<id>`, `service_account:<id>` or `system:<what>`.',
+    },
+    separateApprover: {
+      type: 'boolean',
+      description:
+        'Whether the person who asked may not approve it (four eyes). A runtime that knows it always sends it, `false` included.',
+    },
+    withdrawnBecause: {
+      type: 'string',
+      enum: ['run-cancelled', 'run-failed'],
+      description:
+        "Why it was withdrawn, when its run's end withdrew it (a reviewer's withdrawal has its `decision` instead).",
+    },
+    escalatedFrom: { type: 'string', description: 'The approval this one was escalated from.' },
+    escalatedTo: { type: 'string', description: 'The approval this one was escalated to.' },
   },
 };
 
@@ -1545,7 +1563,12 @@ export const CompleteApprovalResultSchema: JsonSchema = {
     waitpointResolved: {
       type: 'boolean',
       description:
-        'True when the approval had a `waitTokenId` + terminal accept/reject and the run waitpoint was completed as part of this call.',
+        "True when the approval had a `waitTokenId` and this call resolved the run's waitpoint: approve and reject complete it; withdraw cancels it, so the run ends (`failed`, `hitl-withdrawn`).",
+    },
+    runStatus: {
+      type: 'string',
+      description:
+        "The run's status when the decision couldn't resolve its waitpoint because the run had already ended (e.g. `cancelled` after the decision was recorded). The decision stands.",
     },
     resume: {
       description:
@@ -7658,6 +7681,11 @@ export const WhoamiResultSchema: JsonSchema = {
   required: ['tenantId', 'scopes'],
   properties: {
     tenantId: { type: 'string', format: 'uuid' },
+    actor: {
+      type: 'string',
+      description:
+        "The caller as approvals name a person: `user:<id>` or `service_account:<id>`, the same string as an approval's `requestedBy` and a decision's `decidedBy`.",
+    },
     userId: { type: 'string' },
     sessionId: { type: 'string' },
     providerId: { type: 'string' },

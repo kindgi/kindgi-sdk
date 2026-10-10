@@ -1824,6 +1824,21 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ApprovalRequiredRoleQueryParam,
       CreatedAfterQueryParam,
       WaitTokenIdQueryParam,
+      {
+        name: 'runId',
+        in: 'query',
+        required: false,
+        description: 'Only the approvals this run asked for.',
+        schema: { type: 'string', format: 'uuid' },
+      },
+      {
+        name: 'includeDescendants',
+        in: 'query',
+        required: false,
+        description:
+          "With `runId`: also the approvals its child runs asked for, at any depth (a flow's agent steps).",
+        schema: { type: 'boolean' },
+      },
     ],
     responses: {
       '200': { description: 'Page of approvals.', schema: ref('ApprovalCollectionPage') },

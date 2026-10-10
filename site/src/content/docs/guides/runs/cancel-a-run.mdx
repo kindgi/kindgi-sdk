@@ -78,12 +78,14 @@ already ended.
 
 ## Approvals of a cancelled run
 
-Cancelling a run doesn't close the approval it was waiting for: it stays in
-the pending list. Withdraw it:
+Cancelling a run withdraws the approvals it was waiting for, and those of the
+runs inside it (a flow's agent steps), in the same step. They leave the
+pending list as `withdrawn`, with `withdrawnBecause: "run-cancelled"`. A
+reviewer who opens one can no longer decide it.
 
-```sh
-kindgi approvals complete <approval-id> --decision=withdraw
-```
+To see them before you cancel, list the run's approvals with the runs inside
+it: `approvals.list({ runId, includeDescendants: true })` in TypeScript,
+`approvals.list(run_id=…, include_descendants=True)` in Python.
 
 [Decide an approval](../../approvals/decide-an-approval/) has more on
 approvals.
