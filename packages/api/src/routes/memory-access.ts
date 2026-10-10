@@ -20,18 +20,17 @@ import type { Context } from 'hono';
 import { type Principal, ref } from '@kindgi/authz';
 import type { MemoryReaders, MemoryScope } from '@kindgi/memory';
 import type { ProjectBinding } from '@kindgi/platform';
-import type { OrgId, ProjectId, TenantId, UserId } from '@kindgi/types';
+import type { OrgId, ProjectId, UserId } from '@kindgi/types';
 
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
+import { type ProjectRow, allProjects } from './readable-projects.js';
 
 export interface MemoryAccessDeps {
   readonly authorizer?: Authorizer;
   /** The tenant's projects, to check one by one when the authorizer can't list them. */
   readonly projects?: Pick<ProjectBinding, 'list'>;
 }
-
-const PROJECT_PAGE = 200;
 
 /** The caller's user id, when the caller is a Kindgi user. */
 function callerUserId(c: Context<AppEnv>): UserId | undefined {
@@ -60,51 +59,33 @@ async function isTenantAdmin(c: Context<AppEnv>, authorizer: Authorizer): Promis
   return authorizer.can(c, 'admin', ref('tenant', c.get('tenantId') as unknown as string));
 }
 
-type ProjectRow = { readonly id: ProjectId; readonly orgId?: OrgId };
-
-/** The tenant's projects, every page. */
-async function allProjects(c: Context<AppEnv>, deps: MemoryAccessDeps): Promise<ProjectRow[]> {
-  if (deps.projects === undefined) return [];
-  const tenantId = c.get('tenantId') as TenantId;
-  const all: ProjectRow[] = [];
-  let cursor: Parameters<ProjectBinding['list']>[1]['cursor'];
-  for (;;) {
-    const page = await deps.projects.list(tenantId, {
-      limit: PROJECT_PAGE,
-      ...(cursor !== undefined && { cursor }),
-    });
-    all.push(
-      ...page.items.map((p) => ({ id: p.id, ...(p.orgId !== undefined && { orgId: p.orgId }) })),
-    );
-    if (page.nextCursor === undefined) break;
-    cursor = page.nextCursor;
-  }
-  return all;
-}
-
 /**
  * The projects the caller may `action`, and the orgs whose org-wide facts
  * it reads: listed by the authorizer (`read` on the org), else the
- * projects checked one by one and the orgs of those it may read.
+ * projects checked one by one and the orgs of those it may read. A key
+ * limited to a project is always checked: the listing gives every org its
+ * user may read, and the key reaches only its own project's.
  */
 async function readerContainers(
   c: Context<AppEnv>,
   deps: MemoryAccessDeps & { readonly authorizer: Authorizer },
 ): Promise<{ readable: ProjectId[]; writable: ProjectId[]; orgs: OrgId[] }> {
   const { authorizer } = deps;
-  const [readable, writable, orgs] = await Promise.all([
-    authorizer.listObjects?.(c, 'read', 'project'),
-    authorizer.listObjects?.(c, 'write', 'project'),
-    authorizer.listObjects?.(c, 'read', 'org'),
-  ]);
-  if (readable !== undefined && writable !== undefined && orgs !== undefined) {
-    return {
-      readable: readable.map((id) => id as ProjectId),
-      writable: writable.map((id) => id as ProjectId),
-      orgs: orgs.map((id) => id as OrgId),
-    };
+  if (c.get('tokenProjectId') === undefined) {
+    const [readable, writable, orgs] = await Promise.all([
+      authorizer.listObjects?.(c, 'read', 'project'),
+      authorizer.listObjects?.(c, 'write', 'project'),
+      authorizer.listObjects?.(c, 'read', 'org'),
+    ]);
+    if (readable !== undefined && writable !== undefined && orgs !== undefined) {
+      return {
+        readable: readable.map((id) => id as ProjectId),
+        writable: writable.map((id) => id as ProjectId),
+        orgs: orgs.map((id) => id as OrgId),
+      };
+    }
   }
-  const all = await allProjects(c, deps);
+  const all = await allProjects(c, deps.projects);
   const projectRef = (p: ProjectRow) => ref('project', p.id as unknown as string);
   const [canRead, canWrite] = await Promise.all([
     authorizer.filterByCan(c, 'read', all, projectRef),

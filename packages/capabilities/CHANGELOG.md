@@ -1,5 +1,99 @@
 # @kindgi/capabilities
 
+## 0.1.5
+
+### Patch Changes
+
+- 490d083: Artifacts belong to a project, and the capability catalog says what each feature means and which of your models have it.
+  - **Artifacts (`/v1/artifacts`):**
+    - Every artifact belongs to a project: its owner run's, else the upload's new `projectId`, else the tenant's default project. `BlobMeta` carries `projectId` and `createdBy`, and `BlobPutInput` takes them (both optional).
+    - With authorization on, listing and downloading need `read` on that project, and uploading and deleting need `write`.
+      - An artifact the caller can't read is `404`, as if absent.
+      - A list shows only what the caller can read. `?projectId=` narrows it.
+    - An upload naming an owner run that doesn't exist is `404 run-not-found`. A `projectId` that isn't the owner run's project is `400`.
+    - The runtime caps an upload: `413 artifact-too-large`, with `details.maxBytes`. `CreateAppInput.artifactMaxBytes` sets it (default 100 MB).
+  - **Retention domain `artifact`:** a retention policy can purge deleted artifacts after its grace.
+  - **Capabilities:**
+    - `FEATURE_DESCRIPTIONS` (`@kindgi/capabilities`) says in a line what each of the 13 features means.
+    - A `CapabilityDescriptor` may carry `providers: [{providerId, models}]`, the tenant's providers with a model that has the feature (optional in the spec).
+  - **TypeScript client:**
+    - `artifacts.upload` (multipart), `download` (streamed bytes) and `head`; `list` takes `projectId`.
+    - `put` and `get` (content-addressed `BlobRef`s) have no API route: they throw, pointing to `upload` and `download`.
+    - `artifact-too-large` is an invalid request.
+  - **Python client:** the new fields; a 413 is an `InvalidRequestError`.
+  - **Runtime settings (`@kindgi/env-schema`):**
+    - `KINDGI_ARTIFACTS` is `local:<absolute dir>` or `gcs:<bucket>[/<prefix>]`; it turns on `/v1/artifacts`.
+    - `KINDGI_ARTIFACT_MAX_BYTES` sets the upload cap.
+    - `kindgi dev` sets artifacts to the pack's `.kindgi/dev/artifacts`, which is gitignored.
+  - **CLI:**
+    - `kindgi artifacts list|get|upload|download|delete` and `kindgi capabilities list|get` work; before, they were hidden.
+    - `artifacts head` is folded into `get`.
+- 88953c7: **A model call can carry a `traceparent`, and the three model adapters send it to the vendor.**
+  - **`ModelCallInput.traceparent?`** (optional) is a W3C `traceparent` for the call.
+  - **The adapters** send it as the `traceparent` header on that request, and only when it's set:
+    - anthropic, through its request options (on the SDK's retries too);
+    - openai-compat, on both the Chat Completions and Responses paths;
+    - gemini, through the request's `httpOptions.headers`.
+    It's never in the body and never logged, and an adapter never makes one up.
+  - **A runtime sets it only for a provider whose registration opts in.** Trace ids leave the process only on opt-in.
+  - **`ResumeRunBindingInput.trace?`:** the approval that resumes a run passes its request's trace context, as starting a run does.
+- 0fe157e: A provider registration the runtime couldn't build is refused when it registers, naming the setting. Before, a bad `adapter_config` (an unknown `api`, a missing `baseURL`, a Vertex registration without `project`, …) registered fine, and the provider was skipped at the first model call with the reason only in the runtime's log.
+  - **`POST /v1/providers`** runs the adapter's own check before storing: `422 provider-config-invalid`, with each problem in `details.issues` (`path`, a JSON pointer such as `/adapter_config/api`, and `message`), the shape other validation errors use; the clients read it as an invalid-request error. Without the runtime's adapter factories (an older runtime), nothing changes.
+  - **`GET /v1/providers/{providerId}/check`** runs the same check over a registered provider (`{ providerId, adapterId, checked, issues }`); TS `providers.check(id)`, Python `providers.check(provider_id)`.
+  - **Adapters:** `AdapterFactoryEntry.checkConfig` (static: no network, no secret read): `{ path, message }` problems, the message naming the setting and what it takes; the factory throws the same problems as `adapterConfigError` words them (`<adapter>: provider "<id>": <message>`). The 422's own message is one sentence naming the provider, its adapter and the first problem, with a count of the rest. Each adapter exports its entry: `openAICompatAdapterEntry`, `geminiAdapterEntry`, `anthropicAdapterEntry` (new `anthropicAdapterFactory`: needs `secret_ref`) and `inProcessAdapterEntry` (new `inProcessAdapterFactory`).
+- Updated dependencies [e27d050]
+- Updated dependencies [eff6249]
+  - @kindgi/schema@0.1.5
+  - @kindgi/types@0.1.5
+  - @kindgi/platform@0.1.5
+
+## 0.1.5-rc.0
+
+### Patch Changes
+
+- 490d083: Artifacts belong to a project, and the capability catalog says what each feature means and which of your models have it.
+  - **Artifacts (`/v1/artifacts`):**
+    - Every artifact belongs to a project: its owner run's, else the upload's new `projectId`, else the tenant's default project. `BlobMeta` carries `projectId` and `createdBy`, and `BlobPutInput` takes them (both optional).
+    - With authorization on, listing and downloading need `read` on that project, and uploading and deleting need `write`.
+      - An artifact the caller can't read is `404`, as if absent.
+      - A list shows only what the caller can read. `?projectId=` narrows it.
+    - An upload naming an owner run that doesn't exist is `404 run-not-found`. A `projectId` that isn't the owner run's project is `400`.
+    - The runtime caps an upload: `413 artifact-too-large`, with `details.maxBytes`. `CreateAppInput.artifactMaxBytes` sets it (default 100 MB).
+  - **Retention domain `artifact`:** a retention policy can purge deleted artifacts after its grace.
+  - **Capabilities:**
+    - `FEATURE_DESCRIPTIONS` (`@kindgi/capabilities`) says in a line what each of the 13 features means.
+    - A `CapabilityDescriptor` may carry `providers: [{providerId, models}]`, the tenant's providers with a model that has the feature (optional in the spec).
+  - **TypeScript client:**
+    - `artifacts.upload` (multipart), `download` (streamed bytes) and `head`; `list` takes `projectId`.
+    - `put` and `get` (content-addressed `BlobRef`s) have no API route: they throw, pointing to `upload` and `download`.
+    - `artifact-too-large` is an invalid request.
+  - **Python client:** the new fields; a 413 is an `InvalidRequestError`.
+  - **Runtime settings (`@kindgi/env-schema`):**
+    - `KINDGI_ARTIFACTS` is `local:<absolute dir>` or `gcs:<bucket>[/<prefix>]`; it turns on `/v1/artifacts`.
+    - `KINDGI_ARTIFACT_MAX_BYTES` sets the upload cap.
+    - `kindgi dev` sets artifacts to the pack's `.kindgi/dev/artifacts`, which is gitignored.
+  - **CLI:**
+    - `kindgi artifacts list|get|upload|download|delete` and `kindgi capabilities list|get` work; before, they were hidden.
+    - `artifacts head` is folded into `get`.
+- 88953c7: **A model call can carry a `traceparent`, and the three model adapters send it to the vendor.**
+  - **`ModelCallInput.traceparent?`** (optional) is a W3C `traceparent` for the call.
+  - **The adapters** send it as the `traceparent` header on that request, and only when it's set:
+    - anthropic, through its request options (on the SDK's retries too);
+    - openai-compat, on both the Chat Completions and Responses paths;
+    - gemini, through the request's `httpOptions.headers`.
+    It's never in the body and never logged, and an adapter never makes one up.
+  - **A runtime sets it only for a provider whose registration opts in.** Trace ids leave the process only on opt-in.
+  - **`ResumeRunBindingInput.trace?`:** the approval that resumes a run passes its request's trace context, as starting a run does.
+- 0fe157e: A provider registration the runtime couldn't build is refused when it registers, naming the setting. Before, a bad `adapter_config` (an unknown `api`, a missing `baseURL`, a Vertex registration without `project`, …) registered fine, and the provider was skipped at the first model call with the reason only in the runtime's log.
+  - **`POST /v1/providers`** runs the adapter's own check before storing: `422 provider-config-invalid`, with each problem in `details.issues` (`path`, a JSON pointer such as `/adapter_config/api`, and `message`), the shape other validation errors use; the clients read it as an invalid-request error. Without the runtime's adapter factories (an older runtime), nothing changes.
+  - **`GET /v1/providers/{providerId}/check`** runs the same check over a registered provider (`{ providerId, adapterId, checked, issues }`); TS `providers.check(id)`, Python `providers.check(provider_id)`.
+  - **Adapters:** `AdapterFactoryEntry.checkConfig` (static: no network, no secret read): `{ path, message }` problems, the message naming the setting and what it takes; the factory throws the same problems as `adapterConfigError` words them (`<adapter>: provider "<id>": <message>`). The 422's own message is one sentence naming the provider, its adapter and the first problem, with a count of the rest. Each adapter exports its entry: `openAICompatAdapterEntry`, `geminiAdapterEntry`, `anthropicAdapterEntry` (new `anthropicAdapterFactory`: needs `secret_ref`) and `inProcessAdapterEntry` (new `inProcessAdapterFactory`).
+- Updated dependencies [e27d050]
+- Updated dependencies [eff6249]
+  - @kindgi/schema@0.1.5-rc.0
+  - @kindgi/types@0.1.5-rc.0
+  - @kindgi/platform@0.1.5-rc.0
+
 ## 0.1.4
 
 ### Patch Changes

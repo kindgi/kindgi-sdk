@@ -276,6 +276,7 @@ async function missingPackSecret(
     `${name} (the ${preset.name} key) is not in ${files}. Set it first, then register again:`,
     `  ${binDisplay(runner, 'kindgi', ['secrets', 'set', name, `--env=${LOCAL_ENV_NAME}`, '--scope=tenant'])}   # a no-echo prompt`,
     `or add ${name}=… to .env yourself.`,
+    `If the runtime already holds ${name} in another environment (a deployed runtime's, for example), name it: ${binDisplay(runner, 'kindgi', ['providers', 'register', `--preset=${preset.name}`, '--env=<that environment>'])}. Without --env, the preset reads ${LOCAL_ENV_NAME}, the pack's own env files.`,
   ].join('\n');
 }
 

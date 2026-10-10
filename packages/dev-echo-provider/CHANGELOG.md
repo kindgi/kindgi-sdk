@@ -1,5 +1,23 @@
 # @kindgi/dev-echo-provider
 
+## 0.1.5
+
+### Patch Changes
+
+- Updated dependencies [490d083]
+- Updated dependencies [88953c7]
+- Updated dependencies [0fe157e]
+  - @kindgi/capabilities@0.1.5
+
+## 0.1.5-rc.0
+
+### Patch Changes
+
+- Updated dependencies [490d083]
+- Updated dependencies [88953c7]
+- Updated dependencies [0fe157e]
+  - @kindgi/capabilities@0.1.5-rc.0
+
 ## 0.1.4
 
 ### Patch Changes

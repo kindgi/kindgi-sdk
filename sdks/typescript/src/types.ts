@@ -2751,7 +2751,10 @@ export type AuthConfig =
   | {
       readonly kind: 'oauth';
       readonly accessToken: string;
-      /** Called when the server returns `auth/token-expired`. */
+      /**
+       * Not called yet. On an `auth` error with reason `token-expired`, get a
+       * new token and make the call again.
+       */
       readonly refresh?: () => Promise<string>;
     };
 

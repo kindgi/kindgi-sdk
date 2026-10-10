@@ -322,7 +322,20 @@ describe('kindgi providers register --preset', () => {
     expect(out.stderr).toContain(
       `npx --yes ${publishedCliSpec(CLI_VERSION)} secrets set ANTHROPIC_API_KEY --env=local --scope=tenant`,
     );
+    // A key the runtime already holds in another environment: name that one.
+    expect(out.stderr).toContain(
+      `If the runtime already holds ANTHROPIC_API_KEY in another environment (a deployed runtime's, for example), name it: npx --yes ${publishedCliSpec(CLI_VERSION)} providers register --preset=anthropic --env=<that environment>.`,
+    );
     expect(registered).toHaveLength(0);
+  });
+
+  test('--env names the environment the runtime holds the key in; the pack files are not read', async () => {
+    const out = await runCli(
+      inputs(['providers', 'register', '--preset=anthropic', '--env=local-prod']),
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(registered).toHaveLength(1);
+    expect(JSON.stringify(registered[0])).toContain('local-prod');
   });
 
   test('--spec and --preset: exactly one', async () => {
