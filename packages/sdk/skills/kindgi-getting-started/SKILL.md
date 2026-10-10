@@ -14,7 +14,7 @@ description: >
   primitive.
 type: core
 library: "@kindgi/sdk"
-version: "0.3.10"
+version: "0.3.11"
 sdk_version: "0.0.0"
 pack_languages: [node]
 ---
@@ -23,7 +23,7 @@ pack_languages: [node]
 
 > **Running `kindgi`:** the CLI is a devDependency of the project (`@kindgi/cli`),
 > not a global command. Run it through the project's package manager —
-> `pnpm exec kindgi …`, `npx --no kindgi …` (npm), `yarn kindgi …` or
+> `pnpm exec kindgi …`, `npx --no -- kindgi …` (npm), `yarn kindgi …` or
 > `bun run kindgi …`. Commands below are written `kindgi …` for brevity.
 
 Scaffold a Kindgi pack — a versioned, deployable bundle
@@ -111,6 +111,12 @@ One `kindgi dev` per pack. When one is already running (the person's
 terminal, say), `kindgi dev` exits with code 3 and prints where it is
 (its pid, the console and the API): use that one. Don't start another,
 and don't stop theirs.
+
+Give the person the console's address as the banner prints it (its
+`Console` line). Never build a console URL by hand: an approval's own link
+is `/console/approvals/<approval id>`, which finds its tenant and project by
+itself, and every other page's address starts with the tenant and the
+project, `/console/tenants/<tenant slug>/projects/<project id>/…`.
 
 Until a model provider is registered, agents answer with `dev-echo`, a
 stand-in that calls the agent's first tool with `{"message": <userMessage>}`

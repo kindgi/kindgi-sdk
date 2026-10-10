@@ -39,7 +39,7 @@ sources:
 
 > **Running `kindgi`:** in a Node project the CLI is a devDependency
 > (`@kindgi/cli`), not a global command. Run it through the project's
-> package manager — `pnpm exec kindgi …`, `npx --no kindgi …` (npm),
+> package manager — `pnpm exec kindgi …`, `npx --no -- kindgi …` (npm),
 > `yarn kindgi …` or `bun run kindgi …`. A Python pack (`[tool.kindgi]` in
 > `pyproject.toml`) has no Node project: run the `kindgi` on `PATH`. A Java
 > or Scala pack (`kindgi.config.json`) runs the CLI it pins: `./kindgiw …`.
