@@ -26,10 +26,15 @@
 
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 
+import {
+  DEFAULT_JAVA_BUILD_IMAGE_REF,
+  DEFAULT_JAVA_RUNTIME_IMAGE_REF,
+  JAVA_PACK_SERVICE_COMMAND,
+} from '../src/build/java-image.js';
 import { DEFAULT_UV_IMAGE_REF, PYTHON_PACK_SERVICE_COMMAND } from '../src/build/python-image.js';
 import type {
   BuildRunners,
@@ -42,6 +47,10 @@ import type {
   TarPackResult,
   TerminalPayload,
 } from '../src/build/runners.js';
+import {
+  DEFAULT_SCALA_BUILD_IMAGE_REF,
+  SCALA_PACK_SERVICE_COMMAND,
+} from '../src/build/scala-image.js';
 import { buildTimeDefaults } from '../src/commands/build.js';
 import { type RunCliInputs, runCli } from '../src/main.js';
 
@@ -822,6 +831,259 @@ describe('kindgi build — a Python pack', () => {
   });
 });
 
+/** The JVM build runners, recording what they're called with (Java and Scala packs). */
+function withJvm(fixtures: Fixtures, compileErrors?: readonly string[], indexEnv?: unknown) {
+  const calls = {
+    prepared: [] as unknown[],
+    indexed: [] as unknown[],
+    images: [] as (readonly string[])[],
+    languages: [] as string[],
+    declared: [] as (readonly string[])[],
+    files: [] as (readonly string[])[],
+  };
+  fixtures.runners = {
+    ...fixtures.runners,
+    jvm: {
+      prepare: async (o) => {
+        calls.prepared.push(o.code);
+        return compileErrors === undefined
+          ? { kind: 'ok' }
+          : { kind: 'err', errors: compileErrors };
+      },
+      runLocalIndexer: async (o) => {
+        calls.indexed.push(o.code);
+        await writeFile(
+          o.outputPath,
+          indexEnv === undefined
+            ? SAMPLE_INDEX_BYTES
+            : JSON.stringify({ ...SAMPLE_INDEX, env: indexEnv }),
+        );
+        return {
+          kind: 'ok',
+          packId: 'my-pack',
+          packVersion: '0.1.0',
+          counts: { tools: 1, guardrails: 0, agents: 0, flows: 0 },
+          fileErrors: [],
+          index: SAMPLE_INDEX,
+        };
+      },
+      writeContainerfile: async (o) => {
+        calls.images.push([o.buildImageRef, o.runtimeImageRef]);
+        calls.languages.push(o.language);
+        calls.declared.push(o.declaredEnv);
+        await writeFile(o.outputPath, `# ${o.language} containerfile\n`, 'utf8');
+      },
+      writeContext: async (o) => {
+        calls.files.push(o.files);
+      },
+    },
+  };
+  return calls;
+}
+
+describe('kindgi build — a Java pack', () => {
+  async function javaPack(withPom = true): Promise<void> {
+    await rm(join(packDir, 'kindgi.config.ts'));
+    await rm(join(packDir, 'package.json'));
+    await rm(join(packDir, 'package-lock.json'));
+    await writeFile(
+      join(packDir, 'kindgi.config.json'),
+      JSON.stringify({ language: 'java', pack: { id: 'my-pack', version: '0.1.0' } }),
+      'utf8',
+    );
+    if (withPom) await writeFile(join(packDir, 'pom.xml'), '<project/>\n', 'utf8');
+    await mkdir(join(packDir, 'src', 'main', 'java', 'acme', 'tools'), { recursive: true });
+    await writeFile(
+      join(packDir, 'src', 'main', 'java', 'acme', 'tools', 'Echo.java'),
+      'x',
+      'utf8',
+    );
+    await mkdir(join(packDir, 'target', 'classes'), { recursive: true });
+    await writeFile(join(packDir, 'target', 'classes', 'Echo.class'), 'x', 'utf8');
+    await writeFile(join(packDir, '.env'), 'SECRET=1\n', 'utf8');
+  }
+
+  function withJava(fixtures: Fixtures, compileErrors?: readonly string[]) {
+    return withJvm(fixtures, compileErrors);
+  }
+
+  const JAVA_CONFIG = { language: 'java', dev: { javaHome: '/opt/jdk-17', maven: ['mvn'] } };
+
+  test("compiles and indexes with the pack's JDK, ships the pack root, then builds, checks and signs", async () => {
+    await javaPack();
+    const fixtures = makeFixtures();
+    const calls = withJava(fixtures);
+    const out = await runCli({
+      ...baseInputs(fixtures, {}, JAVA_CONFIG),
+      argv: ['build', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    const code = {
+      language: 'java',
+      java: '/opt/jdk-17/bin/java',
+      javaHome: '/opt/jdk-17',
+      maven: ['mvn'],
+      workDir: join(packDir, '.kindgi/build/java'),
+    };
+    expect(calls.prepared).toEqual([code]);
+    expect(calls.indexed).toEqual([code]);
+    expect(calls.images).toEqual([[DEFAULT_JAVA_BUILD_IMAGE_REF, DEFAULT_JAVA_RUNTIME_IMAGE_REF]]);
+    expect(calls.declared).toEqual([[]]);
+    expect(calls.files).toEqual([
+      ['kindgi.config.json', 'pom.xml', 'src/main/java/acme/tools/Echo.java'],
+    ]);
+    expect(fixtures.state.esbuildCalls).toBe(0);
+    expect(fixtures.state.tarCalls).toBe(1);
+    expect(fixtures.state.postCalls).toBe(1);
+    expect(fixtures.state.signCalls).toBe(1);
+  });
+
+  test("the image's launcher keeps the names the index declares, required and optional", async () => {
+    await javaPack();
+    const env = { optional: ['CACHE_DIR'], required: ['A_URL', 'B_KEY'] };
+    // The image's index is the local one (the integrity gate).
+    const fixtures = makeFixtures({
+      serverIndexBytes: new TextEncoder().encode(JSON.stringify({ ...SAMPLE_INDEX, env })),
+    });
+    const calls = withJvm(fixtures, undefined, env);
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: {} }, { ...JAVA_CONFIG, environments: {} }),
+      argv: ['build', '--local', '--artifact-version=20261007.1', `--path=${packDir}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls.declared).toEqual([['A_URL', 'B_KEY', 'CACHE_DIR']]);
+  });
+
+  test("a pack that doesn't compile stops before indexing, with javac's located errors", async () => {
+    await javaPack();
+    const fixtures = makeFixtures();
+    const calls = withJava(fixtures, ['src/main/java/acme/tools/Echo.java:3:1: class expected']);
+    const out = await runCli({
+      ...baseInputs(fixtures, {}, JAVA_CONFIG),
+      argv: ['build', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain("The pack didn't compile");
+    expect(out.stderr).toContain('src/main/java/acme/tools/Echo.java:3:1: class expected');
+    expect(calls.indexed).toEqual([]);
+    expect(fixtures.state.postCalls).toBe(0);
+  });
+
+  test('without pom.xml the build stops before uploading', async () => {
+    await javaPack(false);
+    const fixtures = makeFixtures();
+    withJava(fixtures);
+    const out = await runCli({
+      ...baseInputs(fixtures, {}, JAVA_CONFIG),
+      argv: ['build', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('No pom.xml');
+    expect(fixtures.state.postCalls).toBe(0);
+  });
+
+  test('--local builds with Docker and names the pack service it runs', async () => {
+    await javaPack();
+    const fixtures = makeFixtures();
+    withJava(fixtures);
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: {} }, { ...JAVA_CONFIG, environments: {} }),
+      argv: ['build', '--local', '--artifact-version=20261007.1', `--path=${packDir}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(fixtures.state.dockerBuilds[0]).toMatchObject({ tag: 'kindgi-pack/my-pack:20261007.1' });
+    expect(out.stderr).toContain(`(the pack service: ${JAVA_PACK_SERVICE_COMMAND.join(' ')})`);
+  });
+});
+
+describe('kindgi build — a Scala pack', () => {
+  async function scalaPack(withBuild = true): Promise<void> {
+    await rm(join(packDir, 'kindgi.config.ts'));
+    await rm(join(packDir, 'package.json'));
+    await rm(join(packDir, 'package-lock.json'));
+    await writeFile(
+      join(packDir, 'kindgi.config.json'),
+      JSON.stringify({ language: 'scala', pack: { id: 'my-pack', version: '0.1.0' } }),
+      'utf8',
+    );
+    if (withBuild) await writeFile(join(packDir, 'build.sbt'), 'scalaVersion := "3.3.8"\n', 'utf8');
+    const files: Record<string, string> = {
+      'project/build.properties': 'sbt.version=1.12.15\n',
+      'src/main/scala/acme/tools/Echo.scala': 'object Echo',
+      // Build output, build-server state and credentials stay out of the image.
+      'target/scala-3.3.8/classes/acme/tools/Echo$.class': 'x',
+      'project/target/active.json': '{}',
+      'project/project/target/x': 'x',
+      '.bsp/sbt.json': '{}',
+      'credentials.sbt': 'credentials += ???',
+      '.env': 'SECRET=1\n',
+    };
+    for (const [rel, text] of Object.entries(files)) {
+      await mkdir(dirname(join(packDir, rel)), { recursive: true });
+      await writeFile(join(packDir, rel), text, 'utf8');
+    }
+  }
+
+  const SCALA_CONFIG = { language: 'scala', dev: { javaHome: '/opt/jdk-17' } };
+
+  test("compiles and indexes with the pack's JDK and sbt, ships the pack root, builds with the sbt image", async () => {
+    await scalaPack();
+    const fixtures = makeFixtures();
+    const calls = withJvm(fixtures);
+    const out = await runCli({
+      ...baseInputs(fixtures, {}, SCALA_CONFIG),
+      argv: ['build', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    const code = {
+      language: 'scala',
+      java: '/opt/jdk-17/bin/java',
+      javaHome: '/opt/jdk-17',
+      sbt: ['sbt'],
+      workDir: join(packDir, '.kindgi/build/scala'),
+    };
+    expect(calls.prepared).toEqual([code]);
+    expect(calls.indexed).toEqual([code]);
+    expect(calls.languages).toEqual(['scala']);
+    expect(calls.images).toEqual([[DEFAULT_SCALA_BUILD_IMAGE_REF, DEFAULT_JAVA_RUNTIME_IMAGE_REF]]);
+    expect(calls.files).toEqual([
+      [
+        'build.sbt',
+        'kindgi.config.json',
+        'project/build.properties',
+        'src/main/scala/acme/tools/Echo.scala',
+      ],
+    ]);
+    expect(out.stderr).toContain('Indexing (Scala — /opt/jdk-17; sbt)');
+    expect(out.stderr).toContain('classes and dependencies from build.sbt');
+  });
+
+  test('without build.sbt the build stops before uploading', async () => {
+    await scalaPack(false);
+    const fixtures = makeFixtures();
+    withJvm(fixtures);
+    const out = await runCli({
+      ...baseInputs(fixtures, {}, SCALA_CONFIG),
+      argv: ['build', '--env=staging', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('No build.sbt');
+    expect(fixtures.state.postCalls).toBe(0);
+  });
+
+  test('--local names the pack service the image runs', async () => {
+    await scalaPack();
+    const fixtures = makeFixtures();
+    withJvm(fixtures);
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: {} }, { ...SCALA_CONFIG, environments: {} }),
+      argv: ['build', '--local', '--artifact-version=20261008.1', `--path=${packDir}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stderr).toContain(`(the pack service: ${SCALA_PACK_SERVICE_COMMAND.join(' ')})`);
+  });
+});
+
 describe('kindgi build --local', () => {
   test('builds with Docker — no build service, tenant or signing key — and checks the image index', async () => {
     const fixtures = makeFixtures();
@@ -902,6 +1164,29 @@ describe('kindgi build --local', () => {
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain('[file-import-failed] Failed to import tools/echo/index.ts');
     expect(fixtures.state.dockerBuilds).toHaveLength(0);
+  });
+
+  test('an indexer warning is printed and the pack still builds', async () => {
+    const message =
+      'guardrails/cites.ts: check "cites" doesn\'t start with this pack\'s id ("my-pack."). Name it "my-pack.checks.<name>" so it can\'t collide with another pack\'s check in the same tenant. The pack builds as it is.';
+    const fixtures = makeFixtures({
+      indexOutcome: {
+        kind: 'ok',
+        packId: 'my-pack',
+        packVersion: '0.1.0',
+        counts: { tools: 1, guardrails: 1, agents: 0, flows: 0 },
+        fileErrors: [],
+        warnings: [{ code: 'check-id-unprefixed', message, filePath: 'guardrails/cites.ts' }],
+        index: SAMPLE_INDEX,
+      } as LocalIndexResult,
+    });
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: {} }, { environments: {} }),
+      argv: ['build', '--local', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(0);
+    expect(`${out.stdout}${out.stderr}`).toContain(`⚠ ${message}`);
+    expect(fixtures.state.dockerBuilds).toHaveLength(1);
   });
 
   test("the app's registry config reaches the install as a build secret", async () => {

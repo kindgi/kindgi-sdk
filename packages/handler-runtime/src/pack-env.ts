@@ -6,7 +6,7 @@
  * libraries they import take from `process.env` (a database URL a client
  * reads at import, a bucket name). Declared once per pack, in
  * `kindgi.config` (`env: { required, optional }`; Python:
- * `[tool.kindgi.env]`), and carried in `index.json`, so the pack service
+ * `[tool.kindgi.env]`; Java and Scala: `env` in `kindgi.config.json`), and carried in `index.json`, so the pack service
  * in an image knows what it needs.
  *
  * A deployment injects exactly these names: `required` must be there for
@@ -141,6 +141,143 @@ export function parsePackEnvCheck(
     kind: 'err',
     message: `${PACK_ENV_CHECK_VAR} must be \`strict\` or \`warn\`, not "${raw}"`,
   };
+}
+
+/**
+ * Whether the pack service keeps only the names its pack declares
+ * (`KINDGI_PACK_ENV_FILTER`): `on` unless set to `off`. `kindgi dev` sets
+ * it `off`, since there the pack service gets the app's env files.
+ */
+export type PackEnvFilter = 'on' | 'off';
+
+/** The variable that sets {@link PackEnvFilter}. */
+export const PACK_ENV_FILTER_VAR = 'KINDGI_PACK_ENV_FILTER';
+
+/** `KINDGI_PACK_ENV_FILTER`'s value; unset or empty is `on`. */
+export function parsePackEnvFilter(
+  raw: string | undefined,
+):
+  | { readonly kind: 'ok'; readonly value: PackEnvFilter }
+  | { readonly kind: 'err'; readonly message: string } {
+  if (raw === undefined || raw === '' || raw === 'on') return { kind: 'ok', value: 'on' };
+  if (raw === 'off') return { kind: 'ok', value: 'off' };
+  return { kind: 'err', message: `${PACK_ENV_FILTER_VAR} must be \`on\` or \`off\`, not "${raw}"` };
+}
+
+/**
+ * Names the pack service keeps although its pack doesn't declare them:
+ * the process's basics (a shell's `SHLVL` and `_`, macOS's
+ * `__CF_USER_TEXT_ENCODING` among them), the
+ * language runtime's settings, the port, network trust, and the platform's
+ * own workload identity and metadata (Cloud Run, AWS, Azure). The platform injects those, not an env file, and a tool may
+ * use the service's identity. Static credentials (`AWS_SECRET_ACCESS_KEY`,
+ * `GOOGLE_APPLICATION_CREDENTIALS`, `AZURE_CLIENT_SECRET`) aren't here: a
+ * pack that needs one declares it. Python's (`kindgi.pack`) and the Java
+ * launcher's lists are the same; the conformance suite checks all of them.
+ */
+export const PLATFORM_ENV_NAMES: ReadonlySet<string> = new Set([
+  // the process
+  'PATH',
+  'HOME',
+  'HOSTNAME',
+  'USER',
+  'LANG',
+  'LANGUAGE',
+  'TZ',
+  'TMPDIR',
+  'TMP',
+  'TEMP',
+  'PWD',
+  'SHLVL',
+  '_',
+  '__CF_USER_TEXT_ENCODING',
+  // the language runtime (with the version its base image names)
+  'NODE_ENV',
+  'NODE_VERSION',
+  'YARN_VERSION',
+  'NODE_OPTIONS',
+  'NODE_EXTRA_CA_CERTS',
+  'JAVA_HOME',
+  'JAVA_VERSION',
+  'JAVA_TOOL_OPTIONS',
+  'JDK_JAVA_OPTIONS',
+  '_JAVA_OPTIONS',
+  'VIRTUAL_ENV',
+  // the port
+  'PORT',
+  // network trust
+  'HTTP_PROXY',
+  'HTTPS_PROXY',
+  'NO_PROXY',
+  'http_proxy',
+  'https_proxy',
+  'no_proxy',
+  'SSL_CERT_FILE',
+  'SSL_CERT_DIR',
+  'REQUESTS_CA_BUNDLE',
+  'CURL_CA_BUNDLE',
+  // Cloud Run
+  'K_SERVICE',
+  'K_REVISION',
+  'K_CONFIGURATION',
+  // AWS (ECS, App Runner, EKS)
+  'AWS_REGION',
+  'AWS_DEFAULT_REGION',
+  'AWS_EXECUTION_ENV',
+  'AWS_CONTAINER_CREDENTIALS_RELATIVE_URI',
+  'AWS_CONTAINER_CREDENTIALS_FULL_URI',
+  'AWS_CONTAINER_AUTHORIZATION_TOKEN',
+  'AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE',
+  'AWS_WEB_IDENTITY_TOKEN_FILE',
+  'AWS_ROLE_ARN',
+  'ECS_CONTAINER_METADATA_URI',
+  'ECS_CONTAINER_METADATA_URI_V4',
+  // Azure (Container Apps, managed and workload identity)
+  'IDENTITY_ENDPOINT',
+  'IDENTITY_HEADER',
+  'MSI_ENDPOINT',
+  'MSI_SECRET',
+  'AZURE_CLIENT_ID',
+  'AZURE_TENANT_ID',
+  'AZURE_FEDERATED_TOKEN_FILE',
+  'AZURE_AUTHORITY_HOST',
+]);
+
+/**
+ * Name prefixes the pack service keeps: the locale (`LC_*`), Python's
+ * settings (`PYTHON*`), OpenTelemetry's exporter (`OTEL_*`), and Cloud
+ * Run's and Container Apps' metadata. `KINDGI_*` is kept too: those
+ * configure the pack service itself.
+ */
+export const PLATFORM_ENV_PREFIXES: readonly string[] = [
+  'LC_',
+  'PYTHON',
+  'OTEL_',
+  'CLOUD_RUN_',
+  'CONTAINER_APP_',
+];
+
+/**
+ * The names in `environment` that a pack service drops before its pack's
+ * code loads: neither declared (`required`, `optional`), nor `KINDGI_*`,
+ * nor the platform's ({@link PLATFORM_ENV_NAMES}, {@link PLATFORM_ENV_PREFIXES}).
+ * A pack that declares nothing keeps only the last two. Sorted.
+ */
+export function undeclaredPackEnv(
+  declaration: PackEnvDeclaration | undefined,
+  environment: Readonly<Record<string, string | undefined>>,
+): readonly string[] {
+  const declared = new Set([...(declaration?.required ?? []), ...(declaration?.optional ?? [])]);
+  return Object.keys(environment)
+    .filter(
+      (name) =>
+        environment[name] !== undefined &&
+        !declared.has(name) &&
+        !name.startsWith(RESERVED_ENV_PREFIX) &&
+        !PLATFORM_ENV_NAMES.has(name) &&
+        !PLATFORM_ENV_PREFIXES.some((prefix) => name.startsWith(prefix)),
+    )
+    .sort(byCodeUnit);
 }
 
 function byCodeUnit(a: string, b: string): number {

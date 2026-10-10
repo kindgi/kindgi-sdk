@@ -17,7 +17,7 @@ import type {
 import type { ProjectDatabases } from './project-database.js';
 import type { ProjectOutcome } from './project.js';
 
-import type { PackCode } from './pack-code.js';
+import type { JvmPackCode, PackCode } from './pack-code.js';
 
 /** The running Kindgi runtime `kindgi dev` talks to. */
 export interface RunningApiServer {
@@ -88,8 +88,13 @@ export interface StartApiServerOptions {
    * waits until it serves with this session's dev token.
    */
   readonly runtimeUrl?: string;
-  /** Lines the runtime writes. */
-  readonly onLog?: (line: string) => void;
+  /**
+   * `KINDGI_LOG_LEVEL` and `KINDGI_LOG_LEVELS` for the runtime: what
+   * `kindgi dev` shows, so the runtime writes only that.
+   */
+  readonly logLevels?: Readonly<Record<string, string>>;
+  /** Lines the runtime writes (a container's), with the stream each came on. */
+  readonly onLog?: (line: string, stream: 'stdout' | 'stderr') => void;
   /** Progress while preparing (an image pull). */
   readonly onProgress?: (line: string) => void;
 }
@@ -138,14 +143,19 @@ export interface IndexerRunOptions {
   readonly bundleMap?: Readonly<Record<string, string>>;
   /** Run the indexer in a child process with this environment. */
   readonly env?: () => Promise<Readonly<Record<string, string>>>;
-  /** Which indexer: the TypeScript one (default) or the pack's Python. */
+  /** Which indexer: the TypeScript one (default), the pack's Python, or its JDK. */
   readonly code?: PackCode;
+  /**
+   * What pack code prints while the indexer (a child) loads it, line by
+   * line as it comes; not the indexer's own result line.
+   */
+  readonly onOutput?: (line: string, stream: 'stdout' | 'stderr') => void;
 }
 
 /** The local pack service `kindgi dev` runs the pack's code in. */
 export interface DevPackServiceOptions {
   readonly packDir: string;
-  /** Which pack service runs the code: the Node one, or the pack's Python. */
+  /** Which pack service runs the code: the Node one, the pack's Python, or its JDK. */
   readonly code: PackCode;
   /** The pack service's whole environment, read at every start. */
   readonly env: () => Promise<Readonly<Record<string, string>>>;
@@ -196,6 +206,16 @@ export interface IndexOutcome {
    * print. Empty on a fully-clean pass.
    */
   readonly fileErrors: readonly {
+    readonly code: string;
+    readonly message: string;
+    readonly filePath?: string;
+  }[];
+  /**
+   * What the pack should change but that doesn't stop the build (for
+   * example a check id without the pack's prefix). Absent from an indexer
+   * that reports none.
+   */
+  readonly warnings?: readonly {
     readonly code: string;
     readonly message: string;
     readonly filePath?: string;
@@ -305,6 +325,18 @@ export interface DevRunners {
    */
   readonly checkPackPython: (
     python: readonly [string, ...string[]],
+    env: Readonly<Record<string, string>>,
+    packDir?: string,
+  ) => Promise<
+    | { readonly kind: 'ok'; readonly value: string }
+    | { readonly kind: 'err'; readonly message: string }
+  >;
+  /**
+   * Check a JVM pack's JDK (17 or later) and build tool (Maven or sbt) run,
+   * with the pack's environment: a one-line description, or why not.
+   */
+  readonly checkPackJvm: (
+    code: JvmPackCode,
     env: Readonly<Record<string, string>>,
     packDir?: string,
   ) => Promise<

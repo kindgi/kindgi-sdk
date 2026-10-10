@@ -23,6 +23,8 @@ import {
   type UpdateCronTriggerInput,
 } from '../trigger-binding.js';
 import type { AppEnv } from '../types.js';
+import { parseImproveScheduleInput } from './improvement-passes.js';
+import { liveScopeToWire, parseLiveScopeBody } from './live-scope-wire.js';
 import { clampLimit } from './pagination.js';
 import { UUID_RE } from './uuid-param.js';
 
@@ -104,20 +106,24 @@ export function schedulesRouter(
       return bad(c, requestId, '`projectId` must be a project id (a UUID)');
     }
     const rawConfig = (body.config ?? {}) as Record<string, unknown>;
-    const inputProblem = agentInputProblem(target.value, rawConfig.input);
-    if (inputProblem !== undefined) return bad(c, requestId, inputProblem);
+    const input = targetInput(target.value, rawConfig.input);
+    if (input.kind === 'err') return bad(c, requestId, input.message);
 
-    // A schedule that names no project goes in the tenant's Default
-    // project: checked and stored as that project. With no Default to
-    // find, the registry picks it, and only a tenant admin may.
+    // A schedule that names no project goes in its improve scope's
+    // project, else the tenant's Default project: checked and stored as
+    // that project. With no Default to find, the registry picks it, and
+    // only a tenant admin may.
     const project =
       (projectId as string | undefined) ??
+      scopeProjectOf(target.value) ??
       ((await projects?.getDefault(tenantId))?.id as string | undefined);
+    const scopeProblem = improveScopeProblem(target.value, project);
+    if (scopeProblem !== undefined) return bad(c, requestId, scopeProblem);
     const refused =
       (project === undefined
         ? await denied(c, 'admin', ref('tenant', tenantId as unknown as string))
         : await denied(c, 'write', ref('project', project))) ??
-      (await denied(c, 'execute', targetRef(target.value)));
+      (await denied(c, ...targetAccess(target.value)));
     if (refused !== undefined) return refused;
 
     const registerInput: RegisterCronTriggerInput = {
@@ -129,7 +135,7 @@ export function schedulesRouter(
       config: {
         cronExpression: cronExpression.value,
         ...(typeof rawConfig.timezone === 'string' && { timezone: rawConfig.timezone }),
-        ...('input' in rawConfig && { input: rawConfig.input }),
+        ...(input.input !== undefined && { input: input.input }),
       },
       ...policy.value,
       ...(typeof body.label === 'string' && body.label.length > 0 && { label: body.label }),
@@ -147,7 +153,10 @@ export function schedulesRouter(
   });
 
   // ---------- GET / (list) ----------
-  // Tenant-scoped, as runs are: rows are not filtered per permission.
+  // The tenant's schedules, then only those whose project the caller may
+  // read (`read` on it, as reading one schedule needs): a schedule's input
+  // and target are its project's. The page and its cursor are the
+  // tenant's, so a page can hold fewer than `limit` rows and still have more.
   r.get('/', async (c) => {
     const tenantId = c.get('tenantId') as TenantId;
     const limit = clampLimit(c.req.query('limit'));
@@ -164,8 +173,15 @@ export function schedulesRouter(
       ...(cursorRaw !== undefined && cursorRaw.length > 0 && { cursor: cursorRaw as Cursor }),
       ...(statusFilter !== undefined && { status: statusFilter }),
     });
+    const rows = page.data as CronTriggerRecord[];
+    const visible =
+      authorizer === undefined
+        ? rows
+        : await authorizer.filterByCan(c, 'read', rows, (rec) =>
+            ref('project', rec.projectId as unknown as string),
+          );
     return c.json({
-      data: page.data.map((row) => serializeSchedule(row as CronTriggerRecord)),
+      data: visible.map((row) => serializeSchedule(row)),
       hasMore: page.nextCursor !== undefined,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });
@@ -200,7 +216,11 @@ export function schedulesRouter(
     const body = parsed.value;
 
     const retarget =
-      'flowId' in body || 'agentId' in body || 'flowVersion' in body || 'agentVersion' in body;
+      'flowId' in body ||
+      'agentId' in body ||
+      'flowVersion' in body ||
+      'agentVersion' in body ||
+      'improve' in body;
     const target = retarget ? parseTarget(body) : undefined;
     if (target?.kind === 'err') return bad(c, requestId, target.message);
     const policy = parsePolicy(body);
@@ -209,7 +229,12 @@ export function schedulesRouter(
     const found = await scheduleFor(c, 'write');
     if (found.kind === 'err') return found.response;
     if (target !== undefined) {
-      const refused = await denied(c, 'execute', targetRef(target.value));
+      const scopeProblem = improveScopeProblem(
+        target.value,
+        found.value.projectId as unknown as string,
+      );
+      if (scopeProblem !== undefined) return bad(c, requestId, scopeProblem);
+      const refused = await denied(c, ...targetAccess(target.value));
       if (refused !== undefined) return refused;
     }
 
@@ -222,11 +247,12 @@ export function schedulesRouter(
       if ('input' in patchConfig) cfg.input = patchConfig.input;
     }
     if (target !== undefined || 'input' in cfg) {
-      const inputProblem = agentInputProblem(
+      const input = targetInput(
         target?.value ?? found.value.target,
         'input' in cfg ? cfg.input : found.value.config.input,
       );
-      if (inputProblem !== undefined) return bad(c, requestId, inputProblem);
+      if (input.kind === 'err') return bad(c, requestId, input.message);
+      if (input.input !== undefined) cfg.input = input.input;
     }
 
     const triggerId = found.value.triggerId;
@@ -321,7 +347,7 @@ export function schedulesRouter(
     const found = await scheduleFor(c, 'admin');
     if (found.kind === 'err') return found.response;
     if (binding.setOwner === undefined) return unsupported(c, requestId, 'changing the owner');
-    const refused = await denied(c, 'execute', targetRef(found.value.target));
+    const refused = await denied(c, ...targetAccess(found.value.target));
     if (refused !== undefined) return refused;
     const { tenantId, triggerId } = found.value;
     const result = await binding.setOwner({ tenantId, triggerId, owner: ownerOf(c) });
@@ -336,16 +362,26 @@ export function schedulesRouter(
 // Shared helpers (co-located to keep each router self-contained).
 // -----------------------------------------------------------------------
 
+/** A target on the wire: `flowId` + `flowVersion`, `agentId` (+ `agentVersion`), or `improve`. */
+function targetFields(target: TriggerTarget): Record<string, unknown> {
+  switch (target.kind) {
+    case 'flow':
+      return { flowId: target.flowId, flowVersion: target.flowVersion };
+    case 'agent':
+      return {
+        agentId: target.agentId,
+        ...(target.agentVersion !== undefined && { agentVersion: target.agentVersion }),
+      };
+    case 'improve':
+      return { improve: { agentId: target.agentId, scope: liveScopeToWire(target.scope) } };
+  }
+}
+
 function serializeSchedule(r: CronTriggerRecord): Record<string, unknown> {
   return {
     scheduleId: r.triggerId as unknown as string,
     triggerId: r.triggerId as unknown as string,
-    ...(r.target.kind === 'flow'
-      ? { flowId: r.target.flowId, flowVersion: r.target.flowVersion }
-      : {
-          agentId: r.target.agentId,
-          ...(r.target.agentVersion !== undefined && { agentVersion: r.target.agentVersion }),
-        }),
+    ...targetFields(r.target),
     projectId: r.projectId as unknown as string,
     owner: { kind: r.owner.kind, id: r.owner.id },
     cronExpression: r.config.cronExpression,
@@ -374,15 +410,27 @@ function serializeFire(f: TriggerFire): Record<string, unknown> {
     firedAt: f.firedAt,
     outcome: f.outcome,
     ...(f.runId !== undefined && { runId: f.runId }),
+    ...(f.passId !== undefined && { passId: f.passId }),
     ...(f.detail !== undefined && { detail: f.detail }),
     ...(f.missedCount !== undefined && { missedCount: f.missedCount }),
     ...(f.manual === true && { manual: true }),
   };
 }
 
-/** The resource a run of the target needs `execute` on. */
-function targetRef(target: TriggerTarget): ResourceRef {
-  return target.kind === 'agent' ? ref('agent', target.agentId) : ref('flow', target.flowId);
+/**
+ * What firing the target needs, as starting it by hand does: `execute` on
+ * the agent or flow a run starts; `publish` on the agent an improvement
+ * pass works on (as `POST /v1/proposals/improve`).
+ */
+function targetAccess(target: TriggerTarget): [Action, ResourceRef] {
+  switch (target.kind) {
+    case 'flow':
+      return ['execute', ref('flow', target.flowId)];
+    case 'agent':
+      return ['execute', ref('agent', target.agentId)];
+    case 'improve':
+      return ['publish', ref('agent', target.agentId)];
+  }
 }
 
 /** Who a schedule's runs act as: the request's principal. */
@@ -392,18 +440,20 @@ function ownerOf(c: Context<AppEnv>): TriggerOwner {
   return { kind: actor.kind === 'user' ? 'user' : 'service', id: actor.id };
 }
 
-/** `flowId` + `flowVersion`, or `agentId` (+ `agentVersion`): exactly one target. */
+/** `flowId` + `flowVersion`, `agentId` (+ `agentVersion`), or `improve`: exactly one target. */
 function parseTarget(
   body: Record<string, unknown>,
 ): { kind: 'ok'; value: TriggerTarget } | { kind: 'err'; message: string } {
-  const { flowId, flowVersion, agentId, agentVersion } = body;
+  const { flowId, flowVersion, agentId, agentVersion, improve } = body;
   const named = (v: unknown) => typeof v === 'string' && v.length > 0;
-  if (named(flowId) === named(agentId)) {
+  if ([named(flowId), named(agentId), improve !== undefined].filter(Boolean).length !== 1) {
     return {
       kind: 'err',
-      message: 'Name what the schedule runs: `flowId` (with `flowVersion`) or `agentId`, not both',
+      message:
+        'Name what the schedule runs: `flowId` (with `flowVersion`), `agentId`, or `improve` ({ agentId, scope }), one of them',
     };
   }
+  if (improve !== undefined) return parseImproveTarget(improve, flowVersion, agentVersion);
   if (named(flowId)) {
     if (!named(flowVersion))
       return { kind: 'err', message: '`flowVersion` is required with `flowId`' };
@@ -431,19 +481,93 @@ function parseTarget(
   };
 }
 
+/** An improve scope's project, when it names one. */
+function scopeProjectOf(target: TriggerTarget): string | undefined {
+  if (target.kind !== 'improve') return undefined;
+  const { scope } = target;
+  return scope.kind === 'project' || scope.kind === 'segment'
+    ? (scope.projectId as unknown as string)
+    : undefined;
+}
+
 /**
- * An agent's run takes the agent payload, so an agent schedule's input
- * must carry the message each run sends: without it every fire would be
- * refused. A flow's input is the flow's own.
+ * A pass's evidence must cover the scope it changes: an improve schedule
+ * learns from its project's runs (for a segment scope, that segment's),
+ * so its scope is the schedule's own project or a segment of it. The
+ * tenant and an org span projects: going wider stays a promotion by hand,
+ * through that scope's gate.
  */
-function agentInputProblem(target: TriggerTarget, input: unknown): string | undefined {
-  if (target.kind !== 'agent') return undefined;
+function improveScopeProblem(
+  target: TriggerTarget,
+  project: string | undefined,
+): string | undefined {
+  if (target.kind !== 'improve') return undefined;
+  if (target.scope.kind === 'tenant' || target.scope.kind === 'org') {
+    return `An improve schedule's scope is a project or a segment of it, not the ${target.scope.kind === 'org' ? 'org' : 'tenant'}: a pass's evidence must cover the scope it changes, and it learns from one project's runs. Use the project (or a segment) scope; promote to the ${target.scope.kind === 'org' ? 'org' : 'tenant'} by hand after review.`;
+  }
+  const own = scopeProjectOf(target);
+  if (own !== undefined && project !== undefined && own !== project) {
+    return "An improve schedule's scope must be in the schedule's project (`projectId`): it learns from that project's runs";
+  }
+  return undefined;
+}
+
+function parseImproveTarget(
+  improve: unknown,
+  flowVersion: unknown,
+  agentVersion: unknown,
+): { kind: 'ok'; value: TriggerTarget } | { kind: 'err'; message: string } {
+  const shape =
+    'An improve schedule names `improve: { agentId, scope }`: the agent its passes work on, and the live scope they propose for';
+  if (flowVersion !== undefined || agentVersion !== undefined) {
+    return {
+      kind: 'err',
+      message: `${shape}; \`flowVersion\` and \`agentVersion\` don't go with it`,
+    };
+  }
+  const o =
+    typeof improve === 'object' && improve !== null && !Array.isArray(improve)
+      ? (improve as Record<string, unknown>)
+      : undefined;
+  if (
+    o === undefined ||
+    Object.keys(o).some((k) => k !== 'agentId' && k !== 'scope') ||
+    typeof o.agentId !== 'string' ||
+    o.agentId.length === 0
+  ) {
+    return { kind: 'err', message: shape };
+  }
+  const scope = parseLiveScopeBody(o.scope);
+  if (scope.kind === 'err') return { kind: 'err', message: `\`improve.scope\`: ${scope.message}` };
+  return { kind: 'ok', value: { kind: 'improve', agentId: o.agentId, scope: scope.scope } };
+}
+
+/**
+ * The input a target's fires get, or why it can't be: an agent's run takes
+ * the agent payload, so an agent schedule's input must carry the message
+ * each run sends (without it every fire would be refused); an improve
+ * schedule's input is its pass options, kept with the defaults applied; a
+ * flow's input is the flow's own.
+ */
+function targetInput(
+  target: TriggerTarget,
+  input: unknown,
+): { kind: 'ok'; input?: unknown } | { kind: 'err'; message: string } {
+  if (target.kind === 'improve') {
+    const parsed = parseImproveScheduleInput(input);
+    return parsed.kind === 'ok' ? { kind: 'ok', input: parsed.input } : parsed;
+  }
+  if (target.kind === 'flow') return { kind: 'ok', ...(input !== undefined && { input }) };
   const message =
     typeof input === 'object' && input !== null
       ? (input as Record<string, unknown>).userMessage
       : undefined;
-  if (typeof message === 'string' && message.length > 0) return undefined;
-  return 'An agent schedule needs `config.input.userMessage`: the message each run sends the agent (`{ userMessage, parameters? }`)';
+  if (typeof message === 'string' && message.length > 0) return { kind: 'ok', input };
+  return {
+    kind: 'err',
+    message:
+      'An agent schedule needs `config.input.userMessage`: the message each run sends the agent (`{ userMessage, parameters? }`)',
+  };
 }
 
 /** `catchUp`, `overlap` and `startingDeadlineSeconds`, each optional. */

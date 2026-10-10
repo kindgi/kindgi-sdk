@@ -56,6 +56,7 @@ export function createStubAppBindings(): StubAppBindings {
       listConversations: true,
       listConversationsPage: true,
       closeConversation: true,
+      unregisterConversation: true,
       deleteConversation: true,
       appendMessage: true,
       readMessages: true,
@@ -83,6 +84,7 @@ export function createStubAppBindings(): StubAppBindings {
       searchBySemantic: true,
       appendLog: true,
       readLog: true,
+      searchConversations: true,
     }),
     provenanceBinding: createStubBinding<CreateAppInput['provenanceBinding']>('provenanceBinding', {
       listRecords: true,

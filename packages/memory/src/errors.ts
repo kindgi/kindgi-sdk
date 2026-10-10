@@ -22,6 +22,7 @@ export type MemoryError =
   | EmbeddingError
   | RefreshHandlerMissingError
   | RetentionViolationError
+  | ErasureInProgressError
   | PersistenceError;
 
 export interface InvalidLogEntryError {
@@ -67,6 +68,16 @@ export interface RetentionViolationError {
   readonly message: string;
   readonly factId: FactId;
   readonly reason: 'legal-hold' | 'keep-until' | 'keep-days';
+}
+
+/**
+ * A write for a person (by scope or subject), or a conversation, that an
+ * erasure in progress holds: nothing new lands for them until it
+ * completes.
+ */
+export interface ErasureInProgressError {
+  readonly code: 'erasure-in-progress';
+  readonly message: string;
 }
 
 export interface PersistenceError {

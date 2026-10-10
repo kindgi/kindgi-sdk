@@ -57,6 +57,7 @@ All `@kindgi/*` packages share one version.
 | [`@kindgi/adapter-model-gemini`](./packages/adapters/model-gemini) | Gemini ModelProvider for @kindgi/capabilities, on Vertex AI. |
 | [`@kindgi/adapter-model-in-process`](./packages/adapters/model-in-process) | In-process ModelProvider for @kindgi/capabilities. |
 | [`@kindgi/adapter-model-openai-compat`](./packages/adapters/model-openai-compat) | OpenAI-compatible ModelProvider for @kindgi/capabilities. |
+| [`@kindgi/adapter-model-shared`](./packages/adapters/model-shared) | Shared plumbing for Kindgi's model adapters: retries with counted attempts, typed errors, the reasoning state across a pause, usage onto Kindgi's counters. |
 | [`@kindgi/agents`](./packages/agents) | Agent primitive for Kindgi. |
 | [`@kindgi/api`](./packages/api) | REST + SSE HTTP surface for Kindgi™. |
 | [`@kindgi/audit-events`](./packages/audit-events) | Kindgi™ audit events contract. |
@@ -104,6 +105,21 @@ speaks the same pack protocol as the Node one, and both pass
 [`kindgi-cli`](./sdks/python-cli) (on PyPI from 0.1.4: `uv add --dev kindgi-cli`) — the
 Kindgi CLI for Python developers: `@kindgi/cli` with Node from a wheel, so
 `uv run kindgi dev` needs no Node install.
+
+## Java
+
+[`kindgi-client`](./sdks/java) (Java 17+, preview; not on Maven Central yet) — the
+Kindgi API from a Java app: generated from the OpenAPI document at build time, with
+typed models and errors, paging, streaming and retries. It works beside an app's
+own Jackson, Spring Boot 3 and 4 included.
+
+[`kindgi-pack`](./sdks/java/kindgi-pack) (Java 17+, preview) — a pack's tools and
+guardrail checks in Java: records for schemas, the indexer, and a pack service that
+passes the same conformance suite as the TypeScript and Python ones.
+
+[`kindgi-pack-scala`](./sdks/scala) (Scala 2.13 and 3, preview) — the same in Scala:
+case classes for schemas, `Future`s for async work, on kindgi-pack's indexer and
+pack service.
 
 ## Specs
 

@@ -10,9 +10,9 @@ In ten minutes: a pack with two tools, an agent that calls them, a guardrail
 on its answers and a flow, running on your machine.
 
 **Before you start**, set up what the [Install page](../install/) describes:
-Node 22.12, Docker, and access to the runtime image: sign in at
-[access.kindgi.com](https://access.kindgi.com) with GitHub, copy your pull
-token, then log in once with `kindgi auth registry`.
+Node 22.12, Docker, and access to the runtime image. The image is in private
+preview: request access at contact@kindgi.com, then log in once with
+`kindgi auth registry`.
 
 ## 1. Create the pack
 
@@ -81,7 +81,7 @@ Open it in your browser (the port is `4000`, or the next free one; the
 runtime's own address, `http://127.0.0.1:4000/`, leads there too), or run
 `pnpm exec kindgi console`, which opens it for you. On the sign-in page, click
 **Sign in as seeded user**. `kindgi dev --open` opens the console as soon as
-Kindgi is up.
+Kindgi is up. Open the console in Chrome or Firefox. Safari can't keep the local sign-in over http yet ([Known limitations](../../deploy/operate/#known-limitations-in-015)).
 
 ## 3. Run the agent
 

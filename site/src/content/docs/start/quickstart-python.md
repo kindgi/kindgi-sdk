@@ -11,9 +11,8 @@ Python: two tools, an agent that calls them, a guardrail and a flow.
 
 **Before you start**, set up what the [Install page](../install/) describes:
 Docker, Python 3.11 and uv, and access to the runtime image. No Node: the CLI
-comes from PyPI. For the runtime image, sign in at
-[access.kindgi.com](https://access.kindgi.com) with GitHub, copy your pull
-token, then log in once with `kindgi auth registry`.
+comes from PyPI. The runtime image is in private preview: request access at
+contact@kindgi.com, then log in once with `kindgi auth registry`.
 
 ## 1. Create the pack
 
@@ -79,7 +78,7 @@ Open it in your browser (the port is `4000`, or the next free one; the
 runtime's own address, `http://127.0.0.1:4000/`, leads there too), or run
 `uv run kindgi console`, which opens it for you. On the sign-in page, click
 **Sign in as seeded user**. `kindgi dev --open` opens the console as soon as
-Kindgi is up.
+Kindgi is up. Open the console in Chrome or Firefox. Safari can't keep the local sign-in over http yet ([Known limitations](../../deploy/operate/#known-limitations-in-015)).
 
 ## 3. Run the agent and the flow
 

@@ -304,6 +304,148 @@ fails once deployed.
 Inside `kindgi/`, import the pack's own modules relatively. Don't add an
 `__init__.py` to `kindgi/`: the folder would shadow the `kindgi` package.
 
+## A Java app (Maven)
+
+:::caution[Preview]
+**Preview.** Java and Scala support is tested and supported, but its API may
+still change in 0.1.6 without the usual deprecation period.
+:::
+
+In the app's directory (where its `pom.xml` is), with a JDK 17 or later and
+`JAVA_HOME` set:
+
+```sh
+npx --yes @kindgi/cli@0.1 init   # --pack-id=<id> if the app's artifactId doesn't make one
+./kindgiw dev
+```
+
+`init` writes `kindgi.config.json`: the pack id from the app's `artifactId`,
+its version, the Kindgi CLI version it pins (`"cli"`, which `./kindgiw` runs,
+also written), and discovery under `kindgi` packages
+(`src/main/java/**/kindgi/tools/**/*.java`, and so on), so your app's own
+`tools` packages are never taken for Kindgi's. It leaves `pom.xml` alone and
+prints the dependency to add to it:
+
+```xml
+<dependency>
+  <groupId>com.kindgi</groupId>
+  <artifactId>kindgi-pack</artifactId>
+  <version>…</version>
+</dependency>
+```
+
+kindgi-pack comes from Maven Central, at the CLI's version. It needs Jackson
+2.18 or later in your app (it declares 2.18.11): in a Spring Boot app, Spring
+Boot 3.4 or later. An app with both a `package.json` and a `pom.xml` gets a
+TypeScript pack unless you pass `--template=java`.
+
+`kindgi dev` runs the app's own Maven (its `mvnw`, else `mvn`; `dev.maven` in
+`kindgi.config.json` names another, such as `["mvn", "-s", "settings.xml"]`)
+and its JDK (`JAVA_HOME`, or `dev.javaHome`). `MAVEN_ARGS` and `MAVEN_OPTS`
+reach Maven, never the pack.
+
+A tool is a class in a `kindgi.tools` package under your own, and calls your
+app's code directly:
+
+```java
+// src/main/java/com/acme/kindgi/tools/CustomerOrders.java
+package com.acme.kindgi.tools;
+
+import com.acme.orders.OrderService;
+import com.kindgi.pack.Tool;
+import java.util.List;
+import java.util.Map;
+
+public final class CustomerOrders {
+  public record Input(String customerId) {}
+
+  public record Output(List<Map<String, Object>> orders) {}
+
+  public static final Tool<Input, Output> TOOL = Tool.define("acme.customer-orders")
+      .description("The customer's orders, newest first.")
+      .input(Input.class)
+      .output(Output.class)
+      .mutating(false)
+      .handler((input, ctx) -> new Output(OrderService.findOrders(input.customerId())));
+
+  private CustomerOrders() {}
+}
+```
+
+`mutating(false)` says the tool only reads, so a dry run may call it.
+
+A class your tool uses must be on the app's runtime classpath (`compile` or
+`runtime` scope, not `test` or `provided`): the pack's image copies the
+runtime dependencies only. Other public classes in a `kindgi.tools` package
+must define a tool; a helper there is package-private, or a record, an enum
+or an interface.
+
+## A Scala app (sbt)
+
+:::caution[Preview]
+**Preview.** Java and Scala support is tested and supported, but its API may
+still change in 0.1.6 without the usual deprecation period.
+:::
+
+In the app's directory (where its `build.sbt` is), with a JDK 17 or later,
+`JAVA_HOME` set, and sbt:
+
+```sh
+npx --yes @kindgi/cli@0.1 init   # --pack-id=<id> if the build's name doesn't make one
+./kindgiw dev
+```
+
+`init` writes `kindgi.config.json`: the pack id from the build's `name`, its
+version, the Kindgi CLI version it pins (`"cli"`, which `./kindgiw` runs, also
+written), and discovery under `kindgi` packages
+(`src/main/scala/**/kindgi/tools/**/*.scala`, and so on), so your app's own
+`tools` packages are never taken for Kindgi's. It leaves `build.sbt` alone and
+prints what to add to it:
+
+```scala
+libraryDependencies += "com.kindgi" %% "kindgi-pack-scala" % "…"
+```
+
+kindgi-pack-scala, and kindgi-pack under it, come from Maven Central at the
+CLI's version. Like kindgi-pack, it needs Jackson 2.18 or later in your app. An app with a `build.sbt` next to a `package.json` or a
+`pom.xml` gets a TypeScript or Java pack unless you pass `--template=scala`.
+
+`kindgi dev` builds through the app's sbt server (`sbt --client`): it starts
+one when none is running and stops it when it stops, and a server your IDE
+runs is used and left running. `dev.sbt` in `kindgi.config.json` names
+another sbt (such as `["sbt", "-mem", "2048"]`) and `dev.javaHome` another
+JDK. `SBT_OPTS` reaches sbt, never the pack.
+
+A tool is a `val` of an object in a `kindgi.tools` package under your own,
+named like its file, and calls your app's code directly:
+
+```scala
+// src/main/scala/com/acme/kindgi/tools/CustomerOrders.scala
+package com.acme.kindgi.tools
+
+import com.acme.orders.{Order, OrderService}
+import com.kindgi.pack.scaladsl._
+
+object CustomerOrders {
+  final case class Input(customerId: String)
+  final case class Output(orders: Seq[Order])
+
+  val tool: Tool[Input, Output] = Tool[Input, Output]("acme.customer-orders")
+    .description("The customer's orders, newest first.")
+    .readOnly
+    .handler((in, _) => Output(OrderService.findOrders(in.customerId)))
+}
+```
+
+`readOnly` says the tool only reads, so a dry run may call it.
+
+A class your tool uses must be on the app's runtime classpath (not `% Test`
+or `% Provided`): the pack's image ships the runtime classpath only. In a
+`kindgi.tools` package, a file with no object (a model) or a case class's
+companion is a helper; an object whose tool is a `def` or a `lazy val` is an
+error that asks for a `val`. The
+[Scala quickstart's known limits](../quickstart-scala/#known-limits) apply.
+
 ## Starting runs from your app
 
 Your app calls Kindgi over HTTP, through the SDK's client.
@@ -322,9 +464,18 @@ KINDGI_API_URL=http://127.0.0.1:4000
 KINDGI_API_TOKEN=kgi_bt_…
 ```
 
+The client looks for them when it's first used, not when you create it. So
+`const kindgi = createClient()` at the top of a module is safe in a
+production build that runs without them: `next build`, for one, loads every
+route's module. If they're still missing when your app first uses the client,
+that use throws an error that names what to set. Python's `Kindgi()` and
+`AsyncKindgi()` do the same, so a module-scope `kindgi = Kindgi()` doesn't
+break a build step that imports your app, such as Django's `collectstatic`.
+The first request raises `ValueError`, naming what to set.
+
 The banner's first line, `Console`, is the console's address
 (`http://127.0.0.1:4000/console/`; `kindgi console` opens it). Sign in there
-with **Sign in as seeded user**, or with the same token.
+with **Sign in as seeded user**, or with the same token. Open the console in Chrome or Firefox. Safari can't keep the local sign-in over http yet ([Known limitations](../../deploy/operate/#known-limitations-in-015)).
 
 The token stays the same when you restart `kindgi dev`. `kindgi dev --reset`
 starts the project over, dropping its database
@@ -498,5 +649,30 @@ from typing import Any
 
 def find_orders(customer_id: str) -> list[dict[str, Any]]:
     return []
+```
+
+```java
+// src/main/java/com/acme/orders/OrderService.java
+package com.acme.orders;
+
+import java.util.List;
+import java.util.Map;
+
+public final class OrderService {
+  public static List<Map<String, Object>> findOrders(String customerId) {
+    return List.of();
+  }
+}
+```
+
+```scala
+// src/main/scala/com/acme/orders/OrderService.scala
+package com.acme.orders
+
+final case class Order(id: String, total: BigDecimal)
+
+object OrderService {
+  def findOrders(customerId: String): Seq[Order] = Seq.empty
+}
 ```
 -->

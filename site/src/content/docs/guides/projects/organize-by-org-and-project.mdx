@@ -9,8 +9,19 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 
 A **project** holds runs, conversations, approvals and what they cost. An
 **org** groups projects: one org per customer, for example, with a project
-for each part of their work. Every tenant has a Default project, and a run
-that names no project runs there.
+for each part of their work. Every tenant has a Default project. A run that
+names no project runs in its agent's or flow's own project: the one it was
+published in, which is Default for what `kindgi deploy` registers. A turn in
+a conversation stays in the conversation's project.
+
+An agent, flow, tool or test set belongs to the project its first version
+was published into, and never moves. Publishing a version of it into another
+project is refused with a `409`, such as `agent-project-mismatch`
+(`flow-…`, `tool-…`, `eval-suite-project-mismatch`), and nothing is written.
+The refusal doesn't name the project it belongs to, since you may not be
+able to read that project. A deploy that includes one is refused whole and
+deploys nothing, even when that agent or flow is unchanged. Publish new
+versions in its own project.
 
 ## Give a customer an org and a project
 

@@ -101,6 +101,26 @@ def test_a_guardrail_takes_one_action() -> None:
         def check2(config: dict[str, Any], trace: RunTrace) -> bool: ...
 
 
+def test_a_guardrail_can_t_ship_its_check_under_a_built_in_id() -> None:
+    # Explicit check_id.
+    with pytest.raises(DefinitionError, match='its check id "must-cite" is a built-in check'):
+
+        @guardrail(id="acme.cites", on_violation="halt", check_id="must-cite")
+        def cites(config: dict[str, Any], trace: RunTrace) -> bool: ...
+
+    # Defaulted: the guardrail's own id is its check id.
+    with pytest.raises(DefinitionError, match="or rename the guardrail"):
+
+        @guardrail(id="never-call-tool", on_violation="halt")
+        def never(config: dict[str, Any], trace: RunTrace) -> bool: ...
+
+    # The pack's own id is fine.
+    @guardrail(id="acme.cites", on_violation="halt", check_id="acme.checks.must-cite")
+    def own(config: dict[str, Any], trace: RunTrace) -> bool: ...
+
+    assert own.check_id == "acme.checks.must-cite"
+
+
 def test_a_guardrails_configured_values_are_checked_where_declared() -> None:
     class Config(BaseModel):
         min_length: int = Field(1, alias="minLength", ge=0)

@@ -597,6 +597,109 @@ describe('API — publishing an agent that searches memory by meaning', () => {
     expect((await publish(appWithMemory(undefined), searching)).body.warnings).toBeUndefined();
   });
 
+  test('an agent that remembers, on a deployment that cannot store it, is warned about', async () => {
+    const registry = createAgentRegistry();
+    const app = (agentRemember: boolean | undefined) =>
+      createApp({
+        ...createStubAppBindings(),
+        resolveToken,
+        runHandler,
+        agentRegistry: bindingFromRegistry(registry),
+        memory: {
+          ...inMemoryMemory().binding,
+          ...(agentRemember !== undefined && { agentRemember }),
+        },
+      });
+    const remembering = (id: string) => ({
+      ...agentSpec({ id }),
+      memory: { remember: { types: ['acme.preference'], scope: 'same-user' } },
+    });
+    const off = await publish(app(false), remembering('acme.remembers-off'));
+    expect(off.status).toBe(201);
+    expect(off.body.warnings).toEqual([expect.objectContaining({ code: 'remember-unavailable' })]);
+    expect(
+      (await publish(app(true), remembering('acme.remembers-on'))).body.warnings,
+    ).toBeUndefined();
+    expect(
+      (await publish(app(undefined), remembering('acme.remembers-unknown'))).body.warnings,
+    ).toBeUndefined();
+  });
+
+  test("an agent's remember declaration is kept and read back; the built-in id is reserved", async () => {
+    const app = appWithMemory(true);
+    const declared = { types: ['acme.preference'], scope: 'same-user', keepDays: 14 };
+    expect(
+      (
+        await publish(app, {
+          ...agentSpec({ id: 'acme.remembers' }),
+          memory: { remember: declared },
+        })
+      ).status,
+    ).toBe(201);
+    const res = await app.request('/v1/agents/acme.remembers/versions/1.0.0', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(((await res.json()) as { memory?: unknown }).memory).toEqual({ remember: declared });
+    const reserved = await publish(app, {
+      ...agentSpec({ id: 'acme.reserved' }),
+      tools: [{ id: 'kindgi_remember', version: '1.0.0' }],
+      memory: { remember: declared },
+    });
+    expect(reserved.status).toBe(400);
+    expect(JSON.stringify(reserved.body)).toContain('a tool built into Kindgi');
+  });
+
+  test("recalling other people's conversations is said at publish; a runtime that can't recall says so", async () => {
+    const registry = createAgentRegistry();
+    const app = (conversationRecall: boolean | undefined) =>
+      createApp({
+        ...createStubAppBindings(),
+        resolveToken,
+        runHandler,
+        agentRegistry: bindingFromRegistry(registry),
+        memory: {
+          ...inMemoryMemory().binding,
+          ...(conversationRecall !== undefined && { conversationRecall }),
+        },
+      });
+    const recalling = (id: string) => ({
+      ...agentSpec({ id }),
+      retrieval: [
+        { source: 'conversations', scope: 'same-user' },
+        { source: 'conversations', scope: 'same-segment' },
+        { source: 'conversations', scope: 'same-project', mode: 'keyword' },
+      ],
+    });
+    const wide = await publish(app(true), recalling('acme.recalls-wide'));
+    expect(wide.status, JSON.stringify(wide.body)).toBe(201);
+    expect(wide.body.warnings.map((w: { code: string }) => w.code)).toEqual([
+      'recall-other-people',
+      'recall-other-people',
+    ]);
+    expect(wide.body.warnings[0].message).toContain(
+      "other users' conversations in the run's segment",
+    );
+    expect(wide.body.warnings[1].message).toContain("the run's project");
+    const answers = await publish(app(true), {
+      ...agentSpec({ id: 'acme.recalls-answers' }),
+      retrieval: [
+        { source: 'conversations', scope: 'same-user', roles: ['user', 'agent'] },
+        { source: 'conversations', scope: 'same-conversation', roles: ['agent'] },
+      ],
+    });
+    // Once per agent, naming the first intent that asks for them.
+    expect(answers.body.warnings).toEqual([
+      expect.objectContaining({ code: 'recall-agent-answers' }),
+    ]);
+    expect(answers.body.warnings[0].message).toContain('Retrieval intent 0');
+    const off = await publish(app(false), recalling('acme.recalls-off'));
+    expect(off.body.warnings.map((w: { code: string }) => w.code)).toEqual([
+      'recall-unavailable',
+      'recall-unavailable',
+      'recall-unavailable',
+    ]);
+  });
+
   test("an agent's memory policy is kept and read back", async () => {
     const app = appWithMemory(true);
     const published = await publish(app, {

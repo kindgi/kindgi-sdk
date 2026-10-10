@@ -72,7 +72,7 @@ try {
 
 ## Exports
 
-- **`createClient(options: ClientOptions)`** — returns a `KindgiClient` with one resource client per property (see [Resources](#resources)). `ClientOptions`: `apiUrl` (no trailing slash), `auth` (`{ kind: 'apiToken', token }` or `{ kind: 'oauth', accessToken, refresh? }`), an optional `fetch`, and an optional `timeoutMs` (below). Creating a client opens no connections.
+- **`createClient(options: ClientOptions)`** — returns a `KindgiClient` with one resource client per property (see [Resources](#resources)). `ClientOptions`: `apiUrl` (no trailing slash), `auth` (`{ kind: 'apiToken', token }` or `{ kind: 'oauth', accessToken, refresh? }`; `refresh` isn't called yet: on an `auth` error with reason `token-expired`, get a new token and make the call again), an optional `fetch`, and an optional `timeoutMs` (below). Creating a client opens no connections.
 - **Errors** — every method throws **`KindgiApiError`**, whose `error` is a **`KindgiError`** discriminated on `code`: `network`, `auth`, `rate-limited`, `not-found`, `conflict`, `invalid-request`, `guardrail-violation`, `server`, `not-implemented-in-preview`, `not-yet-wired`. **`fromWire(body)`** maps an API error (`{ code, message, details? }`) onto that union; wire codes it does not recognize become `server`, with the original code in `serverCode`. **`notYetWired`** and **`notImplementedInPreview`** build the two preview variants.
 - **Streaming** — **`readSse`** and **`unwrapSseData`** read a `text/event-stream` response as an `AsyncIterable`, reconnecting with exponential backoff and `Last-Event-Id`. `runs.follow`, `evalRuns.events`, `adapters.prepare` and the `secrets` rotation event stream are built on them.
 - **Types** — the input, filter, page and record types of every resource; branded ids and `Filter` / `Page` re-exported from [`@kindgi/types`](../../packages/types/); `DefineAgentSpec` and `RunStatus`.
@@ -100,7 +100,8 @@ The transport makes one attempt per call and does not retry. Mutating calls acce
 | `conversations` | `/v1/conversations` | — |
 | `memory` | `/v1/memory` | `logs.append`, `logs.list`, `logs.verify` |
 | `provenance` | `/v1/provenance` | `verify` |
-| `supervisor` | `/v1/proposals` | `define`, `get`, `list`, `versions`, `delete`, `proposals.reflectReview` |
+| `proposals` | `/v1/proposals` | — |
+| `supervisor` | — | `define`, `get`, `list`, `versions`, `delete`, and every `proposals.*` method (removed in 0.1.5: use `client.proposals`) |
 | `observations` | `/v1/observations` | `recordRun`, `patterns` |
 | `approvals` | `/v1/approvals` | `batch`, `assign`, `completeToken`, `reviewers.updateRole`, `audit.get`, `audit.list`, `audit.verify` |
 | `tenant` | `/v1/tenant` | — |

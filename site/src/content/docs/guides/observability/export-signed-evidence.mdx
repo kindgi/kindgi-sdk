@@ -23,7 +23,7 @@ The runtime signs with one key, its **export signing key**. Set exactly one of:
 |---|---|
 | `KINDGI_EXPORT_SIGNING_KEY_PATH` | The path of a private key file: Ed25519 or EC P-256 (PKCS#8 PEM, mode `0600`). |
 | `KINDGI_EXPORT_SIGNING_KEY` | The same PEM file, base64: for a platform that gives secrets as environment variables, such as Cloud Run with Secret Manager. |
-| `KINDGI_EXPORT_SIGNING_KMS_KEY` | A Cloud KMS key version (`EC_SIGN_ED25519` or `EC_SIGN_P256_SHA256`), so the private key never leaves KMS. Optional. |
+| `KINDGI_EXPORT_SIGNING_KMS_KEY` | A KMS key version, so the private key never leaves the KMS: a Cloud KMS key version (`EC_SIGN_ED25519` or `EC_SIGN_P256_SHA256`), or an Azure Key Vault key version (`https://<vault>.vault.azure.net/keys/<name>/<version>`, an EC P-256 key). Optional. |
 
 Make a key for this alone:
 
@@ -49,6 +49,7 @@ The verifiers below check either, and refuse an algorithm they don't know (see [
   For a P-256 key, put `openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256` in place of the first command; the rest is the same.
 
   Or set `export_signing = "kms"` and `export_signing_kms_key` to a key version: the module grants the server's service account `roles/cloudkms.signerVerifier` and `roles/cloudkms.publicKeyViewer` on its key.
+- **On Azure Container Apps,** set `export_signing = "kms"` in the Terraform module: it makes an EC P-256 key in the deployment's vault, gives the server's identity Key Vault Crypto User on it, and the server signs there. Exports are `ecdsa-p256-sha256`: Key Vault has no Ed25519. Or `export_signing = "secret"`, with the key's PEM, base64, as the vault secret `export-signing-key`.
 - **Without a key** (outside development), the exports answer `404 signing-not-configured`.
 
 The runtime publishes its key's public half. Pin it, so you can tell your deployment's exports from anyone else's:
