@@ -456,7 +456,8 @@ terraform destroy -var-file=dev.tfvars
   deleted vault and its keys stay recoverable for
   `key_vault_soft_delete_retention_days`, and its name stays taken until then
   ([Microsoft: Key Vault soft-delete](https://learn.microsoft.com/en-us/azure/key-vault/general/soft-delete-overview)).
-  A sandbox can turn purge protection off and set
+  A sandbox can leave purge protection off from the start
+  (`key_vault_purge_protection = false` before the vault exists) and set
   `key_vault_purge_on_destroy = true`, if whoever runs Terraform may purge.
 - **The infrastructure group** goes with the environment. Check:
   `az group exists -n <rg>-<name_prefix>-infra`.
