@@ -582,6 +582,10 @@ class RunFailure(BaseModel):
     """
     What the error came from, when it says: e.g. for `capability-routing-failed`, the router's `capability-unsatisfiable` with its reasons, by provider.
     """
+    reason: str | None = None
+    """
+    The error's own reason, when it gives one: for a turn that ended at its approval (`hitl-cancelled`), `timeout` when nobody decided in time. Absent from an older runtime and from errors without one; read `code` then.
+    """
 
 
 class StartRunOptions(BaseModel):
