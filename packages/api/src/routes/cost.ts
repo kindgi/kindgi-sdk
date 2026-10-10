@@ -27,6 +27,7 @@ import { deniedBy } from './denied.js';
 import { clampLimit } from './pagination.js';
 import { projectIdsCallerMay } from './readable-projects.js';
 import { parseScopeParams, scopeResourceRef } from './scope-params.js';
+import { parseTimeInput } from './time-input.js';
 
 /**
  * Cost readback routes — part of the admin control plane. Three
@@ -236,8 +237,8 @@ export function costRouter(
         ),
       );
     } else {
-      const parsedFrom = parseIsoDate(fromRaw);
-      const parsedTo = parseIsoDate(toRaw);
+      const parsedFrom = parseTimeInput(fromRaw);
+      const parsedTo = parseTimeInput(toRaw);
       if (parsedFrom === null || parsedTo === null) {
         c.status(statusFor('bad-input') as never);
         return c.json(
@@ -429,13 +430,13 @@ function parseRecordFilter(
   if (opts.skipTime !== true) {
     const fromRaw = query.from;
     if (fromRaw !== undefined && fromRaw.length > 0) {
-      const parsed = parseIsoDate(fromRaw);
+      const parsed = parseTimeInput(fromRaw);
       if (parsed === null) return { kind: 'err', error: '`from` must be an ISO-8601 timestamp' };
       out.from = parsed;
     }
     const toRaw = query.to;
     if (toRaw !== undefined && toRaw.length > 0) {
-      const parsed = parseIsoDate(toRaw);
+      const parsed = parseTimeInput(toRaw);
       if (parsed === null) return { kind: 'err', error: '`to` must be an ISO-8601 timestamp' };
       out.to = parsed;
     }
@@ -460,12 +461,6 @@ function parseInclude(
     }
   }
   return { kind: 'ok', rawUsage: fields.includes('rawUsage') };
-}
-
-function parseIsoDate(raw: string): Date | null {
-  const t = Date.parse(raw);
-  if (!Number.isFinite(t)) return null;
-  return new Date(t);
 }
 
 function serializeRecord(rec: CostRecord): Record<string, unknown> {

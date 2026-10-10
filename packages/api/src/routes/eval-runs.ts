@@ -29,6 +29,7 @@ import { type FlowVersionsCheck, checkFlowVersions } from './eval-versions.js';
 import { clampLimit } from './pagination.js';
 import { parseScopeParams } from './scope-params.js';
 import { formatSseFrame } from './sse.js';
+import { parseTimeInput } from './time-input.js';
 
 /**
  * Eval-run resource routes — data-plane surface for the evaluation
@@ -316,13 +317,20 @@ function readbackRouter(binding: EvalRunBinding, authorizer?: Authorizer): Hono<
     if (flowIdRaw !== undefined && flowIdRaw.length > 0) {
       (filter as { flowId?: FlowId }).flowId = flowIdRaw as FlowId;
     }
-    const fromRaw = c.req.query('from');
-    if (fromRaw !== undefined && fromRaw.length > 0) {
-      (filter as { from?: Timestamp }).from = fromRaw as Timestamp;
-    }
-    const toRaw = c.req.query('to');
-    if (toRaw !== undefined && toRaw.length > 0) {
-      (filter as { to?: Timestamp }).to = toRaw as Timestamp;
+    for (const bound of ['from', 'to'] as const) {
+      const raw = c.req.query(bound);
+      if (raw === undefined || raw.length === 0) continue;
+      const at = parseTimeInput(raw);
+      if (at === null) {
+        c.status(statusFor('bad-input') as never);
+        return c.json(
+          toWireError(
+            { code: 'bad-input', message: `\`${bound}\` must be an ISO 8601 time` },
+            requestId,
+          ),
+        );
+      }
+      (filter as { from?: Timestamp; to?: Timestamp })[bound] = at.toISOString() as Timestamp;
     }
 
     const scopeParsed = parseScopeParams(c.req.query(), { tenantId });
