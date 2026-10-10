@@ -626,17 +626,18 @@ async function reviewerFacts(
   const role = await callerReviewerRole(c, reviewerBinding);
   if (role === undefined) return undefined;
   const userId = c.get('userId') as UserId | undefined;
-  const canDecide =
-    userId !== undefined &&
-    reviewerBinding !== undefined &&
-    (await reviewerBinding.resolveReviewer({ tenantId: c.get('tenantId') as TenantId, userId })) !==
-      null;
+  // Its roster row: an approval names its assignee by this id (`assignedTo`).
+  const id =
+    userId !== undefined && reviewerBinding !== undefined
+      ? await reviewerBinding.resolveReviewer({ tenantId: c.get('tenantId') as TenantId, userId })
+      : null;
   return {
     role,
+    ...(id !== null && { id: id as unknown as string }),
     decides: REVIEWER_ROLES_BY_RANK.filter(
       (r) => REVIEWER_ROLE_RANK[r] <= REVIEWER_ROLE_RANK[role],
     ),
-    canDecide,
+    canDecide: id !== null,
   };
 }
 

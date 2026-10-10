@@ -7416,6 +7416,10 @@ class MyReviewerAccess(BaseModel):
     """
     Reviewer role class. Hierarchy: standard < senior < admin.
     """
+    id: str | None = None
+    """
+    The caller's reviewer id, its row on the roster: an approval assigned to the caller names it in `assignedTo`. Absent without a roster row (then `canDecide` is false), and from a runtime before 0.1.6.
+    """
     decides: list[Literal["standard", "senior", "admin"]]
     """
     The approvals' required roles the caller may decide: its own rank and below, lowest first.

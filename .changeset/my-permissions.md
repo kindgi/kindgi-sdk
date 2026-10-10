@@ -7,9 +7,10 @@ What the caller may do, in one call, so a client can hide what the caller can't 
 
 **`GET /v1/identity/me/permissions`** answers for the caller as authenticated:
 - **`tenant`:** `{admin, member?}`. `admin` is decided as the admin routes decide it.
-- **`reviewer`:** `{role, decides, canDecide}`, when the caller is a reviewer.
+- **`reviewer`:** `{role, id?, decides, canDecide}`, when the caller is a reviewer.
+  - `id`: its reviewer id, its row on the roster, which an approval assigned to it names in `assignedTo`.
   - `decides`: the required roles it may decide, its own rank and below.
-  - `canDecide`: false when its token has a reviewer role but no user or roster row.
+  - `canDecide`: false when its token has a reviewer role but no user or roster row (and then there's no `id`).
 - **`key`:** `{tokenId, role?, projectId?}`, when the caller is an API key.
 - **`tokenCapabilities`:** the capabilities the token carries, which secret, env and signing-key writes need. A sign-in session carries none; an API key carries those it was minted with (none by default).
 - **`projects`:** the projects the caller may read, by name. Each has its effective `role` (`owner` > `admin` > `editor` > `viewer`) and `via`, every way it holds one:

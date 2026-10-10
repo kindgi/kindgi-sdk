@@ -216,7 +216,7 @@ describe('GET /v1/identity/me/permissions', () => {
     expect(r.body).toMatchObject({
       tenantId,
       tenant: { admin: false, member: true },
-      reviewer: { role: 'senior', decides: ['standard', 'senior'], canDecide: true },
+      reviewer: { role: 'senior', id: 'rev-x', decides: ['standard', 'senior'], canDecide: true },
       tokenCapabilities: [],
       orgs: [{ orgId: 'o1', name: 'Acme', role: 'admin' }],
       teams: [{ teamId: 't1', name: 'Support', role: 'admin' }],
