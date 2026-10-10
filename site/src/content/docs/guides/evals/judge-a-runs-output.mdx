@@ -192,9 +192,9 @@ const kindgi = createClient();
 const project = await kindgi.projects.getDefault();
 
 const rule = await kindgi.projects.judgingRules.create(project.id, {
-  name: 'Failed refund runs',
-  when: { agentIds: ['acme.refunds'], versions: ['live'], status: ['failed'] },
-  sample: 0.5, // half of them
+  name: 'Live refund runs',
+  when: { agentIds: ['acme.refunds'], versions: ['live'] },
+  sample: 0.05, // 5% of them
   maxOpen: 20, // at most 20 waiting at once
 });
 console.log(rule.ruleId, rule.version);
@@ -212,9 +212,9 @@ project = kindgi.projects.get_default()
 
 rule = kindgi.projects.judging_rules.create(
     project.id,
-    name="Failed refund runs",
-    when={"agent_ids": ["acme.refunds"], "versions": ["live"], "status": ["failed"]},
-    sample=0.5,  # half of them
+    name="Live refund runs",
+    when={"agent_ids": ["acme.refunds"], "versions": ["live"]},
+    sample=0.05,  # 5% of them
     max_open=20,  # at most 20 waiting at once
 )
 print(rule.rule_id, rule.version)
