@@ -1089,7 +1089,7 @@ describe('kindgi dev — boot flow (no watch)', () => {
     expect(out.stderr).toContain('1 agents');
     expect(out.stderr).toContain('1 flows');
     expect(out.stderr).toContain(
-      'Providers          dev-echo (fallback) — canned replies; for a real model: set an LLM provider key, then npx --no kindgi providers register --preset=<anthropic|gemini-api|groq|openai|openrouter>',
+      'Providers          dev-echo (fallback) — canned replies; for a real model: set an LLM provider key, then npx --no -- kindgi providers register --preset=<anthropic|gemini-api|groq|openai|openrouter>',
     );
   });
 
@@ -1134,7 +1134,7 @@ describe('kindgi dev — boot flow (no watch)', () => {
     expect(first).toContain('  ✓ gemini: registered\n');
     // Its key isn't in the env files: one line, and the boot goes on.
     expect(first).toContain(
-      '  ⚠ anthropic: not registered: ANTHROPIC_API_KEY is not in .env, .env.local, .kindgi/secrets.env. Set it (npx --no kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant), then restart kindgi dev',
+      '  ⚠ anthropic: not registered: ANTHROPIC_API_KEY is not in .env, .env.local, .kindgi/secrets.env. Set it (npx --no -- kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant), then restart kindgi dev',
     );
     expect(first).toContain(
       'Providers          dev-echo (fallback) · gemini (gemini-3.5-flash-lite)\n',
@@ -1153,7 +1153,7 @@ describe('kindgi dev — boot flow (no watch)', () => {
     expect(second).toContain('  ✓ anthropic: registered\n');
     // Its key sits in a file the app loads too: one hint; the file is never edited.
     const hint =
-      "  ⚠ ANTHROPIC_API_KEY is in .env, which your app loads too. To give Kindgi its own copy: npx --no kindgi secrets copy (it never edits your app's files).";
+      "  ⚠ ANTHROPIC_API_KEY is in .env, which your app loads too. To give Kindgi its own copy: npx --no -- kindgi secrets copy (it never edits your app's files).";
     expect(second).toContain(hint);
     expect(await readFile(join(packDir, '.env'), 'utf8')).toBe('ANTHROPIC_API_KEY=sk-test\n');
     expect(
@@ -1192,7 +1192,7 @@ describe('kindgi dev — boot flow (no watch)', () => {
       argv: ['dev', '--no-watch', `--path=${packDir}`],
     });
     expect(out.stderr).toContain(
-      'Providers          none — this runtime has no dev-echo fallback, so agent turns fail until one is registered: set an LLM provider key, then npx --no kindgi providers register --preset=<anthropic|gemini-api|groq|openai|openrouter>',
+      'Providers          none — this runtime has no dev-echo fallback, so agent turns fail until one is registered: set an LLM provider key, then npx --no -- kindgi providers register --preset=<anthropic|gemini-api|groq|openai|openrouter>',
     );
   });
 

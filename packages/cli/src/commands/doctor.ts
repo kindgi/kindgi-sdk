@@ -1280,7 +1280,7 @@ type Kindgi = (...args: string[]) => string;
 
 /**
  * In a TypeScript project, its own CLI (`pnpm exec kindgi …`,
- * `npx --no kindgi …`); in a Python project or outside one, the
+ * `npx --no -- kindgi …`); in a Python project or outside one, the
  * published CLI of this version through npx.
  */
 async function kindgiCommand(

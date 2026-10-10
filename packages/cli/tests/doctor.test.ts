@@ -796,7 +796,7 @@ describe('a registration whose default model the preset no longer gives: a warni
       "Install them: npm install (the project names pnpm, which isn't installed here)",
     );
     expect(check('model-key')?.fix).toMatch(
-      /^With kindgi dev running, set one LLM provider's key: npx --no kindgi secrets set ANTHROPIC_API_KEY /,
+      /^With kindgi dev running, set one LLM provider's key: npx --no -- kindgi secrets set ANTHROPIC_API_KEY /,
     );
   });
 
