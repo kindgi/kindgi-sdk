@@ -221,6 +221,11 @@ function buildOutboundWebhooks(): Record<string, unknown> {
       'An improvement pass completed, failed or was cancelled',
       'ImprovementPassFinishedEvent',
     ),
+    'approval.requested': event(
+      'approval.requested',
+      "An approval was asked for: a reviewer's decision is waiting",
+      'ApprovalRequestedEvent',
+    ),
     'webhook.test': event(
       'webhook.test',
       'A test event sent on request (`POST /v1/webhook-endpoints/{endpointId}/test`)',

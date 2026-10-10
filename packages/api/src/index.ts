@@ -224,7 +224,9 @@ export {
 } from './webhook-endpoint-binding.js';
 export type {
   FinishedRun,
+  ApprovalRequestedEvent,
   ImprovementPassFinishedEvent,
+  RequestedApproval,
   RunFinishedEvent,
   WebhookDelivery,
   WebhookDeliveryListInput,

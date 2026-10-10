@@ -71,6 +71,50 @@ Error [auth]: The caller isn't a reviewer: its token carries no reviewer role, a
 `kindgi dev` leaves a role you set as it is, and doesn't register you again
 after you unregister yourself.
 
+## Reviewer email
+
+With `KINDGI_REVIEWER_EMAIL=on`, the runtime emails reviewers when an
+approval starts waiting, and when a waiting approval is assigned:
+
+- **Who:** the people the approvals list would show it to: its assigned
+  reviewer, or else every active reviewer of its required role or above.
+  Only those who may read its project.
+- **Assigned later:** a reviewer an approval is assigned to after it started
+  waiting is emailed then, unless they were already emailed about it.
+- **What:** its title, project, required role and when it was asked, and a
+  link to it in the console. Never what it's about: that stays behind
+  sign-in.
+- **How often:** a reviewer's first email goes at once. Anything more for
+  them within five minutes comes as one digest at the end of the five
+  minutes. An approval decided in the meantime is left out.
+
+One approval, as a reviewer gets it (ids elided):
+
+```text
+Subject: Approval needed: Refund over the limit
+
+An approval is waiting for you.
+
+Refund over the limit
+  Project: Default
+  Needs: a standard reviewer or above
+  Asked: 2026-10-10 01:37 UTC
+  …/console/approvals/…
+
+Sign in to decide: what each approval is about is only in the console.
+
+You're getting this because you're a reviewer in Kindgi.
+```
+
+Several in one digest have the subject "2 approvals are waiting for you",
+with the same lines for each.
+
+It uses the emailed sign-in link's server (`KINDGI_AUTH_EMAIL_SMTP_URL` and
+`KINDGI_AUTH_EMAIL_FROM`). Turned on without them, the runtime refuses to
+start. It's off by default. For a system of your own, an
+[`approval.requested` webhook](../../webhooks/receive-run-finished/#approvals)
+carries the same facts.
+
 ## Find what's waiting
 
 ```sh
