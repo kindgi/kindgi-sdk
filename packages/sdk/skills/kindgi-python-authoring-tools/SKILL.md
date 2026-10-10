@@ -155,7 +155,8 @@ def verify_citation(citation: Citation, ctx: ToolContext) -> Verdict:
 
 The runtime resolves every declared secret on every call — for the
 call's tenant, in its env (`KINDGI_ENV`; in `kindgi dev`, `local`: the
-pack's `.env` and `.env.local`) — checks it against its schema, and
+pack's `.env` and `.env.local`, then Kindgi's own `.kindgi/secrets.env`, where
+`kindgi secrets set` writes) — checks it against its schema, and
 fails the call, naming the secret, when it is missing or doesn't match.
 A declared secret is required, unless its schema names null
 (`{"type": ["string", "null"]}`): an optional one the env doesn't have, or
@@ -194,14 +195,17 @@ Everything else comes from the process environment: `os.environ["CITATOR_URL"]`.
 The pack service runs with the pack's environment — in `kindgi dev`
 that is the pack's `.env` and `.env.local` (or `[tool.kindgi.dev]
 envFiles`), restarted when they change; nothing else from your shell
-reaches it except `PATH`, `HOME` and `TMPDIR`. Put a secret there by
-hand or with `kindgi secrets set NAME --env=local --scope=tenant` (a
-no-echo prompt), and keep the env files out of git. Declare every name
-the code reads in `[tool.kindgi.env]` (`required`, `optional`): in an image
+reaches it except `PATH`, `HOME` and `TMPDIR`. Put a setting there by
+hand, and keep the env files out of git. A secret stored with `kindgi
+secrets set NAME --env=local --scope=tenant` (a no-echo prompt) never
+reaches the process environment: declare it and read it from
+`ctx.secrets`. A model provider's key reaches no tool at all: a tool
+that calls a model declares a key of its own. Declare every name the
+code reads in `[tool.kindgi.env]` (`required`, `optional`): in an image
 the pack service drops every other variable before your code loads
-(`kindgi dev` keeps them), so an undeclared one works locally and is unset
-once deployed. `KINDGI_*` names are Kindgi's own settings: a pack can't
-declare one.
+(`kindgi dev` keeps them), so an undeclared one works locally and is
+unset once deployed. `KINDGI_*` names are Kindgi's own settings: a pack
+can't declare one.
 
 ## Errors and output
 

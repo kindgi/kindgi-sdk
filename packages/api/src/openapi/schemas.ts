@@ -5456,6 +5456,17 @@ export const ProviderCheckResultSchema: JsonSchema = {
       type: 'array',
       items: { $ref: '#/components/schemas/AdapterConfigProblem' },
     },
+    secretRef: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['envName', 'name'],
+      properties: {
+        envName: { type: 'string', minLength: 1 },
+        name: { type: 'string', minLength: 1 },
+      },
+      description:
+        "The secret the provider's key resolves from, by name only, never its value. Present when the registration has one. Only a caller allowed to check the provider sees it. `kindgi dev` uses it to keep a provider's key out of the pack service's environment. A runtime before 0.1.6 leaves it out.",
+    },
   },
 };
 
@@ -9867,6 +9878,11 @@ export const SecretSetRequestSchema: JsonSchema = {
     tags: { type: 'object', additionalProperties: { type: 'string' } },
     rotationDueAt: { type: 'string', format: 'date-time' },
     ifVersion: { type: 'integer', minimum: 0 },
+    appEnvFile: {
+      type: 'boolean',
+      description:
+        "Under `kindgi dev` only: write the app's own env file (the last of `dev.envFiles`, `.env.local` by default) instead of Kindgi's `.kindgi/secrets.env`, for a value the app reads too, such as a webhook signing secret. A runtime with a secrets store refuses it with `bad-input`.",
+    },
   },
 };
 

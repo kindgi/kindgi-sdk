@@ -5092,6 +5092,19 @@ class AdapterConfigProblem(BaseModel):
     """
 
 
+class SecretRef1(BaseModel):
+    """
+    The secret the provider's key resolves from, by name only, never its value. Present when the registration has one. Only a caller allowed to check the provider sees it. `kindgi dev` uses it to keep a provider's key out of the pack service's environment. A runtime before 0.1.6 leaves it out.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    env_name: Annotated[str, Field(alias="envName", min_length=1)]
+    name: Annotated[str, Field(min_length=1)]
+
+
 class ProviderCheckResult(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -5104,6 +5117,10 @@ class ProviderCheckResult(BaseModel):
     False when this runtime has no check for the provider's adapter; `issues` is then empty.
     """
     issues: list[AdapterConfigProblem]
+    secret_ref: Annotated[SecretRef1 | None, Field(alias="secretRef")] = None
+    """
+    The secret the provider's key resolves from, by name only, never its value. Present when the registration has one. Only a caller allowed to check the provider sees it. `kindgi dev` uses it to keep a provider's key out of the pack service's environment. A runtime before 0.1.6 leaves it out.
+    """
 
 
 class Config(BaseModel):
@@ -9345,6 +9362,10 @@ class SecretSetRequest(BaseModel):
     tags: dict[str, str] | None = None
     rotation_due_at: Annotated[AwareDatetime | None, Field(alias="rotationDueAt")] = None
     if_version: Annotated[int | None, Field(alias="ifVersion", ge=0)] = None
+    app_env_file: Annotated[bool | None, Field(alias="appEnvFile")] = None
+    """
+    Under `kindgi dev` only: write the app's own env file (the last of `dev.envFiles`, `.env.local` by default) instead of Kindgi's `.kindgi/secrets.env`, for a value the app reads too, such as a webhook signing secret. A runtime with a secrets store refuses it with `bad-input`.
+    """
 
 
 class SecretSetResponse(BaseModel):

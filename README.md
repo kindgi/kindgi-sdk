@@ -87,7 +87,7 @@ All `@kindgi/*` packages share one version.
 | [`@kindgi/sandbox`](./packages/sandbox) | Kindgi™ sandbox contract and wire protocol. |
 | [`@kindgi/schema`](./packages/schema) | JSON Schema utilities for Kindgi. |
 | [`@kindgi/sdk`](./packages/sdk) | @kindgi/sdk — the authoring SDK for Kindgi™. |
-| [`@kindgi/secrets-dotenv`](./packages/secrets-dotenv) | Dev-mode `SecretBinding` over the project's own env files (`.env`, then `.env.local`, or `dev.envFiles`) — the same files, parsed the same way, as the app beside the pack — plus the one definition of which env files belong to a pack environment. |
+| [`@kindgi/secrets-dotenv`](./packages/secrets-dotenv) | Dev-mode `SecretBinding` over the project's own env files (`.env`, then `.env.local`, or `dev.envFiles`) — the same files, parsed the same way, as the app beside the pack — and Kindgi's own `.kindgi/secrets.env`, read last and written, plus the one definition of which env files belong to a pack environment. |
 | [`@kindgi/specs`](./packages/specs) | Canonical JSON Schemas (Draft 2020-12) for every Kindgi artifact kind — flow, agent, tool, capability, guardrail, policy, event, run event, memory, provenance, pack, compliance evidence, audit bundle, eval suite, discoverable entity. |
 | [`@kindgi/testing`](./packages/testing) | Test helpers for Kindgi apps and packages. |
 | [`@kindgi/tools`](./packages/tools) | Tool authoring shape + registry + invocation for Kindgi. |

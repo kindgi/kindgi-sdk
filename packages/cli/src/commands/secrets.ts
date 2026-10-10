@@ -47,6 +47,7 @@ import {
   stringFlag,
   timeFlag,
 } from './helpers.js';
+import { secretsCopyCmd } from './secrets-copy.js';
 import type { Command, CommandResult, LeafCommand } from './types.js';
 
 // ---------------------------------------------------------------------
@@ -395,9 +396,14 @@ const setCmd: LeafCommand = {
   description:
     'Write a new secret value. Default: interactive TTY prompt. Use --from-stdin | --from-file for automation.',
   usage:
-    'kindgi secrets set <NAME> --env=<name> --scope=<kind>[:id] [--write-mode=create-new|add-version] [--from-stdin | --from-file <path>] [--rotation-due-at=<iso>] [--if-version=<n>]',
+    'kindgi secrets set <NAME> --env=<name> --scope=<kind>[:id] [--write-mode=create-new|add-version] [--from-stdin | --from-file <path>] [--rotation-due-at=<iso>] [--if-version=<n>] [--app]',
   optionSpec: {
     ...SCOPE_OPTION_SPEC,
+    app: {
+      type: 'boolean' as const,
+      description:
+        "Under `kindgi dev`: write it to your app's env file (the last of `dev.envFiles`, `.env.local` by default) instead of Kindgi's `.kindgi/secrets.env`, for a value your app reads too, such as a webhook signing secret.",
+    },
     'from-stdin': {
       type: 'boolean' as const,
       description: "Read the secret's value from stdin instead of prompting.",
@@ -469,6 +475,7 @@ const setCmd: LeafCommand = {
         ...(stringFlag(ctx, 'if-version') !== undefined && {
           ifVersion: integerFlag(ctx, 'if-version')!,
         }),
+        ...(ctx.options.app === true && { appEnvFile: true }),
       });
 
       if (outcome.kind !== 'ok') {
@@ -490,7 +497,7 @@ const setCmd: LeafCommand = {
         kind: 'ok',
         rendered: {
           stdout: rendered.stdout,
-          stderr: `\n  Set ${name} at ${describeScope(parsed.value.scope)} in ${parsed.value.envName as unknown as string}.\n\n`,
+          stderr: `\n  Set ${name} at ${describeScope(parsed.value.scope)} in ${parsed.value.envName as unknown as string}${ctx.options.app === true ? ", in your app's env file" : ''}.\n\n`,
         },
       };
     } catch (err) {
@@ -798,7 +805,7 @@ export const secretsCommand: Command = {
   kind: 'group',
   name: 'secrets',
   description: 'Manage per-environment secrets via the /v1/secrets/* wire.',
-  subcommands: [listCmd, getCmd, setCmd, rotateCmd, revokeCmd, pullCmd],
+  subcommands: [listCmd, getCmd, setCmd, secretsCopyCmd, rotateCmd, revokeCmd, pullCmd],
 };
 
 // ---------------------------------------------------------------------
