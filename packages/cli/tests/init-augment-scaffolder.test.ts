@@ -18,12 +18,13 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { defaultTemplatesRoot } from '../src/commands/init.js';
 import { detectSkillDrift } from '../src/commands/skills.js';
 import {
-  ZOD_DEPENDENCY,
   derivePackId,
   renderAugmentConfig,
   runInitAugment,
+  zodDependency,
   zodWarnings,
 } from '../src/init/augment-scaffolder.js';
+import { TESTED_ZOD_VERSION } from '../src/init/pinning.js';
 
 let root: string;
 let skillsRoot: string;
@@ -414,7 +415,7 @@ describe('runInitAugment — the sample template', () => {
 
     // The sample's schemas are Zod; an app without it gets it.
     const pkg = JSON.parse(await fileContents(join(root, 'package.json')));
-    expect(pkg.dependencies.zod).toBe('^4.0.0');
+    expect(pkg.dependencies.zod).toBe(`^${TESTED_ZOD_VERSION}`);
     if (result.kind === 'ok') {
       expect(result.rendered.stderr).toContain('--agent=my-app.echo-agent');
     }
@@ -458,7 +459,7 @@ describe('runInitAugment — the sample template', () => {
     await runInitAugment({ targetDir: root, skillsRoot, force: false, templatesRoot });
     expect(await exists(join(root, 'kindgi', 'tools', 'echo', 'index.ts'))).toBe(false);
     const pkg = JSON.parse(await fileContents(join(root, 'package.json')));
-    expect(pkg.dependencies?.zod).toBe('^4.0.0');
+    expect(pkg.dependencies?.zod).toBe(`^${TESTED_ZOD_VERSION}`);
   });
 });
 
@@ -475,9 +476,9 @@ describe('runInitAugment — Zod', () => {
     return { result, summary, written };
   }
 
-  test("an app without Zod gets the fresh templates' range", async () => {
+  test("an app without Zod gets the fresh templates' range, from the tested version", async () => {
     const { summary, written } = await initWith({});
-    expect(written.dependencies.zod).toBe('^4.0.0');
+    expect(written.dependencies.zod).toBe(`^${TESTED_ZOD_VERSION}`);
     expect(summary.created.join('\n')).toContain('+zod');
     expect(summary.warnings).toEqual([]);
   });
@@ -485,8 +486,30 @@ describe('runInitAugment — Zod', () => {
   test('the range is the one the fresh templates use', async () => {
     for (const template of ['minimal', 'sample']) {
       const raw = await fileContents(join(defaultTemplatesRoot(), template, 'package.json.tmpl'));
-      expect(JSON.parse(raw).dependencies.zod, template).toBe(ZOD_DEPENDENCY.spec);
+      expect(JSON.parse(raw).dependencies.zod, template).toBe(zodDependency(false).spec);
     }
+  });
+
+  test('an app that pins every dependency exactly gets zod exactly', async () => {
+    const { written } = await initWith({
+      dependencies: { next: '16.4.0', react: '19.3.0', '@acme/ui': 'workspace:*' },
+      devDependencies: { typescript: '5.9.3' },
+    });
+    expect(written.dependencies.zod).toBe(TESTED_ZOD_VERSION);
+  });
+
+  test('one range among exact pins: a range', async () => {
+    const { written } = await initWith({
+      dependencies: { next: '16.4.0' },
+      devDependencies: { typescript: '^5.9.3' },
+    });
+    expect(written.dependencies.zod).toBe(`^${TESTED_ZOD_VERSION}`);
+  });
+
+  test('an app whose .npmrc saves exact versions gets zod exactly, whatever it has', async () => {
+    await writeFile(join(root, '.npmrc'), 'registry=https://registry.example\nsave-exact=true\n');
+    const { written } = await initWith({ dependencies: { next: '^16.4.0' } });
+    expect(written.dependencies.zod).toBe(TESTED_ZOD_VERSION);
   });
 
   test('an app on zod 4 keeps its own, without a warning', async () => {

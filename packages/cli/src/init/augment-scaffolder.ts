@@ -67,6 +67,7 @@ import {
   decideAllowScripts,
   patchPackageJson,
 } from './package-json-patcher.js';
+import { TESTED_ZOD_VERSION, pinsExactly, savesExact, specAt } from './pinning.js';
 import {
   ESBUILD,
   ESBUILD_DECISION,
@@ -314,8 +315,9 @@ export async function runInitAugment(inputs: RunInitAugmentInputs): Promise<Comm
     pkgJsonPath,
     specs: deps.specs,
     packageManager: deps.packageManager,
-    // Every primitive's schemas are Zod. An app with Zod keeps its own.
-    extraDependencies: [ZOD_DEPENDENCY],
+    // Every primitive's schemas are Zod. An app with Zod keeps its own;
+    // one without gets the tested version, pinned as the app pins.
+    extraDependencies: [await zodFor(pkgJson, inputs.targetDir, inputs.home)],
   });
   if (patchResult.kind === 'err') {
     return { kind: 'error', stderr: patchResult.stderr, exitCode: 1 };
@@ -428,8 +430,30 @@ export function augmentNextSteps(pm: PackageManager, samplePackId?: string): rea
 /** The sample's primitive folders, as augment mode lays them out under `kindgi/`. */
 const SAMPLE_PRIMITIVE_DIRS = ['agents', 'flows', 'guardrails', 'tools'] as const;
 
-/** Zod, at the fresh templates' range (their `package.json.tmpl`). */
-export const ZOD_DEPENDENCY = { name: 'zod', spec: '^4.0.0', section: 'dependencies' } as const;
+/** Zod as init adds it to this app: exact when the app pins exactly or saves exact versions. */
+async function zodFor(
+  pkg: Readonly<Record<string, unknown>>,
+  targetDir: string,
+  home: string | undefined,
+): Promise<WantedDependency> {
+  return zodDependency(pinsExactly(pkg) || (await savesExact(targetDir, home)));
+}
+
+/** The zods Kindgi works with: `@kindgi/sdk`'s range. An app's own zod outside it is reported. */
+export const ZOD_RANGE = '^4.0.0';
+
+/**
+ * Zod as init adds it: the version Kindgi is tested with, exact when the
+ * app pins exactly (or saves exact versions), else a `^` range from it, the
+ * fresh templates' (their `package.json.tmpl`).
+ */
+export function zodDependency(exact: boolean): {
+  readonly name: 'zod';
+  readonly spec: string;
+  readonly section: 'dependencies';
+} {
+  return { name: 'zod', spec: specAt(TESTED_ZOD_VERSION, exact), section: 'dependencies' };
+}
 
 const DEPENDENCY_SECTIONS = [
   'dependencies',
@@ -447,13 +471,13 @@ export function zodWarnings(pkg: Readonly<Record<string, unknown>>): readonly st
   for (const section of DEPENDENCY_SECTIONS) {
     const deps = pkg[section];
     if (deps === null || typeof deps !== 'object') continue;
-    const spec = (deps as Record<string, unknown>)[ZOD_DEPENDENCY.name];
+    const spec = (deps as Record<string, unknown>).zod;
     if (typeof spec !== 'string') continue;
-    if (semver.validRange(spec) === null || semver.intersects(spec, ZOD_DEPENDENCY.spec)) {
+    if (semver.validRange(spec) === null || semver.intersects(spec, ZOD_RANGE)) {
       return [];
     }
     return [
-      `zod: the app has zod ${spec} (${section}), left as is. Kindgi's tools, examples and skills use zod 4 — upgrade to zod ${ZOD_DEPENDENCY.spec} before writing Kindgi primitives.`,
+      `zod: the app has zod ${spec} (${section}), left as is. Kindgi's tools, examples and skills use zod 4 — upgrade to zod ${specAt(TESTED_ZOD_VERSION, false)} before writing Kindgi primitives.`,
     ];
   }
   return [];
