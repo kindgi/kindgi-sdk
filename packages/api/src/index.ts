@@ -608,8 +608,13 @@ export type {
   ToolVersionPage,
 } from './tool-binding.js';
 export type {
+  GuardrailBlockedRun,
   GuardrailGetInput,
   GuardrailListInput,
+  GuardrailOutcomeCounts,
+  GuardrailOutcomes,
+  GuardrailOutcomesByAgentVersion,
+  GuardrailOutcomesInput,
   GuardrailPage,
   GuardrailRegisterInput,
   GuardrailRegisterOutcome,
@@ -617,6 +622,7 @@ export type {
   GuardrailUnregisterInput,
   GuardrailUnregisterOutcome,
 } from './guardrail-binding.js';
+export { GUARDRAIL_OUTCOMES_MAX_AGENT_VERSIONS } from './guardrail-binding.js';
 export type {
   MemoryBinding,
   MemoryDeleteFactInput,

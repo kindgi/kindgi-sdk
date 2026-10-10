@@ -4,6 +4,7 @@
 import type { Principal } from '@kindgi/authz';
 import type { ProviderRegistry, TenantPolicy, UsageSink } from '@kindgi/capabilities';
 import type { EmbeddingProviderRegistry } from '@kindgi/embedding';
+import type { GuardrailOutcomeSink } from '@kindgi/guardrails';
 import type { MemoryQueryBinding, MemoryRememberBinding } from '@kindgi/memory';
 import type { PolicyRegistry } from '@kindgi/policy-contract';
 import type {
@@ -213,6 +214,13 @@ export interface InvokeAgentBindings extends GuardrailsBindings {
    * that made it goes on. Absent: calls aren't recorded.
    */
   readonly usage?: UsageSink;
+  /**
+   * Where the turn records what each guardrail's check came to (passed,
+   * violated, blocked or errored), before it acts on them: a blocked turn
+   * is recorded before it fails. Replays and dry runs aren't recorded.
+   * Absent: outcomes aren't recorded.
+   */
+  readonly guardrailOutcomes?: GuardrailOutcomeSink;
   /**
    * Declarative HTTP tools: optional secret resolver populated
    * from the deployment's tenant-scoped `SecretBinding`. When present,

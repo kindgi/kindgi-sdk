@@ -231,6 +231,9 @@ OPERATIONS: dict[str, Operation] = {
     "guardrails.get": Operation(
         "guardrails.get", "GET", "/v1/guardrails/{guardrailId}", "json", False
     ),
+    "guardrails.outcomes": Operation(
+        "guardrails.outcomes", "GET", "/v1/guardrails/{guardrailId}/outcomes", "json", False
+    ),
     "guardrails.unregister": Operation(
         "guardrails.unregister", "POST", "/v1/guardrails/{guardrailId}/unregister", "json", True
     ),
@@ -2583,6 +2586,30 @@ class GuardrailsResource:
             query={},
             headers={},
             response=_models.Guardrail,
+            timeout=timeout,
+        )
+
+    def outcomes(
+        self,
+        guardrail_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID,
+        from_: str,
+        to: str,
+        recent: int | None = None,
+        timeout: float | None = None,
+    ) -> _models.GuardrailOutcomes:
+        """What a guardrail's checks came to in a project. `GET /v1/guardrails/{guardrailId}/outcomes`
+
+        Counts from the server, over a window: how many of the guardrail's checks on agent turns in the project `passed`, were `violated` (the answer went through: `log-only`, `noop`, or an action handed back), `blocked` (a `halt` failed the turn) or `errored` (the check couldn't run; a `halt` guardrail's error fails the turn too, and is counted here). The same counts per agent version, and the window's latest blocked turns, by run id and time only: a blocked answer stays behind its run's page. A guardrail whose scope didn't match a turn wasn't checked on it. Replays and dry runs aren't counted. Outcomes go with their run's retention, so a window can hold fewer than asked; `recordedSince` says how far back they go. A guardrail no longer registered still has its outcomes. Needs `read` on the guardrail and on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["guardrails.outcomes"],
+            path={"guardrailId": guardrail_id},
+            query={"projectId": project_id, "from": from_, "to": to, "recent": recent},
+            headers={},
+            response=_models.GuardrailOutcomes,
             timeout=timeout,
         )
 
@@ -9303,6 +9330,30 @@ class AsyncGuardrailsResource:
             query={},
             headers={},
             response=_models.Guardrail,
+            timeout=timeout,
+        )
+
+    async def outcomes(
+        self,
+        guardrail_id: str | UUID,
+        /,
+        *,
+        project_id: str | UUID,
+        from_: str,
+        to: str,
+        recent: int | None = None,
+        timeout: float | None = None,
+    ) -> _models.GuardrailOutcomes:
+        """What a guardrail's checks came to in a project. `GET /v1/guardrails/{guardrailId}/outcomes`
+
+        Counts from the server, over a window: how many of the guardrail's checks on agent turns in the project `passed`, were `violated` (the answer went through: `log-only`, `noop`, or an action handed back), `blocked` (a `halt` failed the turn) or `errored` (the check couldn't run; a `halt` guardrail's error fails the turn too, and is counted here). The same counts per agent version, and the window's latest blocked turns, by run id and time only: a blocked answer stays behind its run's page. A guardrail whose scope didn't match a turn wasn't checked on it. Replays and dry runs aren't counted. Outcomes go with their run's retention, so a window can hold fewer than asked; `recordedSince` says how far back they go. A guardrail no longer registered still has its outcomes. Needs `read` on the guardrail and on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["guardrails.outcomes"],
+            path={"guardrailId": guardrail_id},
+            query={"projectId": project_id, "from": from_, "to": to, "recent": recent},
+            headers={},
+            response=_models.GuardrailOutcomes,
             timeout=timeout,
         )
 
