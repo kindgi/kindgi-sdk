@@ -17,6 +17,10 @@ If you are that agent: follow the steps below in order. Do everything you
 can yourself. Ask the person only for what the steps say needs them, one
 thing at a time, and wait until they say they've done it.
 
+If your fetch tool cut this page short, read it from
+<https://docs.kindgi.com/_llms-txt/start.txt>: the Start section as plain
+text, with this page under "Set up Kindgi with your coding agent".
+
 ## Rules for the whole setup
 
 - **Never let a secret into the chat or into your context.** The pull token
@@ -110,9 +114,11 @@ step 1.
 If doctor's `registry` check passes, this machine can already pull the
 runtime: skip this step.
 
-1. Ask the person: "Sign in at https://access.kindgi.com with GitHub, click
-   **Copy** next to the pull token, and tell me when you're done. Also tell
-   me the robot name shown there (it isn't secret)."
+1. Ask the person for the runtime image's pull credentials, a robot name
+   and a pull token: "Copy your Kindgi pull token, and tell me when you're
+   done. Also tell me your robot name (it isn't secret)." The image is in
+   private preview: someone without credentials requests access at
+   contact@kindgi.com, and you stop here until they have them.
 2. When they say they're done, pipe the clipboard into the login, with the
    robot name they gave you:
 

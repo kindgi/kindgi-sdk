@@ -174,7 +174,10 @@ function startRouter(
       agentRef !== undefined
         ? ref('agent', agentRef.agentId as unknown as string)
         : ref('flow', flowRef?.flowId as unknown as string);
+    // Running the suite takes `execute` on it (an editor of its project, or
+    // an executor), whichever project the run lands in.
     const refused =
+      (await deniedBy(authorizer, c, 'execute', ref('eval_suite', suiteId))) ??
       (await deniedBy(authorizer, c, 'write', ref('project', projectId as unknown as string))) ??
       (await deniedBy(authorizer, c, 'execute', target));
     if (refused !== undefined) return refused;

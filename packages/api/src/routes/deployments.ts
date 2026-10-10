@@ -617,7 +617,21 @@ export function deploymentsRouter(
             rolled.push(async () => {
               await bindings.guardrailRegistry?.unregister({ tenantId, guardrailId });
             });
-          } else if (outcome.kind !== 'already-registered') {
+          } else if (outcome.kind === 'already-registered') {
+            const kept = await keepRegisteredGuardrail(
+              bindings.guardrailRegistry,
+              tenantId,
+              projectIdForGuardrail,
+              guardrail,
+            );
+            // Unregistered since the registry answered: registered afresh.
+            if (kept === 'registered') {
+              const guardrailId = guardrail.id;
+              rolled.push(async () => {
+                await bindings.guardrailRegistry?.unregister({ tenantId, guardrailId });
+              });
+            }
+          } else {
             throw new PublishRefused('guardrail', guardrail.id, outcome);
           }
         }
@@ -1233,6 +1247,139 @@ type ValidateResult =
 interface DeployedImage {
   readonly imageRef: string;
   readonly artifactVersion: string;
+}
+
+/**
+ * A deploy keeps a guardrail id that's already live only when it's the
+ * deploy's own: in the project the deploy registers into, with the same
+ * definition (`sameGuardrailDefinition`, what its author declares). An id live in another project
+ * is refused (`guardrail-project-mismatch`, its project never named): the
+ * pack's agents would otherwise run that project's guardrail. One in this
+ * project with another definition is refused too
+ * (`guardrail-already-registered`): a deploy never changes a guardrail,
+ * and keeping the old one would run what the pack no longer says.
+ *
+ * `get` answers a guardrail without its project, so whether the id is in
+ * this project comes from the project's list. When the row is gone by the
+ * time it's looked at (unregistered meanwhile), the guardrail is
+ * registered again: `'registered'`, for the deploy to roll back.
+ */
+async function keepRegisteredGuardrail(
+  registry: GuardrailRegistryBinding,
+  tenantId: TenantId,
+  projectId: ProjectId,
+  guardrail: Guardrail,
+): Promise<'kept' | 'registered'> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const existing = await registry.get({ tenantId, guardrailId: guardrail.id });
+    if (existing !== null) {
+      if (!(await guardrailInProject(registry, tenantId, projectId, guardrail.id))) {
+        throw new PublishRefused('guardrail', guardrail.id, {
+          code: 'guardrail-project-mismatch',
+          reason: 'it belongs to another project',
+        });
+      }
+      if (!sameGuardrailDefinition(existing, guardrail)) {
+        throw new PublishRefused('guardrail', guardrail.id, {
+          code: 'guardrail-already-registered',
+          reason: `it is already registered with a different definition; unregister it (\`kindgi guardrails unregister ${guardrail.id}\`) and deploy again`,
+        });
+      }
+      return 'kept';
+    }
+    const again = await registry.register({
+      tenantId,
+      projectId,
+      guardrail,
+      enqueueTuples: (guardrailId) =>
+        tuplesForCreate({
+          kind: 'guardrail',
+          id: guardrailId as GuardrailId,
+          tenantId,
+          projectId,
+        }),
+    });
+    if (again.kind === 'ok') return 'registered';
+    if (again.kind !== 'already-registered') {
+      throw new PublishRefused('guardrail', guardrail.id, again);
+    }
+  }
+  throw new Error(`guardrail ${guardrail.id}: registered and unregistered while deploying`);
+}
+
+/** Whether the live guardrail `id` is in `projectId`, by that project's list. */
+async function guardrailInProject(
+  registry: GuardrailRegistryBinding,
+  tenantId: TenantId,
+  projectId: ProjectId,
+  id: GuardrailId,
+): Promise<boolean> {
+  let cursor: Cursor | undefined;
+  do {
+    const page = await registry.list({
+      tenantId,
+      limit: 100,
+      nameFilter: id,
+      scope: { kind: 'project', tenantId, projectId },
+      ...(cursor !== undefined && { cursor }),
+    });
+    if (page.data.some((g) => g.id === id)) return true;
+    cursor = page.nextCursor;
+  } while (cursor !== undefined);
+  return false;
+}
+
+/**
+ * The fields of a guardrail its author declares, which a deploy compares.
+ * Never compared: what a deploy or a release derives. That includes
+ * `configSchema`, which the deploy route dropped before 0.1.5, so a row a
+ * 0.1.4 deploy stored has none; the image and artifact version a code
+ * pointer names, which every new image changes; and any field a later
+ * release adds. So an unchanged pack redeploys across releases.
+ */
+const DECLARED_GUARDRAIL_FIELDS = [
+  'name',
+  'description',
+  'kind',
+  'check',
+  'config',
+  'action',
+  'severity',
+  'scope',
+  'budget',
+  'judgeCapabilities',
+  'sandbox',
+  'limits',
+  'network',
+  'needsSpec',
+] as const;
+
+/**
+ * The same guardrail definition: equal in what its author declares
+ * (`DECLARED_GUARDRAIL_FIELDS`, and of where its code lives only the
+ * module path), as JSON with keys in any order (a registry may store it as
+ * JSONB) and an absent field the same as an `undefined` one.
+ */
+export function sameGuardrailDefinition(a: Guardrail, b: Guardrail): boolean {
+  return canonicalJson(definitionOf(a)) === canonicalJson(definitionOf(b));
+}
+
+function definitionOf(guardrail: Guardrail): Record<string, unknown> {
+  const declared: Record<string, unknown> = {};
+  for (const field of DECLARED_GUARDRAIL_FIELDS) {
+    declared[field] = (guardrail as unknown as Record<string, unknown>)[field];
+  }
+  declared.modulePath = guardrail.codeArtifactRef?.modulePath;
+  return declared;
+}
+
+/** JSON with every object's keys sorted, and absent and `undefined` alike. */
+function canonicalJson(value: unknown): string {
+  return JSON.stringify(JSON.parse(JSON.stringify(value) ?? 'null'), (_key, v: unknown) =>
+    v !== null && typeof v === 'object' && !Array.isArray(v)
+      ? Object.fromEntries(Object.entries(v).sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0)))
+      : v,
+  );
 }
 
 /** The pointer to a tool's or guardrail's module inside the deployed image. */

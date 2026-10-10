@@ -19,7 +19,8 @@ Evidence is a classification lens over the audit-event stream from [`@kindgi/aud
   - **`EvidenceFilter`** (AND-composed; `evidenceKinds: []` matches nothing), **`EvidencePage`**, **`SignedEvidenceBundle`** (base64 canonical `bundle`, `signature`, PEM `publicKey`, `signingKeyId`, `canonicalization: 'sorted-key-json'`), **`EvidenceBundleBody`** (the decoded `bundle`).
 - **Provider seam** — **`ComplianceProvider`** (`emit`, `list`, `describe`) for adapters that forward evidence to an external system, with **`EmitEvidenceInput`**, **`ListEvidenceFilter`**, and **`EvidenceSigner`** (`(bytes, tenantId) => Promise<EvidenceSignature>`).
 - **Classifier**
-  - **`ComplianceClassifierFile`** — `{ version: 1, default, byKind }`, the file format.
+  - **`ComplianceClassifierSource`** — `{ version: 1, default, byKind }`, the file format: a kind's entry is its classification, or the name of another kind whose classification it takes (`"secret-rotated": "secret-set"`), resolved at load; a name that names another name, or no kind, is refused.
+  - **`ComplianceClassifierFile`** — the same, resolved: every kind with its own classification (what `LoadedClassifier.file` holds).
   - **`Classification`** — `retention` (`days`, `onDenyDays?`, `legalHold?`), `signed`, `exportable`.
   - **`LoadedClassifier`** — `file` plus `resolve(kind)`, which returns the per-kind entry or the default.
 - **`auditEventToEvidence(event)`** — pure transform from an `AuditEvent` to an `Evidence` record (unwraps the `{ v, doc }` payload envelope).
