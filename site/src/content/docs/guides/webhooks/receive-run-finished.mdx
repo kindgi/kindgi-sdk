@@ -187,7 +187,8 @@ about runs. The Python client's `parse_event` reads it.
 
 An endpoint that lists `approval.requested` gets one each time an approval
 starts waiting for a reviewer (an escalation opens a new approval, so a new
-event). Its `data.approval` says which approval and who may decide it:
+event). Assigning it later sends no second event: read the approval for its
+`assignedTo`. Its `data.approval` says which approval and who may decide it:
 `approvalId`, `projectId`, `requiredRole`, `title`, `assignedTo` when it's
 assigned, `createdAt`, `expiresAt`, and `url`, its page in the console when
 the runtime knows its public address. It never carries what the approval is

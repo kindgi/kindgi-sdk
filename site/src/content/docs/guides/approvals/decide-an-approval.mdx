@@ -74,11 +74,13 @@ after you unregister yourself.
 ## Reviewer email
 
 With `KINDGI_REVIEWER_EMAIL=on`, the runtime emails reviewers when an
-approval starts waiting:
+approval starts waiting, and when a waiting approval is assigned:
 
 - **Who:** the people the approvals list would show it to: its assigned
   reviewer, or else every active reviewer of its required role or above.
   Only those who may read its project.
+- **Assigned later:** a reviewer an approval is assigned to after it started
+  waiting is emailed then, unless they were already emailed about it.
 - **What:** its title, project, required role and when it was asked, and a
   link to it in the console. Never what it's about: that stays behind
   sign-in.
