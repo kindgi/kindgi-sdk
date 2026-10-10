@@ -242,8 +242,17 @@ KINDGI_PACK_SERVICE_TOKEN=… python -m kindgi.pack serve --index index.json
 
 `serve` has the Node pack service's process contract: `--index`,
 `--module-root` and `--host`; `KINDGI_PACK_SERVICE_TOKEN`, `PORT`,
-`KINDGI_PACK_SERVICE_MAX_CONCURRENCY` and `KINDGI_PACK_ENV_CHECK`; JSON log
-lines on stderr; SIGTERM drains in-flight calls for up to 8 s.
+`KINDGI_PACK_SERVICE_MAX_CONCURRENCY`, `KINDGI_PACK_ENV_CHECK` and
+`KINDGI_PACK_ENV_FILTER`; JSON log lines on stderr; SIGTERM drains in-flight
+calls for up to 8 s.
+
+Before the pack's code loads, it drops from its environment every variable
+the pack doesn't declare (`[tool.kindgi.env]`), except `KINDGI_*` and the
+platform's (`kindgi.pack.env_filter`: the process's basics, the language
+runtime's settings, `PORT`, proxies and certificates, and Cloud Run's, AWS's
+and Azure's workload identity and metadata), and logs their names once
+(`env-dropped`), never their values. `KINDGI_PACK_ENV_FILTER=off` keeps
+every variable; `kindgi dev` sets it.
 
 At startup it checks the index's `env.required`. Under
 `KINDGI_PACK_ENV_CHECK=strict` (the default), a name that is unset or `""`

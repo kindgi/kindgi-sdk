@@ -324,6 +324,61 @@ describe('API — POST /v1/secrets — capability + happy path', () => {
     expect(listBody.data[0]?.value).toBeUndefined();
   });
 
+  test("the request's Idempotency-Key reaches the binding's set and rotate (none without the header)", async () => {
+    const inner = makeInMemorySecretsBinding();
+    inner.rotateImpl = async () =>
+      ({ kind: 'ok', value: { kind: 'ok', newVersionId: 2, oldVersionId: 1 } }) as never;
+    const keys: { op: string; key: string | undefined }[] = [];
+    const secrets: SecretBinding = {
+      ...inner,
+      async set(input) {
+        keys.push({ op: 'set', key: input.idempotencyKey });
+        return inner.set(input);
+      },
+      async rotate(input) {
+        keys.push({ op: 'rotate', key: input.idempotencyKey });
+        return inner.rotate(input);
+      },
+    };
+    const app = makeApp({ secrets });
+    const post = (headers: Record<string, string>, name: string) =>
+      app.request('/v1/secrets', {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${TOKEN_WRITE_ONLY}`,
+          'content-type': 'application/json',
+          ...headers,
+        },
+        body: JSON.stringify({
+          scope: { kind: 'tenant', tenantId: tenantA },
+          envName: 'staging',
+          name,
+          value: 'v',
+          writeMode: 'create-new',
+        }),
+      });
+    expect((await post({ 'idempotency-key': 'retry-1' }, 'with.key')).status).toBe(201);
+    expect((await post({}, 'without.key')).status).toBe(201);
+    const rotate = await app.request(
+      '/v1/secrets/with.key/rotate?envName=staging&scopeKind=tenant',
+      {
+        method: 'POST',
+        headers: {
+          authorization: `Bearer ${TOKEN_ALL}`,
+          'content-type': 'application/json',
+          'idempotency-key': 'rotate-1',
+        },
+        body: JSON.stringify({ newValue: 'v2' }),
+      },
+    );
+    expect(rotate.status).toBeLessThan(300);
+    expect(keys).toEqual([
+      { op: 'set', key: 'retry-1' },
+      { op: 'set', key: undefined },
+      { op: 'rotate', key: 'rotate-1' },
+    ]);
+  });
+
   test('scope body-vs-session mismatch → 400 scope-mismatch', async () => {
     const secrets = makeInMemorySecretsBinding();
     const app = makeApp({ secrets });

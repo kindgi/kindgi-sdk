@@ -116,9 +116,9 @@ app's own (`com.acme.app.kindgi.tools`), and calls the app's code directly. A
 library a tool uses must be on the runtime classpath (not `% Test` or
 `% Provided`): the image ships the runtime classpath only. `kindgi dev` reads
 the app's `.env` and `.env.local`: values already there reach the tools as
-environment variables. A model provider's key, and a secret stored with
-`kindgi secrets set`, don't: a tool reads a secret from its context
-(`needsSpec.secrets`).
+environment variables. A secret stored with `kindgi secrets set` doesn't: a
+tool reads it from its context (`needsSpec.secrets`). Nor does a model
+provider's key, which no tool gets.
 
 ## Layout of the template
 
@@ -258,7 +258,8 @@ image installs them: `"image": {"systemPackages": ["tesseract-ocr"]}`
 (names, or `name=version`). So are the variables the code reads, names only:
 `"env": {"required": ["DATABASE_URL"], "optional": ["SENTRY_DSN"]}`. A
 deployed pack service missing a required one isn't ready, and its `/readyz`
-names it.
+names it; one the pack doesn't declare is dropped before the code loads
+(`kindgi dev` keeps it).
 
 ## Known limits
 

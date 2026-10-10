@@ -89,6 +89,13 @@ export interface EvalRunsClient {
   /** @wire POST /v1/eval-runs/:runId/cancel */
   cancel(runId: string): Promise<EvalRunRecord>;
   /**
+   * Rescore a completed comparison: a new eval run that replays nothing and
+   * scores the run's replays again, with the judgments recorded on them
+   * since. `projectId` only for a runtime that doesn't record the run's.
+   * @wire POST /v1/eval-runs/:runId/rescore
+   */
+  rescore(runId: string, options?: { readonly projectId?: string }): Promise<StartEvalRunOutcome>;
+  /**
    * SSE stream of dispatcher-emitted events.
    * @wire GET /v1/eval-runs/:runId/events
    */
@@ -136,6 +143,13 @@ export function makeEvalRunsClient(transport: Transport): EvalRunsClient {
       return transport.request<EvalRunRecord>({
         method: 'POST',
         path: `/v1/eval-runs/${seg(runId)}/cancel`,
+      });
+    },
+    async rescore(runId, options) {
+      return transport.request<StartEvalRunOutcome>({
+        method: 'POST',
+        path: `/v1/eval-runs/${seg(runId)}/rescore`,
+        body: options?.projectId !== undefined ? { projectId: options.projectId } : {},
       });
     },
     events(runId, options) {

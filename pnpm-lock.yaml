@@ -197,6 +197,9 @@ importers:
         specifier: workspace:*
         version: link:../../capabilities
     devDependencies:
+      '@kindgi/adapter-model-shared':
+        specifier: workspace:*
+        version: link:../model-shared
       '@types/node':
         specifier: ^22.10.5
         version: 22.20.3
@@ -257,6 +260,9 @@ importers:
         specifier: ^7.17.0
         version: 7.17.0(@aws-sdk/credential-provider-node@3.972.83)(@smithy/signature-v4@5.7.3)(undici@5.29.0)(ws@8.21.3)(zod@4.6.5)
     devDependencies:
+      '@kindgi/adapter-model-shared':
+        specifier: workspace:*
+        version: link:../model-shared
       '@types/node':
         specifier: ^22.10.5
         version: 22.20.3
@@ -266,6 +272,25 @@ importers:
       vitest:
         specifier: ^2.1.8
         version: 2.1.9(@types/node@22.20.3)(jsdom@25.0.1(supports-color@7.2.0))(lightningcss@1.32.0)(msw@2.15.0(@types/node@22.20.3)(typescript@5.9.3))(supports-color@7.2.0)
+
+  packages/adapters/model-shared:
+    dependencies:
+      '@ai-sdk/provider':
+        specifier: 4.0.25
+        version: 4.0.25
+      '@kindgi/capabilities':
+        specifier: workspace:*
+        version: link:../../capabilities
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.5
+        version: 22.20.3
+      typescript:
+        specifier: ^5.7.3
+        version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9(@types/node@22.20.3)(jsdom@25.0.1(supports-color@10.2.2))(lightningcss@1.32.0)(msw@2.15.0(@types/node@22.20.3)(typescript@5.9.3))(supports-color@10.2.2)
 
   packages/agents:
     dependencies:
@@ -1286,6 +1311,10 @@ importers:
         version: 1.1.414
 
 packages:
+
+  '@ai-sdk/provider@4.0.25':
+    resolution: {integrity: sha512-vG0l7MUavfhn6c5+Z0y1/E6lKUrzecsLtFkuIknnHjAGAIiuwFDucafzebJuFVTZcLyhf8qhYYU2zeKP55Mymw==}
+    engines: {node: '>=22'}
 
   '@andrewbranch/untar.js@1.0.4':
     resolution: {integrity: sha512-pVXSwPsLuw8IGLo2Di0EaOfsk+ntVvpkk942J/sHYIkwvtKUakEcPh7HBgZ6tuimgzKSEHgCvO4XgQ05DEbwDw==}
@@ -4894,6 +4923,9 @@ packages:
   json-schema-traverse@1.0.0:
     resolution: {integrity: sha512-NM8/P9n3XjXhIZn1lLhkFaACTOURQXjWhV4BA/RnOv8xvgqtqpAX9IO4mRQxSx1Rlo4tqzeqb0sOlruaOy3dug==}
 
+  json-schema@0.4.0:
+    resolution: {integrity: sha512-es94M3nTIfsEPisRafak+HDLfHXnKBhV3vU5eqPcS3flIWqcxJWgXHXiey3YrpaNsanY5ei1VoYEbOzijuq9BA==}
+
   json5@2.2.3:
     resolution: {integrity: sha512-XmOWe7eyHYH14cLdVPoyg+GOH3rYX++KpzrylJwSW98t3Nk+U8XOl8FWKOgwtzdb8lXGf6zYwDUzeHMWfxasyg==}
     engines: {node: '>=6'}
@@ -6471,6 +6503,10 @@ packages:
     resolution: {integrity: sha512-bXE4cR/kVZhKZX/RjPEflHaKVhUVl85noU3v6b8apfQEc1x4A+zBxjZ4lN8LqGd6WZ3dl98pY4o717VFmoPp+A==}
 
 snapshots:
+
+  '@ai-sdk/provider@4.0.25':
+    dependencies:
+      json-schema: 0.4.0
 
   '@andrewbranch/untar.js@1.0.4': {}
 
@@ -9783,6 +9819,8 @@ snapshots:
       ts-algebra: 2.0.0
 
   json-schema-traverse@1.0.0: {}
+
+  json-schema@0.4.0: {}
 
   json5@2.2.3: {}
 

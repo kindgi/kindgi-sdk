@@ -93,7 +93,14 @@ def find_order(lookup: Lookup, ctx: ToolContext) -> Found:
 - **The declaration** maps each name to a JSON Schema for its value. Values
   are strings, as in a process environment, and the schema checks the
   string (`enum`, `pattern`, `minLength`…). A name with a `default` is
-  optional; every other declared name is required.
+  optional; every other declared name is required. Each schema must compile
+  as the runtime compiles it, strictly (an unknown keyword is an error), and
+  a `default` must be a string. A tool with one that doesn't is refused when
+  it's defined, registered or deployed:
+
+  ```text
+  Tool "my-pack.find-order": the schema for needsSpec.env.ORDERS_REGION doesn't compile: strict mode: unknown keyword: "enmu"
+  ```
 - **On every call**, Kindgi resolves each declared name for the call: the
   project's value, else its org's, else the tenant's, in the env the runtime
   serves (`KINDGI_ENV`; under `kindgi dev`, `local`). A name no scope sets

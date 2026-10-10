@@ -93,8 +93,9 @@ name (`from acme.text import normalize`); inside `kindgi/`, import the pack's
 modules relatively. Don't add an `__init__.py` to `kindgi/` — the folder
 would then shadow the `kindgi` package. `kindgi dev` reads the app's `.env`
 / `.env.local` — values already there reach the tools as environment
-variables; a model provider's key, and a secret stored with `kindgi secrets
-set`, don't (a tool reads a secret from `ctx.secrets`). A package a tool imports must be in the app's main dependencies,
+variables; a secret stored with `kindgi secrets set` doesn't (a tool reads
+it from `ctx.secrets`), and neither does a model provider's key, which no tool
+gets. A package a tool imports must be in the app's main dependencies,
 not a dev group: the deployed pack installs without dev dependencies (see
 `kindgi-python-authoring-tools`).
 
@@ -278,7 +279,8 @@ system-packages = ["tesseract-ocr", "poppler-utils"]   # names, or name=version
 
 The variables the code reads from `os.environ` (a database URL, a bucket)
 are declared too, names only. A deployed pack service missing a `required`
-one isn't ready, and its `/readyz` names it:
+one isn't ready, and its `/readyz` names it; one the pack doesn't declare is
+dropped before the code loads (`kindgi dev` keeps it):
 
 ```toml
 [tool.kindgi.env]
