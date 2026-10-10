@@ -303,9 +303,10 @@ with a `reason` that says which check refused (runtime 0.1.6 or later):
   (`host-access-denied`).
 
 Never kept, since they don't refuse the caller: `signer-not-trusted`,
-`csrf-origin-mismatch`, a public run token used outside its two progress
-routes, and `role-exceeds-principal` (a limit on the key being minted). A
-`401` (an unknown caller) never is.
+`csrf-origin-mismatch` and `role-exceeds-principal` (a limit on the key being
+minted). Nor is a refusal of a request with no principal, so no one to keep it
+for: a public run token used outside its two progress routes, or judging
+without a user or a service token. A `401` (an unknown caller) never is.
 
 ### In the console
 

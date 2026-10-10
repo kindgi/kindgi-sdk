@@ -224,6 +224,8 @@ async function mintRefusal(
   if (narrowedTo !== undefined && body.projectId !== (narrowedTo as unknown as ProjectId)) {
     return refuse({
       action: 'admin',
+      // A body naming another project is refused before here, by
+      // `refuseOtherProjectForKey`; the project is kept as defence in depth.
       resource: body.projectId !== undefined ? ref('project', body.projectId) : tenant,
       message: `Your key is limited to project ${narrowedTo}: a key it mints must be limited to it too`,
       failing: 'scope',

@@ -35,7 +35,8 @@ export async function deniedBy(
  * `scope` when it's what their key, or the deployment, allows. `code`: a
  * 403 code of the refusal's own, when the API names one
  * (`identity-providers-operator-managed`); else `permission-denied`.
- * `details`: more of the route's own, beside what was refused.
+ * `details`: more of the route's own, beside what was refused; they never
+ * override the code, the message or what was refused.
  */
 export interface Refusal {
   readonly action: Action;
@@ -79,9 +80,9 @@ export function refusalError(refusal: Refusal): {
   const { action, resource, message, code, details } = refusal;
   const deny = denyPayload(action, resource.type, resource.id, message);
   return {
+    ...details,
     code: code ?? deny.code,
     message,
-    ...details,
     action: deny.action,
     resource: deny.resource,
     reason: deny.reason,
