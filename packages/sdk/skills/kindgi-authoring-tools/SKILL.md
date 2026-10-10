@@ -257,7 +257,7 @@ the agent-author to opt in.
 
 ## Testing a tool
 
-Put a tool's tests beside it, `tools/<tool>/index.test.ts`. Discovery skips `*.test.*` and `*.spec.*` files (`.ts`, `.js`, `.mjs`, `.cjs`), so the indexer never loads a test as a primitive: don't move tests elsewhere to keep them out. `invokeTool(tool, input, ctx)` from `@kindgi/sdk/define` calls the tool the way Kindgi does, schemas included, and returns a `Result`. Its `ctx` needs a `tenantId` and an `abortSignal`; vitest doesn't typecheck, so a context missing them passes the test and fails `tsc`:
+Put a tool's tests beside it, `tools/<tool>/index.test.ts`. Discovery skips `*.test.*` and `*.spec.*` files (`.ts`, `.js`, `.mjs`, `.cjs`), so the indexer never loads a test as a primitive: don't move tests elsewhere to keep them out. `invokeTool(tool, input, ctx)` from `@kindgi/sdk/define` calls the tool the way Kindgi does, schemas included, and returns a `Result`. Its `ctx` needs a `tenantId` and an `abortSignal` (`ToolContext` in `@kindgi/tools`); the rest is optional. vitest doesn't typecheck, so a context missing them still passes the test: run `tsc --noEmit` too.
 
 ```ts
 import { invokeTool } from '@kindgi/sdk/define';
