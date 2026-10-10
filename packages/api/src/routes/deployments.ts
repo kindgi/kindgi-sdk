@@ -592,7 +592,9 @@ export function deploymentsRouter(
             rolled.push(async () => {
               await bindings.toolRegistry?.unregister({ tenantId, toolId, version });
             });
-          } else if (outcome.kind !== 'already-registered') {
+          } else if (outcome.kind === 'already-registered') {
+            await refreshToolCode(bindings.toolRegistry, tenantId, tool, rolled);
+          } else {
             throw new PublishRefused('tool', `${tool.id}@${tool.version}`, outcome);
           }
         }
@@ -625,11 +627,19 @@ export function deploymentsRouter(
               guardrail,
             );
             // Unregistered since the registry answered: registered afresh.
-            if (kept === 'registered') {
+            if (kept.kind === 'registered') {
               const guardrailId = guardrail.id;
               rolled.push(async () => {
                 await bindings.guardrailRegistry?.unregister({ tenantId, guardrailId });
               });
+            } else {
+              await refreshGuardrailFields(
+                bindings.guardrailRegistry,
+                tenantId,
+                guardrail,
+                kept.existing,
+                rolled,
+              );
             }
           } else {
             throw new PublishRefused('guardrail', guardrail.id, outcome);
@@ -1251,14 +1261,17 @@ interface DeployedImage {
  * `get` answers a guardrail without its project, so whether the id is in
  * this project comes from the project's list. When the row is gone by the
  * time it's looked at (unregistered meanwhile), the guardrail is
- * registered again: `'registered'`, for the deploy to roll back.
+ * registered again: `registered`, for the deploy to roll back. A kept one
+ * comes back with the row as it is (`existing`).
  */
 async function keepRegisteredGuardrail(
   registry: GuardrailRegistryBinding,
   tenantId: TenantId,
   projectId: ProjectId,
   guardrail: Guardrail,
-): Promise<'kept' | 'registered'> {
+): Promise<
+  { readonly kind: 'kept'; readonly existing: Guardrail } | { readonly kind: 'registered' }
+> {
   for (let attempt = 0; attempt < 3; attempt++) {
     const existing = await registry.get({ tenantId, guardrailId: guardrail.id });
     if (existing !== null) {
@@ -1274,7 +1287,7 @@ async function keepRegisteredGuardrail(
           reason: `it is already registered with a different definition; unregister it (\`kindgi guardrails unregister ${guardrail.id}\`) and deploy again`,
         });
       }
-      return 'kept';
+      return { kind: 'kept', existing };
     }
     const again = await registry.register({
       tenantId,
@@ -1288,12 +1301,76 @@ async function keepRegisteredGuardrail(
           projectId,
         }),
     });
-    if (again.kind === 'ok') return 'registered';
+    if (again.kind === 'ok') return { kind: 'registered' };
     if (again.kind !== 'already-registered') {
       throw new PublishRefused('guardrail', guardrail.id, again);
     }
   }
   throw new Error(`guardrail ${guardrail.id}: registered and unregistered while deploying`);
+}
+
+/**
+ * A tool version a deploy finds already published gets this deploy's code
+ * pointer (a new image of the same pack), when its registry can take it
+ * (`refreshCodeArtifactRef`); rolling the deploy back puts the old one
+ * back, unless another deploy has refreshed it since (compare-and-set on
+ * this deploy's pointer). Without it, the version keeps its first
+ * pointer, as before.
+ */
+async function refreshToolCode(
+  registry: ToolRegistryBinding,
+  tenantId: TenantId,
+  tool: import('@kindgi/tools').ToolManifest,
+  rolled: RollbackAction[],
+): Promise<void> {
+  const refresh = registry.refreshCodeArtifactRef?.bind(registry);
+  if (refresh === undefined || tool.codeArtifactRef === undefined) return;
+  const version = tool.version as unknown as Semver;
+  const stored = await registry.getVersion({ tenantId, toolId: tool.id, version });
+  if (stored === null) return;
+  const was = stored.codeArtifactRef ?? null;
+  if (canonicalJson(was) === canonicalJson(tool.codeArtifactRef)) return;
+  const now = tool.codeArtifactRef;
+  const done = await refresh({ tenantId, toolId: tool.id, version, codeArtifactRef: now });
+  if (!done.refreshed) return;
+  // Only while it still points where this deploy put it.
+  rolled.push(async () => {
+    await refresh({ tenantId, toolId: tool.id, version, codeArtifactRef: was, expected: now });
+  });
+}
+
+/**
+ * A guardrail a deploy keeps gets what this deploy derived for it: its
+ * code pointer and its check's config schema, when its registry can take
+ * them (`refreshDeployedFields`); rolling the deploy back restores the old
+ * ones, unless another deploy has refreshed them since (compare-and-set on
+ * what this deploy wrote). Without it, the guardrail keeps what its first
+ * deploy derived.
+ */
+async function refreshGuardrailFields(
+  registry: GuardrailRegistryBinding,
+  tenantId: TenantId,
+  guardrail: Guardrail,
+  existing: Guardrail,
+  rolled: RollbackAction[],
+): Promise<void> {
+  const refresh = registry.refreshDeployedFields?.bind(registry);
+  if (refresh === undefined) return;
+  const now = {
+    codeArtifactRef: guardrail.codeArtifactRef ?? null,
+    configSchema: guardrail.configSchema ?? null,
+  };
+  const was = {
+    codeArtifactRef: existing.codeArtifactRef ?? null,
+    configSchema: existing.configSchema ?? null,
+  };
+  if (canonicalJson(now) === canonicalJson(was)) return;
+  const done = await refresh({ tenantId, guardrailId: guardrail.id, ...now });
+  if (!done.refreshed) return;
+  // Only while it still holds what this deploy gave it.
+  rolled.push(async () => {
+    await refresh({ tenantId, guardrailId: guardrail.id, ...was, expected: now });
+  });
 }
 
 /** Whether the live guardrail `id` is in `projectId`, by that project's list. */
