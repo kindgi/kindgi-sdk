@@ -11,7 +11,7 @@ What the caller may do, in one call, so a client can hide what the caller can't 
   - `decides`: the required roles it may decide, its own rank and below.
   - `canDecide`: false when its token has a reviewer role but no user or roster row.
 - **`key`:** `{tokenId, role?, projectId?}`, when the caller is an API key.
-- **`tokenCapabilities`:** the capabilities the token carries, which secret, env and signing-key writes need. Sign-in sessions and API keys carry none.
+- **`tokenCapabilities`:** the capabilities the token carries, which secret, env and signing-key writes need. A sign-in session carries none; an API key carries those it was minted with (none by default).
 - **`projects`:** the projects the caller may read, by name. Each has its effective `role` (`owner` > `admin` > `editor` > `viewer`) and `via`, every way it holds one:
   - `direct` or `team`, with `since` when the runtime keeps it;
   - `org-admin`;

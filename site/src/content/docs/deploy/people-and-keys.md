@@ -117,7 +117,8 @@ a role.
 - **`key`:** when you call with an API key, its role and the project it's
   limited to.
 - **`tokenCapabilities`:** what your token itself carries for secret, env and
-  signing-key writes. Sign-in sessions and API keys carry none.
+  signing-key writes. A sign-in session carries none; an API key carries
+  those it was minted with (none by default).
 - **`projects`:** each project you may read, with your highest role in it and
   every way you hold one (`via`):
   - `direct`, or through a `team`, with `since` when the runtime keeps it;

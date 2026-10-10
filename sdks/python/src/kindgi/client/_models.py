@@ -10893,7 +10893,7 @@ class MyPermissions(BaseModel):
     key: MyKeyLimits | None = None
     token_capabilities: Annotated[list[str], Field(alias="tokenCapabilities")]
     """
-    The framework capabilities the caller's token carries (`env:write`, `secrets:write`, `secrets:rotate`, …), which secret, env and signing-key writes require on top of admin at their scope. Sign-in sessions and API keys carry none today.
+    The framework capabilities the caller's token carries (`env:write`, `secrets:write`, `secrets:rotate`, …), which secret, env and signing-key writes require on top of admin at their scope. A sign-in session carries none; an API key carries those it was minted with (`POST /v1/tokens`, none by default).
     """
     projects: list[MyProjectAccess]
     """
