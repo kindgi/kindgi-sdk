@@ -7,6 +7,10 @@ heading into its version.
 
 ## Unreleased
 
+- `kindgi-pack`, `kindgi-pack-scala`: **`ToolContext.idempotencyKey()`**, the same every time a
+  tool call runs (resumed, retried, or run again after a crash) and different for every other
+  call, so a tool that writes can dedupe on it. `null` from a runtime before 0.1.6. The
+  constructor without it stays.
 - `kindgi-pack`, `kindgi-pack-scala`: **only the names a pack declares reach
   its code.** The launcher (`kindgi-pack-java`) drops every variable the pack
   doesn't declare before the JVM starts, keeping `KINDGI_*`, the platform's,
