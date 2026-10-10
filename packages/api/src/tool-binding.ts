@@ -133,6 +133,13 @@ export interface ToolListInput {
    * (documented for uniformity).
    */
   readonly inherit?: boolean;
+  /**
+   * `true` lists retired tools too (every version unregistered), each
+   * as its highest version, with that version's `unregisteredAt`, so a
+   * client can find one to reinstate. Default: tools with an active
+   * version only.
+   */
+  readonly includeRetired?: boolean;
 }
 
 export interface ToolGetInput {
@@ -203,7 +210,8 @@ export interface ToolReinstateVersionInput {
 }
 
 export interface ToolPage {
-  readonly data: readonly ToolRecord[];
+  /** A retired tool `includeRetired` lists carries its highest version's `unregisteredAt`. */
+  readonly data: readonly ToolVersionRow[];
   readonly nextCursor?: Cursor;
 }
 

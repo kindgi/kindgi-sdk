@@ -92,6 +92,7 @@ function registries(project: ProjectId | undefined) {
     list: async () => ({ data: [at(agent)] }),
     get: async () => at(agent),
     getVersion: async () => at(agent),
+    headExists: async () => true,
     listVersions: async () => ({ data: [at(agent)] }),
   } as unknown as AgentRegistryBinding;
   const toolRegistry = {

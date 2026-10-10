@@ -1908,11 +1908,12 @@ class AgentsResource:
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | UUID | None = None,
         inherit: bool | None = None,
+        include_retired: bool | None = None,
         timeout: float | None = None,
     ) -> _models.AgentCollectionPage:
         """List agents. `GET /v1/agents`
 
-        Cursor-paginated list of the latest version per agent id. Optional `?name=` filters by prefix on agent id.
+        Cursor-paginated list of the latest version per agent id. Optional `?name=` filters by prefix on agent id. A retired agent (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
         """
         return self._client._request(
             _OPERATIONS["agents.list"],
@@ -1924,6 +1925,7 @@ class AgentsResource:
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
                 "inherit": inherit,
+                "includeRetired": include_retired,
             },
             headers={},
             response=_models.AgentCollectionPage,
@@ -1971,16 +1973,17 @@ class AgentsResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
+        include_tombstoned: bool | None = None,
         timeout: float | None = None,
     ) -> _models.AgentCollectionPage:
         """List versions of an agent. `GET /v1/agents/{agentId}/versions`
 
-        Cursor-paginated. Sort order is binding-defined (built-in registry: semver asc).
+        Cursor-paginated. Sort order is binding-defined (built-in registry: semver asc). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired agent (every version unregistered) answers too, with its versions to reinstate.
         """
         return self._client._request(
             _OPERATIONS["agents.listVersions"],
             path={"agentId": agent_id},
-            query={"limit": limit, "cursor": cursor},
+            query={"limit": limit, "cursor": cursor, "includeTombstoned": include_tombstoned},
             headers={},
             response=_models.AgentCollectionPage,
             timeout=timeout,
@@ -2378,11 +2381,12 @@ class ToolsResource:
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | UUID | None = None,
         inherit: bool | None = None,
+        include_retired: bool | None = None,
         timeout: float | None = None,
     ) -> _models.ToolCollectionPage:
         """List tools. `GET /v1/tools`
 
-        Cursor-paginated list of registered tool manifests. Optional `?name=` filters by prefix on tool id.
+        Cursor-paginated list of registered tool manifests. Optional `?name=` filters by prefix on tool id. A retired tool (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
         """
         return self._client._request(
             _OPERATIONS["tools.list"],
@@ -2394,6 +2398,7 @@ class ToolsResource:
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
                 "inherit": inherit,
+                "includeRetired": include_retired,
             },
             headers={},
             response=_models.ToolCollectionPage,
@@ -4733,16 +4738,17 @@ class EvalSuitesVersionsResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
+        include_tombstoned: bool | None = None,
         timeout: float | None = None,
     ) -> _models.EvalSuiteCollectionPage:
         """List versions of an eval suite. `GET /v1/eval-suites/{suiteId}/versions`
 
-        Cursor-paginated. Sort order is binding-defined (for example ascending semver).
+        Cursor-paginated. Sort order is binding-defined (for example ascending semver). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired suite (every version unregistered) answers too, with its versions to reinstate.
         """
         return self._client._request(
             _OPERATIONS["evalSuites.versions.list"],
             path={"suiteId": suite_id},
-            query={"limit": limit, "cursor": cursor},
+            query={"limit": limit, "cursor": cursor, "includeTombstoned": include_tombstoned},
             headers={},
             response=_models.EvalSuiteCollectionPage,
             timeout=timeout,
@@ -4802,11 +4808,12 @@ class EvalSuitesResource:
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | UUID | None = None,
         inherit: bool | None = None,
+        include_retired: bool | None = None,
         timeout: float | None = None,
     ) -> _models.EvalSuiteCollectionPage:
         """List tenant eval suites. `GET /v1/eval-suites`
 
-        Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `EvalSuite.id`. Sort order: suite id ascending. Latest version per id.
+        Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `EvalSuite.id`. Sort order: suite id ascending. Latest version per id. A retired suite (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
         """
         return self._client._request(
             _OPERATIONS["evalSuites.list"],
@@ -4819,6 +4826,7 @@ class EvalSuitesResource:
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
                 "inherit": inherit,
+                "includeRetired": include_retired,
             },
             headers={},
             response=_models.EvalSuiteCollectionPage,
@@ -8629,11 +8637,12 @@ class AsyncAgentsResource:
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | UUID | None = None,
         inherit: bool | None = None,
+        include_retired: bool | None = None,
         timeout: float | None = None,
     ) -> _models.AgentCollectionPage:
         """List agents. `GET /v1/agents`
 
-        Cursor-paginated list of the latest version per agent id. Optional `?name=` filters by prefix on agent id.
+        Cursor-paginated list of the latest version per agent id. Optional `?name=` filters by prefix on agent id. A retired agent (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
         """
         return await self._client._request(
             _OPERATIONS["agents.list"],
@@ -8645,6 +8654,7 @@ class AsyncAgentsResource:
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
                 "inherit": inherit,
+                "includeRetired": include_retired,
             },
             headers={},
             response=_models.AgentCollectionPage,
@@ -8692,16 +8702,17 @@ class AsyncAgentsResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
+        include_tombstoned: bool | None = None,
         timeout: float | None = None,
     ) -> _models.AgentCollectionPage:
         """List versions of an agent. `GET /v1/agents/{agentId}/versions`
 
-        Cursor-paginated. Sort order is binding-defined (built-in registry: semver asc).
+        Cursor-paginated. Sort order is binding-defined (built-in registry: semver asc). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired agent (every version unregistered) answers too, with its versions to reinstate.
         """
         return await self._client._request(
             _OPERATIONS["agents.listVersions"],
             path={"agentId": agent_id},
-            query={"limit": limit, "cursor": cursor},
+            query={"limit": limit, "cursor": cursor, "includeTombstoned": include_tombstoned},
             headers={},
             response=_models.AgentCollectionPage,
             timeout=timeout,
@@ -9101,11 +9112,12 @@ class AsyncToolsResource:
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | UUID | None = None,
         inherit: bool | None = None,
+        include_retired: bool | None = None,
         timeout: float | None = None,
     ) -> _models.ToolCollectionPage:
         """List tools. `GET /v1/tools`
 
-        Cursor-paginated list of registered tool manifests. Optional `?name=` filters by prefix on tool id.
+        Cursor-paginated list of registered tool manifests. Optional `?name=` filters by prefix on tool id. A retired tool (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
         """
         return await self._client._request(
             _OPERATIONS["tools.list"],
@@ -9117,6 +9129,7 @@ class AsyncToolsResource:
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
                 "inherit": inherit,
+                "includeRetired": include_retired,
             },
             headers={},
             response=_models.ToolCollectionPage,
@@ -11462,16 +11475,17 @@ class AsyncEvalSuitesVersionsResource:
         *,
         limit: int | None = None,
         cursor: str | None = None,
+        include_tombstoned: bool | None = None,
         timeout: float | None = None,
     ) -> _models.EvalSuiteCollectionPage:
         """List versions of an eval suite. `GET /v1/eval-suites/{suiteId}/versions`
 
-        Cursor-paginated. Sort order is binding-defined (for example ascending semver).
+        Cursor-paginated. Sort order is binding-defined (for example ascending semver). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired suite (every version unregistered) answers too, with its versions to reinstate.
         """
         return await self._client._request(
             _OPERATIONS["evalSuites.versions.list"],
             path={"suiteId": suite_id},
-            query={"limit": limit, "cursor": cursor},
+            query={"limit": limit, "cursor": cursor, "includeTombstoned": include_tombstoned},
             headers={},
             response=_models.EvalSuiteCollectionPage,
             timeout=timeout,
@@ -11531,11 +11545,12 @@ class AsyncEvalSuitesResource:
         scope_kind: Literal["tenant", "org", "project"] | None = None,
         scope_id: str | UUID | None = None,
         inherit: bool | None = None,
+        include_retired: bool | None = None,
         timeout: float | None = None,
     ) -> _models.EvalSuiteCollectionPage:
         """List tenant eval suites. `GET /v1/eval-suites`
 
-        Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `EvalSuite.id`. Sort order: suite id ascending. Latest version per id.
+        Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `EvalSuite.id`. Sort order: suite id ascending. Latest version per id. A retired suite (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.
         """
         return await self._client._request(
             _OPERATIONS["evalSuites.list"],
@@ -11548,6 +11563,7 @@ class AsyncEvalSuitesResource:
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
                 "inherit": inherit,
+                "includeRetired": include_retired,
             },
             headers={},
             response=_models.EvalSuiteCollectionPage,

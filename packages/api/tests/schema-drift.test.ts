@@ -139,7 +139,7 @@ function asWire(node: unknown): unknown {
  */
 describe('OpenAPI ↔ specs drift — Tool carries the whole manifest', () => {
   /** What the registry sets on a tool it reads: where it keeps it, not what it is. */
-  const REGISTRY_SET = ['projectId'];
+  const REGISTRY_SET = ['projectId', 'unregisteredAt'];
 
   test("the wire declares exactly the spec's properties, and what the registry sets", async () => {
     const spec = await loadSpec('tool');

@@ -159,6 +159,13 @@ export interface EvalSuiteListInput {
    * SDK and OpenAPI schemas.
    */
   readonly inherit?: boolean;
+  /**
+   * `true` lists retired test sets too (every version unregistered), each
+   * as its highest version, with that version's `unregisteredAt`, so a
+   * client can find one to reinstate. Default: test sets with an active
+   * version only.
+   */
+  readonly includeRetired?: boolean;
 }
 
 export interface EvalSuiteGetInput {
@@ -177,6 +184,8 @@ export interface EvalSuiteListVersionsInput {
   readonly suiteId: string;
   readonly limit: number;
   readonly cursor?: Cursor;
+  /** `true` lists unregistered versions too, each with `unregisteredAt`. Default: active only. */
+  readonly includeTombstoned?: boolean;
 }
 
 export interface EvalSuitePublishInput {
@@ -227,6 +236,12 @@ export type EvalSuiteRecord = EvalSuite & {
    * move between projects, so every version reads the same one.
    */
   readonly projectId?: ProjectId;
+  /**
+   * ISO-8601; present only on an unregistered version: one
+   * `listVersions` lists with `includeTombstoned`, or a retired test
+   * set's highest version `list` lists with `includeRetired`.
+   */
+  readonly unregisteredAt?: string;
 };
 
 export type EvalSuitePublishOutcome =

@@ -1985,7 +1985,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'agents.list',
     summary: 'List agents',
     description:
-      'Cursor-paginated list of the latest version per agent id. Optional `?name=` filters by prefix on agent id.',
+      'Cursor-paginated list of the latest version per agent id. Optional `?name=` filters by prefix on agent id. A retired agent (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.',
     tags: ['agents'],
     security: 'bearer',
     parameters: [
@@ -1995,6 +1995,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ScopeKindQueryParam,
       ScopeIdQueryParam,
       InheritQueryParam,
+      IncludeRetiredQueryParam,
     ],
     responses: {
       '200': { description: 'Page of agents.', schema: ref('AgentCollectionPage') },
@@ -2023,14 +2024,15 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/agents/{agentId}/versions',
     operationId: 'agents.listVersions',
     summary: 'List versions of an agent',
-    description: 'Cursor-paginated. Sort order is binding-defined (built-in registry: semver asc).',
+    description:
+      'Cursor-paginated. Sort order is binding-defined (built-in registry: semver asc). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired agent (every version unregistered) answers too, with its versions to reinstate.',
     tags: ['agents'],
     security: 'bearer',
-    parameters: [AgentIdPathParam, LimitQueryParam, CursorQueryParam],
+    parameters: [AgentIdPathParam, LimitQueryParam, CursorQueryParam, IncludeTombstonedQueryParam],
     responses: {
       '200': { description: 'Page of agent versions.', schema: ref('AgentCollectionPage') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No agent with that id under this tenant.'),
+      '404': ErrorResponse('No agent was ever registered with that id under this tenant.'),
     },
   },
   {
@@ -2611,7 +2613,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'tools.list',
     summary: 'List tools',
     description:
-      'Cursor-paginated list of registered tool manifests. Optional `?name=` filters by prefix on tool id.',
+      'Cursor-paginated list of registered tool manifests. Optional `?name=` filters by prefix on tool id. A retired tool (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.',
     tags: ['tools'],
     security: 'bearer',
     parameters: [
@@ -2621,6 +2623,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ScopeKindQueryParam,
       ScopeIdQueryParam,
       InheritQueryParam,
+      IncludeRetiredQueryParam,
     ],
     responses: {
       '200': { description: 'Page of tools.', schema: ref('ToolCollectionPage') },
@@ -4631,7 +4634,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'evalSuites.list',
     summary: 'List tenant eval suites',
     description:
-      'Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `EvalSuite.id`. Sort order: suite id ascending. Latest version per id.',
+      'Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `EvalSuite.id`. Sort order: suite id ascending. Latest version per id. A retired suite (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.',
     tags: ['eval-suites'],
     security: 'bearer',
     parameters: [
@@ -4642,6 +4645,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ScopeKindQueryParam,
       ScopeIdQueryParam,
       InheritQueryParam,
+      IncludeRetiredQueryParam,
     ],
     responses: {
       '200': { description: 'Page of eval suites.', schema: ref('EvalSuiteCollectionPage') },
@@ -4670,17 +4674,23 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/eval-suites/{suiteId}/versions',
     operationId: 'evalSuites.versions.list',
     summary: 'List versions of an eval suite',
-    description: 'Cursor-paginated. Sort order is binding-defined (for example ascending semver).',
+    description:
+      'Cursor-paginated. Sort order is binding-defined (for example ascending semver). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired suite (every version unregistered) answers too, with its versions to reinstate.',
     tags: ['eval-suites'],
     security: 'bearer',
-    parameters: [EvalSuiteIdPathParam, LimitQueryParam, CursorQueryParam],
+    parameters: [
+      EvalSuiteIdPathParam,
+      LimitQueryParam,
+      CursorQueryParam,
+      IncludeTombstonedQueryParam,
+    ],
     responses: {
       '200': {
         description: 'Page of eval suite versions.',
         schema: ref('EvalSuiteCollectionPage'),
       },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No eval suite with that id under this tenant.'),
+      '404': ErrorResponse('No eval suite was ever registered with that id under this tenant.'),
     },
   },
   {

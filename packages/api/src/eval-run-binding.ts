@@ -103,6 +103,8 @@ export type EvalRunStatus = (typeof EVAL_RUN_STATUSES)[number];
 export interface EvalRun {
   readonly runId: RunId;
   readonly tenantId: TenantId;
+  /** The project the run is in (the one it was started in), when the store records it. */
+  readonly projectId?: ProjectId;
   readonly suiteId: string;
   readonly suiteVersion: string;
   readonly kind: EvalKind;
