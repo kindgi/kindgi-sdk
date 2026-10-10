@@ -63,6 +63,8 @@ export type PythonInstaller = 'uv' | 'poetry' | 'pip';
 
 export interface RunInitPythonAugmentInputs {
   readonly targetDir: string;
+  /** The CLI's home folder: a repository rooted there gets no settings from init (`agent-access.ts`). */
+  readonly home?: string;
   readonly skillsRoot?: string;
   readonly packIdOverride?: string;
   /** Overwrite locally edited skills. */
@@ -141,7 +143,12 @@ export async function runInitPythonAugment(
     created.push(`${gitignorePath} (patched: +${gitignore.appended.join(', +')})`);
   }
   // Keep the coding agent out of the files that hold keys (`agent-access.ts`).
-  const access = agentAccessRows(inputs.targetDir, await patchAgentAccess(inputs.targetDir));
+  const access = agentAccessRows(
+    inputs.targetDir,
+    await patchAgentAccess(inputs.targetDir, {
+      ...(inputs.home !== undefined && { home: inputs.home }),
+    }),
+  );
   created.push(...access.created);
   skipped.push(...access.skipped);
 

@@ -7,9 +7,9 @@
  * overwrites, and another agent's ignore file only when it exists.
  */
 
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
@@ -18,6 +18,7 @@ import {
   agentAccessRows,
   claudeReadDenyRules,
   gitRootOf,
+  globLiteral,
   patchAgentAccess,
   patchClaudeSettings,
   writeAgentAccess,
@@ -197,7 +198,7 @@ describe('a pack below its git root (a monorepo)', () => {
     const before = { permissions: { deny: ['Read(./infra/**)', 'Bash(rm -rf:*)'] }, model: 'opus' };
     await writeFile(rootSettings(), `${JSON.stringify(before, null, 2)}\n`);
     const first = await patchAgentAccess(pack);
-    expect(first.repoRoot?.claude.kind).toBe('patched');
+    expect(first.repoRoot).toMatchObject({ claude: { kind: 'patched' } });
     const after = JSON.parse(await readFile(rootSettings(), 'utf8')) as {
       permissions: { deny: string[] };
       model: string;
@@ -213,7 +214,7 @@ describe('a pack below its git root (a monorepo)', () => {
     const packBytes = await readFile(join(pack, '.claude', 'settings.json'), 'utf8');
     const again = await patchAgentAccess(pack);
     expect(again.claude.kind).toBe('already-present');
-    expect(again.repoRoot?.claude.kind).toBe('already-present');
+    expect(again.repoRoot).toMatchObject({ claude: { kind: 'already-present' } });
     expect(await readFile(rootSettings(), 'utf8')).toBe(rootBytes);
     expect(await readFile(join(pack, '.claude', 'settings.json'), 'utf8')).toBe(packBytes);
     const rows = agentAccessRows(pack, again);
@@ -264,6 +265,48 @@ describe('a pack below its git root (a monorepo)', () => {
     });
   });
 
+  test('the repo root is the home folder (a dotfiles repository): nothing written there, and init says why', async () => {
+    const pack = await repoWithPack('scratch/my-pack');
+    const result = await patchAgentAccess(pack, { home: dir });
+    expect(result.repoRoot).toEqual({ dir, prefix: 'scratch/my-pack', skipped: 'home' });
+    await expect(stat(join(dir, '.claude'))).rejects.toThrow();
+
+    const rows = agentAccessRows(pack, result);
+    expect(rows.outside).toEqual([]);
+    expect(rows.warnings).toEqual([
+      `${rootSettings()} not written: the repo root is your home folder; add the rules yourself if you want them there: ${RULES.map((r) => JSON.stringify(r.replace('Read(./', 'Read(./scratch/my-pack/'))).join(', ')}.`,
+    ]);
+    // The pack's own file is written as ever.
+    expect(rows.created).toContain(
+      `${join(pack, '.claude', 'settings.json')} (your coding agent's file tools stay out of the files that hold keys)`,
+    );
+  });
+
+  test('the home folder is compared with links resolved', async () => {
+    const pack = await repoWithPack('scratch/my-pack');
+    const link = join(await mkdtemp(join(tmpdir(), 'kindgi-home-link-')), 'home');
+    await symlink(dir, link);
+    expect((await patchAgentAccess(pack, { home: link })).repoRoot).toMatchObject({
+      skipped: 'home',
+    });
+    await rm(dirname(link), { recursive: true, force: true });
+  });
+
+  test('a pack folder with glob characters: its path written as a literal', async () => {
+    const pack = await repoWithPack('apps/[legacy]/agent*');
+    await writeFile(join(dir, '.cursorignore'), 'dist/\n');
+    await patchAgentAccess(pack);
+    const deny = (
+      JSON.parse(await readFile(rootSettings(), 'utf8')) as {
+        permissions: { deny: string[] };
+      }
+    ).permissions.deny;
+    expect(deny[0]).toBe('Read(./apps/\\[legacy\\]/agent\\*/.env*)');
+    expect(await readFile(join(dir, '.cursorignore'), 'utf8')).toContain(
+      'apps/\\[legacy\\]/agent\\*/.kindgi/secrets.env\n',
+    );
+  });
+
   test('no repository above: nothing outside its folder', async () => {
     const loose = join(dir, 'loose');
     await mkdir(loose);
@@ -303,5 +346,15 @@ describe('writeAgentAccess (a new pack)', () => {
     expect(out.lines).toEqual([
       `✓ ${join(dir, '.claude', 'settings.json')}: created with 5 deny rules for my-pack/, so an agent started at the repo root can't read this pack's keys`,
     ]);
+  });
+});
+
+describe('globLiteral', () => {
+  test('escapes what a gitignore-style pattern would read as a glob, and a leading # or !', () => {
+    expect(globLiteral('apps/agent')).toBe('apps/agent');
+    expect(globLiteral('apps/[legacy]/a*b?c\\d')).toBe('apps/\\[legacy\\]/a\\*b\\?c\\\\d');
+    expect(globLiteral('#notes/x')).toBe('\\#notes/x');
+    expect(globLiteral('!keep/x')).toBe('\\!keep/x');
+    expect(globLiteral('a/#b')).toBe('a/#b');
   });
 });

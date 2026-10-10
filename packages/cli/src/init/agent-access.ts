@@ -21,7 +21,8 @@
  * with the person's access.
  */
 
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 
 import { KINDGI_SECRETS_FILE } from '@kindgi/secrets-dotenv';
@@ -62,6 +63,17 @@ export function claudeReadDenyRules(prefix = ''): readonly string[] {
 /** `KEY_FILES` under `prefix` (gitignore syntax: anchored once it has a folder). */
 function keyFilePaths(prefix: string): readonly string[] {
   return KEY_FILES.map((p) => (prefix === '' ? p : `${prefix}/${p}`));
+}
+
+/**
+ * A folder path as a literal in a gitignore-style pattern, for Claude Code's
+ * rules and other agents' ignore files alike: `\`, `*`, `?`, `[` and `]`
+ * escaped, and a leading `#` or `!` (a comment, a negation in an ignore
+ * file). Unescaped, `apps/[legacy]/agent` is a character class and the rule
+ * misses the folder (measured with Claude Code 2.1.288; escaped, it matches).
+ */
+export function globLiteral(path: string): string {
+  return path.replace(/[\\*?[\]]/g, '\\$&').replace(/^[#!]/, '\\$&');
 }
 
 /**
@@ -204,22 +216,41 @@ export interface AgentAccessResult {
    * the root's `.claude/settings.json`, and in other agents' ignore files
    * that exist there.
    */
-  readonly repoRoot?: {
-    readonly dir: string;
-    readonly prefix: string;
-    readonly claude: ClaudeSettingsResult;
-    readonly others: OtherAgentFiles;
-  };
+  readonly repoRoot?:
+    | {
+        readonly dir: string;
+        readonly prefix: string;
+        readonly claude: ClaudeSettingsResult;
+        readonly others: OtherAgentFiles;
+      }
+    /**
+     * The repository's root is the home folder (a dotfiles repository):
+     * its `.claude/settings.json` is Claude Code's user-wide settings, so
+     * nothing is written there, and init says so.
+     */
+    | { readonly dir: string; readonly prefix: string; readonly skipped: 'home' };
+}
+
+export interface PatchAgentAccessOptions {
+  /** The home folder (the CLI's own); by default the process's. */
+  readonly home?: string;
 }
 
 /** Keep the project's coding agents out of the key files (see the module comment). */
-export async function patchAgentAccess(projectDir: string): Promise<AgentAccessResult> {
+export async function patchAgentAccess(
+  projectDir: string,
+  options: PatchAgentAccessOptions = {},
+): Promise<AgentAccessResult> {
   const claude = await patchClaudeSettings(join(projectDir, '.claude', 'settings.json'));
   const others = await patchOtherAgents(projectDir, KEY_FILES);
   const packDir = resolve(projectDir);
   const root = await gitRootOf(packDir);
   if (root === undefined || root === packDir) return { claude, others };
   const prefix = relative(root, packDir).split(sep).join('/');
+  if (await samePlace(root, options.home ?? homedir())) {
+    return { claude, others, repoRoot: { dir: root, prefix, skipped: 'home' } };
+  }
+  const literal = globLiteral(prefix);
   return {
     claude,
     others,
@@ -228,11 +259,20 @@ export async function patchAgentAccess(projectDir: string): Promise<AgentAccessR
       prefix,
       claude: await patchClaudeSettings(
         join(root, '.claude', 'settings.json'),
-        claudeReadDenyRules(prefix),
+        claudeReadDenyRules(literal),
       ),
-      others: await patchOtherAgents(root, keyFilePaths(prefix)),
+      others: await patchOtherAgents(root, keyFilePaths(literal)),
     },
   };
+}
+
+/** Whether two paths are the same folder, links resolved; a path that doesn't exist is no match. */
+async function samePlace(a: string, b: string): Promise<boolean> {
+  try {
+    return (await realpath(a)) === (await realpath(b));
+  } catch {
+    return false;
+  }
 }
 
 async function patchOtherAgents(dir: string, paths: readonly string[]): Promise<OtherAgentFiles> {
@@ -288,15 +328,21 @@ export function agentAccessRows(projectDir: string, result: AgentAccessResult): 
     else if (r.kind === 'already-present') skipped.push(`${path} (the key files already listed)`);
     else if (r.message !== undefined) warnings.push(r.message);
   }
-  if (result.repoRoot !== undefined) {
-    repoRootRows(result.repoRoot, { created, skipped, warnings, outside });
-  }
+  const root = result.repoRoot;
+  if (root !== undefined && 'skipped' in root) warnings.push(homeRootWarning(root));
+  else if (root !== undefined) repoRootRows(root, { created, skipped, warnings, outside });
   return { created, skipped, warnings, outside };
+}
+
+/** Why nothing went into a repository root that is the home folder, and what to add there by hand. */
+function homeRootWarning(root: { readonly dir: string; readonly prefix: string }): string {
+  const rules = claudeReadDenyRules(globLiteral(root.prefix));
+  return `${join(root.dir, '.claude', 'settings.json')} not written: the repo root is your home folder; add the rules yourself if you want them there: ${rules.map((r) => JSON.stringify(r)).join(', ')}.`;
 }
 
 /** `agentAccessRows`' rows for the repository root's files, each saying why init wrote outside the pack's folder. */
 function repoRootRows(
-  root: NonNullable<AgentAccessResult['repoRoot']>,
+  root: Exclude<NonNullable<AgentAccessResult['repoRoot']>, { readonly skipped: 'home' }>,
   rows: { created: string[]; skipped: string[]; warnings: string[]; outside: string[] },
 ): void {
   const { created, skipped, warnings, outside } = rows;
@@ -335,8 +381,9 @@ function repoRootRows(
  */
 export async function writeAgentAccess(
   projectDir: string,
+  options: PatchAgentAccessOptions = {},
 ): Promise<{ readonly files: readonly string[]; readonly lines: readonly string[] }> {
-  const result = await patchAgentAccess(projectDir);
+  const result = await patchAgentAccess(projectDir, options);
   const files: string[] = [];
   if (result.claude.kind === 'created' || result.claude.kind === 'patched') {
     files.push(join(projectDir, '.claude', 'settings.json'));

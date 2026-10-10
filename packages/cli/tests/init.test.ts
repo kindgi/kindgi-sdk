@@ -751,6 +751,17 @@ describe("kindgi init — a coding agent's settings", () => {
     expect(deny).toContain('Read(./my-pack/.kindgi/secrets.env)');
   });
 
+  test('a git repository rooted at your home folder: nothing written there, and a line saying why', async () => {
+    await mkdir(join(cwd, '.git'));
+    const out = await runCli(baseInputs({ argv: ['init', 'my-pack'], home: cwd }));
+    expect(out.exitCode).toBe(0);
+    expect(out.stderr).toContain(
+      `⚠ ${join(cwd, '.claude', 'settings.json')} not written: the repo root is your home folder; add the rules yourself if you want them there:`,
+    );
+    expect(await pathExists(join(cwd, '.claude'))).toBe(false);
+    expect(await pathExists(join(cwd, 'my-pack', '.claude', 'settings.json'))).toBe(true);
+  });
+
   test("--force over a settings file that isn't JSON: scaffolded, with a warning, exit 0", async () => {
     await mkdir(join(cwd, 'my-pack', '.claude'), { recursive: true });
     await writeFile(join(cwd, 'my-pack', '.claude', 'settings.json'), '{ // mine\n}');

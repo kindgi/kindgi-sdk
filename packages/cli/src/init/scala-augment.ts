@@ -43,6 +43,8 @@ const FOLDERS = ['tools', 'guardrails', 'agents', 'flows'] as const;
 
 export interface RunInitScalaAugmentInputs {
   readonly targetDir: string;
+  /** The CLI's home folder: a repository rooted there gets no settings from init (`agent-access.ts`). */
+  readonly home?: string;
   /** Where the java template's `kindgiw` wrappers are. */
   readonly templatesRoot: string;
   /** The skills bundled into the CLI; the ones written for Scala packs are copied. */
@@ -208,7 +210,12 @@ async function writePackFiles(
     created.push(`${gitignorePath} (patched: +${gitignore.appended.join(', +')})`);
   }
   // Keep the coding agent out of the files that hold keys (`agent-access.ts`).
-  const access = agentAccessRows(inputs.targetDir, await patchAgentAccess(inputs.targetDir));
+  const access = agentAccessRows(
+    inputs.targetDir,
+    await patchAgentAccess(inputs.targetDir, {
+      ...(inputs.home !== undefined && { home: inputs.home }),
+    }),
+  );
   created.push(...access.created);
   skipped.push(...access.skipped);
   return { kind: 'ok', created, skipped, access };

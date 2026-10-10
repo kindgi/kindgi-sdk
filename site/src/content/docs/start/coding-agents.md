@@ -141,7 +141,9 @@ root, `kindgi init` also adds the rules, under the pack's path, to the root's
 The root's file then holds `"Read(./apps/agent/.env*)"`,
 `"Read(./apps/agent/.kindgi/secrets.env)"` and so on, merged the same way, and
 a `.cursorignore`, `.geminiignore` or `.aiderignore` at the root gets the same
-paths. An agent started in the pack's folder uses the pack's own file. One
+paths. A repository rooted at your home folder (your dotfiles, say) is left
+alone: its `.claude/settings.json` is Claude Code's settings for every
+project, so `init` only says what you could add there. An agent started in the pack's folder uses the pack's own file. One
 started in another folder of the repository loads neither. The pack's files
 are outside its folder, so Claude Code asks you before it reads them, unless
 reads are already allowed (in your settings, or with `--allowedTools`): then it

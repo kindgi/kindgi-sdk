@@ -87,6 +87,8 @@ const AUGMENT_SUBDIRS = ['agents', 'tools', 'guardrails', 'flows'] as const;
 
 export interface RunInitAugmentInputs {
   readonly targetDir: string;
+  /** The CLI's home folder: a repository rooted there gets no settings from init (`agent-access.ts`). */
+  readonly home?: string;
   /**
    * Optional root containing shipped skill folders (each with a
    * `SKILL.md`). If undefined, no skills are copied. Production
@@ -308,6 +310,7 @@ export async function runInitAugment(inputs: RunInitAugmentInputs): Promise<Comm
 
   const patchResult = await applyAugmentPatches({
     targetDir: inputs.targetDir,
+    ...(inputs.home !== undefined && { home: inputs.home }),
     pkgJsonPath,
     specs: deps.specs,
     packageManager: deps.packageManager,
@@ -636,6 +639,7 @@ type PatchesResult =
  */
 async function applyAugmentPatches(args: {
   readonly targetDir: string;
+  readonly home?: string;
   readonly pkgJsonPath: string;
   readonly specs: KindgiDependencySpecs;
   readonly packageManager: PackageManager;
@@ -683,7 +687,12 @@ async function applyAugmentPatches(args: {
   }
 
   // Keep the coding agent out of the files that hold keys (`agent-access.ts`).
-  const access = agentAccessRows(args.targetDir, await patchAgentAccess(args.targetDir));
+  const access = agentAccessRows(
+    args.targetDir,
+    await patchAgentAccess(args.targetDir, {
+      ...(args.home !== undefined && { home: args.home }),
+    }),
+  );
   created.push(...access.created);
   skipped.push(...access.skipped);
   warnings.push(...access.warnings);

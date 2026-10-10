@@ -180,6 +180,7 @@ export async function runInit(
     }
     return runInitJavaAugment({
       targetDir: detected.targetDir,
+      ...(ctx.home !== undefined && { home: ctx.home }),
       templatesRoot,
       ...(skillsRoot !== undefined && { skillsRoot }),
       ...(typeof packIdRaw === 'string' && packIdRaw !== '' && { packIdOverride: packIdRaw }),
@@ -199,6 +200,7 @@ export async function runInit(
     }
     return runInitScalaAugment({
       targetDir: detected.targetDir,
+      ...(ctx.home !== undefined && { home: ctx.home }),
       templatesRoot,
       ...(skillsRoot !== undefined && { skillsRoot }),
       ...(typeof packIdRaw === 'string' && packIdRaw !== '' && { packIdOverride: packIdRaw }),
@@ -221,6 +223,7 @@ export async function runInit(
     }
     return runInitPythonAugment({
       targetDir: detected.targetDir,
+      ...(ctx.home !== undefined && { home: ctx.home }),
       ...(skillsRoot !== undefined && { skillsRoot }),
       ...(typeof packIdRaw === 'string' && packIdRaw !== '' && { packIdOverride: packIdRaw }),
       force: ctx.options.force === true,
@@ -234,6 +237,7 @@ export async function runInit(
     if (template.kind === 'err') return { kind: 'error', stderr: template.stderr, exitCode: 1 };
     return runInitAugment({
       targetDir: detected.targetDir,
+      ...(ctx.home !== undefined && { home: ctx.home }),
       template: template.name,
       templatesRoot,
       ...(skillsRoot !== undefined && { skillsRoot }),
@@ -337,7 +341,9 @@ async function runInitFresh(
   });
   for (const s of skillsWritten) filesWritten.push(s);
   // Keep the coding agent out of the files that hold keys (`init/agent-access.ts`).
-  const access = await writeAgentAccess(args.targetDir);
+  const access = await writeAgentAccess(args.targetDir, {
+    ...(ctx.home !== undefined && { home: ctx.home }),
+  });
   filesWritten.push(...access.files);
 
   // A standalone pack pins the pnpm that will install it, so the image
@@ -515,7 +521,9 @@ async function runInitPython(
   });
   for (const s of skillsWritten) filesWritten.push(s);
   // Keep the coding agent out of the files that hold keys (`init/agent-access.ts`).
-  const access = await writeAgentAccess(args.targetDir);
+  const access = await writeAgentAccess(args.targetDir, {
+    ...(ctx.home !== undefined && { home: ctx.home }),
+  });
   filesWritten.push(...access.files);
   const displayPath = relative(ctx.cwd, args.targetDir) || '.';
   const nextSteps = [
@@ -586,7 +594,9 @@ async function runInitJava(
   });
   for (const s of skillsWritten) filesWritten.push(s);
   // Keep the coding agent out of the files that hold keys (`init/agent-access.ts`).
-  const access = await writeAgentAccess(args.targetDir);
+  const access = await writeAgentAccess(args.targetDir, {
+    ...(ctx.home !== undefined && { home: ctx.home }),
+  });
   filesWritten.push(...access.files);
   const displayPath = relative(ctx.cwd, args.targetDir) || '.';
   const install =
@@ -703,7 +713,9 @@ async function runInitScala(
     filesWritten.push(s);
   }
   // Keep the coding agent out of the files that hold keys (`init/agent-access.ts`).
-  const access = await writeAgentAccess(args.targetDir);
+  const access = await writeAgentAccess(args.targetDir, {
+    ...(ctx.home !== undefined && { home: ctx.home }),
+  });
   filesWritten.push(...access.files);
   filesWritten.sort();
   const displayPath = relative(ctx.cwd, args.targetDir) || '.';
