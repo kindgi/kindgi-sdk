@@ -9,6 +9,9 @@ import type { Cursor, OrgId, ProjectId, TenantId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import {
+  type MCPAuthHeader,
+  type MCPAuthScheme,
+  type MCPBasicAuth,
   type MCPClientProbeBinding,
   type MCPEndpoint,
   type MCPEndpointAuth,
@@ -19,9 +22,12 @@ import {
   type MCPResourceContent,
   type MCPResourceDescriptor,
   type MCPTransport,
+  MCP_AUTH_HEADERS_MAX,
   MCP_AUTH_SCHEMES,
   MCP_OAUTH_CLIENT_AUTH,
   MCP_TRANSPORTS,
+  REDACTED_HEADER_VALUE,
+  isCredentialHeaderName,
   mcpEndpointSecretNames,
 } from '../mcp-endpoint-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
@@ -647,12 +653,33 @@ function serializeEndpoint(e: MCPEndpoint): Record<string, unknown> {
     endpointId: e.endpointId,
     name: e.name,
     transport: e.transport,
-    config: e.config,
+    config: redactedConfig(e.config),
     ...(e.secretRef !== undefined && { secretRef: e.secretRef }),
     ...(e.auth !== undefined && { auth: e.auth }),
     ...(e.instructions !== undefined && { instructions: e.instructions }),
     ...(e.metadata !== undefined && { metadata: e.metadata }),
     ...(e.sendTraceparent !== undefined && { sendTraceparent: e.sendTraceparent }),
+  };
+}
+
+/**
+ * The config as answered: a credential header's value reads `[redacted]`, its
+ * name kept, so an operator sees what to move to `auth` and nobody reads the
+ * value back. Registration refuses such a header now; an endpoint registered
+ * before keeps it, and keeps working.
+ */
+function redactedConfig(config: MCPEndpointConfig): MCPEndpointConfig {
+  if (config.transport === 'stdio' || config.headers === undefined) return config;
+  const entries = Object.entries(config.headers);
+  if (!entries.some(([name]) => isCredentialHeaderName(name))) return config;
+  return {
+    ...config,
+    headers: Object.fromEntries(
+      entries.map(([name, value]) => [
+        name,
+        isCredentialHeaderName(name) ? REDACTED_HEADER_VALUE : value,
+      ]),
+    ),
   };
 }
 
@@ -749,19 +776,14 @@ function validateMCPEndpoint(
       },
     };
   }
-  let auth: MCPEndpointAuth | undefined;
-  if (b.auth !== undefined) {
-    const refusal = authConflict(
-      b.endpointId,
-      b.transport as MCPTransport,
-      b.secretRef,
-      configResult.value,
-    );
-    if (refusal !== undefined) return { kind: 'err', error: refusal };
-    const parsed = parseAuth(b.endpointId, b.auth);
-    if (parsed.kind === 'err') return parsed;
-    auth = parsed.value;
-  }
+  const authResult =
+    b.auth === undefined
+      ? undefined
+      : checkedAuth(b.endpointId, b.transport as MCPTransport, b, configResult.value);
+  if (authResult?.kind === 'err') return authResult;
+  const auth = authResult?.value;
+  const credential = credentialInHeaders(b.endpointId, configResult.value);
+  if (credential !== undefined) return { kind: 'err', error: credential };
   if (b.instructions !== undefined && typeof b.instructions !== 'string') {
     return {
       kind: 'err',
@@ -815,12 +837,27 @@ function validateMCPEndpoint(
   return { kind: 'ok', value };
 }
 
-/** What `auth` can't be set with: `secretRef` (the bearer form), a stdio transport, an `Authorization` header. */
+/** `auth`, parsed and checked against the rest of the endpoint. */
+function checkedAuth(
+  endpointId: string,
+  transport: MCPTransport,
+  b: Record<string, unknown>,
+  config: MCPEndpointConfig,
+): AuthParse {
+  const refusal = authConflict(endpointId, transport, b.secretRef);
+  if (refusal !== undefined) return { kind: 'err', error: refusal };
+  const parsed = parseAuth(endpointId, b.auth);
+  if (parsed.kind === 'err') return parsed;
+  const twice = authHeaderInConfig(endpointId, parsed.value, config);
+  if (twice !== undefined) return { kind: 'err', error: twice };
+  return parsed;
+}
+
+/** What `auth` can't be set with: `secretRef` (the bearer form), a stdio transport. */
 function authConflict(
   endpointId: string,
   transport: MCPTransport,
   secretRef: unknown,
-  config: MCPEndpointConfig,
 ): { readonly message: string; readonly reason: string } | undefined {
   if (secretRef !== undefined) {
     return {
@@ -834,28 +871,92 @@ function authConflict(
       reason: 'auth-on-stdio',
     };
   }
-  const headers = config.transport === 'stdio' ? undefined : config.headers;
-  if (
-    headers !== undefined &&
-    Object.keys(headers).some((h) => h.toLowerCase() === 'authorization')
-  ) {
-    return {
-      message: `endpoint "${endpointId}" sets auth and an Authorization header in config.headers: auth sends that header. Drop the header.`,
-      reason: 'auth-with-authorization-header',
-    };
-  }
   return undefined;
 }
 
-const BASIC_AUTH_FIELDS = new Set(['scheme', 'username', 'secretRef']);
-const OAUTH2_AUTH_FIELDS = new Set([
-  'scheme',
-  'tokenUrl',
-  'clientId',
-  'secretRef',
-  'scope',
-  'audience',
-  'clientAuth',
+/** A header `auth` sends that `config.headers` sets too: `auth`'s wins, so the other is refused. */
+function authHeaderInConfig(
+  endpointId: string,
+  auth: MCPEndpointAuth,
+  config: MCPEndpointConfig,
+): { readonly message: string; readonly reason: string } | undefined {
+  const headers = config.transport === 'stdio' ? undefined : config.headers;
+  const sent = new Set(
+    auth.scheme === 'header' ? auth.headers.map((h) => h.name.toLowerCase()) : ['authorization'],
+  );
+  const twice = Object.keys(headers ?? {}).find((name) => sent.has(name.toLowerCase()));
+  if (twice === undefined) return undefined;
+  return auth.scheme === 'header'
+    ? {
+        message: `endpoint "${endpointId}" sets the header "${twice}" in both auth.headers and config.headers: auth sends it. Drop it from config.headers.`,
+        reason: 'auth-header-in-config',
+      }
+    : {
+        message: `endpoint "${endpointId}" sets auth and an Authorization header in config.headers: auth sends that header. Drop the header.`,
+        reason: 'auth-with-authorization-header',
+      };
+}
+
+/**
+ * A credential in `config.headers` (`isCredentialHeaderName`), refused: it'd
+ * be stored as given and could follow a redirect to another host. The message
+ * names each header, never its value.
+ */
+function credentialInHeaders(
+  endpointId: string,
+  config: MCPEndpointConfig,
+): { readonly message: string; readonly reason: string } | undefined {
+  const headers = config.transport === 'stdio' ? undefined : config.headers;
+  const names = Object.keys(headers ?? {}).filter(isCredentialHeaderName);
+  if (names.length === 0) return undefined;
+  const listed = names.map((name) => `"${name}"`).join(', ');
+  const byReference = names
+    .map((name) => `{ name: "${name}", secretRef: { envName, name } }`)
+    .join(', ');
+  const bearer = names.some((name) => name.toLowerCase() === 'authorization')
+    ? ' For `Authorization: Bearer <token>`, secretRef sends it.'
+    : '';
+  return {
+    message: `endpoint "${endpointId}" puts a credential in config.headers (${listed}), where it's stored and shown as given. Store each value as a secret and send it by reference: auth: { scheme: "header", headers: [${byReference}] }.${bearer}`,
+    reason: 'credential-in-headers',
+  };
+}
+
+/** Each scheme's fields. */
+const AUTH_FIELDS: Readonly<Record<MCPAuthScheme, ReadonlySet<string>>> = {
+  basic: new Set(['scheme', 'username', 'secretRef']),
+  'oauth2-client-credentials': new Set([
+    'scheme',
+    'tokenUrl',
+    'clientId',
+    'secretRef',
+    'scope',
+    'audience',
+    'clientAuth',
+  ]),
+  header: new Set(['scheme', 'headers']),
+};
+const AUTH_HEADER_FIELDS = new Set(['name', 'secretRef', 'prefix']);
+/** An HTTP field name: an RFC 9110 token. */
+const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+/** Headers the MCP transport or HTTP itself sets, which `auth` can't. */
+const TRANSPORT_HEADERS = new Set([
+  'host',
+  'content-length',
+  'content-type',
+  'accept',
+  'connection',
+  'keep-alive',
+  'transfer-encoding',
+  'te',
+  'upgrade',
+  'trailer',
+  'expect',
+  'last-event-id',
+  'mcp-session-id',
+  'mcp-protocol-version',
+  'traceparent',
+  'tracestate',
 ]);
 /** The hosts a token URL may reach over plain http: this machine's own. */
 const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
@@ -873,10 +974,9 @@ function parsedUrl(raw: string): URL | null {
   }
 }
 
-type AuthParse =
-  | { kind: 'ok'; value: MCPEndpointAuth }
-  | { kind: 'err'; error: { message: string; reason: string } };
-type AuthRefusal = (message: string, reason?: string) => AuthParse;
+type AuthErr = { kind: 'err'; error: { message: string; reason: string } };
+type AuthParse = { kind: 'ok'; value: MCPEndpointAuth } | AuthErr;
+type AuthRefusal = (message: string, reason?: string) => AuthErr;
 
 /** `auth`, checked: a known scheme with its fields, the secret by reference. */
 function parseAuth(endpointId: string, raw: unknown): AuthParse {
@@ -888,14 +988,15 @@ function parseAuth(endpointId: string, raw: unknown): AuthParse {
     return bad('auth must be an object with a `scheme`');
   }
   const a = raw as Record<string, unknown>;
-  if (a.scheme !== 'basic' && a.scheme !== 'oauth2-client-credentials') {
+  if (!(MCP_AUTH_SCHEMES as readonly unknown[]).includes(a.scheme)) {
     return bad(`auth.scheme must be one of ${MCP_AUTH_SCHEMES.join(' / ')}`);
   }
-  const allowed = a.scheme === 'basic' ? BASIC_AUTH_FIELDS : OAUTH2_AUTH_FIELDS;
-  const unknown = Object.keys(a).find((key) => !allowed.has(key));
+  const scheme = a.scheme as MCPAuthScheme;
+  const unknown = Object.keys(a).find((key) => !AUTH_FIELDS[scheme].has(key));
   if (unknown !== undefined) {
-    return bad(`auth: unknown field \`auth.${unknown}\` for scheme ${a.scheme}`);
+    return bad(`auth: unknown field \`auth.${unknown}\` for scheme ${scheme}`);
   }
+  if (scheme === 'header') return parseHeaderAuth(a.headers, bad);
   const secretRef = parseSecretRef(a.secretRef, 'auth.secretRef');
   if (secretRef.kind === 'err') return bad(`auth: ${secretRef.message}`, 'invalid-secret-ref');
   return a.scheme === 'basic'
@@ -903,9 +1004,72 @@ function parseAuth(endpointId: string, raw: unknown): AuthParse {
     : parseOAuth2Auth(a, secretRef.value, bad);
 }
 
+/** `auth.headers`: 1 to `MCP_AUTH_HEADERS_MAX` headers, each named once. */
+function parseHeaderAuth(raw: unknown, bad: AuthRefusal): AuthParse {
+  if (!Array.isArray(raw) || raw.length === 0 || raw.length > MCP_AUTH_HEADERS_MAX) {
+    return bad(`auth.headers must be a list of 1 to ${MCP_AUTH_HEADERS_MAX} headers`);
+  }
+  const headers: MCPAuthHeader[] = [];
+  const seen = new Set<string>();
+  for (const [i, item] of raw.entries()) {
+    const header = parseAuthHeader(item, `auth.headers[${i}]`, bad);
+    if (header.kind === 'err') return header;
+    const key = header.value.name.toLowerCase();
+    if (seen.has(key)) {
+      return bad(`auth.headers names "${header.value.name}" twice: each header once`);
+    }
+    seen.add(key);
+    headers.push(header.value);
+  }
+  return { kind: 'ok', value: { scheme: 'header', headers } };
+}
+
+/** One of `auth.headers`: a header name the transport doesn't own, its secret, a prefix. */
+function parseAuthHeader(
+  raw: unknown,
+  at: string,
+  bad: AuthRefusal,
+): { kind: 'ok'; value: MCPAuthHeader } | AuthErr {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    return bad(`${at} must be an object \`{ name, secretRef, prefix? }\``);
+  }
+  const h = raw as Record<string, unknown>;
+  const unknown = Object.keys(h).find((key) => !AUTH_HEADER_FIELDS.has(key));
+  if (unknown !== undefined) return bad(`auth: unknown field \`${at}.${unknown}\``);
+  if (!boundedString(h.name, 256) || !HEADER_NAME.test(h.name as string)) {
+    return bad(`${at}.name must be an HTTP header name of 1 to 256 characters`);
+  }
+  const name = h.name as string;
+  if (TRANSPORT_HEADERS.has(name.toLowerCase())) {
+    return bad(`${at}.name "${name}" is a header the MCP transport sets itself`);
+  }
+  if (h.prefix !== undefined && !(boundedString(h.prefix, 64) && printable(h.prefix as string))) {
+    return bad(`${at}.prefix must be 1 to 64 characters, without control characters`);
+  }
+  const secretRef = parseSecretRef(h.secretRef, `${at}.secretRef`);
+  if (secretRef.kind === 'err') return bad(`auth: ${secretRef.message}`, 'invalid-secret-ref');
+  return {
+    kind: 'ok',
+    value: {
+      name,
+      secretRef: secretRef.value,
+      ...(h.prefix !== undefined && { prefix: h.prefix as string }),
+    },
+  };
+}
+
+/** Whether `text` has no control characters, which a header value can't carry. */
+function printable(text: string): boolean {
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    if (code < 0x20 || code === 0x7f) return false;
+  }
+  return true;
+}
+
 function parseBasicAuth(
   a: Record<string, unknown>,
-  secretRef: MCPEndpointAuth['secretRef'],
+  secretRef: MCPBasicAuth['secretRef'],
   bad: AuthRefusal,
 ): AuthParse {
   if (!boundedString(a.username, 256) || (a.username as string).includes(':')) {
@@ -925,7 +1089,7 @@ function tokenUrlAllowed(raw: unknown): boolean {
 
 function parseOAuth2Auth(
   a: Record<string, unknown>,
-  secretRef: MCPEndpointAuth['secretRef'],
+  secretRef: MCPBasicAuth['secretRef'],
   bad: AuthRefusal,
 ): AuthParse {
   if (!tokenUrlAllowed(a.tokenUrl)) {

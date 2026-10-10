@@ -2440,11 +2440,21 @@ export type McpEndpointConfig =
       readonly url: string;
       /** Optional distinct SSE endpoint if the server splits them. */
       readonly sseUrl?: string;
+      /**
+       * Plain headers, never a credential: a name such as `Authorization`,
+       * `Cookie`, `X-Api-Key` or `X-Auth-Token` is refused (`credential-in-headers`);
+       * send it with `McpHeaderAuth`. One registered before reads back as `[redacted]`.
+       */
       readonly headers?: Readonly<Record<string, string>>;
     }
   | {
       readonly transport: 'streamable-http';
       readonly url: string;
+      /**
+       * Plain headers, never a credential: a name such as `Authorization`,
+       * `Cookie`, `X-Api-Key` or `X-Auth-Token` is refused (`credential-in-headers`);
+       * send it with `McpHeaderAuth`. One registered before reads back as `[redacted]`.
+       */
       readonly headers?: Readonly<Record<string, string>>;
     };
 
@@ -2492,8 +2502,29 @@ export interface McpOAuth2ClientCredentialsAuth {
   readonly clientAuth?: 'client_secret_basic' | 'client_secret_post';
 }
 
+/** One header a `header` auth sends (`@kindgi/api/openapi.json#MCPAuthHeader`): `<name>: <prefix><secret>`. */
+export interface McpAuthHeader {
+  /** An HTTP header name, once per auth; not one the transport sets (`Host`, `Content-Type`, …). */
+  readonly name: string;
+  /** The value, by reference. */
+  readonly secretRef: McpEndpointSecretRef;
+  /** Text before the secret (`Token `, `ApiKey `). Not a secret. Absent: none. */
+  readonly prefix?: string;
+}
+
+/**
+ * Headers of the server's own, each with a secret
+ * (`@kindgi/api/openapi.json#MCPHeaderAuth`): an API key in `X-Api-Key`, a key
+ * and a secret in two headers, or `Authorization` with a prefix other than
+ * `Bearer `. 1 to 4 headers, distinct by name.
+ */
+export interface McpHeaderAuth {
+  readonly scheme: 'header';
+  readonly headers: readonly McpAuthHeader[];
+}
+
 /** How an endpoint signs in when it isn't a plain bearer (`@kindgi/api/openapi.json#MCPEndpointAuth`). */
-export type McpEndpointAuth = McpBasicAuth | McpOAuth2ClientCredentialsAuth;
+export type McpEndpointAuth = McpBasicAuth | McpOAuth2ClientCredentialsAuth | McpHeaderAuth;
 
 /**
  * Wire shape — matches `@kindgi/api/openapi.json#MCPEndpoint`. Represents an
@@ -2529,9 +2560,10 @@ export interface RegisterMcpEndpointInput {
   readonly secretRef?: McpEndpointSecretRef;
   /**
    * How it signs in when it isn't a plain bearer: `basic` (a user name and a
-   * password secret) or `oauth2-client-credentials` (a token the runtime
-   * fetches and refreshes). Not with `secretRef`, not on `stdio`, and not with
-   * an `Authorization` header in `config.headers`.
+   * password secret), `oauth2-client-credentials` (a token the runtime
+   * fetches and refreshes) or `header` (headers of the server's own, each with
+   * a secret). Not with `secretRef`, not on `stdio`, and not with a header
+   * `auth` sends in `config.headers` too.
    */
   readonly auth?: McpEndpointAuth;
   /**

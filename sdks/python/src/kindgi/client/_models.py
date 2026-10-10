@@ -5381,6 +5381,9 @@ class Config1(BaseModel):
     Optional distinct SSE endpoint if the server splits them.
     """
     headers: dict[str, str] | None = None
+    """
+    Headers sent with every request, as given. Not for a credential: a header named `Authorization`, `Proxy-Authorization` or `Cookie`, or with a `-`/`_`-separated part `token`, `secret`, `password`, `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session` or `auth`, or the parts `api-key`, `access-key`, `private-key`, `auth-key` or `subscription-key` (`X-Api-Key`, `X-Auth-Token`), is refused (`invalid-mcp-endpoint`, reason `credential-in-headers`). Send it by reference: `auth` with `scheme: header`, or `secretRef` for a bearer. An endpoint registered with one before keeps working, and its value reads back as `[redacted]`.
+    """
 
 
 class Config2(BaseModel):
@@ -5395,11 +5398,14 @@ class Config2(BaseModel):
     transport: Literal["streamable-http"]
     url: AnyUrl
     headers: dict[str, str] | None = None
+    """
+    Headers sent with every request, as given. Not for a credential: a header named `Authorization`, `Proxy-Authorization` or `Cookie`, or with a `-`/`_`-separated part `token`, `secret`, `password`, `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session` or `auth`, or the parts `api-key`, `access-key`, `private-key`, `auth-key` or `subscription-key` (`X-Api-Key`, `X-Auth-Token`), is refused (`invalid-mcp-endpoint`, reason `credential-in-headers`). Send it by reference: `auth` with `scheme: header`, or `secretRef` for a bearer. An endpoint registered with one before keeps working, and its value reads back as `[redacted]`.
+    """
 
 
 class MCPEndpointSecretRef(BaseModel):
     """
-    The secret an MCP endpoint authenticates with: a name in the deployment's secrets store, resolved at the endpoint's tenant scope by the runtime (the shape webhooks and providers use). As the endpoint's own `secretRef`, it is sent as its bearer; inside `auth`, it is the scheme's password or client secret. The endpoint keeps only this reference.
+    The secret an MCP endpoint authenticates with: a name in the deployment's secrets store, resolved at the endpoint's tenant scope by the runtime (the shape webhooks and providers use). As the endpoint's own `secretRef`, it is sent as its bearer; inside `auth`, it is the scheme's password, client secret or header value. The endpoint keeps only this reference.
     """
 
     model_config = ConfigDict(
@@ -5459,6 +5465,28 @@ class MCPOAuth2ClientCredentialsAuth(BaseModel):
     """
 
 
+class MCPAuthHeader(BaseModel):
+    """
+    One header a `header` auth sends: `<name>: <prefix><secret>`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    name: Annotated[
+        str, Field(max_length=256, min_length=1, pattern="^[!#$%&'*+.^_`|~0-9A-Za-z-]+$")
+    ]
+    """
+    An HTTP header name, once per `auth` (case-insensitive). Not one the MCP transport or HTTP sets itself (`Host`, `Content-Type`, `Content-Length`, `Accept`, `Connection`, `Mcp-Session-Id`, `Mcp-Protocol-Version`, `Last-Event-ID`, `traceparent`, `tracestate`, …): reason `invalid-auth`.
+    """
+    secret_ref: Annotated[MCPEndpointSecretRef, Field(alias="secretRef")]
+    prefix: Annotated[str | None, Field(max_length=64, min_length=1)] = None
+    """
+    Text sent before the secret, such as `Token ` or `ApiKey `, without control characters. Absent: none. Not a secret: it reads back as registered.
+    """
+
+
 class Config3(BaseModel):
     """
     Transport-tagged config union. Server enforces `config.transport === transport` at registration.
@@ -5490,6 +5518,9 @@ class Config4(BaseModel):
     Optional distinct SSE endpoint if the server splits them.
     """
     headers: dict[str, str] | None = None
+    """
+    Headers sent with every request, as given. Not for a credential: a header named `Authorization`, `Proxy-Authorization` or `Cookie`, or with a `-`/`_`-separated part `token`, `secret`, `password`, `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session` or `auth`, or the parts `api-key`, `access-key`, `private-key`, `auth-key` or `subscription-key` (`X-Api-Key`, `X-Auth-Token`), is refused (`invalid-mcp-endpoint`, reason `credential-in-headers`). Send it by reference: `auth` with `scheme: header`, or `secretRef` for a bearer. An endpoint registered with one before keeps working, and its value reads back as `[redacted]`.
+    """
 
 
 class Config5(BaseModel):
@@ -5504,6 +5535,9 @@ class Config5(BaseModel):
     transport: Literal["streamable-http"]
     url: AnyUrl
     headers: dict[str, str] | None = None
+    """
+    Headers sent with every request, as given. Not for a credential: a header named `Authorization`, `Proxy-Authorization` or `Cookie`, or with a `-`/`_`-separated part `token`, `secret`, `password`, `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session` or `auth`, or the parts `api-key`, `access-key`, `private-key`, `auth-key` or `subscription-key` (`X-Api-Key`, `X-Auth-Token`), is refused (`invalid-mcp-endpoint`, reason `credential-in-headers`). Send it by reference: `auth` with `scheme: header`, or `secretRef` for a bearer. An endpoint registered with one before keeps working, and its value reads back as `[redacted]`.
+    """
 
 
 class RegisterMCPEndpointResult(BaseModel):
@@ -11347,51 +11381,17 @@ class ProviderCapabilitiesResult(BaseModel):
     data: list[CapabilityDescriptor]
 
 
-class RegisterMCPEndpointBody(BaseModel):
+class MCPHeaderAuth(BaseModel):
+    """
+    Headers of the server's own, each with a secret: an API key in `X-Api-Key`, a key and a secret in two headers, or `Authorization` with a prefix other than `Bearer ` (`Token …`). The runtime resolves each `secretRef` when it connects, and refuses to follow a redirect with them, as it does for every `auth`.
+    """
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    endpoint_id: Annotated[str, Field(alias="endpointId", min_length=1)]
-    name: Annotated[str, Field(min_length=1)]
-    """
-    Human-readable display name.
-    """
-    transport: Literal["stdio", "http-sse", "streamable-http"]
-    """
-    MCP transport variant. `stdio` — local subprocess (spawn a command). `http-sse` — the older MCP HTTP+SSE transport (separate POST + SSE endpoints). `streamable-http` — the Streamable HTTP transport (single endpoint, session id via header).
-    """
-    config: Config3 | Config4 | Config5
-    """
-    Transport-tagged config union. Server enforces `config.transport === transport` at registration.
-    """
-    secret_ref: Annotated[MCPEndpointSecretRef | None, Field(alias="secretRef")] = None
-    auth: Annotated[
-        MCPBasicAuth | MCPOAuth2ClientCredentialsAuth | None, Field(discriminator="scheme")
-    ] = None
-    """
-    How the endpoint signs in when it isn't a plain bearer: `basic` or `oauth2-client-credentials`. Not with `secretRef` (`invalid-mcp-endpoint`, reason `auth-with-secret-ref`), not on a `stdio` endpoint (reason `auth-on-stdio`), and not with an `Authorization` header in `config.headers` (reason `auth-with-authorization-header`). An older runtime refuses the field as unknown.
-    """
-    instructions: str | None = None
-    """
-    Optional pass-through to the MCP client `serverInfo.instructions`.
-    """
-    metadata: dict[str, Any] | None = None
-    """
-    Optional caller-defined metadata bag.
-    """
-    send_traceparent: Annotated[bool | None, Field(alias="sendTraceparent")] = None
-    """
-    Send the W3C `traceparent` of the run calling a tool to this endpoint, as a request header, so the server's logs can be matched to the run. Ids only, never content. Default `false`. HTTP transports only: `true` on a `stdio` endpoint is refused (`invalid-mcp-endpoint`, reason `invalid-send-traceparent`). An older runtime ignores it and sends none.
-    """
-    scope_kind: Annotated[Literal["tenant", "org", "project"], Field(alias="scopeKind")]
-    """
-    Discriminator for the ?scopeKind + ?scopeId + ?inherit triplet. Tenant carries no id (implicit from session); org/project require scopeId.
-    """
-    scope_id: Annotated[str | None, Field(alias="scopeId", min_length=1)] = None
-    """
-    Required when `scopeKind` is `org` or `project`; absent for `tenant` (implicit from the session).
-    """
+    scheme: Literal["header"]
+    headers: Annotated[list[MCPAuthHeader], Field(max_length=4, min_length=1)]
 
 
 class CostRecord(BaseModel):
@@ -11898,7 +11898,7 @@ class WebhookDeliveryCollectionPage(BaseModel):
     has_more: Annotated[bool, Field(alias="hasMore")]
 
 
-class MCPEndpoint(BaseModel):
+class RegisterMCPEndpointBody(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -11912,16 +11912,17 @@ class MCPEndpoint(BaseModel):
     """
     MCP transport variant. `stdio` — local subprocess (spawn a command). `http-sse` — the older MCP HTTP+SSE transport (separate POST + SSE endpoints). `streamable-http` — the Streamable HTTP transport (single endpoint, session id via header).
     """
-    config: Config | Config1 | Config2
+    config: Config3 | Config4 | Config5
     """
     Transport-tagged config union. Server enforces `config.transport === transport` at registration.
     """
     secret_ref: Annotated[MCPEndpointSecretRef | None, Field(alias="secretRef")] = None
     auth: Annotated[
-        MCPBasicAuth | MCPOAuth2ClientCredentialsAuth | None, Field(discriminator="scheme")
+        MCPBasicAuth | MCPOAuth2ClientCredentialsAuth | MCPHeaderAuth | None,
+        Field(discriminator="scheme"),
     ] = None
     """
-    How the endpoint signs in when it isn't a plain bearer: `basic` or `oauth2-client-credentials`. Not with `secretRef` (`invalid-mcp-endpoint`, reason `auth-with-secret-ref`), not on a `stdio` endpoint (reason `auth-on-stdio`), and not with an `Authorization` header in `config.headers` (reason `auth-with-authorization-header`). An older runtime refuses the field as unknown.
+    How the endpoint signs in when it isn't a plain bearer: `basic`, `oauth2-client-credentials` or `header`. Not with `secretRef` (`invalid-mcp-endpoint`, reason `auth-with-secret-ref`), not on a `stdio` endpoint (reason `auth-on-stdio`), and not with a header in `config.headers` that `auth` sends: `Authorization` for `basic` and `oauth2-client-credentials` (reason `auth-with-authorization-header`), a name in `auth.headers` for `header` (reason `auth-header-in-config`). An older runtime refuses the field as unknown, or the `header` scheme as `invalid-auth`.
     """
     instructions: str | None = None
     """
@@ -11935,16 +11936,14 @@ class MCPEndpoint(BaseModel):
     """
     Send the W3C `traceparent` of the run calling a tool to this endpoint, as a request header, so the server's logs can be matched to the run. Ids only, never content. Default `false`. HTTP transports only: `true` on a `stdio` endpoint is refused (`invalid-mcp-endpoint`, reason `invalid-send-traceparent`). An older runtime ignores it and sends none.
     """
-
-
-class MCPEndpointCollectionPage(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[MCPEndpoint]
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
-    has_more: Annotated[bool, Field(alias="hasMore")]
+    scope_kind: Annotated[Literal["tenant", "org", "project"], Field(alias="scopeKind")]
+    """
+    Discriminator for the ?scopeKind + ?scopeId + ?inherit triplet. Tenant carries no id (implicit from session); org/project require scopeId.
+    """
+    scope_id: Annotated[str | None, Field(alias="scopeId", min_length=1)] = None
+    """
+    Required when `scopeKind` is `org` or `project`; absent for `tenant` (implicit from the session).
+    """
 
 
 class PersonGrants(BaseModel):
@@ -11974,6 +11973,56 @@ class PersonGrants(BaseModel):
     Team memberships.
     """
     reviewer: PersonReviewerRole | None = None
+
+
+class MCPEndpoint(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    endpoint_id: Annotated[str, Field(alias="endpointId", min_length=1)]
+    name: Annotated[str, Field(min_length=1)]
+    """
+    Human-readable display name.
+    """
+    transport: Literal["stdio", "http-sse", "streamable-http"]
+    """
+    MCP transport variant. `stdio` — local subprocess (spawn a command). `http-sse` — the older MCP HTTP+SSE transport (separate POST + SSE endpoints). `streamable-http` — the Streamable HTTP transport (single endpoint, session id via header).
+    """
+    config: Config | Config1 | Config2
+    """
+    Transport-tagged config union. Server enforces `config.transport === transport` at registration.
+    """
+    secret_ref: Annotated[MCPEndpointSecretRef | None, Field(alias="secretRef")] = None
+    auth: Annotated[
+        MCPBasicAuth | MCPOAuth2ClientCredentialsAuth | MCPHeaderAuth | None,
+        Field(discriminator="scheme"),
+    ] = None
+    """
+    How the endpoint signs in when it isn't a plain bearer: `basic`, `oauth2-client-credentials` or `header`. Not with `secretRef` (`invalid-mcp-endpoint`, reason `auth-with-secret-ref`), not on a `stdio` endpoint (reason `auth-on-stdio`), and not with a header in `config.headers` that `auth` sends: `Authorization` for `basic` and `oauth2-client-credentials` (reason `auth-with-authorization-header`), a name in `auth.headers` for `header` (reason `auth-header-in-config`). An older runtime refuses the field as unknown, or the `header` scheme as `invalid-auth`.
+    """
+    instructions: str | None = None
+    """
+    Optional pass-through to the MCP client `serverInfo.instructions`.
+    """
+    metadata: dict[str, Any] | None = None
+    """
+    Optional caller-defined metadata bag.
+    """
+    send_traceparent: Annotated[bool | None, Field(alias="sendTraceparent")] = None
+    """
+    Send the W3C `traceparent` of the run calling a tool to this endpoint, as a request header, so the server's logs can be matched to the run. Ids only, never content. Default `false`. HTTP transports only: `true` on a `stdio` endpoint is refused (`invalid-mcp-endpoint`, reason `invalid-send-traceparent`). An older runtime ignores it and sends none.
+    """
+
+
+class MCPEndpointCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[MCPEndpoint]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
 
 
 class UserRecord(BaseModel):

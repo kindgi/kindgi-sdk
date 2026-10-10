@@ -340,9 +340,52 @@ module, and [Simple OAuth](https://www.drupal.org/project/simple_oauth) for
 the token endpoint: a consumer with the client credentials grant, and the
 user its tokens act as.
 
+### Send a key in a header of the server's own
+
+For a server that takes an API key in a header such as `X-Api-Key`, a key and
+a secret in two headers, or `Authorization` with a prefix other than
+`Bearer `, use `scheme: "header"`:
+
+```json
+"auth": {
+  "scheme": "header",
+  "headers": [
+    { "name": "X-Api-Key", "secretRef": { "envName": "local", "name": "INVENTORY_KEY" } },
+    { "name": "X-Api-Secret", "prefix": "Secret ", "secretRef": { "envName": "local", "name": "INVENTORY_SECRET" } }
+  ]
+}
+```
+
+Kindgi sends each header as `<name>: <prefix><secret>` on every request, the
+secrets resolved from the tenant's secrets when it connects. Reading the
+endpoint back shows the references only:
+
+```json
+"auth":{"scheme":"header","headers":[{"name":"X-Api-Key","secretRef":{"name":"INVENTORY_KEY","envName":"local"}},{"name":"X-Api-Secret","prefix":"Secret ","secretRef":{"name":"INVENTORY_SECRET","envName":"local"}}]}
+```
+
+- **1 to 4 headers**, each name once (case doesn't matter). `prefix` is
+  optional (`Token `, `ApiKey `, …). It's not a secret: it's stored and read
+  back as given.
+- **Not a header the transport sets:** `Host`, `Content-Type`, `Accept`,
+  `Mcp-Session-Id`, `traceparent` and the like are refused (`invalid-auth`):
+
+  ```json
+  {"error":{"code":"invalid-mcp-endpoint","message":"endpoint \"inventory-reserved\" auth.headers[0].name \"Mcp-Session-Id\" is a header the MCP transport sets itself","details":{"reason":"invalid-auth"},…}}
+  ```
+- **A key the server turns down** (it answers 401) fails the tool call with
+  `mcp-auth-refused`, as a wrong Basic password does.
+- **A secret a header can't carry**, such as a value pasted with a line break
+  inside it, fails with `mcp-auth-unresolved`. The log names the header,
+  never the value:
+
+  ```text
+  23:53:08.218 WARN  [mcp] MCP endpoint "inventory-pasted" sync failed: mcp-auth-unresolved: MCP endpoint "inventory-pasted": its credential for the header "X-Api-Key" has a line break, which a header can't carry: store the secret without it endpointId=inventory-pasted
+  ```
+
 ### A secret that isn't set
 
-With either scheme, a secret that isn't set fails the tool call with
+With any scheme, a secret that isn't set fails the tool call with
 `mcp-auth-unresolved`. The log names the secret and where it looked, never a
 value:
 
@@ -369,8 +412,71 @@ side: check that the account the credentials stand for may use them.
 `secretRef` stays the plain bearer form, and `auth` is the other schemes. A
 registration with both is refused (`invalid-mcp-endpoint`, reason
 `auth-with-secret-ref`), and so is `auth` on a `stdio` endpoint
-(`auth-on-stdio`: a stdio server gets no headers), or beside an
-`Authorization` header in `config.headers` (`auth-with-authorization-header`).
+(`auth-on-stdio`: a stdio server gets no headers). A header `auth` sends
+can't be in `config.headers` too:
+- `Authorization`, beside `basic` or `oauth2-client-credentials`
+  (`auth-with-authorization-header`);
+- a name in `auth.headers` (`auth-header-in-config`):
+
+  ```json
+  {"error":{"code":"invalid-mcp-endpoint","message":"endpoint \"inventory-twice\" sets the header \"x-api-key\" in both auth.headers and config.headers: auth sends it. Drop it from config.headers.","details":{"reason":"auth-header-in-config"},…}}
+  ```
+
+### Not in `config.headers`
+
+`config.headers` is for plain headers: they're stored, and read back, as
+given. A header whose name says it carries a credential is refused
+(`invalid-mcp-endpoint`, reason `credential-in-headers`). The refusal names
+the header, never its value, and shows the `auth` that sends it by reference:
+
+```json
+{"error":{"code":"invalid-mcp-endpoint","message":"endpoint \"inventory-plain\" puts a credential in config.headers (\"X-Api-Key\"), where it's stored and shown as given. Store each value as a secret and send it by reference: auth: { scheme: \"header\", headers: [{ name: \"X-Api-Key\", secretRef: { envName, name } }] }.","details":{"reason":"credential-in-headers"},…}}
+```
+
+Which names count:
+- `Authorization`, `Proxy-Authorization` and `Cookie`;
+- a name with a part, between `-` or `_`, of `token`, `secret`, `password`,
+  `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session` or
+  `auth` (`X-Auth-Token`, `X-Session-Id`, `X-Client-Secret`);
+- a name with the parts `api-key`, `access-key`, `private-key`, `auth-key` or
+  `subscription-key` (`X-Api-Key`, `Ocp-Apim-Subscription-Key`).
+
+`X-Tenant`, `X-Request-Id`, `X-Region` or `X-Key-Id` are plain headers. A
+name that's refused but isn't a secret costs only this: store its value as a
+secret too.
+
+For `Authorization: Bearer <token>`, use `secretRef`. For any other header,
+use `auth` with `scheme: "header"`.
+
+#### An endpoint registered with one before 0.1.8
+
+It keeps working, and:
+- **reads back `[redacted]`** for each such header, its name kept:
+
+  ```json
+  "config":{"url":"http://127.0.0.1:18766/mcp","headers":{"X-Region":"eu","X-Api-Key":"[redacted]","X-Api-Secret":"[redacted]"},"transport":"streamable-http"}
+  ```
+- **never follows a redirect**, as an endpoint with `auth` or `secretRef`
+  doesn't. A server that answers 3xx fails the call with `mcp-auth-failed`:
+
+  ```text
+  23:53:20.206 WARN  [mcp] MCP endpoint "inventory-moved" skipped: mcp-auth-failed: MCP endpoint "inventory-moved" redirected (HTTP 307) a request carrying a credential header in its config.headers (X-Api-Key, X-Api-Secret): register the URL it redirects to endpointId=inventory-moved transport=streamable-http
+  ```
+- **is named, never its value:** by the runtime at every start (`WARN`
+  `mcp-header-credential`), by its [`check mcp-header-credentials`](../../../deploy/operate/#checks-you-can-run-before-upgrading),
+  and by `kindgi doctor` against the runtime it points at:
+
+  ```text
+    ! MCP endpoint headers: 2 MCP endpoints keep a credential in plaintext config.headers, from before that was refused. They still work, but each value is stored as given, not as a secret.
+        ✗ inventory-legacy: X-Api-Key, X-Api-Secret
+        ✗ inventory-moved: X-Api-Key, X-Api-Secret
+        Fix: Store each value as a secret (kindgi secrets set <NAME> --env=<name> --scope=tenant), then unregister the endpoint and register it again with the header in auth: { scheme: "header", headers: [{ name: "<header>", secretRef: { envName, name } }] }.
+  ```
+
+To move one: store each header's value as a secret
+(`kindgi secrets set INVENTORY_KEY --env=local --scope=tenant`),
+[unregister the endpoint](#when-the-server-changes), and register it again
+with `auth` in place of the header.
 
 ## Send the run's trace
 
@@ -412,8 +518,9 @@ reconnects:
 ## Transports
 
 - **`streamable-http`**: `{ transport: 'streamable-http', url, headers? }`.
-  Use it wherever you can. `headers` are sent as given, and the API returns
-  them as given: put a credential in `secretRef`, not here.
+  Use it wherever you can. `headers` are sent, and read back, as given, so
+  they're for plain headers only: a credential goes in `auth` or `secretRef`
+  ([Not in `config.headers`](#not-in-configheaders)).
 - **`http-sse`**: the older HTTP and Server-Sent Events transport,
   `{ transport: 'http-sse', url, sseUrl?, headers? }`, with `url` the
   server's SSE endpoint (`http://localhost:8793/sse` for the Python SDK).

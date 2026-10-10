@@ -203,6 +203,13 @@ describe("a model provider's key, named where it's not the provider", () => {
         clientId: 'kindgi',
         secretRef: { envName: 'local', name: MODEL_KEY },
       },
+      {
+        scheme: 'header',
+        headers: [
+          { name: 'X-Api-Key', secretRef: { envName: 'local', name: 'SHOP_KEY' } },
+          { name: 'X-Api-Secret', secretRef: { envName: 'local', name: MODEL_KEY } },
+        ],
+      },
     ]) {
       const named = await h.call('POST', '/v1/mcp/endpoints', { ...http, auth });
       expect([named.status, named.body.error?.message]).toEqual([400, REFUSED('an MCP endpoint')]);
