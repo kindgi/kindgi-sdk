@@ -193,9 +193,12 @@ describe('the refusal: exit 3, and where the running one is', () => {
 });
 
 describe("the runtime container: never another live kindgi dev's", () => {
-  const live = processes(100, { 100: 'a', 300: 'c' });
+  // Start times as `ps -o lstart=` gives them: with spaces, as the label carries them.
+  const A = 'Sat Oct 10 19:45:37 2026';
+  const C = 'Sat Oct 10 19:45:57 2026';
+  const live = processes(100, { 100: A, 300: C });
   const self = {
-    owner: ownerOf({ pid: 100, processStart: 'a' }),
+    owner: ownerOf({ pid: 100, processStart: A }),
     ownerIsLive: (o: string) => ownerIsLive(o, live),
   };
 
@@ -207,7 +210,7 @@ describe("the runtime container: never another live kindgi dev's", () => {
       network: 'alias',
       hostPort: 4000,
       onLog: () => undefined,
-      owner: '100@a',
+      owner: `100@${A}`,
     });
     expect(args.slice(0, 8)).toEqual([
       'run',
@@ -217,19 +220,19 @@ describe("the runtime container: never another live kindgi dev's", () => {
       '--env-file',
       '/p/.kindgi/dev/runtime.env',
       '--label',
-      'kindgi.dev.owner=100@a',
+      `kindgi.dev.owner=100@${A}`,
     ]);
   });
 
   test('running for another live kindgi dev: kept, and its owner named', async () => {
-    expect(await ownedElsewhere('true 300@c\n', self)).toBe('300@c');
+    expect(await ownedElsewhere(`true 300@${C}\n`, self)).toBe(`300@${C}`);
   });
 
   test('replaced otherwise: stopped, its owner gone or restarted, unlabeled, or its own', async () => {
-    expect(await ownedElsewhere('false 300@c', self)).toBeUndefined();
-    expect(await ownedElsewhere('true 400@d', self)).toBeUndefined();
-    expect(await ownedElsewhere('true 300@other-start', self)).toBeUndefined();
+    expect(await ownedElsewhere(`false 300@${C}`, self)).toBeUndefined();
+    expect(await ownedElsewhere(`true 400@${C}`, self)).toBeUndefined();
+    expect(await ownedElsewhere('true 300@Sat Oct 10 19:44:00 2026', self)).toBeUndefined();
     expect(await ownedElsewhere('true <no value>', self)).toBeUndefined();
-    expect(await ownedElsewhere('true 100@a', self)).toBeUndefined();
+    expect(await ownedElsewhere(`true 100@${A}`, self)).toBeUndefined();
   });
 });

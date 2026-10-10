@@ -195,7 +195,12 @@ export async function ownedElsewhere(
   inspected: string,
   self: Pick<RuntimeContainerOptions, 'owner' | 'ownerIsLive'>,
 ): Promise<string | undefined> {
-  const [running, owner = ''] = inspected.trim().split(' ');
+  // Split at the first space only: the owner holds the process's start time
+  // (`ps -o lstart=`), which has spaces of its own.
+  const line = inspected.trim();
+  const space = line.indexOf(' ');
+  const running = space === -1 ? line : line.slice(0, space);
+  const owner = space === -1 ? '' : line.slice(space + 1);
   if (running !== 'true' || owner === '' || owner === '<no value>' || owner === self.owner) {
     return undefined;
   }
