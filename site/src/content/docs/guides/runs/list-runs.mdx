@@ -96,7 +96,7 @@ edaf7625-0585-40c3-805c-0c098f6846b8 acme.review-order failed
   (`scope_kind="project", scope_id=…`), or `{ kind: 'org', orgId }`.
 - **`agentId`** (`agent_id`) lists one agent's turns; see below.
 - **`status`** lists the runs in one status, or in any of several:
-  `['failed', 'cancelled']` (`status="failed,cancelled"` in Python).
+  `['failed', 'cancelled']` (a list in Python too).
 - **`createdAfter`** / **`createdBefore`** (`created_after` /
   `created_before`) list the runs created strictly after, or before, a time.
 - **`flowId`** (`flow_id`) lists one flow's runs, and **`flowVersion`**
@@ -104,8 +104,11 @@ edaf7625-0585-40c3-805c-0c098f6846b8 acme.review-order failed
   use `agentId` for an agent's.
 - In Python, `paginate` follows `next_cursor` for you.
 
-The filters combine. The runs that failed or were cancelled in the last day,
-leaving out the runs inside them:
+A status that doesn't exist, a time that isn't one, an empty value, or a
+version without its id is refused with `400 bad-input`, naming it.
+
+The filters combine. The runs created in the last day that failed or were
+cancelled, leaving out the runs inside them:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -126,7 +129,7 @@ const ended = await kindgi.runs.list({
 from datetime import datetime, timedelta, timezone
 
 since = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
-ended = kindgi.runs.list(status="failed,cancelled", created_after=since, top_level=True)
+ended = kindgi.runs.list(status=["failed", "cancelled"], created_after=since, top_level=True)
 ```
 
 </TabItem>

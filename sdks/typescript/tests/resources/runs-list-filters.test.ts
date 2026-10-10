@@ -23,8 +23,9 @@ describe('runs.list — the narrowing filters', () => {
     });
     await client.runs.list({ status: 'running', flowId: 'acme.digest', flowVersion: '1.0.0' });
     const [first, second] = stub.calls.map((c) => new URL(c.url).searchParams);
+    expect(first?.getAll('status')).toEqual(['failed', 'cancelled']);
+    first?.delete('status');
     expect(Object.fromEntries(first ?? [])).toEqual({
-      status: 'failed,cancelled',
       createdAfter: '2026-10-01T00:00:00.000Z',
       createdBefore: '2026-10-08T00:00:00.000Z',
       agentId: 'acme.refunds',

@@ -307,7 +307,7 @@ export function runsRouter(
         toWireError({ code: 'scope-invalid', message: scopeParsed.message }, requestId),
       );
     }
-    const listFilter = parseRunListFilter(c.req.query());
+    const listFilter = parseRunListFilter(c.req.query(), c.req.queries('status'));
     if (listFilter.kind === 'err') {
       c.status(statusFor('bad-input') as never);
       return c.json(toWireError({ code: 'bad-input', message: listFilter.message }, requestId));
@@ -875,10 +875,10 @@ const RUN_STATUSES: Readonly<Record<RunStatus, true>> = {
 
 type Parsed<T> = { kind: 'ok'; value: T } | { kind: 'err'; message: string };
 
-/** `?status=`: one status or a comma list of them, de-duplicated. */
-function parseStatuses(raw: string | undefined): Parsed<RunStatus[] | undefined> {
-  if (raw === undefined) return { kind: 'ok', value: undefined };
-  const given = raw.split(',').map((s) => s.trim());
+/** `?status=`, repeated or comma-separated (`status=failed&status=cancelled`, `status=failed,cancelled`), de-duplicated. */
+function parseStatuses(raw: readonly string[] | undefined): Parsed<RunStatus[] | undefined> {
+  if (raw === undefined || raw.length === 0) return { kind: 'ok', value: undefined };
+  const given = raw.flatMap((v) => v.split(',')).map((s) => s.trim());
   const unknown = given.filter((s) => !Object.hasOwn(RUN_STATUSES, s));
   if (unknown.length > 0) {
     const named = unknown.join(', ') || '(empty)';
@@ -922,6 +922,7 @@ function parseCreatedBounds(
 /** The narrowing filters: `status`, the creation bounds, the agent's version, and the flow with its version. */
 function parseRunNarrowing(
   query: Readonly<Record<string, string>>,
+  status: readonly string[] | undefined,
 ): Parsed<
   Pick<
     RunListFilter,
@@ -929,7 +930,7 @@ function parseRunNarrowing(
   >
 > {
   const { agentId, agentVersion, flowId, flowVersion } = query;
-  const statuses = parseStatuses(query.status);
+  const statuses = parseStatuses(status);
   if (statuses.kind === 'err') return statuses;
   const bounds = parseCreatedBounds(query.createdAfter, query.createdBefore);
   if (bounds.kind === 'err') return bounds;
@@ -968,6 +969,7 @@ function parseRunNarrowing(
  */
 function parseRunListFilter(
   query: Readonly<Record<string, string>>,
+  status?: readonly string[],
 ): { kind: 'ok'; value: RunListFilter } | { kind: 'err'; message: string } {
   const { parentRunId, topLevel, agentId, replays, evalRunId, triggerId, include } = query;
   if (triggerId !== undefined && !UUID_RE.test(triggerId)) {
@@ -1005,7 +1007,7 @@ function parseRunListFilter(
   if (unknown.length > 0) {
     return { kind: 'err', message: `Unknown \`include\` value(s): ${unknown.join(', ')}` };
   }
-  const narrowing = parseRunNarrowing(query);
+  const narrowing = parseRunNarrowing(query, status);
   if (narrowing.kind === 'err') return narrowing;
   return {
     kind: 'ok',

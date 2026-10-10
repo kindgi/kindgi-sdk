@@ -50,9 +50,13 @@ async function list(query: string) {
 }
 
 describe('GET /v1/runs: the narrowing filters', () => {
-  test('status: one, or a comma list, de-duplicated', async () => {
+  test('status: one, repeated, or a comma list, de-duplicated', async () => {
     expect((await list('status=failed')).input?.statuses).toEqual(['failed']);
     expect((await list('status=failed,cancelled,failed')).input?.statuses).toEqual([
+      'failed',
+      'cancelled',
+    ]);
+    expect((await list('status=failed&status=cancelled')).input?.statuses).toEqual([
       'failed',
       'cancelled',
     ]);

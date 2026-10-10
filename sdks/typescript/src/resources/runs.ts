@@ -586,7 +586,7 @@ export function makeRunsClient(transport: Transport): RunsClient {
           ...(filter?.evalRunId !== undefined && { evalRunId: filter.evalRunId }),
           ...(filter?.triggerId !== undefined && { triggerId: filter.triggerId }),
           ...(filter?.status !== undefined && {
-            status: (typeof filter.status === 'string' ? [filter.status] : filter.status).join(','),
+            status: typeof filter.status === 'string' ? [filter.status] : [...filter.status],
           }),
           ...(filter?.createdAfter !== undefined && {
             createdAfter: filter.createdAfter as unknown as string,

@@ -203,8 +203,8 @@ const RunStatusQueryParam: ParameterSpec = {
   in: 'query',
   required: false,
   description:
-    'Only runs in these statuses: one, or several comma-separated, e.g. `failed,cancelled` or `pending,running,suspended`.',
-  schema: { type: 'string' },
+    'Only runs in these statuses: one, or several, repeated (`status=failed&status=cancelled`) or comma-separated (`status=failed,cancelled`).',
+  schema: { type: 'array', items: { $ref: '#/components/schemas/RunStatus' } },
 };
 
 const RunCreatedAfterQueryParam: ParameterSpec = {
