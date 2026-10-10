@@ -55,7 +55,6 @@ function makeStore() {
           tenantId: input.tenantId,
           userId: input.userId,
           providerId: input.providerId,
-          ...(input.accessToken !== undefined && { accessToken: input.accessToken }),
           expiresAt: input.expiresAt,
           scopes: input.scopes,
           createdAt: new Date().toISOString() as Timestamp,
@@ -106,7 +105,6 @@ async function signedIn(store: SessionStoreBinding) {
     tenantId,
     userId: 'user-alice' as never,
     providerId: 'acme-sso',
-    accessToken: 'unused',
     expiresAt: FAR,
     scopes: [],
   });
@@ -279,7 +277,6 @@ describe('cookie sessions: logout and refresh', () => {
       tenantId,
       userId: 'user-bob' as never,
       providerId: 'acme-sso',
-      accessToken: 'unused',
       expiresAt: FAR,
       scopes: [],
     });

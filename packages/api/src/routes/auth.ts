@@ -291,14 +291,11 @@ export function authRouter(options: AuthRouterOptions): Hono<AppEnv> {
     }
 
     // A new session in place of this one: same person, provider, scopes,
-    // expiry and metadata. Refresh never calls the provider, so any
-    // provider tokens the old session holds carry over as they are.
+    // expiry and metadata. Refresh never calls the provider.
     const createdSession = await sessionStore.create({
       tenantId,
       userId: current.userId,
       providerId: current.providerId,
-      ...(current.accessToken !== undefined && { accessToken: current.accessToken }),
-      ...(current.refreshToken !== undefined && { refreshToken: current.refreshToken }),
       expiresAt: current.expiresAt,
       scopes: current.scopes,
       ...(current.metadata !== undefined && { metadata: current.metadata }),
