@@ -161,9 +161,7 @@ export default defineConfig({
           },
         }),
       ],
-      head: [
-        ...(indexed ? [] : [{ tag: 'meta', attrs: { name: 'robots', content: 'noindex' } }]),
-      ],
+      head: [...(indexed ? [] : [{ tag: 'meta', attrs: { name: 'robots', content: 'noindex' } }])],
       sidebar: [
         { label: 'Start', items: [{ autogenerate: { directory: 'start' } }] },
         { label: 'Tutorials', items: [{ autogenerate: { directory: 'tutorials' } }] },
