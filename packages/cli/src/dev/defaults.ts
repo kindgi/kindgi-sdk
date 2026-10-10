@@ -26,6 +26,7 @@ import {
   DEFAULT_DISCOVERY,
   type IndexerReport,
   PACK_ENV_CHECK_VAR,
+  PACK_ENV_FILTER_VAR,
   createGlobMatcher,
   discoveryRoots,
   runIndexer as runIndexerReal,
@@ -137,9 +138,15 @@ export function createPackServiceReal(opts: DevPackServiceOptions): DevPackServi
     command: packServiceCommand(opts.code),
     moduleRoot: opts.packDir,
     // A required env name the pack lacks is a warning in dev (the
-    // service still serves), not a refusal as in a deployment.
+    // service still serves), not a refusal as in a deployment. And the
+    // service keeps the app's env files' names: in dev the pack reads the
+    // app's settings, declared or not.
     env: async () => {
-      const env = { ...(await opts.env()), [PACK_ENV_CHECK_VAR]: 'warn' };
+      const env = {
+        ...(await opts.env()),
+        [PACK_ENV_CHECK_VAR]: 'warn',
+        [PACK_ENV_FILTER_VAR]: 'off',
+      };
       return isJvmPackCode(opts.code) ? javaEnv(opts.code, env) : env;
     },
     onLog: opts.onLog,

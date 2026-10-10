@@ -832,12 +832,13 @@ describe('kindgi build — a Python pack', () => {
 });
 
 /** The JVM build runners, recording what they're called with (Java and Scala packs). */
-function withJvm(fixtures: Fixtures, compileErrors?: readonly string[]) {
+function withJvm(fixtures: Fixtures, compileErrors?: readonly string[], indexEnv?: unknown) {
   const calls = {
     prepared: [] as unknown[],
     indexed: [] as unknown[],
     images: [] as (readonly string[])[],
     languages: [] as string[],
+    declared: [] as (readonly string[])[],
     files: [] as (readonly string[])[],
   };
   fixtures.runners = {
@@ -851,7 +852,12 @@ function withJvm(fixtures: Fixtures, compileErrors?: readonly string[]) {
       },
       runLocalIndexer: async (o) => {
         calls.indexed.push(o.code);
-        await writeFile(o.outputPath, SAMPLE_INDEX_BYTES);
+        await writeFile(
+          o.outputPath,
+          indexEnv === undefined
+            ? SAMPLE_INDEX_BYTES
+            : JSON.stringify({ ...SAMPLE_INDEX, env: indexEnv }),
+        );
         return {
           kind: 'ok',
           packId: 'my-pack',
@@ -864,6 +870,7 @@ function withJvm(fixtures: Fixtures, compileErrors?: readonly string[]) {
       writeContainerfile: async (o) => {
         calls.images.push([o.buildImageRef, o.runtimeImageRef]);
         calls.languages.push(o.language);
+        calls.declared.push(o.declaredEnv);
         await writeFile(o.outputPath, `# ${o.language} containerfile\n`, 'utf8');
       },
       writeContext: async (o) => {
@@ -921,6 +928,7 @@ describe('kindgi build — a Java pack', () => {
     expect(calls.prepared).toEqual([code]);
     expect(calls.indexed).toEqual([code]);
     expect(calls.images).toEqual([[DEFAULT_JAVA_BUILD_IMAGE_REF, DEFAULT_JAVA_RUNTIME_IMAGE_REF]]);
+    expect(calls.declared).toEqual([[]]);
     expect(calls.files).toEqual([
       ['kindgi.config.json', 'pom.xml', 'src/main/java/acme/tools/Echo.java'],
     ]);
@@ -928,6 +936,22 @@ describe('kindgi build — a Java pack', () => {
     expect(fixtures.state.tarCalls).toBe(1);
     expect(fixtures.state.postCalls).toBe(1);
     expect(fixtures.state.signCalls).toBe(1);
+  });
+
+  test("the image's launcher keeps the names the index declares, required and optional", async () => {
+    await javaPack();
+    const env = { optional: ['CACHE_DIR'], required: ['A_URL', 'B_KEY'] };
+    // The image's index is the local one (the integrity gate).
+    const fixtures = makeFixtures({
+      serverIndexBytes: new TextEncoder().encode(JSON.stringify({ ...SAMPLE_INDEX, env })),
+    });
+    const calls = withJvm(fixtures, undefined, env);
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: {} }, { ...JAVA_CONFIG, environments: {} }),
+      argv: ['build', '--local', '--artifact-version=20261007.1', `--path=${packDir}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls.declared).toEqual([['A_URL', 'B_KEY', 'CACHE_DIR']]);
   });
 
   test("a pack that doesn't compile stops before indexing, with javac's located errors", async () => {
