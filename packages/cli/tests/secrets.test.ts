@@ -8,7 +8,8 @@
  * standard `envRunners` in-memory stub used by env tests).
  */
 
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -298,6 +299,40 @@ describe('kindgi secrets set — TTY prompt', () => {
     expect(out.stderr).not.toContain('sk_live_x');
   });
 
+  test('--rotation-due-at: a date goes as its start in UTC; a loose time is refused, nothing sent', async () => {
+    const fixtures = makeFixtures({ ttyValues: ['sk_live_x', 'sk_live_x'] });
+    const clientFactory = (): unknown =>
+      makeFakeClient({
+        set: async (args: unknown) => {
+          fixtures.state.setCalls.push(args);
+          return { kind: 'ok', record: { name: 'stripe.key', currentVersion: 1 }, versionId: 1 };
+        },
+      });
+    const argv = ['secrets', 'set', 'stripe.key', '--env=staging', '--scope=tenant'];
+    const out = await runCli({
+      ...baseInputs(fixtures, [
+        ...argv,
+        '--rotation-due-at=2027-01-15',
+        '--url=https://x',
+        '--token=t',
+      ]),
+      clientFactory: clientFactory as never,
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect((fixtures.state.setCalls[0] as { rotationDueAt?: string }).rotationDueAt).toBe(
+      '2027-01-15T00:00:00.000Z',
+    );
+
+    const loose = makeFixtures({ ttyValues: ['sk_live_x', 'sk_live_x'] });
+    const refused = await runCli({
+      ...baseInputs(loose, [...argv, '--rotation-due-at=Oct 9', '--url=https://x', '--token=t']),
+      clientFactory: clientFactory as never,
+    });
+    expect(refused.exitCode).toBe(2);
+    expect(refused.stderr).toContain('--rotation-due-at must be an ISO 8601 time with a zone');
+    expect(loose.state.setCalls).toEqual([]);
+  });
+
   test('rejects on TTY mismatch', async () => {
     const fixtures = makeFixtures({
       ttyValues: ['sk_live_x', 'DIFFERENT'],
@@ -396,6 +431,207 @@ describe('kindgi secrets set — --from-stdin', () => {
     expect(call.value).toBe('sk_live_x');
   });
 });
+
+describe("kindgi secrets set --app (the app's env file)", () => {
+  test('sends appEnvFile, and says where it went', async () => {
+    const fixtures = makeFixtures({ stdinValue: 'whsec_x\n' });
+    const clientFactory = (): unknown =>
+      makeFakeClient({
+        set: async (args: unknown) => {
+          fixtures.state.setCalls.push(args);
+          return {
+            kind: 'ok',
+            record: {
+              name: 'ACME_WEBHOOK_SECRET',
+              scope: { kind: 'tenant', tenantId: SERVER_TENANT },
+              envName: 'local',
+              currentVersion: 1,
+              createdAt: '2026-10-10T00:00:00Z',
+              updatedAt: '2026-10-10T00:00:00Z',
+            },
+            versionId: 1,
+          };
+        },
+      });
+    const out = await runCli({
+      ...baseInputs(fixtures, [
+        'secrets',
+        'set',
+        'ACME_WEBHOOK_SECRET',
+        '--env=local',
+        '--scope=tenant',
+        '--from-stdin',
+        '--app',
+        '--url=https://api.example.com',
+        '--token=t',
+      ]),
+      clientFactory: clientFactory as never,
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(fixtures.state.setCalls[0]).toMatchObject({ appEnvFile: true });
+    expect(out.stderr).toContain(
+      "Set ACME_WEBHOOK_SECRET at tenant in local, in your app's env file.",
+    );
+    expect(out.stderr + out.stdout).not.toContain('whsec_x');
+  });
+
+  test('without --app: no appEnvFile on the call', async () => {
+    const fixtures = makeFixtures({ stdinValue: 'v\n' });
+    const clientFactory = (): unknown =>
+      makeFakeClient({
+        set: async (args: unknown) => {
+          fixtures.state.setCalls.push(args);
+          return {
+            kind: 'ok',
+            record: {
+              name: 'K',
+              scope: { kind: 'tenant', tenantId: SERVER_TENANT },
+              envName: 'local',
+              currentVersion: 1,
+              createdAt: '2026-10-10T00:00:00Z',
+              updatedAt: '2026-10-10T00:00:00Z',
+            },
+            versionId: 1,
+          };
+        },
+      });
+    await runCli({
+      ...baseInputs(fixtures, [
+        'secrets',
+        'set',
+        'K',
+        '--env=local',
+        '--scope=tenant',
+        '--from-stdin',
+        '--url=https://api.example.com',
+        '--token=t',
+      ]),
+      clientFactory: clientFactory as never,
+    });
+    expect(fixtures.state.setCalls[0]).not.toHaveProperty('appEnvFile');
+  });
+});
+
+// ---------- copy ----------
+
+describe("kindgi secrets copy (Kindgi's own copy; the app's files untouched)", () => {
+  const SECRET = 'sk-ant-never-shown';
+  const providersClient = (
+    checks: Record<string, { secretRef?: { envName: string; name: string } }>,
+  ): unknown => ({
+    secrets: {},
+    env: {},
+    providers: {
+      list: async () => ({ data: Object.keys(checks).map((id) => ({ id })), hasMore: false }),
+      check: async (id: string) => checks[id] ?? {},
+    },
+  });
+  const copy = (args: readonly string[], clientFactory?: () => unknown) =>
+    runCli({
+      ...baseInputs(makeFixtures(), [
+        'secrets',
+        'copy',
+        ...args,
+        '--url=https://api.example.com',
+        '--token=t',
+      ]),
+      ...(clientFactory !== undefined && { clientFactory: clientFactory as never }),
+    });
+
+  test('a named key: copied to .kindgi/secrets.env; .env.local byte-identical; the notice, never the value', async () => {
+    const app = `# mine\nANTHROPIC_API_KEY=${SECRET}\nSTORE_URL=s\n`;
+    await writeFile(join(packDir, '.env.local'), app);
+    const out = await copy(['ANTHROPIC_API_KEY']);
+
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(await readFile(join(packDir, '.kindgi', 'secrets.env'), 'utf8')).toBe(
+      `ANTHROPIC_API_KEY=${SECRET}\n`,
+    );
+    expect(await readFile(join(packDir, '.env.local'), 'utf8')).toBe(app);
+    expect(out.stderr).toContain(
+      '✓ Copied ANTHROPIC_API_KEY from .env.local to .kindgi/secrets.env.',
+    );
+    expect(out.stderr).toContain(
+      "It's still in .env.local: removing it is your call, since it's your app's file.",
+    );
+    expect(out.stderr).toContain('If your app uses ANTHROPIC_API_KEY itself, keep it there.');
+    expect(JSON.parse(out.stdout)).toMatchObject({
+      kindgiFile: '.kindgi/secrets.env',
+      names: [{ name: 'ANTHROPIC_API_KEY', appFiles: ['.env.local'], copied: true }],
+    });
+    expect(out.stdout + out.stderr).not.toContain(SECRET);
+  });
+
+  test("no names: the runtime's providers' keys (their check's secretRef), and only those", async () => {
+    await writeFile(join(packDir, '.env.local'), `ACME_CLAUDE_KEY=${SECRET}\nSTORE_URL=s\n`);
+    const out = await copy([], () =>
+      providersClient({
+        'my-claude': { secretRef: { envName: 'local', name: 'ACME_CLAUDE_KEY' } },
+      }),
+    );
+
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(await readFile(join(packDir, '.kindgi', 'secrets.env'), 'utf8')).toBe(
+      `ACME_CLAUDE_KEY=${SECRET}\n`,
+    );
+  });
+
+  test('the same name, two values: Kindgi keeps its own key, the app keeps its own', async () => {
+    await writeFile(join(packDir, '.env.local'), 'ANTHROPIC_API_KEY=app-key\n');
+    await mkdir(join(packDir, '.kindgi'), { recursive: true });
+    await writeFile(join(packDir, '.kindgi', 'secrets.env'), 'ANTHROPIC_API_KEY=kindgi-key\n');
+    const out = await copy(['ANTHROPIC_API_KEY']);
+
+    expect(out.stderr).toContain(
+      'ANTHROPIC_API_KEY: Kindgi has its own key in .kindgi/secrets.env and uses it first; your app keeps the one in .env.local.',
+    );
+    expect(await readFile(join(packDir, '.kindgi', 'secrets.env'), 'utf8')).toBe(
+      'ANTHROPIC_API_KEY=kindgi-key\n',
+    );
+  });
+
+  test.skipIf(!hasGit())(
+    'a key in a git-tracked .env: rotate it, since it is in the history',
+    async () => {
+      await writeFile(join(packDir, '.env'), `ANTHROPIC_API_KEY=${SECRET}\n`);
+      execFileSync('git', ['init', '-q'], { cwd: packDir });
+      execFileSync('git', ['add', '.env'], { cwd: packDir });
+      const out = await copy(['ANTHROPIC_API_KEY']);
+
+      expect(out.stderr).toContain(
+        "⚠ .env is tracked by git, so ANTHROPIC_API_KEY is in your repository's history: rotate it with its provider.",
+      );
+      expect(JSON.parse(out.stdout).names[0].trackedByGit).toEqual(['.env']);
+    },
+  );
+
+  test('no names and no runtime: said so, and nothing guessed', async () => {
+    await writeFile(join(packDir, '.env.local'), `ANTHROPIC_API_KEY=${SECRET}\n`);
+    const out = await copy([], () => ({
+      secrets: {},
+      env: {},
+      providers: {
+        list: async () => {
+          throw new Error('ECONNREFUSED');
+        },
+      },
+    }));
+
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stderr).toContain("Couldn't reach Kindgi's runtime");
+    expect(out.stderr).toContain("No model provider's key is in your app's env files");
+    await expect(readFile(join(packDir, '.kindgi', 'secrets.env'), 'utf8')).rejects.toThrow();
+  });
+});
+
+function hasGit(): boolean {
+  try {
+    execFileSync('git', ['--version'], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 // ---------- set — --from-file mode check ----------
 

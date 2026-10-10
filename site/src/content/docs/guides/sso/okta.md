@@ -20,7 +20,7 @@ kindgi sso providers start acme-okta --idp=okta
 Sign-in with "acme-okta" (OpenID Connect). Send this to whoever runs your identity provider:
 
   Create an OpenID Connect web application (a confidential client) for Kindgi.
-  Redirect URI:  http://localhost:18096/auth/sso/callback/idp-7xxjpuwfgblqnahzj3csiek3re
+  Redirect URI:  http://localhost:18096/auth/sso/callback/idp-2c7kusqdhjluthweveerubty5q
   Scopes:        openid email profile
   Let in only the people who should use Kindgi (assign users or groups).
 
@@ -35,7 +35,7 @@ Web Application:
   3. Copy the client ID and the client secret.
 Issuer: https://<your-org>.okta.com
 
-Step by step: https://docs.kindgi.com/guides/sso/okta/
+Step by step: https://docs.kindgi.com/v0.1/guides/sso/okta/
 
 Then register it:
   kindgi sso providers finish acme-okta --kind=oidc --issuer=<issuer> --client-id=<client-id> --client-secret-ref=<NAME> --domains=<your-domain>

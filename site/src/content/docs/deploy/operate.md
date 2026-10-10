@@ -17,7 +17,7 @@ docker rm kindgi-server
 docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
   --add-host registry.localhost:host-gateway \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
-  quay.io/kindgi/runtime:0.1.4
+  quay.io/kindgi/runtime:0.1.5.1
 ```
 
 On a stop, the runtime stops taking requests and gives the runs it's executing up to 7 seconds to finish, then exits with code 0. `--time 30` gives it that time before Docker kills it.
@@ -93,14 +93,15 @@ curl -s http://localhost:4000/v1/deployments -H "authorization: Bearer $KINDGI_A
 The runtime prints what it's running with when it starts (`docker logs kindgi-server`; in the JSON format they're the `lines` of its `boot` record). The lines to check after a change:
 
 ```text
-  Token:   kgi_bt_…65bb (provided)
+  Token:   kgi_bt_…3236 (provided)
   …
   Public run tokens: off (no signing key)
-  License: Docs example · non-production · until 2026-11-02
-  ⚠ The license key expires in 29 days (2026-11-02). Renew it: contact@kindgi.com.
+  …
+  License: …
+  …
   Env: production (tool secrets resolve in it)
-  Tenant host access: deployed (stdio MCP endpoints refused; KINDGI_TENANT_HOST_ACCESS)
-  Pack service: http://kindgi-pack:8080 — acme-pack (artifact …), protocol 2, 3 tools, 1 check
+  Tenant host access: deployed (stdio MCP endpoints refused; tenant-chosen hosts can't reach the metadata server or this host; KINDGI_TENANT_HOST_ACCESS)
+  Pack service: http://…:8080 — acme-pack (artifact …), protocol 2, 3 tools, 1 check
 ```
 
 - **`Token`:** the last four characters of the API token it accepts.
@@ -294,6 +295,103 @@ When it starts, the runtime brings the database up to date: it applies the migra
 
 Migrations only go forward, and an older runtime isn't guaranteed to work on a database a newer one migrated. To go back, [restore the backup](#restore-into-a-fresh-database) you took before the upgrade, and run the older version on it.
 
+### Checks you can run before upgrading
+
+From 0.1.6, the runtime image runs read-only checks against a database. They read only what the previous release has, so run the new version's image against the database you're about to upgrade, with the same `kindgi.env`:
+
+```sh
+docker run --rm --network kindgi --env-file kindgi.env \
+  quay.io/kindgi/runtime:<version> check provider-keys
+```
+
+Nothing starts and nothing is written, and they print names and ids, never a value. Each exits `0` when it finds nothing, `1` when it lists what it found, and `2` when it can't run. `--tenant <uuid>` checks one tenant; by default they check every tenant in the database.
+
+| Check | What it lists |
+| --- | --- |
+| `provider-keys` | Each tool version, MCP endpoint and webhook endpoint that names a model provider's key. A model provider's key is used by its provider only, so from 0.1.6 they're refused: a tool's calls fail with `provider-key-refused`, and so do an MCP endpoint's connections and a webhook endpoint's deliveries. For each, store the key it needs under its own name (the same value is fine), name that instead, and deploy or register it again. See [Give a tool a secret](../../guides/tools/give-a-tool-a-secret/#a-model-providers-key-isnt-a-tools). |
+
+Here `check provider-keys` runs on a 0.1.5 database where a tool and an MCP endpoint name Anthropic's key (exit `1`):
+
+```text
+provider-keys: 2 name a model provider's key (1 tenant checked):
+  tenant=… mcp-endpoint=acme.docs secret=ANTHROPIC_API_KEY provider=anthropic
+  tenant=… tool=acme.summarize@1.0.0 secret=ANTHROPIC_API_KEY provider=anthropic
+A model provider's key is used by its provider only: these are refused. For each, store the key it needs under its own name (the same value is fine), name that instead, and deploy or register it again.
+```
+
+After each got a key of its own, the same run finds nothing (exit `0`):
+
+```text
+provider-keys: nothing names a model provider's key (1 tenant checked).
+```
+
+The runtime logs the same at every start, one `WARN` per tool version or endpoint (`docker logs kindgi-server`). Here it's for another tool registered on 0.1.5 with Anthropic's key, `acme.translate`:
+
+```json
+{"time":"2026-10-10T10:15:40.130Z","level":"warn","severity":"WARNING","subsystem":"providers.keys","message":"provider-key-declared tenant=… tool=acme.translate@1.0.0 secret=ANTHROPIC_API_KEY provider=anthropic: a model provider's key is used by its provider only, so this tool's calls are refused. Store the key it needs under its own name and use that name","tenantId":"…","kind":"tool","id":"acme.translate","version":"1.0.0","secretName":"ANTHROPIC_API_KEY","providerId":"anthropic"}
+```
+
+### From 0.1.5 to 0.1.6
+
+What's different once you rebuild your pack with 0.1.6:
+
+- **Variables your pack doesn't declare no longer reach it.** Before your
+  pack's code loads, its service drops every variable the pack doesn't
+  declare (`env` in `kindgi.config`, `[tool.kindgi.env]` in
+  `pyproject.toml`, `env` in `kindgi.config.json`), except Kindgi's own
+  (`KINDGI_*`) and the platform's. A key left in `pack.env` for something
+  else no longer reaches your tools. After the upgrade, look in the pack
+  service's log for a `WARN` line with `"event":"env-dropped"`. It names each
+  variable the service dropped, never its value:
+
+  ```json
+  {"time":"2026-10-10T07:01:47.789Z","level":"warn","severity":"WARNING","subsystem":"pack","message":"Dropped 2 variables the pack doesn't declare: ACME_UNDECLARED_KEY, AWS_SECRET_ACCESS_KEY (declare them in the pack's env, or set KINDGI_PACK_ENV_FILTER=off)","event":"env-dropped","kind":"env-dropped","names":["ACME_UNDECLARED_KEY","AWS_SECRET_ACCESS_KEY"]}
+  ```
+
+  If your code reads one of them, declare it
+  ([Declare the environment your code reads](../../guides/secrets/pack-env/)).
+  To keep the old behaviour meanwhile, set `KINDGI_PACK_ENV_FILTER=off` on
+  the pack service. A Python pack's image always names `GPG_KEY`: its base
+  image sets it, and nothing reads it.
+
+### Runtime 0.1.5.1
+
+Runtime 0.1.5.1 fixes one security bug in 0.1.5 and earlier, for deployments
+with authorization on (`KINDGI_OPENFGA_API_URL` set): someone re-added to a
+project or a team with a different role silently got that role as well, and
+kept it after they were removed. The members list never showed it. Without
+authorization, and under `kindgi dev`, nothing is affected. Only the runtime
+changes: the 0.1.5 CLI and SDKs (npm, PyPI, Maven Central) stay as they are.
+
+On 0.1.5.1:
+
+- **Removing someone from a project or a team removes the roles they held
+  there.**
+- **Re-adding someone who's already a member keeps their current role.** To
+  give them another, change their role
+  ([Project memberships](../authorization/#project-memberships)). The answer
+  to the re-add still echoes the role you asked for (`201`), as the API is
+  unchanged in this patch; the members list shows the role they hold.
+- **Removing a team's creator ends their team admin,** which they hold
+  without a membership row. This matches what the team's members list shows.
+
+Run 0.1.5.1, pulled by its digest, with the same `kindgi.env`. It has no
+migration:
+
+```sh
+docker pull quay.io/kindgi/runtime:0.1.5.1@sha256:7c1b111ff22091d137f45d9770f6ff9f2521575bf28130957a5db1ce80a2e56e
+```
+
+On Cloud Run, copy it into your repository the same way as 0.1.5 (see
+[The images into Artifact Registry](../cloud-run/#2-the-images-into-artifact-registry))
+and set `server_image` to its digest.
+
+**If you removed someone from a project or a team on an earlier version,
+after re-adding them with another role,** they may still hold that role.
+Remove them again on 0.1.5.1: the removal now clears it. For a leftover
+`owner` on a project, add the person as `owner`, then remove them. 0.1.6
+adds a check that finds who needs it.
+
 ### From 0.1.4 to 0.1.5
 
 The database migrates when 0.1.5 starts. What to check before you upgrade,
@@ -340,6 +438,13 @@ and what's different after:
   sessions. A project admin adds a member by email
   (`POST /v1/projects/<id>/memberships` with `email`), and a project admin's
   member key can manage that project's members.
+- **A project editor can start an eval run** (compare a version on a test
+  set); it took a project admin. Unregistering or reinstating a test set
+  version still does.
+- **The cost aggregate counts only what you may read.** Across projects (no
+  scope, the tenant, or an org), it counts the projects the caller may read,
+  and records with no project; a tenant admin's counts every project. `read`
+  on the tenant used to show every project's spend.
 - **With authorization on, every route checks what it touches.** Reading
   tenant-wide settings (providers, policies, adapters, capabilities, signing
   keys, deployments, sign-in providers) needs `read` on the tenant, and
@@ -429,14 +534,22 @@ and what's different after:
   whose `check` is a built-in against
   [its settings](../../guides/guardrails/use-a-built-in-check/#the-built-in-checks).
   To fix one, unregister it (`kindgi guardrails unregister <id>`), then deploy
-  your pack, or register it again, with a config that fits: a deploy keeps a
-  guardrail that's already registered as it is. If you run several runtime
+  your pack, or register it again, with a config that fits: a deploy doesn't
+  change a registered guardrail's config. If you run several runtime
   instances, restart them afterwards (below).
 - **The built-in guardrail checks check their config.** A guardrail naming one
   with a config the check doesn't take is refused when it's registered
   (`422 guardrail-config-invalid`, each problem in `details.issues`) or
   deployed (`deployment-validation-failed`); one that still reaches a turn is a
   check that can't run, so a `halt` guardrail stops the turn.
+- **A deploy keeps a registered guardrail only if it's the deploy's own:** in
+  the project the deploy registers into, with the same definition. A pack
+  whose guardrail changed is refused (`409 guardrail-already-registered`):
+  unregister the guardrail, and deploy again. A guardrail with that id in
+  another project is refused too (`409 guardrail-project-mismatch`, without
+  naming the project). Either way nothing is deployed. Both used to pass
+  silently, and the old definition stayed in force. An unchanged pack still
+  redeploys, from a new image and across releases.
 - **The runtime signs exports** (audit bundles, provenance, compliance
   evidence) with the deployment's export key: set
   `KINDGI_EXPORT_SIGNING_KEY_PATH`, `KINDGI_EXPORT_SIGNING_KEY` or
@@ -448,6 +561,12 @@ and what's different after:
 - **The runtime's own address, `/`, leads to the console,** or lists what it
   serves; it answered `404`. Health checks stay on `/ready`
   ([Check health and logs](#check-health-and-logs)).
+- **The console:** a run whose answer a guardrail blocked shows that answer
+  as not sent, with the guardrail; it used to look sent
+  ([A halted turn](../../guides/guardrails/halt-or-record/#a-halted-turn)).
+  The dashboard's API keys, Service accounts and People cards open their own
+  pages (they opened Deleted data), and ⌘K and the breadcrumbs reach them.
+  **Access audit** shows to tenant admins only, the people its API answers.
 - **Anthropic retires Claude Sonnet 4.5** (`claude-sonnet-4-5-20250929`) on
   2026-11-30. A provider registration that names it should move to
   `claude-sonnet-5-5`, the `anthropic` preset's default. No preset lists it,
@@ -463,10 +582,24 @@ and what's different after:
   changes. A retrieval that searches by meaning (`semantic`) on a runtime
   without embeddings fails the turn with `semantic-unavailable`; 0.1.4
   skipped that search without a word.
+- **`same-user` memory is the run's end user's, never the key's user.** A run
+  that names no `participantId` reads no `same-user` memory, isn't offered
+  `kindgi_remember`, and its result warns `memory-needs-participant`. Such a
+  run used to read and keep that memory as the user its key acts for, so an
+  app's service account serving many customers mixed their memory; facts kept
+  that way are no longer read as anyone's. Pass the person's `participantId`
+  on each run
+  ([Give an agent memory](../../guides/agents/give-an-agent-memory/)).
+- **A comparison's replays run for the past turn's end user,** with the same
+  tools, `kindgi_remember` included (a replayed one stores nothing). A
+  replay's conversation is never recalled as an earlier conversation.
 - **Your pack's service writes log records** on stderr, as the runtime does:
   one per tool call, at the levels `KINDGI_LOG_LEVEL` and `KINDGI_LOG_LEVELS`
   set ([Logs](../logs/)). Printing a tool's context (`console.log(ctx)`,
   `print(ctx)`) no longer shows its secrets.
+- **A turn's warnings are logged,** at `WARN` under `[runs]`, once per tenant,
+  agent and warning while the runtime runs, as well as in the run's result
+  ([Logs](../logs/#records-from-a-run)).
 - **The clients read every `409` as a conflict** (TypeScript
   `code: 'conflict'`, Python `ConflictError`). Twenty codes used to come back
   as a server error, among them `run-lease-lost`, `agent-version-mismatch` and
@@ -550,6 +683,9 @@ and what's different after:
   takes effect at once on the instance that took the request, and other
   instances keep the guardrails they had. If you run several anyway, restart
   the others after changing a guardrail. A fix is planned.
+- **Cancelling a flow while it runs a loop can let a few more of the loop's
+  steps start** before it stops: in our tests up to a few dozen, within
+  seconds. The run still ends `cancelled`. A later release fixes it.
 
 ### Runtime 0.1.4.2
 
@@ -824,7 +960,7 @@ docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
   --add-host registry.localhost:host-gateway \
   -v "$PWD/public-token-signing.pem:/etc/kindgi/public-token-signing.pem:ro" \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
-  quay.io/kindgi/runtime:0.1.4
+  quay.io/kindgi/runtime:0.1.5.1
 ```
 
 The file must have mode 0600, and the runtime's user in the container (uid 10001) must be able to read it. The log says:

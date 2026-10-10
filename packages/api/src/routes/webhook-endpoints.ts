@@ -16,6 +16,7 @@ import type {
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { withholdFromReplay } from '../middleware/idempotency.js';
+import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
 import type { AppEnv } from '../types.js';
 import {
   WEBHOOK_DELIVERY_STATUSES,
@@ -47,8 +48,17 @@ const MAX_FLOW_ID_LENGTH = 200;
 export function webhookEndpointsRouter(
   binding: WebhookEndpointBinding,
   authorizer?: Authorizer,
+  options: { readonly providerKeys?: ProviderKeys } = {},
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+  // A model provider's key is never a webhook endpoint's signing secret.
+  const providerKey = (tenantId: TenantId, name: string | undefined) =>
+    refuseProviderKeys(
+      options.providerKeys,
+      tenantId,
+      name === undefined ? [] : [name],
+      'a webhook endpoint',
+    );
   // Deliveries carry every project's runs: all of it is an admin's.
   r.use('*', tenantAdminAccess(authorizer));
 
@@ -63,6 +73,11 @@ export function webhookEndpointsRouter(
     const { url, events, filter, secretRef, description } = parsed.value;
     if (url === undefined || events === undefined || secretRef === undefined) {
       return badInput(c, requestId, '`url`, `events` and `secretRef` are required');
+    }
+    const refusal = await providerKey(tenantId, secretRef.name);
+    if (refusal !== undefined) {
+      c.status(statusFor(refusal.code) as never);
+      return c.json(toWireError(refusal, requestId));
     }
 
     const outcome = await binding.create({
@@ -122,6 +137,11 @@ export function webhookEndpointsRouter(
     const parsed = parseEndpointBody(body.value, 'update');
     if (parsed.kind === 'err') return wireError(c, requestId, parsed.code, parsed.message);
     const { url, events, filter, secretRef, description } = parsed.value;
+    const refusal = await providerKey(tenantId, secretRef?.name);
+    if (refusal !== undefined) {
+      c.status(statusFor(refusal.code) as never);
+      return c.json(toWireError(refusal, requestId));
+    }
 
     const outcome = await binding.update({
       tenantId,

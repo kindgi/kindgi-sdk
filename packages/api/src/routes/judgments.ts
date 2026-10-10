@@ -83,8 +83,9 @@ export function judgmentsRouter(
       reviewers,
     });
     if (prepared.kind === 'err') return fail(prepared.code, prepared.message);
-    const { run, subject, projectId, itemValue, conversationId, restricted } = prepared;
-    const context = (await isFirstJudgment(binding, tenantId, body.runId))
+    const { run, subject, projectId, itemValue, conversationId, restricted, replayOf } = prepared;
+    const first = await isFirstJudgment(binding, tenantId, body.runId);
+    const captured = first
       ? await captureContext({
           tenantId,
           runId: body.runId,
@@ -96,6 +97,9 @@ export function judgmentsRouter(
           flows,
         })
       : undefined;
+    // A comparison's replay is stamped as one with its copy (stored with the
+    // first judgment), so a test set leaves it out (`isReplayCopy`).
+    const context = first && replayOf !== undefined ? { ...(captured ?? {}), replayOf } : captured;
 
     const judgment = await binding.record({
       tenantId,
@@ -271,7 +275,8 @@ export function judgeClassesRouter(
       return fail('judge-class-name-taken', `A judge class named "${name}" already exists here.`);
     }
     c.status(201);
-    return c.json(serializeJudgeClass(outcome.judgeClass));
+    // Its creator is an admin on its scope: they see whom it names.
+    return c.json(serializeJudgeClass(outcome.judgeClass, true));
   });
 
   r.get('/', async (c) => {
@@ -293,8 +298,18 @@ export function judgeClassesRouter(
       authorizer === undefined
         ? page.data
         : await authorizer.filterByCan(c, 'read', page.data, (k) => scopeRef(tenantId, k.scope));
+    // Whom a class names (`principalIds`) is for its scope's admins only.
+    const naming = visible.filter((k) => k.assertableBy?.principalIds !== undefined);
+    const seenBy =
+      authorizer === undefined || naming.length === 0
+        ? undefined
+        : new Set(
+            (
+              await authorizer.filterByCan(c, 'admin', naming, (k) => scopeRef(tenantId, k.scope))
+            ).map((k) => k.id),
+          );
     return c.json({
-      data: visible.map(serializeJudgeClass),
+      data: visible.map((k) => serializeJudgeClass(k, seenBy === undefined || seenBy.has(k.id))),
       hasMore: page.hasMore,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });
@@ -337,7 +352,14 @@ export function judgeClassesRouter(
 
   r.get('/:judgeClassId', async (c) => {
     const found = await loadClass(c, 'read');
-    return found instanceof Response ? found : c.json(serializeJudgeClass(found));
+    if (found instanceof Response) return found;
+    const tenantId = c.get('tenantId') as TenantId;
+    // Whom it names (`principalIds`) is for its scope's admins only.
+    const seesPrincipals =
+      authorizer === undefined ||
+      found.assertableBy?.principalIds === undefined ||
+      (await authorizer.can(c, 'admin', scopeRef(tenantId, found.scope)));
+    return c.json(serializeJudgeClass(found, seesPrincipals));
   });
 
   r.patch('/:judgeClassId', async (c) => {
@@ -380,7 +402,10 @@ export function judgeClassesRouter(
       ...(description !== undefined && { description: description as string }),
       ...(assertableBy !== undefined && { assertableBy }),
     });
-    return updated === null ? classNotFound(c, found.id) : c.json(serializeJudgeClass(updated));
+    // Loaded as an admin: they see whom it names.
+    return updated === null
+      ? classNotFound(c, found.id)
+      : c.json(serializeJudgeClass(updated, true));
   });
 
   r.post('/:judgeClassId/unregister', async (c) => {
@@ -409,6 +434,8 @@ type Prepared =
       readonly conversationId?: string;
       /** The class was restricted and the caller met it. */
       readonly restricted?: true;
+      /** The run a comparison's replay re-ran, when the judged run is one. */
+      readonly replayOf?: string;
     }
   | { readonly kind: 'err'; readonly code: string; readonly message: string };
 
@@ -480,6 +507,7 @@ async function prepareJudgment(
   const extra = {
     ...(run.agent !== undefined && { conversationId: run.agent.conversationId as string }),
     ...(restricted && { restricted: true as const }),
+    ...(run.replayOf != null && { replayOf: run.replayOf as unknown as string }),
   };
   if (body.item.pointer === undefined)
     return { kind: 'ok', run: copy, subject, projectId, ...extra };
@@ -825,7 +853,26 @@ function serializeJudgmentWithCopies(j: JudgmentWithCopies): Record<string, unkn
   };
 }
 
-function serializeJudgeClass(k: JudgeClass): Record<string, unknown> {
+/**
+ * A judge class as the caller sees it. `assertableBy.principalIds` names
+ * people and tokens: only an admin on the class's scope gets it
+ * (`seesPrincipals`); every reader gets `principalCount`.
+ */
+function serializeJudgeClass(k: JudgeClass, seesPrincipals: boolean): Record<string, unknown> {
+  const restriction = k.assertableBy;
+  const assertableBy =
+    restriction === undefined
+      ? undefined
+      : (() => {
+          const { principalIds, ...rest } = restriction;
+          return principalIds === undefined
+            ? rest
+            : {
+                ...rest,
+                ...(seesPrincipals && { principalIds }),
+                principalCount: principalIds.length,
+              };
+        })();
   return {
     id: k.id,
     tenantId: k.tenantId,
@@ -833,7 +880,7 @@ function serializeJudgeClass(k: JudgeClass): Record<string, unknown> {
     name: k.name,
     weight: k.weight,
     ...(k.description !== undefined && { description: k.description }),
-    ...(k.assertableBy !== undefined && { assertableBy: k.assertableBy }),
+    ...(assertableBy !== undefined && { assertableBy }),
     createdAt: k.createdAt,
     updatedAt: k.updatedAt,
     ...(k.unregisteredAt !== undefined && { unregisteredAt: k.unregisteredAt }),

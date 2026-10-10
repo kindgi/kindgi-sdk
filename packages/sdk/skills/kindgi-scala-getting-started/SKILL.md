@@ -115,8 +115,10 @@ A tool there is a `val` of an object in a `kindgi.tools` package under the
 app's own (`com.acme.app.kindgi.tools`), and calls the app's code directly. A
 library a tool uses must be on the runtime classpath (not `% Test` or
 `% Provided`): the image ships the runtime classpath only. `kindgi dev` reads
-the app's `.env` and `.env.local`: keys already there reach the tools as
-environment variables.
+the app's `.env` and `.env.local`: values already there reach the tools as
+environment variables. A secret stored with `kindgi secrets set` doesn't: a
+tool reads it from its context (`needsSpec.secrets`). Nor does a model
+provider's key, which no tool gets.
 
 ## Layout of the template
 
@@ -158,7 +160,7 @@ key and register its preset (Anthropic below; `./kindgiw providers presets`
 lists OpenAI, Gemini, Groq and OpenRouter too):
 
 ```sh
-./kindgiw secrets set ANTHROPIC_API_KEY --env=local --scope=tenant   # no-echo prompt; writes .env.local
+./kindgiw secrets set ANTHROPIC_API_KEY --env=local --scope=tenant   # no-echo prompt; writes .kindgi/secrets.env
 ./kindgiw providers register --preset=anthropic
 ```
 
@@ -256,7 +258,8 @@ image installs them: `"image": {"systemPackages": ["tesseract-ocr"]}`
 (names, or `name=version`). So are the variables the code reads, names only:
 `"env": {"required": ["DATABASE_URL"], "optional": ["SENTRY_DSN"]}`. A
 deployed pack service missing a required one isn't ready, and its `/readyz`
-names it.
+names it; one the pack doesn't declare is dropped before the code loads
+(`kindgi dev` keeps it).
 
 ## Known limits
 

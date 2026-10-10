@@ -79,6 +79,12 @@ jobs:
       - name: Changesets move the release only by decision
         run: pnpm run check:changeset-bumps
 
+      # design/tokens.json is the one source for the website, the docs and the
+      # console: tokens.css is written from it, and every checked pair meets its
+      # contrast (WCAG AA) in light and dark. scripts/check-tokens.mjs.
+      - name: Design tokens current, and their contrast
+        run: pnpm run check:tokens
+
       - name: Validate JSON Schemas (@kindgi/specs)
         run: pnpm run spec:validate
 

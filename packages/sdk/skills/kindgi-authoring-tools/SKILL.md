@@ -12,7 +12,7 @@ description: >
   authoring agents is covered by kindgi-authoring-agents.
 type: core
 library: "@kindgi/sdk"
-version: "0.4.4"
+version: "0.4.5"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -112,8 +112,19 @@ The handler gets the **parsed** input, typed `z.infer` of `input` (Zod's output 
 - **Transforms and refinements.** `.transform()` results and `.refine()` checks apply before the handler runs. A failed refinement comes back as `input-validation-failed`.
 - **Extra keys.** A plain `z.object` accepts them and strips them. Use `z.strictObject` to reject them.
 - **JSON-Schema-authored tools** get each property's `default` filled in the same way.
+- **Unions of scalars** (`z.union([z.string(), z.number()])`, `type: ['string', 'number']` on the wire) compile and validate. A schema Kindgi's strict schema check still refuses (an open tuple, an unknown keyword) says so at `defineTool`; for a field that may hold any JSON value, `z.json()` compiles.
 
 The output side is the reverse: the advertised output schema requires every field, defaulted ones included. Return them all.
+
+### Logging from the handler
+
+`ctx.log` is a logger bound to the call: its records carry the run's ids, the tool's id and the trace id. It has `info`, `warn`, `error`, `debug` and `trace`, each `(message, fields?)`. The pack service sets it; a context your own code builds (a test's) may not, so write `ctx.log?.`:
+
+```ts
+ctx.log?.info('refund issued', { orderId, amountCents });
+```
+
+Put values in `fields`, never in the message. Log ids, amounts and outcomes, never what a person typed (a refund's reason, a message, an address): the log is read by whoever operates the runtime, not only by the person the data is about. Docs: https://docs.kindgi.com/v0.1/guides/tools/write-a-tool/#log-from-a-tool
 
 ### Configuration and secrets
 
@@ -130,7 +141,7 @@ const defined = defineTool({
 });
 ```
 
-The runtime resolves every declared secret on every call, for the call's tenant, in its env (`KINDGI_ENV`; in `kindgi dev`, `local`: the pack's `.env` and `.env.local`). It checks each value against its schema, and fails the call, naming the secret, when one is missing or doesn't match. Every declared secret is required, so in a runtime call `ctx.secrets` holds them all; it's optional in the type because a unit test builds its own context and passes `secrets: { CITATOR_KEY: '…' }`.
+The runtime resolves every declared secret on every call, for the call's tenant, in its env (`KINDGI_ENV`; in `kindgi dev`, `local`: the pack's `.env` and `.env.local`, then Kindgi's own `.kindgi/secrets.env`, where `kindgi secrets set` writes). It checks each value against its schema, and fails the call, naming the secret, when one is missing or doesn't match. A declared secret is required, so in a runtime call `ctx.secrets` holds it; it's optional in the type because a unit test builds its own context and passes `secrets: { CITATOR_KEY: '…' }`. **An optional secret** has a schema that names `null` (`{ type: ['string', 'null'] }`; an unconstrained `{}` stays required): one never stored, or empty, is left out of `ctx.secrets`, and the call goes on, its log line naming it. One revoked, or gone at its provider though mapped, still fails the call. Optional secrets need runtime 0.1.6 or later; an older runtime requires them.
 
 A value that differs per tenant, org or project but isn't secret (a base URL, a region, an account id) is an **env value**: declared in `needsSpec.env`, read from `ctx.env`:
 
@@ -156,9 +167,10 @@ const defined = defineTool({
   precondition-failed: Tool "acme-orders.needs-account" was not run: env-value-missing: tool "acme-orders.needs-account" needs env value "ACME_ACCOUNT_ID" in env "local", and none is set for project e889c1f5-eae7-45dc-8669-5bd029a5d85c, its org, or the tenant. Set it: kindgi env set ACME_ACCOUNT_ID <value> --scope=project:e889c1f5-eae7-45dc-8669-5bd029a5d85c --env=local (or --scope=tenant, for every project)
   ```
 - **Not secret:** env values are recorded with each run that uses them and shown in its journal. A credential is a secret (`needsSpec.secrets`), never an env value.
+- **Schemas compile strictly:** each `needsSpec` schema must compile as the runtime compiles it (an unknown keyword is refused), and an env `default` is a string; otherwise `defineTool` returns `invalid-tool-definition`, and a deploy fails with `deployment-validation-failed`.
 - **In a unit test:** pass `env: { … }` in the context `invokeTool` gets.
 
-Everything else comes from the process environment: `process.env.CITATOR_URL`. The pack service runs with the pack's env files in `kindgi dev`, and with the container's environment in an image. Declare the names your code reads in `kindgi.config.ts`, `env: { required: ['CITATOR_URL'], optional: [...] }`: a deployment injects exactly those, a pack service missing a required one isn't ready and says which, and `kindgi dev` warns about it. Values per environment go in `environments.<name>.env`, secrets only as references.
+Everything else comes from the process environment: `process.env.CITATOR_URL`. The pack service runs with the pack's env files in `kindgi dev` (less any secret stored with `kindgi secrets set`, which a tool declares and reads from `ctx.secrets`, and any model provider's key, which no tool gets), and with the container's environment in an image. Declare the names your code reads in `kindgi.config.ts`, `env: { required: ['CITATOR_URL'], optional: [...] }`: a deployment injects exactly those, a pack service missing a required one isn't ready and says which, and `kindgi dev` warns about it. In an image the pack service also drops every variable the pack doesn't declare before your code loads (`kindgi dev` keeps them), so an undeclared name works locally and is unset once deployed: declare every name the code reads. Values per environment go in `environments.<name>.env`, secrets only as references.
 
 ## Declarative HTTP spec
 
@@ -202,6 +214,17 @@ export default defined.value;
 
 So declare `mutating: false` on every tool that only reads, and never on one that writes.
 
+A tool that writes also says what it writes, in `effects`, beside `mutating: true`:
+
+```ts
+  effects: [{ kind: 'writes', resource: 'acme:refunds' }],
+  mutating: true,
+```
+
+The kinds are `reads`, `writes`, `deletes`, `network`, `spawns-run`, `emits-event`, `external-side-effect` and `sensitive-data-egress` (`EFFECT_KINDS` in `@kindgi/tools`); `defineTool` refuses any other. `resource` is free text naming what the tool touches. A read-only tool keeps `effects: []`.
+
+A step can run more than once (resumed after an approval, retried after a failure, run again after a crash), so a tool that writes uses `ctx.idempotencyKey`: the same every time this call runs, different for every other call. Pass it to the system you write to (an `Idempotency-Key` header, a client reference, a unique column) or look for it there first, and a refund never goes out twice. Not `ctx.requestId`: a model's call id is only unique within one of its answers. The key is absent outside a run and from a runtime before 0.1.6. Docs: https://docs.kindgi.com/v0.1/guides/tools/write-a-tool/#make-a-side-effect-happen-once
+
 ## Tool id convention
 
 `<pack-id>.<tool-name>` — kebab-case, dot-namespaced. The `<pack-id>`
@@ -235,6 +258,25 @@ version: '^0.1.0'}]` picks the highest active version matching the
 range at run start. Compatible tool updates (patch, minor) reach the
 agent without editing agent source; breaking updates (major) require
 the agent-author to opt in.
+
+## Testing a tool
+
+Put a tool's tests beside it, `tools/<tool>/index.test.ts`. Discovery skips `*.test.*` and `*.spec.*` files (`.ts`, `.js`, `.mjs`, `.cjs`), so the indexer never loads a test as a primitive: don't move tests elsewhere to keep them out. `invokeTool(tool, input, ctx)` from `@kindgi/sdk/define` calls the tool the way Kindgi does, schemas included, and returns a `Result`. Its `ctx` needs a `tenantId` and an `abortSignal` (`ToolContext` in `@kindgi/tools`); the rest is optional. vitest doesn't typecheck, so a context missing them still passes the test: run `tsc --noEmit` too.
+
+```ts
+import { invokeTool } from '@kindgi/sdk/define';
+import type { TenantId } from '@kindgi/sdk/types';
+
+const ctx = { tenantId: 'test' as TenantId, abortSignal: new AbortController().signal };
+// add `env: { STORE_URL: '…' }` for a tool that reads a declared env value
+const result = await invokeTool(lookupOrder, { orderId: 'ord_1001' }, ctx);
+```
+
+`kindgi test` runs the pack's tests with vitest (`vitest run`; `--watch` keeps watching).
+
+## Shared code
+
+Code several tools share (schemas, a client, helpers) goes outside `tools/`, for example in `lib/` beside it. Discovery loads every `.ts`, `.js` and `.mjs` file under `tools/` (tests aside) as a primitive, so a helper there fails the index. Don't put it in the app's own source either: import the app's functions from where they are, and keep what's Kindgi's in the pack's folder.
 
 ## Wiring the tool onto an agent
 

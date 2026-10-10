@@ -10,7 +10,7 @@ import type { Cursor, FlowId, ProjectId, TenantId, ToolId } from '@kindgi/types'
 import type { AgentRegistryBinding } from './agent-binding.js';
 import { type UnpinnableRef, activeToolVersions } from './agent-pins.js';
 import { type DeployedVersionOutcome, deployVersion } from './deploy-versions.js';
-import type { FlowRegistryBinding } from './flow-binding.js';
+import type { FlowRegistryBinding, FlowVersionRecord } from './flow-binding.js';
 import type { LiveVersionBinding } from './live-version-binding.js';
 import { PublishRefused } from './publish-refused.js';
 import type { ToolRegistryBinding } from './tool-binding.js';
@@ -152,8 +152,8 @@ async function allFlowVersions(
   flows: FlowRegistryBinding,
   tenantId: TenantId,
   flowId: FlowId,
-): Promise<readonly Flow[]> {
-  const versions: Flow[] = [];
+): Promise<readonly FlowVersionRecord[]> {
+  const versions: FlowVersionRecord[] = [];
   let cursor: Cursor | undefined;
   do {
     const page = await flows.listVersions({

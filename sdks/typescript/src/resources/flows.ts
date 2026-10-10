@@ -61,10 +61,14 @@ export interface FlowsClient {
   get(id: FlowId): Promise<Flow>;
 
   /**
+   * Flows, the latest version of each. `filter.includeRetired = true`
+   * lists retired flows too (every version unregistered), each as its
+   * highest version with `unregisteredAt`.
+   *
    * @wire `GET /v1/flows` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1flows/get`.
    */
-  list(filter?: FlowFilter): Promise<ListPage<Flow>>;
+  list(filter?: FlowFilter): Promise<ListPage<FlowVersionRow>>;
 
   /**
    * A flow's versions: list, get, unregister and reinstate. Calling it
@@ -91,12 +95,14 @@ export interface FlowVersionsClient {
   /** @deprecated Use `flows.versions.list`; removed in 0.2. */
   (id: FlowId, filter?: PageFilter): Promise<ListPage<Flow>>;
   /**
-   * Historical versions of a flow.id.
+   * Historical versions of a flow.id: active ones, or with
+   * `filter.includeTombstoned = true` unregistered ones too (each with
+   * `unregisteredAt`), a retired flow's included.
    *
    * @wire `GET /v1/flows/{flowId}/versions` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1flows~1{flowId}~1versions/get`.
    */
-  list(id: FlowId, filter?: PageFilter): Promise<ListPage<Flow>>;
+  list(id: FlowId, filter?: FlowVersionFilter): Promise<ListPage<FlowVersionRow>>;
   /**
    * Fetch a specific version of a flow.
    *
@@ -146,11 +152,34 @@ export interface ReinstateFlowVersionResult {
 export interface FlowFilter extends Filter {
   /** Prefix filter on flow id (matches the server's `?name=` query). */
   readonly name?: string;
+  /**
+   * List retired flows too (every version unregistered), each as its
+   * highest version with `unregisteredAt`. Default: `false`.
+   */
+  readonly includeRetired?: boolean;
 }
 
 export interface PageFilter {
   readonly limit?: number;
   readonly cursor?: Cursor;
+}
+
+/**
+ * A flow as a list reads it: the standard `Flow` fields plus
+ * `unregisteredAt`, present on an unregistered version (a retired
+ * flow's, or one `includeTombstoned` lists). Callers can ignore the
+ * extra field and treat the row as a plain `Flow`.
+ */
+export type FlowVersionRow = Flow & {
+  readonly unregisteredAt?: string;
+};
+
+export interface FlowVersionFilter extends PageFilter {
+  /**
+   * List unregistered versions too, each with `unregisteredAt`.
+   * Default: `false` (active versions only).
+   */
+  readonly includeTombstoned?: boolean;
 }
 
 export interface DefineFlowOptions {
@@ -172,12 +201,13 @@ interface PublishFlowWire {
 
 export function makeFlowsClient(transport: Transport): FlowsClient {
   const list: FlowVersionsClient['list'] = async (id, filter) => {
-    const page = await transport.request<WirePage<Flow>>({
+    const page = await transport.request<WirePage<FlowVersionRow>>({
       method: 'GET',
       path: `/v1/flows/${encodeURIComponent(id as unknown as string)}/versions`,
       query: {
         ...(filter?.limit !== undefined && { limit: filter.limit }),
         ...(filter?.cursor !== undefined && { cursor: filter.cursor as unknown as string }),
+        ...(filter?.includeTombstoned === true && { includeTombstoned: 'true' }),
       },
     });
     return listPage(page);
@@ -272,13 +302,14 @@ export function makeFlowsClient(transport: Transport): FlowsClient {
     },
 
     async list(filter) {
-      const page = await transport.request<WirePage<Flow>>({
+      const page = await transport.request<WirePage<FlowVersionRow>>({
         method: 'GET',
         path: '/v1/flows',
         query: {
           ...(filter?.limit !== undefined && { limit: filter.limit }),
           ...(filter?.cursor !== undefined && { cursor: filter.cursor as unknown as string }),
           ...(filter?.name !== undefined && { name: filter.name }),
+          ...(filter?.includeRetired === true && { includeRetired: 'true' }),
         },
       });
       return listPage(page);

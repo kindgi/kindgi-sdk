@@ -50,13 +50,15 @@ import {
 import {
   LOCAL_ENV_NAME,
   type PackEnv,
+  describeUnreadable,
   displayEnvPath,
+  namesInAppFiles,
   packValues,
   readPackEnv,
   runtimeValues,
 } from '@kindgi/secrets-dotenv';
 
-import type { KindgiClient, Provider } from '@kindgi/client';
+import type { KindgiClient } from '@kindgi/client';
 import {
   CORS_ORIGINS_VAR,
   EXPORT_SIGNING_KEY_PATH_VAR,
@@ -116,6 +118,13 @@ import type {
 import { RuntimeStartStopped } from '../dev/runtime-container.js';
 import { DEFAULT_RUNTIME_IMAGE } from '../dev/runtime-image.js';
 import { describeEnvDiagnostics, loadLocalEnvSettings } from '../env/project-env.js';
+import {
+  declaredProviderKeyNames,
+  listAllProviders,
+  providerKeyNamesFromRuntime,
+  readProviderKeysRecord,
+  writeProviderKeysRecord,
+} from '../env/provider-keys.js';
 import { PYPI_NO_BUNDLER } from '../esbuild-loader.js';
 import { openUrlInBrowser } from '../open-url.js';
 import { renderJson } from '../output.js';
@@ -593,11 +602,19 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   // starts once the pack is bundled and indexed; the api-server gets
   // its transport now.
   // The pack service and the indexer write records at the levels shown.
+  // A model provider's key never reaches the pack service, whatever file
+  // holds it (`env/provider-keys.ts`): the declared ones and the ones the
+  // last start learned now, the runtime's once it answers.
+  let providerKeyNames: ReadonlySet<string> = new Set([
+    ...declaredProviderKeyNames(declared.providers),
+    ...(await readProviderKeysRecord(args.packDir)),
+  ]);
   const packEnv = async () => ({
     ...(await devPackEnv({
       packDir: args.packDir,
       ...(projectEnv.localEnvFiles !== undefined && { localEnvFiles: projectEnv.localEnvFiles }),
       hostEnv: ctx.env,
+      providerKeyNames,
     })),
     ...sourceLogEnv(logView),
   });
@@ -786,6 +803,17 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
     envFiles: projectEnv.envFilesLabel,
   });
   const providers = await registeredProviders(client);
+  providerKeyNames = await settleProviderKeys({
+    client,
+    packDir: args.packDir,
+    localEnvFiles: projectEnv.localEnvFiles,
+    known: providerKeyNames,
+    declared: declaredProviderKeyNames(declared.providers),
+    restartPack: async () => {
+      await refresher.refresh();
+    },
+    kindgi,
+  });
   const registerProviderCommand = await registerProviderHint(kindgi);
   // A Vertex provider registered by hand (the `gemini` preset) has no
   // credentials either; a declared one was named before the start.
@@ -926,6 +954,9 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
   let watchTicks = 0;
   let lastWatchOutcome: IndexResult | undefined;
   let lastWatchReport: RegistrationReport | undefined;
+  // The warnings the last load showed: a reload prints only the new ones
+  // (a renamed check's is new), so a save doesn't repeat them all.
+  let shownWarnings = warningsOf(bootIndex);
   // Refresh ticks still running. Shutdown drains these so a tick never
   // registers against a server that is already shutting down.
   const inFlightTicks = new Set<Promise<void>>();
@@ -955,15 +986,19 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
             packDir: args.packDir,
           });
           lastWatchReport = report;
+          const warnings = warningsOf(outcome);
           emitWatchTick({
             elapsedMs: Date.now() - startedAt,
             counts: outcome.counts,
             fileErrors: outcome.fileErrors,
+            warnings: warningsSince(shownWarnings, warnings),
             registered: report.registered.length,
             failed: report.failed,
           });
+          shownWarnings = warnings;
         } else if (outcome.code === 'discovery-empty') {
           lastWatchReport = undefined;
+          shownWarnings = new Set();
           emitProgress('  (no primitives yet)');
         } else {
           lastWatchReport = undefined;
@@ -1154,6 +1189,11 @@ async function loadDevProjectEnv(ctx: CommandContext, packDir: string): Promise<
     });
   } catch (err) {
     return fail(`could not read the env files: ${(err as Error).message}`);
+  }
+  if (env.unreadable.length > 0) {
+    return fail(
+      `can't read ${describeUnreadable(packDir, env.unreadable)}. It reads the pack's env files: run it in a terminal of your own, where they can be read.`,
+    );
   }
   const label = (paths: readonly string[]): string =>
     paths.map((p) => displayEnvPath(packDir, p)).join(', ');
@@ -1491,6 +1531,7 @@ function emitBootIndex(
   for (const e of bootIndex.fileErrors) {
     emitProblem(`  ⚠ indexer: ${e.filePath ?? '?'} [${e.code}] ${e.message}`);
   }
+  for (const w of bootIndex.warnings ?? []) emitProblem(`  ⚠ ${w.message}`);
   for (const f of bootReport.failed) {
     emitProblem(`  ⚠ ${f.kind}: ${f.id} — ${f.message ?? 'unknown reason'}`);
   }
@@ -1619,6 +1660,8 @@ function emitWatchTick(input: {
     readonly message: string;
     readonly filePath?: string;
   }[];
+  /** What the pack should change but that doesn't stop it loading. */
+  readonly warnings: WarningsSince;
   readonly registered: number;
   readonly failed: readonly {
     readonly kind: string;
@@ -1626,10 +1669,11 @@ function emitWatchTick(input: {
     readonly message?: string;
   }[];
 }): void {
-  const { counts, fileErrors, failed, elapsedMs, registered } = input;
+  const { counts, fileErrors, failed, elapsedMs, registered, warnings } = input;
   const totals = `${counts.tools} tools, ${counts.guardrails} guardrails, ${counts.agents} agents, ${counts.flows} flows`;
   if (fileErrors.length === 0 && failed.length === 0) {
     emitProgress(`  ✓ loaded ${registered} primitives (${totals}) in ${elapsedMs}ms`);
+    emitWarningsSince(warnings);
     return;
   }
   emitProblem(
@@ -1641,6 +1685,30 @@ function emitWatchTick(input: {
   for (const f of failed) {
     emitProblem(`    ✗ ${f.kind}: ${f.id} — ${f.message ?? 'unknown reason'}`);
   }
+  emitWarningsSince(warnings);
+}
+
+/** A load's warnings, by message (an indexer that reports none, or a failed load, has none). */
+function warningsOf(result: IndexResult): ReadonlySet<string> {
+  return new Set(result.kind === 'ok' ? (result.warnings ?? []).map((w) => w.message) : []);
+}
+
+/** A reload's warnings: the ones the last load didn't show, and how many it did that still stand. */
+interface WarningsSince {
+  readonly fresh: readonly string[];
+  readonly standing: number;
+}
+
+function warningsSince(shown: ReadonlySet<string>, now: ReadonlySet<string>): WarningsSince {
+  const fresh = [...now].filter((m) => !shown.has(m));
+  return { fresh, standing: now.size - fresh.length };
+}
+
+/** The new warnings in full, the standing ones as one line: a save doesn't repeat them. */
+function emitWarningsSince({ fresh, standing }: WarningsSince): void {
+  for (const m of fresh) emitProblem(`    ⚠ ${m}`);
+  if (standing === 1) emitProblem('    ⚠ 1 warning from the last load still applies');
+  if (standing > 1) emitProblem(`    ⚠ ${standing} warnings from the last load still apply`);
 }
 
 /**
@@ -1723,19 +1791,57 @@ export interface BannerProvider {
   readonly fallback?: boolean;
 }
 
-/** Every provider of the tenant, all pages. */
-async function listProviders(client: KindgiClient): Promise<readonly Provider[]> {
-  const providers: Provider[] = [];
-  let cursor: string | undefined;
-  do {
-    const page = await client.providers.list({
-      limit: 100,
-      ...(cursor !== undefined && { cursor }),
-    });
-    providers.push(...page.data);
-    cursor = page.hasMore ? page.nextCursor : undefined;
-  } while (cursor !== undefined);
-  return providers;
+/** How long the start waits on the runtime for its providers' key names. */
+const PROVIDER_KEYS_TIMEOUT_MS = 5_000;
+
+/**
+ * Once the runtime answers: the names its providers' keys resolve from,
+ * recorded for the next start and kept out of the pack service (restarted
+ * when one was in its environment). Then a one-time hint for each provider
+ * key Kindgi borrows from the app's env files: `kindgi secrets copy` gives
+ * Kindgi its own copy, and never edits the app's files. When the runtime's
+ * providers can't be read, the names known before stand.
+ */
+async function settleProviderKeys(inputs: {
+  readonly client: KindgiClient;
+  readonly packDir: string;
+  readonly localEnvFiles: readonly string[] | undefined;
+  readonly known: ReadonlySet<string>;
+  readonly declared: ReadonlySet<string>;
+  readonly restartPack: () => Promise<void>;
+  readonly kindgi: (...args: string[]) => string;
+}): Promise<ReadonlySet<string>> {
+  let learned: Set<string>;
+  try {
+    // A runtime that answers slowly (or not) never holds up the start.
+    const presets = await loadProviderPresets();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    learned = await Promise.race([
+      providerKeyNamesFromRuntime(inputs.client, presets),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error('timed out')), PROVIDER_KEYS_TIMEOUT_MS);
+      }),
+    ]).finally(() => clearTimeout(timer));
+  } catch {
+    return inputs.known;
+  }
+  await writeProviderKeysRecord(inputs.packDir, learned);
+  const all = new Set([...inputs.declared, ...learned]);
+  const held = await namesInAppFiles({
+    packDir: inputs.packDir,
+    ...(inputs.localEnvFiles !== undefined && { localEnvFiles: inputs.localEnvFiles }),
+    names: [...all].sort(),
+  });
+  // A key the pack service started with: restart it without.
+  if (held.some((h) => !inputs.known.has(h.name) && !h.inKindgiFile)) await inputs.restartPack();
+  for (const h of held) {
+    if (h.inKindgiFile) continue;
+    const where = h.files.map((f) => displayEnvPath(inputs.packDir, f)).join(' and ');
+    emitProgress(
+      `  ⚠ ${h.name} is in ${where}, which your app loads too. To give Kindgi its own copy: ${inputs.kindgi('secrets', 'copy')} (it never edits your app's files).`,
+    );
+  }
+  return all;
 }
 
 /**
@@ -1746,7 +1852,7 @@ async function registeredProviders(
   client: KindgiClient,
 ): Promise<readonly BannerProvider[] | undefined> {
   try {
-    return (await listProviders(client)) as readonly BannerProvider[];
+    return (await listAllProviders(client)) as readonly BannerProvider[];
   } catch {
     return undefined;
   }
@@ -1778,7 +1884,7 @@ async function applyDeclaredProviders(inputs: {
       declared: inputs.declared,
       owned,
       client: {
-        list: () => listProviders(client),
+        list: () => listAllProviders(client),
         register: (input) => client.providers.register(input),
         unregister: (id) => client.providers.unregister(id),
       },
@@ -1857,7 +1963,7 @@ function describeProviders(
   registerProviderCommand: string,
 ): string {
   if (providers.length === 0) {
-    return `none — agent turns fail until one is registered: ${registerProviderCommand}`;
+    return `none — this runtime has no dev-echo fallback, so agent turns fail until one is registered: ${registerProviderCommand}`;
   }
   const named = providers
     .map((p) =>

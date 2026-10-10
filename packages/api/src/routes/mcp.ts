@@ -21,6 +21,7 @@ import {
   MCP_TRANSPORTS,
 } from '../mcp-endpoint-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
 import { type TenantHostAccess, deniesHostReach, stdioRefusal } from '../tenant-host-access.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
@@ -45,7 +46,7 @@ export function mcpRouter(
   binding: MCPEndpointRegistryBinding,
   clientProbe: MCPClientProbeBinding | undefined,
   authorizer: Authorizer | undefined,
-  options: { readonly hostAccess: TenantHostAccess },
+  options: { readonly hostAccess: TenantHostAccess; readonly providerKeys?: ProviderKeys },
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -204,6 +205,18 @@ export function mcpRouter(
           requestId,
         ),
       );
+    }
+
+    // A model provider's key is never an MCP endpoint's.
+    const refusal = await refuseProviderKeys(
+      options.providerKeys,
+      tenantId,
+      validation.value.secretRef === undefined ? [] : [validation.value.secretRef.name],
+      'an MCP endpoint',
+    );
+    if (refusal !== undefined) {
+      c.status(statusFor(refusal.code) as never);
+      return c.json(toWireError(refusal, requestId));
     }
 
     if (validation.value.transport === 'stdio' && deniesHostReach(options.hostAccess, 'exec')) {

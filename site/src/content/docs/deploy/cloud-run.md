@@ -12,9 +12,9 @@ it Cloud SQL), and a tool call from the runtime to your pack takes 42 ms at the
 median (100 ms at p95).
 
 :::note[Access to the runtime image]
-Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub for the
-runtime image's pull credentials, and log in once with `kindgi auth registry`
-(see [Install](../../start/install/#access-to-the-runtime-image)). Questions or trouble: contact@kindgi.com.
+The runtime image is in private preview: request access at contact@kindgi.com.
+You get its pull credentials, a robot name and a token, and log in once with
+`kindgi auth registry` (see [Install](../../start/install/#access-to-the-runtime-image)).
 :::
 
 ## What you'll have
@@ -134,8 +134,8 @@ built for:
 ```sh
 REPO=$(terraform output -raw image_repository)
 gcloud auth configure-docker "${REPO%%/*}"
-docker buildx imagetools create --tag "$REPO/runtime:0.1.4" \
-  quay.io/kindgi/runtime:0.1.4@sha256:<the release's digest>
+docker buildx imagetools create --tag "$REPO/runtime:0.1.5.1" \
+  quay.io/kindgi/runtime:0.1.5.1@sha256:7c1b111ff22091d137f45d9770f6ff9f2521575bf28130957a5db1ce80a2e56e
 ```
 
 The copy keeps the release's digest. (A plain `docker pull`, `tag` and `push`

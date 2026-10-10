@@ -20,6 +20,7 @@ import {
   requiredPositional,
   runSdk,
   stringFlag,
+  timeFlag,
   truncateCell,
 } from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
@@ -67,7 +68,8 @@ const REVISIONS_TABLE: TableSpec<readonly Fact[], Fact> = {
 
 const AS_OF_OPTION = {
   type: 'string',
-  description: 'Memory as it stood at this time (ISO 8601), deleted and superseded facts included.',
+  description:
+    'Memory as it stood at this time (an ISO 8601 time with a zone, or a date: its start, UTC), deleted and superseded facts included.',
 } as const;
 
 const EXPECT_VERSION_OPTION = {
@@ -119,7 +121,7 @@ const factsList: LeafCommand = {
           scopeText === undefined ? undefined : await jsonObjectFlag(scopeText, 'scope');
         const limit = integerFlag(ctx, 'limit');
         const cursor = stringFlag(ctx, 'cursor');
-        const asOf = stringFlag(ctx, 'as-of');
+        const asOf = timeFlag(ctx, 'as-of');
         return await ctx.client().memory.facts.list({
           ...(type !== undefined && { type }),
           ...(scope !== undefined && { scope }),
@@ -145,7 +147,7 @@ const factsGet: LeafCommand = {
     runSdk(ctx, 'memory facts get', async () => {
       const id = requiredPositional(ctx, 0, 'fact-id');
       const version = integerFlag(ctx, 'revision');
-      const asOf = stringFlag(ctx, 'as-of');
+      const asOf = timeFlag(ctx, 'as-of');
       const options = {
         ...(version !== undefined && { version }),
         ...(asOf !== undefined && { asOf }),

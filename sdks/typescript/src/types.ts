@@ -2045,6 +2045,12 @@ export interface User {
   /** When they were removed from the tenant (`client.users.unregister`); absent while they're here. */
   readonly unregisteredAt?: import('@kindgi/types').Timestamp;
   readonly metadata?: Readonly<Record<string, unknown>>;
+  /**
+   * The person's grants: only from `users.list({ includeGrants: true })`,
+   * and only from a runtime that reads grants (absent otherwise, as from
+   * an older one).
+   */
+  readonly grants?: PersonGrants;
 }
 
 /**
@@ -2216,10 +2222,10 @@ export interface ProjectPatch {
 
 /**
  * Roles on a `ProjectMembership` — the direct `User → Project`
- * grant shape. Additive with team-grants. Mirrors the OpenFGA
- * project-type relations (owner / editor / viewer)
- * plus the lightweight `member` and administrative `admin`
- * shorthands.
+ * grant shape. Additive with team-grants. `owner`, `admin`, `editor`
+ * and `viewer`, each including the ones after it; `member` only reads
+ * back on a role given before it was retired (it grants what `viewer`
+ * does), and writes refuse it.
  */
 export type ProjectRole = 'viewer' | 'editor' | 'owner' | 'admin' | 'member';
 
@@ -2302,7 +2308,8 @@ export interface ApiTokenCreated {
 
 /**
  * What a service account may do: tenant admin, tenant member (read the
- * tenant's settings), or a role on one project.
+ * tenant's settings), or a role on one project. A project role reads
+ * `member` only when given before it was retired.
  * Matches `@kindgi/api/openapi.json#ServiceAccountGrant`.
  */
 export type ServiceAccountGrant =
@@ -2312,6 +2319,20 @@ export type ServiceAccountGrant =
       readonly kind: 'project';
       readonly projectId: string;
       readonly role: 'viewer' | 'editor' | 'owner' | 'admin' | 'member';
+    };
+
+/**
+ * A grant to give a service account: tenant admin, tenant member, or a
+ * role on one project (`member` is refused: give `viewer`).
+ * Matches `@kindgi/api/openapi.json#ServiceAccountGrantBody`.
+ */
+export type ServiceAccountGrantInput =
+  | { readonly kind: 'tenant-admin' }
+  | { readonly kind: 'tenant-member' }
+  | {
+      readonly kind: 'project';
+      readonly projectId: string;
+      readonly role: 'viewer' | 'editor' | 'owner' | 'admin';
     };
 
 /** A grant to remove: tenant admin, tenant member, or whatever role the account has on a project. */
@@ -2363,7 +2384,7 @@ export interface CreateServiceAccountInput {
   readonly name: string;
   readonly description?: string;
   /** Written before the account is returned, so its first key works at once. */
-  readonly grants?: readonly ServiceAccountGrant[];
+  readonly grants?: readonly ServiceAccountGrantInput[];
 }
 
 // ============================================================
@@ -2480,8 +2501,9 @@ export interface RegisterMcpEndpointInput {
 /**
  * @unwired SDK-defined event shapes; the API has no event emission or
  * subscription routes (`client.events.*` throws `not-yet-wired`).
- * Event-driven runs are configured with `client.eventTriggers`. Filters
- * are declarative predicates over event fields.
+ * Event triggers, which would start runs from events, aren't served yet:
+ * the runtime fires schedules only. Filters are declarative predicates
+ * over event fields.
  */
 export interface Event {
   readonly id: import('@kindgi/types').EventId;
@@ -2802,6 +2824,16 @@ export interface JudgeClassAssertableBy {
   readonly principalIds?: readonly string[];
 }
 
+/**
+ * Who may assert a judge class, as the caller sees it. `principalIds` comes
+ * only to an admin on the class's scope; `principalCount` to every reader.
+ * Matches `@kindgi/api/openapi.json#JudgeClassAssertableByView`.
+ */
+export interface JudgeClassAssertableByView extends JudgeClassAssertableBy {
+  /** How many principals the class is restricted to; absent when it names none. */
+  readonly principalCount?: number;
+}
+
 /** Matches `@kindgi/api/openapi.json#JudgeClass`. */
 export interface JudgeClass {
   readonly id: string;
@@ -2813,7 +2845,7 @@ export interface JudgeClass {
   readonly weight: number;
   readonly description?: string;
   /** Who may assert it; absent: anyone who may judge the run. */
-  readonly assertableBy?: JudgeClassAssertableBy;
+  readonly assertableBy?: JudgeClassAssertableByView;
   readonly createdAt: import('@kindgi/types').Timestamp;
   readonly updatedAt: import('@kindgi/types').Timestamp;
   /** Set when the class was retired. */

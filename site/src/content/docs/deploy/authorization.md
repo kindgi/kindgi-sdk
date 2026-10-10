@@ -135,6 +135,10 @@ message; Python raises `AuthError`, with `server_code` `permission-denied`.
 
 A project's members have a role: `owner`, `admin`, `editor` or `viewer`. Each
 includes the next ones: an owner is also an admin, an editor and a viewer.
+A role given as `member` before it was retired still reads back as `member`
+and grants what `viewer` does; giving it now is a 400 that says to use
+`viewer`. (An API key's `member` role is unchanged: see
+[People, API keys and service accounts](../people-and-keys/).)
 Adding, changing or removing a membership changes OpenFGA too:
 
 ```sh
@@ -151,6 +155,109 @@ of the tenant's people, whatever its case
 `projects.memberships.add`, `updateRole` and `remove` (`update_role` in
 Python). Changing members takes `admin` on the project: a tenant admin, or
 the project's own admins.
+
+Adding someone who's a member already keeps their role. The same role answers
+`201` with the existing membership; another one is `409 membership-exists`,
+with the role they hold in `details.role`. Use `PATCH` to change it.
+
+Listing a project's members takes `write` on it: its editors and admins. A
+viewer sees the project, not who else works in it, and reads their own roles
+through [their grants](../people-and-keys/#make-someone-a-tenant-admin)
+(`GET /v1/identity/users/<user-id>/grants`).
+
+## Team grants
+
+A team can have a role on a project: `viewer`, `editor` or `admin`. Every
+member of the team then holds that role there, the team's admins included. A
+team never owns a project; `owner` is a person's role.
+
+```sh
+curl -X POST "$KINDGI_API_URL/v1/projects/<project-id>/team-grants" \
+  -H "Authorization: Bearer $KINDGI_API_TOKEN" -H 'content-type: application/json' \
+  -d '{"teamId":"<team-id>","role":"editor"}'
+```
+
+Giving a team a role takes `admin` on the project and `read` on the team:
+you give your project only to a team you can see. Giving a team `admin`
+hands "who works here" to the team's admins, since anyone they add to the
+team gets it. Adding a role the team already holds answers `201` with the
+existing grant; another role is `409 team-grant-exists`. `PATCH …/team-grants/<team-id>` with
+`{"role":"viewer"}` changes it, and `DELETE …/team-grants/<team-id>` takes it
+away.
+
+In the clients: `projects.teamGrants.list`, `add`, `updateRole` and `remove`
+(`projects.team_grants` in Python), and `teams.projectGrants.list`
+(`teams.project_grants.list`) for the projects a team works in.
+
+Who sees the grants:
+
+- **A project's team grants** (`GET …/team-grants`): its editors and admins
+  (`write`).
+- **A team's project grants** (`GET /v1/teams/<team-id>/project-grants`) and
+  **its members** (`GET /v1/teams/<team-id>/memberships`): the team's admins
+  and tenant admins. A plain member sees the team, not who else is in it.
+
+Deleting a team removes the access it gave: its members' roles and its
+project grants. Nobody keeps access through a team that's gone.
+
+## Who has access to a project
+
+`GET /v1/projects/<project-id>/access` lists everyone OpenFGA lets into the
+project, people and service accounts, with their role and every way in. Here
+the project's creator, Ana Ruiz (a tenant admin who's also a direct editor),
+and Ben Okafor (in the team Support crew, an editor of the project):
+
+```json
+{
+  "data": [
+    {
+      "principal": { "kind": "user", "id": "7e8e9ff9-…" },
+      "displayName": "seed-user",
+      "role": "owner",
+      "via": [
+        { "kind": "direct", "role": "owner", "joinedAt": "2026-10-10T06:52:18.102Z" },
+        { "kind": "tenant-admin" },
+        { "kind": "team", "teamId": "8a88aabe-…", "teamName": "Support crew", "role": "editor" }
+      ]
+    },
+    {
+      "principal": { "kind": "user", "id": "54293391-…" },
+      "displayName": "Ana Ruiz",
+      "primaryEmail": "ana@acme.example",
+      "role": "admin",
+      "via": [
+        { "kind": "tenant-admin" },
+        { "kind": "direct", "role": "editor", "joinedAt": "2026-10-10T06:52:18.297Z" },
+        { "kind": "team", "teamId": "8a88aabe-…", "teamName": "Support crew", "role": "editor" }
+      ]
+    },
+    {
+      "principal": { "kind": "user", "id": "06a1dcc9-…" },
+      "displayName": "Ben Okafor",
+      "primaryEmail": "ben@acme.example",
+      "role": "editor",
+      "via": [
+        { "kind": "team", "teamId": "8a88aabe-…", "teamName": "Support crew", "role": "editor" }
+      ]
+    }
+  ],
+  "hasMore": false
+}
+```
+
+- **`role`** is the highest any way in gives. An admin of the project's org
+  (`org-admin`) and a tenant admin (`tenant-admin`) are admins of the project.
+- **A tenant admin is an admin of every team too,** so they're also listed
+  through a team's grant, as Ana and the creator are here.
+- **A direct role with `joinedAt`** is a membership: change or remove it with
+  `…/memberships/<user-id>`. One without `joinedAt` has no membership behind
+  it, such as the creator of a project made before 0.1.6.
+- **A team's role** is changed on its grant (`…/team-grants/<team-id>`).
+
+Reading it takes `write` on the project (its editors and admins); emails show
+to its admins only. It's ordered by role, owner first, then by name, and pages
+like other lists. In the clients: `projects.access.list` (the same in Python).
+A runtime without OpenFGA answers `501 project-access-unsupported`.
 
 ## The access audit
 
@@ -176,9 +283,18 @@ after 90 days and denied ones after 365 (see
 
 `actorSubject`, `action`, `resource`, `outcome` (`allowed` or `denied`), `from`, `to` and `runId` narrow the list.
 
+Refusals the API decides before it asks the authorization model are kept too,
+with a `reason` that says which check refused (runtime 0.1.6 or later):
+
+- what the caller's API key rules out: a `member` key asking for a tenant
+  admin's action, a key limited to a project reaching outside it, a key
+  without the capability a write needs (`env:write`, `secrets:write`, …);
+- a caller who isn't a reviewer, on the approvals routes.
+
 ### In the console
 
-**Access audit** lists the same decisions, 50 at a time, newest first:
+**Access audit**, for tenant admins (the only people its API answers), lists
+the same decisions, 50 at a time, newest first:
 **Next page** leads to the older ones. A denied one has a ✗ and a red row. Narrow
 the list by who, on what, action, result (allowed or denied), and time with
 From and To, which are in UTC like the times in the list. The filters are in

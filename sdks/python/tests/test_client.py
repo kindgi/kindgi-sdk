@@ -301,6 +301,11 @@ def test_a_segment_path_is_its_steps_written_in_order() -> None:
         (error(401, "auth-missing"), AuthError, lambda e: e.reason == "unauthenticated"),
         (error(403, "permission-denied"), AuthError, lambda e: e.reason == "forbidden"),
         (
+            error(403, "identity-providers-operator-managed"),
+            AuthError,
+            lambda e: e.reason == "forbidden",
+        ),
+        (
             error(500, "kaboom", requestId="req-1"),
             ServerError,
             lambda e: (e.server_code, e.request_id, e.status) == ("kaboom", "req-1", 500),
@@ -598,9 +603,80 @@ def test_settings_come_from_the_environment(
     monkeypatch.setenv("KINDGI_API_TOKEN", "kgi_bt_env")
     with Kindgi() as api:
         assert (api.base_url, api.token) == ("http://env.test", "kgi_bt_env")
-    monkeypatch.delenv("KINDGI_API_TOKEN")
-    with pytest.raises(ValueError, match="KINDGI_API_TOKEN"):
-        Kindgi()
+
+
+def test_settings_are_found_on_first_use_not_when_the_client_is_created(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # A module-scope `Kindgi()` must load in a build step that imports the app
+    # without its settings (Django's `collectstatic`, a Docker build).
+    monkeypatch.chdir(tmp_path)  # no running kindgi dev to fall back to
+    monkeypatch.delenv("KINDGI_API_URL", raising=False)
+    monkeypatch.delenv("KINDGI_API_TOKEN", raising=False)
+    seen: list[httpx.Request] = []
+
+    def record(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={"data": [], "hasMore": False})
+
+    api = Kindgi(http_client=httpx.Client(transport=httpx.MockTransport(record)))
+    # The first use says what to set, and nothing is sent.
+    with pytest.raises(ValueError, match="KINDGI_API_URL and KINDGI_API_TOKEN"):
+        api.runs.list()
+    with pytest.raises(ValueError, match="KINDGI_API_URL"):
+        _ = api.base_url
+    assert seen == []
+    # Once they're set, the next use finds them, and keeps them.
+    monkeypatch.setenv("KINDGI_API_URL", "http://env.test/")
+    monkeypatch.setenv("KINDGI_API_TOKEN", "kgi_bt_env")
+    api.runs.list()
+    assert str(seen[0].url).startswith("http://env.test/v1/runs")
+    assert seen[0].headers["authorization"] == "Bearer kgi_bt_env"
+    monkeypatch.setenv("KINDGI_API_TOKEN", "kgi_bt_other")
+    api.runs.list()
+    assert seen[1].headers["authorization"] == "Bearer kgi_bt_env"
+    api.close()
+
+
+def test_the_async_client_finds_its_settings_on_first_use_too(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("KINDGI_API_URL", raising=False)
+    monkeypatch.delenv("KINDGI_API_TOKEN", raising=False)
+
+    async def scenario() -> None:
+        seen: list[httpx.Request] = []
+
+        def record(request: httpx.Request) -> httpx.Response:
+            seen.append(request)
+            return httpx.Response(200, json={"data": [], "hasMore": False})
+
+        async with AsyncKindgi(
+            http_client=httpx.AsyncClient(transport=httpx.MockTransport(record))
+        ) as api:
+            with pytest.raises(ValueError, match="KINDGI_API_TOKEN"):
+                await api.runs.list()
+            assert seen == []
+            monkeypatch.setenv("KINDGI_API_URL", "http://env.test")
+            monkeypatch.setenv("KINDGI_API_TOKEN", "kgi_bt_env")
+            await api.runs.list()
+            assert seen[0].headers["authorization"] == "Bearer kgi_bt_env"
+
+    asyncio.run(scenario())
+
+
+def test_default_headers_still_come_after_the_clients_own(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    api, seen = client(
+        lambda r: httpx.Response(200, json={"data": [], "hasMore": False}),
+        default_headers={"User-Agent": "acme-app/1.0", "X-Acme": "yes"},
+    )
+    api.runs.list()
+    assert seen[0].headers["user-agent"] == "acme-app/1.0"
+    assert seen[0].headers["x-acme"] == "yes"
+    assert seen[0].headers["authorization"] == "Bearer kgi_bt_test"
 
 
 def test_the_async_client() -> None:
@@ -777,18 +853,159 @@ def test_a_persons_grants_and_tenant_admin() -> None:
     assert json.loads(seen[1].content) == {"kind": "tenant-admin"}
 
 
+def test_the_people_list_with_their_grants() -> None:
+    person = {
+        "userId": "u-1",
+        "tenantId": "8f14e45f-ceea-467a-9575-36c1f8d1e0a3",
+        "createdAt": "2026-10-10T00:00:00Z",
+    }
+    grants = {"userId": "u-1", "tenantAdmin": False, "projects": [], "teams": []}
+    page = {"data": [{**person, "grants": grants}, person], "hasMore": False}
+    api, seen = client(lambda r: httpx.Response(200, json=page))
+    listed = api.identity.users.list(include="grants")
+    assert seen[0].url.params["include"] == "grants"
+    first, second = listed.data
+    assert isinstance(first.grants, models.PersonGrants) and first.grants.tenant_admin is False
+    assert second.grants is None
+
+
+def test_team_grants() -> None:
+    grant = {
+        "teamId": "t-1",
+        "projectId": "p-1",
+        "role": "editor",
+        "teamName": "Crew",
+        "projectName": "Acme",
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, json={"data": [grant], "hasMore": False})
+        if request.method == "POST":
+            return httpx.Response(201, json=grant)
+        return httpx.Response(204)
+
+    api, seen = client(handler)
+    page = api.projects.team_grants.list("p-1")
+    assert isinstance(page.data[0], models.TeamProjectGrant) and page.data[0].team_name == "Crew"
+    added = api.projects.team_grants.add("p-1", team_id="t-1", role="editor")
+    assert added.role == "editor"
+    api.projects.team_grants.update_role("p-1", "t-1", role="admin")
+    api.projects.team_grants.remove("p-1", "t-1")
+    api.teams.project_grants.list("t-1")
+    assert [(r.method, r.url.path) for r in seen] == [
+        ("GET", "/v1/projects/p-1/team-grants"),
+        ("POST", "/v1/projects/p-1/team-grants"),
+        ("PATCH", "/v1/projects/p-1/team-grants/t-1"),
+        ("DELETE", "/v1/projects/p-1/team-grants/t-1"),
+        ("GET", "/v1/teams/t-1/project-grants"),
+    ]
+    assert json.loads(seen[1].content) == {"teamId": "t-1", "role": "editor"}
+    assert json.loads(seen[2].content) == {"role": "admin"}
+
+
+def test_project_access() -> None:
+    page = {
+        "data": [
+            {
+                "principal": {"kind": "user", "id": "u-1"},
+                "displayName": "Ada",
+                "role": "admin",
+                "via": [
+                    {"kind": "tenant-admin"},
+                    {"kind": "direct", "role": "editor", "joinedAt": "2026-10-01T00:00:00Z"},
+                    {"kind": "team", "teamId": "t-1", "teamName": "Crew", "role": "viewer"},
+                    {"kind": "org-admin", "orgId": "o-1"},
+                ],
+            }
+        ],
+        "hasMore": False,
+    }
+    api, seen = client(lambda r: httpx.Response(200, json=page))
+    listed = api.projects.access.list("p-1", limit=100)
+    assert seen[0].url.path == "/v1/projects/p-1/access"
+    assert seen[0].url.params["limit"] == "100"
+    entry = listed.data[0]
+    assert isinstance(entry, models.ProjectAccess) and entry.role == "admin"
+    assert [type(v) for v in entry.via] == [
+        models.ProjectAccessTenantAdmin,
+        models.ProjectAccessDirect,
+        models.ProjectAccessTeam,
+        models.ProjectAccessOrgAdmin,
+    ]
+
+
+def test_my_permissions() -> None:
+    answer = {
+        "tenantId": RUN["tenantId"],
+        "tenant": {"admin": False, "member": True},
+        "reviewer": {"role": "senior", "decides": ["standard", "senior"], "canDecide": True},
+        "key": {"tokenId": "k-1", "role": "member", "projectId": "p-1"},
+        "tokenCapabilities": [],
+        "projects": [
+            {
+                "projectId": "p-1",
+                "name": "Support",
+                "role": "editor",
+                "via": [
+                    {"kind": "direct", "role": "viewer"},
+                    {"kind": "team", "teamId": "t-1", "teamName": "Support eng", "role": "editor"},
+                ],
+            }
+        ],
+        "orgs": [{"orgId": "o-1", "name": "Acme", "role": "member"}],
+        "teams": [{"teamId": "t-1", "name": "Support eng", "role": "member"}],
+        "capabilities": {
+            role: {
+                t: []
+                for t in (
+                    "project",
+                    "agent",
+                    "flow",
+                    "tool",
+                    "guardrail",
+                    "eval_suite",
+                    "trigger",
+                    "conversation",
+                    "secret",
+                    "env",
+                    "mcp_endpoint",
+                    "run",
+                )
+            }
+            for role in ("owner", "admin", "editor", "viewer")
+        },
+    }
+    answer["capabilities"]["editor"]["agent"] = ["read", "write", "execute", "publish"]
+    api, seen = client(lambda r: httpx.Response(200, json=answer))
+    mine = api.identity.me.permissions()
+    assert isinstance(mine, models.MyPermissions)
+    assert mine.tenant.admin is False and mine.key is not None and mine.key.project_id == "p-1"
+    assert mine.reviewer is not None and mine.reviewer.can_decide is True
+    assert [type(p).__name__ for p in mine.projects[0].via] == [
+        "AccessPathDirect",
+        "AccessPathTeam",
+    ]
+    assert mine.capabilities.editor.agent == ["read", "write", "execute", "publish"]
+    assert [(r.method, r.url.path) for r in seen] == [("GET", "/v1/identity/me/permissions")]
+
+
 def test_named_models_keep_their_names() -> None:
-    # Inline shapes in a new schema once renamed `Team`/`Project` to `Team1`/`Project1`.
+    # Inline shapes in a new schema once renamed `Team`/`Project` to `Team1`/`Project1`,
+    # and the caller's permissions' `tenant` nearly renamed `Tenant`; a `$ref` to
+    # `RunStatus` beside its inline uses folds the `RunStatus` class away.
     for name in (
         "Team",
         "Project",
         "Reviewer",
+        "Tenant",
         "FlowId",
         "PersonGrants",
         "ServiceAccountGrantBody",
+        "RunStatus",
     ):
         assert hasattr(models, name), name
-    for name in ("Team1", "Project1", "Reviewer1", "FlowId1"):
+    for name in ("Team1", "Project1", "Reviewer1", "Tenant1", "FlowId1"):
         assert not hasattr(models, name), name
 
 
@@ -988,3 +1205,17 @@ def test_a_judging_rule_change_sends_null_to_remove_the_cap() -> None:
     api, seen = client(lambda r: httpx.Response(200, json=rule))
     api.projects.judging_rules.update(project, rule_id, max_open=None, sample=0.05)
     assert json.loads(seen[0].content) == {"maxOpen": None, "sample": 0.05}
+
+
+def test_a_reviewer_inbox_in_one_read() -> None:
+    page = {"data": [], "hasMore": False, "order": "asc"}
+    api, seen = client(lambda r: httpx.Response(200, json=page))
+    listed = api.approvals.list(
+        status=["pending", "assigned", "in_review"], assigned_to="me", order="asc"
+    )
+    assert seen[0].url.params.get_list("status") == ["pending", "assigned", "in_review"]
+    assert (seen[0].url.params.get("assignedTo"), seen[0].url.params.get("order")) == ("me", "asc")
+    assert listed.order == "asc"
+    # One status, as before.
+    api.approvals.list(status="pending")
+    assert seen[1].url.params.get_list("status") == ["pending"]

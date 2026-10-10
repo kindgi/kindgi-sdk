@@ -77,6 +77,13 @@ export interface OperationSpec {
     readonly encoding?: Readonly<Record<string, Record<string, unknown>>>;
   };
   readonly responses: Readonly<Record<string, ResponseSpec>>;
+  /**
+   * Why the runtime doesn't serve this operation yet. Set, it stays
+   * registered (its route mounts where a runtime supplies what it needs,
+   * and the drift tests see it), but the public document leaves it out,
+   * with the schemas only it uses, so no client offers it.
+   */
+  readonly unserved?: string;
 }
 
 // ---------------- shared parameters ----------------
@@ -126,7 +133,24 @@ const CursorQueryParam: ParameterSpec = {
   name: 'cursor',
   in: 'query',
   required: false,
-  description: 'Opaque cursor from a prior response. Absent → first page.',
+  description:
+    'Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page.',
+  schema: { type: 'string' },
+};
+
+const ProjectIdPathParam: ParameterSpec = {
+  name: 'projectId',
+  in: 'path',
+  required: true,
+  description: 'ProjectId — opaque branded string.',
+  schema: { type: 'string' },
+};
+
+const TeamIdPathParam: ParameterSpec = {
+  name: 'teamId',
+  in: 'path',
+  required: true,
+  description: 'TeamId — opaque branded string.',
   schema: { type: 'string' },
 };
 
@@ -196,6 +220,57 @@ const RunTriggerIdQueryParam: ParameterSpec = {
   required: false,
   description: 'Only the runs this trigger started (`Run.trigger.triggerId`).',
   schema: { type: 'string', format: 'uuid' },
+};
+
+const RunStatusQueryParam: ParameterSpec = {
+  name: 'status',
+  in: 'query',
+  required: false,
+  description:
+    'Only runs in these statuses: one, or several, repeated (`status=failed&status=cancelled`) or comma-separated (`status=failed,cancelled`).',
+  schema: { type: 'array', items: { $ref: '#/components/schemas/RunStatus' } },
+};
+
+const RunCreatedAfterQueryParam: ParameterSpec = {
+  name: 'createdAfter',
+  in: 'query',
+  required: false,
+  description: 'Only runs created strictly after this time.',
+  schema: { type: 'string', format: 'date-time' },
+};
+
+const RunCreatedBeforeQueryParam: ParameterSpec = {
+  name: 'createdBefore',
+  in: 'query',
+  required: false,
+  description: 'Only runs created strictly before this time.',
+  schema: { type: 'string', format: 'date-time' },
+};
+
+const RunAgentVersionQueryParam: ParameterSpec = {
+  name: 'agentVersion',
+  in: 'query',
+  required: false,
+  description:
+    'With `agentId`: only the turns that ran this version. Turns from before versions were recorded never match.',
+  schema: { type: 'string', minLength: 1 },
+};
+
+const RunFlowIdQueryParam: ParameterSpec = {
+  name: 'flowId',
+  in: 'query',
+  required: false,
+  description:
+    "Only runs of this flow. An agent's turns run `agent.turn`; use `agentId` for an agent's.",
+  schema: { type: 'string', minLength: 1 },
+};
+
+const RunFlowVersionQueryParam: ParameterSpec = {
+  name: 'flowVersion',
+  in: 'query',
+  required: false,
+  description: 'With `flowId`: only runs of this version.',
+  schema: { type: 'string', minLength: 1 },
 };
 
 const LiveProjectQueryParam: ParameterSpec = {
@@ -313,6 +388,15 @@ const FlowNameFilterQueryParam: ParameterSpec = {
   schema: { type: 'string' },
 };
 
+const IncludeRetiredQueryParam: ParameterSpec = {
+  name: 'includeRetired',
+  in: 'query',
+  required: false,
+  description:
+    "When `true`, retired items (every version unregistered) are listed too, each as its highest version with that version's `unregisteredAt`. Default: `false` (items with an active version only).",
+  schema: { type: 'boolean', default: false },
+};
+
 const AgentVersionPathParam: ParameterSpec = {
   name: 'version',
   in: 'path',
@@ -373,8 +457,27 @@ const ApprovalStatusQueryParam: ParameterSpec = {
   name: 'status',
   in: 'query',
   required: false,
-  description: 'Filter by approval status.',
-  schema: { $ref: '#/components/schemas/ApprovalStatus' },
+  description:
+    'Only approvals in these statuses: one, or several, repeated (`status=pending&status=escalated`) or comma-separated (`status=pending,assigned,in_review`).',
+  schema: { type: 'array', items: { $ref: '#/components/schemas/ApprovalStatus' } },
+};
+
+const ApprovalAssignedToQueryParam: ParameterSpec = {
+  name: 'assignedTo',
+  in: 'query',
+  required: false,
+  description:
+    "`me`: only the approvals assigned to the caller's own reviewer row (none when the caller has no row).",
+  schema: { type: 'string', enum: ['me'] },
+};
+
+const ApprovalOrderQueryParam: ParameterSpec = {
+  name: 'order',
+  in: 'query',
+  required: false,
+  description:
+    "`desc` (newest first, the default) or `asc` (oldest first). A page's `nextCursor` continues its own order; the page says which order it's in (`order`).",
+  schema: { type: 'string', enum: ['asc', 'desc'], default: 'desc' },
 };
 
 const ReviewerIdPathParam: ParameterSpec = {
@@ -1206,6 +1309,15 @@ const JudgeClassScopeKindQueryParam: ParameterSpec = judgmentQuery(
   { type: 'string', enum: ['tenant', 'project', 'agent'] },
 );
 
+const ScheduleProjectIdQueryParam: ParameterSpec = {
+  name: 'projectId',
+  in: 'query',
+  required: false,
+  description:
+    "Only this project's schedules. A runtime before Kindgi 0.1.6 ignores it and lists every project's.",
+  schema: { type: 'string', format: 'uuid' },
+};
+
 const JudgeClassProjectIdQueryParam: ParameterSpec = judgmentQuery(
   'projectId',
   'Project of the scope, for `scopeKind=project|agent`.',
@@ -1237,6 +1349,11 @@ const CommonMutationErrors: Readonly<Record<string, ResponseSpec>> = {
   ),
   '500': ErrorResponse('Server error (unmapped domain code or framework crash).'),
 };
+
+/** A change to the tenant's identity providers: not a tenant admin, or the operator manages sign-in. */
+const ProviderChangeRefused: ResponseSpec = ErrorResponse(
+  "Not a tenant admin (`permission-denied`), or this deployment's operator manages sign-in (`identity-providers-operator-managed`, `KINDGI_AUTH_TENANT_PROVIDERS=off`): only the deployment's own token can change its providers.",
+);
 
 // ---------------- operation registry ----------------
 
@@ -1328,11 +1445,91 @@ export const OPERATIONS: readonly OperationSpec[] = [
       RunEvalRunIdQueryParam,
       RunTriggerIdQueryParam,
       RunIncludeQueryParam,
+      RunStatusQueryParam,
+      RunCreatedAfterQueryParam,
+      RunCreatedBeforeQueryParam,
+      RunAgentVersionQueryParam,
+      RunFlowIdQueryParam,
+      RunFlowVersionQueryParam,
     ],
     responses: {
       '200': { description: 'Page of runs.', schema: ref('RunCollectionPage') },
       ...CommonAuthErrors,
       '400': ErrorResponse('Malformed cursor, filter or scope.'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/runs/failures',
+    openapiPath: '/v1/runs/failures',
+    operationId: 'runs.failures',
+    summary: "A project's failed runs, grouped by cause and version",
+    description:
+      "Counts from the server, never from a page: per group, how many runs failed, when the first and the latest failed in the window, and the latest run. People's decisions (`hitl-*`: an approval rejected, cancelled or timed out) come apart as `outcomes`, never as failures. Runs that failed before their cause was recorded come apart as `unrecorded`, by subject and version only. Replays, eval runs' runs and dry runs aren't counted; a child run counts under its own agent or flow. Failed runs go with their retention, so a window can hold fewer than happened. Needs `read` on the project.",
+    tags: ['runs'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'projectId',
+        in: 'query',
+        required: true,
+        description: 'The project whose runs are counted.',
+        schema: { type: 'string', minLength: 1 },
+      },
+      {
+        name: 'from',
+        in: 'query',
+        required: true,
+        description: 'Runs that failed at or after this time (ISO 8601).',
+        schema: { type: 'string', format: 'date-time' },
+      },
+      {
+        name: 'to',
+        in: 'query',
+        required: true,
+        description: 'Runs that failed before this time (ISO 8601). At most 90 days after `from`.',
+        schema: { type: 'string', format: 'date-time' },
+      },
+      {
+        name: 'agentId',
+        in: 'query',
+        required: false,
+        description: "Only this agent's turns. Not with `flowId`.",
+        schema: { type: 'string', minLength: 1 },
+      },
+      {
+        name: 'flowId',
+        in: 'query',
+        required: false,
+        description: "Only this flow's runs. Not with `agentId`.",
+        schema: { type: 'string', minLength: 1 },
+      },
+      {
+        name: 'groupBy',
+        in: 'query',
+        required: false,
+        description:
+          'What failures are grouped by: `code`, `version`, or `code,version` (the default).',
+        schema: { type: 'string' },
+      },
+      {
+        name: 'limit',
+        in: 'query',
+        required: false,
+        description:
+          'The most groups in each list, the most failures first: 1 to 200, 50 by default.',
+        schema: { type: 'integer', minimum: 1, maximum: 200 },
+      },
+    ],
+    responses: {
+      '200': { description: 'The groups.', schema: ref('RunFailureGroups') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse(
+        'A missing or malformed `projectId`, `from`, `to`, `groupBy` or `limit`; a window over 90 days; both `agentId` and `flowId`.',
+      ),
+      '501': ErrorResponse(
+        '`run-failures-not-supported`: this deployment cannot group failed runs by cause.',
+      ),
     },
   },
   {
@@ -1821,9 +2018,26 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ScopeKindQueryParam,
       ScopeIdQueryParam,
       ApprovalStatusQueryParam,
+      ApprovalAssignedToQueryParam,
+      ApprovalOrderQueryParam,
       ApprovalRequiredRoleQueryParam,
       CreatedAfterQueryParam,
       WaitTokenIdQueryParam,
+      {
+        name: 'runId',
+        in: 'query',
+        required: false,
+        description: 'Only the approvals this run asked for.',
+        schema: { type: 'string', format: 'uuid' },
+      },
+      {
+        name: 'includeDescendants',
+        in: 'query',
+        required: false,
+        description:
+          "With `runId`: also the approvals its child runs asked for, at any depth (a flow's agent steps).",
+        schema: { type: 'boolean' },
+      },
     ],
     responses: {
       '200': { description: 'Page of approvals.', schema: ref('ApprovalCollectionPage') },
@@ -1881,7 +2095,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'approvals.reviewers.list',
     summary: "List reviewers registered for the caller's tenant",
     description:
-      'Cursor-paginated. Optional `?role=` narrows to a specific role class. Reviewer-role gate does NOT apply — roster management is an admin surface, not a reviewer-only action.',
+      'Cursor-paginated. Optional `?role=` narrows to a specific role class. The roster names people: with authorization on, a tenant admin or a reviewer (a role on the token, or one the roster gives the user) reads it, and anyone else gets `403 permission-denied`.',
     tags: ['approvals'],
     security: 'bearer',
     parameters: [LimitQueryParam, CursorQueryParam, ReviewerRoleQueryParam],
@@ -1897,6 +2111,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/approvals/reviewers/{reviewerId}',
     operationId: 'approvals.reviewers.get',
     summary: 'Fetch a reviewer',
+    description:
+      'With authorization on, a tenant admin or a reviewer reads it, as the roster; anyone else gets `403 permission-denied`.',
     tags: ['approvals'],
     security: 'bearer',
     parameters: [ReviewerIdPathParam],
@@ -1976,7 +2192,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'agents.list',
     summary: 'List agents',
     description:
-      'Cursor-paginated list of the latest version per agent id. Optional `?name=` filters by prefix on agent id.',
+      'Cursor-paginated list of the latest version per agent id. Optional `?name=` filters by prefix on agent id. A retired agent (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.',
     tags: ['agents'],
     security: 'bearer',
     parameters: [
@@ -1986,6 +2202,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ScopeKindQueryParam,
       ScopeIdQueryParam,
       InheritQueryParam,
+      IncludeRetiredQueryParam,
     ],
     responses: {
       '200': { description: 'Page of agents.', schema: ref('AgentCollectionPage') },
@@ -2014,14 +2231,15 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/agents/{agentId}/versions',
     operationId: 'agents.listVersions',
     summary: 'List versions of an agent',
-    description: 'Cursor-paginated. Sort order is binding-defined (built-in registry: semver asc).',
+    description:
+      'Cursor-paginated. Sort order is binding-defined (built-in registry: semver asc). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired agent (every version unregistered) answers too, with its versions to reinstate.',
     tags: ['agents'],
     security: 'bearer',
-    parameters: [AgentIdPathParam, LimitQueryParam, CursorQueryParam],
+    parameters: [AgentIdPathParam, LimitQueryParam, CursorQueryParam, IncludeTombstonedQueryParam],
     responses: {
       '200': { description: 'Page of agent versions.', schema: ref('AgentCollectionPage') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No agent with that id under this tenant.'),
+      '404': ErrorResponse('No agent was ever registered with that id under this tenant.'),
     },
   },
   {
@@ -2464,7 +2682,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'flows.list',
     summary: 'List flows',
     description:
-      'Cursor-paginated list of the latest version per flow id. Optional `?name=` filters by prefix on flow id.',
+      'Cursor-paginated list of the latest version per flow id. Optional `?name=` filters by prefix on flow id. A retired flow (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.',
     tags: ['flows'],
     security: 'bearer',
     parameters: [
@@ -2474,6 +2692,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ScopeKindQueryParam,
       ScopeIdQueryParam,
       InheritQueryParam,
+      IncludeRetiredQueryParam,
     ],
     responses: {
       '200': { description: 'Page of flows.', schema: ref('FlowCollectionPage') },
@@ -2502,14 +2721,15 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/flows/{flowId}/versions',
     operationId: 'flows.listVersions',
     summary: 'List versions of a flow',
-    description: 'Cursor-paginated. Sort order is binding-defined (for example semver asc).',
+    description:
+      'Cursor-paginated. Sort order is binding-defined (for example semver asc). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired flow (every version unregistered) answers too, with its versions to reinstate.',
     tags: ['flows'],
     security: 'bearer',
-    parameters: [FlowIdPathParam, LimitQueryParam, CursorQueryParam],
+    parameters: [FlowIdPathParam, LimitQueryParam, CursorQueryParam, IncludeTombstonedQueryParam],
     responses: {
       '200': { description: 'Page of flow versions.', schema: ref('FlowCollectionPage') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No flow with that id under this tenant.'),
+      '404': ErrorResponse('No flow was ever registered with that id under this tenant.'),
     },
   },
   {
@@ -2600,7 +2820,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'tools.list',
     summary: 'List tools',
     description:
-      'Cursor-paginated list of registered tool manifests. Optional `?name=` filters by prefix on tool id.',
+      'Cursor-paginated list of registered tool manifests. Optional `?name=` filters by prefix on tool id. A retired tool (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.',
     tags: ['tools'],
     security: 'bearer',
     parameters: [
@@ -2610,6 +2830,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ScopeKindQueryParam,
       ScopeIdQueryParam,
       InheritQueryParam,
+      IncludeRetiredQueryParam,
     ],
     responses: {
       '200': { description: 'Page of tools.', schema: ref('ToolCollectionPage') },
@@ -2674,7 +2895,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'tools.register',
     summary: 'Register a tool manifest',
     description:
-      'Body is a `ToolManifest` (Tool minus its runtime handler). Server validates via `@kindgi/tools.validateToolManifest`. Metadata only: the handler is not uploaded through this route and must already be available to the runtime.',
+      "Body is a `ToolManifest` (Tool minus its runtime handler). Server validates via `@kindgi/tools.validateToolManifest`. Metadata only: the handler is not uploaded through this route and must already be available to the runtime. A tool never gets a model provider's key: one that declares (`needsSpec.secrets`) or sends (`spec.authorization.secretRef`) a secret a provider registration of the tenant names, in any env, is refused.",
     tags: ['tools'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -2683,7 +2904,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Tool registered.', schema: ref('RegisterToolResult') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID).",
+        "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID). Or `provider-key-refused`: the tool names a model provider's key (`details.secret`, `details.providerId`); store the key it needs under its own name (the same value is fine) and name that.",
       ),
       '409': ErrorResponse(
         "`tool-already-registered`: that (id, version) is taken. Or `tool-project-mismatch`: the tool's versions live in another project (a tool belongs to the project its first version was published into and never moves; the message doesn't name the project). Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
@@ -2773,6 +2994,58 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'get',
+    honoPath: '/v1/guardrails/:guardrailId/outcomes',
+    openapiPath: '/v1/guardrails/{guardrailId}/outcomes',
+    operationId: 'guardrails.outcomes',
+    summary: "What a guardrail's checks came to in a project",
+    description:
+      "Counts from the server, over a window: how many of the guardrail's checks on agent turns in the project `passed`, were `violated` (the answer went through: `log-only`, `noop`, or an action handed back), `blocked` (a `halt` failed the turn) or `errored` (the check couldn't run; a `halt` guardrail's error fails the turn too, and is counted here). The same counts per agent version, and the window's latest blocked turns, by run id and time only: a blocked answer stays behind its run's page. A guardrail whose scope didn't match a turn wasn't checked on it. Replays and dry runs aren't counted. Outcomes go with their run's retention, so a window can hold fewer than asked; `recordedSince` says how far back they go. A guardrail no longer registered still has its outcomes. Needs `read` on the guardrail and on the project.",
+    tags: ['guardrails'],
+    security: 'bearer',
+    parameters: [
+      GuardrailIdPathParam,
+      {
+        name: 'projectId',
+        in: 'query',
+        required: true,
+        description: 'The project whose agent turns are counted.',
+        schema: { type: 'string', minLength: 1 },
+      },
+      {
+        name: 'from',
+        in: 'query',
+        required: true,
+        description: 'Checks at or after this time (ISO 8601).',
+        schema: { type: 'string', format: 'date-time' },
+      },
+      {
+        name: 'to',
+        in: 'query',
+        required: true,
+        description: 'Checks before this time (ISO 8601). At most 90 days after `from`.',
+        schema: { type: 'string', format: 'date-time' },
+      },
+      {
+        name: 'recent',
+        in: 'query',
+        required: false,
+        description: 'How many of the latest blocked turns to name: 0 to 50, 10 by default.',
+        schema: { type: 'integer', minimum: 0, maximum: 50 },
+      },
+    ],
+    responses: {
+      '200': { description: 'The outcomes.', schema: ref('GuardrailOutcomes') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse(
+        'A missing or malformed `projectId`, `from`, `to` or `recent`; a window over 90 days.',
+      ),
+      '501': ErrorResponse(
+        "`guardrail-outcomes-not-supported`: this deployment doesn't record guardrail outcomes.",
+      ),
+    },
+  },
+  {
     method: 'post',
     honoPath: '/v1/guardrails',
     openapiPath: '/v1/guardrails',
@@ -2797,7 +3070,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "The body's `projectId` names no project of this tenant (`project-not-found`).",
       ),
       '422': ErrorResponse(
-        "`guardrail-config-invalid`: the guardrail's `config` breaks the `configSchema` of the pack check it names, which the pack service would refuse on every call. `details.issues` lists each problem, `{ path, message }` with `path` a JSON pointer into the guardrail (`/config/maxChars`); the message names the guardrail, the check and the setting. Checked when the check's deployment carries its schema.",
+        "`guardrail-config-invalid`: the guardrail's `config` breaks the `configSchema` of the check it names (a pack check's, or a built-in's), which would refuse it on every call. `details.issues` lists each problem, `{ path, message }` with `path` a JSON pointer into the guardrail (`/config/maxChars`); the message names the guardrail, the check and the setting. Checked when the check's deployment carries its schema.",
       ),
     },
   },
@@ -3366,6 +3639,28 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
   {
     method: 'post',
+    honoPath: '/v1/proposals/:proposalId/rescore',
+    openapiPath: '/v1/proposals/{proposalId}/rescore',
+    operationId: 'proposals.rescore',
+    summary: "Rescore a proposal's latest evaluation",
+    description:
+      "After people judge a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison eval run scores the same replays again, counting those judgments, as `POST /v1/eval-runs/{runId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the proposal's evaluation, so the proposal is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.",
+    tags: ['proposals'],
+    security: 'bearer',
+    parameters: [ProposalIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '202': { description: 'The proposal, `evaluating`.', schema: ref('FixProposal') },
+      ...CommonMutationErrors,
+      '404': ErrorResponse(
+        'No such proposal, or its candidate version is unregistered (`agent-version-not-found`).',
+      ),
+      '409': ErrorResponse(
+        "`proposal-invalid-state-transition`: the proposal's status doesn't allow it. `eval-run-not-rescorable`: the latest evaluation isn't a completed comparison.",
+      ),
+    },
+  },
+  {
+    method: 'post',
     honoPath: '/v1/proposals/:proposalId/request',
     openapiPath: '/v1/proposals/{proposalId}/request',
     operationId: 'proposals.request',
@@ -3873,7 +4168,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'providers.register',
     summary: 'Register a model provider',
     description:
-      'Body is a full `ProviderMetadata`. Server validates shape: provider-level `id` + `region` non-empty; `models[]` non-empty with unique `name` per entry; per-model `contextWindow` positive integer; per-model `features` against the closed enum; per-model `cost` non-negative; optional per-model `p95LatencyMs` / `maxOutputTokens` well-shaped; optional `labels` within their limits — same rules as `@kindgi/capabilities.createProviderRegistry`. Secrets (API keys, endpoints) are NOT part of the wire shape; deployments store them inside the binding. When the runtime has the adapter the body names, that adapter checks the registration first (its `adapter_config`, the metadata and the presence of `secret_ref`; static: no network, no secret read): a problem refuses it with `422 provider-config-invalid`.',
+      "Body is a full `ProviderMetadata`. Server validates shape: provider-level `id` + `region` non-empty; `models[]` non-empty with unique `name` per entry; per-model `contextWindow` positive integer; per-model `features` against the closed enum; per-model `cost` non-negative; optional per-model `p95LatencyMs` / `maxOutputTokens` well-shaped; optional `labels` within their limits — same rules as `@kindgi/capabilities.createProviderRegistry`. Secrets (API keys, endpoints) are NOT part of the wire shape; deployments store them inside the binding. When the runtime has the adapter the body names, that adapter checks the registration first (its `adapter_config`, the metadata and the presence of `secret_ref`; static: no network, no secret read): a problem refuses it with `422 provider-config-invalid`. A model provider's key is used by its provider only: a `secret_ref` naming a secret that a tool, an MCP endpoint or a webhook endpoint already uses is refused (`409 provider-key-in-use`), and from then on the name is refused to tools and endpoints.",
     tags: ['providers'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -3882,7 +4177,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Provider registered.', schema: ref('RegisterProviderResult') },
       ...CommonMutationErrors,
       '400': ErrorResponse('Validation failed (see `details.reason`).'),
-      '409': ErrorResponse('Provider already registered at that id.'),
+      '409': ErrorResponse(
+        "Provider already registered at that id. Or `provider-key-in-use`: `secret_ref` names a secret that a tool (its current version), an MCP endpoint or a webhook endpoint uses; `details.usedBy` lists each (`kind`, `id`, a tool's `version`). Store the provider's key under its own name. Nothing is stored.",
+      ),
       '422': ErrorResponse(
         "`provider-config-invalid`: a `send_traceparent` that isn't a boolean, or the provider's adapter refuses the registration (its `adapter_config`, its metadata, or a missing `secret_ref`); `details.issues` lists each (`path`, a JSON pointer, and `message`), the registration's own fields first, as other validation errors do. Nothing is stored.",
       ),
@@ -4138,7 +4435,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'mcp.endpoints.register',
     summary: 'Register an MCP endpoint',
     description:
-      "Body is a full `MCPEndpoint` plus the scope to register it in (`scopeKind` + `scopeId`); authorization checks that scope. Server validates the closed transport enum + the `config.transport` matches `transport` guardrail + per-variant required fields (`command` for stdio; `url` for http-sse / streamable-http), and refuses unknown fields. `secretRef` names a secret in the deployment's store — plaintext secrets never cross the wire. A deployment with `KINDGI_TENANT_HOST_ACCESS=deployed` (the default outside development) refuses a `stdio` endpoint, which would run a command on the server's host: `403 host-access-denied`.",
+      "Body is a full `MCPEndpoint` plus the scope to register it in (`scopeKind` + `scopeId`); authorization checks that scope. Server validates the closed transport enum + the `config.transport` matches `transport` guardrail + per-variant required fields (`command` for stdio; `url` for http-sse / streamable-http), and refuses unknown fields. `secretRef` names a secret in the deployment's store — plaintext secrets never cross the wire — and never a model provider's key (`400 provider-key-refused`). A deployment with `KINDGI_TENANT_HOST_ACCESS=deployed` (the default outside development) refuses a `stdio` endpoint, which would run a command on the server's host: `403 host-access-denied`.",
     tags: ['mcp'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -4149,7 +4446,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('RegisterMCPEndpointResult'),
       },
       ...CommonMutationErrors,
-      '400': ErrorResponse('Validation failed (see `details.reason`).'),
+      '400': ErrorResponse(
+        "Validation failed (see `details.reason`). Or `provider-key-refused`: `secretRef` names a model provider's key (`details.secret`, `details.providerId`).",
+      ),
       '403': ErrorResponse(
         '`host-access-denied`: a `stdio` endpoint on a deployment that refuses commands on its host (`KINDGI_TENANT_HOST_ACCESS=deployed`); or `authz-denied`.',
       ),
@@ -4306,7 +4605,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'cost.aggregate',
     summary: 'Aggregate cost across a time window',
     description:
-      "Primary consumer path for dashboards. `groupBy` is required (comma-separated dimensions from the closed set); time range is required (both `from` and `to`, or both omitted for the default last-30-days window echoed back in `timeRange`). Filters compose on top of the time window. `?scopeKind + ?scopeId` narrow the aggregate to a scope: `org` covers every project in the org, so one call sums an org's spend. Each group, and the total, carries its cost and its token sums (`tokens`). `groups` is ordered by `totalUsd`, highest first (ties by key), and capped at `limit` (default 1000): `truncated` and `totalGroups` say when there were more, and the totals still cover every record. For every record, page through `/v1/cost/records`. `inherit` has no effect on cost records, which always belong to a project.",
+      "Primary consumer path for dashboards. `groupBy` is required (comma-separated dimensions from the closed set); time range is required (both `from` and `to`, or both omitted for the default last-30-days window echoed back in `timeRange`). Filters compose on top of the time window. `?scopeKind + ?scopeId` narrow the aggregate to a scope: `org` covers every project in the org, so one call sums an org's spend. It needs `read` on the scope, and across projects (no scope, the tenant, or an org) it counts only the projects the caller may read, and records with no project; a tenant admin's counts every project. Each group, and the total, carries its cost and its token sums (`tokens`). `groups` is ordered by `totalUsd`, highest first (ties by key), and capped at `limit` (default 1000): `truncated` and `totalGroups` say when there were more, and the totals still cover every record. For every record, page through `/v1/cost/records`. `inherit` has no effect on cost records, which always belong to a project.",
     tags: ['cost'],
     security: 'bearer',
     parameters: [
@@ -4620,7 +4919,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'evalSuites.list',
     summary: 'List tenant eval suites',
     description:
-      'Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `EvalSuite.id`. Sort order: suite id ascending. Latest version per id.',
+      'Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `EvalSuite.id`. Sort order: suite id ascending. Latest version per id. A retired suite (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.',
     tags: ['eval-suites'],
     security: 'bearer',
     parameters: [
@@ -4631,6 +4930,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ScopeKindQueryParam,
       ScopeIdQueryParam,
       InheritQueryParam,
+      IncludeRetiredQueryParam,
     ],
     responses: {
       '200': { description: 'Page of eval suites.', schema: ref('EvalSuiteCollectionPage') },
@@ -4659,17 +4959,23 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/eval-suites/{suiteId}/versions',
     operationId: 'evalSuites.versions.list',
     summary: 'List versions of an eval suite',
-    description: 'Cursor-paginated. Sort order is binding-defined (for example ascending semver).',
+    description:
+      'Cursor-paginated. Sort order is binding-defined (for example ascending semver). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired suite (every version unregistered) answers too, with its versions to reinstate.',
     tags: ['eval-suites'],
     security: 'bearer',
-    parameters: [EvalSuiteIdPathParam, LimitQueryParam, CursorQueryParam],
+    parameters: [
+      EvalSuiteIdPathParam,
+      LimitQueryParam,
+      CursorQueryParam,
+      IncludeTombstonedQueryParam,
+    ],
     responses: {
       '200': {
         description: 'Page of eval suite versions.',
         schema: ref('EvalSuiteCollectionPage'),
       },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No eval suite with that id under this tenant.'),
+      '404': ErrorResponse('No eval suite was ever registered with that id under this tenant.'),
     },
   },
   {
@@ -5016,6 +5322,30 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'post',
+    honoPath: '/v1/eval-runs/:runId/rescore',
+    openapiPath: '/v1/eval-runs/{runId}/rescore',
+    operationId: 'evalRuns.rescore',
+    summary: 'Rescore a comparison eval run',
+    description:
+      "Starts a new comparison eval run of the same test set version, candidate and settings that replays nothing: it scores the run's replays again, with the judgments recorded on them since (a changed answer judged on the replay itself; `changes.new` lists the items to judge). The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`). A case whose replays can't be read again keeps its scores (`rescored: false`). Needs `admin` on the run's suite and `write` on its project.",
+    tags: ['eval-runs'],
+    security: 'bearer',
+    parameters: [EvalRunIdPathParam],
+    requestBody: { required: false, schema: ref('RescoreEvalRunBody') },
+    responses: {
+      '201': { description: 'The rescore started.', schema: ref('StartEvalRunResult') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse(
+        "`bad-input`: `projectId` is required (this runtime doesn't record the run's project), or isn't a project here. `dispatcher-input-invalid`: this runtime can't rescore (it doesn't read replays and their judgments again).",
+      ),
+      '404': ErrorResponse('No eval run with that id under this tenant.'),
+      '409': ErrorResponse(
+        '`eval-run-not-rescorable`: only a completed comparison of a test set can be rescored.',
+      ),
+    },
+  },
+  {
     method: 'get',
     honoPath: '/v1/eval-runs/:runId/events',
     openapiPath: '/v1/eval-runs/{runId}/events',
@@ -5044,7 +5374,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'auth.providers.list',
     summary: 'List identity providers configured for the tenant',
     description:
-      "Returns the tenant's identity providers (OIDC, SAML, OAuth 2.0), each with `signIn` when the deployment sets it. Secrets appear only as REFERENCES (`clientSecretRef`, `spSigningKeyRef`…); a plaintext secret is never on the wire.",
+      "Returns the tenant's identity providers (OIDC, SAML), each with `signIn` when the deployment sets it. Secrets appear only as REFERENCES (`clientSecretRef`, `spSigningKeyRef`…); a plaintext secret is never on the wire.",
     tags: ['auth'],
     security: 'bearer',
     responses: {
@@ -5112,9 +5442,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/auth/providers',
     openapiPath: '/v1/auth/providers',
     operationId: 'auth.providers.register',
-    summary: 'Register an identity provider (OIDC, SAML or OAuth 2.0)',
+    summary: 'Register an identity provider (OIDC or SAML)',
     description:
-      'Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered`; change it with `PATCH /v1/auth/providers/{providerId}`, which keeps its sign-in URLs. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`. The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.',
+      'Unique per tenant on `providerId`: re-registering a known provider returns `409 identity-provider-already-registered`; change it with `PATCH /v1/auth/providers/{providerId}`, which keeps its sign-in URLs. Secrets are given by reference (`clientSecretRef`, `spSigningKeyRef`…); a `clientSecret` (or a raw key) is refused with `400 invalid-provider-config`, as is `allowedRedirectUris`, which nothing would enforce (sign-in runs in the deployment, at its own callback URL). The deployment may check the configuration (OIDC discovery, SAML metadata): `422 identity-provider-invalid` says what failed. The answer carries the stored provider when the deployment returns it, with `signIn`: what to give the identity provider.',
     tags: ['auth'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -5125,8 +5455,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('RegisterIdentityProviderResult'),
       },
       ...CommonMutationErrors,
+      '403': ProviderChangeRefused,
       '422': ErrorResponse(
-        'The deployment could not use the configuration (`identity-provider-invalid`).',
+        'The deployment could not use the configuration, or `kind` is `oauth2`, a plain OAuth 2.0 provider, which sign-in does not use (`identity-provider-invalid`).',
       ),
     },
   },
@@ -5213,6 +5544,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Updated.', schema: ref('UpdateIdentityProviderResult') },
       ...CommonMutationErrors,
+      '403': ProviderChangeRefused,
       '404': ErrorResponse('No identity provider registered with that id under this tenant.'),
       '422': ErrorResponse(
         'The deployment could not use the configuration (`identity-provider-invalid`).',
@@ -5242,61 +5574,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('UnregisterIdentityProviderResult'),
       },
       ...CommonMutationErrors,
+      '403': ProviderChangeRefused,
       '404': ErrorResponse('No identity provider registered with that id under this tenant.'),
-    },
-  },
-  {
-    method: 'post',
-    honoPath: '/v1/auth/login/:providerId',
-    openapiPath: '/v1/auth/login/{providerId}',
-    operationId: 'auth.login',
-    summary: 'Initiate OAuth/OIDC login',
-    description:
-      'Framework generates `state` + PKCE `code_verifier` (S256 challenge). Caller redirects the user-agent to `authorizationUrl`. Provider redirects back to `redirectUri` with `code` + `state`; caller POSTs those to `/v1/auth/callback/:providerId` to complete the flow. When the provider config populated `allowedRedirectUris`, the effective redirect_uri MUST be an exact match — otherwise `400 redirect-uri-not-allowed`.',
-    tags: ['auth'],
-    security: 'bearer',
-    parameters: [
-      {
-        name: 'providerId',
-        in: 'path',
-        required: true,
-        schema: { type: 'string', minLength: 1 },
-      },
-      IdempotencyKeyParam,
-    ],
-    requestBody: { required: false, schema: ref('LoginBody') },
-    responses: {
-      '200': {
-        description: 'Authorization URL + PKCE parameters.',
-        schema: ref('AuthorizationResponse'),
-      },
-      ...CommonMutationErrors,
-      '404': ErrorResponse('No identity provider registered with that id under this tenant.'),
-    },
-  },
-  {
-    method: 'post',
-    honoPath: '/v1/auth/callback/:providerId',
-    openapiPath: '/v1/auth/callback/{providerId}',
-    operationId: 'auth.callback',
-    summary: 'Complete an OAuth/OIDC callback',
-    description:
-      "Public — the caller has not yet obtained a session token. Verifies `state`, exchanges `code` for provider tokens via the deployment's `exchangeCode`, fetches userinfo, and persists a session via `SessionStoreBinding`. Returns an opaque `kgi_sk_*` session token the caller uses on subsequent requests. The underlying provider access-token never leaves the server. When the provider config populated `allowedRedirectUris`, the stored redirect_uri is re-checked against the current allowlist — a mismatch (allowlist tightened between login and callback) returns `400 redirect-uri-mismatch`.",
-    tags: ['auth'],
-    security: 'public',
-    parameters: [
-      {
-        name: 'providerId',
-        in: 'path',
-        required: true,
-        schema: { type: 'string', minLength: 1 },
-      },
-    ],
-    requestBody: { required: true, schema: ref('CallbackBody') },
-    responses: {
-      '201': { description: 'Session created.', schema: ref('CallbackResult') },
-      '400': ErrorResponse('Malformed body or `state` unknown/expired/consumed.'),
-      '422': ErrorResponse('Code exchange with the provider failed.'),
     },
   },
   {
@@ -5306,7 +5585,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'auth.refresh',
     summary: 'Refresh the current session token',
     description:
-      'Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. When the deployment wired a `refreshToken` callback and the provider issued a refresh token, provider tokens rotate too; otherwise only the framework session token rotates. OAuth 2.1 BCP refresh-token rotation: the OLD session token is invalidated (marked rotated) — reusing it after refresh returns `401 refresh-token-invalid` so compliant clients can retry with the fresh token instead of prompting a re-auth. A browser session (the session cookie) is not refreshed: `400 cookie-session-not-refreshable`, so a new token never reaches page scripts; it ends at its TTL.',
+      'Requires a session token (`kgi_sk_*`); bearer tokens are managed via `/v1/tokens`. The session token rotates: the new session keeps the person, scopes and expiry, and the provider is not called. OAuth 2.1 BCP refresh-token rotation: the OLD session token is invalidated (marked rotated) — reusing it after refresh returns `401 refresh-token-invalid` so compliant clients can retry with the fresh token instead of prompting a re-auth. A browser session (the session cookie) is not refreshed: `400 cookie-session-not-refreshable`, so a new token never reaches page scripts; it ends at its TTL.',
     tags: ['auth'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -5367,6 +5646,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
         required: false,
         description: 'With `true`, people who were removed (`unregisteredAt`) too.',
         schema: { type: 'boolean' },
+      },
+      {
+        name: 'include',
+        in: 'query',
+        required: false,
+        description:
+          "Extra fields, comma-separated. `grants`: each person's grants, as `GET /v1/identity/users/{userId}/grants` answers them, in this one read. A runtime that doesn't read grants (no authorization store) leaves `grants` out, as an older one does.",
+        schema: { type: 'string', enum: ['grants'] },
       },
     ],
     responses: {
@@ -5484,6 +5771,27 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
   {
     method: 'get',
+    honoPath: '/v1/identity/me/permissions',
+    openapiPath: '/v1/identity/me/permissions',
+    operationId: 'identity.me.permissions',
+    summary: 'What I may do',
+    description:
+      "What the caller may do, so a client can hide what it can't: tenant admin, its reviewer role and the roles it decides, its API key's limits and capabilities, the projects it may read with its role in each and every way it holds it (directly, a team, an org it administers, tenant admin), its orgs and teams, and what each project role allows (from the runtime's authorization model). The key's limits are applied: a `member` key is never tenant admin, and a key limited to a project sees that project alone. Only what the caller may see. The server still checks every call. `501 permissions-unsupported` on a runtime without an authorization store: read whoami's `tenantAdmin` and `reviewerRole` instead.",
+    tags: ['identity'],
+    security: 'bearer',
+    responses: {
+      '200': { description: 'What the caller may do.', schema: ref('MyPermissions') },
+      ...CommonAuthErrors,
+      '501': ErrorResponse(
+        'The runtime has no authorization store (`permissions-unsupported`): read whoami instead.',
+      ),
+      '503': ErrorResponse(
+        "The authorization store couldn't be read (`authz-backend-unavailable`): try again.",
+      ),
+    },
+  },
+  {
+    method: 'get',
     honoPath: '/v1/identity/users/:userId/grants',
     openapiPath: '/v1/identity/users/{userId}/grants',
     operationId: 'identity.users.grants',
@@ -5595,7 +5903,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         "Idempotency-Key was reused with a different body, or resource-state conflict. Or `tool-project-mismatch`, `agent-project-mismatch` or `flow-project-mismatch`: one of the image's tools, agents or flows belongs to another project (`details.primitive`, `details.id`; the message doesn't name the project); nothing was deployed, even when it was unchanged. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
       ),
       '400': ErrorResponse(
-        'Signature invalid, image unverifiable, or deployment-validation-failed with per-primitive `details[]`.',
+        "Signature invalid, image unverifiable, or deployment-validation-failed with per-primitive `details[]`. A tool that declares or sends a model provider's key is one such issue (`path` `/secrets/<name>`): a tool never gets a model provider's key.",
       ),
       '403': ErrorResponse("Signer key not on the tenant's trust list."),
     },
@@ -5808,6 +6116,85 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
 
   // ---------- audit query surface (unified audit substrate) ----------
+  {
+    method: 'get',
+    honoPath: '/v1/audit/sign-ins',
+    openapiPath: '/v1/audit/sign-ins',
+    operationId: 'audit.signIns.list',
+    summary: 'List sign-in audit events',
+    description:
+      "The tenant's sign-in history: who signed in and out, how (`method`), when and from where (`clientAddress`), what was refused and why, and emailed links sent or capped. `?userId=` narrows to one person's own sign-ins and sign-outs. Oldest first; `?order=desc` for newest first. A tenant admin's to read (403 `permission-denied` otherwise). Only mounted when `CreateAppInput.auditEvents` is wired.",
+    tags: ['audit'],
+    security: 'bearer',
+    parameters: [
+      LimitQueryParam,
+      CursorQueryParam,
+      {
+        name: 'userId',
+        in: 'query',
+        required: false,
+        description: "One person's own sign-ins and sign-outs.",
+        schema: { type: 'string' },
+      },
+      {
+        name: 'kind',
+        in: 'query',
+        required: false,
+        description: 'One kind of event.',
+        schema: {
+          type: 'string',
+          enum: [
+            'signed-in',
+            'signed-out',
+            'sign-in-refused',
+            'sign-in-link-sent',
+            'sign-in-link-capped',
+            'sessions-revoked',
+            'sessions-ended',
+          ],
+        },
+      },
+      {
+        name: 'from',
+        in: 'query',
+        required: false,
+        description: 'Inclusive lower bound on `timestamp`.',
+        schema: { type: 'string', format: 'date-time' },
+      },
+      {
+        name: 'to',
+        in: 'query',
+        required: false,
+        description: 'Inclusive upper bound on `timestamp`.',
+        schema: { type: 'string', format: 'date-time' },
+      },
+      {
+        name: 'order',
+        in: 'query',
+        required: false,
+        description:
+          '`asc` (the default): oldest first. `desc`: newest first. `nextCursor` continues in the same order.',
+        schema: { type: 'string', enum: ['asc', 'desc'] },
+      },
+    ],
+    responses: {
+      '200': {
+        description: 'A page of sign-in audit events.',
+        schema: {
+          type: 'object',
+          required: ['data', 'hasMore'],
+          properties: {
+            data: { type: 'array', items: ref('SignInEvent') },
+            hasMore: { type: 'boolean' },
+            nextCursor: { type: 'string' },
+          },
+        },
+      },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('Malformed cursor, `kind`, `from`, `to`, or `order`.'),
+      '403': ErrorResponse('Not a tenant admin (`permission-denied`).'),
+    },
+  },
   {
     method: 'get',
     honoPath: '/v1/audit/authz',
@@ -6164,6 +6551,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/teams/{teamId}',
     operationId: 'teams.delete',
     summary: 'Delete a team (idempotent, cascades memberships)',
+    description:
+      "With authorization on, the team's tuples go with it: its members' roles and its project grants, so nobody keeps access through a team that's gone (501 `authz-membership-unsupported` from a runtime that can't do that).",
     tags: ['teams'],
     security: 'bearer',
     parameters: [
@@ -6188,7 +6577,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'teams.memberships.list',
     summary: 'List memberships of a team',
     description:
-      'Cursor-paginated. Sort order is binding-defined (for example `joinedAt` ascending).',
+      "Cursor-paginated. Sort order is binding-defined (for example `joinedAt` ascending). For the team's admins (and tenant admins): a plain member sees the team, not who else is in it, and reads their own roles through `GET /v1/identity/users/{userId}/grants`.",
     tags: ['teams'],
     security: 'bearer',
     parameters: [
@@ -6218,7 +6607,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'teams.memberships.add',
     summary: 'Add a user to a team',
     description:
-      'Idempotent on `(teamId, userId)` — re-adding an existing member with a different role does NOT overwrite; use PATCH for role changes.',
+      'Adding a role the member already holds answers 201 with the existing record; another role, 409 `membership-exists` naming the role they hold (`details.role`), which is kept: use PATCH to change it.',
     tags: ['teams'],
     security: 'bearer',
     parameters: [
@@ -6236,6 +6625,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Membership added.', schema: ref('AddTeamMembershipResult') },
       ...CommonMutationErrors,
       '404': ErrorResponse('No team with that id under this tenant.'),
+      '409': ErrorResponse(
+        'A member already, with another role (`membership-exists`, `details.role`); or an Idempotency-Key reused with another body.',
+      ),
     },
   },
   {
@@ -6878,7 +7270,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.memberships.list',
     summary: 'List direct memberships of a project',
     description:
-      'Cursor-paginated. Direct-grant memberships only — team-mediated grants are resolved through the FGA store per tenant.',
+      "Cursor-paginated. Direct-grant memberships only — team-mediated grants are resolved through the FGA store per tenant. For the project's editors and admins (`write`): a viewer sees the project, not who else is in it, and reads their own roles through `GET /v1/identity/users/{userId}/grants`.",
     tags: ['projects'],
     security: 'bearer',
     parameters: [
@@ -6908,7 +7300,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'projects.memberships.add',
     summary: 'Add a user directly to a project',
     description:
-      'Names the person by exactly one of `userId` and `email` (matched as the runtime matches emails when it adds a person); someone who is not a person of this tenant, or was removed from it, is refused with 404 `identity-user-not-found`. Idempotent on `(projectId, userId)` — re-adding an existing member with a different role does NOT overwrite; use PATCH for role changes.',
+      'Names the person by exactly one of `userId` and `email` (matched as the runtime matches emails when it adds a person); someone who is not a person of this tenant, or was removed from it, is refused with 404 `identity-user-not-found`. Adding a role the member already holds answers 201 with the existing record; another role, 409 `membership-exists` naming the role they hold (`details.role`), which is kept: use PATCH to change it.',
     tags: ['projects'],
     security: 'bearer',
     parameters: [
@@ -6931,6 +7323,130 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse(
         'No project with that id under this tenant (`project-not-found`), or the person named is not a member of this tenant (`identity-user-not-found`).',
       ),
+      '409': ErrorResponse(
+        'A member already, with another role (`membership-exists`, `details.role`); or an Idempotency-Key reused with another body.',
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/projects/:projectId/access',
+    openapiPath: '/v1/projects/{projectId}/access',
+    operationId: 'projects.access.list',
+    summary: 'Who has access to a project, and how',
+    description:
+      "Everyone the authorization store lets into the project (people and service accounts), each with their effective role and every way in: a direct role, a team's grant, an admin of the project's org, a tenant admin. For the project's editors and admins (`write`): a viewer sees the project, not who else works in it. Emails show to the project's admins only. Ordered by role (owner first), then name. 501 `project-access-unsupported` from a runtime without an authorization store.",
+    tags: ['projects'],
+    security: 'bearer',
+    parameters: [ProjectIdPathParam, LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': { description: 'Page of who has access.', schema: ref('ProjectAccessPage') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No project with that id under this tenant.'),
+      '501': ErrorResponse(
+        'The runtime has no authorization store (`project-access-unsupported`).',
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/projects/:projectId/team-grants',
+    openapiPath: '/v1/projects/{projectId}/team-grants',
+    operationId: 'projects.teamGrants.list',
+    summary: 'List the teams with a role on a project',
+    description:
+      "Every member of a team holds its role on the project. For the project's editors and admins (`write`). Each grant names its team and project.",
+    tags: ['projects'],
+    security: 'bearer',
+    parameters: [ProjectIdPathParam, LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': { description: 'Page of team grants.', schema: ref('TeamProjectGrantCollectionPage') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No project with that id under this tenant.'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/projects/:projectId/team-grants',
+    openapiPath: '/v1/projects/{projectId}/team-grants',
+    operationId: 'projects.teamGrants.add',
+    summary: 'Give a team a role on a project',
+    description:
+      "Every member of the team (its admins included) then holds the role on the project. Takes `admin` on the project and `read` on the team: a project is given only to a team you can read. A team's role is `viewer`, `editor` or `admin`: a team never owns a project. Adding a role the team already holds answers 201 with the existing grant; another role, 409 `team-grant-exists` naming the one it holds (`details.role`): use PATCH to change it.",
+    tags: ['projects'],
+    security: 'bearer',
+    parameters: [ProjectIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('AddTeamProjectGrantBody') },
+    responses: {
+      '201': {
+        description: 'The team holds the role: given now, or already (the existing grant).',
+        schema: ref('TeamProjectGrant'),
+      },
+      ...CommonMutationErrors,
+      '404': ErrorResponse(
+        'No project (`project-not-found`) or team (`team-not-found`) with that id under this tenant.',
+      ),
+      '409': ErrorResponse(
+        'The team holds another role on the project (`team-grant-exists`, `details.role`); or an Idempotency-Key reused with another body.',
+      ),
+      '501': ErrorResponse(
+        "The runtime can't keep permissions in step with the change (`authz-membership-unsupported`).",
+      ),
+    },
+  },
+  {
+    method: 'patch',
+    honoPath: '/v1/projects/:projectId/team-grants/:teamId',
+    openapiPath: '/v1/projects/{projectId}/team-grants/{teamId}',
+    operationId: 'projects.teamGrants.updateRole',
+    summary: "Change a team's role on a project",
+    tags: ['projects'],
+    security: 'bearer',
+    parameters: [ProjectIdPathParam, TeamIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('UpdateTeamProjectGrantBody') },
+    responses: {
+      '204': { description: 'Changed. No body.' },
+      ...CommonMutationErrors,
+      '404': ErrorResponse(
+        'No project with that id (`project-not-found`), or the team has no role on it (`team-grant-not-found`).',
+      ),
+      '501': ErrorResponse(
+        "The runtime can't keep permissions in step with the change (`authz-membership-unsupported`).",
+      ),
+    },
+  },
+  {
+    method: 'delete',
+    honoPath: '/v1/projects/:projectId/team-grants/:teamId',
+    openapiPath: '/v1/projects/{projectId}/team-grants/{teamId}',
+    operationId: 'projects.teamGrants.remove',
+    summary: "Take a team's role on a project away (idempotent)",
+    tags: ['projects'],
+    security: 'bearer',
+    parameters: [ProjectIdPathParam, TeamIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '204': { description: 'Removed (or there was none). No body.' },
+      ...CommonAuthErrors,
+      '501': ErrorResponse(
+        "The runtime can't keep permissions in step with the change (`authz-membership-unsupported`).",
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/teams/:teamId/project-grants',
+    openapiPath: '/v1/teams/{teamId}/project-grants',
+    operationId: 'teams.projectGrants.list',
+    summary: 'List the projects a team holds a role on',
+    description:
+      "For the team's admins (and tenant admins). Each grant names its team and project.",
+    tags: ['teams'],
+    security: 'bearer',
+    parameters: [TeamIdPathParam, LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': { description: 'Page of team grants.', schema: ref('TeamProjectGrantCollectionPage') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No team with that id under this tenant.'),
     },
   },
   {
@@ -7471,10 +7987,15 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'schedules.list',
     summary: 'List cron schedules',
     description:
-      'Cursor-paginated. Tombstoned rows excluded. Optional `?status=active|paused` filter.',
+      "Cursor-paginated. Tombstoned rows excluded. Optional `?status=active|paused` and `?projectId=` (one project's schedules) filters. Each schedule's `owner.displayName` is the owner's name now (the person's or the service account's), when it can be read.",
     tags: ['schedules'],
     security: 'bearer',
-    parameters: [LimitQueryParam, CursorQueryParam, TriggerStatusFilterQueryParam],
+    parameters: [
+      LimitQueryParam,
+      CursorQueryParam,
+      TriggerStatusFilterQueryParam,
+      ScheduleProjectIdQueryParam,
+    ],
     responses: {
       '200': { description: 'Page of schedules.', schema: ref('ScheduleCollectionPage') },
       ...CommonAuthErrors,
@@ -7640,6 +8161,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/event-triggers',
     openapiPath: '/v1/event-triggers',
     operationId: 'eventTriggers.register',
+    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
     summary: 'Register an event trigger',
     description:
       'Registers a `kind=event` trigger. The event-trigger scheduler in the runtime subscribes on the deployment event bus for the given `eventKind`; matching events start a flow run.',
@@ -7657,6 +8179,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/event-triggers',
     openapiPath: '/v1/event-triggers',
     operationId: 'eventTriggers.list',
+    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
     summary: 'List event triggers',
     tags: ['event-triggers'],
     security: 'bearer',
@@ -7671,6 +8194,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/event-triggers/:triggerId',
     openapiPath: '/v1/event-triggers/{triggerId}',
     operationId: 'eventTriggers.get',
+    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
     summary: 'Fetch an event trigger',
     tags: ['event-triggers'],
     security: 'bearer',
@@ -7686,6 +8210,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/event-triggers/:triggerId',
     openapiPath: '/v1/event-triggers/{triggerId}',
     operationId: 'eventTriggers.update',
+    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
     summary: 'Update an event trigger',
     tags: ['event-triggers'],
     security: 'bearer',
@@ -7702,6 +8227,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/event-triggers/:triggerId/pause',
     openapiPath: '/v1/event-triggers/{triggerId}/pause',
     operationId: 'eventTriggers.pause',
+    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
     summary: 'Pause an event trigger',
     tags: ['event-triggers'],
     security: 'bearer',
@@ -7717,6 +8243,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/event-triggers/:triggerId/resume',
     openapiPath: '/v1/event-triggers/{triggerId}/resume',
     operationId: 'eventTriggers.resume',
+    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
     summary: 'Resume an event trigger',
     tags: ['event-triggers'],
     security: 'bearer',
@@ -7732,6 +8259,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/event-triggers/:triggerId/unregister',
     openapiPath: '/v1/event-triggers/{triggerId}/unregister',
     operationId: 'eventTriggers.unregister',
+    unserved: "Event triggers aren't served yet: the runtime fires schedules only.",
     summary: 'Soft-delete an event trigger (tombstone)',
     tags: ['event-triggers'],
     security: 'bearer',
@@ -7748,6 +8276,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/webhooks',
     openapiPath: '/v1/webhooks',
     operationId: 'webhooks.register',
+    unserved: "Inbound webhooks aren't served yet: the runtime fires schedules only.",
     summary: 'Register a webhook trigger',
     description:
       'Registers a `kind=webhook` trigger. The route mints `webhookId` (a random UUID). Caller must have written the plaintext HMAC secret to `/v1/secrets` first and passes the resulting name as `hmacSecretName` — the trigger never stores the plaintext. Rotation flows through `POST /v1/secrets/:name/rotate`.',
@@ -7766,6 +8295,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/webhooks',
     openapiPath: '/v1/webhooks',
     operationId: 'webhooks.list',
+    unserved: "Inbound webhooks aren't served yet: the runtime fires schedules only.",
     summary: 'List webhook triggers',
     tags: ['webhooks'],
     security: 'bearer',
@@ -7783,6 +8313,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/webhooks/:triggerId',
     openapiPath: '/v1/webhooks/{triggerId}',
     operationId: 'webhooks.get',
+    unserved: "Inbound webhooks aren't served yet: the runtime fires schedules only.",
     summary: 'Fetch a webhook trigger',
     tags: ['webhooks'],
     security: 'bearer',
@@ -7798,6 +8329,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/webhooks/:triggerId',
     openapiPath: '/v1/webhooks/{triggerId}',
     operationId: 'webhooks.update',
+    unserved: "Inbound webhooks aren't served yet: the runtime fires schedules only.",
     summary: 'Update a webhook trigger',
     description:
       'HMAC secret rotation is NOT here — rotate via `POST /v1/secrets/:name/rotate` on the referenced secret.',
@@ -7816,6 +8348,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/webhooks/:triggerId/pause',
     openapiPath: '/v1/webhooks/{triggerId}/pause',
     operationId: 'webhooks.pause',
+    unserved: "Inbound webhooks aren't served yet: the runtime fires schedules only.",
     summary: 'Pause a webhook trigger',
     tags: ['webhooks'],
     security: 'bearer',
@@ -7831,6 +8364,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/webhooks/:triggerId/resume',
     openapiPath: '/v1/webhooks/{triggerId}/resume',
     operationId: 'webhooks.resume',
+    unserved: "Inbound webhooks aren't served yet: the runtime fires schedules only.",
     summary: 'Resume a webhook trigger',
     tags: ['webhooks'],
     security: 'bearer',
@@ -7846,6 +8380,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/webhooks/:triggerId/unregister',
     openapiPath: '/v1/webhooks/{triggerId}/unregister',
     operationId: 'webhooks.unregister',
+    unserved: "Inbound webhooks aren't served yet: the runtime fires schedules only.",
     summary: 'Soft-delete a webhook trigger (tombstone)',
     tags: ['webhooks'],
     security: 'bearer',
@@ -7873,7 +8408,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Endpoint registered.', schema: ref('WebhookEndpoint') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        'Malformed body or unknown field; the deployment refuses the URL (`webhook-url-refused`); the referenced secret does not exist (`webhook-secret-not-found`) or is too weak (`webhook-secret-too-weak`).',
+        "Malformed body or unknown field; the deployment refuses the URL (`webhook-url-refused`); the referenced secret does not exist (`webhook-secret-not-found`) or is too weak (`webhook-secret-too-weak`), or it's a model provider's key (`provider-key-refused`).",
       ),
       '404': ErrorResponse('`filter.projectId` names no project (`project-not-found`).'),
     },
@@ -7941,7 +8476,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '200': { description: 'The updated endpoint.', schema: ref('WebhookEndpoint') },
       ...CommonMutationErrors,
       '400': ErrorResponse(
-        'Malformed body or unknown field; the deployment refuses the URL (`webhook-url-refused`); the referenced secret does not exist or is too weak.',
+        "Malformed body or unknown field; the deployment refuses the URL (`webhook-url-refused`); the referenced secret does not exist or is too weak, or it's a model provider's key (`provider-key-refused`).",
       ),
       '404': ErrorResponse('No endpoint with that id, or `filter.projectId` names no project.'),
     },

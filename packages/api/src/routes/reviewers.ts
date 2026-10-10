@@ -8,8 +8,14 @@ import type { Cursor, ReviewerId, TenantId, UserId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
-import type { ReviewerRecord, ReviewerRegistryBinding } from '../reviewer-binding.js';
+import type {
+  ReviewerBinding,
+  ReviewerRecord,
+  ReviewerRegistryBinding,
+} from '../reviewer-binding.js';
+import { callerReviewerRole } from '../reviewer-role.js';
 import type { AppEnv } from '../types.js';
+import { refused } from './denied.js';
 import { clampLimit } from './pagination.js';
 
 /**
@@ -22,8 +28,9 @@ import { clampLimit } from './pagination.js';
  * action, not a reviewer-only one, so requiring a `reviewerRole` on the
  * caller would be circular ("only reviewers can appoint reviewers").
  * With authorization enforced, registering or unregistering needs
- * `admin` on the tenant; reading the roster needs only a valid bearer
- * token (the `/v1/*` auth chain upstream).
+ * `admin` on the tenant, and reading the roster (it names people) is for
+ * those who decide approvals: a tenant admin, or a reviewer. Anyone else,
+ * a project's viewer say, is refused, and the refusal recorded.
  *
  * Mounted BEFORE `approvalsRouter` on the parent `/v1` router so path
  * matching resolves `/v1/approvals/reviewers/*` here rather than being
@@ -36,18 +43,28 @@ export function reviewersRouter(
   /**
    * When set, registering or unregistering a reviewer needs `admin` on
    * the tenant: a reviewer (an `admin` one above all) decides approvals.
-   * Reading the list doesn't.
+   * Reading the roster needs `admin` on the tenant or a reviewer role.
    */
   authorizer?: Authorizer,
+  /** Whether the caller is a reviewer, for reading the roster (`callerReviewerRole`). */
+  reviewerBinding?: ReviewerBinding,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
   if (authorizer !== undefined) {
     r.use('*', async (c, next) => {
-      if (c.req.method === 'GET') return next();
-      const tenantId = c.get('tenantId') as TenantId;
-      const mw = authorizer.authorize('admin', () => ref('tenant', tenantId as unknown as string));
-      return mw(c, next);
+      const tenant = ref('tenant', c.get('tenantId') as unknown as string);
+      if (c.req.method !== 'GET') return authorizer.authorize('admin', () => tenant)(c, next);
+      // The roster names people: only those who decide approvals read it.
+      if (await authorizer.can(c, 'admin', tenant)) return next();
+      if ((await callerReviewerRole(c, reviewerBinding)) !== undefined) return next();
+      return refused(c, authorizer, {
+        action: 'read',
+        resource: tenant,
+        message:
+          'The reviewer roster is for tenant admins and reviewers: it names the people who decide approvals.',
+        failing: 'actor',
+      });
     });
   }
 

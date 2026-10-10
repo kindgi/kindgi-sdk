@@ -1,0 +1,17 @@
+Sign-in with "acme-saml" (SAML). Send this to whoever runs your identity provider:
+
+  Create a SAML 2.0 application for Kindgi.
+  ACS URL (single sign-on URL):  https://kindgi.acme.example/auth/sso/saml2/sp/acs/idp-def
+  Entity ID (audience):          https://kindgi.acme.example/auth/sso/saml2/sp/metadata?providerId=idp-def
+  Service provider metadata:     https://kindgi.acme.example/auth/sso/saml2/sp/metadata?providerId=idp-def
+  Name ID: the email address (or an `email` attribute). Sign the assertions.
+  Let in only the people who should use Kindgi (assign users or groups).
+
+  Send back: the identity provider's metadata XML.
+
+Step by step: https://docs.kindgi.com/v0.1/guides/sso/saml/
+
+Then register it:
+  kindgi sso providers finish acme-saml --kind=saml --idp-metadata=@<metadata.xml> --domains=<your-domain>
+
+These URLs stay the same after registering and after any `update`.

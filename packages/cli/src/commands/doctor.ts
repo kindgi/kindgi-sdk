@@ -28,7 +28,12 @@ import { readFile, readdir, stat } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 
 import { findKindgiConfig } from '@kindgi/handler-runtime';
-import { LOCAL_ENV_NAME, displayEnvPath, readPackEnv } from '@kindgi/secrets-dotenv';
+import {
+  LOCAL_ENV_NAME,
+  describeUnreadable,
+  displayEnvPath,
+  readPackEnv,
+} from '@kindgi/secrets-dotenv';
 
 import type { CommandContext } from '../context.js';
 import {
@@ -41,6 +46,7 @@ import { javaMajor } from '../dev/pack-code.js';
 import { type DockerRunner, docker } from '../dev/runtime-container.js';
 import { DEFAULT_RUNTIME_IMAGE, registryOf } from '../dev/runtime-image.js';
 import { checkDocker, checkImageAccess, credentialHelperHint } from '../dev/runtime-registry.js';
+import { loadLocalEnvSettings } from '../env/project-env.js';
 import { extractKindgiError } from '../errors.js';
 import { renderJson } from '../output.js';
 import {
@@ -226,7 +232,7 @@ export async function runDoctor(ctx: CommandContext, dir: string): Promise<Docto
   const rc = await readKindgirc(dir);
   checks.push(projectCheck(dir, language, rc));
   checks.push(await dependenciesCheck(dir, language, tool));
-  checks.push(await modelKeyCheck(dir, seam, ctx.env, kindgi));
+  checks.push(await modelKeyCheck(ctx, dir, seam, kindgi));
   const runtime = await runtimeCheck(ctx, rc, kindgi);
   checks.push(runtime.check);
   checks.push(
@@ -558,7 +564,7 @@ async function registryCheck(
 ): Promise<DoctorCheck> {
   const access = await checkImageAccess(run, image);
   const host = registryOf(image);
-  const login = `${kindgi('auth', 'registry', '--username', '<robot name>', '--password-stdin')} (the robot name and token come from access.kindgi.com; pipe the token in, never paste it into a chat)`;
+  const login = `${kindgi('auth', 'registry', '--username', '<robot name>', '--password-stdin')} (request the robot name and token at contact@kindgi.com; pipe the token in, never paste it into a chat)`;
   switch (access.kind) {
     case 'ok':
       return pass('registry', `Docker can pull the runtime image (${image}).`);
@@ -774,22 +780,46 @@ async function keyedPresets(
   );
 }
 
-/** A model key the presets name, set in the project's env files. Its value is never read out. */
+/**
+ * A model key the presets name, set in the project's env files. Its value is
+ * never read out. A key Kindgi borrows from a file the app loads too is said;
+ * a file that can't be read (a coding agent's read guard) skips the check
+ * rather than failing it.
+ */
 async function modelKeyCheck(
+  ctx: CommandContext,
   dir: string,
   seam: DoctorSeam,
-  hostEnv: Readonly<Record<string, string | undefined>>,
   kindgi: Kindgi,
 ): Promise<DoctorCheck> {
+  const hostEnv = ctx.env;
   const names = [...new Set((await keyedPresets(seam)).map((p) => p.secret))];
-  const env = await readPackEnv({ packDir: dir, envName: LOCAL_ENV_NAME });
+  const settings = await loadLocalEnvSettings(ctx, dir);
+  const localEnvFiles = settings.kind === 'ok' ? settings.localEnvFiles : undefined;
+  const env = await readPackEnv({
+    packDir: dir,
+    envName: LOCAL_ENV_NAME,
+    ...(localEnvFiles !== undefined && { localEnvFiles }),
+  });
   const files = env.files.read.map((f) => displayEnvPath(dir, f)).join(' or ');
   const found = names.find((name) => (env.values[name] ?? '').trim() !== '');
   if (found !== undefined) {
     const origin = env.origin[found];
-    return pass(
+    const where = origin !== undefined ? ` in ${displayEnvPath(dir, origin)}` : '';
+    if (origin !== undefined && env.files.kindgi !== undefined && origin !== env.files.kindgi) {
+      return warn(
+        'model-key',
+        `${found} is set${where}, which your app loads too: its routes, and a coding agent working in it, can read it.`,
+        `Give Kindgi its own copy in ${displayEnvPath(dir, env.files.kindgi)}, which it reads first: ${kindgi('secrets', 'copy')} (it never edits your app's files). If your app uses ${found} itself, keep it there; you can give Kindgi a key of its own instead.`,
+      );
+    }
+    return pass('model-key', `${found} is set${where}.`);
+  }
+  if (env.unreadable.length > 0) {
+    return skip(
       'model-key',
-      `${found} is set${origin !== undefined ? ` in ${displayEnvPath(dir, origin)}` : ''}.`,
+      `Not checked: couldn't read ${describeUnreadable(dir, env.unreadable)}.`,
+      'Run kindgi doctor in a terminal of your own, where the env files can be read.',
     );
   }
   const inShell = names.find((name) => (hostEnv[name] ?? '').trim() !== '');

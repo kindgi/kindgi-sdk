@@ -186,6 +186,29 @@ describe('users.unregister — POST /v1/identity/users/{userId}/unregister', () 
       'https://api.example.com/v1/identity/users?includeUnregistered=true',
     );
   });
+
+  it("list carries each person's grants only when asked", async () => {
+    const grants = { userId: WIRE_USER.userId, tenantAdmin: false, projects: [], teams: [] };
+    const stub = recordingFetch([
+      {
+        status: 200,
+        body: JSON.stringify({ data: [{ ...WIRE_USER, grants }], hasMore: false }),
+      },
+      { status: 200, body: JSON.stringify({ data: [WIRE_USER], hasMore: false }) },
+    ]);
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    const page = await client.users.list({ includeGrants: true });
+    expect(stub.calls[0]?.url).toBe('https://api.example.com/v1/identity/users?include=grants');
+    expect(page.data[0]?.grants).toEqual(grants);
+    await client.identity.users.list({ includeGrants: true, query: 'a' });
+    expect(stub.calls[1]?.url).toBe(
+      'https://api.example.com/v1/identity/users?query=a&include=grants',
+    );
+  });
 });
 
 describe('users.create — POST /v1/identity/users', () => {

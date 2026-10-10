@@ -72,3 +72,15 @@ export function membershipNotKeptInStepError(method: string) {
     method,
   } as const;
 }
+
+/**
+ * Re-adding a member with another role: they keep the role they hold,
+ * which the answer names (`details.role`), and nothing is written.
+ */
+export function membershipExistsError(role: string) {
+  return {
+    code: 'membership-exists',
+    message: `They're a member already, as ${role}: change their role to give them another`,
+    role,
+  } as const;
+}
