@@ -588,6 +588,81 @@ class RunFailure(BaseModel):
     """
 
 
+class FailureSubject(BaseModel):
+    """
+    Whose runs a failure group counts: an agent's turns, or a flow's runs.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["agent", "flow"]
+    id: str
+
+
+class FailureGroup(BaseModel):
+    """
+    One group of failed runs: the same cause, subject and version.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    code: str | None = None
+    """
+    The failure's code (`Run.failure.code`). Absent when not grouped by code, and in `unrecorded`.
+    """
+    reason: str | None = None
+    """
+    The failure's reason (`Run.failure.reason`), when it gives one: a `hitl-*` outcome's, e.g. `timeout`.
+    """
+    subject: FailureSubject
+    version: str | None = None
+    """
+    The agent's or flow's version. Absent when not grouped by version, or not recorded for the run.
+    """
+    count: Annotated[int, Field(ge=1)]
+    first_seen: Annotated[AwareDatetime, Field(alias="firstSeen")]
+    """
+    When the first of them failed, in the window.
+    """
+    last_seen: Annotated[AwareDatetime, Field(alias="lastSeen")]
+    """
+    When the latest of them failed, in the window.
+    """
+    example_run_id: Annotated[UUID, Field(alias="exampleRunId")]
+    """
+    The group's most recent run.
+    """
+
+
+class RunFailureGroups(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    from_: Annotated[AwareDatetime, Field(alias="from")]
+    to: AwareDatetime
+    groups: list[FailureGroup]
+    """
+    The failures, the most first.
+    """
+    outcomes: list[FailureGroup]
+    """
+    People's decisions, never errors: `hitl-*` codes (an approval rejected, cancelled or timed out), the most first.
+    """
+    unrecorded: list[FailureGroup]
+    """
+    Runs that failed before their cause was recorded (a runtime from before this): by subject and version only, never by code.
+    """
+    total: Annotated[int, Field(ge=0)]
+    """
+    Every failed run in the window, across the three lists.
+    """
+
+
 class StartRunOptions(BaseModel):
     model_config = ConfigDict(
         extra="allow",

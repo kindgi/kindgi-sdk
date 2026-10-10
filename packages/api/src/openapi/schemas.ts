@@ -628,6 +628,86 @@ export const RunFailureSchema: JsonSchema = {
   },
 };
 
+export const FailureSubjectSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'id'],
+  description: "Whose runs a failure group counts: an agent's turns, or a flow's runs.",
+  properties: {
+    kind: { type: 'string', enum: ['agent', 'flow'] },
+    id: { type: 'string' },
+  },
+};
+
+export const FailureGroupSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['subject', 'count', 'firstSeen', 'lastSeen', 'exampleRunId'],
+  description: 'One group of failed runs: the same cause, subject and version.',
+  properties: {
+    code: {
+      type: 'string',
+      description:
+        "The failure's code (`Run.failure.code`). Absent when not grouped by code, and in `unrecorded`.",
+    },
+    reason: {
+      type: 'string',
+      description:
+        "The failure's reason (`Run.failure.reason`), when it gives one: a `hitl-*` outcome's, e.g. `timeout`.",
+    },
+    subject: { $ref: '#/components/schemas/FailureSubject' },
+    version: {
+      type: 'string',
+      description:
+        "The agent's or flow's version. Absent when not grouped by version, or not recorded for the run.",
+    },
+    count: { type: 'integer', minimum: 1 },
+    firstSeen: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When the first of them failed, in the window.',
+    },
+    lastSeen: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When the latest of them failed, in the window.',
+    },
+    exampleRunId: { type: 'string', format: 'uuid', description: "The group's most recent run." },
+  },
+};
+
+export const RunFailureGroupsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['from', 'to', 'groups', 'outcomes', 'unrecorded', 'total'],
+  properties: {
+    from: { type: 'string', format: 'date-time' },
+    to: { type: 'string', format: 'date-time' },
+    groups: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/FailureGroup' },
+      description: 'The failures, the most first.',
+    },
+    outcomes: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/FailureGroup' },
+      description:
+        "People's decisions, never errors: `hitl-*` codes (an approval rejected, cancelled or timed out), the most first.",
+    },
+    unrecorded: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/FailureGroup' },
+      description:
+        'Runs that failed before their cause was recorded (a runtime from before this): by subject and version only, never by code.',
+    },
+    total: {
+      type: 'integer',
+      minimum: 0,
+      description: 'Every failed run in the window, across the three lists.',
+    },
+  },
+};
+
 export const RunWaitingApprovalSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -11137,6 +11217,9 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['UnpinBody', UnpinBodySchema],
   ['Run', RunSchema],
   ['RunFailure', RunFailureSchema],
+  ['FailureSubject', FailureSubjectSchema],
+  ['FailureGroup', FailureGroupSchema],
+  ['RunFailureGroups', RunFailureGroupsSchema],
   ['StartRunOptions', StartRunOptionsSchema],
   ['StartRunBody', StartRunBodySchema],
   ['ResumeRunBody', ResumeRunBodySchema],

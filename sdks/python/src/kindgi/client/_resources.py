@@ -22,6 +22,7 @@ OPERATIONS: dict[str, Operation] = {
     "system.openapi": Operation("system.openapi", "GET", "/v1/openapi.json", "json", False),
     "runs.list": Operation("runs.list", "GET", "/v1/runs", "json", False),
     "runs.start": Operation("runs.start", "POST", "/v1/runs", "json", True),
+    "runs.failures": Operation("runs.failures", "GET", "/v1/runs/failures", "json", False),
     "runs.get": Operation("runs.get", "GET", "/v1/runs/{runId}", "json", False),
     "runs.cancel": Operation("runs.cancel", "POST", "/v1/runs/{runId}/cancel", "json", True),
     "runs.resume": Operation("runs.resume", "POST", "/v1/runs/{runId}/resume", "empty", True),
@@ -1026,6 +1027,40 @@ class RunsResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.StartRunBody, body, fields),
             response=_models.Run,
+            timeout=timeout,
+        )
+
+    def failures(
+        self,
+        /,
+        *,
+        project_id: str | UUID,
+        from_: str,
+        to: str,
+        agent_id: str | UUID | None = None,
+        flow_id: str | UUID | None = None,
+        group_by: str | None = None,
+        limit: int | None = None,
+        timeout: float | None = None,
+    ) -> _models.RunFailureGroups:
+        """A project's failed runs, grouped by cause and version. `GET /v1/runs/failures`
+
+        Counts from the server, never from a page: per group, how many runs failed, when the first and the latest failed in the window, and the latest run. People's decisions (`hitl-*`: an approval rejected, cancelled or timed out) come apart as `outcomes`, never as failures. Runs that failed before their cause was recorded come apart as `unrecorded`, by subject and version only. Replays, eval runs' runs and dry runs aren't counted; a child run counts under its own agent or flow. Failed runs go with their retention, so a window can hold fewer than happened. Needs `read` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["runs.failures"],
+            path={},
+            query={
+                "projectId": project_id,
+                "from": from_,
+                "to": to,
+                "agentId": agent_id,
+                "flowId": flow_id,
+                "groupBy": group_by,
+                "limit": limit,
+            },
+            headers={},
+            response=_models.RunFailureGroups,
             timeout=timeout,
         )
 
@@ -7986,6 +8021,40 @@ class AsyncRunsResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.StartRunBody, body, fields),
             response=_models.Run,
+            timeout=timeout,
+        )
+
+    async def failures(
+        self,
+        /,
+        *,
+        project_id: str | UUID,
+        from_: str,
+        to: str,
+        agent_id: str | UUID | None = None,
+        flow_id: str | UUID | None = None,
+        group_by: str | None = None,
+        limit: int | None = None,
+        timeout: float | None = None,
+    ) -> _models.RunFailureGroups:
+        """A project's failed runs, grouped by cause and version. `GET /v1/runs/failures`
+
+        Counts from the server, never from a page: per group, how many runs failed, when the first and the latest failed in the window, and the latest run. People's decisions (`hitl-*`: an approval rejected, cancelled or timed out) come apart as `outcomes`, never as failures. Runs that failed before their cause was recorded come apart as `unrecorded`, by subject and version only. Replays, eval runs' runs and dry runs aren't counted; a child run counts under its own agent or flow. Failed runs go with their retention, so a window can hold fewer than happened. Needs `read` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["runs.failures"],
+            path={},
+            query={
+                "projectId": project_id,
+                "from": from_,
+                "to": to,
+                "agentId": agent_id,
+                "flowId": flow_id,
+                "groupBy": group_by,
+                "limit": limit,
+            },
+            headers={},
+            response=_models.RunFailureGroups,
             timeout=timeout,
         )
 

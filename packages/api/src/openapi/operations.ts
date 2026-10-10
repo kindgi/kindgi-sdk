@@ -1423,6 +1423,80 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
   {
     method: 'get',
+    honoPath: '/v1/runs/failures',
+    openapiPath: '/v1/runs/failures',
+    operationId: 'runs.failures',
+    summary: "A project's failed runs, grouped by cause and version",
+    description:
+      "Counts from the server, never from a page: per group, how many runs failed, when the first and the latest failed in the window, and the latest run. People's decisions (`hitl-*`: an approval rejected, cancelled or timed out) come apart as `outcomes`, never as failures. Runs that failed before their cause was recorded come apart as `unrecorded`, by subject and version only. Replays, eval runs' runs and dry runs aren't counted; a child run counts under its own agent or flow. Failed runs go with their retention, so a window can hold fewer than happened. Needs `read` on the project.",
+    tags: ['runs'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'projectId',
+        in: 'query',
+        required: true,
+        description: 'The project whose runs are counted.',
+        schema: { type: 'string', minLength: 1 },
+      },
+      {
+        name: 'from',
+        in: 'query',
+        required: true,
+        description: 'Runs that failed at or after this time (ISO 8601).',
+        schema: { type: 'string', format: 'date-time' },
+      },
+      {
+        name: 'to',
+        in: 'query',
+        required: true,
+        description: 'Runs that failed before this time (ISO 8601). At most 90 days after `from`.',
+        schema: { type: 'string', format: 'date-time' },
+      },
+      {
+        name: 'agentId',
+        in: 'query',
+        required: false,
+        description: "Only this agent's turns. Not with `flowId`.",
+        schema: { type: 'string', minLength: 1 },
+      },
+      {
+        name: 'flowId',
+        in: 'query',
+        required: false,
+        description: "Only this flow's runs. Not with `agentId`.",
+        schema: { type: 'string', minLength: 1 },
+      },
+      {
+        name: 'groupBy',
+        in: 'query',
+        required: false,
+        description:
+          'What failures are grouped by: `code`, `version`, or `code,version` (the default).',
+        schema: { type: 'string' },
+      },
+      {
+        name: 'limit',
+        in: 'query',
+        required: false,
+        description:
+          'The most groups in each list, the most failures first: 1 to 200, 50 by default.',
+        schema: { type: 'integer', minimum: 1, maximum: 200 },
+      },
+    ],
+    responses: {
+      '200': { description: 'The groups.', schema: ref('RunFailureGroups') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse(
+        'A missing or malformed `projectId`, `from`, `to`, `groupBy` or `limit`; a window over 90 days; both `agentId` and `flowId`.',
+      ),
+      '501': ErrorResponse(
+        '`run-failures-not-supported`: this deployment cannot group failed runs by cause.',
+      ),
+    },
+  },
+  {
+    method: 'get',
     honoPath: '/v1/runs/:runId',
     openapiPath: '/v1/runs/{runId}',
     operationId: 'runs.get',

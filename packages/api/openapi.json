@@ -367,6 +367,7 @@
           "run-not-finished": 409,
           "item-not-found": 400,
           "test-sets-not-supported": 501,
+          "run-failures-not-supported": 501,
           "memory-operation-unsupported": 501,
           "conversation-unregister-unsupported": 501,
           "authz-membership-unsupported": 501,
@@ -1629,6 +1630,123 @@
           "reason": {
             "type": "string",
             "description": "The error's own reason, when it gives one: for a turn that ended at its approval (`hitl-cancelled`), `timeout` when nobody decided in time. Absent from an older runtime and from errors without one; read `code` then."
+          }
+        }
+      },
+      "FailureSubject": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "id"
+        ],
+        "description": "Whose runs a failure group counts: an agent's turns, or a flow's runs.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "agent",
+              "flow"
+            ]
+          },
+          "id": {
+            "type": "string"
+          }
+        }
+      },
+      "FailureGroup": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "subject",
+          "count",
+          "firstSeen",
+          "lastSeen",
+          "exampleRunId"
+        ],
+        "description": "One group of failed runs: the same cause, subject and version.",
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "The failure's code (`Run.failure.code`). Absent when not grouped by code, and in `unrecorded`."
+          },
+          "reason": {
+            "type": "string",
+            "description": "The failure's reason (`Run.failure.reason`), when it gives one: a `hitl-*` outcome's, e.g. `timeout`."
+          },
+          "subject": {
+            "$ref": "#/components/schemas/FailureSubject"
+          },
+          "version": {
+            "type": "string",
+            "description": "The agent's or flow's version. Absent when not grouped by version, or not recorded for the run."
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "firstSeen": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the first of them failed, in the window."
+          },
+          "lastSeen": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the latest of them failed, in the window."
+          },
+          "exampleRunId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The group's most recent run."
+          }
+        }
+      },
+      "RunFailureGroups": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "from",
+          "to",
+          "groups",
+          "outcomes",
+          "unrecorded",
+          "total"
+        ],
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "groups": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FailureGroup"
+            },
+            "description": "The failures, the most first."
+          },
+          "outcomes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FailureGroup"
+            },
+            "description": "People's decisions, never errors: `hitl-*` codes (an approval rejected, cancelled or timed out), the most first."
+          },
+          "unrecorded": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FailureGroup"
+            },
+            "description": "Runs that failed before their cause was recorded (a runtime from before this): by subject and version only, never by code."
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Every failed run in the window, across the three lists."
           }
         }
       },
@@ -20007,6 +20125,135 @@
             },
             "required": false,
             "description": "With `flowId`: only runs of this version."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/runs/failures": {
+      "get": {
+        "operationId": "runs.failures",
+        "summary": "A project's failed runs, grouped by cause and version",
+        "tags": [
+          "runs"
+        ],
+        "responses": {
+          "200": {
+            "description": "The groups.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunFailureGroups"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A missing or malformed `projectId`, `from`, `to`, `groupBy` or `limit`; a window over 90 days; both `agentId` and `flowId`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`run-failures-not-supported`: this deployment cannot group failed runs by cause.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Counts from the server, never from a page: per group, how many runs failed, when the first and the latest failed in the window, and the latest run. People's decisions (`hitl-*`: an approval rejected, cancelled or timed out) come apart as `outcomes`, never as failures. Runs that failed before their cause was recorded come apart as `unrecorded`, by subject and version only. Replays, eval runs' runs and dry runs aren't counted; a child run counts under its own agent or flow. Failed runs go with their retention, so a window can hold fewer than happened. Needs `read` on the project.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": true,
+            "description": "The project whose runs are counted."
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": true,
+            "description": "Runs that failed at or after this time (ISO 8601)."
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": true,
+            "description": "Runs that failed before this time (ISO 8601). At most 90 days after `from`."
+          },
+          {
+            "name": "agentId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Only this agent's turns. Not with `flowId`."
+          },
+          {
+            "name": "flowId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Only this flow's runs. Not with `agentId`."
+          },
+          {
+            "name": "groupBy",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "What failures are grouped by: `code`, `version`, or `code,version` (the default)."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            },
+            "required": false,
+            "description": "The most groups in each list, the most failures first: 1 to 200, 50 by default."
           }
         ],
         "security": [
