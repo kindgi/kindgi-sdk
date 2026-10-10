@@ -93,8 +93,8 @@ project, `uv run kindgi` in a Python one.
 
 There's one `kindgi dev` per pack. When yours is already running, a
 `kindgi dev` the agent starts exits with code 3 and says where yours is:
-its process, the console and the API. Nothing of yours is touched, and
-the agent goes on with the one that runs (`--json` gives the same as
+its process, the console and the API. Nothing of yours is touched: the
+agent uses yours (with `--json`, it gets the same as
 `{ "running": { … } }`).
 
 ## What stays with you
