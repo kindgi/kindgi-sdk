@@ -125,9 +125,12 @@ export function generateOpenApiDocument(opts: GenerateOptions = {}): Record<stri
   const info: OpenApiInfo = { ...DEFAULT_INFO, ...opts.info };
   const servers = opts.servers ?? DEFAULT_SERVERS;
 
-  const paths = buildPaths(OPERATIONS);
+  // What the runtime doesn't serve yet stays out, with the schemas only it uses.
+  const served = OPERATIONS.filter((o) => o.unserved === undefined);
+  const paths = buildPaths(served);
+  const unservedOnly = schemasOnlyUnserved(OPERATIONS);
   const components = {
-    schemas: Object.fromEntries(COMPONENT_SCHEMAS),
+    schemas: Object.fromEntries(COMPONENT_SCHEMAS.filter(([name]) => !unservedOnly.has(name))),
     securitySchemes: {
       bearerAuth: {
         type: 'http',
@@ -144,7 +147,7 @@ export function generateOpenApiDocument(opts: GenerateOptions = {}): Record<stri
       },
     },
   };
-  const tags = uniqueTags(OPERATIONS).map((name) => ({
+  const tags = uniqueTags(served).map((name) => ({
     name,
     ...(TAG_DESCRIPTIONS[name] !== undefined && { description: TAG_DESCRIPTIONS[name] }),
   }));
@@ -158,6 +161,41 @@ export function generateOpenApiDocument(opts: GenerateOptions = {}): Record<stri
     paths,
     webhooks: buildOutboundWebhooks(),
   };
+}
+
+/**
+ * The component schemas only unserved operations reach: reachable from
+ * them and not from a served operation or the outbound webhooks. A schema
+ * nothing reaches (a shared type the clients use) is kept.
+ */
+function schemasOnlyUnserved(operations: readonly OperationSpec[]): ReadonlySet<string> {
+  const byName = new Map<string, JsonSchema>(COMPONENT_SCHEMAS);
+  const reach = (roots: readonly unknown[]): Set<string> => {
+    const seen = new Set<string>();
+    const stack: unknown[] = [...roots];
+    while (stack.length > 0) {
+      const x = stack.pop();
+      if (Array.isArray(x)) stack.push(...x);
+      else if (x !== null && typeof x === 'object') {
+        const ref = (x as { $ref?: unknown }).$ref;
+        if (typeof ref === 'string' && ref.startsWith('#/components/schemas/')) {
+          const name = ref.slice('#/components/schemas/'.length);
+          if (!seen.has(name)) {
+            seen.add(name);
+            stack.push(byName.get(name));
+          }
+        }
+        stack.push(...Object.values(x));
+      }
+    }
+    return seen;
+  };
+  const servedReach = reach([
+    ...operations.filter((o) => o.unserved === undefined),
+    buildOutboundWebhooks(),
+  ]);
+  const unservedReach = reach(operations.filter((o) => o.unserved !== undefined));
+  return new Set([...unservedReach].filter((name) => !servedReach.has(name)));
 }
 
 /**

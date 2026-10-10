@@ -277,24 +277,6 @@ export type {
   UpdateScheduleInput,
 } from './resources/schedules.js';
 export type {
-  EventTrigger,
-  EventTriggerPage,
-  EventTriggersClient,
-  ListEventTriggersFilter,
-  RegisterEventTriggerInput,
-  UnregisterEventTriggerResult,
-  UpdateEventTriggerInput,
-} from './resources/event-triggers.js';
-export type {
-  ListWebhookTriggersFilter,
-  RegisterWebhookTriggerInput,
-  UnregisterWebhookTriggerResult,
-  UpdateWebhookTriggerInput,
-  WebhookTrigger,
-  WebhookTriggerPage,
-  WebhooksClient,
-} from './resources/webhooks.js';
-export type {
   CreateWebhookEndpointInput,
   ListWebhookDeliveriesFilter,
   ListWebhookEndpointsFilter,

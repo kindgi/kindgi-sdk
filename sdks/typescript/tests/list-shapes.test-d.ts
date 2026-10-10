@@ -109,9 +109,6 @@ describe('every list call answers with data, hasMore and nextCursor', () => {
       Answer<KindgiClient['evalSuites']['versions']['list']>
     >().toMatchTypeOf<WirePage>();
   });
-  test('eventTriggers.list', () => {
-    expectTypeOf<Answer<KindgiClient['eventTriggers']['list']>>().toMatchTypeOf<WirePage>();
-  });
   test('events.query', () => {
     expectTypeOf<Answer<KindgiClient['events']['query']>>().toMatchTypeOf<WirePage>();
   });
@@ -260,8 +257,5 @@ describe('every list call answers with data, hasMore and nextCursor', () => {
   });
   test('webhookEndpoints.list', () => {
     expectTypeOf<Answer<KindgiClient['webhookEndpoints']['list']>>().toMatchTypeOf<WirePage>();
-  });
-  test('webhooks.list', () => {
-    expectTypeOf<Answer<KindgiClient['webhooks']['list']>>().toMatchTypeOf<WirePage>();
   });
 });
