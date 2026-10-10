@@ -92,8 +92,9 @@ The pack root is on `sys.path`, so tools import the app's own packages by
 name (`from acme.text import normalize`); inside `kindgi/`, import the pack's
 modules relatively. Don't add an `__init__.py` to `kindgi/` — the folder
 would then shadow the `kindgi` package. `kindgi dev` reads the app's `.env`
-/ `.env.local` — keys already there reach the tools as environment
-variables. A package a tool imports must be in the app's main dependencies,
+/ `.env.local` — values already there reach the tools as environment
+variables; a model provider's key, and a secret stored with `kindgi secrets
+set`, don't (a tool reads a secret from `ctx.secrets`). A package a tool imports must be in the app's main dependencies,
 not a dev group: the deployed pack installs without dev dependencies (see
 `kindgi-python-authoring-tools`).
 

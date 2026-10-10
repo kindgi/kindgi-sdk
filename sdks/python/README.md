@@ -99,7 +99,7 @@ def record_expense(expense: Expense, ctx: ToolContext) -> Recorded:
   (`needs_spec={"secrets": {"CITATOR_KEY": {"type": "string"}}}`): the
   runtime resolves them on every call, for the call's tenant, in its env
   (`KINDGI_ENV`; in `kindgi dev`, `local` — the pack's `.env` and
-  `.env.local`), and fails the call, naming the secret, when one is missing.
+  `.env.local`, then Kindgi's own `.kindgi/secrets.env`), and fails the call, naming the secret, when one is missing.
   `ctx.env` and `ctx.config` are reserved and still empty: read other
   configuration from the process environment — the pack service's, which in
   `kindgi dev` is the pack's `.env` and `.env.local`.

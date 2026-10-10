@@ -79,10 +79,11 @@ MY_DB_URL=…       →  { "command": "pnpm",    →  reads .env +         →  
 Three moving parts:
 
 1. **The secret on disk** — for `local`, the project's env files at the
-   pack root (`.env`, then `.env.local`; `dev.envFiles` to change);
-   other environments use `.env.<envName>`. Add it by hand or with
-   `kindgi secrets set` (interactive no-echo prompt; never the value on
-   argv), which writes `.env.local`. See `kindgi-authoring-providers`
+   pack root (`.env`, then `.env.local`; `dev.envFiles` to change), then
+   Kindgi's own `.kindgi/secrets.env`; other environments use
+   `.env.<envName>`. Add it with `kindgi secrets set` (interactive no-echo
+   prompt; never the value on argv), which writes `.kindgi/secrets.env`,
+   or by hand. See `kindgi-authoring-providers`
    for the same flow used for LLM API keys.
 2. **`.mcp.json` at the pack root** — Kindgi writes this via
    `kindgi mcp add`. Every entry runs the project's own `kindgi

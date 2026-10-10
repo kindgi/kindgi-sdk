@@ -406,6 +406,28 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
         ),
       );
     }
+    if (b.appEnvFile !== undefined && typeof b.appEnvFile !== 'boolean') {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError(
+          { code: 'bad-input', message: '`appEnvFile` must be a boolean when present' },
+          requestId,
+        ),
+      );
+    }
+    if (b.appEnvFile === true && secretsBinding.writesAppEnvFiles !== true) {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'bad-input',
+            message:
+              "`appEnvFile` is for a runtime under `kindgi dev`, whose secrets live in the pack's env files. This runtime keeps secrets in its secrets store: set the value your app needs in its own configuration.",
+          },
+          requestId,
+        ),
+      );
+    }
 
     const setScope = bodyScope.scope;
     const outcome: SecretSetOutcome = await secretsBinding.set({
@@ -417,6 +439,7 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
       ...(b.tags !== undefined && { tags: b.tags as Readonly<Record<string, string>> }),
       ...(b.rotationDueAt !== undefined && { rotationDueAt: b.rotationDueAt as string }),
       ...(b.ifVersion !== undefined && { ifVersion: b.ifVersion as number }),
+      ...(b.appEnvFile === true && { appEnvFile: true }),
       // Authorization — write `secret#scope@X` tuple on fresh insert.
       enqueueTuples: (secretRowId) =>
         tuplesForCreate({ kind: 'secret', id: secretRowId, tenantId, scope: setScope }),

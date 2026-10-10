@@ -7,6 +7,8 @@ import { describe, expect, test } from 'vitest';
 
 import {
   DEFAULT_LOCAL_ENV_FILES,
+  KINDGI_SECRETS_FILE,
+  describeUnreadable,
   displayEnvPath,
   isRuntimeKey,
   packValues,
@@ -18,28 +20,35 @@ import {
 const PACK = '/work/app';
 
 describe('resolvePackEnvFiles', () => {
-  test('local: the project files, lowest precedence first; write = the last', () => {
+  test("local: the app's files, then Kindgi's own on top; a secret's write lands in Kindgi's", () => {
     expect(DEFAULT_LOCAL_ENV_FILES).toEqual(['.env', '.env.local']);
+    expect(KINDGI_SECRETS_FILE).toBe('.kindgi/secrets.env');
     expect(resolvePackEnvFiles({ packDir: PACK, envName: 'local' })).toEqual({
-      read: [join(PACK, '.env'), join(PACK, '.env.local')],
-      write: join(PACK, '.env.local'),
+      read: [join(PACK, '.env'), join(PACK, '.env.local'), join(PACK, '.kindgi/secrets.env')],
+      write: join(PACK, '.kindgi/secrets.env'),
+      app: [join(PACK, '.env'), join(PACK, '.env.local')],
+      appWrite: join(PACK, '.env.local'),
+      kindgi: join(PACK, '.kindgi/secrets.env'),
     });
   });
 
-  test('local with an override list; absolute entries kept', () => {
+  test("local with an override list: it names the app's files; absolute entries kept", () => {
     const r = resolvePackEnvFiles({
       packDir: PACK,
       envName: 'local',
       localEnvFiles: ['../shared/.env', '/abs/.env', '.env.dev'],
     });
-    expect(r.read).toEqual([join(PACK, '../shared/.env'), '/abs/.env', join(PACK, '.env.dev')]);
-    expect(r.write).toBe(join(PACK, '.env.dev'));
+    expect(r.app).toEqual([join(PACK, '../shared/.env'), '/abs/.env', join(PACK, '.env.dev')]);
+    expect(r.read).toEqual([...r.app, join(PACK, '.kindgi/secrets.env')]);
+    expect(r.write).toBe(join(PACK, '.kindgi/secrets.env'));
+    expect(r.appWrite).toBe(join(PACK, '.env.dev'));
   });
 
-  test('other environments: one .env.<envName>, override ignored', () => {
+  test('other environments: one .env.<envName>, override ignored, no Kindgi file', () => {
+    const staging = join(PACK, '.env.staging');
     expect(
       resolvePackEnvFiles({ packDir: PACK, envName: 'staging', localEnvFiles: ['.env'] }),
-    ).toEqual({ read: [join(PACK, '.env.staging')], write: join(PACK, '.env.staging') });
+    ).toEqual({ read: [staging], write: staging, app: [staging], appWrite: staging });
   });
 
   test('an empty override list is an error', () => {
@@ -62,6 +71,49 @@ describe('readPackEnv', () => {
     expect(env.present).toEqual([join(PACK, '.env')]);
     expect(env.values).toEqual({ A: '1', B: '1-base' });
     expect(env.origin.B).toBe(join(PACK, '.env'));
+    expect(env.unreadable).toEqual([]);
+  });
+
+  test("Kindgi's own file wins over the app's", async () => {
+    const files: Record<string, string> = {
+      [join(PACK, '.env.local')]: 'KEY=from-app\nOTHER=app\n',
+      [join(PACK, '.kindgi/secrets.env')]: 'KEY=from-kindgi\n',
+    };
+    const env = await readPackEnv({
+      packDir: PACK,
+      envName: 'local',
+      readFile: async (p) => files[p] ?? null,
+    });
+    expect(env.values).toEqual({ KEY: 'from-kindgi', OTHER: 'app' });
+    expect(env.origin.KEY).toBe(join(PACK, '.kindgi/secrets.env'));
+  });
+
+  test("a file it can't read is left out and named, not thrown", async () => {
+    const env = await readPackEnv({
+      packDir: PACK,
+      envName: 'local',
+      readFile: async (p) => {
+        if (p === join(PACK, '.env.local')) {
+          throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+        }
+        return p === join(PACK, '.env') ? 'A=1\n' : null;
+      },
+    });
+    expect(env.values).toEqual({ A: '1' });
+    expect(env.unreadable).toEqual([{ file: join(PACK, '.env.local'), code: 'EPERM' }]);
+    expect(describeUnreadable(PACK, env.unreadable)).toBe('.env.local (permission denied)');
+  });
+
+  test('any other read error still throws', async () => {
+    await expect(
+      readPackEnv({
+        packDir: PACK,
+        envName: 'local',
+        readFile: async () => {
+          throw Object.assign(new Error('EIO: i/o error'), { code: 'EIO' });
+        },
+      }),
+    ).rejects.toThrow('EIO');
   });
 });
 

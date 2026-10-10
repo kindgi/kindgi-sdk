@@ -117,13 +117,15 @@ async function resolvePaths(ctx: CommandContext): Promise<PathsOutcome> {
     envName,
     ...(settings.localEnvFiles !== undefined && { localEnvFiles: settings.localEnvFiles }),
   });
+  // The app's own env files: `kindgi env` edits settings, never Kindgi's
+  // secrets file (`kindgi secrets` writes that one).
   return {
     kind: 'ok',
     paths: {
       packDir,
       envName,
-      envFilePath: files.write,
-      readPaths: files.read,
+      envFilePath: files.appWrite,
+      readPaths: files.app,
       config: settings.config,
     },
   };

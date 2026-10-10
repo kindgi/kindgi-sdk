@@ -316,6 +316,28 @@ describe('GET /v1/providers/{providerId}/check', () => {
     expect(await (await check(app, 'good')).json()).toMatchObject({ checked: true, issues: [] });
   });
 
+  test('its secretRef, by name only, for a caller allowed to check; list and get still never return it', async () => {
+    const { app, registry } = makeApp(true);
+    await registry.register({
+      tenantId,
+      metadata: metadata('keyed'),
+      adapterId: ADAPTER,
+      secretRef: SECRET,
+    });
+    const body = (await (await check(app, 'keyed')).json()) as Record<string, unknown>;
+    expect(body.secretRef).toEqual({ envName: SECRET.envName, name: SECRET.name });
+
+    const listed = (await (await app.request('/v1/providers', { headers: auth })).json()) as {
+      data: Record<string, unknown>[];
+    };
+    expect(listed.data.find((p) => p.id === 'keyed')).not.toHaveProperty('secretRef');
+    const got = (await (
+      await app.request('/v1/providers/keyed', { headers: auth })
+    ).json()) as Record<string, unknown>;
+    expect(got).not.toHaveProperty('secretRef');
+    expect(got).not.toHaveProperty('secret_ref');
+  });
+
   test('an adapter this runtime does not have is a problem; one without a check is not checked', async () => {
     const { app, registry } = makeApp(true);
     await registry.register({ tenantId, metadata: metadata('gone'), adapterId: '@acme/gone' });

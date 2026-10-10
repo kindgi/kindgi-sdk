@@ -115,8 +115,10 @@ A tool there is a `val` of an object in a `kindgi.tools` package under the
 app's own (`com.acme.app.kindgi.tools`), and calls the app's code directly. A
 library a tool uses must be on the runtime classpath (not `% Test` or
 `% Provided`): the image ships the runtime classpath only. `kindgi dev` reads
-the app's `.env` and `.env.local`: keys already there reach the tools as
-environment variables.
+the app's `.env` and `.env.local`: values already there reach the tools as
+environment variables. A model provider's key, and a secret stored with
+`kindgi secrets set`, don't: a tool reads a secret from its context
+(`needsSpec.secrets`).
 
 ## Layout of the template
 
@@ -158,7 +160,7 @@ key and register its preset (Anthropic below; `./kindgiw providers presets`
 lists OpenAI, Gemini, Groq and OpenRouter too):
 
 ```sh
-./kindgiw secrets set ANTHROPIC_API_KEY --env=local --scope=tenant   # no-echo prompt; writes .env.local
+./kindgiw secrets set ANTHROPIC_API_KEY --env=local --scope=tenant   # no-echo prompt; writes .kindgi/secrets.env
 ./kindgiw providers register --preset=anthropic
 ```
 

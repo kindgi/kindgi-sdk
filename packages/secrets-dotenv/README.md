@@ -12,20 +12,25 @@ external secrets provider.
 
 | Environment | Files read (lowest precedence first) | Writes go to |
 |---|---|---|
-| `local` (`kindgi dev`) | `.env`, `.env.local` — or `dev.envFiles` from `kindgi.config.ts` | the last file (`.env.local`) |
+| `local` (`kindgi dev`) | `.env`, `.env.local` — or `dev.envFiles` from `kindgi.config.ts` — then `.kindgi/secrets.env` | `.kindgi/secrets.env` (with `appEnvFile`: the app's last file, `.env.local`) |
 | anything else | `.env.<envName>` | the same file |
 
 Paths are relative to the pack root. For `local` these are the same files,
 parsed the same way (`@kindgi/dotenv-file`: dotenv grammar, `${VAR}`
 expansion), as the application beside the pack — Kindgi embedded in a
 Next.js app sees exactly what `next dev` sees. A key already in the app's
-`.env` is available to the pack without copying it anywhere.
+`.env` is available to the pack without copying it anywhere. Kindgi's own
+file comes last, so it wins, and it's where a secret is written: a file the
+app doesn't load (a framework loads `.env.local` into every route).
+`copyToKindgiFile` gives Kindgi its own copy of names the app's files hold,
+and never edits them.
 
 ```ts
 import { readPackEnv, resolvePackEnvFiles } from '@kindgi/secrets-dotenv';
 
 resolvePackEnvFiles({ packDir, envName: 'local' });
-// → { read: ['<pack>/.env', '<pack>/.env.local'], write: '<pack>/.env.local' }
+// → { read: ['<pack>/.env', '<pack>/.env.local', '<pack>/.kindgi/secrets.env'],
+//     write: '<pack>/.kindgi/secrets.env', app: [...the first two], appWrite: '<pack>/.env.local', … }
 
 const env = await readPackEnv({ packDir, envName: 'local', env: process.env });
 env.values; // merged + expanded; env.origin says which file supplied each name
