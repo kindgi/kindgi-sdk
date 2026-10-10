@@ -166,6 +166,7 @@ const defined = defineTool({
   precondition-failed: Tool "acme-orders.needs-account" was not run: env-value-missing: tool "acme-orders.needs-account" needs env value "ACME_ACCOUNT_ID" in env "local", and none is set for project e889c1f5-eae7-45dc-8669-5bd029a5d85c, its org, or the tenant. Set it: kindgi env set ACME_ACCOUNT_ID <value> --scope=project:e889c1f5-eae7-45dc-8669-5bd029a5d85c --env=local (or --scope=tenant, for every project)
   ```
 - **Not secret:** env values are recorded with each run that uses them and shown in its journal. A credential is a secret (`needsSpec.secrets`), never an env value.
+- **Schemas compile strictly:** each `needsSpec` schema must compile as the runtime compiles it (an unknown keyword is refused), and an env `default` is a string; otherwise `defineTool` returns `invalid-tool-definition`, and a deploy fails with `deployment-validation-failed`.
 - **In a unit test:** pass `env: { … }` in the context `invokeTool` gets.
 
 Everything else comes from the process environment: `process.env.CITATOR_URL`. The pack service runs with the pack's env files in `kindgi dev`, and with the container's environment in an image. Declare the names your code reads in `kindgi.config.ts`, `env: { required: ['CITATOR_URL'], optional: [...] }`: a deployment injects exactly those, a pack service missing a required one isn't ready and says which, and `kindgi dev` warns about it. Values per environment go in `environments.<name>.env`, secrets only as references.
