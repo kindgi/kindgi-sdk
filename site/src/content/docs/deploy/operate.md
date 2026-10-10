@@ -17,7 +17,7 @@ docker rm kindgi-server
 docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
   --add-host registry.localhost:host-gateway \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
-  quay.io/kindgi/runtime:0.1.4
+  quay.io/kindgi/runtime:0.1.5-rc.1
 ```
 
 On a stop, the runtime stops taking requests and gives the runs it's executing up to 7 seconds to finish, then exits with code 0. `--time 30` gives it that time before Docker kills it.
@@ -295,6 +295,12 @@ When it starts, the runtime brings the database up to date: it applies the migra
 Migrations only go forward, and an older runtime isn't guaranteed to work on a database a newer one migrated. To go back, [restore the backup](#restore-into-a-fresh-database) you took before the upgrade, and run the older version on it.
 
 ### From 0.1.4 to 0.1.5
+
+:::note[This release candidate]
+The SDKs and the CLI are `0.1.5-rc.0` (npm `next`, the PyPI pre-release,
+Maven Central), and the runtime image is `0.1.5-rc.1`. `kindgi dev` from
+`@kindgi/cli@0.1.5-rc.0` runs runtime `0.1.5-rc.1`.
+:::
 
 The database migrates when 0.1.5 starts. What to check before you upgrade,
 and what's different after:
