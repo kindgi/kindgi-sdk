@@ -597,6 +597,9 @@ OPERATIONS: dict[str, Operation] = {
         "json",
         True,
     ),
+    "identity.me.permissions": Operation(
+        "identity.me.permissions", "GET", "/v1/identity/me/permissions", "json", False
+    ),
     "identity.users.grants": Operation(
         "identity.users.grants", "GET", "/v1/identity/users/{userId}/grants", "json", False
     ),
@@ -5667,12 +5670,34 @@ class IdentityUsersResource:
         )
 
 
+class IdentityMeResource:
+    """`client.identity.me` — the `identity.me` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def permissions(self, /, *, timeout: float | None = None) -> _models.MyPermissions:
+        """What I may do. `GET /v1/identity/me/permissions`
+
+        What the caller may do, so a client can hide what it can't: tenant admin, its reviewer role and the roles it decides, its API key's limits and capabilities, the projects it may read with its role in each and every way it holds it (directly, a team, an org it administers, tenant admin), its orgs and teams, and what each project role allows (from the runtime's authorization model). The key's limits are applied: a `member` key is never tenant admin, and a key limited to a project sees that project alone. Only what the caller may see. The server still checks every call. `501 permissions-unsupported` on a runtime without an authorization store: read whoami's `tenantAdmin` and `reviewerRole` instead.
+        """
+        return self._client._request(
+            _OPERATIONS["identity.me.permissions"],
+            path={},
+            query={},
+            headers={},
+            response=_models.MyPermissions,
+            timeout=timeout,
+        )
+
+
 class IdentityResource:
     """`client.identity` — the `identity` operations."""
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
         self.users = IdentityUsersResource(client)
+        self.me = IdentityMeResource(client)
 
     def whoami(self, /, *, timeout: float | None = None) -> _models.WhoamiResult:
         """Self — the caller's user + tenant + session context. `GET /v1/identity/whoami`
@@ -12453,12 +12478,34 @@ class AsyncIdentityUsersResource:
         )
 
 
+class AsyncIdentityMeResource:
+    """`client.identity.me` — the `identity.me` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def permissions(self, /, *, timeout: float | None = None) -> _models.MyPermissions:
+        """What I may do. `GET /v1/identity/me/permissions`
+
+        What the caller may do, so a client can hide what it can't: tenant admin, its reviewer role and the roles it decides, its API key's limits and capabilities, the projects it may read with its role in each and every way it holds it (directly, a team, an org it administers, tenant admin), its orgs and teams, and what each project role allows (from the runtime's authorization model). The key's limits are applied: a `member` key is never tenant admin, and a key limited to a project sees that project alone. Only what the caller may see. The server still checks every call. `501 permissions-unsupported` on a runtime without an authorization store: read whoami's `tenantAdmin` and `reviewerRole` instead.
+        """
+        return await self._client._request(
+            _OPERATIONS["identity.me.permissions"],
+            path={},
+            query={},
+            headers={},
+            response=_models.MyPermissions,
+            timeout=timeout,
+        )
+
+
 class AsyncIdentityResource:
     """`client.identity` — the `identity` operations."""
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
         self.users = AsyncIdentityUsersResource(client)
+        self.me = AsyncIdentityMeResource(client)
 
     async def whoami(self, /, *, timeout: float | None = None) -> _models.WhoamiResult:
         """Self — the caller's user + tenant + session context. `GET /v1/identity/whoami`

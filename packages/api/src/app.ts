@@ -73,6 +73,7 @@ import { requestIdMiddleware } from './middleware/request-id.js';
 import { requestLogMiddleware } from './middleware/request-log.js';
 import { sealedCursors } from './middleware/sealed-cursors.js';
 import { sigv4Middleware } from './middleware/sigv4.js';
+import type { MyAccessBinding } from './my-access-binding.js';
 import { type GenerateOptions, generateOpenApiDocument } from './openapi/generate.js';
 import type { PersonGrantsBinding } from './person-grants-binding.js';
 import type { ProvenanceBinding } from './provenance-binding.js';
@@ -324,6 +325,13 @@ export interface CreateAppInput {
    * `501 person-grants-unsupported`. Needs `identityDirectory`.
    */
   readonly personGrants?: PersonGrantsBinding;
+  /**
+   * Optional. What the caller holds, for `GET /v1/identity/me/permissions`:
+   * its projects with their roles, its orgs and teams, and what each
+   * project role allows, from the authorization model. Without it, that
+   * route answers `501 permissions-unsupported`.
+   */
+  readonly myAccess?: MyAccessBinding;
   /**
    * Optional. When present, mounts the HITL surface:
    *   - `GET /v1/approvals` (list, role-scoped)
@@ -1367,6 +1375,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(input.reviewerBinding !== undefined && { reviewerBinding: input.reviewerBinding }),
       ...(authorizer !== undefined && { authorizer }),
       ...(input.personGrants !== undefined && { personGrants: input.personGrants }),
+      ...(input.myAccess !== undefined && { myAccess: input.myAccess }),
+      ...(input.envBinding !== undefined && { tenantConfig: input.envBinding }),
     }),
   );
   if (input.cost !== undefined) {

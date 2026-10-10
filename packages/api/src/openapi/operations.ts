@@ -5500,6 +5500,27 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
   {
     method: 'get',
+    honoPath: '/v1/identity/me/permissions',
+    openapiPath: '/v1/identity/me/permissions',
+    operationId: 'identity.me.permissions',
+    summary: 'What I may do',
+    description:
+      "What the caller may do, so a client can hide what it can't: tenant admin, its reviewer role and the roles it decides, its API key's limits and capabilities, the projects it may read with its role in each and every way it holds it (directly, a team, an org it administers, tenant admin), its orgs and teams, and what each project role allows (from the runtime's authorization model). The key's limits are applied: a `member` key is never tenant admin, and a key limited to a project sees that project alone. Only what the caller may see. The server still checks every call. `501 permissions-unsupported` on a runtime without an authorization store: read whoami's `tenantAdmin` and `reviewerRole` instead.",
+    tags: ['identity'],
+    security: 'bearer',
+    responses: {
+      '200': { description: 'What the caller may do.', schema: ref('MyPermissions') },
+      ...CommonAuthErrors,
+      '501': ErrorResponse(
+        'The runtime has no authorization store (`permissions-unsupported`): read whoami instead.',
+      ),
+      '503': ErrorResponse(
+        "The authorization store couldn't be read (`authz-backend-unavailable`): try again.",
+      ),
+    },
+  },
+  {
+    method: 'get',
     honoPath: '/v1/identity/users/:userId/grants',
     openapiPath: '/v1/identity/users/{userId}/grants',
     operationId: 'identity.users.grants',

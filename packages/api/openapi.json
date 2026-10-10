@@ -359,6 +359,7 @@
           "identity-user-unregister-refused": 409,
           "identity-user-unregistered": 409,
           "person-grants-unsupported": 501,
+          "permissions-unsupported": 501,
           "agent-version-live": 409,
           "artifact-too-large": 413,
           "run-not-finished": 409,
@@ -14300,6 +14301,542 @@
             "enum": [
               "tenant-admin"
             ]
+          }
+        }
+      },
+      "AccessRole": {
+        "type": "string",
+        "enum": [
+          "owner",
+          "admin",
+          "editor",
+          "viewer"
+        ],
+        "description": "A project role, as the authorization model holds it: `owner` > `admin` > `editor` > `viewer` (a membership stored as `member` is `viewer`)."
+      },
+      "AccessPathDirect": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "role"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "direct"
+            ]
+          },
+          "role": {
+            "$ref": "#/components/schemas/AccessRole"
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the membership was added, when the runtime keeps it."
+          }
+        }
+      },
+      "AccessPathTeam": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "teamId",
+          "teamName",
+          "role"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "team"
+            ]
+          },
+          "teamId": {
+            "type": "string"
+          },
+          "teamName": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/AccessRole",
+            "description": "The role the team holds on the project."
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the caller joined the team, when the runtime keeps it."
+          }
+        }
+      },
+      "AccessPathOrgAdmin": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind",
+          "orgId",
+          "orgName"
+        ],
+        "description": "An admin of the org the project sits in: admin on the project.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "org-admin"
+            ]
+          },
+          "orgId": {
+            "type": "string"
+          },
+          "orgName": {
+            "type": "string"
+          }
+        }
+      },
+      "AccessPathTenantAdmin": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "kind"
+        ],
+        "description": "A tenant admin: admin on every project.",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "tenant-admin"
+            ]
+          }
+        }
+      },
+      "AccessPath": {
+        "description": "One way the caller holds a role on a project: a membership of its own, a team it is in, an org it administers, or tenant admin.",
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/AccessPathDirect"
+          },
+          {
+            "$ref": "#/components/schemas/AccessPathTeam"
+          },
+          {
+            "$ref": "#/components/schemas/AccessPathOrgAdmin"
+          },
+          {
+            "$ref": "#/components/schemas/AccessPathTenantAdmin"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "kind"
+        }
+      },
+      "MyProjectAccess": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "projectId",
+          "name",
+          "role",
+          "via"
+        ],
+        "properties": {
+          "projectId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/AccessRole",
+            "description": "The highest role the caller holds on the project, whichever way."
+          },
+          "via": {
+            "type": "array",
+            "description": "Every way the caller holds a role on it (for \"My access\").",
+            "items": {
+              "$ref": "#/components/schemas/AccessPath"
+            }
+          }
+        }
+      },
+      "MyOrgAccess": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "orgId",
+          "name",
+          "role"
+        ],
+        "properties": {
+          "orgId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "member"
+            ]
+          }
+        }
+      },
+      "MyTeamAccess": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "teamId",
+          "name",
+          "role"
+        ],
+        "properties": {
+          "teamId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "role": {
+            "$ref": "#/components/schemas/TeamRole"
+          }
+        }
+      },
+      "MyReviewerAccess": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "role",
+          "decides",
+          "canDecide"
+        ],
+        "properties": {
+          "role": {
+            "$ref": "#/components/schemas/ReviewerRole"
+          },
+          "id": {
+            "type": "string",
+            "description": "The caller's reviewer id, its row on the roster: an approval assigned to the caller names it in `assignedTo`. Absent without a roster row (then `canDecide` is false), and from a runtime before 0.1.6."
+          },
+          "decides": {
+            "type": "array",
+            "description": "The approvals' required roles the caller may decide: its own rank and below, lowest first.",
+            "items": {
+              "$ref": "#/components/schemas/ReviewerRole"
+            }
+          },
+          "canDecide": {
+            "type": "boolean",
+            "description": "Whether the caller can decide at all: deciding also needs its user and its row on the reviewer roster. False for a token that carries a reviewer role without them."
+          }
+        }
+      },
+      "RoleActions": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "What a project role allows on the project and on every object of each type in it, by object type.",
+        "required": [
+          "project",
+          "agent",
+          "flow",
+          "tool",
+          "guardrail",
+          "eval_suite",
+          "trigger",
+          "conversation",
+          "secret",
+          "env",
+          "mcp_endpoint",
+          "run"
+        ],
+        "properties": {
+          "project": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "read",
+                "write",
+                "admin",
+                "delete"
+              ]
+            }
+          },
+          "agent": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "read",
+                "write",
+                "delete",
+                "admin",
+                "execute",
+                "publish",
+                "promote"
+              ]
+            }
+          },
+          "flow": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "read",
+                "write",
+                "delete",
+                "admin",
+                "execute",
+                "publish"
+              ]
+            }
+          },
+          "tool": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "read",
+                "write",
+                "delete",
+                "admin",
+                "invoke"
+              ]
+            }
+          },
+          "guardrail": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "read",
+                "write",
+                "delete",
+                "admin"
+              ]
+            }
+          },
+          "eval_suite": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "read",
+                "write",
+                "delete",
+                "admin",
+                "execute",
+                "publish"
+              ]
+            }
+          },
+          "trigger": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "read",
+                "write",
+                "delete",
+                "admin",
+                "fire"
+              ]
+            }
+          },
+          "conversation": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "read",
+                "write",
+                "delete",
+                "admin"
+              ]
+            }
+          },
+          "secret": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "read",
+                "write",
+                "delete",
+                "admin",
+                "rotate"
+              ]
+            }
+          },
+          "env": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "read",
+                "write",
+                "delete",
+                "admin"
+              ]
+            }
+          },
+          "mcp_endpoint": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "read",
+                "write",
+                "delete",
+                "admin"
+              ]
+            }
+          },
+          "run": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "read",
+                "cancel",
+                "delete"
+              ]
+            }
+          }
+        }
+      },
+      "RoleCapabilities": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "What each project role allows, worked out by the runtime from its authorization model. A client decides an action as `capabilities[project.role][type]` holding it; the server still checks every call. An object can grant more on itself (an agent's own editor), never less, so this is what the caller may do at the least.",
+        "required": [
+          "owner",
+          "admin",
+          "editor",
+          "viewer"
+        ],
+        "properties": {
+          "owner": {
+            "$ref": "#/components/schemas/RoleActions"
+          },
+          "admin": {
+            "$ref": "#/components/schemas/RoleActions"
+          },
+          "editor": {
+            "$ref": "#/components/schemas/RoleActions"
+          },
+          "viewer": {
+            "$ref": "#/components/schemas/RoleActions"
+          }
+        }
+      },
+      "MyTenantAccess": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "admin"
+        ],
+        "properties": {
+          "admin": {
+            "type": "boolean",
+            "description": "Tenant admin, decided as the admin routes decide it (a `member` key's never is)."
+          },
+          "member": {
+            "type": "boolean",
+            "description": "Tenant member: reads the tenant's settings. Absent when the runtime doesn't report it."
+          }
+        }
+      },
+      "MyKeyLimits": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "tokenId"
+        ],
+        "description": "The caller's API key, when it is one, and what it limits.",
+        "properties": {
+          "tokenId": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "member"
+            ],
+            "description": "The most the key may do, under its principal's grants: an `admin` key may administer the tenant when its principal is a tenant admin; a `member` key takes no admin action on the tenant, whoever it's for; below it, its principal's roles hold (a project admin's member key administers that project)."
+          },
+          "projectId": {
+            "type": "string",
+            "description": "The project the key is limited to: `projects` holds it alone, and no org or team is administered through it."
+          }
+        }
+      },
+      "MyPermissions": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "What the caller may do, with its API key's limits applied: tenant admin and member, its reviewer role, its key's limits and capabilities, the projects it may read with its role in each and how it holds it, its orgs and teams, and what each project role allows. Only what the caller may see: nothing names a project it can't read, or anyone else's role.",
+        "required": [
+          "tenantId",
+          "tenant",
+          "tokenCapabilities",
+          "projects",
+          "orgs",
+          "teams",
+          "capabilities"
+        ],
+        "properties": {
+          "tenantId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "tenant": {
+            "$ref": "#/components/schemas/MyTenantAccess"
+          },
+          "reviewer": {
+            "$ref": "#/components/schemas/MyReviewerAccess",
+            "description": "Present when the caller is a reviewer."
+          },
+          "key": {
+            "$ref": "#/components/schemas/MyKeyLimits"
+          },
+          "tokenCapabilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The framework capabilities the caller's token carries (`env:write`, `secrets:write`, `secrets:rotate`, …), which secret, env and signing-key writes require on top of admin at their scope. A sign-in session carries none; an API key carries those it was minted with (`POST /v1/tokens`, none by default)."
+          },
+          "projects": {
+            "type": "array",
+            "description": "The projects the caller may read, by name.",
+            "items": {
+              "$ref": "#/components/schemas/MyProjectAccess"
+            }
+          },
+          "orgs": {
+            "type": "array",
+            "description": "The orgs the caller is a member or admin of, by name.",
+            "items": {
+              "$ref": "#/components/schemas/MyOrgAccess"
+            }
+          },
+          "teams": {
+            "type": "array",
+            "description": "The teams the caller is a member or admin of, by name.",
+            "items": {
+              "$ref": "#/components/schemas/MyTeamAccess"
+            }
+          },
+          "capabilities": {
+            "$ref": "#/components/schemas/RoleCapabilities"
+          },
+          "readOnlyNotice": {
+            "type": "string",
+            "maxLength": 280,
+            "description": "The line a console shows a caller who may only view a project, as a tenant admin set it in the tenant config (`kind: 'config'`, key `console.readOnlyNotice`). Plain text on one line, at most 280 characters. Absent when none is set: the console shows its own."
           }
         }
       },
@@ -36652,6 +37189,63 @@
             "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
           }
         ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/identity/me/permissions": {
+      "get": {
+        "operationId": "identity.me.permissions",
+        "summary": "What I may do",
+        "tags": [
+          "identity"
+        ],
+        "responses": {
+          "200": {
+            "description": "What the caller may do.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyPermissions"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "The runtime has no authorization store (`permissions-unsupported`): read whoami instead.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The authorization store couldn't be read (`authz-backend-unavailable`): try again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "What the caller may do, so a client can hide what it can't: tenant admin, its reviewer role and the roles it decides, its API key's limits and capabilities, the projects it may read with its role in each and every way it holds it (directly, a team, an org it administers, tenant admin), its orgs and teams, and what each project role allows (from the runtime's authorization model). The key's limits are applied: a `member` key is never tenant admin, and a key limited to a project sees that project alone. Only what the caller may see. The server still checks every call. `501 permissions-unsupported` on a runtime without an authorization store: read whoami's `tenantAdmin` and `reviewerRole` instead.",
         "security": [
           {
             "bearerAuth": []

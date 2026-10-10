@@ -63,6 +63,7 @@
  * per-route parsers in `routes/*.ts` validate ad hoc.
  */
 
+import { OBJECT_ACTIONS, OBJECT_TYPES } from '@kindgi/authz';
 import { EVIDENCE_KINDS } from '@kindgi/compliance';
 import {
   MAX_TOOL_ERROR_RETRIES,
@@ -7906,6 +7907,267 @@ export const PersonGrantsSchema: JsonSchema = {
   },
 };
 
+/** A project role as the authorization model holds it, highest first. */
+export const AccessRoleSchema: JsonSchema = {
+  type: 'string',
+  enum: ['owner', 'admin', 'editor', 'viewer'],
+  description:
+    'A project role, as the authorization model holds it: `owner` > `admin` > `editor` > `viewer` (a membership stored as `member` is `viewer`).',
+};
+
+export const AccessPathDirectSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'role'],
+  properties: {
+    kind: { type: 'string', enum: ['direct'] },
+    role: { $ref: '#/components/schemas/AccessRole' },
+    since: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When the membership was added, when the runtime keeps it.',
+    },
+  },
+};
+
+export const AccessPathTeamSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'teamId', 'teamName', 'role'],
+  properties: {
+    kind: { type: 'string', enum: ['team'] },
+    teamId: { type: 'string' },
+    teamName: { type: 'string' },
+    role: {
+      $ref: '#/components/schemas/AccessRole',
+      description: 'The role the team holds on the project.',
+    },
+    since: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When the caller joined the team, when the runtime keeps it.',
+    },
+  },
+};
+
+export const AccessPathOrgAdminSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'orgId', 'orgName'],
+  description: 'An admin of the org the project sits in: admin on the project.',
+  properties: {
+    kind: { type: 'string', enum: ['org-admin'] },
+    orgId: { type: 'string' },
+    orgName: { type: 'string' },
+  },
+};
+
+export const AccessPathTenantAdminSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind'],
+  description: 'A tenant admin: admin on every project.',
+  properties: { kind: { type: 'string', enum: ['tenant-admin'] } },
+};
+
+export const AccessPathSchema: JsonSchema = {
+  description:
+    'One way the caller holds a role on a project: a membership of its own, a team it is in, an org it administers, or tenant admin.',
+  oneOf: [
+    { $ref: '#/components/schemas/AccessPathDirect' },
+    { $ref: '#/components/schemas/AccessPathTeam' },
+    { $ref: '#/components/schemas/AccessPathOrgAdmin' },
+    { $ref: '#/components/schemas/AccessPathTenantAdmin' },
+  ],
+  discriminator: { propertyName: 'kind' },
+};
+
+export const MyProjectAccessSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['projectId', 'name', 'role', 'via'],
+  properties: {
+    projectId: { type: 'string' },
+    name: { type: 'string' },
+    role: {
+      $ref: '#/components/schemas/AccessRole',
+      description: 'The highest role the caller holds on the project, whichever way.',
+    },
+    via: {
+      type: 'array',
+      description: 'Every way the caller holds a role on it (for "My access").',
+      items: { $ref: '#/components/schemas/AccessPath' },
+    },
+  },
+};
+
+export const MyOrgAccessSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['orgId', 'name', 'role'],
+  properties: {
+    orgId: { type: 'string' },
+    name: { type: 'string' },
+    role: { type: 'string', enum: ['admin', 'member'] },
+  },
+};
+
+export const MyTeamAccessSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['teamId', 'name', 'role'],
+  properties: {
+    teamId: { type: 'string' },
+    name: { type: 'string' },
+    role: { $ref: '#/components/schemas/TeamRole' },
+  },
+};
+
+export const MyReviewerAccessSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['role', 'decides', 'canDecide'],
+  properties: {
+    role: { $ref: '#/components/schemas/ReviewerRole' },
+    id: {
+      type: 'string',
+      description:
+        "The caller's reviewer id, its row on the roster: an approval assigned to the caller names it in `assignedTo`. Absent without a roster row (then `canDecide` is false), and from a runtime before 0.1.6.",
+    },
+    decides: {
+      type: 'array',
+      description:
+        "The approvals' required roles the caller may decide: its own rank and below, lowest first.",
+      items: { $ref: '#/components/schemas/ReviewerRole' },
+    },
+    canDecide: {
+      type: 'boolean',
+      description:
+        'Whether the caller can decide at all: deciding also needs its user and its row on the reviewer roster. False for a token that carries a reviewer role without them.',
+    },
+  },
+};
+
+/** What a project role allows, by object type, in `OBJECT_TYPES` order with each type's actions. */
+const PROJECT_SCOPED_TYPES = OBJECT_TYPES.filter(
+  (t) => t !== 'tenant' && t !== 'org' && t !== 'team' && t !== 'user',
+);
+
+export const RoleActionsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    'What a project role allows on the project and on every object of each type in it, by object type.',
+  required: [...PROJECT_SCOPED_TYPES],
+  properties: Object.fromEntries(
+    PROJECT_SCOPED_TYPES.map((t) => [
+      t,
+      { type: 'array', items: { type: 'string', enum: [...OBJECT_ACTIONS[t]] } },
+    ]),
+  ),
+};
+
+export const RoleCapabilitiesSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "What each project role allows, worked out by the runtime from its authorization model. A client decides an action as `capabilities[project.role][type]` holding it; the server still checks every call. An object can grant more on itself (an agent's own editor), never less, so this is what the caller may do at the least.",
+  required: ['owner', 'admin', 'editor', 'viewer'],
+  properties: {
+    owner: { $ref: '#/components/schemas/RoleActions' },
+    admin: { $ref: '#/components/schemas/RoleActions' },
+    editor: { $ref: '#/components/schemas/RoleActions' },
+    viewer: { $ref: '#/components/schemas/RoleActions' },
+  },
+};
+
+export const MyTenantAccessSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['admin'],
+  properties: {
+    admin: {
+      type: 'boolean',
+      description:
+        "Tenant admin, decided as the admin routes decide it (a `member` key's never is).",
+    },
+    member: {
+      type: 'boolean',
+      description:
+        "Tenant member: reads the tenant's settings. Absent when the runtime doesn't report it.",
+    },
+  },
+};
+
+export const MyKeyLimitsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['tokenId'],
+  description: "The caller's API key, when it is one, and what it limits.",
+  properties: {
+    tokenId: { type: 'string' },
+    role: { ...ApiTokenRoleSchema },
+    projectId: {
+      type: 'string',
+      description:
+        'The project the key is limited to: `projects` holds it alone, and no org or team is administered through it.',
+    },
+  },
+};
+
+export const MyPermissionsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "What the caller may do, with its API key's limits applied: tenant admin and member, its reviewer role, its key's limits and capabilities, the projects it may read with its role in each and how it holds it, its orgs and teams, and what each project role allows. Only what the caller may see: nothing names a project it can't read, or anyone else's role.",
+  required: [
+    'tenantId',
+    'tenant',
+    'tokenCapabilities',
+    'projects',
+    'orgs',
+    'teams',
+    'capabilities',
+  ],
+  properties: {
+    tenantId: { type: 'string', format: 'uuid' },
+    tenant: { $ref: '#/components/schemas/MyTenantAccess' },
+    reviewer: {
+      $ref: '#/components/schemas/MyReviewerAccess',
+      description: 'Present when the caller is a reviewer.',
+    },
+    key: { $ref: '#/components/schemas/MyKeyLimits' },
+    tokenCapabilities: {
+      type: 'array',
+      items: { type: 'string' },
+      description:
+        "The framework capabilities the caller's token carries (`env:write`, `secrets:write`, `secrets:rotate`, …), which secret, env and signing-key writes require on top of admin at their scope. A sign-in session carries none; an API key carries those it was minted with (`POST /v1/tokens`, none by default).",
+    },
+    projects: {
+      type: 'array',
+      description: 'The projects the caller may read, by name.',
+      items: { $ref: '#/components/schemas/MyProjectAccess' },
+    },
+    orgs: {
+      type: 'array',
+      description: 'The orgs the caller is a member or admin of, by name.',
+      items: { $ref: '#/components/schemas/MyOrgAccess' },
+    },
+    teams: {
+      type: 'array',
+      description: 'The teams the caller is a member or admin of, by name.',
+      items: { $ref: '#/components/schemas/MyTeamAccess' },
+    },
+    capabilities: { $ref: '#/components/schemas/RoleCapabilities' },
+    readOnlyNotice: {
+      type: 'string',
+      maxLength: 280,
+      description:
+        "The line a console shows a caller who may only view a project, as a tenant admin set it in the tenant config (`kind: 'config'`, key `console.readOnlyNotice`). Plain text on one line, at most 280 characters. Absent when none is set: the console shows its own.",
+    },
+  },
+};
+
 export const PersonProjectRoleSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -10664,6 +10926,21 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['PersonTeamRole', PersonTeamRoleSchema],
   ['PersonReviewerRole', PersonReviewerRoleSchema],
   ['PersonGrantBody', PersonGrantBodySchema],
+  ['AccessRole', AccessRoleSchema],
+  ['AccessPathDirect', AccessPathDirectSchema],
+  ['AccessPathTeam', AccessPathTeamSchema],
+  ['AccessPathOrgAdmin', AccessPathOrgAdminSchema],
+  ['AccessPathTenantAdmin', AccessPathTenantAdminSchema],
+  ['AccessPath', AccessPathSchema],
+  ['MyProjectAccess', MyProjectAccessSchema],
+  ['MyOrgAccess', MyOrgAccessSchema],
+  ['MyTeamAccess', MyTeamAccessSchema],
+  ['MyReviewerAccess', MyReviewerAccessSchema],
+  ['RoleActions', RoleActionsSchema],
+  ['RoleCapabilities', RoleCapabilitiesSchema],
+  ['MyTenantAccess', MyTenantAccessSchema],
+  ['MyKeyLimits', MyKeyLimitsSchema],
+  ['MyPermissions', MyPermissionsSchema],
   ['UserCollectionPage', UserCollectionPageSchema],
   ['IdentitySessionSummary', IdentitySessionSummarySchema],
   ['IdentitySessionCollectionPage', IdentitySessionCollectionPageSchema],

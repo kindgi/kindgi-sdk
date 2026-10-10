@@ -853,19 +853,76 @@ def test_a_persons_grants_and_tenant_admin() -> None:
     assert json.loads(seen[1].content) == {"kind": "tenant-admin"}
 
 
+def test_my_permissions() -> None:
+    answer = {
+        "tenantId": RUN["tenantId"],
+        "tenant": {"admin": False, "member": True},
+        "reviewer": {"role": "senior", "decides": ["standard", "senior"], "canDecide": True},
+        "key": {"tokenId": "k-1", "role": "member", "projectId": "p-1"},
+        "tokenCapabilities": [],
+        "projects": [
+            {
+                "projectId": "p-1",
+                "name": "Support",
+                "role": "editor",
+                "via": [
+                    {"kind": "direct", "role": "viewer"},
+                    {"kind": "team", "teamId": "t-1", "teamName": "Support eng", "role": "editor"},
+                ],
+            }
+        ],
+        "orgs": [{"orgId": "o-1", "name": "Acme", "role": "member"}],
+        "teams": [{"teamId": "t-1", "name": "Support eng", "role": "member"}],
+        "capabilities": {
+            role: {
+                t: []
+                for t in (
+                    "project",
+                    "agent",
+                    "flow",
+                    "tool",
+                    "guardrail",
+                    "eval_suite",
+                    "trigger",
+                    "conversation",
+                    "secret",
+                    "env",
+                    "mcp_endpoint",
+                    "run",
+                )
+            }
+            for role in ("owner", "admin", "editor", "viewer")
+        },
+    }
+    answer["capabilities"]["editor"]["agent"] = ["read", "write", "execute", "publish"]
+    api, seen = client(lambda r: httpx.Response(200, json=answer))
+    mine = api.identity.me.permissions()
+    assert isinstance(mine, models.MyPermissions)
+    assert mine.tenant.admin is False and mine.key is not None and mine.key.project_id == "p-1"
+    assert mine.reviewer is not None and mine.reviewer.can_decide is True
+    assert [type(p).__name__ for p in mine.projects[0].via] == [
+        "AccessPathDirect",
+        "AccessPathTeam",
+    ]
+    assert mine.capabilities.editor.agent == ["read", "write", "execute", "publish"]
+    assert [(r.method, r.url.path) for r in seen] == [("GET", "/v1/identity/me/permissions")]
+
+
 def test_named_models_keep_their_names() -> None:
-    # Inline shapes in a new schema once renamed `Team`/`Project` to `Team1`/`Project1`;
-    # a `$ref` to `RunStatus` beside its inline uses folds the `RunStatus` class away.
+    # Inline shapes in a new schema once renamed `Team`/`Project` to `Team1`/`Project1`,
+    # and the caller's permissions' `tenant` nearly renamed `Tenant`; a `$ref` to
+    # `RunStatus` beside its inline uses folds the `RunStatus` class away.
     for name in (
         "Team",
         "Project",
         "Reviewer",
+        "Tenant",
         "PersonGrants",
         "ServiceAccountGrantBody",
         "RunStatus",
     ):
         assert hasattr(models, name), name
-    for name in ("Team1", "Project1", "Reviewer1"):
+    for name in ("Team1", "Project1", "Reviewer1", "Tenant1"):
         assert not hasattr(models, name), name
 
 

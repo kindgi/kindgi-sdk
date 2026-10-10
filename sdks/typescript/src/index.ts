@@ -409,11 +409,13 @@ export type {
 } from './resources/providers.js';
 export type {
   IdentityClient,
+  IdentityMeClient,
   IdentitySessionPage,
   IdentityUser,
   IdentityUserPage,
   IdentityUsersClient,
   ListIdentityUsersFilter,
+  MyPermissions,
   RevokeSessionsOutcome,
   WhoamiInfo,
 } from './resources/identity.js';
