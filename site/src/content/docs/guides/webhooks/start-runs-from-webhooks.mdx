@@ -132,10 +132,17 @@ kindgi webhooks register --flow=acme-shop.order-review --flow-version=0.1.0 \
   --preset=woocommerce --secret=acme-woo-orders --generate-secret --env=production
 ```
 
-It prints the trigger, then three lines: the trigger's id, its **receive
-URL** (`https://<your runtime>/v1/hooks/<tenant id>/<webhook id>`), and the
-signing secret, shown this once, with where it's stored. A preset adds where
-to paste them in the sender.
+It prints the trigger as JSON, then where to point the sender: the trigger's
+id, its **receive URL** (`https://<your runtime>/v1/hooks/<tenant id>/<webhook id>`),
+the signing secret, shown this once, with where it's stored, and, with a
+preset, where to paste them. From a WooCommerce run, the secret left out:
+
+```text
+  Registered webhook trigger 4988b936-ec4e-445a-92aa-53d214c593d1: each signed delivery starts acme-shop.order-review@0.1.0.
+  Receive URL (the sender posts here): …/v1/hooks/9639c5a8-7f96-4e47-aad9-bd983fa64822/5ea2595a-134f-44e0-8a80-8428ab616a40
+  Signing secret (stored as acme-woo-orders in production; shown this once): …
+  In WooCommerce: Settings → Advanced → Webhooks → Add webhook. One webhook per topic (`order.created`, …); Delivery URL: the receive URL; Secret: the secret. WooCommerce never resends a delivery Kindgi refuses, and switches the webhook off after 7 in a row.
+```
 
 - **`--env`** is the env your runtime serves (`KINDGI_ENV`; `local` under
   `kindgi dev`). The secret is stored there, at the tenant, and the receiver
@@ -208,6 +215,23 @@ one.
 ```sh
 kindgi webhooks fires <trigger-id> --table
 ```
+
+From the same WooCommerce run:
+
+```text
+RECEIVED                  OUTCOME  RUN                                   NOTE               REPEATS
+────────────────────────  ───────  ────────────────────────────────────  ─────────────────  ───────
+2026-10-10T22:18:51.744Z  skipped                                        paused
+2026-10-10T22:18:37.512Z  refused                                        signature-invalid
+2026-10-10T22:18:28.304Z  started  6a7d9b46-5503-47a2-9634-363bc3225842
+2026-10-10T22:18:28.213Z  started  72212540-bdea-4e5e-889c-0b3b7108cb43
+2026-10-10T22:18:17.528Z  started  bc31040f-db51-42c2-be43-22dfc0aa6d0d                     1
+```
+
+The `REPEATS 1` row's delivery was replayed byte for byte, and the replay
+was answered `200` with `"duplicate":true`. The two `started` rows 91 ms
+apart are two orders in the same second, sent with the same delivery id and
+told apart by their bodies.
 
 Each delivery is a **fire**, newest first: when it was received, the run it
 started (`pending` while it starts), or why it was skipped or refused, and how
