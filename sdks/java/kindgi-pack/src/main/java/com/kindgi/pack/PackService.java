@@ -291,6 +291,11 @@ final class PackService implements HttpServer.Handler {
     draining = true;
   }
 
+  /** @return whether {@link #beginDrain} has run */
+  boolean draining() {
+    return draining;
+  }
+
   /** Why {@code /readyz} and new calls answer 503; {@code null} when ready. */
   private @Nullable Map<String, Object> unready() {
     Map<String, Object> body = new LinkedHashMap<>();

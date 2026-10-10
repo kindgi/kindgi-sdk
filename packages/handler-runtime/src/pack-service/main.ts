@@ -47,7 +47,15 @@ import { PACK_SERVICE_TOKEN_VAR, parsePackServiceToken } from '@kindgi/env-schem
 import { isProcessEntrypoint } from '../entrypoint.js';
 import type { Index } from '../kindgi-index.js';
 import { INDEX_ENVELOPE_VERSION, readBundleMap } from '../kindgi-index.js';
-import { PACK_ENV_CHECK_VAR, type PackEnvCheck, parsePackEnvCheck } from '../pack-env.js';
+import {
+  PACK_ENV_CHECK_VAR,
+  PACK_ENV_FILTER_VAR,
+  type PackEnvCheck,
+  type PackEnvFilter,
+  parsePackEnvCheck,
+  parsePackEnvFilter,
+  undeclaredPackEnv,
+} from '../pack-env.js';
 import { type PackServiceLogs, defaultPackServiceLogs, packServiceLogs } from './records.js';
 import { type PackService, type PackServiceLogEvent, createPackService } from './service.js';
 
@@ -63,6 +71,14 @@ export interface PackServiceConfig {
   readonly maxConcurrency?: number;
   /** Default `strict`. */
   readonly envCheck?: PackEnvCheck;
+  /**
+   * `on`: before the pack's code loads, drop from this process's environment
+   * every name the pack doesn't declare (but `KINDGI_*` and the platform's,
+   * `undeclaredPackEnv`). The process entry sets it from
+   * `KINDGI_PACK_ENV_FILTER` (default `on`); absent, nothing is dropped, so
+   * an in-process caller's environment is left alone.
+   */
+  readonly envFilter?: PackEnvFilter;
 }
 
 type ConfigOutcome =
@@ -104,7 +120,14 @@ export function readPackServiceConfig(
   }
   const envCheck = parsePackEnvCheck(env[PACK_ENV_CHECK_VAR]);
   if (envCheck.kind === 'err') problems.push(envCheck.message);
-  if (problems.length > 0 || envCheck.kind === 'err' || token === undefined) {
+  const envFilter = parsePackEnvFilter(env[PACK_ENV_FILTER_VAR]);
+  if (envFilter.kind === 'err') problems.push(envFilter.message);
+  if (
+    problems.length > 0 ||
+    envCheck.kind === 'err' ||
+    envFilter.kind === 'err' ||
+    token === undefined
+  ) {
     return { kind: 'err', problems };
   }
   return {
@@ -118,6 +141,7 @@ export function readPackServiceConfig(
       ...(host && { host }),
       ...(maxConcurrency !== undefined && { maxConcurrency }),
       envCheck: envCheck.value,
+      envFilter: envFilter.value,
     },
   };
 }
@@ -184,6 +208,8 @@ export async function startPackService(
     await access(resolveModule(p)).catch(() => missing.push(`Missing module: ${p}`));
   }
   if (missing.length > 0) return { kind: 'err', problems: missing };
+
+  dropUndeclaredEnv(config.envFilter, index, logs);
 
   const service = createPackService({
     index,
@@ -264,6 +290,34 @@ export async function main(
   });
   logs.event('stopped', 'Stopped');
   return 0;
+}
+
+/**
+ * Before the pack's code loads: keep only the names it declares (and
+ * Kindgi's and the platform's). A variable meant for something else, a
+ * model key in a self-hosted `--env-file`, never reaches a tool. Removing
+ * it from `process.env` unsets it, so a process a tool starts doesn't
+ * inherit it either. Says which it dropped, never a value. Only when the
+ * filter is `on`: an in-process caller that sets none keeps its environment.
+ */
+function dropUndeclaredEnv(
+  filter: PackEnvFilter | undefined,
+  index: Index,
+  logs: PackServiceLogs | ((event: Record<string, unknown>) => void),
+): void {
+  if (filter !== 'on') return;
+  const dropped = undeclaredPackEnv(index.env, process.env);
+  for (const name of dropped) Reflect.deleteProperty(process.env, name);
+  if (dropped.length === 0) return;
+  if (typeof logs === 'function') {
+    logs({ kind: 'env-dropped', names: dropped });
+    return;
+  }
+  const count = dropped.length === 1 ? 'a variable' : `${dropped.length} variables`;
+  logs.log.warn(
+    `Dropped ${count} the pack doesn't declare: ${dropped.join(', ')} (declare them in the pack's env, or set ${PACK_ENV_FILTER_VAR}=off)`,
+    { event: 'env-dropped', kind: 'env-dropped', names: dropped },
+  );
 }
 
 function describe(cause: unknown): string {

@@ -105,6 +105,20 @@ export const zeroLlmStrategy: ExecutionStrategy = {
       };
     }
     const config = (guardrail.config ?? {}) as Readonly<Record<string, unknown>>;
+    // A config the check refuses is a check that can't run, never a pass: a misspelt setting
+    // mustn't silently disable the rule (`never-call-tool` with no list forbade nothing).
+    const problems = check.configProblems?.(config);
+    const refused = problems !== undefined ? problems[0]?.message : check.validateConfig?.(config);
+    if (refused !== undefined) {
+      return {
+        kind: 'err',
+        error: {
+          code: 'invalid-check-config',
+          message: `Guardrail "${guardrail.id}"'s config doesn't fit check "${guardrail.check}": ${refused}`,
+          ...(problems !== undefined && problems.length > 0 && { issues: problems }),
+        },
+      };
+    }
     const result = await check.evaluate(config, trace, bindings);
     return { kind: 'ok', value: result };
   },
