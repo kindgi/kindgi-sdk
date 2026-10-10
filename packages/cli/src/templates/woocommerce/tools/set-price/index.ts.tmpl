@@ -1,0 +1,36 @@
+// {{PACK_ID}}.woo.set-price — change a product's regular price. A store
+// change, so the agent's approval policy has a person approve every call.
+import { defineTool } from '@kindgi/sdk/define';
+import type { ToolId } from '@kindgi/sdk/types';
+import { z } from 'zod';
+
+import { WOO_NEEDS, woo } from '../../lib/woo.js';
+
+const defined = defineTool({
+  id: '{{PACK_ID}}.woo.set-price' as ToolId,
+  description: "Change a product's regular price. Waits for a person to approve it.",
+  version: '{{PACK_VERSION}}',
+  input: z.object({
+    productId: z.number().int().positive(),
+    regularPrice: z.number().positive(),
+  }),
+  output: z.object({ productId: z.number().int(), name: z.string(), regularPrice: z.string() }),
+  effects: [{ kind: 'writes', resource: 'external:woocommerce' }],
+  mutating: true,
+  needsSpec: WOO_NEEDS,
+  handler: async ({ productId, regularPrice }, ctx) => {
+    const product = await woo<{ readonly id: number; readonly name: string; readonly regular_price: string }>(
+      ctx,
+      'PUT',
+      `products/${productId}`,
+      { regular_price: regularPrice.toFixed(2) },
+    );
+    return { productId: product.id, name: product.name, regularPrice: product.regular_price };
+  },
+});
+
+if (defined.kind === 'err') {
+  throw new Error(`{{PACK_ID}}.woo.set-price failed to compile: ${defined.error.message}`);
+}
+
+export default defined.value;

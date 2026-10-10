@@ -1,0 +1,42 @@
+// {{PACK_ID}}.woo.refund-large — a refund of any amount on an order. The
+// agent's approval policy marks it `always_ask`: every call waits for a
+// person to approve it, and the refund happens only after they do. See
+// `{{PACK_ID}}.woo.refund` for why the store has two refund tools.
+import { defineTool } from '@kindgi/sdk/define';
+import type { ToolId } from '@kindgi/sdk/types';
+import { z } from 'zod';
+
+import { REFUND_NEEDS, createRefund } from '../../lib/woo.js';
+
+const RefundLargeInput = z.object({
+  orderId: z.number().int().positive(),
+  amount: z.number().positive(),
+  reason: z.string().min(3).max(500),
+});
+
+const defined = defineTool({
+  id: '{{PACK_ID}}.woo.refund-large' as ToolId,
+  description:
+    'Refund any amount on an order. Waits for a person to approve it before anything is refunded.',
+  version: '{{PACK_VERSION}}',
+  input: RefundLargeInput,
+  output: z.object({
+    refundId: z.number().int(),
+    orderId: z.number().int(),
+    amount: z.string(),
+    currency: z.string(),
+  }),
+  effects: [
+    { kind: 'writes', resource: 'external:woocommerce' },
+    { kind: 'external-side-effect', notes: 'Refunds money to the customer.' },
+  ],
+  mutating: true,
+  needsSpec: REFUND_NEEDS,
+  handler: async (input, ctx) => createRefund(ctx, input),
+});
+
+if (defined.kind === 'err') {
+  throw new Error(`{{PACK_ID}}.woo.refund-large failed to compile: ${defined.error.message}`);
+}
+
+export default defined.value;

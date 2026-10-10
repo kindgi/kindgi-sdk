@@ -1,0 +1,34 @@
+// {{PACK_ID}}.woo.publish-product — publish a draft product, so shoppers can
+// see it. A store change, so the agent's approval policy has a person
+// approve every call.
+import { defineTool } from '@kindgi/sdk/define';
+import type { ToolId } from '@kindgi/sdk/types';
+import { z } from 'zod';
+
+import { WOO_NEEDS, woo } from '../../lib/woo.js';
+
+const defined = defineTool({
+  id: '{{PACK_ID}}.woo.publish-product' as ToolId,
+  description: 'Publish a draft product in the store. Waits for a person to approve it.',
+  version: '{{PACK_VERSION}}',
+  input: z.object({ productId: z.number().int().positive() }),
+  output: z.object({ productId: z.number().int(), name: z.string(), status: z.string() }),
+  effects: [{ kind: 'writes', resource: 'external:woocommerce' }],
+  mutating: true,
+  needsSpec: WOO_NEEDS,
+  handler: async ({ productId }, ctx) => {
+    const product = await woo<{ readonly id: number; readonly name: string; readonly status: string }>(
+      ctx,
+      'PUT',
+      `products/${productId}`,
+      { status: 'publish' },
+    );
+    return { productId: product.id, name: product.name, status: product.status };
+  },
+});
+
+if (defined.kind === 'err') {
+  throw new Error(`{{PACK_ID}}.woo.publish-product failed to compile: ${defined.error.message}`);
+}
+
+export default defined.value;

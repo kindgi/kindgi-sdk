@@ -1,0 +1,112 @@
+// {{PACK_ID}}.woo.check-order-event — the first step of
+// `{{PACK_ID}}.order-review`: it checks the order event WooCommerce sent and
+// hands the agent only what it needs.
+//
+// The event comes from outside, and anyone who can place an order writes
+// part of it (their name, their note), so the agent must never take it as
+// instructions. This step is where that's enforced, before any model sees
+// the event:
+//   - the input schema is a WooCommerce order: Kindgi checks the event
+//     against it before the handler runs, and anything else fails the run;
+//   - the handler passes on typed fields only. The customer's note, their
+//     email, phone and addresses don't reach the agent: `hasCustomerNote`
+//     says there is one, for staff to read in the store;
+//   - the flags are worked out here, in code, so the model can't be talked
+//     out of one.
+// Guardrails can't do this job: an agent's guardrails check its answer
+// after the turn, once its tools have run.
+import { defineTool } from '@kindgi/sdk/define';
+import type { ToolId } from '@kindgi/sdk/types';
+import { z } from 'zod';
+
+/** An order over this total is flagged for a person to look at. */
+export const HIGH_TOTAL = 500;
+/** More than this many of one item is flagged. */
+export const MANY_OF_ONE_ITEM = 5;
+
+const Money = z.string().regex(/^-?\d+(\.\d+)?$/);
+const Country = z.string().max(2);
+
+/** The fields of WooCommerce's order webhook body this step reads; the rest is dropped. */
+export const OrderEvent = z.object({
+  id: z.number().int().positive(),
+  number: z.string().min(1).max(40),
+  status: z.string().min(1).max(40),
+  currency: z.string().length(3),
+  total: Money,
+  date_created: z.string().max(40),
+  billing: z.object({ country: Country.optional() }).optional(),
+  shipping: z.object({ country: Country.optional() }).optional(),
+  line_items: z
+    .array(
+      z.object({
+        name: z.string().max(200),
+        quantity: z.number().int(),
+        total: Money,
+      }),
+    )
+    .max(200),
+  customer_note: z.string().optional(),
+});
+
+export const CheckedOrder = z.object({
+  orderId: z.number().int(),
+  orderNumber: z.string(),
+  status: z.string(),
+  total: z.string(),
+  currency: z.string(),
+  createdAt: z.string(),
+  items: z.array(z.object({ name: z.string(), quantity: z.number().int(), total: z.string() })),
+  billingCountry: z.string(),
+  shippingCountry: z.string(),
+  hasCustomerNote: z.boolean(),
+  /** What a person should look at: `high-total`, `many-of-one-item`, `ships-abroad`. */
+  flags: z.array(z.string()),
+});
+
+/** The checked order and its flags; exported for the tests. */
+export function checkOrder(order: z.infer<typeof OrderEvent>): z.infer<typeof CheckedOrder> {
+  const billingCountry = order.billing?.country ?? '';
+  const shippingCountry = order.shipping?.country ?? '';
+  const flags: string[] = [];
+  if (Number(order.total) > HIGH_TOTAL) flags.push('high-total');
+  if (order.line_items.some((item) => item.quantity > MANY_OF_ONE_ITEM)) flags.push('many-of-one-item');
+  if (billingCountry !== '' && shippingCountry !== '' && billingCountry !== shippingCountry) {
+    flags.push('ships-abroad');
+  }
+  return {
+    orderId: order.id,
+    orderNumber: order.number,
+    status: order.status,
+    total: order.total,
+    currency: order.currency,
+    createdAt: order.date_created,
+    items: order.line_items.map((item) => ({
+      name: item.name.slice(0, 120),
+      quantity: item.quantity,
+      total: item.total,
+    })),
+    billingCountry,
+    shippingCountry,
+    hasCustomerNote: (order.customer_note ?? '').trim() !== '',
+    flags,
+  };
+}
+
+const defined = defineTool({
+  id: '{{PACK_ID}}.woo.check-order-event' as ToolId,
+  description:
+    "Check a WooCommerce order event and keep its typed fields: no customer note, contact details or addresses. Calls nothing.",
+  version: '{{PACK_VERSION}}',
+  input: z.object({ event: OrderEvent }),
+  output: CheckedOrder,
+  effects: [],
+  mutating: false,
+  handler: async ({ event }) => checkOrder(event),
+});
+
+if (defined.kind === 'err') {
+  throw new Error(`{{PACK_ID}}.woo.check-order-event failed to compile: ${defined.error.message}`);
+}
+
+export default defined.value;

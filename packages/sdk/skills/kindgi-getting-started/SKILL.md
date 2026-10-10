@@ -79,12 +79,16 @@ Either way, `init` adds `@kindgi/sdk` and `@kindgi/cli` to the project's
 one. (`npx @kindgi/cli` is the scoped package; a bare `npx kindgi` would
 fetch an unrelated package.)
 
-Two templates:
+Three templates:
 
 - `--template=minimal` (default) — folder structure only, no example
   primitives. Right when you know what you want to build.
 - `--template=sample` — worked kitchen-sink example (echo tool + agent
   + guardrail + flow). Right for exploring the primitive kinds.
+- `--template=woocommerce` — agents for a WooCommerce store: typed store
+  tools, approvals for large refunds and store changes, and a flow that
+  checks each order event before an agent sees it. Its README explains
+  each choice.
 
 ## Boot the dev harness
 
