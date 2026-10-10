@@ -121,6 +121,7 @@ describe('the authorizer records the refusals it decides itself', () => {
       decision: { allowed: false, failing: 'scope' },
     });
     expect(h.recorded[0]?.decision.reason).toMatch(/member API key takes no admin action/);
+    expect(h.recorded[0]?.decision.evidence.actorSubject).toBe('user:u-1');
     expect(h.checked).toEqual([]);
   });
 

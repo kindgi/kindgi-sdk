@@ -29,6 +29,7 @@ import {
   type Principal,
   type ResourceRef,
   denyPayload,
+  fgaSubject,
 } from '@kindgi/authz';
 
 import { toWireError } from '../errors.js';
@@ -142,7 +143,11 @@ export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
     return refused;
   }
 
-  /** A decision made here, recorded through the binding; recording never fails the request. */
+  /**
+   * A decision made here, recorded through the binding with the actor in
+   * its evidence (as the binding's own decisions carry it); recording
+   * never fails the request.
+   */
   function recordFor(
     c: Context<AppEnv>,
     principal: Principal,
@@ -150,8 +155,15 @@ export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
     resource: ResourceRef,
     decision: Decision,
   ): void {
+    const recorded: Decision =
+      decision.evidence.actorSubject === ''
+        ? {
+            ...decision,
+            evidence: { ...decision.evidence, actorSubject: fgaSubject(principal.actor) },
+          }
+        : decision;
     try {
-      binding.recordDecision?.(principal, action, resource, decision, contextOf(c));
+      binding.recordDecision?.(principal, action, resource, recorded, contextOf(c));
     } catch {
       // Recording never fails the request.
     }
