@@ -15,7 +15,7 @@ description: >
   kindgi-authoring-agents.
 type: core
 library: "@kindgi/sdk"
-version: "0.3.8"
+version: "0.3.9"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -32,7 +32,7 @@ sources:
 
 > **Running `kindgi`:** the CLI is a devDependency of the project (`@kindgi/cli`),
 > not a global command. Run it through the project's package manager —
-> `pnpm exec kindgi …`, `npx --no kindgi …` (npm), `yarn kindgi …` or
+> `pnpm exec kindgi …`, `npx --no -- kindgi …` (npm), `yarn kindgi …` or
 > `bun run kindgi …`. Commands below are written `kindgi …` for brevity.
 
 A **guardrail** is a safety rule an agent turn must satisfy. It combines
@@ -215,13 +215,14 @@ available to the runtime that evaluates it.
 - **`check`** — the id of a registered check (built-in, or one built
   with `defineCheck`). In a pack file it may also be the check object.
 - **`config`** — the check's parameters, validated against the check's
-  `configSchema` by `defineGuardrail`. In a pack, the declaration's
-  `config` goes into the index and the check runs with it; without one
-  it runs with `{}`. A declaration a pack file default-exports isn't run
-  through `defineGuardrail`, so nothing validates its `config`: keep it
-  valid against the schema yourself. `evaluate` receives the config as
-  declared —
-  schema defaults are not filled in — so handle absent optional fields.
+  `configSchema`: by `defineGuardrail`, and in a pack when the pack is
+  indexed (a config that doesn't fit is a file error naming where, and
+  `kindgi build` refuses the pack; see "How the pack tooling reads this
+  file"). In a pack, the declaration's `config` goes into the index and
+  the check runs with it; without one it runs with `{}`. A `defineCheck`
+  check's `evaluate` receives the config its schema resolves, with the
+  schema's defaults applied; a check written without `defineCheck` gets
+  the config as declared.
 - **`action.on-violation`** — `'halt'`, `'retry'` (with
   `retry.maxAttempts`, 1–10), `'escalate'` (with `escalateTo`),
   `'log-only'`, `'compensate'` (with `compensateWith`, a tool id). In an

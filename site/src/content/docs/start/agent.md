@@ -38,7 +38,8 @@ text, with this page under "Set up Kindgi with your coding agent".
   (the CLI from PyPI; it needs no Node). From step 2 on, from the project's
   folder:
   - a TypeScript project: `pnpm exec kindgi` if `pnpm --version` works,
-    else `npx --no kindgi`;
+    else `npx --no -- kindgi` (the `--` passes every flag, `--help`
+    included, to Kindgi rather than to npx);
   - a Python project: `uv run kindgi` (the project's dev dependencies bring
     the CLI);
   - a Java or Scala project: `./kindgiw` (the CLI version the project pins in

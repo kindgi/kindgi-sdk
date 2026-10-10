@@ -18,7 +18,7 @@ You need Node 22.12 or later and Docker.
 npx @kindgi/cli init my-pack        # a new pack; in an existing app: npx @kindgi/cli init
 cd my-pack
 pnpm install
-pnpm exec kindgi dev                 # npm: npx --no kindgi dev
+pnpm exec kindgi dev                 # npm: npx --no -- kindgi dev
 ```
 
 `kindgi dev` runs the Kindgi runtime as a container and your pack's code on

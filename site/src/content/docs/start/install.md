@@ -49,7 +49,7 @@ dependencies, its model key, the runtime and a provider. Each check that
 fails says how to fix it, and it exits `1` until nothing does:
 
 ```sh
-npx --yes @kindgi/cli@0.1 doctor     # in a project: pnpm exec kindgi doctor, or npx --no kindgi doctor
+npx --yes @kindgi/cli@0.1 doctor     # in a project: pnpm exec kindgi doctor, or npx --no -- kindgi doctor
 uvx --from "kindgi-cli>=0.1,<0.2" kindgi doctor   # without Node; in a Python project: uv run kindgi doctor
 ```
 
@@ -95,9 +95,12 @@ From then on, run `kindgi` through the project's package manager:
 | Package manager | Command |
 |---|---|
 | pnpm | `pnpm exec kindgi dev` |
-| npm | `npx --no kindgi dev` |
+| npm | `npx --no -- kindgi dev` |
 | yarn | `yarn kindgi dev` |
 | bun | `bun run kindgi dev` |
+
+With npm, the `--` passes every flag to Kindgi, `--help` included: without
+it, `npx` takes `--help` for itself.
 
 Use the scoped name, `@kindgi/cli`: there is no unscoped `kindgi` package
 on npm.
