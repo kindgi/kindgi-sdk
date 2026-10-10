@@ -76,6 +76,7 @@ function seam(
     nodeVersion: over.nodeVersion ?? '22.12.0',
     image: IMAGE,
     docker: over.docker ?? dockerThat('ok'),
+    sandbox: over.sandbox ?? (async () => ({ kind: 'available', engine: 'seatbelt' })),
     presets: async () => ({
       anthropic: {
         name: 'anthropic',
@@ -170,6 +171,7 @@ describe('outside a project', () => {
       'sbt',
       'docker',
       'registry',
+      'dev-sandbox',
       'console-sign-in',
       'project',
       'dependencies',
@@ -208,6 +210,32 @@ describe('outside a project', () => {
 });
 
 describe('the machine', () => {
+  test("the dev sandbox: ✓ where it runs; where it can't, a warning (never a failure) with the fix; off: skipped", async () => {
+    const on = await doctor({});
+    expect(on.check('dev-sandbox')).toMatchObject({ status: 'pass' });
+    expect(on.check('dev-sandbox')?.message).toContain('macOS Seatbelt');
+    const missing = await doctor({
+      seam: seam({
+        sandbox: async () => ({
+          kind: 'unavailable',
+          reason: "bubblewrap (bwrap) isn't installed",
+          fix: 'Install bubblewrap.',
+        }),
+      }),
+    });
+    expect(missing.report?.ok).toBe(true);
+    expect(missing.check('dev-sandbox')).toMatchObject({
+      status: 'warn',
+      message: expect.stringContaining("bubblewrap (bwrap) isn't installed"),
+      fix: expect.stringContaining('Install bubblewrap.'),
+    });
+    const off = await doctor({ env: { KINDGI_DEV_SANDBOX: 'off' } });
+    expect(off.check('dev-sandbox')).toMatchObject({
+      status: 'skip',
+      message: 'Not checked: KINDGI_DEV_SANDBOX=off.',
+    });
+  });
+
   test('Docker not installed: ✗ with the fix, the image check skipped, exit 1', async () => {
     const { out, report, check } = await doctor({ seam: seam({ docker: dockerThat('missing') }) });
     expect(out.exitCode).toBe(1);

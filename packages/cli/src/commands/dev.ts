@@ -35,6 +35,7 @@
 import { randomBytes, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { chmod, readFile, unlink, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { basename, isAbsolute, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline';
 
@@ -115,6 +116,7 @@ import type {
 } from '../dev/runners.js';
 import { RuntimeStartStopped } from '../dev/runtime-container.js';
 import { DEFAULT_RUNTIME_IMAGE } from '../dev/runtime-image.js';
+import { resolveDevSandbox } from '../dev/sandbox/notices.js';
 import { describeEnvDiagnostics, loadLocalEnvSettings } from '../env/project-env.js';
 import { PYPI_NO_BUNDLER } from '../esbuild-loader.js';
 import { openUrlInBrowser } from '../open-url.js';
@@ -435,6 +437,23 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
     emitProgress(`⚠ ${vertexCredentialsHint(declaredVertex, ctx.env)}`);
   }
 
+  // The pack service runs sandboxed where this machine can: the code a
+  // coding agent writes can't read your keys or reach Docker. Where it
+  // can't, a warning; required (KINDGI_DEV_SANDBOX=required): refused now,
+  // before anything starts.
+  const devSandbox = await resolveDevSandbox({
+    config: projectEnv.config,
+    env: ctx.env,
+    packDir: args.packDir,
+    home: ctx.env.HOME ?? homedir(),
+    detect: dev.detectSandbox,
+  });
+  if (devSandbox.kind === 'error') {
+    return { kind: 'error', stderr: `kindgi dev: ${devSandbox.message}\n`, exitCode: 1 };
+  }
+  for (const line of devSandbox.lines) emitProgress(line);
+  const sandboxNotices = new Set<string>();
+
   // The runtime's port, before anything starts. Taken without `--port`
   // (another `kindgi dev`, say): the next free one, which `.kindgirc.json`
   // then records for every client. Taken with `--port`: refused.
@@ -621,6 +640,13 @@ export async function runDev(ctx: CommandContext): Promise<CommandResult> {
     packDir: args.packDir,
     code: code.value,
     env: packEnv,
+    ...(devSandbox.sandbox !== undefined && { sandbox: devSandbox.sandbox }),
+    // Once per session each: a reload starts the service again.
+    onNotice: (line: string) => {
+      if (sandboxNotices.has(line)) return;
+      sandboxNotices.add(line);
+      emitProgress(`⚠ ${line}`);
+    },
     onLog: (line: string, stream: 'stdout' | 'stderr') =>
       emitOutput(showText('pack', line, logView, stream)),
     onEvent: (event: Parameters<typeof showPackEvent>[0]) => {

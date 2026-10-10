@@ -32,6 +32,8 @@ service gets the environment the pack declares.
   `env.optional`.
 - [Set values per environment](per-environment-values/): the pack service's
   environment in staging or production, and `kindgi env plan`.
+- [Keep your tools' code away from your keys](dev-sandbox/): the sandbox
+  `kindgi dev` runs your pack's code in, and how to open a path a tool needs.
 
 [Give a tool a secret](../tools/give-a-tool-a-secret/) and
 [Give a tool per-project values](../tools/give-a-tool-env-values/) show the

@@ -100,6 +100,10 @@ project, `uv run kindgi` in a Python one.
   key: put it in your env file (`.env` / `.env.local`), or type it into
   `kindgi secrets set`, which asks for it without showing it. The agent never
   invents one or writes one into code. Then it registers the provider.
+- **What the code can reach.** `kindgi dev` runs the code the agent writes
+  sandboxed: it can't read your keys, your other projects or the Docker
+  socket, though it keeps the network and the app's own files
+  ([Keep your tools' code away from your keys](../../guides/secrets/dev-sandbox/)).
 
 Logging in to the runtime image's registry is yours too:
 `kindgi auth registry` asks for your token the same way

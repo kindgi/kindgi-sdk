@@ -198,6 +198,7 @@ function makeFixtures(
   } as const;
 
   const runners: DevRunners = {
+    detectSandbox: async () => ({ kind: 'available', engine: 'seatbelt' }),
     checkPackPython: async (python) => {
       pythonChecks.push(python);
       return opts.pythonProblem !== undefined

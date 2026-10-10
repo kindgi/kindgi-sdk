@@ -16,6 +16,7 @@ import type {
 } from '@kindgi/handler-runtime/pack-service';
 import type { ProjectDatabases } from './project-database.js';
 import type { ProjectOutcome } from './project.js';
+import type { ActiveDevSandbox, SandboxAvailability } from './sandbox/index.js';
 
 import type { JvmPackCode, PackCode } from './pack-code.js';
 
@@ -169,6 +170,10 @@ export interface DevPackServiceOptions {
    */
   readonly port?: number;
   readonly token?: string;
+  /** The sandbox the pack service runs in (`dev/sandbox`); absent, none. */
+  readonly sandbox?: ActiveDevSandbox;
+  /** A notice for the user from starting the pack service (the sandbox's). */
+  readonly onNotice?: (line: string) => void;
 }
 
 /**
@@ -309,6 +314,8 @@ export interface DevRunners {
   }) => PackBuilder;
   /** The local pack service (not yet started). */
   readonly createPackService: (opts: DevPackServiceOptions) => DevPackService;
+  /** Whether this machine can sandbox the pack service, and with what (`dev/sandbox/detect.ts`). */
+  readonly detectSandbox: () => Promise<SandboxAvailability>;
   /**
    * Check a Python pack's interpreter can run pack code (`import kindgi`),
    * with the pack's environment: a one-line description, or why not.

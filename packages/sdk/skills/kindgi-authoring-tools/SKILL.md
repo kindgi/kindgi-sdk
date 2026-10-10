@@ -355,6 +355,13 @@ run start via `semver.maxSatisfying`. No implicit `:latest`.
     Debian packages: `image.systemPackages`. Placeholder env for those steps:
     `image.buildEnv` (never secrets).
 
+11. **Turning the dev sandbox off for a file the tool needs.** Under `kindgi dev`
+    the tool's code runs sandboxed: it can't read outside the app (the home
+    folder, `~/.aws`) or any `.env*` file, and gets `EPERM` there. A tool that
+    needs a path names it in `kindgi.config.ts`: `dev: { sandbox: { allowRead: ['~/.aws'] } }`.
+    Never set `KINDGI_DEV_SANDBOX=off` or `dev.sandbox: false` to get past it
+    (https://docs.kindgi.com/v0.1/guides/secrets/dev-sandbox/).
+
 ## References
 
 - Type surface: `hover any @kindgi/sdk/define export` in your editor

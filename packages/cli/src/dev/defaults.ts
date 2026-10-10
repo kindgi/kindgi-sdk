@@ -90,6 +90,8 @@ import {
   shellReferencesOf,
   writeRuntimeEnv,
 } from './runtime-env.js';
+import { probeReal } from './sandbox/detect.js';
+import { detectDevSandbox, sandboxTmpDir, sandboxedCommand } from './sandbox/index.js';
 import { createScalaPackBuilder } from './scala-builder.js';
 import {
   DEFAULT_SCAN_INTERVAL_MS,
@@ -133,15 +135,36 @@ export function packServiceCommand(code: PackCode): readonly [string, ...string[
  * code is swapped (it retries while the front answers 503 mid-swap).
  */
 export function createPackServiceReal(opts: DevPackServiceOptions): DevPackService {
+  // A required env name the pack lacks is a warning in dev (the
+  // service still serves), not a refusal as in a deployment.
+  const env = async (): Promise<Readonly<Record<string, string>>> => {
+    const base: Record<string, string> = { ...(await opts.env()), [PACK_ENV_CHECK_VAR]: 'warn' };
+    if (opts.sandbox !== undefined) {
+      base.TMPDIR = opts.sandbox.engine === 'seatbelt' ? sandboxTmpDir(opts.packDir) : '/tmp';
+    }
+    return isJvmPackCode(opts.code) ? javaEnv(opts.code, base) : base;
+  };
+  const { sandbox } = opts;
+  const command = packServiceCommand(opts.code);
   return createPackServiceSupervisor({
-    command: packServiceCommand(opts.code),
+    // Sandboxed: worked out at every start, for what that start runs.
+    command:
+      sandbox === undefined
+        ? command
+        : async () =>
+            (
+              await sandboxedCommand(sandbox, {
+                packDir: opts.packDir,
+                code: opts.code,
+                command,
+                env: await env(),
+                node: { execPath: process.execPath, entry: resolvePackServiceEntrypoint() },
+                ...(opts.onNotice !== undefined && { onNotice: opts.onNotice }),
+              })
+            ).command,
     moduleRoot: opts.packDir,
-    // A required env name the pack lacks is a warning in dev (the
-    // service still serves), not a refusal as in a deployment.
-    env: async () => {
-      const env = { ...(await opts.env()), [PACK_ENV_CHECK_VAR]: 'warn' };
-      return isJvmPackCode(opts.code) ? javaEnv(opts.code, env) : env;
-    },
+    cwd: opts.packDir,
+    env,
     onLog: opts.onLog,
     onEvent: opts.onEvent,
     ...(opts.port !== undefined && { port: opts.port }),
@@ -1175,6 +1198,7 @@ export const REAL_DEV_RUNNERS: DevRunners = {
   runIndexer: runIndexerReadReal,
   createPackBuilder: createPackBuilderReal,
   createPackService: createPackServiceReal,
+  detectSandbox: () => detectDevSandbox(process.platform, probeReal),
   checkPackPython,
   checkPackJvm,
   publishIndex: publishIndexReal,
