@@ -222,6 +222,40 @@ export function parseAzureKeyId(raw: string | undefined): AzureKeyId | undefined
   return { keyUrl: `${url.origin}/keys/${keyName}`, vaultUrl: url.origin, keyName };
 }
 
+/** The Azure Key Vault the `secret-manager` backend keeps secrets in (manager `azure`). */
+export const AZURE_VAULT_URL_VAR = 'KINDGI_SECRETS_AZURE_VAULT_URL';
+
+/**
+ * `KINDGI_SECRETS_AZURE_VAULT_URL`: a vault's https origin
+ * (`https://<vault>.vault.azure.net`, any Azure cloud's vault host), with
+ * nothing after it but an optional `/`. Returns the origin. Unset or
+ * blank: `undefined`.
+ */
+export function parseAzureVaultUrl(raw: string | undefined): string | undefined {
+  if (raw === undefined || raw.trim() === '') return undefined;
+  const value = raw.trim();
+  let url: URL | undefined;
+  try {
+    url = new URL(value);
+  } catch {
+    url = undefined;
+  }
+  if (
+    url === undefined ||
+    url.protocol !== 'https:' ||
+    (url.pathname !== '/' && url.pathname !== '') ||
+    url.username !== '' ||
+    url.password !== '' ||
+    url.search !== '' ||
+    url.hash !== ''
+  ) {
+    throw new Error(
+      `${AZURE_VAULT_URL_VAR} must be a Key Vault's URL with nothing after the host, like https://my-kindgi-secrets.vault.azure.net. Got: ${value}.`,
+    );
+  }
+  return url.origin;
+}
+
 function isExactOrigin(value: string): boolean {
   let url: URL;
   try {

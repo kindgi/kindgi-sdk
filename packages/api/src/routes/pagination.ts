@@ -11,6 +11,8 @@
  * `createdAt`.
  */
 
+import { isTimeInput } from './time-input.js';
+
 export interface DecodedCursor {
   readonly createdAt: string;
   readonly id: string;
@@ -44,45 +46,14 @@ export function decodeCursor(raw: string): DecodedCursor | null {
 }
 
 /**
- * A cursor's time, as a list's binding compares it, in one of the two
- * shapes a server writes into a cursor: Postgres's own text for a
- * `timestamptz` (`2026-10-09 12:00:00.123456+00`, microseconds, a page's
- * exact position) or an ISO 8601 time (`2026-10-09T12:00:00.123Z`, as
- * `toISOString()` writes it, from a cursor before that). Both must name a
- * real calendar time. Anything else (`Date.parse` takes `"1"`, `"x 1"` and
- * `"Oct 9"`) is a hand-made cursor, which a route answers with
- * `400 bad-input` rather than handing to the binding's `::timestamptz`.
+ * A cursor's time, as a list's binding compares it: one a server writes
+ * (Postgres's `timestamptz` text, a page's exact position, or an ISO 8601
+ * time from a cursor before that), by the API's one time rule
+ * (`parseTimeInput`). A hand-made cursor with any other time is answered
+ * `400 bad-input` rather than handed to the binding's `::timestamptz`.
  */
 export function isCursorTime(value: string): boolean {
-  const parts = PG_TIMESTAMP_TEXT.exec(value) ?? ISO_TIME.exec(value);
-  return parts !== null && isCalendarTime(parts);
-}
-
-const PG_TIMESTAMP_TEXT =
-  /^(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})(?:\.\d{1,6})?[+-]\d{2}(?::\d{2}){0,2}$/;
-const ISO_TIME =
-  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
-
-/** Year, month, day, hour, minute and second (`parts[1..6]`) name a real time. */
-function isCalendarTime(parts: RegExpExecArray): boolean {
-  const [year, month, day, hour, minute, second] = parts.slice(1, 7).map(Number) as [
-    number,
-    number,
-    number,
-    number,
-    number,
-    number,
-  ];
-  const at = new Date(Date.UTC(year, month - 1, day));
-  return (
-    year >= 1000 &&
-    at.getUTCFullYear() === year &&
-    at.getUTCMonth() === month - 1 &&
-    at.getUTCDate() === day &&
-    hour < 24 &&
-    minute < 60 &&
-    second < 60
-  );
+  return isTimeInput(value);
 }
 
 export function clampLimit(raw: string | undefined, def = 25, cap = 100): number {
