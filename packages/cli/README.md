@@ -13,7 +13,7 @@ devDependency and runs the `kindgi` it pins, never a global install.
 ```sh
 npx @kindgi/cli init            # in an existing app, or: init <pack-name>
 pnpm install
-pnpm exec kindgi dev            # npm: npx --no kindgi dev
+pnpm exec kindgi dev            # npm: npx --no -- kindgi dev
 ```
 
 Use the scoped name, `@kindgi/cli`: there is no unscoped `kindgi` package.
