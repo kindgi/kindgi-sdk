@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/log",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Kindgi™ structured logging: levels per subsystem (with dotted inheritance), JSON and pretty formats, redaction of secret keys and token shapes, and W3C trace-context helpers. The runtime and @kindgi/api write the same records. Zero runtime dependencies.",
   "license": "Apache-2.0",
   "repository": {

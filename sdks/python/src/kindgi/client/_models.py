@@ -1885,7 +1885,7 @@ class RetrievalIntent(BaseModel):
     """
     scope: Literal["same-conversation", "same-user", "same-segment", "same-project", "tenant"]
     """
-    What the intent selects within what the run may see. Facts: this conversation's; this run's end user's and user's; the run's project's (none without a project); or every fact of the type it may see (`tenant`). Conversations: this person's other conversations with the agent (`same-user`); this conversation's messages older than the history window (`same-conversation`); conversations in the run's segment path (`same-segment`) or its project (`same-project`), whoever had them: those two quote other people's conversations, so publishing warns and their messages are marked as another person's. `same-segment` is for conversations only, `tenant` for facts only.
+    What the intent selects within what the run may see. Facts: this conversation's; the run's end user's only (`same-user`: none when the run names no `participantId`); the run's project's (none without a project); or every fact of the type it may see (`tenant`). Conversations: this end user's other conversations with the agent (`same-user`: none when the run names no `participantId`); this conversation's messages older than the history window (`same-conversation`); conversations in the run's segment path (`same-segment`) or its project (`same-project`), whoever had them: those two quote other people's conversations, so publishing warns and their messages are marked as another person's. `same-segment` is for conversations only, `tenant` for facts only.
     """
     limit: Annotated[int | None, Field(ge=1)] = None
     mode: Literal["keyword", "semantic", "both"] | None = None

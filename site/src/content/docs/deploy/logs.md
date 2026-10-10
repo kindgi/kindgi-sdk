@@ -155,10 +155,18 @@ A run also writes records of its own:
 | The agent version a turn resolved, and why | `runs` | `debug` |
 | The run's end: completed or cancelled | `runs` | `debug` |
 | The run's end: failed, with its failure `code` | `runs` | `warn` |
+| An agent turn's warning, once per tenant, agent and warning while the runtime runs | `runs` | `warn` |
 
 So at the default level, a failed run shows and a completed one doesn't. Its
 end record carries the failure's code, not its message: the message is on the
 run (`kindgi runs get <run-id>`).
+
+A turn's warning is in the run's result too. Logged, it says once that an
+agent is set up wrong, rather than at every turn:
+
+```text
+23:52:09.853 WARN  [runs] turn warning (memory-needs-participant): Agent "acme.desk" keeps memory per end user, but this run names none (`participantId`), so it read and kept none. Pass the person's `participantId` on each run: the user a credential acts for may serve many people. traceId=… tenantId=… runId=… agentId=acme.desk
+```
 
 ## What logs hold
 
