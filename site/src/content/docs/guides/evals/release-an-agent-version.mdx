@@ -103,7 +103,8 @@ kindgi runs start --agent=acme.order-desk --project=<project-id> --segment=compa
 A run with `--segment=company:globex` has no live version of its own, so it
 gets the tenant's, 1.0.0. `--tenant`, `--org=<org-id>` and
 `--project=<project-id>` name the other scopes; without `--project`, a run is
-in the Default project (`kindgi projects list` lists the ids).
+in its agent's own project, which is Default for what `kindgi deploy`
+registers (`kindgi projects list` lists the ids).
 
 ## See which version a run would get
 
@@ -370,6 +371,12 @@ To change a gate, publish a new version of the policy;
 to the one before. `kindgi agents gate-policy acme.order-desk --tenant` shows
 the policy that applies to a scope.
 
+With [authorization](../../../deploy/authorization/) on, publishing a gate
+policy takes `admin` on the tenant, and reading one takes `read` on its
+scope: its project (a segment's too), its org, or the tenant for a
+tenant-wide one. A policy you can't read is left out of lists, and answers
+`404 gate-policy-not-found`, as if it weren't there.
+
 With `onlyRestrictedClasses`, a comparison that counted every class is
 refused with
 `` The policy counts only restricted judge classes; the comparison counted every class. Re-run it with `classWeights: 'restricted-only'`. ``,
@@ -457,9 +464,10 @@ The version goes live, and the promotion is `promoted`. Whoever asked can't
 approve their own request:
 `Approval <approval-id> was asked for by you: someone else must approve it`,
 unless the policy's `approvals` has `"separateApprover": false`. A
-deployment with one credential has only one person to ask and approve (see
-[Run with authorization](../../../deploy/authorization/)), so its gates with
-`approvals` need `"separateApprover": false`.
+deployment that one person uses with the API token has nobody else to
+approve, so its gates with `approvals` need `"separateApprover": false`.
+With [people of their own](../../../deploy/people-and-keys/), register a
+second reviewer instead.
 If another promotion of the same scope goes live first, a waiting request is
 `superseded` instead of going live.
 

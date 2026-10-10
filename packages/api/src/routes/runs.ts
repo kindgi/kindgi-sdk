@@ -33,7 +33,7 @@ import type { AppEnv } from '../types.js';
 import { deniedBy } from './denied.js';
 import { liveScopeToWire } from './live-scope-wire.js';
 import type { DecodedCursor } from './pagination.js';
-import { clampLimit, decodeCursor } from './pagination.js';
+import { clampLimit, decodeCursor, isCursorTime } from './pagination.js';
 import { parseListScope } from './scope-params.js';
 import { parseSegmentsBody } from './segments.js';
 import {
@@ -290,7 +290,7 @@ export function runsRouter(
     const rawCursor = c.req.query('cursor');
     if (rawCursor !== undefined && rawCursor.length > 0) {
       const decoded = decodeCursor(rawCursor);
-      if (decoded === null) {
+      if (decoded === null || !isCursorTime(decoded.createdAt)) {
         c.status(statusFor('bad-input') as never);
         return c.json(
           toWireError({ code: 'bad-input', message: '`cursor` is malformed' }, requestId),
@@ -760,6 +760,9 @@ function serializeRun(
       },
     }),
     ...(row.versions != null && { versions: row.versions }),
+    ...(row.contentErasedAt !== undefined && {
+      contentErasedAt: row.contentErasedAt as unknown as string,
+    }),
     ...(row.segments !== undefined &&
       row.segments.length > 0 && {
         segments: row.segments.map(({ key, value }) => ({ key, value })),

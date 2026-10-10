@@ -34,12 +34,23 @@ const resolveToken: TokenResolver = async (token) =>
 
 const runHandler = {} as RunHandlerBinding;
 
-/** An eval-suite registry that only knows how to publish. */
+/** An eval-suite registry that only knows how to publish; a suite stays in its first project. */
 function suiteRegistry(): EvalSuiteRegistryBinding & { readonly published: EvalSuite[] } {
   const published: EvalSuite[] = [];
+  const owners = new Map<string, string>();
   return {
     published,
-    async publish({ suite }: { suite: EvalSuite }) {
+    async publish({ suite, projectId }: { suite: EvalSuite; projectId: string }) {
+      const owner = owners.get(suite.id);
+      if (owner !== undefined && owner !== projectId) {
+        return {
+          kind: 'project-mismatch',
+          suiteId: suite.id,
+          version: suite.version,
+          projectId: owner,
+        };
+      }
+      owners.set(suite.id, projectId);
       if (published.some((s) => s.id === suite.id && s.version === suite.version)) {
         return { kind: 'already-registered', suiteId: suite.id, version: suite.version };
       }
@@ -217,10 +228,10 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
         yesWeight: 3,
         totalWeight: 4,
         restricted: { yesWeight: 0, totalWeight: 0 },
-        // Newest first.
+        // Newest first; a classified judgment's reason names its class.
         reasons: [
           { verdict: 'no', reason: 'wrong city' },
-          { verdict: 'yes', reason: 'right' },
+          { verdict: 'yes', reason: 'right', judgeClassId: h.expertId },
         ],
       },
       {
@@ -247,6 +258,59 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
       },
     ]);
     expect(cases.body.data[1].context).toBeUndefined();
+  });
+
+  test('segments keep only runs started in that segment or below it: a judgment in globex never counts for acme', async () => {
+    const at = (company: string, more: { key: string; value: string }[] = []) => [
+      { key: 'company', value: company },
+      ...more,
+    ];
+    const record = (runId: string, segments: { key: string; value: string }[] | undefined) =>
+      h.judgments.record({
+        tenantId,
+        projectId: project,
+        runId,
+        run: {
+          subject: subject(),
+          input: { query: runId },
+          output: { matches: [{ id: 'x' }] },
+          ...(segments !== undefined && { segments }),
+        },
+        item: { key: 'x' },
+        verdict: 'no',
+        reason: `wrong for ${runId}`,
+        assertedBy: { kind: 'user', id: 'u1' },
+      });
+    await record('acme-run', at('acme'));
+    await record('acme-cfo-run', at('acme', [{ key: 'role', value: 'cfo' }]));
+    await record('globex-run', at('globex'));
+    await record('plain-run', []);
+    const ids = async (version: string, segments: unknown) => {
+      const res = await h.call('POST', BUILD, { ...base, version, segments });
+      expect(res.status, JSON.stringify(res.body)).toBe(201);
+      const cases = await h.call('GET', `/v1/eval-suites/acme.matches/versions/${version}/cases`);
+      return cases.body.data.map((c: { caseId: string }) => c.caseId).sort();
+    };
+    expect(await ids('2.0.0', at('acme'))).toEqual(['acme-cfo-run', 'acme-run']);
+    expect(await ids('2.1.0', at('acme', [{ key: 'role', value: 'cfo' }]))).toEqual([
+      'acme-cfo-run',
+    ]);
+    expect(await ids('2.2.0', at('globex'))).toEqual(['globex-run']);
+    // Runs judged before segments were recorded (seed's run-1..3) and runs with none are in no segment.
+    expect(await ids('2.3.0', at('initech'))).toEqual([]);
+    // The test set says what it was narrowed to.
+    expect(h.suites.published.find((s) => s.version === '2.0.0')?.spec).toMatchObject({
+      query: { segments: at('acme') },
+    });
+    expect(
+      (
+        await h.call('POST', BUILD, {
+          ...base,
+          version: '3.0.0',
+          segments: [{ key: 'Company', value: 'acme' }],
+        })
+      ).status,
+    ).toBe(400);
   });
 
   test('agentVersion narrows to one version of the agent', async () => {
@@ -277,7 +341,7 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
         yesWeight: 3,
         totalWeight: 3,
         restricted: { yesWeight: 0, totalWeight: 0 },
-        reasons: [{ verdict: 'yes', reason: 'right' }],
+        reasons: [{ verdict: 'yes', reason: 'right', judgeClassId: h.expertId }],
       },
     ]);
     expect(byId.has('run-2')).toBe(false);
@@ -298,6 +362,7 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
       run: { subject: subject(), input: {}, output: {} },
       item: { key: 'c2', rank: 1 },
       verdict: 'yes',
+      reason: 'the right firm',
       judgeClassId: h.expertId,
       restricted: true,
       assertedBy: { kind: 'user', id: 'senior-1' },
@@ -318,6 +383,18 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
       yesWeight: 3,
       totalWeight: 4,
       restricted: { yesWeight: 3, totalWeight: 3 },
+    });
+    // Its reason says it was restricted; the expert's earlier one on c1 doesn't.
+    expect(run1.items[1].reasons).toContainEqual({
+      verdict: 'yes',
+      reason: 'the right firm',
+      judgeClassId: h.expertId,
+      restricted: true,
+    });
+    expect(run1.items[0].reasons).toContainEqual({
+      verdict: 'yes',
+      reason: 'right',
+      judgeClassId: h.expertId,
     });
   });
 
@@ -349,6 +426,19 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
     const again = await h.call('POST', BUILD, base);
     expect(again.status).toBe(409);
     expect(again.body.error.code).toBe('eval-suite-already-registered');
+  });
+
+  test('a suite of another project: 409 eval-suite-project-mismatch, and nothing is built', async () => {
+    expect((await h.call('POST', BUILD, base)).status).toBe(201);
+    const elsewhere = { ...base, version: '2.0.0', projectId: randomUUID() };
+    const res = await h.call('POST', BUILD, elsewhere);
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('eval-suite-project-mismatch');
+    expect(res.body.error.message).toContain(
+      'belongs to another project; build its versions there',
+    );
+    expect(JSON.stringify(res.body)).not.toContain(project);
+    expect(h.suites.published.map((s) => s.version)).toEqual(['1.0.0']);
   });
 
   test('a binding that cannot list judged runs: 501', async () => {

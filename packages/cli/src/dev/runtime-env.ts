@@ -62,6 +62,13 @@ export interface RuntimeEnvInput {
   /** The developer's Google Application Default Credentials, as the runtime sees them. */
   readonly googleCredentialsPath?: string;
   /**
+   * `KINDGI_LOG_*`: the levels `kindgi dev` shows, and `KINDGI_LOG_FORMAT=json`
+   * when `kindgi dev` reads the runtime's output (the container's). A
+   * runtime the developer runs (`--runtime-url`) writes to their terminal,
+   * which picks the format. An older runtime ignores the names.
+   */
+  readonly log?: Readonly<Record<string, string>>;
+  /**
    * Values from the shell for `${VAR}` references the pack's env files
    * make and don't define. On the machine the server reads them from the
    * shell; in the container this is its shell.
@@ -77,10 +84,7 @@ export function buildRuntimeEnv(input: RuntimeEnvInput): Record<string, string> 
   const env: Record<string, string> = {
     KINDGI_DEV: 'true',
     KINDGI_ENV: LOCAL_ENV_NAME,
-    // The runtime's records as lines for a person: the container's stdout
-    // isn't a terminal, so `auto` alone would pick JSON. An older runtime
-    // ignores the name.
-    KINDGI_LOG_FORMAT: 'pretty',
+    ...input.log,
     KINDGI_API_PORT: String(input.apiPort),
     ...(input.apiHost !== undefined && { KINDGI_API_HOST: input.apiHost }),
     KINDGI_PUBLIC_URL: input.publicUrl,

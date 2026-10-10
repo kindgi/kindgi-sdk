@@ -36,6 +36,8 @@ export interface DeriveAgentVersionInput {
   readonly label?: string;
   /** Who derived it (`user:<id>`). */
   readonly by?: string;
+  /** The improvement proposal it's derived for, recorded in `derivedFrom`. */
+  readonly proposalId?: string;
   /** The project, when the store doesn't record one on the version. */
   readonly projectId?: ProjectId;
   /** The authorization tuples for the new version, in the project it lands in. */
@@ -55,7 +57,9 @@ export type DeriveAgentVersionOutcome =
   | { readonly kind: 'unpinned' }
   | { readonly kind: 'invalid'; readonly issues: readonly SwapIssue[] }
   | { readonly kind: 'no-project' }
-  | { readonly kind: 'project-not-found'; readonly projectId: ProjectId };
+  | { readonly kind: 'project-not-found'; readonly projectId: ProjectId }
+  /** The agent belongs to another project than the one given (`projectId`): nothing is written. */
+  | { readonly kind: 'project-mismatch'; readonly projectId: ProjectId };
 
 /** How many numbers after the highest a derive tries before it gives up. */
 const MAX_TRIES = 100;
@@ -108,6 +112,7 @@ export async function deriveAgentVersion(
       reason: 'edited',
       ...(input.label !== undefined && { label: input.label }),
       ...(input.by !== undefined && { by: input.by }),
+      ...(input.proposalId !== undefined && { proposalId: input.proposalId }),
     },
   });
 }
@@ -139,6 +144,9 @@ async function publishNextFree(
     });
     if (outcome.kind === 'ok') return { kind: 'ok', agent };
     if (outcome.kind === 'project-not-found') return { kind: 'project-not-found', projectId };
+    if (outcome.kind === 'project-mismatch') {
+      return { kind: 'project-mismatch', projectId: outcome.projectId };
+    }
     candidate = nextVersion(candidate);
   }
   throw new Error(`agent "${agentId as unknown as string}": no free version after ${highest}`);

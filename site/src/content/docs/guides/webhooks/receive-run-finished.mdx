@@ -106,7 +106,8 @@ print(endpoint.endpoint_id, endpoint.url)
   metadata addresses stay refused. A URL the deployment refuses gets
   `400 webhook-url-refused`, with the reason: `The deployment refuses this
   URL: private network addresses are not allowed`.
-- **`events`**: `run.finished`.
+- **`events`**: `run.finished` (and `improvement-pass.finished`,
+  [below](#improvement-passes)).
 - **`secretRef`** names the secret: the environment it's in (`local` in
   development) and its name. Kindgi checks that it exists and is strong
   enough, and keeps only the name:
@@ -170,6 +171,16 @@ webhook-signature: v1,bj8Mj6s7ln2Gd1sDRQi8+Wax2SOFHovsdMIwvNhDrgw=
 - The event carries the run's identity and outcome, never its input or
   output. Fetch the run (`runs.get`) for its output.
 - `webhook-id` is the event's id, the same on every retry.
+
+## Improvement passes
+
+An endpoint that also lists `improvement-pass.finished` in its `events` gets
+one when any [improvement pass](../../evals/improve-an-agent/) ends,
+`completed`, `failed` or `cancelled`, whoever started it. Its `data.pass` is
+the pass as `GET /v1/improvement-passes/<pass-id>` shows it; its outcome
+names the proposal it wrote, if it wrote one. Of the filter, only
+`projectId` (the pass's project) applies; `flowIds` and `includeDryRuns` are
+about runs. The Python client's `parse_event` reads it.
 
 ## Delivery
 

@@ -201,4 +201,11 @@ export interface Fact<TContent = unknown> {
   readonly invalidationReason?: FactInvalidationReason;
   /** `pending` while a person must approve it: a pending fact is never retrieved. */
   readonly review?: 'pending';
+  /**
+   * When this revision stops being readable: from its retention
+   * (`keepUntil`, or `keepDays` from the fact's first write), or an
+   * agent-remembered fact's unverified window. No read returns it after.
+   * Absent: it doesn't expire.
+   */
+  readonly expiresAt?: Timestamp;
 }

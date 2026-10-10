@@ -50,6 +50,7 @@ The preset checks that the key is there first:
 Error: ANTHROPIC_API_KEY (the anthropic key) is not in .env, .env.local. Set it first, then register again:
   pnpm exec kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant   # a no-echo prompt
 or add ANTHROPIC_API_KEY=… to .env yourself.
+If the runtime already holds ANTHROPIC_API_KEY in another environment (a deployed runtime's, for example), name it: pnpm exec kindgi providers register --preset=anthropic --env=<that environment>. Without --env, the preset reads local, the pack's own env files.
 ```
 
 ## 3. Run an agent
@@ -96,10 +97,11 @@ some models, register only those (`--models`).
 The Claude 5.5 models take no `temperature`, and they think before they
 answer: see [Temperature and thinking](../#temperature-and-thinking).
 
-Anthropic retires `claude-haiku-4-5` on or after **2026-10-15**; from then, a
-turn routed to it fails. Its replacement is `claude-haiku-5-5`, which costs a
-tenth as much for a prompt up to 100,000 tokens, with five times the context. An agent that prefers or requires
-Haiku 4.5 needs a new version naming another model.
+Anthropic lists each model's status, and any retirement date, on its
+[model deprecations](https://platform.claude.com/docs/en/about-claude/model-deprecations) page. A turn routed to a retired model fails, so
+an agent that prefers or requires one needs a new version naming another
+model. `claude-haiku-5-5` costs a tenth as much as `claude-haiku-4-5` for a
+prompt up to 100,000 tokens, with five times the context.
 
 ## Prompt caching
 

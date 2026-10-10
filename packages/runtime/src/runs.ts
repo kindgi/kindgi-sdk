@@ -70,6 +70,11 @@ export interface KernelRunRecord {
   /** Set on a run a trigger started (`RunTriggerRef`). */
   readonly trigger?: RunTriggerRef;
   /**
+   * When an erasure cleared the run's content (its input, output, failure
+   * message and journal payloads). Absent on every other run.
+   */
+  readonly contentErasedAt?: Timestamp;
+  /**
    * The W3C trace id of the request that started the run
    * (`RunFlowInput.traceId`). Absent for a run no request started, and on
    * runs from before runs recorded it.
@@ -95,6 +100,12 @@ export type RunListScope =
  * `{ createdAt, id }` internally.
  */
 export interface RunListCursor {
+  /**
+   * The last run's `createdAt`, as the binding's `nextCursor` carries it:
+   * as stored (Postgres keeps microseconds). A binding compares it as given,
+   * never through a JS `Date`, which keeps milliseconds and would skip the
+   * runs created earlier in the same millisecond.
+   */
   readonly createdAt: Timestamp;
   readonly id: RunId;
 }

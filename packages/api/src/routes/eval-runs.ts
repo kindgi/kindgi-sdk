@@ -24,6 +24,7 @@ import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
 import { deniedBy } from './denied.js';
 import { parseComparison } from './eval-comparison.js';
+import { type SettingsOverridesCheck, checkSettingsOverrides } from './eval-overrides.js';
 import { type FlowVersionsCheck, checkFlowVersions } from './eval-versions.js';
 import { clampLimit } from './pagination.js';
 import { parseScopeParams } from './scope-params.js';
@@ -68,10 +69,11 @@ export interface EvalRunsRouters {
 export function evalRunsRouters(
   binding: EvalRunBinding,
   versionsCheck?: FlowVersionsCheck,
+  overridesCheck?: SettingsOverridesCheck,
   authorizer?: Authorizer,
 ): EvalRunsRouters {
   return {
-    start: startRouter(binding, versionsCheck, authorizer),
+    start: startRouter(binding, versionsCheck, overridesCheck, authorizer),
     readback: readbackRouter(binding, authorizer),
   };
 }
@@ -103,9 +105,40 @@ async function versionsRefusal(
   };
 }
 
+/** The `validation-failed` error for an agent candidate's settings `overrides` that don't fit it; `undefined` when they do. */
+async function overridesRefusal(
+  check: SettingsOverridesCheck | undefined,
+  tenantId: TenantId,
+  start: ParsedStartBody,
+) {
+  const overrides = start.comparison?.overrides;
+  const agentRef = start.agentRef;
+  if (overrides === undefined || agentRef?.version === undefined) return undefined;
+  if (check === undefined) {
+    return {
+      code: 'validation-failed' as const,
+      message: "This runtime can't check overrides (it serves no agent or block registry).",
+      issues: [],
+    };
+  }
+  const issues = await checkSettingsOverrides(
+    check,
+    tenantId,
+    { agentId: agentRef.agentId as unknown as string, version: agentRef.version },
+    overrides,
+  );
+  if (issues.length === 0) return undefined;
+  return {
+    code: 'validation-failed' as const,
+    message: `The overrides don't fit ${agentRef.agentId as unknown as string} ${agentRef.version} (${issues.length} issue${issues.length === 1 ? '' : 's'})`,
+    issues: issues as unknown as Record<string, unknown>[],
+  };
+}
+
 function startRouter(
   binding: EvalRunBinding,
   versionsCheck?: FlowVersionsCheck,
+  overridesCheck?: SettingsOverridesCheck,
   authorizer?: Authorizer,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
@@ -140,11 +173,16 @@ function startRouter(
       agentRef !== undefined
         ? ref('agent', agentRef.agentId as unknown as string)
         : ref('flow', flowRef?.flowId as unknown as string);
+    // Running the suite takes `execute` on it (an editor of its project, or
+    // an executor), whichever project the run lands in.
     const refused =
+      (await deniedBy(authorizer, c, 'execute', ref('eval_suite', suiteId))) ??
       (await deniedBy(authorizer, c, 'write', ref('project', projectId as unknown as string))) ??
       (await deniedBy(authorizer, c, 'execute', target));
     if (refused !== undefined) return refused;
-    const refusal = await versionsRefusal(versionsCheck, tenantId, parsed.value);
+    const refusal =
+      (await versionsRefusal(versionsCheck, tenantId, parsed.value)) ??
+      (await overridesRefusal(overridesCheck, tenantId, parsed.value));
     if (refusal !== undefined) {
       c.status(statusFor(refusal.code) as never);
       return c.json(toWireError(refusal, requestId));

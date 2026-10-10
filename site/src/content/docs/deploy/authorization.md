@@ -12,27 +12,24 @@ read, write or administer each project and what's in it.
 
 ## What it gives today, and what it doesn't
 
-Authorization is built for several people and teams sharing one deployment,
-and that part isn't finished. Today:
+Authorization is for several people and teams sharing one deployment:
 
-- **One person signs in: the operator,** with the runtime's API token, as its
-  seed user (`KINDGI_SEED_USER_ID`), who administers the tenant. A runtime
-  can't yet issue other API keys or sign other people in (`POST /v1/tokens`
-  and sign-in aren't served).
+- **People and service accounts, each with their own keys.** A tenant admin
+  adds people, who [sign in to the console](../sign-in/) and make their own
+  API keys, and service accounts for pipelines and apps
+  ([People, API keys and service accounts](../people-and-keys/)). The
+  runtime's seed user (`KINDGI_SEED_USER_ID`) is the first tenant admin.
+- **Every request is checked** against what its caller may do: tenant admin,
+  tenant member, a role on a project, or a reviewer role. Lists hold only
+  what the caller may read.
 - **Every decision is recorded,** allowed or denied, with who asked, what for
   and why: the access audit, below.
-- **Project memberships are kept in step with OpenFGA:** adding, removing a
-  member or changing their role changes what they may do, ready for when more
-  people can sign in.
 - **Registering an approval reviewer takes a tenant admin.**
-- **Not every route is checked yet,** and a team can't be given access to a
-  project.
+- **A team can't be given access to a project yet.**
 
-Giving several people their own access is planned, with no date yet.
-
-**Turn it on now** to have an access audit, or to set up projects and
-memberships ahead of multi-user access. **Leave it off** if one operator is all
-you need: you'd run OpenFGA for little else. `kindgi dev` runs without it.
+**Turn it on** when more than one person or system uses a deployment.
+**Leave it off** if one operator is all you need: you'd run OpenFGA for
+little else. `kindgi dev` runs without it.
 
 ## Run OpenFGA next to the runtime
 
@@ -146,10 +143,14 @@ curl -X POST "$KINDGI_API_URL/v1/projects/<project-id>/memberships" \
   -d '{"userId":"<user-id>","role":"editor"}'
 ```
 
+Give the person by `email` instead of `userId` if you like: it matches one
+of the tenant's people, whatever its case
+([Add a person](../people-and-keys/#add-a-person)).
 `PATCH …/memberships/<user-id>` with `{"role":"viewer"}` changes the role, and
 `DELETE …/memberships/<user-id>` removes the member. In the clients:
 `projects.memberships.add`, `updateRole` and `remove` (`update_role` in
-Python). Changing members takes `admin` on the project.
+Python). Changing members takes `admin` on the project: a tenant admin, or
+the project's own admins.
 
 ## The access audit
 
@@ -175,9 +176,18 @@ after 90 days and denied ones after 365 (see
 
 `actorSubject`, `action`, `resource`, `outcome` (`allowed` or `denied`), `from`, `to` and `runId` narrow the list.
 
+Refusals the API decides before it asks the authorization model are kept too,
+with a `reason` that says which check refused (runtime 0.1.6 or later):
+
+- what the caller's API key rules out: a `member` key asking for a tenant
+  admin's action, a key limited to a project reaching outside it, a key
+  without the capability a write needs (`env:write`, `secrets:write`, …);
+- a caller who isn't a reviewer, on the approvals routes.
+
 ### In the console
 
-**Access audit** lists the same decisions, 50 at a time, newest first:
+**Access audit**, for tenant admins (the only people its API answers), lists
+the same decisions, 50 at a time, newest first:
 **Next page** leads to the older ones. A denied one has a ✗ and a red row. Narrow
 the list by who, on what, action, result (allowed or denied), and time with
 From and To, which are in UTC like the times in the list. The filters are in

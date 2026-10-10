@@ -33,7 +33,15 @@ each one by the name in the second column.
 | `judge_class` | Retired judge classes | retired judge classes |
 | `org` | Deleted orgs | deleted orgs, once their environments' and MCP endpoints' records are purged |
 | `provider` | Removed model providers | unregistered model providers |
-| `*` | All deleted records | every domain that has no policy of its own |
+| `artifact` | Deleted artifacts | deleted artifacts, with their files |
+| `api_key` | Revoked API keys | revoked and expired API keys |
+| `service_account` | Removed service accounts | unregistered service accounts |
+| `memory` | Ended memory facts | every revision of a fact whose life ended (deleted, or past its expiry); a fact under legal hold is never purged |
+| `conversation` | Deleted conversations | unregistered conversations, with their messages and what recall indexed |
+| `*` | All deleted records | every domain that has no policy of its own, except `memory` and `conversation` |
+
+`memory` and `conversation` hold people's words, so their retention is
+opt-in: a `*` policy doesn't reach them, only a policy naming them does.
 
 :::caution[`run` and `*` purge finished runs]
 Runs aren't deleted first: a policy on `run`, or a `*` policy, purges every
@@ -214,7 +222,12 @@ A value under `60000` stops the runtime at start:
 **Expired rows go on their own,** whatever this setting says: every hour, the
 runtime deletes expired idempotency answers, sessions and sign-in state. They
 aren't records a policy keeps, so no setting turns that on. The retention
-sweep is for deleted records past their policy's grace.
+sweep is for deleted records past their policy's grace. The startup log says
+so:
+
+```text
+  Expired rows: deleted every 1 h (idempotency answers, sessions, sign-in state)
+```
 
 ## Keep records for good
 

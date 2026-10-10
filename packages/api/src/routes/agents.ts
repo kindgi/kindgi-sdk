@@ -36,6 +36,7 @@ import {
 } from './agent-releases.js';
 import { liveScopeToWire } from './live-scope-wire.js';
 import { clampLimit } from './pagination.js';
+import { projectMismatch } from './project-mismatch.js';
 import { parseScopeParams } from './scope-params.js';
 
 /**
@@ -392,6 +393,9 @@ export function agentsRouter(
     if (outcome.kind === 'already-registered') {
       return alreadyRegistered(c, binding, tenantId, outcome.agentId, outcome.version);
     }
+    if (outcome.kind === 'project-mismatch') {
+      return projectMismatch(c, 'agent', outcome.agentId as unknown as string, outcome.projectId);
+    }
     if (outcome.kind === 'project-not-found') {
       // Caller supplied a `projectId` that does not resolve within
       // this tenant. Distinct signal from `already-registered` so the
@@ -679,6 +683,8 @@ function derived(
         code: 'bad-input',
         message: `\`projectId\` "${outcome.projectId as unknown as string}" does not resolve to a project in this tenant`,
       });
+    case 'project-mismatch':
+      return projectMismatch(c, 'agent', agentId as unknown as string, outcome.projectId, 'derive');
   }
 }
 
@@ -686,19 +692,90 @@ function derived(
 export interface AgentPublishCapabilities {
   /** Whether memory can search by meaning (embeddings are on). Absent: unknown, no warning. */
   readonly semanticSearch?: boolean;
+  /** Whether agents can remember (`memory.remember`). Absent: unknown, no warning. */
+  readonly remember?: boolean;
+  /** Whether agent turns can recall earlier conversations. Absent: unknown, no warning. */
+  readonly conversationRecall?: boolean;
 }
 
 /**
  * What a published agent should know about this deployment before its
  * first turn: an intent that searches by meaning on a runtime without
  * embeddings fails its turns (`semantic`) or searches by keyword only
- * (`both`).
+ * (`both`); an agent that remembers on a runtime that can't store what
+ * it remembers gets "not remembered" from every call.
  */
 function publishWarnings(
   agent: Agent,
   capabilities: AgentPublishCapabilities,
 ): { readonly code: string; readonly message: string }[] {
-  if (capabilities.semanticSearch !== false) return [];
+  return [
+    ...(capabilities.semanticSearch === false ? semanticWarnings(agent) : []),
+    ...(capabilities.remember === false && agent.memory?.remember !== undefined
+      ? [
+          {
+            code: 'remember-unavailable',
+            message:
+              'The agent declares memory.remember, and this runtime cannot store agent memories: each remember call answers that nothing was remembered.',
+          },
+        ]
+      : []),
+    ...recallWarnings(agent, capabilities),
+  ];
+}
+
+/**
+ * Intents over conversations: `same-segment` and `same-project` quote other
+ * people's conversations (always said); on a runtime that can't recall,
+ * every such intent recalls nothing.
+ */
+function recallWarnings(
+  agent: Agent,
+  capabilities: AgentPublishCapabilities,
+): { readonly code: string; readonly message: string }[] {
+  const answers = agent.retrieval.findIndex(
+    (intent) => intent.source === 'conversations' && intent.roles?.includes('agent') === true,
+  );
+  const answersWarning =
+    answers >= 0 && capabilities.conversationRecall !== false
+      ? [
+          {
+            code: 'recall-agent-answers',
+            message: `Retrieval intent ${answers} recalls the agent's own earlier answers: they can carry its earlier mistakes. They are quoted as "earlier answer by the agent, not verified"; recall only the people's own words (the default) to leave them out.`,
+          },
+        ]
+      : [];
+  return [...answersWarning, ...perIntentRecallWarnings(agent, capabilities)];
+}
+
+function perIntentRecallWarnings(
+  agent: Agent,
+  capabilities: AgentPublishCapabilities,
+): { readonly code: string; readonly message: string }[] {
+  return agent.retrieval.flatMap((intent, i) => {
+    if (intent.source !== 'conversations') return [];
+    if (capabilities.conversationRecall === false) {
+      return [
+        {
+          code: 'recall-unavailable',
+          message: `Retrieval intent ${i} recalls earlier conversations, and this runtime can't: it recalls nothing, and each turn's journal says so (no-recall).`,
+        },
+      ];
+    }
+    if (intent.scope === 'same-segment' || intent.scope === 'same-project') {
+      const where = intent.scope === 'same-segment' ? "the run's segment" : "the run's project";
+      return [
+        {
+          code: 'recall-other-people',
+          message: `Retrieval intent ${i} recalls conversations in ${where}, whoever had them: this agent can quote other users' conversations in ${where}. Their messages are marked as another person's, without saying whose.`,
+        },
+      ];
+    }
+    return [];
+  });
+}
+
+function semanticWarnings(agent: Agent): { readonly code: string; readonly message: string }[] {
   return agent.retrieval.flatMap((intent, i) => {
     if (intent.mode === 'semantic') {
       return [

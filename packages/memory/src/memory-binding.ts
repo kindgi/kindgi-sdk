@@ -12,6 +12,7 @@ import type {
   RetrievalHit,
 } from '@kindgi/memory';
 import type { Result, RunId, TenantId } from '@kindgi/types';
+import type { RecallHit, SearchConversationsInput } from './recall.js';
 
 /**
  * Caller-plugged data-access surface for the memory subsystem. Agent
@@ -58,6 +59,21 @@ export interface MemoryQueryBinding {
   searchBySemantic<TContent = unknown>(
     input: SearchBySemanticInput,
   ): Promise<Result<readonly RetrievalHit<TContent>[], MemoryError>>;
+
+  /**
+   * Recall messages of earlier conversations (a retrieval intent with
+   * `source: 'conversations'`): what `readers` may recall
+   * (`isRecallReadableBy`), narrowed by `selections`, newest first
+   * (`list`), by full-text rank (`keyword`) or by meaning (`semantic`).
+   * Never a comparison's replay conversation (an eval run's replay turn
+   * opens one): its messages are no one's earlier conversation.
+   * Optional: without it, such an intent recalls nothing and its turn
+   * journals why. `semantic` without embeddings answers
+   * `embedding-unavailable`, as fact search does.
+   */
+  searchConversations?(
+    input: SearchConversationsInput,
+  ): Promise<Result<readonly RecallHit[], MemoryError>>;
 
   /**
    * Append one entry to the run's hash-chained log. The implementation

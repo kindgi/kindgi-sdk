@@ -48,10 +48,12 @@ import type {
   RefreshTokenFn,
 } from './identity-provider-binding.js';
 import type { ImageRegistryBinding } from './image-registry-binding.js';
+import type { ImprovementPassBinding } from './improvement-pass-binding.js';
 import type { JudgmentRegistryBinding } from './judgment-binding.js';
 import type { AgentReleaseBindings } from './live-version-binding.js';
 import type { MCPClientProbeBinding, MCPEndpointRegistryBinding } from './mcp-endpoint-binding.js';
 import type { MemoryBinding } from './memory-binding.js';
+import type { MemoryErasureBinding } from './memory-erasure-binding.js';
 import {
   SESSION_COOKIE_NAME,
   type SessionCookieOptions,
@@ -66,6 +68,7 @@ import {
   idempotencyMiddleware,
 } from './middleware/idempotency.js';
 import { refuseOtherProjectForKey } from './middleware/key-project.js';
+import { noStoreMiddleware } from './middleware/no-store.js';
 import { principalMiddleware } from './middleware/principal.js';
 import { PROJECT_REF_ROUTES, refuseBadProjectId } from './middleware/project-ref.js';
 import { publicRunCorsMiddleware, publicRunRouteMatcher } from './middleware/public-run-routes.js';
@@ -108,9 +111,11 @@ import { flowsRouter } from './routes/flows.js';
 import { gatePoliciesRouter } from './routes/gate-policies.js';
 import { guardrailsRouter } from './routes/guardrails.js';
 import { identityRouter } from './routes/identity.js';
+import { improvementPassesRouter, mountImproveRoute } from './routes/improvement-passes.js';
 import { judgedSuitesRouter } from './routes/judged-suites.js';
 import { judgeClassesRouter, judgmentsRouter } from './routes/judgments.js';
 import { mcpRouter } from './routes/mcp.js';
+import { memoryErasuresRouter } from './routes/memory-erasures.js';
 import { memoryRouter } from './routes/memory.js';
 import { observationsRouter } from './routes/observations.js';
 import { orgsRouter } from './routes/orgs.js';
@@ -428,6 +433,13 @@ export interface CreateAppInput {
    */
   readonly memory?: MemoryBinding;
   /**
+   * Optional. When present, mounts erasing a person's words
+   * (`/v1/memory/erasures`: create, get, list, export, replay), for a
+   * tenant admin only. The Kindgi runtime supplies an implementation over
+   * its erasure jobs and ledger.
+   */
+  readonly memoryErasures?: MemoryErasureBinding;
+  /**
    * Optional. When present, mounts the supervisor proposals surface
    * (`/v1/proposals` list/get/draft, plus lifecycle actions
    * dry-run / submit-review / apply / rollback / withdraw). Every
@@ -440,6 +452,13 @@ export interface CreateAppInput {
    * registry. See `supervisor-binding.ts` for the full contract.
    */
   readonly supervisor?: SupervisorBinding;
+  /**
+   * Optional. Improvement passes (`POST /v1/proposals/improve`,
+   * `/v1/improvement-passes`): the runtime's search for better settings
+   * values, written as an improvement proposal. Without it, both answer
+   * `501 improve-unsupported`. Mounted with `/v1/proposals`.
+   */
+  readonly improvementPasses?: ImprovementPassBinding;
   /**
    * Optional. The key the deployment signs its exports with: an
    * approval's audit bundle (`POST /v1/approvals/:approvalId/audit-bundle`),
@@ -769,6 +788,15 @@ export interface CreateAppInput {
    */
   readonly signInOptionsRateLimit?: SignInOptionsRateLimit;
   /**
+   * The emailed sign-in link, when the deployment offers it (it serves the
+   * link itself): sign-in options say so, with the captcha's site key.
+   */
+  readonly signInEmailLink?: {
+    readonly captchaSiteKey?: string;
+    /** Whether the link is offered for an email's domain. Absent: every domain. */
+    readonly allowedFor?: (emailDomain: string) => Promise<boolean>;
+  };
+  /**
    * Optional. Signed-deployment ledger — the audit anchor for every
    * `POST /v1/deployments` landing. Caller-plugged per the pattern
    * (e.g. in-memory for tests, a durable store in production). Mount
@@ -995,6 +1023,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   app.use('*', requestIdMiddleware());
   // The request's trace context and logger, and its access line.
   app.use('*', requestLogMiddleware(input.logger ?? noopLogger));
+  // No `/v1` answer is kept by a browser or a proxy (data and errors alike).
+  app.use('/v1/*', noStoreMiddleware());
   // A thrown exception: a 500 wire error with its message and request id, logged.
   app.onError(mapThrownError);
 
@@ -1182,6 +1212,12 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           ...(input.memory?.semanticSearch !== undefined && {
             semanticSearch: input.memory.semanticSearch,
           }),
+          ...(input.memory?.agentRemember !== undefined && {
+            remember: input.memory.agentRemember,
+          }),
+          ...(input.memory?.conversationRecall !== undefined && {
+            conversationRecall: input.memory.conversationRecall,
+          }),
         },
       ),
     );
@@ -1222,6 +1258,10 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   if (input.retention !== undefined) {
     v1.route('/retention', retentionRouter(input.retention, authorizer));
   }
+  // Before `/memory`, so its routes answer first.
+  if (input.memoryErasures !== undefined) {
+    v1.route('/memory/erasures', memoryErasuresRouter(input.memoryErasures, authorizer));
+  }
   if (input.memory !== undefined) {
     v1.route(
       '/memory',
@@ -1231,8 +1271,35 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       }),
     );
   }
-  if (input.supervisor !== undefined) {
-    v1.route('/proposals', proposalsRouter(input.supervisor));
+  if (
+    input.supervisor !== undefined &&
+    input.agentRegistry !== undefined &&
+    input.blockRegistry !== undefined &&
+    input.evalRunBinding !== undefined &&
+    input.agentReleases !== undefined
+  ) {
+    const improveDeps = {
+      ...(input.improvementPasses !== undefined && { passes: input.improvementPasses }),
+      agents: input.agentRegistry,
+      blocks: input.blockRegistry,
+      releases: input.agentReleases,
+    };
+    v1.route(
+      '/proposals',
+      proposalsRouter(
+        input.supervisor,
+        {
+          agents: input.agentRegistry,
+          blocks: input.blockRegistry,
+          evalRuns: input.evalRunBinding,
+          releases: input.agentReleases,
+          ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
+        },
+        authorizer,
+        (r) => mountImproveRoute(r, improveDeps, authorizer),
+      ),
+    );
+    v1.route('/improvement-passes', improvementPassesRouter(input.improvementPasses, authorizer));
   }
   v1.route('/export-signing-keys', exportSigningKeysRouter(exportSigning));
   v1.route(
@@ -1312,7 +1379,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     }),
   );
   if (input.cost !== undefined) {
-    v1.route('/cost', costRouter(input.cost, authorizer));
+    v1.route('/cost', costRouter(input.cost, authorizer, input.projectBinding));
   }
   if (input.adapterRegistry !== undefined) {
     v1.route(
@@ -1515,6 +1582,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
             ...(input.toolRegistry !== undefined && { tools: input.toolRegistry }),
           }
         : undefined,
+      input.agentRegistry !== undefined && input.blockRegistry !== undefined
+        ? { agents: input.agentRegistry, blocks: input.blockRegistry }
+        : undefined,
       authorizer,
     );
     v1.route('/eval-suites', evalRuns.start);
@@ -1559,6 +1629,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(input.signInOptionsRateLimit !== undefined && {
         rateLimit: input.signInOptionsRateLimit,
       }),
+      ...(input.signInEmailLink !== undefined && { emailLink: input.signInEmailLink }),
     }),
   );
   // Browser sessions need a way out even without identity providers

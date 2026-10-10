@@ -14,9 +14,9 @@ description: >
   diagnostic output into durable input for framework improvement.
 type: core
 library: "@kindgi/sdk"
-version: "0.4.0"
+version: "0.4.2"
 sdk_version: "0.0.0"
-pack_languages: [node, python]
+pack_languages: [node, python, java, scala]
 ---
 
 # Capturing framework feedback
@@ -25,7 +25,8 @@ pack_languages: [node, python]
 > (`@kindgi/cli`), not a global command. Run it through the project's
 > package manager — `pnpm exec kindgi …`, `npx --no kindgi …` (npm),
 > `yarn kindgi …` or `bun run kindgi …`. A Python pack (`[tool.kindgi]` in
-> `pyproject.toml`) has no Node project: run the `kindgi` on `PATH`.
+> `pyproject.toml`) has no Node project: run the `kindgi` on `PATH`. A Java
+> or Scala pack (`kindgi.config.json`) runs the CLI it pins: `./kindgiw …`.
 > Commands below are written `kindgi …` for brevity.
 
 You just spent time diagnosing a Kindgi-framework issue. That diagnostic

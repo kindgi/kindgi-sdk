@@ -148,6 +148,63 @@ describe('defineGuardrail', () => {
   });
 });
 
+describe('evaluateGuardrail — a check that throws', () => {
+  const throwing = (thrown: unknown) => {
+    const registry = createCheckRegistry();
+    registry.register({
+      id: 'acme.crashes',
+      kind: 'zero-llm',
+      evaluate: async () => {
+        throw thrown;
+      },
+    } as never);
+    return registry;
+  };
+  const crashes = {
+    id: 'acme.crashes' as GuardrailId,
+    kind: 'zero-llm',
+    check: 'acme.crashes',
+    action: { 'on-violation': 'halt' },
+  } as Guardrail;
+
+  test('is a check-failed error outcome with what it threw, never a pass or a throw', async () => {
+    const outcome = await evaluateGuardrail(
+      crashes,
+      throwing(new Error('pack service unreachable')),
+      baseTrace(),
+    );
+    expect(outcome).toEqual({
+      kind: 'err',
+      error: {
+        code: 'check-failed',
+        message: 'guardrail "acme.crashes": its check threw: pack service unreachable',
+        guardrailId: 'acme.crashes',
+      },
+    });
+  });
+
+  test('the message is one bounded line: no stack, at most 500 characters of it', async () => {
+    const long = new Error(`first line\n    at evaluate (/pack/x.mjs:1:1)\n${'x'.repeat(2000)}`);
+    const outcome = await evaluateGuardrail(crashes, throwing(long), baseTrace());
+    if (outcome.kind !== 'err') throw new Error('expected err');
+    expect(outcome.error.message).not.toContain('\n');
+    expect(outcome.error.message.length).toBeLessThan(600);
+    expect(outcome.error.message.endsWith('…')).toBe(true);
+    const plain = await evaluateGuardrail(crashes, throwing('a string'), baseTrace());
+    expect(plain).toMatchObject({ error: { message: expect.stringContaining('a string') } });
+  });
+
+  test("a cancelled turn isn't the check failing: its abort propagates as it is", async () => {
+    const controller = new AbortController();
+    const reason = new Error('wall-clock budget exhausted');
+    controller.abort(reason);
+    const thrown = await evaluateGuardrail(crashes, throwing(reason), baseTrace(), {
+      abortSignal: controller.signal,
+    }).catch((e: unknown) => e);
+    expect(thrown).toBe(reason);
+  });
+});
+
 describe('evaluateGuardrail — zero-llm', () => {
   test('pass path returns action=noop', async () => {
     const registry = createCheckRegistry();
@@ -620,26 +677,36 @@ describe('evaluateGuardrail — llm-judge records its model calls', () => {
     ]);
   });
 
-  test('a judge call that threw is recorded as failed, and throws its own error', async () => {
+  test('a judge call that threw is recorded as failed, and the check failed with its own error', async () => {
     const recorded: ModelUsageRecord[] = [];
     const providerError = new Error('429 slow down');
-    const thrown = await evaluateGuardrail(guardrail, registry, baseTrace(), {
+    const outcome = await evaluateGuardrail(guardrail, registry, baseTrace(), {
       judgeProvider: { metadata: judgeMetadata, invoke: () => Promise.reject(providerError) },
       usage: { record: async (call) => void recorded.push(call) },
-    }).catch((e: unknown) => e);
-    expect(thrown).toBe(providerError);
+    });
+    expect(outcome).toEqual({
+      kind: 'err',
+      error: {
+        code: 'check-failed',
+        message: 'guardrail "acme.on-topic": its check threw: 429 slow down',
+        guardrailId: 'acme.on-topic',
+      },
+    });
     expect(recorded).toEqual([
       expect.objectContaining({ status: 'failed', error: { message: '429 slow down' } }),
     ]);
   });
 
-  test("a failed judge call that can't be recorded either still throws its own error", async () => {
+  test("a failed judge call that can't be recorded either: still its own error", async () => {
     const providerError = new Error('429 slow down');
-    const thrown = await evaluateGuardrail(guardrail, registry, baseTrace(), {
+    const outcome = await evaluateGuardrail(guardrail, registry, baseTrace(), {
       judgeProvider: { metadata: judgeMetadata, invoke: () => Promise.reject(providerError) },
       usage: { record: () => Promise.reject(new Error('database unavailable')) },
-    }).catch((e: unknown) => e);
-    expect(thrown).toBe(providerError);
+    });
+    expect(outcome).toMatchObject({
+      kind: 'err',
+      error: { code: 'check-failed', message: expect.stringContaining('429 slow down') },
+    });
   });
 
   test("an answered judge call the sink can't record, retries included, is judge-usage-unrecorded", async () => {

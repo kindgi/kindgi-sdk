@@ -103,7 +103,7 @@ describe('registering a schedule', () => {
   });
 
   test.each([
-    [{ ...nightly, agentId: 'acme.digest' }, 'not both'],
+    [{ ...nightly, agentId: 'acme.digest' }, 'one of them'],
     [{ ...nightly, flowVersion: undefined }, '`flowVersion` is required'],
     [{ agentId: 'a', flowVersion: '1.0.0', config: nightly.config }, 'goes with `flowId`'],
     [{ ...nightly, catchUp: 'all' }, '`catchUp` must be'],
@@ -123,6 +123,161 @@ describe('registering a schedule', () => {
     const res = await app().built.request('/v1/schedules', send('POST', body));
     expect(res.status).toBe(400);
     expect(JSON.stringify(await res.json())).toContain(message);
+  });
+});
+
+const ACME = { kind: 'segment', projectId: PROJECT, path: [{ key: 'company', value: 'acme' }] };
+const hourly = {
+  improve: { agentId: 'acme.scorer', scope: ACME },
+  config: { cronExpression: '0 * * * *' },
+};
+
+describe('an improve schedule', () => {
+  test("registers in its scope's project, with the pass options' defaults kept on it", async () => {
+    const { built } = app();
+    const res = await built.request('/v1/schedules', send('POST', hourly));
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body).toMatchObject({
+      improve: { agentId: 'acme.scorer', scope: ACME },
+      projectId: PROJECT,
+      input: {
+        tiers: ['settings'],
+        objective: 'weightedYesShare',
+        classWeights: 'restricted-only',
+        budget: { maxCostUsd: 5, maxCandidates: 30 },
+        threshold: { judgments: 5, runs: 3, judges: 2 },
+        monthlyCapUsd: 20,
+      },
+    });
+    expect(body).not.toHaveProperty('agentId');
+    expect(body).not.toHaveProperty('flowId');
+  });
+
+  test('a prompt improve schedule keeps its model, and its own threshold and cap', async () => {
+    const res = await app().built.request(
+      '/v1/schedules',
+      send('POST', {
+        ...hourly,
+        config: {
+          cronExpression: '0 */6 * * *',
+          input: {
+            tiers: ['prompt'],
+            model: { providerId: 'acme-llm', model: 'm-1' },
+            threshold: { judgments: 10, runs: 4, judges: 3 },
+            monthlyCapUsd: 50,
+          },
+        },
+      }),
+    );
+    expect(res.status).toBe(201);
+    expect(((await res.json()) as { input: unknown }).input).toMatchObject({
+      tiers: ['prompt'],
+      model: { providerId: 'acme-llm', model: 'm-1' },
+      candidates: 3,
+      threshold: { judgments: 10, runs: 4, judges: 3 },
+      monthlyCapUsd: 50,
+    });
+  });
+
+  test.each([
+    [{ ...hourly, agentId: 'acme.digest' }, 'one of them'],
+    [{ ...hourly, improve: { agentId: 'acme.scorer' } }, '`improve.scope`'],
+    [{ ...hourly, agentVersion: '1.0.0' }, "don't go with it"],
+    [
+      { ...hourly, improve: { agentId: 'acme.scorer', scope: { kind: 'org', orgId: PROJECT } } },
+      'promote to the org by hand after review',
+    ],
+    [
+      { ...hourly, improve: { agentId: 'acme.scorer', scope: { kind: 'tenant' } } },
+      "a pass's evidence must cover the scope it changes",
+    ],
+    [{ ...hourly, projectId: randomUUID() }, "in the schedule's project"],
+    [
+      {
+        ...hourly,
+        config: { cronExpression: '0 * * * *', input: { threshold: { judgments: 2, runs: 3 } } },
+      },
+      '`threshold`',
+    ],
+    [
+      { ...hourly, config: { cronExpression: '0 * * * *', input: { tiers: ['prompt'] } } },
+      '`model` is required',
+    ],
+    [
+      { ...hourly, config: { cronExpression: '0 * * * *', input: { monthlyCapUsd: 0 } } },
+      '`monthlyCapUsd`',
+    ],
+    [
+      { ...hourly, config: { cronExpression: '0 * * * *', input: { suiteId: 'x' } } },
+      "`suiteId` isn't an option",
+    ],
+  ])('a bad improve body is a 400: %j', async (body, message) => {
+    const res = await app().built.request('/v1/schedules', send('POST', body));
+    expect(res.status).toBe(400);
+    expect(JSON.stringify(await res.json())).toContain(message);
+  });
+
+  test('its fires show the pass each started; a skipped fire says which count was short', async () => {
+    const { built, registry } = app();
+    const id = (
+      (await (await built.request('/v1/schedules', send('POST', hourly))).json()) as {
+        scheduleId: string;
+      }
+    ).scheduleId;
+    const passId = randomUUID();
+    registry.recordFire({
+      triggerId: id as TriggerId,
+      kind: 'schedule',
+      scheduledFor: '2026-10-07T10:00:00.000Z',
+      firedAt: '2026-10-07T10:00:01.000Z',
+      outcome: 'skipped',
+      detail: '4 of 5 trusted "no" judgments since 2026-10-07T09:00:00.000Z (3 runs, 2 judges)',
+    });
+    registry.recordFire({
+      triggerId: id as TriggerId,
+      kind: 'schedule',
+      scheduledFor: '2026-10-07T11:00:00.000Z',
+      firedAt: '2026-10-07T11:00:01.000Z',
+      outcome: 'started',
+      passId,
+    });
+    const fires = (await (
+      await built.request(`/v1/schedules/${id}/fires`, send('GET'))
+    ).json()) as {
+      data: Record<string, unknown>[];
+    };
+    expect(fires.data.map((f) => f.outcome).sort()).toEqual(['skipped', 'started']);
+    expect(fires.data.find((f) => f.outcome === 'started')).toMatchObject({ passId });
+    expect(fires.data.find((f) => f.outcome === 'skipped')?.detail).toContain('4 of 5');
+  });
+
+  test('retargeting an agent schedule to improve needs pass options, not a user message', async () => {
+    const { built } = app();
+    const created = await built.request(
+      '/v1/schedules',
+      send('POST', {
+        agentId: 'acme.digest',
+        projectId: PROJECT,
+        config: { cronExpression: '0 7 * * *', input: { userMessage: 'Morning digest' } },
+      }),
+    );
+    const id = ((await created.json()) as { scheduleId: string }).scheduleId;
+    const kept = await built.request(
+      `/v1/schedules/${id}`,
+      send('PATCH', { improve: hourly.improve }),
+    );
+    expect(kept.status).toBe(400);
+    expect(JSON.stringify(await kept.json())).toContain("`userMessage` isn't an option");
+    const moved = await built.request(
+      `/v1/schedules/${id}`,
+      send('PATCH', { improve: hourly.improve, config: { input: {} } }),
+    );
+    expect(moved.status).toBe(200);
+    expect(await moved.json()).toMatchObject({
+      improve: { agentId: 'acme.scorer' },
+      input: { threshold: { judgments: 5, runs: 3, judges: 2 } },
+    });
   });
 });
 
@@ -294,6 +449,30 @@ describe('what each route asks the authorizer', () => {
     return { r, id, checked };
   }
 
+  test('registering an improve schedule: write on the project and publish on the agent', async () => {
+    const checked: string[] = [];
+    const r = new Hono<AppEnv>();
+    r.use('*', async (c, next) => {
+      c.set('tenantId' as never, tenantId as never);
+      c.set('requestId' as never, 'req-schedules' as never);
+      return next();
+    });
+    r.route(
+      '/',
+      schedulesRouter(
+        createInMemoryTriggerRegistry({ defaultProjectId: PROJECT }),
+        recordingAuthorizer(checked),
+      ),
+    );
+    const res = await r.request('/', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(hourly),
+    });
+    expect(res.status).toBe(201);
+    expect(checked).toEqual([`write project:${PROJECT}`, 'publish agent:acme.scorer']);
+  });
+
   test('registering: write on the project and execute on what it runs', async () => {
     const { checked } = await mounted();
     expect(checked).toEqual([`write project:${PROJECT}`, 'execute flow:acme.nightly']);
@@ -348,5 +527,88 @@ describe('what each route asks the authorizer', () => {
       }),
     });
     expect(checked).toEqual(expected.map((e) => (e.includes(' ') ? e : `${e} project:${PROJECT}`)));
+  });
+});
+
+describe('the list holds only schedules whose project the caller may read', () => {
+  const A = randomUUID() as ProjectId;
+  const B = randomUUID() as ProjectId;
+
+  // Every check passes (registering is not under test here); the list
+  // keeps what the grants allow, as the real authorizer's filterByCan does.
+  function grantsAuthorizer(grants: readonly string[]): Authorizer {
+    return {
+      authorize: () => async (_c, next) => next(),
+      can: async () => false,
+      check: async () => {
+        throw new Error('unused');
+      },
+      filterByCan: async (_c, action, items, toRef) =>
+        items.filter((item) => {
+          const r = toRef(item);
+          return grants.includes(`${action} ${r.type}:${r.id}`);
+        }),
+    } as Authorizer;
+  }
+
+  /** A schedule in A and one in B, then the list as `authorizer` lets the caller see it. */
+  async function listed(authorizer: Authorizer | undefined, query = '') {
+    const registry = createInMemoryTriggerRegistry({ defaultProjectId: PROJECT });
+    const r = new Hono<AppEnv>();
+    r.use('*', async (c, next) => {
+      c.set('tenantId' as never, tenantId as never);
+      c.set('requestId' as never, 'req-schedules' as never);
+      return next();
+    });
+    r.route('/', schedulesRouter(registry, authorizer));
+    for (const projectId of [A, B]) {
+      const created = await r.request('/', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...nightly, projectId }),
+      });
+      expect(created.status).toBe(201);
+    }
+    const res = await r.request(`/${query}`);
+    expect(res.status).toBe(200);
+    return (await res.json()) as {
+      data: { projectId: string }[];
+      hasMore: boolean;
+      nextCursor?: string;
+    };
+  }
+
+  test('no read on either project (a member with no project role): none', async () => {
+    expect((await listed(grantsAuthorizer([]))).data).toEqual([]);
+  });
+
+  test("a viewer of A sees A's schedule, not B's", async () => {
+    const { data } = await listed(grantsAuthorizer([`read project:${A}`]));
+    expect(data.map((s) => s.projectId)).toEqual([A]);
+  });
+
+  test('read on both (an admin): both', async () => {
+    const { data } = await listed(grantsAuthorizer([`read project:${A}`, `read project:${B}`]));
+    expect(data.map((s) => s.projectId).sort()).toEqual([A, B].sort());
+  });
+
+  test('without an authorizer (authorization off), as before: every schedule', async () => {
+    const { data } = await listed(undefined);
+    expect(data).toHaveLength(2);
+  });
+
+  test("the page is the tenant's: fewer rows than the limit, and still more after", async () => {
+    const all = await listed(
+      grantsAuthorizer([`read project:${A}`, `read project:${B}`]),
+      '?limit=1',
+    );
+    expect(all.data).toHaveLength(1);
+    expect(all.hasMore).toBe(true);
+    const first = all.data[0]?.projectId;
+    const other = first === A ? B : A;
+    const page = await listed(grantsAuthorizer([`read project:${other}`]), '?limit=1');
+    expect(page.data).toEqual([]);
+    expect(page.hasMore).toBe(true);
+    expect(page.nextCursor).toBeDefined();
   });
 });
