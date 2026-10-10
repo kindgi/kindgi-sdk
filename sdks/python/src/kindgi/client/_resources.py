@@ -1696,10 +1696,24 @@ class ApprovalsResource:
             "expired",
             "withdrawn",
         ]
+        | list[
+            Literal[
+                "pending",
+                "assigned",
+                "in_review",
+                "approved",
+                "rejected",
+                "escalated",
+                "expired",
+                "withdrawn",
+            ]
+        ]
         | None = None,
+        assigned_to: Literal["me"] | None = None,
+        order: Literal["asc", "desc"] | None = None,
         required_role: Literal["standard", "senior", "admin"] | None = None,
         created_after: str | None = None,
-        wait_token_id: list[str | UUID] | None = None,
+        wait_token_id: str | UUID | list[str | UUID] | None = None,
         run_id: str | UUID | None = None,
         include_descendants: bool | None = None,
         timeout: float | None = None,
@@ -1717,6 +1731,8 @@ class ApprovalsResource:
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
                 "status": status,
+                "assignedTo": assigned_to,
+                "order": order,
                 "requiredRole": required_role,
                 "createdAfter": created_after,
                 "waitTokenId": wait_token_id,
@@ -8729,10 +8745,24 @@ class AsyncApprovalsResource:
             "expired",
             "withdrawn",
         ]
+        | list[
+            Literal[
+                "pending",
+                "assigned",
+                "in_review",
+                "approved",
+                "rejected",
+                "escalated",
+                "expired",
+                "withdrawn",
+            ]
+        ]
         | None = None,
+        assigned_to: Literal["me"] | None = None,
+        order: Literal["asc", "desc"] | None = None,
         required_role: Literal["standard", "senior", "admin"] | None = None,
         created_after: str | None = None,
-        wait_token_id: list[str | UUID] | None = None,
+        wait_token_id: str | UUID | list[str | UUID] | None = None,
         run_id: str | UUID | None = None,
         include_descendants: bool | None = None,
         timeout: float | None = None,
@@ -8750,6 +8780,8 @@ class AsyncApprovalsResource:
                 "scopeKind": scope_kind,
                 "scopeId": scope_id,
                 "status": status,
+                "assignedTo": assigned_to,
+                "order": order,
                 "requiredRole": required_role,
                 "createdAfter": created_after,
                 "waitTokenId": wait_token_id,

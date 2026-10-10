@@ -457,8 +457,27 @@ const ApprovalStatusQueryParam: ParameterSpec = {
   name: 'status',
   in: 'query',
   required: false,
-  description: 'Filter by approval status.',
-  schema: { $ref: '#/components/schemas/ApprovalStatus' },
+  description:
+    'Only approvals in these statuses: one, or several, repeated (`status=pending&status=escalated`) or comma-separated (`status=pending,assigned,in_review`).',
+  schema: { type: 'array', items: { $ref: '#/components/schemas/ApprovalStatus' } },
+};
+
+const ApprovalAssignedToQueryParam: ParameterSpec = {
+  name: 'assignedTo',
+  in: 'query',
+  required: false,
+  description:
+    "`me`: only the approvals assigned to the caller's own reviewer row (none when the caller has no row).",
+  schema: { type: 'string', enum: ['me'] },
+};
+
+const ApprovalOrderQueryParam: ParameterSpec = {
+  name: 'order',
+  in: 'query',
+  required: false,
+  description:
+    "`desc` (newest first, the default) or `asc` (oldest first). A page's `nextCursor` continues its own order; the page says which order it's in (`order`).",
+  schema: { type: 'string', enum: ['asc', 'desc'], default: 'desc' },
 };
 
 const ReviewerIdPathParam: ParameterSpec = {
@@ -1990,6 +2009,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ScopeKindQueryParam,
       ScopeIdQueryParam,
       ApprovalStatusQueryParam,
+      ApprovalAssignedToQueryParam,
+      ApprovalOrderQueryParam,
       ApprovalRequiredRoleQueryParam,
       CreatedAfterQueryParam,
       WaitTokenIdQueryParam,

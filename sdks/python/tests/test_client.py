@@ -1203,3 +1203,15 @@ def test_a_judging_rule_change_sends_null_to_remove_the_cap() -> None:
     api, seen = client(lambda r: httpx.Response(200, json=rule))
     api.projects.judging_rules.update(project, rule_id, max_open=None, sample=0.05)
     assert json.loads(seen[0].content) == {"maxOpen": None, "sample": 0.05}
+def test_a_reviewer_inbox_in_one_read() -> None:
+    page = {"data": [], "hasMore": False, "order": "asc"}
+    api, seen = client(lambda r: httpx.Response(200, json=page))
+    listed = api.approvals.list(
+        status=["pending", "assigned", "in_review"], assigned_to="me", order="asc"
+    )
+    assert seen[0].url.params.get_list("status") == ["pending", "assigned", "in_review"]
+    assert (seen[0].url.params.get("assignedTo"), seen[0].url.params.get("order")) == ("me", "asc")
+    assert listed.order == "asc"
+    # One status, as before.
+    api.approvals.list(status="pending")
+    assert seen[1].url.params.get_list("status") == ["pending"]

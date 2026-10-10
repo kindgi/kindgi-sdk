@@ -10959,9 +10959,13 @@ class ApprovalCollectionPage(BaseModel):
     data: list[Approval]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     """
-    Opaque cursor for the next page; treat as opaque on the client.
+    Opaque cursor for the next page, in the same order; treat as opaque on the client.
     """
     has_more: Annotated[bool, Field(alias="hasMore")]
+    order: Literal["asc", "desc"] | None = None
+    """
+    The order the page is in: `asc` (oldest first) or `desc` (newest first). Absent from a runtime before Kindgi 0.1.6, which lists newest first and ignores `order`.
+    """
 
 
 class CompleteApprovalResult(BaseModel):

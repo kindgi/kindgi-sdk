@@ -3125,10 +3125,18 @@
           },
           "nextCursor": {
             "type": "string",
-            "description": "Opaque cursor for the next page; treat as opaque on the client."
+            "description": "Opaque cursor for the next page, in the same order; treat as opaque on the client."
           },
           "hasMore": {
             "type": "boolean"
+          },
+          "order": {
+            "type": "string",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "description": "The order the page is in: `asc` (oldest first) or `desc` (newest first). Absent from a runtime before Kindgi 0.1.6, which lists newest first and ignores `order`."
           }
         }
       },
@@ -21078,10 +21086,39 @@
             "name": "status",
             "in": "query",
             "schema": {
-              "$ref": "#/components/schemas/ApprovalStatus"
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/ApprovalStatus"
+              }
             },
             "required": false,
-            "description": "Filter by approval status."
+            "description": "Only approvals in these statuses: one, or several, repeated (`status=pending&status=escalated`) or comma-separated (`status=pending,assigned,in_review`)."
+          },
+          {
+            "name": "assignedTo",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "me"
+              ]
+            },
+            "required": false,
+            "description": "`me`: only the approvals assigned to the caller's own reviewer row (none when the caller has no row)."
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "default": "desc"
+            },
+            "required": false,
+            "description": "`desc` (newest first, the default) or `asc` (oldest first). A page's `nextCursor` continues its own order; the page says which order it's in (`order`)."
           },
           {
             "name": "requiredRole",
