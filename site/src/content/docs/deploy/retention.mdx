@@ -55,8 +55,8 @@ A purged run takes its journal, provenance and snapshot with it. These stay,
 under their own setting:
 
 - **Judgments,** with the copy of the run's input and output each judged
-  run keeps. A live judgment stays for good; a removed one goes under
-  `judgment`.
+  run keeps. A judgment that isn't removed stays for good; a removed one
+  goes under `judgment`.
 - **The judging queue's history:** items that closed (judged, dismissed,
   or `erased`) and runs a rule skipped at its cap. They hold ids, versions,
   statuses and times only. They go under `judgment`, counted from when they

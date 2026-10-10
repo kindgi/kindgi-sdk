@@ -222,7 +222,8 @@ print(rule.rule_id, rule.version)
 </TabItem>
 </Tabs>
 
-The rule as made, its version 1:
+A rule as the runtime returns it, its version 1, here one made with `sample: 1`
+and `maxOpen: 2`:
 
 ```json
 {
@@ -297,7 +298,7 @@ waiting = kindgi.projects.judging_queue.list(project.id, for_me=True)
 </TabItem>
 </Tabs>
 
-One item, as the rule above queued it:
+One item, as that rule queued it:
 
 ```json
 {
@@ -372,7 +373,7 @@ a run does.
   - **Never pooled:** each version of each rule is a sample of its own
     `when`, so its results are never added to another's.
 
-The rule above, capped at 2 waiting, after three live runs: one judged
+That rule's results (capped at 2 waiting) after three live runs: one judged
 `yes`, one dismissed, and one skipped while both waited.
 
 ```json
