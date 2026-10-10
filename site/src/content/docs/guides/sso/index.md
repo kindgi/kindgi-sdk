@@ -102,8 +102,12 @@ kindgi sso providers finish acme-kc --kind=oidc --issuer=http://127.0.0.1:18091/
       "providerId": "acme-kc",
       "kind": "oidc",
       "displayName": "Acme Keycloak",
-      "domains": ["acme.test"],
-      "signIn": { "redirectUri": "http://localhost:18096/auth/sso/callback/idp-ibhu3tdkkrjjjfllbjpu2uk3gm" },
+      "domains": [
+        "acme.test"
+      ],
+      "signIn": {
+        "redirectUri": "http://localhost:18096/auth/sso/callback/idp-ibhu3tdkkrjjjfllbjpu2uk3gm"
+      },
       "issuer": "http://127.0.0.1:18091/realms/acme",
       "clientId": "kindgi-live",
       "clientSecretRef": "ACME_KC_SECRET",
