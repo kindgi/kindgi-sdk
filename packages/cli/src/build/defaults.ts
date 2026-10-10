@@ -393,6 +393,7 @@ export const JVM_BUILD_RUNNERS: JvmBuildRunners = {
       publishedAt: opts.publishedAt,
       buildTarget: opts.buildTarget,
       systemPackages: opts.systemPackages,
+      declaredEnv: opts.declaredEnv,
     };
     await writeFile(
       opts.outputPath,
