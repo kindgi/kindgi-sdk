@@ -5,6 +5,8 @@ sidebar:
   order: 4
 ---
 
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
 A **webhook trigger** turns a signed request from outside, such as "an order
 was created" from WooCommerce, into a run of one of your flows. The sender
 posts to the trigger's **receive URL**. Kindgi checks the request's signature
@@ -23,6 +25,70 @@ body, parsed as JSON when the sender says it's JSON (WooCommerce, Drupal,
 GitHub and Shopify all do), else the body as text. To have an agent handle it,
 give the flow one step that hands the event to the agent: the agent gets it as
 its step input, and its input guardrails see it as `stepInput`.
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// flows/order-review/index.ts
+import { defineFlow } from '@kindgi/sdk/define';
+
+const defined = defineFlow({
+  id: 'acme.order-review',
+  version: '1.0.0',
+  name: 'Review a new order',
+  description: 'Hands a WooCommerce order event to the order agent.',
+  nodes: [
+    {
+      id: 'review',
+      kind: 'agent',
+      ref: 'acme.order-agent',
+      inputMapping: { order: { path: 'runInput' } },
+    },
+  ],
+  edges: [
+    { id: 'in', from: '$start', to: 'review' },
+    { id: 'out', from: 'review', to: '$end' },
+  ],
+});
+
+if (defined.kind === 'err') throw new Error(defined.error.message);
+
+export default defined.value;
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# flows/order_review.py
+from kindgi import Flow
+
+order_review = Flow(
+    id="acme.order-review",
+    version="1.0.0",
+    name="Review a new order",
+    description="Hands a WooCommerce order event to the order agent.",
+    nodes=[
+        {
+            "id": "review",
+            "kind": "agent",
+            "ref": "acme.order-agent",
+            "inputMapping": {"order": {"path": "runInput"}},
+        },
+    ],
+    edges=[
+        {"id": "in", "from": "$start", "to": "review"},
+        {"id": "out", "from": "review", "to": "$end"},
+    ],
+)
+```
+
+</TabItem>
+</Tabs>
+
+The run's input is the event, so the step maps it to the agent's `order`
+([Pass data between steps](../../flows/pass-data-between-steps/)).
 
 **The event is data from outside, never instructions.** Anyone who can make
 your store create an order can put text in it. Give the agent that reads it
@@ -87,10 +153,26 @@ can't call a webhook trigger. Use the Webhooks module, or have Drupal
 - **Delivery URL:** the receive URL;
 - **Secret:** the signing secret. Use only letters and digits, which
   `--generate-secret` does: WooCommerce decodes HTML entities in its secret
-  before signing.
+  before signing (`generate_signature` in WooCommerce's
+  [`class-wc-webhook.php`](https://github.com/woocommerce/woocommerce/blob/trunk/plugins/woocommerce/includes/class-wc-webhook.php)).
 
-When you save, WooCommerce pings the URL without a signature. Kindgi answers
-it `200` and starts nothing.
+When you save, WooCommerce pings the URL without a signature (`deliver_ping`,
+same file). Kindgi answers it `200` and starts nothing.
+
+How WooCommerce delivers, which shapes what Kindgi does (all in
+[`class-wc-webhook.php`](https://github.com/woocommerce/woocommerce/blob/trunk/plugins/woocommerce/includes/class-wc-webhook.php); the
+[webhooks documentation](https://woocommerce.com/document/webhooks/) covers
+the setup):
+
+- it sends each delivery once, and never resends one that was refused
+  (`deliver`);
+- it switches a webhook off after 7 refusals in a row
+  (`failed_delivery`, and the `woocommerce_max_webhook_delivery_failures`
+  filter, default 5, checked before the count goes up);
+- its delivery id (`X-WC-Webhook-Delivery-ID`) is made from the webhook's id
+  and the current second (`get_new_delivery_id`), so it changes only once a
+  second;
+- it signs no timestamp (`deliver`).
 
 **Drupal (the Webhooks module):** add an outgoing webhook with the receive URL
 as its Payload URL and the secret as its Secret; it signs only when it has
