@@ -75,12 +75,12 @@ export const initCommand: LeafCommand = {
   description:
     'Scaffold a new Kindgi pack repo, or add Kindgi to an existing app: a Node.js, Python, Maven or sbt project, auto-detected from its `package.json`, `pyproject.toml`, `pom.xml` or `build.sbt` when no pack-name is given.',
   usage:
-    'kindgi init [<pack-name>] [--template=minimal|sample|python|java|scala] [--path=<dir>] [--force] [--link-local] [--new-repo]',
+    'kindgi init [<pack-name>] [--template=minimal|sample|woocommerce|python|java|scala] [--path=<dir>] [--force] [--link-local] [--new-repo]',
   optionSpec: {
     template: {
       type: 'string',
       description:
-        'The starter: `minimal` (default; empty primitive folders), `sample` (tools, a guardrail, an agent and a flow), `python` (a Python pack), `java` (a Java pack, built with Maven; preview) or `scala` (a Scala pack, built with sbt; preview).',
+        'The starter: `minimal` (default; empty primitive folders), `sample` (tools, a guardrail, an agent and a flow), `woocommerce` (agents for a WooCommerce store, with approvals), `python` (a Python pack), `java` (a Java pack, built with Maven; preview) or `scala` (a Scala pack, built with sbt; preview).',
     },
     path: {
       type: 'string',
@@ -122,7 +122,14 @@ export const initCommand: LeafCommand = {
 /** Pack ids: lowercase dot-separated segments, e.g. `acme.billing`. */
 export const PACK_ID_REGEX = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)*$/;
 
-export const AVAILABLE_TEMPLATES = ['minimal', 'sample', 'python', 'java', 'scala'] as const;
+export const AVAILABLE_TEMPLATES = [
+  'minimal',
+  'sample',
+  'woocommerce',
+  'python',
+  'java',
+  'scala',
+] as const;
 export type TemplateName = (typeof AVAILABLE_TEMPLATES)[number];
 
 const DEFAULT_TEMPLATE: TemplateName = 'minimal';
@@ -262,6 +269,13 @@ function augmentTemplate(
   | { readonly kind: 'err'; readonly stderr: string } {
   const name = typeof flag === 'string' && flag !== '' ? flag : DEFAULT_TEMPLATE;
   if (name === 'minimal' || name === 'sample') return { kind: 'ok', name };
+  if (name === 'woocommerce') {
+    return {
+      kind: 'err',
+      stderr:
+        'The woocommerce template makes a pack of its own (its tools share a store client in lib/), so init does not add it to an existing app.\nFor a standalone WooCommerce pack here: kindgi init <pack-name> --template=woocommerce --new-repo\n',
+    };
+  }
   if (name === 'python') {
     return {
       kind: 'err',

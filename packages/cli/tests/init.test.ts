@@ -155,7 +155,7 @@ describe('kindgi init — minimal template', () => {
     expect(pkg.dependencies?.zod).toBeTruthy();
   });
 
-  test.each(['minimal', 'sample'])(
+  test.each(['minimal', 'sample', 'woocommerce'])(
     "the %s template decides esbuild's install script for npm and pnpm alike: off (T277)",
     async (template) => {
       await runCli(baseInputs({ argv: ['init', 'my-pack', `--template=${template}`] }));
@@ -195,6 +195,41 @@ describe('kindgi init — minimal template', () => {
     expect(out.stderr).toContain('cd my-pack');
     expect(out.stderr).toContain('pnpm install');
     expect(out.stderr).toContain('kindgi dev');
+  });
+});
+
+describe('kindgi init --template=woocommerce', () => {
+  test("scaffolds the store pack under the pack's id, with the agents' own {{ input.* }} kept", async () => {
+    const out = await runCli(baseInputs({ argv: ['init', 'acme-shop', '--template=woocommerce'] }));
+    expect(out.exitCode).toBe(0);
+    const root = join(cwd, 'acme-shop');
+    const files = await listRecursive(root);
+    for (const rel of [
+      'lib/woo.ts',
+      'tools/refund/index.ts',
+      'tools/refund/index.test.ts',
+      'tools/refund-large/index.ts',
+      'tools/check-order-event/index.ts',
+      'guardrails/no-customer-contact-details/index.ts',
+      'agents/store-assistant/index.ts',
+      'agents/order-reviewer/index.ts',
+      'flows/order-review/index.ts',
+      'fixtures/order-created.json',
+      'README.md',
+    ]) {
+      expect(files, rel).toContain(rel);
+    }
+    for (const rel of files) {
+      const raw = await readFile(join(root, rel), 'utf8');
+      expect(raw, `${rel} still contains an unsubstituted placeholder`).not.toMatch(
+        /\{\{[A-Z_]+\}\}/,
+      );
+    }
+    const agent = await readFile(join(root, 'agents/store-assistant/index.ts'), 'utf8');
+    expect(agent).toContain("'acme-shop.woo.refund': 'never_ask'");
+    expect(agent).toContain("default: 'always_ask'");
+    const reviewer = await readFile(join(root, 'agents/order-reviewer/index.ts'), 'utf8');
+    expect(reviewer).toContain('{{ input.order.orderNumber }}');
   });
 });
 
@@ -722,6 +757,14 @@ describe('kindgi init --template in an existing app (augment mode)', () => {
     const out = await runCli(baseInputs({ argv: ['init', '--template=python'] }));
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain('--template=python --new-repo');
+    expect(await readdir(cwd)).toEqual(['package.json']);
+  });
+
+  test('--template=woocommerce is refused, pointing at --new-repo', async () => {
+    await writeFile(join(cwd, 'package.json'), '{"name":"acme-app"}\n');
+    const out = await runCli(baseInputs({ argv: ['init', '--template=woocommerce'] }));
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('--template=woocommerce --new-repo');
     expect(await readdir(cwd)).toEqual(['package.json']);
   });
 

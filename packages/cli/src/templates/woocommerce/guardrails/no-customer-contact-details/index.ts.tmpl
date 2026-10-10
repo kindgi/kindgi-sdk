@@ -1,0 +1,74 @@
+// {{PACK_ID}}.no-customer-contact-details — zero-LLM guardrail that fails
+// a turn whose answer has an email address or a phone number in it. Both
+// agents carry it.
+//
+// It checks the agent's answer after the turn, before the answer is
+// stored: with `halt`, the turn fails and the answer never reaches the
+// conversation. It doesn't screen what goes in (that's
+// `{{PACK_ID}}.woo.check-order-event`'s job) and it can't undo a tool call.
+// The tools keep contact details out in the first place: the order lookup
+// returns the customer's name only.
+
+import { type DefinedCheck, defineCheck } from '@kindgi/sdk/define';
+import { z } from 'zod';
+
+const ConfigSchema = z.object({
+  /** Digits in a row (spaces, dots, dashes and brackets allowed between) that count as a phone number. */
+  minPhoneDigits: z.number().int().min(6).default(9),
+});
+
+const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+/;
+
+/** Dates (with or without their time) and amounts: digits that aren't a phone number. */
+const DATE = /\d{4}-\d{2}-\d{2}([T\s]\d{2}:\d{2}(:\d{2})?)?/g;
+const AMOUNT = /\d+\.\d{2}(?!\d)/g;
+
+/** Whether `text` has a run of at least `minDigits` digits, phone-style. */
+export function hasPhoneNumber(text: string, minDigits: number): boolean {
+  const rest = text.replace(DATE, ' ').replace(AMOUNT, ' ');
+  for (const match of rest.matchAll(/\+?[\d(][\d\s().-]{4,}\d/g)) {
+    if (match[0].replace(/\D/g, '').length >= minDigits) return true;
+  }
+  return false;
+}
+
+const check = defineCheck({
+  id: '{{PACK_ID}}.checks.no-customer-contact-details',
+  kind: 'zero-llm',
+  configSchema: ConfigSchema,
+  evaluate: async (config, trace) => {
+    const text = typeof trace.output === 'string' ? trace.output : '';
+    if (EMAIL.test(text)) {
+      return { passed: false, reason: 'The answer has an email address in it.' };
+    }
+    if (hasPhoneNumber(text, config.minPhoneDigits)) {
+      return { passed: false, reason: 'The answer has a phone number in it.' };
+    }
+    return { passed: true };
+  },
+});
+
+// The check as the runtime registers it, typed with the SDK's
+// `DefinedCheck` (left to inference, its type would name
+// `@kindgi/guardrails`, and `tsc` stops with TS2742).
+type InlineCheck = Pick<DefinedCheck<typeof ConfigSchema>, 'id' | 'evaluate' | 'validateConfig'>;
+
+const inlineCheck: InlineCheck = {
+  id: check.id,
+  evaluate: check.evaluate,
+  ...(check.validateConfig !== undefined && { validateConfig: check.validateConfig }),
+};
+
+const guardrail = {
+  id: '{{PACK_ID}}.no-customer-contact-details',
+  name: 'No customer contact details',
+  kind: 'zero-llm' as const,
+  check: inlineCheck,
+  configSchema: check.configJsonSchema,
+  action: { 'on-violation': 'halt' } as const,
+  severity: 'error' as const,
+  scope: { when: 'runtime-only' as const },
+};
+
+export default guardrail;
+export { check };

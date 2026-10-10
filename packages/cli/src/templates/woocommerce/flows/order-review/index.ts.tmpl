@@ -1,0 +1,64 @@
+// {{PACK_ID}}.order-review — reviews each new order WooCommerce sends.
+//
+// A webhook trigger starts it: WooCommerce posts the order to Kindgi on
+// `order.created`, Kindgi checks the signature, and the order (the
+// webhook's JSON body) is the flow's run input. README.md has the setup.
+//
+// Two steps, in this order on purpose:
+//   - `check` (`{{PACK_ID}}.woo.check-order-event`) checks the order and
+//     keeps only its typed fields, in code, before any model sees it;
+//   - `review` (`{{PACK_ID}}.order-reviewer`, read-only) writes the review
+//     from the checked order, its step input.
+//
+// Try it without a store:
+//   kindgi runs start --flow={{PACK_ID}}.order-review --input=@fixtures/order-created.json
+
+import { defineFlow } from '@kindgi/sdk/define';
+
+const defined = defineFlow({
+  id: '{{PACK_ID}}.order-review',
+  version: '{{PACK_VERSION}}',
+  name: 'Order review',
+  description: "Checks a new WooCommerce order, then has the order reviewer write a review for the store's staff.",
+  nodes: [
+    {
+      id: 'check',
+      kind: 'tool',
+      ref: '{{PACK_ID}}.woo.check-order-event',
+      inputMapping: { event: { path: 'runInput' } },
+    },
+    {
+      id: 'review',
+      kind: 'agent',
+      ref: '{{PACK_ID}}.order-reviewer',
+      inputMapping: { order: { path: 'nodeOutputs.check' } },
+    },
+  ],
+  edges: [
+    { id: 'e-start', from: '$start', to: 'check' },
+    { id: 'e-review', from: 'check', to: 'review' },
+    { id: 'e-end', from: 'review', to: '$end' },
+  ],
+  output: {
+    mapping: {
+      orderNumber: { path: 'nodeOutputs.check.orderNumber' },
+      flags: { path: 'nodeOutputs.check.flags' },
+      review: { path: 'nodeOutputs.review.text' },
+    },
+    schema: {
+      type: 'object',
+      properties: {
+        orderNumber: { type: 'string' },
+        flags: { type: 'array', items: { type: 'string' } },
+        review: { type: 'string' },
+      },
+      required: ['orderNumber', 'flags', 'review'],
+    },
+  },
+});
+
+if (defined.kind === 'err') {
+  throw new Error(`{{PACK_ID}}.order-review failed to compile: ${defined.error.message}`);
+}
+
+export default defined.value;

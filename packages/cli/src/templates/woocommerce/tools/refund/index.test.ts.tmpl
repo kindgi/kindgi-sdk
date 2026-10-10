@@ -1,0 +1,91 @@
+// {{PACK_ID}}.woo.refund — the $100 limit, through the same path Kindgi
+// calls the tool by (`invokeTool`: the input schema first, then the
+// handler). The store is a fake `fetch`; no WooCommerce needed.
+
+import { afterEach, describe, expect, test, vi } from 'vitest';
+
+import { invokeTool, type ToolContext } from '@kindgi/sdk/define';
+import type { TenantId } from '@kindgi/sdk/types';
+
+import refund from './index.js';
+
+interface Call {
+  readonly method: string;
+  readonly path: string;
+  readonly body: unknown;
+  readonly authorization: string | null;
+}
+
+/** A store whose order 1043 has been refunded `refunded` already. */
+function fakeStore(refunded: readonly number[]): Call[] {
+  const calls: Call[] = [];
+  vi.stubGlobal('fetch', async (url: URL, init: RequestInit) => {
+    const headers = new Headers(init.headers);
+    const body = typeof init.body === 'string' ? JSON.parse(init.body) : undefined;
+    calls.push({ method: init.method ?? 'GET', path: url.pathname, body, authorization: headers.get('authorization') });
+    if (init.method === 'POST') return Response.json({ id: 501, amount: (body as { amount: string }).amount });
+    return Response.json({
+      id: 1043,
+      number: '1043',
+      status: 'completed',
+      currency: 'USD',
+      total: '300.00',
+      date_created: '2026-10-01T10:00:00',
+      refunds: refunded.map((amount, i) => ({ id: 400 + i, total: (-amount).toFixed(2) })),
+    });
+  });
+  return calls;
+}
+
+function makeCtx(): ToolContext {
+  return {
+    tenantId: '00000000-0000-0000-0000-000000000001' as TenantId,
+    abortSignal: new AbortController().signal,
+    env: { WOO_STORE_URL: 'http://store.test', WOO_USER: 'shop-agent', WOO_REFUND_THROUGH_GATEWAY: 'false' },
+    secrets: { WOO_APP_PASSWORD: 'not-a-real-password' },
+  };
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+describe('{{PACK_ID}}.woo.refund', () => {
+  test('refunds 40 on an order with no refunds yet', async () => {
+    const calls = fakeStore([]);
+    const result = await invokeTool(refund, { orderId: 1043, amount: 40, reason: 'Arrived torn' }, makeCtx());
+    expect(result).toEqual({
+      kind: 'ok',
+      value: { refundId: 501, orderId: 1043, amount: '40.00', currency: 'USD' },
+    });
+    const post = calls.find((c) => c.method === 'POST');
+    expect(post?.path).toBe('/wp-json/wc/v3/orders/1043/refunds');
+    expect(post?.body).toEqual({ amount: '40.00', reason: 'Arrived torn', api_refund: false });
+    expect(post?.authorization).toBe(`Basic ${Buffer.from('shop-agent:not-a-real-password').toString('base64')}`);
+  });
+
+  test('refuses 240 at the input schema, before the store is called', async () => {
+    const calls = fakeStore([]);
+    const result = await invokeTool(refund, { orderId: 1043, amount: 240, reason: 'Arrived torn' }, makeCtx());
+    expect(result.kind).toBe('err');
+    if (result.kind === 'err') expect(result.error.code).toBe('input-validation-failed');
+    expect(calls).toEqual([]);
+  });
+
+  test('refuses a refund that takes the order past 100 in total', async () => {
+    const calls = fakeStore([80]);
+    const result = await invokeTool(refund, { orderId: 1043, amount: 80, reason: 'Arrived torn' }, makeCtx());
+    expect(result.kind).toBe('err');
+    if (result.kind === 'err') {
+      expect(result.error.code).toBe('handler-error');
+      expect(result.error.message).toContain('{{PACK_ID}}.woo.refund-large');
+    }
+    expect(calls.some((c) => c.method === 'POST')).toBe(false);
+  });
+
+  test('refunds up to exactly 100 in total', async () => {
+    fakeStore([60]);
+    const result = await invokeTool(refund, { orderId: 1043, amount: 40, reason: 'Arrived torn' }, makeCtx());
+    expect(result.kind).toBe('ok');
+  });
+});

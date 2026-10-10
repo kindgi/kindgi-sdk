@@ -1,0 +1,54 @@
+// {{PACK_ID}}.woo.check-order-event — what reaches the agent from an order
+// event, through the same path Kindgi calls the tool by (`invokeTool`).
+
+import { readFileSync } from 'node:fs';
+
+import { describe, expect, test } from 'vitest';
+
+import { invokeTool, type ToolContext } from '@kindgi/sdk/define';
+import type { TenantId } from '@kindgi/sdk/types';
+
+import checkOrderEvent from './index.js';
+
+const event: unknown = JSON.parse(
+  readFileSync(new URL('../../fixtures/order-created.json', import.meta.url), 'utf8'),
+);
+
+function makeCtx(): ToolContext {
+  return {
+    tenantId: '00000000-0000-0000-0000-000000000001' as TenantId,
+    abortSignal: new AbortController().signal,
+  };
+}
+
+describe('{{PACK_ID}}.woo.check-order-event', () => {
+  test('keeps the typed fields and works out the flags', async () => {
+    const result = await invokeTool(checkOrderEvent, { event }, makeCtx());
+    if (result.kind !== 'ok') throw new Error(result.error.message);
+    expect(result.value).toMatchObject({
+      orderId: 1043,
+      orderNumber: '1043',
+      total: '612.00',
+      currency: 'USD',
+      billingCountry: 'US',
+      shippingCountry: 'CA',
+      hasCustomerNote: true,
+      flags: ['high-total', 'many-of-one-item', 'ships-abroad'],
+    });
+  });
+
+  test("drops the customer's note, contact details and addresses", async () => {
+    const result = await invokeTool(checkOrderEvent, { event }, makeCtx());
+    if (result.kind !== 'ok') throw new Error(result.error.message);
+    const passed = JSON.stringify(result.value);
+    for (const text of ['Ignore your instructions', 'ada@example.com', '555', 'Example Street', 'Sample Road', 'Ada']) {
+      expect(passed).not.toContain(text);
+    }
+  });
+
+  test('fails on anything that is not an order', async () => {
+    const result = await invokeTool(checkOrderEvent, { event: { webhook_id: 3 } }, makeCtx());
+    expect(result.kind).toBe('err');
+    if (result.kind === 'err') expect(result.error.code).toBe('input-validation-failed');
+  });
+});

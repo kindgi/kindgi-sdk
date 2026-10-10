@@ -1,0 +1,14 @@
+// Vitest configuration for {{PACK_NAME}}. Scaffolded by `kindgi init`.
+// `kindgi test` shells out to the pack's local vitest install using
+// this config — the CLI does NOT force a vitest version through.
+
+import { defineConfig } from 'vitest/config';
+
+export default defineConfig({
+  test: {
+    include: ['**/*.test.ts'],
+    exclude: ['node_modules/**', '.kindgi/**', 'dist/**'],
+    reporters: ['default'],
+    passWithNoTests: true,
+  },
+});
