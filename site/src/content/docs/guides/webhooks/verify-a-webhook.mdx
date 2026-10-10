@@ -16,12 +16,13 @@ signed it with your secret, against the **raw** body, before you parse it.
 <TabItem label="TypeScript">
 
 `verifyWebhook` from `@kindgi/sdk/webhooks` (server only: it uses
-`node:crypto`). This receiver uses Node's `http` module; with a framework, pass
-the request's headers and its unparsed body the same way.
+`node:crypto`), then `parseEvent` for the typed event. This receiver uses
+Node's `http` module; with a framework, pass the request's headers and its
+unparsed body the same way.
 
 ```ts
 import { createServer } from 'node:http';
-import { verifyWebhook } from '@kindgi/sdk/webhooks';
+import { parseEvent, verifyWebhook } from '@kindgi/sdk/webhooks';
 
 const secret = process.env.ACME_WEBHOOK_SECRET!;
 const handled = new Set<string>(); // use your database in production
@@ -47,7 +48,14 @@ createServer(async (req, res) => {
   }
   handled.add(result.id);
 
-  const event = JSON.parse(body);
+  const read = parseEvent(body);
+  if (read.kind !== 'ok') {
+    // A newer runtime's event type (`unknown-type`): take it and leave it, or it's retried.
+    console.log('skipped:', read.reason, read.message);
+    res.writeHead(204).end();
+    return;
+  }
+  const event = read.event;
   if (event.type === 'run.finished') {
     const { id, flowId, status } = event.data.run;
     console.log('run finished:', id, flowId, status);

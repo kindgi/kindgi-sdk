@@ -86,7 +86,11 @@ import {
   verifyWebhook,
   webhookHeaders,
 } from '@kindgi/sdk/webhooks';
-import type { VerifyWebhookInput, VerifyWebhookResult } from '@kindgi/sdk/webhooks';
+import type {
+  VerifyWebhookInput,
+  VerifyWebhookResult,
+  WebhookEvent as WebhookEventFromSdk,
+} from '@kindgi/sdk/webhooks';
 
 // ---------- Sub-path: /types ----------
 import type {
@@ -116,6 +120,7 @@ import type {
   RunProgressEvent as RunProgressEventFromClient,
   SubscribeToRunOptions as SubscribeToRunOptionsFromClient,
 } from '@kindgi/client';
+import type { WebhookEvent as WebhookEventFromClient } from '@kindgi/client';
 import {
   WEBHOOK_HEADERS as WEBHOOK_HEADERS_FROM_CRYPTO,
   generateWebhookSecret as generateWebhookSecretFromCrypto,
@@ -300,6 +305,10 @@ describe('@kindgi/sdk/webhooks — receiving Kindgi webhooks (server only)', () 
   it('preserves the verify types across the facade', () => {
     expectTypeOf<VerifyWebhookInput>().toEqualTypeOf<VerifyWebhookInputFromCrypto>();
     expectTypeOf<VerifyWebhookResult>().toEqualTypeOf<VerifyWebhookResultFromCrypto>();
+  });
+
+  it("the event types are the client's, so a parsed event's ids go straight to its getters", () => {
+    expectTypeOf<WebhookEventFromSdk>().toEqualTypeOf<WebhookEventFromClient>();
   });
 
   it('verifies what it signs: an app can test its receiver with the sdk alone', () => {

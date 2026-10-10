@@ -20,10 +20,16 @@
  * Webhooks library) and deduplicate on the `webhook-id` header.
  */
 
+import type { ApprovalId, RunId } from '@kindgi/types';
+
 import type {
+  ApprovalRequestedEvent as ApprovalRequestedEventWire,
   CreateWebhookEndpointBody,
+  FinishedRun as FinishedRunWire,
   GeneratedWebhookSecret as GeneratedWebhookSecretWire,
+  ImprovementPassFinishedEvent as ImprovementPassFinishedEventWire,
   PatchWebhookEndpointBody,
+  RequestedApproval as RequestedApprovalWire,
   RunFinishedEvent as RunFinishedEventWire,
   WebhookDeliveryCollectionPage,
   WebhookDeliveryStatus as WebhookDeliveryStatusWire,
@@ -31,7 +37,6 @@ import type {
   WebhookEndpointCollectionPage,
   WebhookEndpointUnregisterResult,
   WebhookEndpoint as WebhookEndpointWire,
-  WebhookEvent as WebhookEventWire,
   WebhookSecretRef as WebhookSecretRefWire,
   WebhookTestEvent as WebhookTestEventWire,
 } from '../generated/api.js';
@@ -47,10 +52,39 @@ export type UnregisterWebhookEndpointResult = WebhookEndpointUnregisterResult;
 export type WebhookDelivery = WebhookDeliveryWire;
 export type WebhookDeliveryPage = WebhookDeliveryCollectionPage;
 export type WebhookDeliveryStatus = WebhookDeliveryStatusWire;
-/** The JSON body of a webhook request. */
-export type WebhookEvent = WebhookEventWire;
-export type RunFinishedEvent = RunFinishedEventWire;
+/**
+ * A finished top-level run as a `run.finished` event carries it: its identity and outcome,
+ * never its input or output. `id` is a `RunId`, so `client.runs.get(run.id)` fetches the rest.
+ */
+export type FinishedRun = Omit<FinishedRunWire, 'id'> & { readonly id: RunId };
+/** A top-level run completed, failed or was cancelled. */
+export type RunFinishedEvent = Omit<RunFinishedEventWire, 'data'> & {
+  readonly data: { readonly run: FinishedRun };
+};
+/** An improvement pass ended; `data.pass` is as `client.improvementPasses.get` shows it. */
+export type ImprovementPassFinishedEvent = ImprovementPassFinishedEventWire;
+/**
+ * The approval an `approval.requested` event names. `approvalId` is an `ApprovalId`, so
+ * `client.approvals.get(approval.approvalId)` reads the rest (what it's about stays behind sign-in).
+ */
+export type RequestedApproval = Omit<RequestedApprovalWire, 'approvalId'> & {
+  readonly approvalId: ApprovalId;
+};
+/** An approval was asked for: a reviewer's decision is waiting. */
+export type ApprovalRequestedEvent = Omit<ApprovalRequestedEventWire, 'data'> & {
+  readonly data: { readonly approval: RequestedApproval };
+};
+/** What `client.webhookEndpoints.sendTest(endpointId)` sends. */
 export type WebhookTestEvent = WebhookTestEventWire;
+/**
+ * The JSON body of a webhook request, one of the events above by its `type`. Read one from a
+ * verified request with `parseEvent` (`@kindgi/sdk/webhooks`).
+ */
+export type WebhookEvent =
+  | RunFinishedEvent
+  | ImprovementPassFinishedEvent
+  | ApprovalRequestedEvent
+  | WebhookTestEvent;
 
 export interface ListWebhookEndpointsFilter {
   readonly limit?: number;
