@@ -2354,6 +2354,10 @@ class Flow1(BaseModel):
     """
     Semver.
     """
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The flow's project: every version of a flow is in the one project. Absent when the runtime doesn't record it: a pack `kindgi dev` serves from disk, or a runtime before Kindgi 0.1.6.
+    """
     name: str | None = None
     description: str | None = None
     nodes: list[FlowNode]
@@ -5883,6 +5887,10 @@ class EvalSuite(BaseModel):
     )
     id: Annotated[str, Field(min_length=1)]
     tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The test set's project: every version of a test set is in the one project. Absent when the runtime doesn't record it: a pack `kindgi dev` serves from disk, or a runtime before Kindgi 0.1.6.
+    """
     version: Annotated[str, Field(pattern="^\\d+\\.\\d+\\.\\d+$")]
     """
     Semver — publishing a modified suite produces a new version.

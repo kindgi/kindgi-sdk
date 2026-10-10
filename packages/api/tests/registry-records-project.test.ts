@@ -2,8 +2,9 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * An agent, a tool and a guardrail say which project they're in when the
- * registry records it: every read of one carries `projectId`, so a client
+ * An agent, a flow, a tool, a test set and a guardrail say which project
+ * they're in when the registry records it: every read of one carries
+ * `projectId`, so a client
  * can tell a record of another project opened under this one's address.
  * A registry that doesn't record it (a pack served from disk) leaves the
  * field out, and both shapes fit the published schemas.
@@ -14,6 +15,7 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, test } from 'vitest';
 
 import type { Agent } from '@kindgi/agents';
+import type { Flow } from '@kindgi/flow';
 import type { Guardrail } from '@kindgi/guardrails';
 import type { ToolManifest } from '@kindgi/tools';
 import type { ProjectId, TenantId } from '@kindgi/types';
@@ -25,6 +27,9 @@ import { validateAgainst } from './support/openapi-schema.js';
 import { createApp } from '../src/index.js';
 import type {
   AgentRegistryBinding,
+  EvalSuite,
+  EvalSuiteRegistryBinding,
+  FlowRegistryBinding,
   GuardrailRegistryBinding,
   RunHandlerBinding,
   TokenResolver,
@@ -54,6 +59,24 @@ const tool = {
   input: { type: 'object' },
   output: { type: 'object' },
 } as unknown as ToolManifest;
+
+const flow = {
+  id: 'acme.ingest-invoice',
+  version: '1.0.0',
+  nodes: [{ id: 'extract', kind: 'tool', ref: 'inline' }],
+  edges: [
+    { id: 'e0', from: '$start', to: 'extract' },
+    { id: 'e1', from: 'extract', to: '$end' },
+  ],
+} as unknown as Flow;
+
+const suite: EvalSuite = {
+  id: 'acme.invoice-cases',
+  tenantId,
+  version: '1.0.0',
+  kind: 'accuracy',
+  spec: { cases: [] },
+};
 
 const guardrail = {
   id: 'acme.no-fabricated-quotes',
@@ -87,7 +110,21 @@ function registries(project: ProjectId | undefined) {
     list: async () => ({ data: [at(guardrail)] }),
     get: async () => at(guardrail),
   } as unknown as GuardrailRegistryBinding;
-  return { agentRegistry, toolRegistry, guardrailRegistry };
+  const flowRegistry = {
+    list: async () => ({ data: [at(flow)] }),
+    get: async () => at(flow),
+    getVersion: async () => at(flow),
+    headExists: async () => true,
+    listVersions: async () => ({ data: [at(flow)] }),
+  } as unknown as FlowRegistryBinding;
+  const evalSuiteRegistry = {
+    list: async () => ({ data: [at(suite)] }),
+    get: async () => at(suite),
+    getVersion: async () => at(suite),
+    headExists: async () => true,
+    listVersions: async () => ({ data: [at(suite)] }),
+  } as unknown as EvalSuiteRegistryBinding;
+  return { agentRegistry, toolRegistry, guardrailRegistry, flowRegistry, evalSuiteRegistry };
 }
 
 async function read(project: ProjectId | undefined, path: string) {
@@ -116,6 +153,14 @@ const READS = [
     'ToolVersionCollectionPage',
     (b: any) => b.data,
   ],
+  ['/v1/flows/acme.ingest-invoice', 'Flow', (b: any) => [b]],
+  ['/v1/flows/acme.ingest-invoice/versions/1.0.0', 'Flow', (b: any) => [b]],
+  ['/v1/flows', 'FlowCollectionPage', (b: any) => b.data],
+  ['/v1/flows/acme.ingest-invoice/versions', 'FlowCollectionPage', (b: any) => b.data],
+  ['/v1/eval-suites/acme.invoice-cases', 'EvalSuite', (b: any) => [b]],
+  ['/v1/eval-suites/acme.invoice-cases/versions/1.0.0', 'EvalSuite', (b: any) => [b]],
+  ['/v1/eval-suites', 'EvalSuiteCollectionPage', (b: any) => b.data],
+  ['/v1/eval-suites/acme.invoice-cases/versions', 'EvalSuiteCollectionPage', (b: any) => b.data],
   ['/v1/guardrails/acme.no-fabricated-quotes', 'Guardrail', (b: any) => [b]],
   ['/v1/guardrails', 'GuardrailCollectionPage', (b: any) => b.data],
 ] as const;

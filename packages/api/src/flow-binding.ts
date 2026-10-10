@@ -46,7 +46,7 @@ export interface FlowRegistryBinding {
    * Latest version of the given flow id, or `null` if unknown. The
    * route surfaces `null` as `404 flow-not-found`.
    */
-  get(input: FlowGetInput): Promise<Flow | null>;
+  get(input: FlowGetInput): Promise<FlowVersionRecord | null>;
   /**
    * Specific `(flowId, version)` lookup, or `null` if unknown. Returns
    * unregistered (tombstoned) versions too, with `unregisteredAt` set:
@@ -91,13 +91,19 @@ export interface FlowRegistryBinding {
   reinstateVersion(input: FlowReinstateVersionInput): Promise<FlowReinstateVersionOutcome>;
 }
 
-/** A flow version as `getVersion` reads it: `unregisteredAt` is set when it's unregistered. */
+/**
+ * A flow version as the registry reads it (`get`, `getVersion`, `list`
+ * and `listVersions`): the definition, the flow's project when the
+ * store records it, and `unregisteredAt` on an unregistered version
+ * `getVersion` reads.
+ */
 export type FlowVersionRecord = Flow & {
   /** ISO-8601; present only on an unregistered version. */
   readonly unregisteredAt?: string;
   /**
-   * The project the version belongs to, when the store records it: a
-   * deploy into another project is refused even when it writes nothing.
+   * The flow's project, when the store records it: flows never move
+   * between projects, so every version reads the same one (a deploy
+   * into another project is refused even when it writes nothing).
    */
   readonly projectId?: ProjectId;
 };
@@ -187,7 +193,7 @@ export interface FlowReinstateVersionInput {
 }
 
 export interface FlowPage {
-  readonly data: readonly Flow[];
+  readonly data: readonly FlowVersionRecord[];
   readonly nextCursor?: Cursor;
 }
 

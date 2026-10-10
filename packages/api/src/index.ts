@@ -512,6 +512,7 @@ export type {
   EvalSuitePage,
   EvalSuitePublishInput,
   EvalSuitePublishOutcome,
+  EvalSuiteRecord,
   EvalSuiteRegistryBinding,
   EvalSuiteReinstateVersionInput,
   EvalSuiteReinstateVersionOutcome,

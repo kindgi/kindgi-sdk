@@ -5314,6 +5314,11 @@
             "type": "string",
             "description": "Semver."
           },
+          "projectId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The flow's project: every version of a flow is in the one project. Absent when the runtime doesn't record it: a pack `kindgi dev` serves from disk, or a runtime before Kindgi 0.1.6."
+          },
           "name": {
             "type": "string"
           },
@@ -11437,6 +11442,11 @@
           "tenantId": {
             "type": "string",
             "format": "uuid"
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The test set's project: every version of a test set is in the one project. Absent when the runtime doesn't record it: a pack `kindgi dev` serves from disk, or a runtime before Kindgi 0.1.6."
           },
           "version": {
             "type": "string",

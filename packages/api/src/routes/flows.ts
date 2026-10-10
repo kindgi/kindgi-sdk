@@ -475,6 +475,7 @@ function serializeGraph(g: FlowVersionRecord): Record<string, unknown> {
   return {
     id: g.id as unknown as string,
     version: g.version,
+    ...(g.projectId !== undefined && { projectId: g.projectId as unknown as string }),
     ...(g.name !== undefined && { name: g.name }),
     ...(g.description !== undefined && { description: g.description }),
     nodes: g.nodes,

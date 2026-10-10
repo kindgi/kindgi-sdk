@@ -134,10 +134,10 @@ const ContentProjectIdProperty: JsonSchema = {
 };
 
 /**
- * `projectId` on an agent, tool or guardrail a read returns: the
- * project the registry keeps it in. Optional, so a client handles a
- * record without one (a pack `kindgi dev` serves from disk, or an older
- * runtime).
+ * `projectId` on an agent, flow, tool, test set or guardrail a read
+ * returns: the project the registry keeps it in. Optional, so a client
+ * handles a record without one (a pack `kindgi dev` serves from disk,
+ * or an older runtime).
  */
 function recordProjectIdProperty(lead: string): JsonSchema {
   return {
@@ -2129,6 +2129,9 @@ export const FlowSchema: JsonSchema = {
   properties: {
     id: { type: 'string', description: 'FlowId — dotted namespace (e.g. `ingest.contract-pdf`).' },
     version: { type: 'string', description: 'Semver.' },
+    projectId: recordProjectIdProperty(
+      "The flow's project: every version of a flow is in the one project.",
+    ),
     name: { type: 'string' },
     description: { type: 'string' },
     nodes: { type: 'array', items: { $ref: '#/components/schemas/FlowNode' } },
@@ -6355,6 +6358,9 @@ export const EvalSuiteSchema: JsonSchema = {
   properties: {
     id: { type: 'string', minLength: 1 },
     tenantId: { type: 'string', format: 'uuid' },
+    projectId: recordProjectIdProperty(
+      "The test set's project: every version of a test set is in the one project.",
+    ),
     version: {
       type: 'string',
       pattern: '^\\d+\\.\\d+\\.\\d+$',
