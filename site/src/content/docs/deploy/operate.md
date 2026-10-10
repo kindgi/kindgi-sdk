@@ -294,6 +294,44 @@ When it starts, the runtime brings the database up to date: it applies the migra
 
 Migrations only go forward, and an older runtime isn't guaranteed to work on a database a newer one migrated. To go back, [restore the backup](#restore-into-a-fresh-database) you took before the upgrade, and run the older version on it.
 
+### Runtime 0.1.5.1
+
+Runtime 0.1.5.1 fixes one security bug in 0.1.5 and earlier, for deployments
+with authorization on (`KINDGI_OPENFGA_API_URL` set): someone re-added to a
+project or a team with a different role silently got that role as well, and
+kept it after they were removed. The members list never showed it. Without
+authorization, and under `kindgi dev`, nothing is affected. Only the runtime
+changes: the 0.1.5 CLI and SDKs (npm, PyPI, Maven Central) stay as they are.
+
+On 0.1.5.1:
+
+- **Removing someone from a project or a team removes the roles they held
+  there.**
+- **Re-adding someone who's already a member keeps their current role.** To
+  give them another, change their role
+  ([Project memberships](../authorization/#project-memberships)). The answer
+  to the re-add still echoes the role you asked for (`201`), as the API is
+  unchanged in this patch; the members list shows the role they hold.
+- **Removing a team's creator ends their team admin,** which they hold
+  without a membership row. This matches what the team's members list shows.
+
+Run 0.1.5.1, pulled by its digest, with the same `kindgi.env`. It has no
+migration:
+
+```sh
+docker pull quay.io/kindgi/runtime:0.1.5.1@sha256:7c1b111ff22091d137f45d9770f6ff9f2521575bf28130957a5db1ce80a2e56e
+```
+
+On Cloud Run, copy it into your repository the same way as 0.1.5 (see
+[The images into Artifact Registry](../cloud-run/#2-the-images-into-artifact-registry))
+and set `server_image` to its digest.
+
+**If you removed someone from a project or a team on an earlier version,
+after re-adding them with another role,** they may still hold that role.
+Remove them again on 0.1.5.1: the removal now clears it. For a leftover
+`owner` on a project, add the person as `owner`, then remove them. 0.1.6
+adds a check that finds who needs it.
+
 ### From 0.1.4 to 0.1.5
 
 The database migrates when 0.1.5 starts. What to check before you upgrade,
