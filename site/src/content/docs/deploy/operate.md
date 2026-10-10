@@ -510,6 +510,12 @@ and what's different after:
   tool or provider change reaches other instances only when they restart.
   If you run several anyway, restart the others after such a change. A fix
   is planned.
+- **AWS Secrets Manager comes in 0.1.7.** With
+  `KINDGI_SECRETS_MANAGER=aws`, a 0.1.6 runtime doesn't start (exit code 2):
+
+  ```text
+  KINDGI_SECRETS_MANAGER=aws is reserved: this runtime doesn't support it yet. Currently supported: azure, gcp, vault.
+  ```
 
 ### Runtime 0.1.5.1
 
