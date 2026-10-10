@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/adapter-model-gemini",
-  "version": "0.1.5-rc.0",
+  "version": "0.1.5",
   "description": "Gemini ModelProvider for @kindgi/capabilities, on Vertex AI. Wraps @google/genai with the framework's provider-neutral interface: message-trail ↔ generateContent translation, function calling with thought signatures, token and cost accounting including thinking tokens, and Google Application Default Credentials (or a service-account key from the secret store). Non-streaming, tool-use enabled.",
   "license": "Apache-2.0",
   "repository": {

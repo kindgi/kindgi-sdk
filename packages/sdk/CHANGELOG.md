@@ -1,5 +1,93 @@
 # @kindgi/sdk
 
+## 0.1.5
+
+### Patch Changes
+
+- ce53537: `createClient()` from `@kindgi/sdk/client` now finds its settings (`KINDGI_API_URL`, `KINDGI_API_TOKEN`, or the running `kindgi dev`) when the client is first used, not when it's created. A module-scope `const kindgi = createClient()` no longer breaks a production build that runs without them: `next build` loads every route's module with `NODE_ENV=production`, and before this fix that threw. When they're still missing, the first use (`kindgi.runs`, …) throws the same error naming what to set; once they're set, the next use works. The warnings stay one-time, and the client's type is unchanged.
+- 52ac75b: The tools skills cover what a coding agent got wrong without them. `kindgi-authoring-tools` 0.4.5 shows a mutating tool's `writes` effect beside `mutating: true` (and the effect kinds), how to log from the handler (`ctx.log`, ids and amounts, never what a person typed), that a tool's tests go beside it, since discovery skips `*.test.*` and `*.spec.*` files and `kindgi test` runs them, and that code the tools share goes outside `tools/` (in `lib/`, say), since discovery loads every file under it. `kindgi-python-authoring-tools` 0.1.3 adds `ctx.log`, with the same rule.
+- acee59e: The agents skills (`kindgi-authoring-agents` 0.4.5, `kindgi-python-authoring-agents` 0.1.5) cover memory: `retrieval` intents over facts and earlier conversations (scopes, modes, embeddings, the `<memory>` block as data), and `memory.remember` with the built-in `kindgi_remember` tool, its review rule, and `instructionTypes`.
+- ab7aee8: The guardrails authoring skill (`kindgi-authoring-guardrails` 0.3.8) gives each built-in check's config exactly, with what's required, and says a config the check doesn't take is refused (`422 guardrail-config-invalid` when registered, `deployment-validation-failed` when deployed).
+- 49907f3: The guardrails authoring skills cover the built-in checks: `kindgi-authoring-guardrails` 0.3.7 shows how a pack names one (`check: 'forbidden-substring'`, no implementation), each one's `config`, and that their ids are reserved for a pack's own checks (`reserved-check-id`); `kindgi-python-authoring-guardrails` 0.1.4 says a `check_id` can't be a built-in's (`DefinitionError`), and that a Python pack writes the rule as its own check, since it can't name a built-in yet.
+- a66fa27: The `kindgi-authoring-providers` skill (0.9.9) says a provider spec its adapter can't use is refused when it's registered (`422 provider-config-invalid`, one `✗ <path>: <message>` line per problem), and that `kindgi doctor` names the problems of a registration stored before 0.1.5.
+- 0099fe6: The `kindgi-authoring-providers` skill (0.9.10) no longer says Anthropic retires `claude-haiku-4-5` on or after 2026-10-15: Anthropic lists it as active. The skill says to check a Claude model's status on Anthropic's model deprecations page before pinning it, and to prefer the preset's default.
+- 646a906: **Signed exports work end to end: one export key, one envelope, and a verifier.** An approval's audit bundle, a run's provenance and compliance evidence are signed with the deployment's export key.
+  
+  - **The key:** `createApp({ exportSigning })` takes an `ExportSigningBinding` (`@kindgi/crypto`: async, so a KMS can back it; `createEd25519ExportSigner` for a key file). Key ids are derived from the public key (`ex_…`). The old `signingKey` still works, deprecated. On the runtime: `KINDGI_EXPORT_SIGNING_KEY_PATH`, `KINDGI_EXPORT_SIGNING_KEY` (base64 PEM, for Secret Manager) or the optional `KINDGI_EXPORT_SIGNING_KMS_KEY`; `kindgi dev` passes a key file through, or the runtime makes one.
+  - **Two algorithms, chosen per key:** an Ed25519 key signs `ed25519` (the default); an EC P-256 key signs `ecdsa-p256-sha256`, for a key store without Ed25519 (a Cloud KMS `EC_SIGN_P256_SHA256` key, say). Its signature is IEEE P1363 `r‖s`. `createExportSignerFromPem` reads the algorithm from the key; `ecdsaDerToP1363` converts a KMS's DER signature. Both verifiers check either, and refuse an algorithm they don't know, naming it. Shared test vectors for both are in `@kindgi/specs` (`test-vectors/signed-export/`).
+  - **One envelope:** the signed bytes (`bundle`), the signature, the public key, an optional `kind`, and `exportedAt`, which is now signed and the same in the envelope. Body versions: the audit bundle is `2.0.0` (a string; it was the integer `1`), provenance `1.2.0` (adds the signed `exportedAt`), compliance `1.0.0`.
+  - **No body needed:** `signingKeyId` is optional (the active key), and an empty body reads as `{}`. **Behaviour change:** a `POST` to one of the three exports with no body, or without `signingKeyId`, used to answer `400 bad-input`; it now signs with the active key.
+  - **Each export is recorded** as an `export-signed` audit event (who, what, which key, the SHA-256 of the signed bytes). An export whose record can't be written isn't handed out.
+  - **`GET /v1/export-signing-keys`** lists the public keys to pin; `exportSigningKeys.list()` in the TS client.
+  - **Verify:** `verifySignedExport` in `@kindgi/client` and `@kindgi/sdk/client` (Web Crypto); `approvals.audit.verify`, `provenance.verify` and `compliance.evidence.verify` now work. Python: `kindgi.exports.verify_signed_export` (`pip install 'kindgi[verify]'`). CLI: `kindgi exports verify <file> [--trust=<pem>] [--from-runtime]`.
+  - **CLI:** `kindgi approvals export <approval-id>`; `kindgi provenance export`'s `--signing-key` is optional.
+  - **Compliance:** `collectEvidence` builds an export's records, so the generator's `exportSigned` is optional and deprecated.
+  - **Specs:** `signed-export.schema.json` (the envelope), and `audit-bundle.schema.json` 2.0.0 describes the bundle the API exports.
+  - **Cloud Run module:** `export_signing = "secret" | "kms"` (opt-in).
+- 9b03544: **Skills for coding agents in Java packs.** A Java pack (`kindgi init --template=java`, or `kindgi init` in a Maven app) now gets five skills of its own in `.claude/skills/`: `kindgi-java-getting-started`, `kindgi-java-authoring-tools`, `kindgi-java-authoring-guardrails`, `kindgi-java-authoring-agents` and `kindgi-java-authoring-flows`. It also gets the shared ones, `kindgi-authoring-providers`, `kindgi-authoring-mcp-servers` and `kindgi-framework-feedback`, which now say how a Java or Scala pack runs the CLI (`./kindgiw`) and declares its providers (`kindgi.config.json`). Until now a Java pack got none. `./kindgiw skills sync` brings them to an existing pack.
+- 9b03544: **Skills for coding agents in Scala packs.** A Scala pack (`kindgi init --template=scala`, or `kindgi init` in an sbt app) now gets five skills of its own in `.claude/skills/`: `kindgi-scala-getting-started`, `kindgi-scala-authoring-tools`, `kindgi-scala-authoring-guardrails`, `kindgi-scala-authoring-agents` and `kindgi-scala-authoring-flows`. It also gets the shared providers, MCP servers and framework-feedback skills. Until now a Scala pack got none: `kindgi skills sync` didn't take `scala`, and neither Scala init path copied skills. `./kindgiw skills sync` brings them to an existing pack.
+- Updated dependencies [71ec431]
+- Updated dependencies [0919fe6]
+- Updated dependencies [490d083]
+- Updated dependencies [cb20b9a]
+- Updated dependencies [88a2846]
+- Updated dependencies [9b03544]
+- Updated dependencies [9b03544]
+- Updated dependencies [0ed747d]
+- Updated dependencies [3d51f97]
+- Updated dependencies [f19bc64]
+- Updated dependencies [768ad8f]
+- Updated dependencies [b67c599]
+- Updated dependencies [a211c34]
+- Updated dependencies [a432049]
+- Updated dependencies [37734c5]
+- Updated dependencies [3fbb4ee]
+- Updated dependencies [b67c599]
+- Updated dependencies [e27d050]
+- Updated dependencies [b67c599]
+- Updated dependencies [b67c599]
+- Updated dependencies [b67c599]
+- Updated dependencies [b67c599]
+- Updated dependencies [1633db1]
+- Updated dependencies [b67c599]
+- Updated dependencies [93ebe85]
+- Updated dependencies [b67c599]
+- Updated dependencies [d94a98c]
+- Updated dependencies [768ad8f]
+- Updated dependencies [fa77071]
+- Updated dependencies [704dd29]
+- Updated dependencies [70c5737]
+- Updated dependencies [b67c599]
+- Updated dependencies [eff6249]
+- Updated dependencies [0fe157e]
+- Updated dependencies [7d7d344]
+- Updated dependencies [7d7d344]
+- Updated dependencies [8dd0a55]
+- Updated dependencies [70c5737]
+- Updated dependencies [81f46aa]
+- Updated dependencies [cfac0fe]
+- Updated dependencies [a1f3dd1]
+- Updated dependencies [d25c1b3]
+- Updated dependencies [d7d5c45]
+- Updated dependencies [94c999f]
+- Updated dependencies [646a906]
+- Updated dependencies [cbb6785]
+- Updated dependencies [66bab49]
+- Updated dependencies [b67c599]
+- Updated dependencies [280377e]
+- Updated dependencies [d7c0173]
+- Updated dependencies [e88c3cc]
+- Updated dependencies [423aeea]
+  - @kindgi/agents@0.1.5
+  - @kindgi/client@0.1.5
+  - @kindgi/guardrails@0.1.5
+  - @kindgi/handler-runtime@0.1.5
+  - @kindgi/schema@0.1.5
+  - @kindgi/tools@0.1.5
+  - @kindgi/types@0.1.5
+  - @kindgi/crypto@0.1.5
+  - @kindgi/flow@0.1.5
+
 ## 0.1.5-rc.0
 
 ### Patch Changes
