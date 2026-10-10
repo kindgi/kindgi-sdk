@@ -3317,6 +3317,45 @@ export const JudgeClassAssertableBySchema: JsonSchema = {
   },
 };
 
+/**
+ * `assertableBy` as a reader sees it. `principalIds` names people and
+ * tokens, so only the class's admins get it; everyone gets their count.
+ */
+export const JudgeClassAssertableByViewSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  minProperties: 1,
+  description:
+    "Who may assert the class, as the caller sees it: every part that is set must hold. `principalIds` is sent only to an admin on the class's scope; `principalCount` to everyone who reads it.",
+  properties: {
+    minReviewerRole: {
+      type: 'string',
+      enum: ['standard', 'senior', 'admin'],
+      description: "The caller's reviewer role is at least this (its token's, or the roster's).",
+    },
+    principalKinds: {
+      type: 'array',
+      minItems: 1,
+      items: { type: 'string', enum: ['user', 'service'] },
+      description: 'Users, service tokens, or both.',
+    },
+    principalIds: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 100,
+      items: { type: 'string', minLength: 1 },
+      description:
+        "Only these principals: user ids, or service token ids. Sent only to an admin on the class's scope.",
+    },
+    principalCount: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        'How many principals the class is restricted to (`principalIds`), for every reader. Absent when it names none.',
+    },
+  },
+};
+
 export const JudgeClassSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -3335,7 +3374,7 @@ export const JudgeClassSchema: JsonSchema = {
       description: 'How much a judgment of this class counts, relative to the others.',
     },
     description: { type: 'string' },
-    assertableBy: { $ref: '#/components/schemas/JudgeClassAssertableBy' },
+    assertableBy: { $ref: '#/components/schemas/JudgeClassAssertableByView' },
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
     unregisteredAt: {
@@ -11425,6 +11464,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['UnregisterJudgmentResult', UnregisterJudgmentResultSchema],
   ['JudgedItemSummary', JudgedItemSummarySchema],
   ['JudgeClassAssertableBy', JudgeClassAssertableBySchema],
+  ['JudgeClassAssertableByView', JudgeClassAssertableByViewSchema],
   ['JudgedEvalCase', JudgedEvalCaseSchema],
   ['JudgedEvalCaseCollectionPage', JudgedEvalCaseCollectionPageSchema],
   ['BuildJudgedSuiteBody', BuildJudgedSuiteBodySchema],

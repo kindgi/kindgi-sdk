@@ -547,6 +547,7 @@ export type {
   LogVerifyResult,
   JudgeClass,
   JudgeClassAssertableBy,
+  JudgeClassAssertableByView,
   JudgeClassScope,
   JudgedItem,
   JudgedRunContext,
