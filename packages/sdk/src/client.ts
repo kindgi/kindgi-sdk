@@ -175,7 +175,6 @@ export type {
   UsageSummaryInput,
   UserFilter,
   UsersClient,
-  WebhooksClient,
   WithdrawProposalInput,
 } from '@kindgi/client';
 

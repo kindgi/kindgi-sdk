@@ -32,3 +32,27 @@ describe('audit.authz.list', () => {
     expect(await listUrl({ limit: 50 })).toBe(`${API}/v1/audit/authz?limit=50`);
   });
 });
+
+describe('audit.signIns.list', () => {
+  it("one person's sign-ins, newest first", async () => {
+    const stub = jsonFetch({ data: [], hasMore: false });
+    const client = createClient({
+      apiUrl: API,
+      auth: { kind: 'apiToken', token: 't' },
+      fetch: stub.fetch,
+    });
+    await client.audit.signIns.list({ userId: 'u-ann', order: 'desc', limit: 20 });
+    expect(stub.calls[0]?.url).toBe(`${API}/v1/audit/sign-ins?limit=20&userId=u-ann&order=desc`);
+  });
+
+  it('one kind, nothing else', async () => {
+    const stub = jsonFetch({ data: [], hasMore: false });
+    const client = createClient({
+      apiUrl: API,
+      auth: { kind: 'apiToken', token: 't' },
+      fetch: stub.fetch,
+    });
+    await client.audit.signIns.list({ kind: 'sign-in-refused' });
+    expect(stub.calls[0]?.url).toBe(`${API}/v1/audit/sign-ins?kind=sign-in-refused`);
+  });
+});

@@ -1,0 +1,24 @@
+Sign-in with "acme-google" (OpenID Connect). Send this to whoever runs your identity provider:
+
+  Create an OpenID Connect web application (a confidential client) for Kindgi.
+  Redirect URI:  https://kindgi.acme.example/auth/sso/callback/idp-abc
+  Scopes:        openid email profile
+  Let in only the people who should use Kindgi (assign users or groups).
+
+  Send back: the issuer URL and the client ID. The client secret goes into
+  Kindgi's secret store under a name, never by email or chat:
+    kindgi secrets set <NAME> --env=<runtime env> --scope=tenant
+
+Keycloak admin console → your realm → Clients → Create client → OpenID Connect:
+  1. Client authentication: On. Authentication flow: Standard flow.
+  2. Valid redirect URIs: the URI above (exactly; no wildcard).
+  3. Credentials tab: copy the client secret.
+  4. Each person needs an email with "Email verified" on, or sign-in is refused.
+Issuer: https://<keycloak-host>/realms/<realm>
+
+Step by step: https://docs.kindgi.com/guides/sso/keycloak/
+
+Then register it:
+  kindgi sso providers finish acme-google --kind=oidc --issuer=<issuer> --client-id=<client-id> --client-secret-ref=<NAME> --domains=<your-domain>
+
+These URLs stay the same after registering and after any `update`.

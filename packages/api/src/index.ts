@@ -10,6 +10,7 @@ export type {
 } from './app.js';
 export type { AppEnv } from './types.js';
 export {
+  PLAIN_SESSION_COOKIE_NAME,
   SESSION_COOKIE_NAME,
   SESSION_TOKEN_PREFIX,
   encodeSessionToken,
@@ -17,6 +18,10 @@ export {
 } from './middleware/auth.js';
 export type { SessionCookieOptions, TokenResolution, TokenResolver } from './middleware/auth.js';
 export type { SignInOptionsRateLimit } from './routes/sign-in-options.js';
+export { WRITE_AUDIT_KINDS } from './routes/write-audit.js';
+export type { WriteAuditKind } from './routes/write-audit.js';
+export { createInMemoryRateLimitStore } from './rate-limit-store.js';
+export type { RateLimitStore, RateLimitTake, RateLimitTakeInput } from './rate-limit-store.js';
 export type {
   ClaimMappingScopesSpec,
   ClaimMappingSpec,
@@ -32,7 +37,6 @@ export type {
   IdentityProviderUnregisterOutcome,
   IdentityProviderUpdateInput,
   IdentityProviderUpdateOutcome,
-  OAuth2ProviderConfig,
   OidcProviderConfig,
   ProviderConfig,
   ProviderConfigBase,
@@ -41,11 +45,6 @@ export type {
   SamlProviderConfig,
   SignInOption,
   SignInOptionsInput,
-  ExchangeCodeFn,
-  ExchangeCodeInput,
-  ExchangeCodeOutcome,
-  RefreshTokenFn,
-  RefreshTokenInput,
 } from './identity-provider-binding.js';
 export type {
   Session,
@@ -82,12 +81,6 @@ export type {
   UserCollectionPage,
   UserRecord,
 } from './identity-directory-binding.js';
-export { createInMemoryOauthStateStore } from './state-store-binding.js';
-export type {
-  OauthStateEntry,
-  OauthStateStore,
-  OauthStateTakeInput,
-} from './state-store-binding.js';
 export {
   createInMemoryIdempotencyStore,
   idempotencyMiddleware,
@@ -142,6 +135,15 @@ export type {
   PersonGrantsBinding,
   PersonRef,
 } from './person-grants-binding.js';
+export type {
+  AccessPath,
+  MyAccess,
+  MyAccessBinding,
+  OrgAccess,
+  ProjectAccess,
+  RoleCapabilities,
+  TeamAccess,
+} from './my-access-binding.js';
 export type {
   InvokeAgentBindingInput,
   InvokeFlowBindingInput,
@@ -232,7 +234,9 @@ export {
 } from './webhook-endpoint-binding.js';
 export type {
   FinishedRun,
+  ApprovalRequestedEvent,
   ImprovementPassFinishedEvent,
+  RequestedApproval,
   RunFinishedEvent,
   WebhookDelivery,
   WebhookDeliveryListInput,
@@ -397,6 +401,7 @@ export type {
 export {
   JUDGE_CLASS_SCOPE_KINDS,
   VERDICTS,
+  isReplayCopy,
   judgeClassApplies,
   whyNotAssertable,
 } from './judgment-binding.js';
@@ -556,15 +561,27 @@ export type {
   EvalSubjectInvoker,
   InProcessEvalRunBindingOptions,
 } from './eval-run-dispatcher.js';
-export { DEFAULT_COMPARISON, createJudgedDispatcher } from './judged-dispatcher.js';
+export {
+  DEFAULT_COMPARISON,
+  RESCORE_UNSUPPORTED,
+  createJudgedDispatcher,
+} from './judged-dispatcher.js';
 export type {
   ComparisonBaselineSummary,
   ComparisonMetric,
   JudgedCaseResult,
   JudgedComparisonSummary,
   JudgedDispatcherOptions,
+  ReplayRunReader,
 } from './judged-dispatcher.js';
-export { itemChanges, matchJudged, outputItems, scoreItems, valueAt } from './judged-items.js';
+export {
+  itemChanges,
+  matchJudged,
+  outputItems,
+  scoreItems,
+  valueAt,
+  withFresh,
+} from './judged-items.js';
 export type {
   ItemChanges,
   ItemJudgments,
@@ -590,6 +607,16 @@ export type {
   CostRecordPage,
   CostTokenTotals,
 } from './cost-binding.js';
+export {
+  CURSOR_TTL_MS,
+  createAeadCursorSealer,
+  filtersOf,
+  type CursorContext,
+  type CursorKey,
+  type CursorSealer,
+  type OpenedCursor,
+} from './cursor-seal.js';
+export { sealedCursors } from './middleware/sealed-cursors.js';
 export type {
   ToolGetInput,
   ToolGetVersionInput,
@@ -605,6 +632,8 @@ export type {
   ToolResolveOutcome,
   ToolUnregisterInput,
   ToolUnregisterOutcome,
+  ToolRefreshCodeInput,
+  RegistryRefreshOutcome,
   ToolVersionPage,
 } from './tool-binding.js';
 export type {
@@ -616,6 +645,7 @@ export type {
   GuardrailRegistryBinding,
   GuardrailUnregisterInput,
   GuardrailUnregisterOutcome,
+  GuardrailRefreshInput,
 } from './guardrail-binding.js';
 export type {
   MemoryBinding,
@@ -651,6 +681,7 @@ export type {
   GetProposalInput,
   ListProposalsInput,
   Observation,
+  ObservationPosition,
   ObservationStatus,
   ObservedViolation,
   ProposalCandidate,
@@ -700,6 +731,7 @@ export {
 export type {
   DraftProposalInput,
   EvaluateProposalInput,
+  RescoreProposalInput,
   ProposalFacts,
   ProposalOutcome,
   ProposalService,

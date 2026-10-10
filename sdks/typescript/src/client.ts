@@ -16,7 +16,6 @@ import { type DeploymentsClient, makeDeploymentsClient } from './resources/deplo
 import { type EnvClient, makeEnvClient } from './resources/env.js';
 import { type EvalRunsClient, makeEvalRunsClient } from './resources/eval-runs.js';
 import { type EvalSuitesClient, makeEvalSuitesClient } from './resources/eval-suites.js';
-import { type EventTriggersClient, makeEventTriggersClient } from './resources/event-triggers.js';
 import { type EventsClient, makeEventsClient } from './resources/events.js';
 import {
   type ExportSigningKeysClient,
@@ -61,7 +60,6 @@ import {
   type WebhookEndpointsClient,
   makeWebhookEndpointsClient,
 } from './resources/webhook-endpoints.js';
-import { type WebhooksClient, makeWebhooksClient } from './resources/webhooks.js';
 import { createTransport } from './transport.js';
 import type { ClientOptions } from './types.js';
 
@@ -130,9 +128,7 @@ export interface KindgiClient {
   // Interop
   readonly mcp: McpClient;
   readonly events: EventsClient;
-  readonly eventTriggers: EventTriggersClient;
   readonly artifacts: ArtifactsClient;
-  readonly webhooks: WebhooksClient;
   readonly webhookEndpoints: WebhookEndpointsClient;
   // Packs
   readonly packs: PacksClient;
@@ -199,9 +195,7 @@ export function createClient(options: ClientOptions): KindgiClient {
     serviceAccounts: makeServiceAccountsClient(transport),
     mcp: makeMcpClient(transport),
     events: makeEventsClient(transport),
-    eventTriggers: makeEventTriggersClient(transport),
     artifacts: makeArtifactsClient(transport),
-    webhooks: makeWebhooksClient(transport),
     webhookEndpoints: makeWebhookEndpointsClient(transport),
     packs: makePacksClient(transport),
   };

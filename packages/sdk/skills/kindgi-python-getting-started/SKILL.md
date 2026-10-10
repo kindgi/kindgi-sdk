@@ -277,7 +277,8 @@ system-packages = ["tesseract-ocr", "poppler-utils"]   # names, or name=version
 
 The variables the code reads from `os.environ` (a database URL, a bucket)
 are declared too, names only. A deployed pack service missing a `required`
-one isn't ready, and its `/readyz` names it:
+one isn't ready, and its `/readyz` names it; one the pack doesn't declare is
+dropped before the code loads (`kindgi dev` keeps it):
 
 ```toml
 [tool.kindgi.env]

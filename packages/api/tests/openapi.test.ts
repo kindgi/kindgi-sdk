@@ -87,7 +87,7 @@ describe('OpenAPI — generated document', () => {
     const doc = generateOpenApiDocument() as {
       paths: Record<string, Record<string, { operationId: string; security: unknown[] }>>;
     };
-    for (const op of OPERATIONS) {
+    for (const op of OPERATIONS.filter((o) => o.unserved === undefined)) {
       const path = doc.paths[op.openapiPath];
       expect(path, `path ${op.openapiPath} missing`).toBeTruthy();
       const method = path?.[op.method];
@@ -100,6 +100,28 @@ describe('OpenAPI — generated document', () => {
         expect(method?.security).toEqual([{ bearerAuth: [] }]);
       }
     }
+  });
+
+  test("what the runtime doesn't serve is left out, with the schemas only it uses", () => {
+    const doc = generateOpenApiDocument() as {
+      paths: Record<string, Record<string, unknown>>;
+      components: { schemas: Record<string, unknown> };
+      tags: { name: string }[];
+    };
+    const unserved = OPERATIONS.filter((o) => o.unserved !== undefined);
+    expect(unserved.map((o) => o.operationId).sort()).toEqual(
+      ['register', 'list', 'get', 'update', 'pause', 'resume', 'unregister']
+        .flatMap((verb) => [`eventTriggers.${verb}`, `webhooks.${verb}`])
+        .sort(),
+    );
+    for (const op of unserved) {
+      expect(doc.paths[op.openapiPath]?.[op.method], op.operationId).toBeUndefined();
+    }
+    const schemas = Object.keys(doc.components.schemas);
+    expect(schemas.filter((n) => /EventTrigger|WebhookTrigger/.test(n))).toEqual([]);
+    // A schema a served operation uses too stays.
+    expect(schemas).toContain('TriggerStatus');
+    expect(doc.tags.map((t) => t.name)).not.toContain('event-triggers');
   });
 
   test('SSE stream endpoint advertises text/event-stream', () => {
