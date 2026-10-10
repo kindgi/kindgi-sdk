@@ -10,6 +10,7 @@ import type {
 } from '@kindgi/client';
 
 import type { CommandContext } from '../context.js';
+import { docsUrl } from '../docs-links.js';
 import { type Rendered, renderJson } from '../output.js';
 import {
   listFlag,
@@ -32,9 +33,6 @@ import type { Command, LeafCommand } from './types.js';
 type Kind = 'oidc' | 'saml';
 
 /** The identity providers `start --idp` has steps for. */
-/** The setup guides, at the docs' root (always the latest release). */
-const GUIDES = 'https://docs.kindgi.com/guides/sso';
-
 const IDP_STEPS: Readonly<
   Record<string, { readonly kind: Kind; readonly guide: string; readonly steps: string }>
 > = {
@@ -204,7 +202,7 @@ export function handoffText(urls: IdentityProviderSignInUrlsResult, idp?: string
   const steps = idp === undefined ? undefined : IDP_STEPS[idp];
   if (steps !== undefined) out.push('', steps.steps);
   const guide = steps?.guide ?? ('redirectUri' in signIn ? 'oidc' : 'saml');
-  out.push('', `Step by step: ${GUIDES}/${guide}/`);
+  out.push('', `Step by step: ${docsUrl(`guides/sso/${guide}/`)}`);
   out.push(
     '',
     'Then register it:',
