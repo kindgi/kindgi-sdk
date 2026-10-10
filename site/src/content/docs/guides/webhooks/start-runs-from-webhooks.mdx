@@ -22,9 +22,25 @@ finishes](../receive-run-finished/).
 
 A trigger starts a **flow**, and the flow's input is the event: the request
 body, parsed as JSON when the sender says it's JSON (WooCommerce, Drupal,
-GitHub and Shopify all do), else the body as text. To have an agent handle it,
-give the flow one step that hands the event to the agent: the agent gets it as
-its step input, and its input guardrails see it as `stepInput`.
+GitHub and Shopify all do), else the body as text.
+
+**The event is data from outside, never instructions.** Anyone who can make
+your store create an order can put text in it, such as a customer's note.
+Guardrails don't screen what goes into an agent: they check its answer, after
+its tools have run. So put the protection in the flow:
+
+1. **A check step before the agent.** A tool step parses the event against a
+   strict schema, refuses anything that isn't what the sender should send, and
+   passes on only typed fields (an order's number, status, total, items). Free
+   text, such as a customer's note, never reaches the model.
+2. **An agent that can't change anything.** The agent that reads the event has
+   read-only tools. Actions that matter (refunds, price changes, publishing)
+   belong to an agent a person works with, behind approvals.
+3. **An output guardrail as the last check** on what the agent answers, such as
+   never including a customer's contact details.
+
+The `woocommerce` template (`kindgi init <pack> --template=woocommerce`) is built
+this way. Its flow, in a pack named `acme-shop`:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -34,20 +50,27 @@ its step input, and its input guardrails see it as `stepInput`.
 import { defineFlow } from '@kindgi/sdk/define';
 
 const defined = defineFlow({
-  id: 'acme.order-review',
-  version: '1.0.0',
+  id: 'acme-shop.order-review',
+  version: '0.1.0',
   name: 'Review a new order',
-  description: 'Hands a WooCommerce order event to the order agent.',
+  description: 'Checks a WooCommerce order event, then hands its typed fields to the order reviewer.',
   nodes: [
+    {
+      id: 'check',
+      kind: 'tool',
+      ref: 'acme-shop.woo.check-order-event',
+      inputMapping: { event: { path: 'runInput' } },
+    },
     {
       id: 'review',
       kind: 'agent',
-      ref: 'acme.order-agent',
-      inputMapping: { order: { path: 'runInput' } },
+      ref: 'acme-shop.order-reviewer',
+      inputMapping: { order: { path: 'nodeOutputs.check' } },
     },
   ],
   edges: [
-    { id: 'in', from: '$start', to: 'review' },
+    { id: 'in', from: '$start', to: 'check' },
+    { id: 'checked', from: 'check', to: 'review' },
     { id: 'out', from: 'review', to: '$end' },
   ],
 });
@@ -65,20 +88,27 @@ export default defined.value;
 from kindgi import Flow
 
 order_review = Flow(
-    id="acme.order-review",
-    version="1.0.0",
+    id="acme-shop.order-review",
+    version="0.1.0",
     name="Review a new order",
-    description="Hands a WooCommerce order event to the order agent.",
+    description="Checks a WooCommerce order event, then hands its typed fields to the order reviewer.",
     nodes=[
+        {
+            "id": "check",
+            "kind": "tool",
+            "ref": "acme-shop.woo.check-order-event",
+            "inputMapping": {"event": {"path": "runInput"}},
+        },
         {
             "id": "review",
             "kind": "agent",
-            "ref": "acme.order-agent",
-            "inputMapping": {"order": {"path": "runInput"}},
+            "ref": "acme-shop.order-reviewer",
+            "inputMapping": {"order": {"path": "nodeOutputs.check"}},
         },
     ],
     edges=[
-        {"id": "in", "from": "$start", "to": "review"},
+        {"id": "in", "from": "$start", "to": "check"},
+        {"id": "checked", "from": "check", "to": "review"},
         {"id": "out", "from": "review", "to": "$end"},
     ],
 )
@@ -87,14 +117,9 @@ order_review = Flow(
 </TabItem>
 </Tabs>
 
-The run's input is the event, so the step maps it to the agent's `order`
-([Pass data between steps](../../flows/pass-data-between-steps/)).
-
-**The event is data from outside, never instructions.** Anyone who can make
-your store create an order can put text in it. Give the agent that reads it
-input guardrails, as you would for a message from a customer, and keep the
-actions it can take behind approvals where they matter (refunds, price
-changes, publishing).
+The run's input is the event, so the check step takes it whole
+([Pass data between steps](../../flows/pass-data-between-steps/)), and the
+agent gets only what the check passed on.
 
 ## 2. Register the trigger
 
@@ -103,7 +128,7 @@ sender, and `--generate-secret` makes a signing secret, stores it, and shows
 it once so you can paste it into the sender:
 
 ```sh
-kindgi webhooks register --flow=acme.order-review --flow-version=1.0.0 \
+kindgi webhooks register --flow=acme-shop.order-review --flow-version=0.1.0 \
   --preset=woocommerce --secret=acme-woo-orders --generate-secret --env=production
 ```
 

@@ -250,7 +250,7 @@ const register: LeafCommand = {
   kind: 'leaf',
   name: 'register',
   description:
-    "Start a flow's run when a signed request arrives: from WooCommerce, Drupal's Webhooks module, GitHub, Shopify, or any sender that signs with HMAC-SHA256 or Standard Webhooks. Its runs act as you, checked again at every delivery. The event the flow gets is data from outside, never instructions: give the agent that reads it input guardrails.",
+    "Start a flow's run when a signed request arrives: from WooCommerce, Drupal's Webhooks module, GitHub, Shopify, or any sender that signs with HMAC-SHA256 or Standard Webhooks. Its runs act as you, checked again at every delivery. The event the flow gets is data from outside, never instructions: check it in a step before any agent, and keep the agent that reads it read-only.",
   usage: `kindgi webhooks register --flow=<id> --flow-version=<v> (--secret=<name> | --generate-secret --secret=<name> --env=<env>) [--preset=${PRESET_NAMES} | --signature-header=<h> --signature-encoding=hex|base64 [--signature-prefix=<p>]] [--delivery-id-header=<h>] [--input=<json-or-@file>] [--project=<project-id>] [--body-limit=<bytes>] [--rate-limit=<per-minute>] [--label=<text>]`,
   optionSpec: {
     flow: { type: 'string', description: 'The flow each delivery starts.' },
