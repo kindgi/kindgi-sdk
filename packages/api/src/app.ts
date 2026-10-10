@@ -1400,7 +1400,12 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     if (kinds.has('cron')) {
       v1.route(
         '/schedules',
-        schedulesRouter(input.triggerRegistry, authorizer, input.projectBinding),
+        schedulesRouter(input.triggerRegistry, authorizer, input.projectBinding, {
+          ...(input.identityDirectory !== undefined && { directory: input.identityDirectory }),
+          ...(input.serviceAccountBinding !== undefined && {
+            serviceAccounts: input.serviceAccountBinding,
+          }),
+        }),
       );
     }
     if (kinds.has('event')) {

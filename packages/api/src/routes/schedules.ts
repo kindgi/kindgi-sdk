@@ -6,10 +6,12 @@ import type { Context } from 'hono';
 
 import { type Action, type ResourceRef, ref } from '@kindgi/authz';
 import type { ProjectBinding } from '@kindgi/platform';
-import type { Cursor, ProjectId, TenantId, TriggerId } from '@kindgi/types';
+import type { Cursor, ProjectId, TenantId, TriggerId, UserId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
+import type { IdentityDirectoryBinding } from '../identity-directory-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import type { ServiceAccountBinding } from '../service-account-binding.js';
 import {
   type CronTriggerRecord,
   type RegisterCronTriggerInput,
@@ -52,8 +54,52 @@ export function schedulesRouter(
   authorizer?: Authorizer,
   /** The tenant's Default project: where a schedule that names no project goes. */
   projects?: Pick<ProjectBinding, 'getDefault'>,
+  /**
+   * Where an owner's name is read (`owner.displayName`): the person's from
+   * the directory, the service account's from its binding. Without one,
+   * that kind of owner has no name, and its id stands.
+   */
+  names?: {
+    readonly directory?: Pick<IdentityDirectoryBinding, 'getUser'>;
+    readonly serviceAccounts?: Pick<ServiceAccountBinding, 'get'>;
+  },
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+
+  /**
+   * Each owner's name at the time of the response, by `kind:id`, read once
+   * per owner: the person's display name, or the service account's name.
+   * One that can't be read (no binding, a removed account, a failed read)
+   * has none.
+   */
+  async function ownerNames(
+    tenantId: TenantId,
+    rows: readonly CronTriggerRecord[],
+  ): Promise<ReadonlyMap<string, string>> {
+    const owners = new Map(rows.map((row) => [ownerKey(row.owner), row.owner]));
+    const found = new Map<string, string>();
+    await Promise.all(
+      [...owners].map(async ([key, owner]) => {
+        try {
+          const name =
+            owner.kind === 'user'
+              ? (await names?.directory?.getUser({ tenantId, userId: owner.id as UserId }))
+                  ?.displayName
+              : (await names?.serviceAccounts?.get({ tenantId, serviceAccountId: owner.id }))?.name;
+          if (name !== undefined && name.length > 0) found.set(key, name);
+        } catch {
+          // A name that can't be read: the owner's id stands.
+        }
+      }),
+    );
+    return found;
+  }
+
+  /** A schedule as the wire carries it, its owner named. */
+  async function scheduleJson(c: Context<AppEnv>, row: CronTriggerRecord): Promise<Response> {
+    const named = await ownerNames(c.get('tenantId') as TenantId, [row]);
+    return c.json(serializeSchedule(row, named));
+  }
 
   /** Nothing, when allowed; else the authorizer's own 403. */
   async function denied(
@@ -149,7 +195,7 @@ export function schedulesRouter(
       );
     }
     c.status(201);
-    return c.json(serializeSchedule(result.value as CronTriggerRecord));
+    return scheduleJson(c, result.value as CronTriggerRecord);
   });
 
   // ---------- GET / (list) ----------
@@ -162,6 +208,11 @@ export function schedulesRouter(
     const limit = clampLimit(c.req.query('limit'));
     const cursorRaw = c.req.query('cursor');
     const statusRaw = c.req.query('status');
+    const projectRaw = c.req.query('projectId');
+    if (projectRaw !== undefined && !UUID_RE.test(projectRaw)) {
+      return bad(c, c.get('requestId'), '`projectId` must be a project id (a UUID)');
+    }
+    const projectId = projectRaw as ProjectId | undefined;
 
     let statusFilter: 'active' | 'paused' | undefined;
     if (statusRaw === 'active' || statusRaw === 'paused') statusFilter = statusRaw;
@@ -172,16 +223,21 @@ export function schedulesRouter(
       limit,
       ...(cursorRaw !== undefined && cursorRaw.length > 0 && { cursor: cursorRaw as Cursor }),
       ...(statusFilter !== undefined && { status: statusFilter }),
+      ...(projectId !== undefined && { projectId }),
     });
-    const rows = page.data as CronTriggerRecord[];
+    // The binding narrows to the project; this keeps a page right from one that doesn't.
+    const rows = (page.data as CronTriggerRecord[]).filter(
+      (row) => projectId === undefined || row.projectId === projectId,
+    );
     const visible =
       authorizer === undefined
         ? rows
         : await authorizer.filterByCan(c, 'read', rows, (rec) =>
             ref('project', rec.projectId as unknown as string),
           );
+    const named = await ownerNames(tenantId, visible);
     return c.json({
-      data: visible.map((row) => serializeSchedule(row)),
+      data: visible.map((row) => serializeSchedule(row, named)),
       hasMore: page.nextCursor !== undefined,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });
@@ -197,13 +253,13 @@ export function schedulesRouter(
     }
     const found = await scheduleFor(c, 'read');
     if (found.kind === 'err') return found.response;
-    if (upcoming === undefined) return c.json(serializeSchedule(found.value));
+    if (upcoming === undefined) return scheduleJson(c, found.value);
     const rec = await binding.get({
       tenantId: c.get('tenantId') as TenantId,
       triggerId: found.value.triggerId,
       upcoming,
     });
-    return c.json(serializeSchedule((rec ?? found.value) as CronTriggerRecord));
+    return scheduleJson(c, (rec ?? found.value) as CronTriggerRecord);
   });
 
   // ---------- PATCH /:triggerId (update) ----------
@@ -280,7 +336,7 @@ export function schedulesRouter(
         ),
       );
     }
-    return c.json(serializeSchedule(result.value as CronTriggerRecord));
+    return scheduleJson(c, result.value as CronTriggerRecord);
   });
 
   // ---------- POST /:triggerId/pause | resume ----------
@@ -292,7 +348,7 @@ export function schedulesRouter(
       const { tenantId, triggerId } = found.value;
       const result = await binding[verb]({ tenantId, triggerId });
       if (result.kind === 'err') return lifecycleError(c, requestId, result.error, triggerId);
-      return c.json(serializeSchedule(result.value as CronTriggerRecord));
+      return scheduleJson(c, result.value as CronTriggerRecord);
     });
   }
 
@@ -352,7 +408,7 @@ export function schedulesRouter(
     const { tenantId, triggerId } = found.value;
     const result = await binding.setOwner({ tenantId, triggerId, owner: ownerOf(c) });
     if (result.kind === 'err') return lifecycleError(c, requestId, result.error, triggerId);
-    return c.json(serializeSchedule(result.value as CronTriggerRecord));
+    return scheduleJson(c, result.value as CronTriggerRecord);
   });
 
   return r;
@@ -377,13 +433,26 @@ function targetFields(target: TriggerTarget): Record<string, unknown> {
   }
 }
 
-function serializeSchedule(r: CronTriggerRecord): Record<string, unknown> {
+/** An owner's key in `ownerNames`. */
+function ownerKey(owner: TriggerOwner): string {
+  return `${owner.kind}:${owner.id}`;
+}
+
+function serializeSchedule(
+  r: CronTriggerRecord,
+  names: ReadonlyMap<string, string> = new Map(),
+): Record<string, unknown> {
+  const displayName = names.get(ownerKey(r.owner));
   return {
     scheduleId: r.triggerId as unknown as string,
     triggerId: r.triggerId as unknown as string,
     ...targetFields(r.target),
     projectId: r.projectId as unknown as string,
-    owner: { kind: r.owner.kind, id: r.owner.id },
+    owner: {
+      kind: r.owner.kind,
+      id: r.owner.id,
+      ...(displayName !== undefined && { displayName }),
+    },
     cronExpression: r.config.cronExpression,
     ...(r.config.timezone !== undefined && { timezone: r.config.timezone }),
     ...(r.config.input !== undefined && { input: r.config.input }),

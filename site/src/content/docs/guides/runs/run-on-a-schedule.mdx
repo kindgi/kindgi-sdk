@@ -87,7 +87,14 @@ Each fire also logs one `[schedules]` record, with its outcome and run
 
 ```sh
 kindgi schedules list --status=active
+kindgi schedules list --project=<project-id>
 ```
+
+`--project` (`?projectId=` in the API) lists one project's schedules. Each
+schedule's `owner` has the owner's name now, `displayName`: the person's, or
+the service account's. When it can't be read, only its `id` is there. Both
+need the runtime 0.1.6 or later; an earlier one lists every project's and has
+no names.
 
 With [authorization](../../../deploy/authorization/) on, the list holds the
 schedules in projects you may read, all of them for a tenant admin. A page

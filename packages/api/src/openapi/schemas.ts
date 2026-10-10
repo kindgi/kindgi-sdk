@@ -9300,6 +9300,11 @@ export const TriggerOwnerSchema: JsonSchema = {
   properties: {
     kind: { type: 'string', enum: ['user', 'service'] },
     id: { type: 'string' },
+    displayName: {
+      type: 'string',
+      description:
+        "The owner's name at the time of the response: the person's display name, or the service account's name. Absent when it can't be read (no directory, a removed account) and from a runtime before Kindgi 0.1.6: show the id then.",
+    },
   },
 };
 
