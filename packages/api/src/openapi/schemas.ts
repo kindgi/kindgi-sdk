@@ -1403,8 +1403,7 @@ export const ApprovalCollectionPageSchema: JsonSchema = {
     data: { type: 'array', items: { $ref: '#/components/schemas/Approval' } },
     nextCursor: {
       type: 'string',
-      description:
-        'Opaque cursor for the next page; treat as opaque on the client.',
+      description: 'Opaque cursor for the next page; treat as opaque on the client.',
     },
     hasMore: { type: 'boolean' },
   },
@@ -1917,7 +1916,7 @@ export const AgentSchema: JsonSchema = {
       type: 'string',
       minLength: 1,
       description:
-        'Soft hint at the model level (`ModelInfo.name`, e.g. `claude-sonnet-4-6`). Combined with `preferredProvider`: both set → promote the exact tuple; only `preferredModel` → promote any provider exposing that model; only `preferredProvider` → promote every model of that provider.',
+        'Soft hint at the model level (`ModelInfo.name`, e.g. `claude-sonnet-5-5`). Combined with `preferredProvider`: both set → promote the exact tuple; only `preferredModel` → promote any provider exposing that model; only `preferredProvider` → promote every model of that provider.',
     },
     conversationPolicy: { $ref: '#/components/schemas/ConversationPolicy' },
     budget: { $ref: '#/components/schemas/TurnBudget' },
@@ -5218,7 +5217,7 @@ export const ModelInfoSchema: JsonSchema = {
     name: {
       type: 'string',
       minLength: 1,
-      description: 'Vendor-facing model id passed to the SDK (e.g. `claude-sonnet-4-6`).',
+      description: 'Vendor-facing model id passed to the SDK (e.g. `claude-sonnet-5-5`).',
     },
     contextWindow: {
       type: 'integer',
