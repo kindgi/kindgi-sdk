@@ -222,6 +222,30 @@ print(rule.rule_id, rule.version)
 </TabItem>
 </Tabs>
 
+The rule as made, its version 1:
+
+```json
+{
+  "ruleId": "19191620-85c3-4e2a-bd87-a0270d15ab53",
+  "projectId": "153a0091-613e-4c34-9535-da8194f9068e",
+  "version": 1,
+  "name": "Live refund runs",
+  "when": {
+    "agentIds": [
+      "acme.refunds"
+    ],
+    "versions": [
+      "live"
+    ]
+  },
+  "sample": 1,
+  "maxOpen": 2,
+  "enabled": true,
+  "createdBy": "user:6161fd71-761c-4b92-be40-153923bad755",
+  "createdAt": "2026-10-10T02:44:01.075Z"
+}
+```
+
 What a rule matches (`when`, each field narrowing it):
 
 - **`agentIds`** or **`flowIds`**: runs of these agents or flows. A rule
@@ -273,6 +297,38 @@ waiting = kindgi.projects.judging_queue.list(project.id, for_me=True)
 </TabItem>
 </Tabs>
 
+One item, as the rule above queued it:
+
+```json
+{
+  "runId": "4d5fb3c0-6835-436d-ba29-fd182661d189",
+  "projectId": "153a0091-613e-4c34-9535-da8194f9068e",
+  "agentId": "acme.refunds",
+  "agentVersion": "2.1.0",
+  "flowId": "agent.turn",
+  "runStatus": "completed",
+  "completedAt": "2026-10-10T02:44:01.450Z",
+  "rules": [
+    {
+      "ruleId": "19191620-85c3-4e2a-bd87-a0270d15ab53",
+      "version": 1
+    }
+  ],
+  "wantedClassIds": [],
+  "anyJudgment": true,
+  "progress": {
+    "total": 0,
+    "byClass": []
+  },
+  "addedAt": "2026-10-10T02:44:01.447Z",
+  "state": "open",
+  "can": {
+    "dismiss": true,
+    "reopen": false
+  }
+}
+```
+
 - **Each item** is a run: its agent or flow and version, how it ended, the
   rules that queued it (each at the version that did), the judge classes
   they want, and the judgments on it so far, by class. It carries none of
@@ -315,3 +371,33 @@ a run does.
     lean toward quiet times.
   - **Never pooled:** each version of each rule is a sample of its own
     `when`, so its results are never added to another's.
+
+The rule above, capped at 2 waiting, after three live runs: one judged
+`yes`, one dismissed, and one skipped while both waited.
+
+```json
+{
+  "ruleId": "19191620-85c3-4e2a-bd87-a0270d15ab53",
+  "groups": [
+    {
+      "ruleVersion": 1,
+      "agentVersion": "2.1.0",
+      "added": 2,
+      "open": 0,
+      "judged": 1,
+      "dismissed": 1,
+      "erased": 0,
+      "skippedByCap": 1,
+      "judgments": 1,
+      "yesShare": 1,
+      "byClass": [
+        {
+          "judgeClassId": null,
+          "judgments": 1,
+          "yes": 1
+        }
+      ]
+    }
+  ]
+}
+```
