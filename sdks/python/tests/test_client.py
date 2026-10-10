@@ -867,6 +867,8 @@ def test_the_people_list_with_their_grants() -> None:
     first, second = listed.data
     assert isinstance(first.grants, models.PersonGrants) and first.grants.tenant_admin is False
     assert second.grants is None
+
+
 def test_team_grants() -> None:
     grant = {
         "teamId": "t-1",
@@ -1203,6 +1205,8 @@ def test_a_judging_rule_change_sends_null_to_remove_the_cap() -> None:
     api, seen = client(lambda r: httpx.Response(200, json=rule))
     api.projects.judging_rules.update(project, rule_id, max_open=None, sample=0.05)
     assert json.loads(seen[0].content) == {"maxOpen": None, "sample": 0.05}
+
+
 def test_a_reviewer_inbox_in_one_read() -> None:
     page = {"data": [], "hasMore": False, "order": "asc"}
     api, seen = client(lambda r: httpx.Response(200, json=page))
