@@ -438,6 +438,15 @@ and what's different after:
   console still needs `https`.
 - **The console's sign-in returns you only to a console page;** a sign-in
   link that pointed elsewhere lands on the console's home.
+- **`kindgi dev` runs your pack's code sandboxed** (macOS Seatbelt; Linux
+  bubblewrap, which you may need to install): it can't read your keys or
+  files outside the app, write outside it, or reach Docker, and keeps the
+  network and the app's own files. A tool that reads a path or a socket
+  outside the app (`~/.aws`, a local Postgres socket) needs it opened in the
+  pack's `dev.sandbox` config. Where it can't run (Windows outside WSL, a
+  container, inside another sandbox such as a coding agent's), `kindgi dev`
+  warns and runs without it; `KINDGI_DEV_SANDBOX=required` refuses instead
+  ([Keep your tools' code away from your keys](../../guides/secrets/dev-sandbox/)).
 - **Under `kindgi dev`, Kindgi keeps the secrets you store in its own
   file,** `.kindgi/secrets.env`, not your app's `.env.local`, and neither
   they nor a model provider's key reach the pack service's environment
@@ -494,14 +503,6 @@ and what's different after:
 
 #### Known limitations in 0.1.6
 
-- **`kindgi dev` runs your pack's code with your own access.** A tool can
-  read what you can read (your files, other projects, your cloud and SSH
-  credentials) and reach the network. Run a pack a coding agent wrote in a
-  disposable environment, such as a container, a VM or a separate user
-  account, and keep credentials you don't need for it off that environment.
-  A sandbox for `kindgi dev` is planned for 0.1.7. In a deployment, the
-  pack's image is the boundary, and it gets only the variables the pack
-  declares.
 - **Run one runtime instance.** Several aren't supported yet: a guardrail,
   tool or provider change reaches other instances only when they restart.
   If you run several anyway, restart the others after such a change. A fix
