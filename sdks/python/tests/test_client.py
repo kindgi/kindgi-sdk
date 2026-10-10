@@ -1150,6 +1150,48 @@ def test_a_model_s_uuid_id_passes_back_as_text_in_a_path_and_a_query() -> None:
     assert seen[1].url.params.get_list("waitTokenId") == [str(run_id), "wt-2"]
 
 
+ROTATED_SYNC = {"kind": "sync", "newVersionId": 4, "oldVersionId": 3}
+ROTATED_ASYNC = {
+    "kind": "async",
+    "rotationId": "6f1c2a8e-4b1d-4a2b-9c3e-7d5f8a9b0c1d",
+    "statusUrl": "/v1/secrets/db-password/rotations/6f1c2a8e-4b1d-4a2b-9c3e-7d5f8a9b0c1d",
+    "eventsUrl": "/v1/secrets/db-password/rotations/6f1c2a8e-4b1d-4a2b-9c3e-7d5f8a9b0c1d/events",
+}
+
+
+def test_secrets_rotate_reads_each_answer_by_its_status() -> None:
+    """201 is a sync rotation, 202 an async one: each validates as its own model."""
+    answers = iter(
+        [httpx.Response(201, json=ROTATED_SYNC), httpx.Response(202, json=ROTATED_ASYNC)]
+    )
+    api, _ = client(lambda _: next(answers))
+    done = api.secrets.rotate("db-password", env_name="prod", scope_kind="tenant")
+    assert isinstance(done, models.SecretRotateResponseSync)
+    assert (done.new_version_id, done.old_version_id) == (4, 3)
+    started = api.secrets.rotate("db-password", env_name="prod", scope_kind="tenant")
+    assert isinstance(started, models.SecretRotateResponseAsync)
+    assert str(started.rotation_id) == ROTATED_ASYNC["rotationId"]
+    assert started.events_url == ROTATED_ASYNC["eventsUrl"]
+
+
+def test_secrets_rotate_an_undeclared_2xx_is_read_as_the_first_status_model() -> None:
+    api, _ = client(lambda _: httpx.Response(200, json=ROTATED_SYNC))
+    answer = api.secrets.rotate("db-password", env_name="prod", scope_kind="tenant")
+    assert isinstance(answer, models.SecretRotateResponseSync)
+
+
+def test_secrets_rotate_async_client_reads_the_202() -> None:
+    async def scenario() -> None:
+        http = httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda _: httpx.Response(202, json=ROTATED_ASYNC))
+        )
+        async with AsyncKindgi("http://kindgi.test", token="t", http_client=http) as api:
+            answer = await api.secrets.rotate("db-password", env_name="prod", scope_kind="tenant")
+            assert isinstance(answer, models.SecretRotateResponseAsync)
+
+    asyncio.run(scenario())
+
+
 def test_a_judging_rule_takes_its_when_in_python_or_wire_case() -> None:
     # The guide's example passes `when` with snake_case keys; wire case works too.
     project = "d4910d76-7355-4022-8f3c-514361cfa986"
