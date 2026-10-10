@@ -9115,7 +9115,7 @@ class ProjectAccessDirect(BaseModel):
     kind: Literal["direct"]
     role: Literal["viewer", "editor", "owner", "admin", "member"]
     """
-    Role on a project membership.
+    Role on a project, as read. `member` is only read, on a role given before it was retired: it grants what `viewer` does, and writes refuse it.
     """
     joined_at: Annotated[AwareDatetime | None, Field(alias="joinedAt")] = None
 

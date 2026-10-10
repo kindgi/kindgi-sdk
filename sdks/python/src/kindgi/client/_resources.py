@@ -970,7 +970,8 @@ class RunsResource:
         eval_run_id: str | UUID | None = None,
         trigger_id: str | UUID | None = None,
         include: Literal["output"] | None = None,
-        status: list[Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]]
+        status: Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]
+        | list[Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]]
         | None = None,
         created_after: str | None = None,
         created_before: str | None = None,
@@ -8016,7 +8017,8 @@ class AsyncRunsResource:
         eval_run_id: str | UUID | None = None,
         trigger_id: str | UUID | None = None,
         include: Literal["output"] | None = None,
-        status: list[Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]]
+        status: Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]
+        | list[Literal["pending", "running", "suspended", "completed", "failed", "cancelled"]]
         | None = None,
         created_after: str | None = None,
         created_before: str | None = None,
