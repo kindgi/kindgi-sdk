@@ -5,9 +5,10 @@
  * Every operation, called with an API key that takes no admin action
  * (`role: member`) whose user the authorizer grants everything: so the
  * only refusals are the ones the API decides itself, before asking the
- * binding. Each such 403 must have its decision recorded for that
- * request (`recordDecision`), as the binding records its own, so the
- * access audit holds every refusal. A route asking a relation the model
+ * binding. Every 403 (a known caller refused) must have its decision
+ * recorded for that request (`recordDecision`), as the binding records
+ * its own, so the access audit holds every refusal, whatever the route
+ * and whatever its code; a 401 (an unknown caller) is a sign-in matter. A route asking a relation the model
  * doesn't define fails here too: a check that can never pass.
  *
  * It's an invariant, not a list: a new route gated on a tenant admin is
@@ -31,12 +32,15 @@ const NO_CAPS_KEY = 'no-caps-admin-key-token';
 const ID = '00000000-0000-4000-8000-0000000000ff';
 
 /**
- * The codes a refusal the API decides itself answers: `permission-denied`,
- * or its own 403 code where the API names one (`refused`'s `code`).
+ * Every 403 code the sweep meets: `permission-denied`, or a refusal's own
+ * code where the API names one (`refused`'s `code`). A new one fails the
+ * sweep until it's named here, and recorded.
  */
 const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'permission-denied',
   'identity-providers-operator-managed',
+  'token-sign-in-not-allowed',
+  'token-sign-in-off',
 ]);
 
 /** What each caller must be refused (and have recorded): the sweep's floor. */
@@ -47,6 +51,8 @@ const MUST_REFUSE: Readonly<Record<string, readonly string[]>> = {
     'GET /v1/audit/authz',
     'POST /v1/service-accounts',
     'POST /v1/approvals/reviewers',
+    // A narrowed key opens no console session.
+    'POST /v1/auth/token-sign-in token-sign-in-not-allowed',
   ],
   // An admin key without the capability a write needs; a caller who isn't a reviewer.
   [NO_CAPS_KEY]: ['PUT /v1/env/{name}', 'POST /v1/secrets', 'GET /v1/approvals'],
@@ -62,6 +68,18 @@ const MUST_REFUSE_OPERATOR_MANAGED: Readonly<Record<string, readonly string[]>> 
     ...(MUST_REFUSE[NO_CAPS_KEY] ?? []),
     'POST /v1/auth/providers identity-providers-operator-managed',
     'PATCH /v1/auth/providers/{providerId} identity-providers-operator-managed',
+  ],
+};
+
+/** With console token sign-in off, no key opens a session, under its own code. */
+const MUST_REFUSE_TOKEN_SIGN_IN_OFF: Readonly<Record<string, readonly string[]>> = {
+  [MEMBER_KEY]: [
+    ...(MUST_REFUSE[MEMBER_KEY] ?? []).filter((k) => !k.startsWith('POST /v1/auth/token-sign-in')),
+    'POST /v1/auth/token-sign-in token-sign-in-off',
+  ],
+  [NO_CAPS_KEY]: [
+    ...(MUST_REFUSE[NO_CAPS_KEY] ?? []),
+    'POST /v1/auth/token-sign-in token-sign-in-off',
   ],
 };
 
@@ -99,7 +117,12 @@ const grant = (action: Action, r: ResourceRef): Decision => ({
   evidence: { action, relation: '', resource: `${r.type}:${r.id}`, actorSubject: '' },
 });
 
-function sweepApp(options: { readonly identityProviderChanges?: 'operator' } = {}) {
+function sweepApp(
+  options: {
+    readonly identityProviderChanges?: 'operator';
+    readonly tokenSignIn?: false;
+  } = {},
+) {
   const recorded: Recorded[] = [];
   const authzCheckBinding: AuthzCheckBinding = {
     check: async (_p, action, r) => grant(action, r),
@@ -114,11 +137,16 @@ function sweepApp(options: { readonly identityProviderChanges?: 'operator' } = {
       });
     },
   };
+  const input = fullAppInput();
   const app = createApp({
-    ...fullAppInput(),
+    ...input,
     resolveToken,
     authz: { fgaApiUrl: 'http://fga.invalid', authzCheckBinding },
-    ...options,
+    ...(options.identityProviderChanges !== undefined && {
+      identityProviderChanges: options.identityProviderChanges,
+    }),
+    ...(options.tokenSignIn === false &&
+      input.session !== undefined && { session: { ...input.session, tokenSignIn: false } }),
   });
   return { app, recorded };
 }
@@ -136,11 +164,17 @@ describe('every refusal the API decides itself is recorded', () => {
       { identityProviderChanges: 'operator' as const },
       MUST_REFUSE_OPERATOR_MANAGED,
     ],
+    [
+      'the tenant, with token sign-in off',
+      { tokenSignIn: false as const },
+      MUST_REFUSE_TOKEN_SIGN_IN_OFF,
+    ],
   ])(
-    'identity providers managed by %s: each refusal has its decision recorded for that request; no route asks an undefined relation',
+    'identity providers managed by %s: every 403 has its decision recorded for that request; no route asks an undefined relation',
     async (_name, options, floor) => {
       const { app, recorded } = sweepApp(options);
       const unrecorded: string[] = [];
+      const unnamed: string[] = [];
       const missed: string[] = [];
       for (const token of [MEMBER_KEY, NO_CAPS_KEY]) {
         const refused: string[] = [];
@@ -159,8 +193,8 @@ describe('every refusal the API decides itself is recorded', () => {
           const body = (await res.json().catch(() => ({}))) as {
             error?: { code?: string; requestId?: string };
           };
-          const code = body.error?.code;
-          if (code === undefined || !REFUSAL_CODES.has(code)) continue;
+          const code = body.error?.code ?? '(no code)';
+          if (!REFUSAL_CODES.has(code)) unnamed.push(`${token}: ${key} ${code}`);
           refused.push(key, `${key} ${code}`);
           const requestId = body.error?.requestId;
           if (!recorded.some((r) => r.correlationId === requestId && !r.decision.allowed)) {
@@ -172,6 +206,7 @@ describe('every refusal the API decides itself is recorded', () => {
         }
       }
       expect(unrecorded, 'a 403 with no recorded decision for its request').toEqual([]);
+      expect(unnamed, 'a 403 code the sweep does not name (REFUSAL_CODES)').toEqual([]);
       expect(
         recorded
           .filter((r) => r.decision.failing === 'invalid-action')
