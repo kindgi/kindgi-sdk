@@ -8050,6 +8050,12 @@ export const JudgingResultGroupSchema: JsonSchema = {
       description:
         "Live judgments on the queued runs: each is one person's verdict on one item of a run's output.",
     },
+    runsWithJudgments: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        "The queued runs with at least one live judgment: the runs `judgments` and `yesShare` come from, whether their item is closed as `judged` yet or still `open`. Several people judging one run make several judgments but one run here. Absent from a runtime that doesn't count them.",
+    },
     yesShare: {
       type: ['number', 'null'],
       description:
