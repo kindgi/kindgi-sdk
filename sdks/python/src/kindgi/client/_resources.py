@@ -5481,6 +5481,7 @@ class IdentityUsersResource:
         cursor: str | None = None,
         query: str | None = None,
         include_unregistered: bool | None = None,
+        include: Literal["grants"] | None = None,
         timeout: float | None = None,
     ) -> _models.UserCollectionPage:
         """List users in the tenant. `GET /v1/identity/users`
@@ -5495,6 +5496,7 @@ class IdentityUsersResource:
                 "cursor": cursor,
                 "query": query,
                 "includeUnregistered": include_unregistered,
+                "include": include,
             },
             headers={},
             response=_models.UserCollectionPage,
@@ -12213,6 +12215,7 @@ class AsyncIdentityUsersResource:
         cursor: str | None = None,
         query: str | None = None,
         include_unregistered: bool | None = None,
+        include: Literal["grants"] | None = None,
         timeout: float | None = None,
     ) -> _models.UserCollectionPage:
         """List users in the tenant. `GET /v1/identity/users`
@@ -12227,6 +12230,7 @@ class AsyncIdentityUsersResource:
                 "cursor": cursor,
                 "query": query,
                 "includeUnregistered": include_unregistered,
+                "include": include,
             },
             headers={},
             response=_models.UserCollectionPage,

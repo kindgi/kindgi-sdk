@@ -13949,6 +13949,10 @@
           "metadata": {
             "type": "object",
             "additionalProperties": true
+          },
+          "grants": {
+            "$ref": "#/components/schemas/PersonGrants",
+            "description": "The person's grants: only on `GET /v1/identity/users?include=grants`, and only from a runtime that reads grants."
           }
         }
       },
@@ -35985,6 +35989,18 @@
             },
             "required": false,
             "description": "With `true`, people who were removed (`unregisteredAt`) too."
+          },
+          {
+            "name": "include",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "grants"
+              ]
+            },
+            "required": false,
+            "description": "Extra fields, comma-separated. `grants`: each person's grants, as `GET /v1/identity/users/{userId}/grants` answers them, in this one read. A runtime that doesn't read grants (no authorization store) leaves `grants` out, as an older one does."
           }
         ],
         "security": [

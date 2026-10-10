@@ -27,6 +27,7 @@ import { createApp } from '../src/index.js';
 import type {
   ApiTokenRecord,
   IdentityDirectoryBinding,
+  PersonGrants,
   PersonGrantsBinding,
   RunHandlerBinding,
   ServiceAccount,
@@ -54,7 +55,9 @@ const runHandler = {} as RunHandlerBinding;
 
 type StoredKey = ApiTokenRecord & { secret: string };
 
-function harness(options: { createUser?: boolean; personGrants?: boolean } = {}) {
+function harness(
+  options: { createUser?: boolean; personGrants?: boolean; readMany?: boolean } = {},
+) {
   /** Who is a tenant admin; a person's grant or ungrant changes it. */
   const admins = new Set(ADMINS);
   const users = new Map<string, UserRecord>(
@@ -73,6 +76,9 @@ function harness(options: { createUser?: boolean; personGrants?: boolean } = {})
   const keys = new Map<string, StoredKey>();
   /** Who each change was made by, as the routes pass it to the stores. */
   const changedBy: string[] = [];
+  /** Each person's read, and each batch read, of grants. */
+  const grantReads: string[] = [];
+  const batchReads: (readonly string[])[] = [];
 
   const isAdmin = (p: TokenPrincipal): boolean =>
     p.kind === 'user'
@@ -288,17 +294,21 @@ function harness(options: { createUser?: boolean; personGrants?: boolean } = {})
   };
 
   /** Alice is the seed user; Bob is an editor on P1; Alice is on the reviewer roster. */
+  const grantsOf = (userId: string): PersonGrants | null =>
+    users.has(userId)
+      ? {
+          userId,
+          tenantAdmin: admins.has(`user:${userId}`),
+          tenantMember: true,
+          projects: userId === 'bob' ? [{ projectId: P1, role: 'editor' }] : [],
+          teams: [],
+          ...(userId === 'alice' && { reviewer: { role: 'admin' as const } }),
+        }
+      : null;
   const personGrants: PersonGrantsBinding = {
     async read({ userId }) {
-      if (!users.has(userId)) return null;
-      return {
-        userId,
-        tenantAdmin: admins.has(`user:${userId}`),
-        tenantMember: true,
-        projects: userId === 'bob' ? [{ projectId: P1, role: 'editor' }] : [],
-        teams: [],
-        ...(userId === 'alice' && { reviewer: { role: 'admin' as const } }),
-      };
+      grantReads.push(userId);
+      return grantsOf(userId);
     },
     async grant(input) {
       changedBy.push(`person-grant:${input.by}`);
@@ -323,6 +333,18 @@ function harness(options: { createUser?: boolean; personGrants?: boolean } = {})
       return { kind: 'ok', value: (await personGrants.read(input)) as never };
     },
   };
+
+  if (options.readMany === true) {
+    personGrants.readMany = async ({ userIds }) => {
+      batchReads.push(userIds);
+      const out = new Map<string, PersonGrants>();
+      for (const userId of userIds) {
+        const g = grantsOf(userId);
+        if (g !== null) out.set(userId, g);
+      }
+      return out;
+    };
+  }
 
   const app = createApp({
     ...createStubAppBindings(),
@@ -359,7 +381,7 @@ function harness(options: { createUser?: boolean; personGrants?: boolean } = {})
     expect(r.status, JSON.stringify(r.body)).toBe(201);
     return { token: r.body.token as string, tokenId: r.body.tokenId as string, body: r.body };
   };
-  return { app, call, code, mint, checked, changedBy };
+  return { app, call, code, mint, checked, changedBy, grantReads, batchReads };
 }
 
 describe('a new key and an Idempotency-Key (T392)', () => {
@@ -855,6 +877,71 @@ describe('POST /v1/identity/users: add a person', () => {
     const h = harness({ createUser: false });
     const r = await h.call(ALICE, 'POST', '/v1/identity/users', { displayName: 'Carol' });
     expect(r.status).toBe(404);
+  });
+});
+
+describe('the people list, with their grants (`include=grants`)', () => {
+  const listed = (r: { body: Record<string, unknown> }) =>
+    (r.body.data as { userId: string; grants?: unknown }[]).map((u) => [u.userId, u.grants]);
+
+  test('each person carries their grants, read in one call', async () => {
+    const h = harness({ readMany: true });
+    const r = await h.call(ALICE, 'GET', '/v1/identity/users?include=grants');
+    expect(r.status).toBe(200);
+    expect(listed(r)).toEqual([
+      ['alice', expect.objectContaining({ userId: 'alice', tenantAdmin: true })],
+      [
+        'bob',
+        {
+          userId: 'bob',
+          tenantAdmin: false,
+          tenantMember: true,
+          projects: [{ projectId: P1, role: 'editor' }],
+          teams: [],
+        },
+      ],
+    ]);
+    expect(h.batchReads).toEqual([['alice', 'bob']]);
+    expect(h.grantReads).toEqual([]);
+  });
+
+  test('without a batch read, each person is read; without `include`, nobody is', async () => {
+    const h = harness();
+    const r = await h.call(ALICE, 'GET', '/v1/identity/users?include=grants');
+    expect(listed(r).map(([id, g]) => [id, (g as { userId?: string }).userId])).toEqual([
+      ['alice', 'alice'],
+      ['bob', 'bob'],
+    ]);
+    expect(h.grantReads.sort()).toEqual(['alice', 'bob']);
+    h.grantReads.length = 0;
+    const plain = await h.call(ALICE, 'GET', '/v1/identity/users');
+    expect(listed(plain)).toEqual([
+      ['alice', undefined],
+      ['bob', undefined],
+    ]);
+    expect(h.grantReads).toEqual([]);
+  });
+
+  test('a runtime that reads no grants lists the people without them', async () => {
+    const h = harness({ personGrants: false });
+    const r = await h.call(ALICE, 'GET', '/v1/identity/users?include=grants');
+    expect(r.status).toBe(200);
+    expect(listed(r)).toEqual([
+      ['alice', undefined],
+      ['bob', undefined],
+    ]);
+  });
+
+  test('an unknown `include` is a 400; only a tenant admin lists, with or without it', async () => {
+    const h = harness({ readMany: true });
+    const bad = await h.call(ALICE, 'GET', '/v1/identity/users?include=grants,keys');
+    expect([bad.status, h.code(bad)]).toEqual([400, 'bad-input']);
+    expect((bad.body.error as { message: string }).message).toBe(
+      'Unknown `include` value(s): keys',
+    );
+    const bob = await h.call(BOB, 'GET', '/v1/identity/users?include=grants');
+    expect([bob.status, h.code(bob)]).toEqual([403, 'permission-denied']);
+    expect(h.batchReads).toEqual([]);
   });
 });
 

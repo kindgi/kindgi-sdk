@@ -777,6 +777,22 @@ def test_a_persons_grants_and_tenant_admin() -> None:
     assert json.loads(seen[1].content) == {"kind": "tenant-admin"}
 
 
+def test_the_people_list_with_their_grants() -> None:
+    person = {
+        "userId": "u-1",
+        "tenantId": "8f14e45f-ceea-467a-9575-36c1f8d1e0a3",
+        "createdAt": "2026-10-10T00:00:00Z",
+    }
+    grants = {"userId": "u-1", "tenantAdmin": False, "projects": [], "teams": []}
+    page = {"data": [{**person, "grants": grants}, person], "hasMore": False}
+    api, seen = client(lambda r: httpx.Response(200, json=page))
+    listed = api.identity.users.list(include="grants")
+    assert seen[0].url.params["include"] == "grants"
+    first, second = listed.data
+    assert isinstance(first.grants, models.PersonGrants) and first.grants.tenant_admin is False
+    assert second.grants is None
+
+
 def test_named_models_keep_their_names() -> None:
     # Inline shapes in a new schema once renamed `Team`/`Project` to `Team1`/`Project1`.
     for name in ("Team", "Project", "Reviewer", "PersonGrants", "ServiceAccountGrantBody"):

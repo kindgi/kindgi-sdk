@@ -5368,6 +5368,14 @@ export const OPERATIONS: readonly OperationSpec[] = [
         description: 'With `true`, people who were removed (`unregisteredAt`) too.',
         schema: { type: 'boolean' },
       },
+      {
+        name: 'include',
+        in: 'query',
+        required: false,
+        description:
+          "Extra fields, comma-separated. `grants`: each person's grants, as `GET /v1/identity/users/{userId}/grants` answers them, in this one read. A runtime that doesn't read grants (no authorization store) leaves `grants` out, as an older one does.",
+        schema: { type: 'string', enum: ['grants'] },
+      },
     ],
     responses: {
       '200': { description: 'Page of users.', schema: ref('UserCollectionPage') },

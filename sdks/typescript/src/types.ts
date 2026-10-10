@@ -2045,6 +2045,12 @@ export interface User {
   /** When they were removed from the tenant (`client.users.unregister`); absent while they're here. */
   readonly unregisteredAt?: import('@kindgi/types').Timestamp;
   readonly metadata?: Readonly<Record<string, unknown>>;
+  /**
+   * The person's grants: only from `users.list({ includeGrants: true })`,
+   * and only from a runtime that reads grants (absent otherwise, as from
+   * an older one).
+   */
+  readonly grants?: PersonGrants;
 }
 
 /**

@@ -7703,6 +7703,11 @@ export const UserRecordSchema: JsonSchema = {
         'When they were removed from the tenant (`POST /v1/identity/users/{userId}/unregister`); absent while they are here.',
     },
     metadata: { type: 'object', additionalProperties: true },
+    grants: {
+      $ref: '#/components/schemas/PersonGrants',
+      description:
+        "The person's grants: only on `GET /v1/identity/users?include=grants`, and only from a runtime that reads grants.",
+    },
   },
 };
 
