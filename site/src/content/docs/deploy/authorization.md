@@ -154,7 +154,8 @@ the project's own admins.
 
 ## The access audit
 
-Each decision, allowed or denied, is kept: `GET /v1/audit/authz` lists them,
+Each decision the authorization model makes, allowed or denied, is kept:
+`GET /v1/audit/authz` lists them,
 oldest first, for a tenant admin; `order=desc` lists the newest first, and its
 cursor goes on in that order (`order: 'desc'` in TypeScript, `order="desc"`
 in Python). They're kept for good, unless the runtime
@@ -175,6 +176,14 @@ after 90 days and denied ones after 365 (see
 ```
 
 `actorSubject`, `action`, `resource`, `outcome` (`allowed` or `denied`), `from`, `to` and `runId` narrow the list.
+
+A `403` the API answers from its own checks, without asking the model, isn't
+kept here in 0.1.5. That includes a `member` key asking for a tenant admin's
+action, a key without the capability a write needs, a caller who isn't a
+reviewer on the approvals routes, a key limited to one project reaching
+another (`key-project-mismatch`), and console token sign-in's refusals
+(`token-sign-in-not-allowed`, `token-sign-in-off`). A `401` (an unknown
+caller) never is.
 
 ### In the console
 
