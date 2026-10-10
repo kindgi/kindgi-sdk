@@ -65,6 +65,11 @@ The runtime verifies your pack's image by reading it from a registry. On one mac
 
 On Linux or a server, use your own registry instead, and give the runtime its credentials (`KINDGI_IMAGE_REGISTRY_HOST`, `_USERNAME`, `_PASSWORD`).
 
+Whichever registry you use, two things stop the runtime from reading it:
+
+- **A loopback address** (`localhost`, `127.0.0.1`, `::1`): by default the runtime refuses to connect to its own host (`KINDGI_TENANT_HOST_ACCESS`, step 5). `registry.localhost` isn't one here: in the runtime's container, `--add-host` maps it to your machine's address on Docker's network.
+- **A port Node's fetch refuses,** such as 5060 or 5061: the Fetch standard's [bad ports](https://fetch.spec.whatwg.org/#bad-port), which browsers refuse too. Serve the registry on another port.
+
 ## 3. Build, sign and push your pack
 
 If your app's code needs a generate step in the image (Prisma's client, for
@@ -157,6 +162,11 @@ Its log says it's listening:
 {"time":"2026-10-08T19:38:48.568Z","level":"info","severity":"INFO","subsystem":"pack","message":"Listening on port 8080","port":8080,"packId":"acme-pack","artifactVersion":"20261008.193828","event":"listening","kind":"listening"}
 ```
 
+`pack.env` holds the token and the variables your pack declares. The
+service drops any other variable before your code loads, and its log names
+each one (`env-dropped`), never its value
+([Declare the environment your code reads](../../guides/secrets/pack-env/#in-a-deployment)).
+
 ## 5. Configure and start the runtime
 
 Make an API token. Your CLI and apps send it as their bearer:
@@ -192,7 +202,7 @@ Every setting is in the [environment variable reference](../../reference/env-var
 - **`KINDGI_CONSOLE_TOKEN_SIGN_IN=on`** lets you sign in to the console by pasting the API token from this file, so you can try the console straight away. It's off by default outside `kindgi dev`, and with it off and no single sign-on, nobody can sign in to the console. In a real deployment, [turn on sign-in](../sign-in/) with your organization's identity provider instead, and remove the line. The token works for the API, the CLI and the SDKs either way.
 - **`KINDGI_LOG_FORMAT=pretty`** makes `docker logs` readable by eye. Without it, a container logs JSON, one record per line, for a log platform to index: see [Logs](../logs/).
 - **`KINDGI_PACK_SERVICE_URL`** is the pack service's address only. A user and password in it stop the runtime at boot (exit code 2): `` KINDGI_PACK_SERVICE_URL must not carry a user or password ("https://svc:***@pack.example.com"): the server authenticates to the pack service with KINDGI_PACK_SERVICE_TOKEN. Remove the "user:password@" part. ``
-- **`KINDGI_TENANT_HOST_ACCESS`** isn't set here, so it's `deployed`, the default outside development. It refuses an MCP endpoint that would run a command on the runtime's host (`stdio`). Run MCP servers over HTTP instead. `local` allows it; set that only on a machine where everyone with an API token may run commands.
+- **`KINDGI_TENANT_HOST_ACCESS`** isn't set here, so it's `deployed`, the default outside development. It refuses an MCP endpoint that would run a command on the runtime's host (`stdio`). Run MCP servers over HTTP instead. It also refuses connections to the runtime's own host (a loopback address) and the cloud metadata endpoints, wherever your configuration names a host: an image registry, a model provider, an HTTP tool, an MCP server. `local` allows all of it, so a registry at `localhost` needs it; set that only on a machine where everyone with an API token may run commands.
 
 Start the runtime:
 
@@ -213,10 +223,10 @@ curl -s http://localhost:4000/ready
 ```
 
 ```text
-{"ok":true,"database":"ok"}
+{"ok":true,"database":"ok","erasures":"unreplayable"}
 ```
 
-`/ready` answers once the runtime is up and its database answers (`/health` checks only the process; see [Operate](../operate/#check-health-and-logs)).
+`/ready` answers once the runtime is up and its database answers (`/health` checks only the process; see [Operate](../operate/#check-health-and-logs)). Its `erasures` says whether an erasure can be replayed after a backup restore: `unreplayable` until you set `KINDGI_ERASURE_LEDGER_KEY` ([Erasures and backups](../operate/#erasures-and-backups)).
 
 Open `http://localhost:4000/` in Chrome or Firefox: it leads to the console, at `/console/`, where you sign in with the API token from `kindgi.env`. Safari can't keep the local sign-in over http yet ([Known limitations](../operate/#known-limitations-in-015)). A runtime started without the console answers there with a short page naming what it serves (`/health`, `/ready`, the API reference at `/docs`).
 
@@ -227,16 +237,20 @@ docker logs kindgi-server
 ```
 
 ```text
-Kindgi API server listening on http://localhost:4000
-  Tenant:  8f34192d-53bb-4fc2-bfb8-9094157b2404
-  Token:   kgi_bt_…abb1 (provided)
+Kindgi API server listening on http://localhost:4000 (local to this host or container: set KINDGI_PUBLIC_URL to the address clients use)
+  Tenant:  …
+  Token:   kgi_bt_…3236 (provided)
+  User:    … (KINDGI_API_TOKEN's user from now on; KINDGI_SEED_USER_ID names one)
   …
+  Console: http://localhost:4000/console/
+  Console sign-in: an API token (KINDGI_CONSOLE_TOKEN_SIGN_IN)
   Deployments: on (signed images, /v1/deployments)
-  License: Docs example · non-production · until 2026-11-02
-  ⚠ The license key expires in 29 days (2026-11-02). Renew it: contact@kindgi.com.
+  …
+  License: …
+  …
   Env: production (tool secrets resolve in it)
-  Tenant host access: deployed (stdio MCP endpoints refused; KINDGI_TENANT_HOST_ACCESS)
-  Pack service: http://kindgi-pack:8080 — acme-pack (artifact …), protocol 2, 3 tools, 1 check
+  Tenant host access: deployed (stdio MCP endpoints refused; tenant-chosen hosts can't reach the metadata server or this host; KINDGI_TENANT_HOST_ACCESS)
+  Pack service: http://…:8080 — acme-pack (artifact …), protocol 2, 3 tools, 1 check
 ```
 
 Without `KINDGI_LICENSE_KEY`, the runtime doesn't start. It exits with code 2 and says:
@@ -245,7 +259,12 @@ Without `KINDGI_LICENSE_KEY`, the runtime doesn't start. It exits with code 2 an
 KINDGI_LICENSE_KEY is not set. Outside development mode the Kindgi runtime needs a license key: a production key comes with a commercial license, and a free non-production key covers staging and CI. To get one: contact@kindgi.com. Local development needs none: `kindgi dev` runs the runtime with KINDGI_DEV=true.
 ```
 
-A key within 30 days of expiry adds the warning under the license line, as this example key does.
+A key within 30 days of expiry adds a warning under the license line:
+
+```text
+  License: Docs example · non-production · until 2026-11-02
+  ⚠ The license key expires in 29 days (2026-11-02). Renew it: contact@kindgi.com.
+```
 
 **Behind a proxy or a load balancer,** or on a published port other than the one it binds, set `KINDGI_PUBLIC_URL` in `kindgi.env` to the address clients use. The first line then names both, and the banner's links (`Docs`, and `Console` when it serves the console) use the public address:
 

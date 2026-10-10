@@ -93,7 +93,6 @@ function harness(
     complianceGenerator: unreached(),
     sessionStore: unreached(),
     identityProvider: bindings.identityProvider ?? unreached(),
-    exchangeCode: unreached(),
     authz: {
       fgaApiUrl: 'http://fga.invalid',
       authzCheckBinding: {

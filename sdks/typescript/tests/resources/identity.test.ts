@@ -46,6 +46,42 @@ describe('identity — wire round-trips', () => {
   });
 });
 
+describe('identity — what I may do', () => {
+  it('me.permissions reads GET /v1/identity/me/permissions', async () => {
+    const answer = {
+      tenantId: 'tenant-1',
+      tenant: { admin: false },
+      tokenCapabilities: [],
+      projects: [
+        { projectId: 'p-1', name: 'Support', role: 'editor', via: [{ kind: 'tenant-admin' }] },
+      ],
+      orgs: [],
+      teams: [],
+      capabilities: {},
+    };
+    const stub = recordingFetch([{ status: 200, body: JSON.stringify(answer) }]);
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    const mine = await client.identity.me.permissions();
+    expect(mine.projects[0]?.role).toBe('editor');
+    expect(stub.calls.map((c) => `${c.method} ${new URL(c.url).pathname}`)).toEqual([
+      'GET /v1/identity/me/permissions',
+    ]);
+  });
+
+  it('a runtime without an authorization store: the 501 surfaces as a KindgiApiError', async () => {
+    const client = createClient({
+      apiUrl: API,
+      auth: AUTH,
+      fetch: errorFetch(501, { code: 'permissions-unsupported', message: 'no authorization store' })
+        .fetch,
+    });
+    await expect(client.identity.me.permissions()).rejects.toMatchObject({
+      name: 'KindgiApiError',
+      error: { code: 'server', serverCode: 'permissions-unsupported' },
+    });
+  });
+});
+
 describe("identity — a person's grants", () => {
   const GRANTS = {
     userId: 'u-1',

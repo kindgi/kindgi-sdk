@@ -37,6 +37,7 @@ import type { DevProject, ProjectOutcome } from '../src/dev/project.js';
 import type {
   DevRunners,
   ExternalPackage,
+  IndexOutcome,
   IndexResult,
   PackBuild,
   RunningApiServer,
@@ -1643,6 +1644,69 @@ describe('kindgi dev — watch flow', () => {
     expect(log.endsWith('  kindgi dev stopped.\n')).toBe(true);
   });
 
+  test("a reload prints only the warnings the last load didn't; the standing ones are one line", async () => {
+    const message = (check: string): string =>
+      `guardrails/${check}.ts: check "${check}" doesn't start with this pack's id ("my-pack.").`;
+    const withWarnings = (...checks: string[]): IndexResult => ({
+      ...(defaultHappyOutcome() as IndexOutcome),
+      warnings: checks.map((c) => ({
+        code: 'check-id-unprefixed',
+        message: message(c),
+        filePath: `guardrails/${c}.ts`,
+      })),
+    });
+    const controller = new AbortController();
+    const fixtures = makeFixtures({
+      outcomes: [
+        withWarnings('cites'), // boot
+        withWarnings('cites'),
+        withWarnings('cites', 'grounded'),
+        withWarnings('grounded'),
+        defaultHappyOutcome(),
+        withWarnings('cites'),
+      ],
+    });
+    const { writes, restore } = captureStderr();
+    const reload = async (): Promise<string> => {
+      const from = writes.length;
+      fixtures.triggerChange();
+      // The tick writes its loaded line and its warnings together.
+      await vi.waitFor(
+        () => expect(writes.slice(from).join('')).toMatch(/✓ loaded \d+ primitives/),
+        WAIT,
+      );
+      return writes.slice(from).join('');
+    };
+    const warned = (log: string): string[] => log.split('\n').filter((line) => line.includes('⚠'));
+    try {
+      const promise = runCli({
+        ...baseInputs(fixtures, { stopSignal: controller.signal }),
+        argv: ['dev', `--path=${packDir}`],
+      });
+      await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2), WAIT);
+      expect(writes.join('')).toContain(`    ⚠ ${message('cites')}\n`);
+      // The same warning as the boot's: not repeated.
+      expect(warned(await reload())).toEqual([
+        '      ⚠ 1 warning from the last load still applies',
+      ]);
+      // A new one in full, beside the standing one.
+      expect(warned(await reload())).toEqual([
+        `      ⚠ ${message('grounded')}`,
+        '      ⚠ 1 warning from the last load still applies',
+      ]);
+      expect(warned(await reload())).toEqual([
+        '      ⚠ 1 warning from the last load still applies',
+      ]);
+      // Fixed: nothing; one that comes back is new again.
+      expect(warned(await reload())).toEqual([]);
+      expect(warned(await reload())).toEqual([`      ⚠ ${message('cites')}`]);
+      controller.abort();
+      await promise;
+    } finally {
+      restore();
+    }
+  });
+
   test('--json in watch mode: the summary reports an empty pack as ok, not as an indexer error', async () => {
     const controller = new AbortController();
     controller.abort();
@@ -1778,12 +1842,12 @@ describe("kindgi dev — imports a deployed pack wouldn't have", () => {
         ...baseInputs(fixtures, { stopSignal: controller.signal }),
         argv: ['dev', '--json', `--path=${packDir}`],
       });
-      await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2));
+      await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2), WAIT);
       expect(linesWith(writes, { stderr: '' }, 'The pack imports ms')).toHaveLength(1);
 
       // A save that imports nanoid too: a warning for nanoid only.
       fixtures.triggerChange(build(ms, nanoid));
-      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(2));
+      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(2), WAIT);
       expect(linesWith(writes, { stderr: '' }, WARNING)).toEqual([
         expect.stringContaining('The pack imports ms (in tools/clock/index.ts), which'),
         expect.stringContaining('The pack imports nanoid (in lib/ids.ts, tools/a.ts), which'),
@@ -1791,17 +1855,17 @@ describe("kindgi dev — imports a deployed pack wouldn't have", () => {
 
       // The same imports again (another save, an env-file change): nothing new.
       fixtures.triggerChange(build(ms, nanoid));
-      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(3));
+      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(3), WAIT);
       fixtures.triggerEnvChange();
-      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(4));
+      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(4), WAIT);
       expect(linesWith(writes, { stderr: '' }, WARNING)).toHaveLength(2);
 
       // ms moves to dependencies: the next refresh says so, once.
       await manifest({ dependencies: { ms: '^2.1.3' }, devDependencies: { nanoid: '^5.0.0' } });
       fixtures.triggerChange(build(ms, nanoid));
-      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(5));
+      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(5), WAIT);
       fixtures.triggerChange(build(ms, nanoid));
-      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(6));
+      await vi.waitFor(() => expect(fixtures.captureIndexerCalls).toHaveLength(6), WAIT);
       controller.abort();
       out = await promise;
     } finally {

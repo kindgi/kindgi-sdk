@@ -122,7 +122,8 @@ final class Requests {
         map(ctx, "config"),
         settings,
         cancellation,
-        log);
+        log,
+        text(ctx, "idempotencyKey"));
   }
 
   private static @Nullable String text(Map<String, Object> ctx, String key) {

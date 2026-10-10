@@ -202,6 +202,7 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'eval-suite-project-mismatch': 409,
   // Admin plane — eval-run dispatch.
   'eval-run-not-found': 404,
+  'eval-run-not-rescorable': 409,
   // Judgments (yes/no on a run's output items) and judge classes.
   'judgment-not-found': 404,
   'judge-class-not-found': 404,
@@ -251,6 +252,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'identity-user-unregistered': 409,
   /** A person's grants on a runtime without an authorization store. */
   'person-grants-unsupported': 501,
+  /** A caller's permissions on a runtime without an authorization store (`GET /v1/identity/me/permissions`). */
+  'permissions-unsupported': 501,
   /** Unregister: the version is live in a scope; move that pin first. */
   'agent-version-live': 409,
   /** An artifact upload over the runtime's cap (`KINDGI_ARTIFACT_MAX_BYTES`). */
@@ -293,10 +296,9 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // discovery failed, its SAML metadata didn't parse, a host it may not
   // reach): 422 with what went wrong.
   'identity-provider-invalid': 422,
-  'oauth-state-invalid': 400,
-  'oauth-code-exchange-failed': 422,
-  'oauth-refresh-failed': 422,
-  'oauth-refresh-not-supported': 422,
+  // The operator manages sign-in (KINDGI_AUTH_TENANT_PROVIDERS=off): a
+  // change to a provider takes the deployment's own token.
+  'identity-providers-operator-managed': 403,
   'invalid-provider-config': 400,
   'auth-not-session-token': 400,
   // `POST /v1/auth/refresh` with a browser session (cookie): refused, so a

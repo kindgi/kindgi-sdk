@@ -329,6 +329,38 @@ describe('kindgi eval-runs start --wait', () => {
   });
 });
 
+describe('kindgi eval-runs rescore', () => {
+  test('rescores a run; --project only when given; --wait reads it until done', async () => {
+    const { calls, rec } = recorder();
+    const plain = await run(['eval-runs', 'rescore', 'er-1'], {
+      evalRuns: { rescore: rec('rescore', { runId: 'er-2' }) },
+    });
+    expect(plain.exitCode, plain.stderr).toBe(0);
+    expect(JSON.parse(plain.stdout)).toEqual({ runId: 'er-2' });
+    const withProject = await run(['eval-runs', 'rescore', 'er-1', '--project=p-1'], {
+      evalRuns: { rescore: rec('rescore', { runId: 'er-3' }) },
+    });
+    expect(withProject.exitCode, withProject.stderr).toBe(0);
+    expect(calls).toEqual([
+      ['rescore', 'er-1', undefined],
+      ['rescore', 'er-1', { projectId: 'p-1' }],
+    ]);
+    const waited = await run(['eval-runs', 'rescore', 'er-1', '--wait'], {
+      evalRuns: {
+        rescore: rec('rescore', { runId: 'er-4' }),
+        get: async (id: string) => ({ id, status: 'completed' }),
+      },
+    });
+    expect(waited.exitCode, waited.stderr).toBe(0);
+    expect(JSON.parse(waited.stdout)).toEqual({ id: 'er-4', status: 'completed' });
+  });
+
+  test('errors: no run id', async () => {
+    const out = await run(['eval-runs', 'rescore'], { evalRuns: {} });
+    expect(out.exitCode).toBe(2);
+  });
+});
+
 describe('followEvalRun', () => {
   test('reads after each pause until the run leaves pending and running', async () => {
     const slept: number[] = [];

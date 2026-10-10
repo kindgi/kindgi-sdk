@@ -26,9 +26,11 @@ import type {
   RunHandlerOutcome,
   RunTrace,
 } from '../handler-binding.js';
+import type { HitlBinding } from '../hitl-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { MintPublicRunTokenResult } from '../public-run-token.js';
 import { type RunFailure, runFailure } from '../run-failure.js';
+import { runWaitingFor } from '../run-waiting-for.js';
 import type { AppEnv } from '../types.js';
 import { deniedBy } from './denied.js';
 import { liveScopeToWire } from './live-scope-wire.js';
@@ -49,6 +51,11 @@ const KERNEL_RUN_CHANNEL_PREFIX = 'kernel:run:';
 
 /** Options for `runsRouter`. */
 export interface RunsRouterOptions {
+  /**
+   * The approvals, for a suspended run's `waitingFor` (the approvals linked
+   * to its open waits). Absent: those waits are `unattributed`.
+   */
+  readonly hitl?: HitlBinding;
   /**
    * Optional push-based event bus. When present, `GET /:runId/stream`
    * subscribes on `kernel:run:<runId>` and delivers events
@@ -249,14 +256,24 @@ export function runsRouter(
     const requestId = c.get('requestId');
     const runId = c.req.param('runId') as RunId;
 
-    const loaded = await runBinding.getRun(c.get('tenantId') as TenantId, runId);
+    const tenantId = c.get('tenantId') as TenantId;
+    const loaded = await runBinding.getRun(tenantId, runId);
     if (loaded === null) {
       c.status(statusFor('run-not-found') as never);
       return c.json(
         toWireError({ code: 'run-not-found', message: `No run with id ${runId}` }, requestId),
       );
     }
-    return c.json(serializeRun(loaded, { output: true }));
+    // A suspended run says what it waits for (left out when that can't be read).
+    const waitingFor = await runWaitingFor(
+      { runBinding, ...(options.hitl !== undefined && { hitl: options.hitl }) },
+      tenantId,
+      { id: loaded.runId, status: loaded.status },
+    );
+    return c.json({
+      ...serializeRun(loaded, { output: true }),
+      ...(waitingFor !== undefined && { waitingFor }),
+    });
   });
 
   // ---------- GET /:runId/progress ----------
