@@ -100,6 +100,8 @@ export function createInMemoryAuditEventBinding(): AuditEventBinding {
     describe() {
       return { name: '@kindgi/audit-events-inmemory', version: '0.1.0' };
     },
+
+    filtersBySubject: true,
   };
 }
 
@@ -109,6 +111,8 @@ function matchesFilter(e: AuditEvent, filter: AuditEventFilter): boolean {
   if (filter.kinds !== undefined && !filter.kinds.includes(e.kind)) return false;
   if (filter.actor !== undefined && e.actor !== filter.actor) return false;
   if (filter.onBehalfOf !== undefined && e.onBehalfOf !== filter.onBehalfOf) return false;
+  // About this principal: its subject, or its actor when it has none.
+  if (filter.subject !== undefined && (e.subject ?? e.actor) !== filter.subject) return false;
   if (filter.runId !== undefined && e.runId !== filter.runId) return false;
   if (filter.agentId !== undefined && e.agentId !== filter.agentId) return false;
   if (filter.flowId !== undefined && e.flowId !== filter.flowId) return false;

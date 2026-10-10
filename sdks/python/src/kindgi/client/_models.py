@@ -7416,7 +7416,7 @@ class SignInEvent(BaseModel):
         "sessions-ended",
     ]
     """
-    `signed-in` / `signed-out`; `sign-in-refused` (with `reason`); `sign-in-link-sent` / `sign-in-link-capped` (an emailed link, for `userId`; `reason` is the limit that held); `sessions-revoked` ("sign out everywhere", or removing a person); `sessions-ended` (a changed boot token).
+    `signed-in` / `signed-out`; `sign-in-refused` (with `reason`); `sign-in-link-sent` / `sign-in-link-capped` (an emailed link, for `userId`; `reason` is the limit that held); `sessions-revoked` ("sign out everywhere", or removing a person; `byUserId` is the admin who did it, if not the person); `sessions-ended` (a changed boot token).
     """
     outcome: str
     """
@@ -7424,7 +7424,7 @@ class SignInEvent(BaseModel):
     """
     user_id: Annotated[str | None, Field(alias="userId")] = None
     """
-    The person: who signed in or out, or whom a link was for. Absent on a refusal.
+    The person the event is about: who signed in or out, whose sessions ended, or whom a link was for. Absent on a refusal that names no one.
     """
     method: str | None = None
     """
@@ -7439,6 +7439,10 @@ class SignInEvent(BaseModel):
     Why a sign-in was refused, or which limit held.
     """
     session_id: Annotated[str | None, Field(alias="sessionId")] = None
+    by_user_id: Annotated[str | None, Field(alias="byUserId")] = None
+    """
+    Who acted, when it isn't `userId`: the admin who ended this person's sessions.
+    """
 
 
 class RegisterIdentityProviderResult(BaseModel):

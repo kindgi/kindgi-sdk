@@ -7909,12 +7909,13 @@ export const SignInEventSchema: JsonSchema = {
         'sessions-ended',
       ],
       description:
-        '`signed-in` / `signed-out`; `sign-in-refused` (with `reason`); `sign-in-link-sent` / `sign-in-link-capped` (an emailed link, for `userId`; `reason` is the limit that held); `sessions-revoked` ("sign out everywhere", or removing a person); `sessions-ended` (a changed boot token).',
+        '`signed-in` / `signed-out`; `sign-in-refused` (with `reason`); `sign-in-link-sent` / `sign-in-link-capped` (an emailed link, for `userId`; `reason` is the limit that held); `sessions-revoked` ("sign out everywhere", or removing a person; `byUserId` is the admin who did it, if not the person); `sessions-ended` (a changed boot token).',
     },
     outcome: { type: 'string', description: '`succeeded` or `denied`.' },
     userId: {
       type: 'string',
-      description: 'The person: who signed in or out, or whom a link was for. Absent on a refusal.',
+      description:
+        'The person the event is about: who signed in or out, whose sessions ended, or whom a link was for. Absent on a refusal that names no one.',
     },
     method: {
       type: 'string',
@@ -7927,6 +7928,10 @@ export const SignInEventSchema: JsonSchema = {
     },
     reason: { type: 'string', description: 'Why a sign-in was refused, or which limit held.' },
     sessionId: { type: 'string' },
+    byUserId: {
+      type: 'string',
+      description: "Who acted, when it isn't `userId`: the admin who ended this person's sessions.",
+    },
   },
 };
 

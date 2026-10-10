@@ -56,6 +56,13 @@ export interface AuditEvent {
    * running on-behalf-of a user).
    */
   readonly onBehalfOf?: string;
+  /**
+   * The principal the event is about, when that isn't the actor
+   * (`<type>:<id>`, as `actor`): the person whose sessions an admin
+   * ended, or the person an anonymous request named (a refused sign-in).
+   * Absent: the event is about its actor.
+   */
+  readonly subject?: string;
   readonly correlationId?: string;
   /**
    * Kernel run id when this event was emitted inside a run. Absent
@@ -100,6 +107,12 @@ export interface AuditEventFilter {
   readonly actor?: string;
   /** Matches `AuditEvent.onBehalfOf` exactly; events without one never match. */
   readonly onBehalfOf?: string;
+  /**
+   * Events about this principal: `subject` where an event has one, else
+   * `actor`. Honoured by a binding with `filtersBySubject`; one without it
+   * ignores this field.
+   */
+  readonly subject?: string;
   readonly runId?: string;
   readonly agentId?: string;
   readonly flowId?: string;
