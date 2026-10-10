@@ -104,6 +104,7 @@ export async function runLocalIndexerReal(
     readonly packVersion: string;
     readonly counts: { tools: number; guardrails: number; agents: number; flows: number };
     readonly fileErrors: readonly { code: string; message: string; filePath?: string }[];
+    readonly warnings?: readonly { code: string; message: string; filePath?: string }[];
   };
   let index: unknown;
   try {
@@ -125,6 +126,11 @@ export async function runLocalIndexerReal(
       code: e.code,
       message: e.message,
       ...(e.filePath !== undefined && { filePath: e.filePath }),
+    })),
+    warnings: (report.warnings ?? []).map((w) => ({
+      code: w.code,
+      message: w.message,
+      ...(w.filePath !== undefined && { filePath: w.filePath }),
     })),
     index,
   };

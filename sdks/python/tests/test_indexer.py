@@ -430,3 +430,58 @@ def test_the_index_carries_mutating_as_declared(make_pack: Callable[..., Path]) 
     assert by_id["acme.write"]["mutating"] is True
     assert "mutating" not in by_id["acme.unsaid"]  # absent: it may change something
     assert by_id["acme.lookup"]["mutating"] is False
+
+
+def _guardrail(id: str, check_id: str | None = None) -> str:
+    named = f', check_id="{check_id}"' if check_id is not None else ""
+    return (
+        "from kindgi import RunTrace, guardrail\n\n\n"
+        f'@guardrail(id="{id}"{named}, on_violation="halt")\n'
+        "def check(config: dict, trace: RunTrace) -> bool:\n"
+        "    return bool(trace.output)\n"
+    )
+
+
+def _warning(check_id: str) -> dict[str, Any]:
+    return {
+        "code": "check-id-unprefixed",
+        "message": (
+            f'guardrails/extra.py: check "{check_id}" doesn\'t start with this pack\'s id ("acme.").'
+            " Name it \"acme.checks.<name>\" so it can't collide with another pack's check in the"
+            " same tenant. The pack builds as it is."
+        ),
+        "filePath": "guardrails/extra.py",
+        "field": "check",
+    }
+
+
+def test_a_check_id_under_the_packs_id_gives_no_warning(make_pack: Callable[..., Path]) -> None:
+    report, _ = index_of(full_pack(make_pack))
+    assert report["warnings"] == []
+
+
+def test_a_check_id_without_the_packs_prefix_is_a_warning_and_still_indexes(
+    make_pack: Callable[..., Path],
+) -> None:
+    # The check id is the guardrail's own id when no `check_id` is given.
+    report, index = index_of(full_pack(make_pack, **{"guardrails/extra.py": _guardrail("cites")}))
+    assert report["fileErrors"] == []
+    assert report["warnings"] == [_warning("cites")]
+    assert "cites" in [g["id"] for g in index["guardrails"]]
+
+
+def test_an_explicit_check_id_without_the_prefix_is_a_warning(
+    make_pack: Callable[..., Path],
+) -> None:
+    root = full_pack(
+        make_pack, **{"guardrails/extra.py": _guardrail("acme.cites", check_id="checks.cites")}
+    )
+    report, _ = index_of(root)
+    assert report["warnings"] == [_warning("checks.cites")]
+
+
+def test_a_prefix_that_isnt_the_whole_pack_id_is_no_prefix(make_pack: Callable[..., Path]) -> None:
+    report, _ = index_of(
+        full_pack(make_pack, **{"guardrails/extra.py": _guardrail("acmeplus.cites")})
+    )
+    assert report["warnings"] == [_warning("acmeplus.cites")]

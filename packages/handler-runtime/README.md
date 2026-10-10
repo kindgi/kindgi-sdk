@@ -140,6 +140,12 @@ if (outcome.kind === 'ok') {
 | `output-write-failed` | Filesystem write error. |
 | `reserved-check-id` | A guardrail ships its own check (an `id` and an `evaluate`, as its `check` or any check its module exports) under a built-in check's id (`RESERVED_CHECK_IDS`: `must-cite`, `never-call-tool`, …), which the runtime would replace with the built-in. Naming a built-in (`check: 'must-cite'`) is fine: that's how to use it. |
 
+Some things the pack should change don't stop the build. The report lists them as `warnings` (`IndexerWarning`), and the pack indexes as it would without them:
+
+| Code | When |
+|---|---|
+| `check-id-unprefixed` | A check the pack ships (its `id`, as a guardrail's `check` or any check its module exports) doesn't start with the pack's id (`<pack id>.`). Packs in one tenant share one space of check names, so name it `<pack id>.checks.<name>`. A built-in named by its id isn't the pack's check, so it isn't flagged. |
+
 ### Loading `kindgi.config.*` on its own
 
 The indexer's config loader is exported so every tool reads the pack

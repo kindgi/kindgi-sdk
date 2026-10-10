@@ -276,7 +276,7 @@ export function approvalsRouter(
       const decoded = decodeCursor(rawCursor);
       if (decoded !== null && isCursorTime(decoded.createdAt)) {
         after = { createdAt: decoded.createdAt, id: decoded.id as unknown as ApprovalId };
-      } else if (decoded === null && Number.isFinite(Date.parse(rawCursor))) {
+      } else if (decoded === null && isCursorTime(rawCursor)) {
         cursor = rawCursor;
       } else {
         c.status(statusFor('bad-input') as never);

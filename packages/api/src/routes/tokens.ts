@@ -19,7 +19,7 @@ import {
   type TokenPrincipal,
 } from '../token-admin.js';
 import type { AppEnv } from '../types.js';
-import { clampLimit, decodeCursor, encodeCursor } from './pagination.js';
+import { clampLimit, decodeCursor, encodeCursor, isCursorTime } from './pagination.js';
 
 /**
  * API keys: mint, list, read, revoke. A key acts for one principal (a
@@ -87,7 +87,7 @@ export function tokensRouter(admin: TokenAdmin, authorizer?: Authorizer): Hono<A
     let after: { createdAt: Date; tokenId: ApiTokenId } | undefined;
     if (rawCursor !== undefined) {
       const decoded = decodeCursor(rawCursor);
-      if (decoded === null || Number.isNaN(Date.parse(decoded.createdAt))) {
+      if (decoded === null || !isCursorTime(decoded.createdAt)) {
         return fail(c, { code: 'bad-input', message: '`cursor` is not a valid cursor' }, requestId);
       }
       after = { createdAt: new Date(decoded.createdAt), tokenId: decoded.id as ApiTokenId };
