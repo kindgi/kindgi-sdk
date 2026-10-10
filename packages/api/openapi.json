@@ -26734,7 +26734,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body.",
+            "description": "`provider-key-refused`: the version declares or sends a model provider's key (`details.secret`, `details.providerId`), so it stays retired; publish a version that names a key of its own.",
             "content": {
               "application/json": {
                 "schema": {

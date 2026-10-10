@@ -23,6 +23,9 @@ You get its pull credentials, a robot name and a token, and log in once with
   service as containers, with your own Postgres.
 - **[Operate it](operate/):** health and logs, backups and restores,
   upgrades, and rotating its tokens and keys.
+- **[Keep secrets in your own secret manager](secret-manager/):** Azure Key
+  Vault, Google Secret Manager or HashiCorp Vault holds the secrets set
+  through Kindgi's API, and Kindgi keeps their names and versions.
 - **[Keep and purge deleted data](retention/):** how long deleted records
   are kept, and the retention policies and sweeps that purge them.
 - **[Run with authorization](authorization/):** what it gives today and

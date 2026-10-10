@@ -1123,12 +1123,12 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     if (tenantId !== undefined) c.set('log', c.get('log').child({ tenantId }));
     await next();
   });
-  // A key limited to a project names no other one.
-  v1.use('*', refuseOtherProjectForKey());
-  // Page cursors are sealed at the edge, for every list.
-  if (input.cursorSealer !== undefined) v1.use('*', sealedCursors(input.cursorSealer));
   const authorizer: Authorizer | undefined =
     input.authz !== undefined ? createAuthorizer(input.authz.authzCheckBinding) : undefined;
+  // A key limited to a project names no other one.
+  v1.use('*', refuseOtherProjectForKey(authorizer));
+  // Page cursors are sealed at the edge, for every list.
+  if (input.cursorSealer !== undefined) v1.use('*', sealedCursors(input.cursorSealer));
 
   const tenantHierarchyBinding: TenantHierarchyBinding = input.tenantHierarchyBinding;
   v1.use('*', idempotencyMiddleware(input.idempotencyStore ?? createInMemoryIdempotencyStore()));
@@ -1745,6 +1745,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
             ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
           }
         : { enabled: false },
+      authorizer,
     ),
   );
   app.route('/v1', v1);

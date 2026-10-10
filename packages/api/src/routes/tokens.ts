@@ -4,6 +4,7 @@
 import type { Context, MiddlewareHandler } from 'hono';
 import { Hono } from 'hono';
 
+import { ref } from '@kindgi/authz';
 import type { ApiTokenId, ProjectId, TenantId } from '@kindgi/types';
 
 import { callerPrincipal, callerRef, isTenantAdmin, principalToWire } from '../caller.js';
@@ -19,6 +20,7 @@ import {
   type TokenPrincipal,
 } from '../token-admin.js';
 import type { AppEnv } from '../types.js';
+import { type Refusal, recordRefusal, refusalError } from './denied.js';
 import { clampLimit, decodeCursor, encodeCursor, isCursorTime } from './pagination.js';
 import { parseTimeInput } from './time-input.js';
 
@@ -202,19 +204,33 @@ async function mintRefusal(
     };
   }
   const held = new Set(c.get('capabilities') ?? []);
+  // What the minting key carries rules these out: recorded, as every
+  // refusal the API decides itself is.
+  const refuse = (refusal: Refusal): WireError => {
+    recordRefusal(c, authorizer, refusal);
+    return refusalError(refusal);
+  };
+  const tenant = ref('tenant', c.get('tenantId') as unknown as string);
   const notHeld = body.capabilities.filter((cap) => !held.has(cap));
   if (notHeld.length > 0) {
-    return {
-      code: 'permission-denied',
+    return refuse({
+      action: 'admin',
+      resource: tenant,
       message: `A key can only be given capabilities its minter holds; you don't hold: ${notHeld.join(', ')}`,
-    };
+      failing: 'scope',
+    });
   }
   const narrowedTo = c.get('tokenProjectId');
   if (narrowedTo !== undefined && body.projectId !== (narrowedTo as unknown as ProjectId)) {
-    return {
-      code: 'key-project-mismatch',
+    return refuse({
+      action: 'admin',
+      // A body naming another project is refused before here, by
+      // `refuseOtherProjectForKey`; the project is kept as defence in depth.
+      resource: body.projectId !== undefined ? ref('project', body.projectId) : tenant,
       message: `Your key is limited to project ${narrowedTo}: a key it mints must be limited to it too`,
-    };
+      failing: 'scope',
+      code: 'key-project-mismatch',
+    });
   }
   return undefined;
 }

@@ -89,6 +89,17 @@ function makeApp() {
       list: async () => ({ data: tools }),
       headExists: async () => false,
       get: async () => null,
+      // Retired versions: one declares the model key, one a key of its own.
+      getVersion: async (input: { toolId: string }) =>
+        input.toolId === 'acme.t'
+          ? tool('acme.t', { needsSpec: { secrets: { [MODEL_KEY]: { type: 'string' } } } })
+          : tool('acme.own', { needsSpec: { secrets: { OWN_KEY: { type: 'string' } } } }),
+      reinstateVersion: async (input: { toolId: string; version: string }) => ({
+        kind: 'ok',
+        toolId: input.toolId,
+        version: input.version,
+        wasTombstoned: true,
+      }),
       publish: async (input: { tool: ToolManifest }) => ({
         kind: 'ok',
         toolId: input.tool.id,
@@ -153,6 +164,18 @@ describe("a model provider's key, named where it's not the provider", () => {
       projectId,
     });
     expect(own.status).toBe(201);
+  });
+
+  test('reinstating a retired version that names it: 400, and it stays retired', async () => {
+    const h = makeApp();
+    const refused = await h.call('POST', '/v1/tools/acme.t/versions/1.0.0/reinstate', {});
+    expect([refused.status, refused.body.error?.code, refused.body.error?.message]).toEqual([
+      400,
+      'provider-key-refused',
+      REFUSED('a tool'),
+    ]);
+    const own = await h.call('POST', '/v1/tools/acme.own/versions/1.0.0/reinstate', {});
+    expect([own.status, own.body.wasTombstoned]).toEqual([200, true]);
   });
 
   test('an MCP or a webhook endpoint naming it: 400', async () => {

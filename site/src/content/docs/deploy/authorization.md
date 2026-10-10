@@ -261,12 +261,13 @@ A runtime without OpenFGA answers `501 project-access-unsupported`.
 
 ## The access audit
 
-Each decision, allowed or denied, is kept: `GET /v1/audit/authz` lists them,
-oldest first, for a tenant admin; `order=desc` lists the newest first, and its
-cursor goes on in that order (`order: 'desc'` in TypeScript, `order="desc"`
-in Python). They're kept for good, unless the runtime
-purges audit events: with `KINDGI_COMPLIANCE_CLASSIFIER=shipped`, allowed ones
-after 90 days and denied ones after 365 (see
+Each decision the authorization model makes, allowed or denied, is kept, and
+so is a refusal the API answers from its own checks: `GET /v1/audit/authz`
+lists them, oldest first, for a tenant admin; `order=desc` lists the newest
+first, and its cursor goes on in that order (`order: 'desc'` in TypeScript,
+`order="desc"` in Python). They're kept for good, unless the runtime purges
+audit events: with `KINDGI_COMPLIANCE_CLASSIFIER=shipped`, allowed ones after
+90 days and denied ones after 365 (see
 [Audit events](../retention/#audit-events)).
 
 ```json
@@ -287,9 +288,25 @@ Refusals the API decides before it asks the authorization model are kept too,
 with a `reason` that says which check refused (runtime 0.1.6 or later):
 
 - what the caller's API key rules out: a `member` key asking for a tenant
-  admin's action, a key limited to a project reaching outside it, a key
-  without the capability a write needs (`env:write`, `secrets:write`, …);
-- a caller who isn't a reviewer, on the approvals routes.
+  admin's action, a key limited to a project acting on another project's
+  resource, a key without the capability a write needs (`env:write`,
+  `secrets:write`, …);
+- a request that names a project other than its key's, and a key limited to
+  a project minting one that isn't (`key-project-mismatch`);
+- minting a key with capabilities you don't hold;
+- a caller who isn't a reviewer, on the approvals routes, or who may not
+  judge as a restricted judge class (`judge-class-not-allowed`);
+- the operator's identity-provider lock (`identity-providers-operator-managed`);
+- console token sign-in's refusals (`token-sign-in-not-allowed`,
+  `token-sign-in-off`);
+- a stdio MCP endpoint where the deployment runs no commands
+  (`host-access-denied`).
+
+Never kept, since they don't refuse the caller: `signer-not-trusted`,
+`csrf-origin-mismatch` and `role-exceeds-principal` (a limit on the key being
+minted). Nor is a refusal of a request with no principal behind it: a public
+run token used outside its two progress routes, or judging without a user or a
+service token. A `401` (an unknown caller) never is.
 
 ### In the console
 

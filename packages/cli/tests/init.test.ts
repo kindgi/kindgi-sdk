@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -108,6 +108,7 @@ describe('kindgi init — minimal template', () => {
     expect(out.exitCode).toBe(0);
     const files = await listRecursive(join(cwd, 'my-pack'));
     expect(files).toEqual([
+      '.claude/settings.json',
       '.claude/skills/.kindgi-manifest.json',
       '.claude/skills/kindgi-authoring-agents/SKILL.md',
       '.claude/skills/kindgi-authoring-flows/SKILL.md',
@@ -404,6 +405,7 @@ describe('kindgi init — python template', () => {
     expect(out.exitCode).toBe(0);
     const files = await listRecursive(join(cwd, 'my-pack'));
     expect(files).toEqual([
+      '.claude/settings.json',
       '.claude/skills/.kindgi-manifest.json',
       // Only the skills written for Python packs: the shared ones and the
       // Python getting-started and authoring skills — none of the TypeScript ones.
@@ -449,6 +451,7 @@ describe('kindgi init — java template', () => {
     // The skills written for Java packs: the shared ones and the Java getting-started and
     // authoring skills, none of the TypeScript or Python ones.
     expect(all.filter((f) => f.startsWith('.claude/'))).toEqual([
+      '.claude/settings.json',
       '.claude/skills/.kindgi-manifest.json',
       '.claude/skills/kindgi-authoring-mcp-servers/SKILL.md',
       '.claude/skills/kindgi-authoring-providers/SKILL.md',
@@ -517,6 +520,7 @@ describe('kindgi init — scala template', () => {
     expect(await listRecursive(join(cwd, 'type'))).toEqual([
       // The skills written for Scala packs: the shared ones and the Scala getting-started and
       // authoring skills.
+      '.claude/settings.json',
       '.claude/skills/.kindgi-manifest.json',
       '.claude/skills/kindgi-authoring-mcp-servers/SKILL.md',
       '.claude/skills/kindgi-authoring-providers/SKILL.md',
@@ -600,6 +604,7 @@ describe('kindgi init — sample template', () => {
     expect(out.exitCode).toBe(0);
     const files = await listRecursive(join(cwd, 'my-pack'));
     expect(files).toEqual([
+      '.claude/settings.json',
       '.claude/skills/.kindgi-manifest.json',
       '.claude/skills/kindgi-authoring-agents/SKILL.md',
       '.claude/skills/kindgi-authoring-flows/SKILL.md',
@@ -728,5 +733,43 @@ describe('kindgi init --template in an existing app (augment mode)', () => {
     const out = await runCli(baseInputs({ argv: ['init', '--template=nope'] }));
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain('Unknown template: nope');
+  });
+});
+
+describe("kindgi init — a coding agent's settings", () => {
+  test('inside a git repository: the root gets the rules for the pack, said on its own line', async () => {
+    await mkdir(join(cwd, '.git'));
+    const out = await runCli(baseInputs({ argv: ['init', 'my-pack'] }));
+    expect(out.exitCode).toBe(0);
+    const root = join(cwd, '.claude', 'settings.json');
+    expect(out.stderr).toContain(
+      `✓ ${root}: created with 5 deny rules for my-pack/, so an agent started at the repo root can't read this pack's keys`,
+    );
+    const deny = (JSON.parse(await readFile(root, 'utf8')) as { permissions: { deny: string[] } })
+      .permissions.deny;
+    expect(deny).toContain('Read(./my-pack/.env*)');
+    expect(deny).toContain('Read(./my-pack/.kindgi/secrets.env)');
+  });
+
+  test('a git repository rooted at your home folder: nothing written there, and a line saying why', async () => {
+    await mkdir(join(cwd, '.git'));
+    const out = await runCli(baseInputs({ argv: ['init', 'my-pack'], home: cwd }));
+    expect(out.exitCode).toBe(0);
+    expect(out.stderr).toContain(
+      `⚠ ${join(cwd, '.claude', 'settings.json')} not written: the repo root is your home folder; add the rules yourself if you want them there:`,
+    );
+    expect(await pathExists(join(cwd, '.claude'))).toBe(false);
+    expect(await pathExists(join(cwd, 'my-pack', '.claude', 'settings.json'))).toBe(true);
+  });
+
+  test("--force over a settings file that isn't JSON: scaffolded, with a warning, exit 0", async () => {
+    await mkdir(join(cwd, 'my-pack', '.claude'), { recursive: true });
+    await writeFile(join(cwd, 'my-pack', '.claude', 'settings.json'), '{ // mine\n}');
+    const out = await runCli(baseInputs({ argv: ['init', 'my-pack', '--force'] }));
+    expect(out.exitCode).toBe(0);
+    expect(out.stderr).toMatch(/⚠ .*settings\.json isn't valid JSON, so it's left as it is/);
+    expect(await readFile(join(cwd, 'my-pack', '.claude', 'settings.json'), 'utf8')).toBe(
+      '{ // mine\n}',
+    );
   });
 });

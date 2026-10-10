@@ -30,6 +30,7 @@ import type { Authorizer } from '../middleware/authorize.js';
 import type { ReviewerBinding } from '../reviewer-binding.js';
 import { callerReviewerRole } from '../reviewer-role.js';
 import type { AppEnv } from '../types.js';
+import { type Refusal, recordRefusal, refusalError } from './denied.js';
 import { captureTurnContext } from './judgment-context.js';
 import { captureFlowContext } from './judgment-flow-context.js';
 import { clampLimit } from './pagination.js';
@@ -64,9 +65,9 @@ export function judgmentsRouter(
   r.post('/', async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
-    const fail = (code: string, message: string) => {
+    const fail = (code: string, message: string, details?: Readonly<Record<string, unknown>>) => {
       c.status(statusFor(code) as never);
-      return c.json(toWireError({ code, message }, requestId));
+      return c.json(toWireError({ code, message, ...details }, requestId));
     };
 
     const parsed = parseJudgmentBody(await c.req.json().catch(() => null));
@@ -82,7 +83,7 @@ export function judgmentsRouter(
       asserted,
       reviewers,
     });
-    if (prepared.kind === 'err') return fail(prepared.code, prepared.message);
+    if (prepared.kind === 'err') return fail(prepared.code, prepared.message, prepared.details);
     const { run, subject, projectId, itemValue, conversationId, restricted, replayOf } = prepared;
     const first = await isFirstJudgment(binding, tenantId, body.runId);
     const captured = first
@@ -437,7 +438,12 @@ type Prepared =
       /** The run a comparison's replay re-ran, when the judged run is one. */
       readonly replayOf?: string;
     }
-  | { readonly kind: 'err'; readonly code: string; readonly message: string };
+  | {
+      readonly kind: 'err';
+      readonly code: string;
+      readonly message: string;
+      readonly details?: Readonly<Record<string, unknown>>;
+    };
 
 /**
  * Everything a judgment needs from its run, or why it can't be recorded:
@@ -498,7 +504,18 @@ async function prepareJudgment(
         ...(reviewerRole !== undefined && { reviewerRole }),
       });
       if (why !== undefined) {
-        return err('judge-class-not-allowed', `You can't judge as "${judgeClass.name}": ${why}.`);
+        // Who the caller is rules it out: recorded, as every refusal the
+        // API decides itself is.
+        const refusal: Refusal = {
+          action: 'write',
+          resource: ref('project', run.projectId as unknown as string),
+          message: `You can't judge as "${judgeClass.name}": ${why}.`,
+          failing: 'actor',
+          code: 'judge-class-not-allowed',
+        };
+        recordRefusal(c, authorizer, refusal);
+        const { code, message, ...details } = refusalError(refusal);
+        return { kind: 'err', code, message, details };
       }
       restricted = true;
     }

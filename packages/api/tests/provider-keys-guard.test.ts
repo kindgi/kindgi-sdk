@@ -96,6 +96,13 @@ describe('guardProviderKeys', () => {
     expect(r.kind).toBe('ok');
   });
 
+  test('what the store says about itself passes through', () => {
+    const { binding } = store();
+    const dev = { ...binding, writesAppEnvFiles: true } as SecretBinding;
+    expect(guardProviderKeys(dev, keys, 'a tool').writesAppEnvFiles).toBe(true);
+    expect(guardProviderKeys(binding, keys, 'a tool')).not.toHaveProperty('writesAppEnvFiles');
+  });
+
   test('the words name what asked', async () => {
     const { binding } = store();
     for (const user of ['an MCP endpoint', 'a webhook endpoint'] as const) {

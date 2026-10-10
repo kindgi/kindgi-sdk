@@ -149,8 +149,24 @@ jobs:
         run: pnpm run build
       - name: Typecheck
         run: pnpm run typecheck:all
+      # kindgi dev's sandbox on Linux (packages/cli/tests/dev-sandbox-live.test.ts,
+      # which fails rather than skips with KINDGI_DEV_SANDBOX_LIVE set): bubblewrap,
+      # and on Ubuntu 23.10 and later the AppArmor permission it needs to make user
+      # namespaces.
+      - name: bubblewrap (for kindgi dev's sandbox test)
+        run: |
+          # The same commands guides/secrets/dev-sandbox.mdx gives a reader.
+          sudo apt-get update -qq
+          sudo apt-get install bubblewrap
+          if [ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null)" = 1 ]; then
+            printf 'profile bwrap /usr/bin/bwrap flags=(unconfined) {\n  userns,\n}\n' | sudo tee /etc/apparmor.d/bwrap
+            sudo systemctl reload apparmor
+          fi
+          bwrap --ro-bind / / true
       - name: Test
         run: pnpm run test:all
+        env:
+          KINDGI_DEV_SANDBOX_LIVE: required
       # The release scripts' own tests (node:test); the Python version sync's
       # run uv, set up above.
       - name: Release scripts
