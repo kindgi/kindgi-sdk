@@ -28,7 +28,7 @@ import type { CommandResult } from '../commands/types.js';
 import { renderJson } from '../output.js';
 import { binDisplay } from '../package-manager.js';
 import { CLI_VERSION } from '../version-info.js';
-import { agentAccessRows, patchAgentAccess } from './agent-access.js';
+import { type AgentAccessRows, agentAccessRows, patchAgentAccess } from './agent-access.js';
 import {
   JVM_PREVIEW,
   type KindgiJavaSource,
@@ -113,7 +113,7 @@ export async function runInitScalaAugment(
 
   const written = await writePackFiles(inputs, configPath, packId.value, version);
   if (written.kind === 'err') return fail(written.message);
-  const { created, skipped } = written;
+  const { created, skipped, access } = written;
 
   const hasDependency = await declaresKindgiPackScala(inputs.targetDir, build);
   const nextSteps = [
@@ -137,6 +137,7 @@ export async function runInitScalaAugment(
     dependencyInBuild: hasDependency,
     created,
     skipped,
+    warnings: access.warnings,
     nextSteps,
   };
   return {
@@ -149,6 +150,8 @@ export async function runInitScalaAugment(
         `  ${JVM_PREVIEW}`,
         `  Pack id: ${packId.value}    Version: ${version}`,
         `  Wrote ${created.length} file${created.length === 1 ? '' : 's'}; skipped ${skipped.length}.`,
+        ...access.outside.map((line) => `  ✓ ${line}`),
+        ...access.warnings.map((warning) => `  ⚠ ${warning}`),
         '',
         '  Next steps:',
         ...nextSteps.map((step) => `    ${step}`),
@@ -166,7 +169,12 @@ async function writePackFiles(
   packId: string,
   version: string,
 ): Promise<
-  | { readonly kind: 'ok'; readonly created: string[]; readonly skipped: string[] }
+  | {
+      readonly kind: 'ok';
+      readonly created: string[];
+      readonly skipped: string[];
+      readonly access: AgentAccessRows;
+    }
   | { readonly kind: 'err'; readonly message: string }
 > {
   const created: string[] = [];
@@ -202,8 +210,8 @@ async function writePackFiles(
   // Keep the coding agent out of the files that hold keys (`agent-access.ts`).
   const access = agentAccessRows(inputs.targetDir, await patchAgentAccess(inputs.targetDir));
   created.push(...access.created);
-  skipped.push(...access.skipped, ...access.warnings);
-  return { kind: 'ok', created, skipped };
+  skipped.push(...access.skipped);
+  return { kind: 'ok', created, skipped, access };
 }
 
 /** The skills written for Scala packs, into `.claude/skills/`, as `kindgi skills sync` writes them. */

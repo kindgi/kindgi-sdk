@@ -143,7 +143,7 @@ export async function runInitPythonAugment(
   // Keep the coding agent out of the files that hold keys (`agent-access.ts`).
   const access = agentAccessRows(inputs.targetDir, await patchAgentAccess(inputs.targetDir));
   created.push(...access.created);
-  skipped.push(...access.skipped, ...access.warnings);
+  skipped.push(...access.skipped);
 
   const nextSteps = [
     ...pythonAugmentNextSteps(
@@ -165,6 +165,7 @@ export async function runInitPythonAugment(
     kindgi: source,
     created,
     skipped,
+    warnings: access.warnings,
     nextSteps,
   };
   return {
@@ -176,6 +177,8 @@ export async function runInitPythonAugment(
         `  Kindgi added to ${inputs.targetDir} (a Python pack in the app).`,
         `  Pack id: ${packId.id}    Version: ${version}`,
         `  Wrote ${created.length} file${created.length === 1 ? '' : 's'}; skipped ${skipped.length}.`,
+        ...access.outside.map((line) => `  ✓ ${line}`),
+        ...access.warnings.map((warning) => `  ⚠ ${warning}`),
         '',
         '  Next steps:',
         ...nextSteps.map((step) => `    ${step}`),

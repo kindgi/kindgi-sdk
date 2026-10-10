@@ -170,7 +170,7 @@ export async function runInitJavaAugment(inputs: RunInitJavaAugmentInputs): Prom
   // Keep the coding agent out of the files that hold keys (`agent-access.ts`).
   const access = agentAccessRows(inputs.targetDir, await patchAgentAccess(inputs.targetDir));
   created.push(...access.created);
-  skipped.push(...access.skipped, ...access.warnings);
+  skipped.push(...access.skipped);
 
   const hasDependency = /<artifactId>\s*kindgi-pack\s*<\/artifactId>/.test(pom);
   const nextSteps = [
@@ -201,6 +201,7 @@ export async function runInitJavaAugment(inputs: RunInitJavaAugmentInputs): Prom
     dependencyInPom: hasDependency,
     created,
     skipped,
+    warnings: access.warnings,
     nextSteps,
   };
   return {
@@ -213,6 +214,8 @@ export async function runInitJavaAugment(inputs: RunInitJavaAugmentInputs): Prom
         `  ${JVM_PREVIEW}`,
         `  Pack id: ${packId}    Version: ${version}`,
         `  Wrote ${created.length} file${created.length === 1 ? '' : 's'}; skipped ${skipped.length}.`,
+        ...access.outside.map((line) => `  ✓ ${line}`),
+        ...access.warnings.map((warning) => `  ⚠ ${warning}`),
         '',
         '  Next steps:',
         ...nextSteps.map((step) => `    ${step}`),

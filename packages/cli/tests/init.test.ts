@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -733,5 +733,32 @@ describe('kindgi init --template in an existing app (augment mode)', () => {
     const out = await runCli(baseInputs({ argv: ['init', '--template=nope'] }));
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain('Unknown template: nope');
+  });
+});
+
+describe("kindgi init — a coding agent's settings", () => {
+  test('inside a git repository: the root gets the rules for the pack, said on its own line', async () => {
+    await mkdir(join(cwd, '.git'));
+    const out = await runCli(baseInputs({ argv: ['init', 'my-pack'] }));
+    expect(out.exitCode).toBe(0);
+    const root = join(cwd, '.claude', 'settings.json');
+    expect(out.stderr).toContain(
+      `✓ ${root}: created with 5 deny rules for my-pack/, so an agent started at the repo root can't read this pack's keys`,
+    );
+    const deny = (JSON.parse(await readFile(root, 'utf8')) as { permissions: { deny: string[] } })
+      .permissions.deny;
+    expect(deny).toContain('Read(./my-pack/.env*)');
+    expect(deny).toContain('Read(./my-pack/.kindgi/secrets.env)');
+  });
+
+  test("--force over a settings file that isn't JSON: scaffolded, with a warning, exit 0", async () => {
+    await mkdir(join(cwd, 'my-pack', '.claude'), { recursive: true });
+    await writeFile(join(cwd, 'my-pack', '.claude', 'settings.json'), '{ // mine\n}');
+    const out = await runCli(baseInputs({ argv: ['init', 'my-pack', '--force'] }));
+    expect(out.exitCode).toBe(0);
+    expect(out.stderr).toMatch(/⚠ .*settings\.json isn't valid JSON, so it's left as it is/);
+    expect(await readFile(join(cwd, 'my-pack', '.claude', 'settings.json'), 'utf8')).toBe(
+      '{ // mine\n}',
+    );
   });
 });

@@ -128,6 +128,25 @@ It merges them into a settings file you already have, and leaves one it can't
 read as JSON alone, saying what to add. A project with a `.cursorignore`,
 `.geminiignore` or `.aiderignore` gets the same files added to it.
 
+**In a monorepo,** mind where the agent starts. Claude Code reads
+`.claude/settings.json` from the folder a session starts in, and a `./` rule
+is relative to that folder. So when your pack sits below its repository's
+root, `kindgi init` also adds the rules, under the pack's path, to the root's
+`.claude/settings.json` (creating it if there's none), and says so:
+
+```text
+✓ /…/acme/.claude/settings.json: created with 5 deny rules for apps/agent/, so an agent started at the repo root can't read this pack's keys
+```
+
+The root's file then holds `"Read(./apps/agent/.env*)"`,
+`"Read(./apps/agent/.kindgi/secrets.env)"` and so on, merged the same way, and
+a `.cursorignore`, `.geminiignore` or `.aiderignore` at the root gets the same
+paths. An agent started in the pack's folder uses the pack's own file. One
+started in another folder of the repository loads neither, and the pack's
+files are outside its folder, so Claude Code asks you before it reads them.
+A bare `./.env*` matches at any depth below the session's folder; a rule with
+a folder in it, such as `./.kindgi/secrets.env`, matches only there.
+
 The rules stop the agent's file tools, and a plain `cat .env.local` too. A
 program its shell runs (`node -e …`, a script) can still read the files. To
 close that, turn on Claude Code's
@@ -172,6 +191,8 @@ Tested with Claude Code 2.1.288:
   agent's own `kindgi` commands read to find `kindgi dev`. With the sandbox
   on, a `Read` deny rule binds the agent's shell commands too, so denying it
   would break them.
+- **In a monorepo,** put the sandbox in the root's settings, with the same
+  paths under the pack's folder in both lists (`"./apps/agent/.env*"`, …).
 - **Some things then run in a terminal of your own:** `kindgi dev`, your
   app's dev server, and anything that needs Docker, such as `kindgi build`.
   `kindgi doctor` works, and says which checks it skipped because it couldn't

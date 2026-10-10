@@ -300,8 +300,9 @@ build before anything uploads, with the range to use.
 ## Keys and tokens: hands off
 
 Never open, read, grep, `cat`, copy or print the files that hold keys and
-tokens, and never print their values (`env`, `printenv`, or code that echoes
-the process environment):
+tokens, in any folder of the repository (not only the pack's), and never
+print their values (`env`, `printenv`, or code that echoes the process
+environment):
 
 - `.env`, `.env.local` and any other `.env.*`: the app's settings, and any key
   put there by hand;
@@ -314,7 +315,8 @@ model provider. To see which secrets exist, run
 `kindgi secrets list --env=local --scope=tenant` (names only). To store one,
 ask the person to run `kindgi secrets set NAME --env=local --scope=tenant`
 themselves: it prompts without echoing. Never put a value on a command line.
-`kindgi init` adds these files to the deny rules in `.claude/settings.json`.
+`kindgi init` adds these files to the deny rules in `.claude/settings.json`;
+in a monorepo, also to the repository root's, under the pack's path.
 
 ## Next
 

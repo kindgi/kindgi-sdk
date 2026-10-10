@@ -347,6 +347,7 @@ export async function runInitAugment(inputs: RunInitAugmentInputs): Promise<Comm
         `  Kindgi added to ${inputs.targetDir} (augment mode).`,
         `  Pack id: ${packId}    Version: ${packVersion}`,
         `  Wrote ${created.length} file${created.length === 1 ? '' : 's'}; skipped ${skipped.length}.`,
+        ...(patchResult.outside ?? []).map((line) => `  ✓ ${line}`),
         ...warnings.map((warning) => `  ⚠ ${warning}`),
         '',
         '  Next steps:',
@@ -622,6 +623,8 @@ type PatchesResult =
       readonly created: readonly string[];
       readonly skipped: readonly string[];
       readonly warnings: readonly string[];
+      /** What was written outside the app's folder (`agentAccessRows`), printed whatever else is. */
+      readonly outside?: readonly string[];
     }
   | { readonly kind: 'err'; readonly stderr: string };
 
@@ -698,7 +701,7 @@ async function applyAugmentPatches(args: {
     warnings.push(...esbuild.warnings);
   }
 
-  return { kind: 'ok', created, skipped, warnings };
+  return { kind: 'ok', created, skipped, warnings, outside: access.outside };
 }
 
 /**
