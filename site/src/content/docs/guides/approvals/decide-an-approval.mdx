@@ -166,9 +166,16 @@ An approve, reject or withdraw resolves the run within the same call, so the
 run has moved on by the time the command returns. A decided approval can't be
 decided again.
 
-Every `hitl-*` failure (`hitl-rejected`, `hitl-withdrawn`, `hitl-cancelled`)
-is a person's outcome, not an error: a reviewer decided, or nobody did in
-time.
+A turn that ends at its approval fails with one of these codes, each a
+person's outcome, not an error:
+
+- `hitl-rejected`: a reviewer rejected the turn (its session gate; a rejected
+  tool call skips only the tool, and the turn goes on).
+- `hitl-withdrawn`: a reviewer withdrew the approval.
+- `hitl-cancelled`: nobody decided in time, so the approval expired at the
+  `admin` role.
+
+A run cancelled while it waits ends `cancelled`, with no failure code.
 
 An approval whose run has ended can't be decided: the decision is refused
 with `409 run-already-terminal`, and nothing is recorded. Its `details` name
