@@ -65,6 +65,11 @@ The runtime verifies your pack's image by reading it from a registry. On one mac
 
 On Linux or a server, use your own registry instead, and give the runtime its credentials (`KINDGI_IMAGE_REGISTRY_HOST`, `_USERNAME`, `_PASSWORD`).
 
+Whichever registry you use, two things stop the runtime from reading it:
+
+- **A loopback address** (`localhost`, `127.0.0.1`, `::1`): by default the runtime refuses to connect to its own host (`KINDGI_TENANT_HOST_ACCESS`, step 5). `registry.localhost` isn't one here: in the runtime's container, `--add-host` maps it to your machine's address on Docker's network.
+- **A port Node's fetch refuses,** such as 5060 or 5061: the Fetch standard's [bad ports](https://fetch.spec.whatwg.org/#bad-port), which browsers refuse too. Serve the registry on another port.
+
 ## 3. Build, sign and push your pack
 
 If your app's code needs a generate step in the image (Prisma's client, for
@@ -197,7 +202,7 @@ Every setting is in the [environment variable reference](../../reference/env-var
 - **`KINDGI_CONSOLE_TOKEN_SIGN_IN=on`** lets you sign in to the console by pasting the API token from this file, so you can try the console straight away. It's off by default outside `kindgi dev`, and with it off and no single sign-on, nobody can sign in to the console. In a real deployment, [turn on sign-in](../sign-in/) with your organization's identity provider instead, and remove the line. The token works for the API, the CLI and the SDKs either way.
 - **`KINDGI_LOG_FORMAT=pretty`** makes `docker logs` readable by eye. Without it, a container logs JSON, one record per line, for a log platform to index: see [Logs](../logs/).
 - **`KINDGI_PACK_SERVICE_URL`** is the pack service's address only. A user and password in it stop the runtime at boot (exit code 2): `` KINDGI_PACK_SERVICE_URL must not carry a user or password ("https://svc:***@pack.example.com"): the server authenticates to the pack service with KINDGI_PACK_SERVICE_TOKEN. Remove the "user:password@" part. ``
-- **`KINDGI_TENANT_HOST_ACCESS`** isn't set here, so it's `deployed`, the default outside development. It refuses an MCP endpoint that would run a command on the runtime's host (`stdio`). Run MCP servers over HTTP instead. `local` allows it; set that only on a machine where everyone with an API token may run commands.
+- **`KINDGI_TENANT_HOST_ACCESS`** isn't set here, so it's `deployed`, the default outside development. It refuses an MCP endpoint that would run a command on the runtime's host (`stdio`). Run MCP servers over HTTP instead. It also refuses connections to the runtime's own host (a loopback address) and the cloud metadata endpoints, wherever your configuration names a host: an image registry, a model provider, an HTTP tool, an MCP server. `local` allows all of it, so a registry at `localhost` needs it; set that only on a machine where everyone with an API token may run commands.
 
 Start the runtime:
 
