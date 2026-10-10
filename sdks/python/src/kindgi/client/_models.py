@@ -7918,7 +7918,7 @@ class JudgingResultGroup(BaseModel):
     """
     runs_with_judgments: Annotated[int | None, Field(alias="runsWithJudgments", ge=0)] = None
     """
-    The queued runs with at least one live judgment: the runs `judgments` and `yesShare` come from, whether their item is closed as `judged` yet or still `open`. Several people judging one run make several judgments but one run here. Absent from a runtime that doesn't count them.
+    The queued runs with at least one live judgment: the runs `judgments` and `yesShare` come from, whatever their item's state now (still `open`, closed as `judged`, or dismissed after someone judged it). Several people judging one run make several judgments but one run here. Absent from a runtime that doesn't count them.
     """
     yes_share: Annotated[float | None, Field(alias="yesShare")]
     """

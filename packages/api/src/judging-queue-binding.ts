@@ -161,8 +161,9 @@ export interface JudgingResultGroup {
   readonly judgments: number;
   /**
    * The queued runs with at least one live judgment: the runs `judgments`
-   * and `yesShare` come from, whether their queue item is closed as
-   * `judged` yet or still `open`. Several people judging one run make
+   * and `yesShare` come from, whatever their queue item's state now (still
+   * `open`, closed as `judged`, or dismissed after someone judged it).
+   * Several people judging one run make
    * several judgments but one run here, so a range can be sized by runs.
    * Absent from a runtime that doesn't count them.
    */
