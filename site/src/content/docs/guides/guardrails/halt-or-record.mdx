@@ -68,6 +68,12 @@ kindgi runs get <run-id>
 }
 ```
 
+In the console, the run's page keeps the answer the model wrote in view,
+muted, under **Blocked by a guardrail, not sent: the answer the model
+wrote**, with the guardrail under **Which guardrail**. A turn that failed
+for another reason after its answer says **Not sent: the turn failed after
+the model wrote this answer**.
+
 Use `halt` for a rule whose failure makes the answer unusable or unsafe to
 show.
 

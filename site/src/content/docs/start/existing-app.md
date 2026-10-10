@@ -464,6 +464,15 @@ KINDGI_API_URL=http://127.0.0.1:4000
 KINDGI_API_TOKEN=kgi_bt_…
 ```
 
+The client looks for them when it's first used, not when you create it. So
+`const kindgi = createClient()` at the top of a module is safe in a
+production build that runs without them: `next build`, for one, loads every
+route's module. If they're still missing when your app first uses the client,
+that use throws an error that names what to set. Python's `Kindgi()` and
+`AsyncKindgi()` do the same, so a module-scope `kindgi = Kindgi()` doesn't
+break a build step that imports your app, such as Django's `collectstatic`.
+The first request raises `ValueError`, naming what to set.
+
 The banner's first line, `Console`, is the console's address
 (`http://127.0.0.1:4000/console/`; `kindgi console` opens it). Sign in there
 with **Sign in as seeded user**, or with the same token. Open the console in Chrome or Firefox. Safari can't keep the local sign-in over http yet ([Known limitations](../../deploy/operate/#known-limitations-in-015)).

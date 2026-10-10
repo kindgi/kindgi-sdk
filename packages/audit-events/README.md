@@ -1,6 +1,6 @@
 # `@kindgi/audit-events`
 
-Type contract for the Kindgi audit log. Defines the `AuditEvent` record every subsystem emits (authorization decisions, secret and env changes, run outcomes, guardrail violations, human-in-the-loop decisions) and `AuditEventBinding`, the tenant-scoped append / query / purge interface that storage adapters implement. Types only; this package has no runtime code.
+Type contract for the Kindgi audit log. Defines the `AuditEvent` record every subsystem emits (authorization decisions; secret and env writes, recorded by `@kindgi/api`'s `/v1/secrets` and `/v1/env` routes with the caller and request, never a value; run outcomes, guardrail violations, human-in-the-loop decisions) and `AuditEventBinding`, the tenant-scoped append / query / purge interface that storage adapters implement. Types only; this package has no runtime code.
 
 ## Purpose
 

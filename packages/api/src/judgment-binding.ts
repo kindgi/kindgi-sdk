@@ -59,7 +59,9 @@ export interface JudgmentRegistryBinding {
   /**
    * Judged runs with their copies and live judgments, newest first:
    * what a test set is built from. Optional (a binding without it can't
-   * build test sets from judgments).
+   * build test sets from judgments). A comparison's replay is never one of
+   * them (`isReplayCopy`): judging a replay's answer is evidence for that
+   * comparison, not a case of its own.
    */
   listJudgedRuns?(input: JudgedRunListInput): Promise<JudgedRunPage>;
 }
@@ -288,6 +290,34 @@ export interface JudgedRunContext {
    * saw, not today's. Absent for a run from before env was recorded.
    */
   readonly toolEnv?: Readonly<Record<string, Readonly<Record<string, string>>>>;
+  /**
+   * The run a comparison's replay re-ran, when the judged run is a replay:
+   * stamped at its first judgment (a run's `replayOf`). A test set leaves a
+   * replay out (`isReplayCopy`).
+   */
+  readonly replayOf?: string;
+}
+
+/**
+ * Whether a judged run's copy is a comparison's replay, which a test set
+ * leaves out: its context names the run it replays (`replayOf`, stamped at
+ * its first judgment), or, for a copy stored before that stamp, an agent
+ * turn's output carries its replay report (`replay.of`, every replayed
+ * turn's). A flow replay judged before the stamp can't be told apart.
+ */
+export function isReplayCopy(copy: {
+  readonly output: unknown;
+  readonly context?: JudgedRunContext;
+}): boolean {
+  if (copy.context?.replayOf !== undefined) return true;
+  const output = copy.output;
+  if (typeof output !== 'object' || output === null || Array.isArray(output)) return false;
+  const replay = (output as Record<string, unknown>).replay;
+  return (
+    typeof replay === 'object' &&
+    replay !== null &&
+    typeof (replay as Record<string, unknown>).of === 'string'
+  );
 }
 
 /** One tool call a judged run made, and its result. */
