@@ -435,7 +435,7 @@ export interface WebhookTriggerRecord extends FlowTriggerRecordBase {
   readonly rateLimitPerMinute: number;
   /** Why the runtime paused it (repeated refused or failed fires), when it did. */
   readonly statusReason?: string;
-  /** Refusals in the current minute past the recorded ones, which only counted. */
+  /** Refusals and skipped deliveries this minute past the recorded ones, which only counted. */
   readonly suppressedRefusals?: { readonly since: string; readonly count: number };
 }
 

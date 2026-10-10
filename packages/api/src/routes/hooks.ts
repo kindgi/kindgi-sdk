@@ -36,10 +36,14 @@ export interface HooksRouterOptions {
   /** A model provider's key is never a webhook trigger's secret. */
   readonly providerKeys?: ProviderKeys;
   /**
-   * Who the client is, for the refusal limit and the audit record. Default:
-   * the nearest `X-Forwarded-For` hop, else one shared bucket.
+   * Who the client is, for the per-client refusal limit and the audit
+   * record; `undefined` when this deployment can't tell clients apart (no
+   * peer address, or a proxy in front it wasn't told to trust, so every
+   * client looks like the proxy). Then the per-client limit is off: one
+   * shared bucket would let anyone's refusals lock out every sender. Default:
+   * the nearest `X-Forwarded-For` hop, else `undefined`.
    */
-  readonly clientAddress?: (request: Request) => string;
+  readonly clientAddress?: (request: Request) => string | undefined;
   /**
    * Where the counts live: refusals per client, accepted deliveries per
    * trigger. Default: this process's memory, so each instance counts on
@@ -94,7 +98,12 @@ export function hooksRouter(options: HooksRouterOptions): Hono<AppEnv> {
     options.providerKeys === undefined
       ? options.secrets
       : guardProviderKeys(options.secrets, options.providerKeys, 'a webhook trigger');
-  const clientAddress = options.clientAddress ?? nearestForwardedClient;
+  const clientAddress =
+    options.clientAddress ??
+    ((request: Request) => {
+      const nearest = nearestForwardedClient(request);
+      return nearest === 'shared' ? undefined : nearest;
+    });
   const store = options.rateLimitStore ?? createInMemoryRateLimitStore();
   const now = options.now ?? Date.now;
   /** Clients over the refusal limit, and until when (this process's view). */
@@ -124,16 +133,23 @@ export function hooksRouter(options: HooksRouterOptions): Hono<AppEnv> {
   }
 
   /** Count a refusal against the client; past the limit, it's answered 429 until the window ends. */
-  async function countRefusal(c: Context<AppEnv>, client: string): Promise<void> {
+  async function countRefusal(c: Context<AppEnv>, client: string | undefined): Promise<void> {
+    // Clients that can't be told apart share no bucket: refusals still cost
+    // a lookup, and their records stay coalesced per trigger.
+    if (client === undefined) return;
     const taken = await take(c, `hooks-refused:${client}`, WEBHOOK_REFUSALS_PER_CLIENT_PER_MINUTE);
-    if (taken.allowed) return;
+    if (!taken.allowed) block(client, now() + taken.retryAfterMs);
+  }
+
+  /** Remember a blocked client, forgetting the expired (else the oldest) when full. */
+  function block(client: string, until: number): void {
     if (blocked.size >= MAX_BLOCKED_CLIENTS) {
       const at = now();
-      for (const [k, until] of blocked) if (until <= at) blocked.delete(k);
+      for (const [k, expires] of blocked) if (expires <= at) blocked.delete(k);
       if (blocked.size >= MAX_BLOCKED_CLIENTS)
         blocked.delete(blocked.keys().next().value as string);
     }
-    blocked.set(client, now() + taken.retryAfterMs);
+    blocked.set(client, until);
   }
 
   function answer(c: Context<AppEnv>, code: string, message: string): Response {
@@ -144,21 +160,23 @@ export function hooksRouter(options: HooksRouterOptions): Hono<AppEnv> {
   /** The one answer for a request that doesn't prove its sender. */
   async function refusedUnproven(
     c: Context<AppEnv>,
-    client: string,
+    client: string | undefined,
     trigger: FoundWebhookTrigger | undefined,
     reason: WebhookRefusalReason,
   ): Promise<Response> {
-    await countRefusal(c, client);
+    // A failed proof is the sender's refusal; a secret the deployment can't
+    // read is the trigger's configuration, so it neither counts against the
+    // sender's address nor goes in the access audit.
+    const senders = reason !== 'secret-unavailable';
+    if (senders) await countRefusal(c, client);
     if (trigger !== undefined) {
       await recordWebhookRefusal?.({
         tenantId: trigger.tenantId,
         triggerId: trigger.triggerId,
         outcome: 'refused',
         reason,
-        // A failed proof is the sender's refusal; a secret the deployment
-        // can't read is the trigger's configuration, not the sender's.
-        audit: reason !== 'secret-unavailable',
-        clientAddress: client,
+        audit: senders,
+        ...(client !== undefined && { clientAddress: client }),
       });
     }
     return answer(c, 'webhook-refused', "This request doesn't prove its sender");
@@ -185,15 +203,16 @@ export function hooksRouter(options: HooksRouterOptions): Hono<AppEnv> {
     //    exist, and it starts nothing.
     if (isWooPing(request, body)) return c.json({ received: 'ping' }, 200);
 
-    // 3. A client past its refusals waits, without a lookup.
-    const until = blocked.get(client);
+    // 3. A client past its refusals waits, without a lookup (only a client
+    //    this deployment can tell apart from the others).
+    const until = client === undefined ? undefined : blocked.get(client);
     if (until !== undefined) {
       const left = until - now();
       if (left > 0) {
         c.header('Retry-After', String(Math.max(Math.ceil(left / 1000), 1)));
         return answer(c, 'rate-limit-exceeded', 'Too many refused requests: try again shortly');
       }
-      blocked.delete(client);
+      if (client !== undefined) blocked.delete(client);
     }
 
     // 4. The trigger, by its tenant and routable id: paused and unregistered
@@ -210,7 +229,7 @@ export function hooksRouter(options: HooksRouterOptions): Hono<AppEnv> {
       const at = now();
       if (lastUnknownWarnedAt === undefined || at - lastUnknownWarnedAt >= WARN_EVERY_MS) {
         c.get('log').warn(
-          `webhook receiver: ${unknownSinceWarning} request(s) to an unknown trigger since the last warning (the latest from ${client})`,
+          `webhook receiver: ${unknownSinceWarning} request(s) to an unknown trigger since the last warning (the latest from ${client ?? 'an address this deployment cannot tell apart'})`,
         );
         lastUnknownWarnedAt = at;
         unknownSinceWarning = 0;
@@ -307,7 +326,7 @@ export function hooksRouter(options: HooksRouterOptions): Hono<AppEnv> {
     trigger: FoundWebhookTrigger,
     outcome: 'refused' | 'skipped',
     reason: WebhookRefusalReason,
-    client: string,
+    client: string | undefined,
   ): Promise<void> {
     await recordWebhookRefusal?.({
       tenantId: trigger.tenantId,
@@ -315,7 +334,7 @@ export function hooksRouter(options: HooksRouterOptions): Hono<AppEnv> {
       outcome,
       reason,
       audit: false,
-      clientAddress: client,
+      ...(client !== undefined && { clientAddress: client }),
     });
   }
 }

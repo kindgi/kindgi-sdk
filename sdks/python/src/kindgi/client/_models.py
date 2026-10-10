@@ -10001,7 +10001,7 @@ class WebhookSignature2(BaseModel):
 
 class SuppressedRefusals(BaseModel):
     """
-    Refusals this minute past the 20 recorded in its history, which only counted.
+    Refusals and skipped deliveries this minute past the 20 recorded in its history, which only counted.
     """
 
     model_config = ConfigDict(
@@ -10077,7 +10077,7 @@ class WebhookTriggerRecord(BaseModel):
         None
     )
     """
-    Refusals this minute past the 20 recorded in its history, which only counted.
+    Refusals and skipped deliveries this minute past the 20 recorded in its history, which only counted.
     """
     last_fired_at: Annotated[AwareDatetime | None, Field(alias="lastFiredAt")]
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]

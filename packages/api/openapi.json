@@ -19393,7 +19393,7 @@
               "since",
               "count"
             ],
-            "description": "Refusals this minute past the 20 recorded in its history, which only counted.",
+            "description": "Refusals and skipped deliveries this minute past the 20 recorded in its history, which only counted.",
             "properties": {
               "since": {
                 "type": "string",
@@ -47543,7 +47543,7 @@
             }
           }
         },
-        "description": "Newest first: each delivery the trigger received and what came of it: the run it started (`started`, or `pending` while it starts), or why it was `skipped` (paused) or `refused` (`detail`: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `rate-limited`, `body-too-large`, `body-not-json`, or the owner's lost access). A delivery that repeated an earlier one's dedupe key counts on that one (`duplicates`). A fire keeps the event only until its run starts. Refusals past 20 a minute only count (the trigger's `suppressedRefusals`).",
+        "description": "Newest first: each delivery the trigger received and what came of it: the run it started (`started`, or `pending` while it starts), or why it was `skipped` (paused) or `refused` (`detail`: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `rate-limited`, `body-too-large`, `body-not-json`, or the owner's lost access). A delivery that repeated an earlier one's dedupe key counts on that one (`duplicates`). A fire keeps the event only until its run starts. Refusals and skipped deliveries past 20 a minute only count (the trigger's `suppressedRefusals`).",
         "parameters": [
           {
             "name": "triggerId",

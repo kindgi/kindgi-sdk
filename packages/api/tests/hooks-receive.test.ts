@@ -76,7 +76,11 @@ function setup(options: { publicUrl?: string } = {}) {
     runHandler: {} as RunHandlerBinding,
     webhookReceiver: {
       envName: 'test' as EnvName,
-      clientAddress: (request) => request.headers.get('x-test-client') ?? 'client-0',
+      // `unknown` stands for clients this deployment can't tell apart.
+      clientAddress: (request) => {
+        const client = request.headers.get('x-test-client') ?? 'client-0';
+        return client === 'unknown' ? undefined : client;
+      },
     },
     ...(options.publicUrl !== undefined && { publicUrl: options.publicUrl }),
   });
@@ -349,6 +353,36 @@ describe('a request that does not prove its sender', () => {
     expect(Number(res.headers.get('retry-after'))).toBeGreaterThan(0);
     const elsewhere = await deliver(randomUUID(), ORDER, { ...headers, 'x-test-client': 'x' });
     expect(elsewhere.status).toBe(401);
+  });
+
+  test("clients the deployment can't tell apart share no refusal bucket: one's refusals never block another", async () => {
+    const { register, deliver } = setup();
+    const t = await register(WOO);
+    const unproven = { ...wooHeaders(ORDER), 'x-test-client': 'unknown' };
+    for (let i = 0; i < 61; i++) await deliver(randomUUID(), ORDER, unproven);
+    // Refused after a lookup, every time, never 429 without one.
+    expect((await deliver(randomUUID(), ORDER, unproven)).status).toBe(401);
+    const store = await deliver(t.webhookId, ORDER, {
+      ...wooHeaders(ORDER),
+      'x-test-client': 'unknown',
+    });
+    expect(store.status, JSON.stringify(store.body)).toBe(202);
+  });
+
+  test("a secret the deployment can't read is refused, recorded, and never counted against the sender", async () => {
+    const { register, deliver, fires, registry, stored } = setup();
+    const t = await register(WOO);
+    stored.delete(WOO_SECRET);
+    const headers = { ...wooHeaders(ORDER), 'x-test-client': '192.0.2.10' };
+    for (let i = 0; i < 61; i++) {
+      await deliver(t.webhookId, ORDER, { ...headers, 'x-wc-webhook-delivery-id': `d${i}` });
+    }
+    expect((await deliver(t.webhookId, ORDER, headers)).status).toBe(401);
+    expect((await fires(t.triggerId))[0]).toMatchObject({
+      outcome: 'refused',
+      detail: 'secret-unavailable',
+    });
+    expect(registry.webhookAudit).toHaveLength(0);
   });
 });
 

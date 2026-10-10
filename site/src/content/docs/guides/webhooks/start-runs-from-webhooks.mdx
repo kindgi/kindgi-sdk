@@ -223,10 +223,15 @@ says what else a delivery leaves: the sender's address on a refusal).
 - **A request that doesn't prove its sender** (a wrong or missing signature,
   one too old, an unknown address) is answered `401 webhook-refused`, the same
   for every reason. The reason is on the trigger's fires (`signature-invalid`,
-  `signature-missing`, `stale`, `secret-unavailable`) and in the access audit,
-  with the address it came from. Past 20 refusals a minute, a trigger's
-  refusals are counted instead of recorded (`suppressedRefusals` on the
-  trigger). Past 60 a minute from one address, that address is answered `429`.
+  `signature-missing`, `stale`) and in the access audit, with the address it
+  came from. `secret-unavailable` (the runtime can't read the trigger's
+  secret) is yours to fix, so it's on the fires only. Past 20 refusals and
+  skipped deliveries a minute, a trigger's are counted instead of recorded
+  (`suppressedRefusals` on the trigger). Past 60 a minute from one address,
+  that address is answered `429`. Behind a load balancer or ingress, set
+  [`KINDGI_TRUSTED_PROXIES`](../../../deploy/self-host/#behind-a-load-balancer-or-ingress):
+  until then every sender has the proxy's address, so this per-address limit
+  is off, rather than one sender's refusals shutting out the rest.
 - **A delivery repeated** (the same delivery id and the same body) starts
   nothing new: `200`, with the first fire's id, which counts it as a repeat.
   WooCommerce's delivery id changes only once a second, so two orders in one
@@ -242,15 +247,17 @@ says what else a delivery leaves: the sender's address on a refusal).
 ## Pause, change and remove
 
 - **`kindgi webhooks pause <trigger-id>`:** deliveries are still taken, so the
-  sender keeps its webhook on, but they're recorded as `skipped` and start
-  nothing. **Their events are dropped:** WooCommerce never resends a delivery,
+  sender keeps its webhook on, but they're recorded as `skipped` (the first
+  20 a minute; the rest are counted) and start nothing. **Their events are dropped:** WooCommerce never resends a delivery,
   so resuming doesn't bring them back.
 - **`kindgi webhooks update <trigger-id>`** changes the flow version
   (`--flow-version`; this needs `execute` on the flow), the secret
   (`--secret`), the scheme, the delivery-id header (`none` stops deduping) and
   the limits. The flow itself stays: register another trigger for another
   flow. To rotate the secret's value, use `kindgi secrets rotate`, then paste
-  the new value into the sender.
+  the new value into the sender. Deliveries in between are refused (`401`),
+  WooCommerce never resends them, and 7 in a row switch its webhook off, so
+  rotate when the store is quiet.
 - **`kindgi webhooks take-ownership <trigger-id>`:** for a trigger whose owner
   left. Its runs act as you from the next delivery. This needs `admin` on the
   project.

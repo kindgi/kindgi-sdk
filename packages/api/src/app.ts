@@ -809,8 +809,12 @@ export interface CreateAppInput {
    */
   readonly webhookReceiver?: {
     readonly envName: import('@kindgi/types').EnvName;
-    /** Who the client is (for the refusal limit and the audit record). */
-    readonly clientAddress?: (request: Request) => string;
+    /**
+     * Who the client is (for the per-client refusal limit and the audit
+     * record); `undefined` when clients can't be told apart, which turns
+     * the per-client limit off.
+     */
+    readonly clientAddress?: (request: Request) => string | undefined;
     /** Where the counts live; default this process's memory. */
     readonly rateLimitStore?: RateLimitStore;
   };

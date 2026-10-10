@@ -10949,7 +10949,8 @@ export const WebhookTriggerRecordSchema: JsonSchema = {
       type: 'object',
       additionalProperties: false,
       required: ['since', 'count'],
-      description: 'Refusals this minute past the 20 recorded in its history, which only counted.',
+      description:
+        'Refusals and skipped deliveries this minute past the 20 recorded in its history, which only counted.',
       properties: {
         since: { type: 'string', format: 'date-time' },
         count: { type: 'integer', minimum: 1 },

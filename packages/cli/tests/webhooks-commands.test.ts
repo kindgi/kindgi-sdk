@@ -9,6 +9,8 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
+import { KindgiApiError } from '@kindgi/client';
+
 import { generateSigningSecret } from '../src/commands/webhooks.js';
 import { runCli } from '../src/main.js';
 
@@ -54,7 +56,14 @@ const FIRE = {
 
 async function webhooks(
   argv: readonly string[],
-  options: { trigger?: Record<string, unknown>; secretExists?: boolean } = {},
+  options: {
+    trigger?: Record<string, unknown>;
+    secretExists?: boolean;
+    /** Thrown by the call of that name. */
+    refuse?: { readonly register?: unknown; readonly 'secrets.set'?: unknown };
+    /** A secret of that name stored between the check and the store. */
+    storedMeanwhile?: boolean;
+  } = {},
 ) {
   const calls: unknown[][] = [];
   const trigger = options.trigger ?? TRIGGER;
@@ -62,6 +71,8 @@ async function webhooks(
     (name: string, result: unknown) =>
     async (...args: unknown[]) => {
       calls.push([name, ...args]);
+      const refused = (options.refuse as Record<string, unknown> | undefined)?.[name];
+      if (refused !== undefined) throw refused;
       return result;
     };
   const out = await runCli({
@@ -83,9 +94,13 @@ async function webhooks(
           takeOwnership: record('takeOwnership', trigger),
         },
         secrets: {
+          get: record(
+            'secrets.get',
+            options.secretExists === true ? { name: 'acme-woo-secret', currentVersion: 1 } : null,
+          ),
           set: record(
             'secrets.set',
-            options.secretExists === true
+            options.storedMeanwhile === true
               ? { kind: 'version-conflict', currentVersion: 1 }
               : { kind: 'ok', versionId: 1, record: { scope: { kind: 'tenant' } } },
           ),
@@ -155,8 +170,14 @@ describe('kindgi webhooks register', () => {
       '--preset=woocommerce',
     ]);
     expect(out.exitCode, out.stderr).toBe(0);
-    const set = calls[0] as [string, { value: string; name: string; envName: string }];
-    expect(set[0]).toBe('secrets.set');
+    // Checked free first, stored only once the trigger exists.
+    expect(calls.map((c) => c[0])).toEqual(['secrets.get', 'register', 'secrets.set']);
+    expect(calls[0]?.[1]).toMatchObject({
+      scope: { kind: 'tenant' },
+      envName: 'local',
+      name: 'acme-woo-secret',
+    });
+    const set = calls[2] as [string, { value: string; name: string; envName: string }];
     expect(set[1]).toMatchObject({
       scope: { kind: 'tenant' },
       envName: 'local',
@@ -165,7 +186,6 @@ describe('kindgi webhooks register', () => {
     });
     expect(set[1].value).toMatch(/^[A-Za-z0-9]{40}$/);
     expect(out.stderr).toContain(`shown this once): ${set[1].value}`);
-    expect(calls[1]?.[0]).toBe('register');
   });
 
   test("--generate-secret needs --env, and won't overwrite a secret that exists", async () => {
@@ -193,7 +213,59 @@ describe('kindgi webhooks register', () => {
     );
     expect(exists.out.exitCode).not.toBe(0);
     expect(exists.out.stderr).toContain('A secret named s already exists in local');
-    expect(exists.calls.map((c) => c[0])).toEqual(['secrets.set']);
+    expect(exists.calls.map((c) => c[0])).toEqual(['secrets.get']);
+  });
+
+  const GENERATE = [
+    'register',
+    '--flow=acme.refund-review',
+    '--flow-version=1.0.0',
+    '--secret=acme-woo-secret',
+    '--generate-secret',
+    '--env=local',
+    '--preset=woocommerce',
+  ];
+
+  test('--generate-secret with a refused register stores nothing, so the same command can run again', async () => {
+    const { out, calls } = await webhooks(GENERATE, {
+      refuse: {
+        register: new KindgiApiError({
+          code: 'auth',
+          reason: 'forbidden',
+          message: 'Not allowed to start runs of acme.refund-review',
+        }),
+      },
+    });
+    expect(out.exitCode).not.toBe(0);
+    expect(out.stderr).toContain('Not allowed to start runs of acme.refund-review');
+    expect(calls.map((c) => c[0])).toEqual(['secrets.get', 'register']);
+  });
+
+  test('--generate-secret with a refused store: the error as it came, the trigger, and the way out', async () => {
+    const forbidden = await webhooks(GENERATE, {
+      refuse: {
+        'secrets.set': new KindgiApiError({
+          code: 'auth',
+          reason: 'forbidden',
+          message: 'Not allowed to write secrets in local',
+        }),
+      },
+    });
+    expect(forbidden.out.exitCode).not.toBe(0);
+    expect(forbidden.out.stderr).toContain('Not allowed to write secrets in local');
+    expect(forbidden.out.stderr).not.toContain('already exists');
+    expect(forbidden.out.stderr).toContain(
+      `Registered webhook trigger ${ID}, but its signing secret wasn't stored`,
+    );
+    expect(forbidden.out.stderr).toContain(`kindgi webhooks unregister ${ID}`);
+    expect(forbidden.out.stdout).toContain(ID);
+    // The value no one stored is never shown.
+    expect(forbidden.out.stderr).not.toContain('shown this once');
+
+    const raced = await webhooks(GENERATE, { storedMeanwhile: true });
+    expect(raced.out.exitCode).not.toBe(0);
+    expect(raced.out.stderr).toContain('A secret named acme-woo-secret already exists in local');
+    expect(raced.out.stderr).toContain(`kindgi webhooks unregister ${ID}`);
   });
 
   test('custom scheme flags; a preset and custom flags together are refused; an unknown preset too', async () => {
