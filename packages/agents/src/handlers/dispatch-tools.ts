@@ -5,7 +5,7 @@ import type { ModelMessage, ModelToolCall } from '@kindgi/capabilities';
 import type { NodeContext, NodeHandler } from '@kindgi/handler';
 import { WaitpointCancelledError } from '@kindgi/handler';
 import { stricterToolHitlRule } from '@kindgi/policy-contract';
-import { invokeTool, toolCallRecordKey } from '@kindgi/tools';
+import { invokeTool, toolCallRecordKey, toolIdempotencyKey } from '@kindgi/tools';
 import type { Tool, ToolContext } from '@kindgi/tools';
 
 import { emitTurnEvent } from '../streaming.js';
@@ -611,6 +611,17 @@ async function dispatchOne(
     projectId: ctx.input.projectId,
     ...(ctx.input.orgId !== undefined && { orgId: ctx.input.orgId }),
     requestId: call.id,
+    // The same every time this call runs, so the tool can dedupe a side
+    // effect on it; with the step's scope, since a model's call id is only
+    // unique within one answer (two loop iterations may share one).
+    ...(kctx.stepScope !== undefined && {
+      idempotencyKey: toolIdempotencyKey({
+        runId,
+        stepScope: kctx.stepScope,
+        toolId,
+        callId: call.id,
+      }),
+    }),
     abortSignal: ctx.turnAbort.signal,
     // HTTP tools built via defineTool({spec: {kind: 'http'}}) resolve declared
     // secret_refs at invoke time. Present iff the caller wired

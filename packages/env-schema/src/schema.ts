@@ -111,10 +111,10 @@ export const ENV_GROUPS = {
   logging: 'Logging',
   secrets: 'Secrets backend selection',
   gcp: 'GCP vendor config (postgres + gcp KMS; secret-manager + gcp)',
+  aws: "AWS vendor config (the server's AWS identity; secret-manager + aws)",
   azure:
     "Azure vendor config (the server's managed identity; postgres + azure KMS; secret-manager + azure)",
   vault: 'HashiCorp Vault / OpenBao (secret-manager + vault)',
-  aws: "AWS vendor config (the server's AWS identity; secret-manager + aws)",
   'local-key': 'Local key (postgres + libsodium: a key this runtime holds, single-node)',
   'pack-service': 'Pack service (runs the pack code: tools and guardrail checks)',
   'image-registry': "Image registry (where deployments' images are read from)",
@@ -554,6 +554,24 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_EXPORT_SIGNING_RETIRED_PUBLIC_KEYS_PATH',
+    description:
+      'Absolute path to a file of one or more PEM public keys (`-----BEGIN PUBLIC KEY-----`, concatenated): export keys this deployment signed with before a rotation. `GET /v1/export-signing-keys` lists them after the active key, with `active: false`, so `kindgi exports verify --from-runtime` still trusts what they signed; they never sign. Ed25519 or EC P-256 keys, public halves only: a private key in the file stops the server at boot. Works with any signing key, file or KMS. Set this or `KINDGI_EXPORT_SIGNING_RETIRED_PUBLIC_KEYS`, not both.',
+    example: '/etc/kindgi/export-signing-retired.pem',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_EXPORT_SIGNING_RETIRED_PUBLIC_KEYS',
+    description:
+      "The same file's content, base64 (`base64 < retired.pem`): for platforms that give settings as environment variables, such as Cloud Run.",
+    example: '',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_CORS_ORIGINS',
     description:
       'Comma-separated browser origins allowed to call, cross-origin, the routes a public run token can use (`GET /v1/runs/{runId}/progress` and its stream). Exact origins, no wildcards. Unset: no CORS headers on any route.',
@@ -818,6 +836,52 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     required: true,
     appliesTo: appliesToPostgresGcp,
     group: 'gcp',
+  },
+  {
+    name: 'KINDGI_AWS_IDENTITY',
+    description:
+      "Where the server's AWS credentials come from, for the settings that sign in as it (such as the Bedrock adapter's `auth: aws-identity`). `container`: the task's or pod's role from the container credentials endpoint (ECS and Fargate, and EKS Pod Identity). `instance`: the EC2 instance profile, IMDSv2 only (in a container on EC2, raise the IMDS hop limit to 2, or use `container`). `web-identity`: EKS IRSA, from the projected token file and `AWS_ROLE_ARN`, which the platform sets. `profile`: development only (`KINDGI_DEV=true`), a named profile from `~/.aws` as `aws login` or SSO makes it (`KINDGI_AWS_PROFILE`). Unset: the server has no AWS identity, and a registration that needs one is refused. Never the AWS SDK's default chain or keys in the environment; Kindgi keeps no key.",
+    example: 'container',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'aws',
+    allowedValues: ['container', 'instance', 'web-identity', 'profile'],
+  },
+  {
+    name: 'KINDGI_AWS_PROFILE',
+    description:
+      'With `KINDGI_AWS_IDENTITY=profile` (development only): the profile in `~/.aws/config` the server signs in as. Default: `default`.',
+    example: 'kindgi-dev',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'aws',
+  },
+  {
+    name: 'KINDGI_AWS_ROLE_ARN',
+    description:
+      "An IAM role the server assumes on top of its AWS identity (STS, 1-hour sessions renewed before they expire): least privilege, or a role in another account. An IAM role's ARN, `arn:aws:iam::<account>:role/<name>`. Unset: the identity's own permissions.",
+    example: 'arn:aws:iam::123456789012:role/kindgi-bedrock',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'aws',
+  },
+  {
+    name: 'KINDGI_AWS_ROLE_SESSION_NAME',
+    description:
+      "With `KINDGI_AWS_ROLE_ARN`: the role session's name, as CloudTrail shows it. Default: `kindgi-runtime`.",
+    example: 'kindgi-runtime',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'aws',
+  },
+  {
+    name: 'KINDGI_AWS_STS_REGION',
+    description:
+      'With `KINDGI_AWS_ROLE_ARN` or `KINDGI_AWS_IDENTITY=web-identity`: the region whose STS endpoint is used (regional STS, never the global endpoint). Default: `AWS_REGION`. Neither: the server refuses to start.',
+    example: 'us-east-2',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'aws',
   },
   {
     name: 'KINDGI_AZURE_CLIENT_ID',

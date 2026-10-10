@@ -19,6 +19,11 @@ export const EXPORT_SIGNING_KEY_PATH_VAR = 'KINDGI_EXPORT_SIGNING_KEY_PATH';
 export const EXPORT_SIGNING_KEY_VAR = 'KINDGI_EXPORT_SIGNING_KEY';
 export const EXPORT_SIGNING_KMS_KEY_VAR = 'KINDGI_EXPORT_SIGNING_KMS_KEY';
 
+/** Retired export public keys (PEM, concatenated): a file's absolute path, or its base64 value; at most one. */
+export const EXPORT_SIGNING_RETIRED_PUBLIC_KEYS_PATH_VAR =
+  'KINDGI_EXPORT_SIGNING_RETIRED_PUBLIC_KEYS_PATH';
+export const EXPORT_SIGNING_RETIRED_PUBLIC_KEYS_VAR = 'KINDGI_EXPORT_SIGNING_RETIRED_PUBLIC_KEYS';
+
 /** The license key the server checks at startup outside development mode. */
 export const LICENSE_KEY_VAR = 'KINDGI_LICENSE_KEY';
 
