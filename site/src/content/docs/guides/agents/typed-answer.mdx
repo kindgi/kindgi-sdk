@@ -107,6 +107,24 @@ instructions don't describe the shape spends an extra model call on one.
 `capabilities: [{ needs: [] }]` lets any registered model answer: this agent
 calls no tools.
 
+From a local model (Qwen 2.5 7B, through Ollama), with instructions that don't
+describe the JSON, the first call's system message ends:
+
+```
+…"properties":{"summary":{"type":"string","description":"One sentence, for the queue"},"category":{"enum":["billing","shipping","returns","other"],"type":"string","description":"What the message is about"},"priority":{"enum":["low","normal","urgent"],"type":"string","description":"How soon it needs a person"}},"additionalProperties":false}
+Call the tools you need first; then give your final answer as that JSON alone.
+```
+
+and its first answer fits, in one model call:
+
+```json
+{
+  "summary": "Request for refund of duplicate charge for order A-1001 urgently needed today",
+  "category": "billing",
+  "priority": "urgent"
+}
+```
+
 ## Run it
 
 ```sh
