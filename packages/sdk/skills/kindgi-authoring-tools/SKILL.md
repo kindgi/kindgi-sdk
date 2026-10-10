@@ -12,7 +12,7 @@ description: >
   authoring agents is covered by kindgi-authoring-agents.
 type: core
 library: "@kindgi/sdk"
-version: "0.4.4"
+version: "0.4.5"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -115,6 +115,16 @@ The handler gets the **parsed** input, typed `z.infer` of `input` (Zod's output 
 
 The output side is the reverse: the advertised output schema requires every field, defaulted ones included. Return them all.
 
+### Logging from the handler
+
+`ctx.log` is a logger bound to the call: its records carry the run's ids, the tool's id and the trace id. It has `info`, `warn`, `error`, `debug` and `trace`, each `(message, fields?)`. The pack service sets it; a context your own code builds (a test's) may not, so write `ctx.log?.`:
+
+```ts
+ctx.log?.info('refund issued', { orderId, amountCents });
+```
+
+Put values in `fields`, never in the message. Log ids, amounts and outcomes, never what a person typed (a refund's reason, a message, an address): the log is read by whoever operates the runtime, not only by the person the data is about. Docs: https://docs.kindgi.com/v0.1/guides/tools/write-a-tool/#log-from-a-tool
+
 ### Configuration and secrets
 
 A secret that belongs to the tenant — an API key a customer gives you — is declared, and read from `ctx.secrets`:
@@ -202,6 +212,15 @@ export default defined.value;
 
 So declare `mutating: false` on every tool that only reads, and never on one that writes.
 
+A tool that writes also says what it writes, in `effects`, beside `mutating: true`:
+
+```ts
+  effects: [{ kind: 'writes', resource: 'acme:refunds' }],
+  mutating: true,
+```
+
+The kinds are `reads`, `writes`, `deletes`, `network`, `spawns-run`, `emits-event`, `external-side-effect` and `sensitive-data-egress` (`EFFECT_KINDS` in `@kindgi/tools`); `defineTool` refuses any other. `resource` is free text naming what the tool touches. A read-only tool keeps `effects: []`.
+
 ## Tool id convention
 
 `<pack-id>.<tool-name>` — kebab-case, dot-namespaced. The `<pack-id>`
@@ -235,6 +254,10 @@ version: '^0.1.0'}]` picks the highest active version matching the
 range at run start. Compatible tool updates (patch, minor) reach the
 agent without editing agent source; breaking updates (major) require
 the agent-author to opt in.
+
+## Testing a tool
+
+Put a tool's tests beside it, `tools/<tool>/index.test.ts`. Discovery skips `*.test.*` and `*.spec.*` files (`.ts`, `.js`, `.mjs`, `.cjs`), so the indexer never loads a test as a primitive: don't move tests elsewhere to keep them out. `invokeTool(tool, input, ctx)` from `@kindgi/sdk/define` calls the tool the way Kindgi does, schemas included, and returns a `Result`. `kindgi test` runs the pack's tests with vitest (`vitest run`; `--watch` keeps watching).
 
 ## Wiring the tool onto an agent
 
