@@ -51,10 +51,19 @@ export interface PackServiceSupervisorOptions {
    *   - Node: `[process.execPath, '--enable-source-maps', <@kindgi/handler-runtime/pack-service-main>]`
    *   - Python: `[<the pack's python>, '-m', 'kindgi.pack', 'serve']`
    *   - Java and Scala: `['sh', <kindgi-pack-java>, '-cp', <classpath> (or `@<argfile>`), 'com.kindgi.pack.Main', 'serve']`
+   *
+   * Or a function that returns it, called before every start: for a
+   * command that depends on what this start runs (a sandbox's profile,
+   * written for the classpath of the moment). Its rejection fails that
+   * start, its message the problem.
    */
-  readonly command: readonly [string, ...string[]];
+  readonly command:
+    | readonly [string, ...string[]]
+    | (() => Promise<readonly [string, ...string[]]>);
   /** Where the index's module paths resolve — the pack directory. */
   readonly moduleRoot: string;
+  /** The child's working directory. Default: this process's. */
+  readonly cwd?: string;
   /** The child's whole environment, read at every start. */
   readonly env: () => Promise<Readonly<Record<string, string>>>;
   /** Where the front listens. Default `127.0.0.1`. */
@@ -241,11 +250,21 @@ export function createPackServiceSupervisor(
       PORT: '0',
       KINDGI_LOG_FORMAT: 'json',
     };
-    const [program, ...args] = options.command;
+    let command: readonly [string, ...string[]];
+    try {
+      command = typeof options.command === 'function' ? await options.command() : options.command;
+    } catch (cause) {
+      return { kind: 'err', error: { problems: [describe(cause)] } };
+    }
+    const [program, ...args] = command;
     const child = spawn(
       program,
       [...args, '--index', indexPath, '--module-root', options.moduleRoot, '--host', DEFAULT_HOST],
-      { env, stdio: ['ignore', 'pipe', 'pipe'] },
+      {
+        env,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        ...(options.cwd !== undefined && { cwd: options.cwd }),
+      },
     );
     pipeLines(child.stdout, (line) => options.onLog?.(line, 'stdout'));
     return listening(child, indexPath);

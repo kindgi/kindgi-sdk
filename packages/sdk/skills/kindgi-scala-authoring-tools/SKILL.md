@@ -310,6 +310,13 @@ changes (a removed field, a narrower type), not on every save.
     `jackson-databind` minor version.** It refuses to load: depend on the
     matching one.
 
+12. **Turning the dev sandbox off for a file the tool needs.** Under `kindgi dev`
+    the tool's code runs sandboxed: it can't read outside the app (the home
+    folder, `~/.aws`) or any `.env*` file, and gets `EPERM` there. A tool that
+    needs a path names it in `kindgi.config.json`: `"dev": {"sandbox": {"allowRead": ["~/.aws"]}}`.
+    Never set `KINDGI_DEV_SANDBOX=off` or `dev.sandbox: false` to get past it
+    (https://docs.kindgi.com/v0.1/guides/secrets/dev-sandbox/).
+
 ## When the framework itself is the problem
 
 If the bug is in Kindgi, kindgi-pack or the Scala layer (a schema derived
