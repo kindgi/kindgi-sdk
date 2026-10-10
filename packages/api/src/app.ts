@@ -1392,6 +1392,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(authorizer !== undefined && { authorizer }),
       ...(input.personGrants !== undefined && { personGrants: input.personGrants }),
       ...(input.myAccess !== undefined && { myAccess: input.myAccess }),
+      ...(input.envBinding !== undefined && { tenantConfig: input.envBinding }),
     }),
   );
   if (input.cost !== undefined) {

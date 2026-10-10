@@ -15,6 +15,7 @@ import {
 import type { Cursor, SessionId, TenantId, UserId } from '@kindgi/types';
 
 import { callerPrincipal, callerRef, isTenantAdmin, principalToWire } from '../caller.js';
+import type { EnvBinding } from '../env-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type {
   IdentityDirectoryBinding,
@@ -34,6 +35,7 @@ import { callerReviewerRole } from '../reviewer-role.js';
 import type { SessionStoreBinding } from '../session-store-binding.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
+import { resolveTenantConfigEnvName } from './tenant.js';
 
 /**
  * Identity routes — the canonical caller-identity surface.
@@ -95,10 +97,24 @@ export interface IdentityRouterOptions {
    * client falls back to whoami's `tenantAdmin` and `reviewerRole`.
    */
   readonly myAccess?: MyAccessBinding;
+  /**
+   * Optional. The env binding the tenant config's `config` entries live
+   * in: `GET /me/permissions` reads the console's read-only line from it
+   * (`console.readOnlyNotice`).
+   */
+  readonly tenantConfig?: EnvBinding;
 }
 
 export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv> {
-  const { directory, sessionStore, reviewerBinding, authorizer, personGrants, myAccess } = options;
+  const {
+    directory,
+    sessionStore,
+    reviewerBinding,
+    authorizer,
+    personGrants,
+    myAccess,
+    tenantConfig,
+  } = options;
   const r = new Hono<AppEnv>();
 
   // ---------- GET / whoami ----------
@@ -147,7 +163,7 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
     return c.json(body);
   });
 
-  mountMyPermissions(r, { myAccess, reviewerBinding, authorizer });
+  mountMyPermissions(r, { myAccess, reviewerBinding, authorizer, tenantConfig });
 
   if (directory === undefined) {
     // Deployments without a directory binding get whoami and
@@ -464,9 +480,10 @@ function mountMyPermissions(
     readonly myAccess: MyAccessBinding | undefined;
     readonly reviewerBinding: ReviewerBinding | undefined;
     readonly authorizer: Authorizer | undefined;
+    readonly tenantConfig: EnvBinding | undefined;
   },
 ): void {
-  const { myAccess, reviewerBinding, authorizer } = options;
+  const { myAccess, reviewerBinding, authorizer, tenantConfig } = options;
   r.get('/me/permissions', async (c) => {
     if (myAccess === undefined) {
       c.status(statusFor('permissions-unsupported') as never);
@@ -531,6 +548,7 @@ function mountMyPermissions(
     }));
     const tokenId = c.get('tokenId') as string | undefined;
     const tokenRole = c.get('tokenRole');
+    const readOnlyNotice = await consoleReadOnlyNotice(c, tenantConfig);
 
     return c.json({
       tenantId,
@@ -551,8 +569,46 @@ function mountMyPermissions(
       orgs: orgs.sort(byName((o) => o.orgId)),
       teams: teams.sort(byName((t) => t.teamId)),
       capabilities: normalizeCapabilities(access?.capabilities ?? {}),
+      ...(readOnlyNotice !== undefined && { readOnlyNotice }),
     });
   });
+}
+
+/** The tenant config key a tenant admin sets the console's read-only line with. */
+export const READ_ONLY_NOTICE_KEY = 'console.readOnlyNotice';
+
+/** The longest read-only line served: longer is cut there, with an ellipsis. */
+export const READ_ONLY_NOTICE_MAX_LENGTH = 280;
+
+/**
+ * The line a console shows a caller who may only view a project, as a
+ * tenant admin set it (`PATCH /v1/tenant/config`, `kind: 'config'`, key
+ * `console.readOnlyNotice`): plain text on one line, at most
+ * `READ_ONLY_NOTICE_MAX_LENGTH` characters. `undefined` when none is set,
+ * or the config can't be read (the permissions still answer).
+ */
+async function consoleReadOnlyNotice(
+  c: Context<AppEnv>,
+  tenantConfig: EnvBinding | undefined,
+): Promise<string | undefined> {
+  if (tenantConfig === undefined) return undefined;
+  try {
+    const entry = await tenantConfig.get({
+      scope: { kind: 'tenant', tenantId: c.get('tenantId') as TenantId },
+      envName: resolveTenantConfigEnvName(),
+      name: READ_ONLY_NOTICE_KEY,
+    });
+    const text = entry?.value.replace(/\s+/g, ' ').trim() ?? '';
+    if (text === '') return undefined;
+    return text.length <= READ_ONLY_NOTICE_MAX_LENGTH
+      ? text
+      : `${text.slice(0, READ_ONLY_NOTICE_MAX_LENGTH - 1)}…`;
+  } catch (cause) {
+    c.get('log').warn(
+      `me/permissions: the console's read-only line couldn't be read, so it's left out: ${cause instanceof Error ? cause.message : String(cause)}`,
+    );
+    return undefined;
+  }
 }
 
 /**

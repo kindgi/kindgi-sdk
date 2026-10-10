@@ -8010,6 +8010,12 @@ export const MyPermissionsSchema: JsonSchema = {
       items: { $ref: '#/components/schemas/MyTeamAccess' },
     },
     capabilities: { $ref: '#/components/schemas/RoleCapabilities' },
+    readOnlyNotice: {
+      type: 'string',
+      maxLength: 280,
+      description:
+        "The line a console shows a caller who may only view a project, as a tenant admin set it in the tenant config (`kind: 'config'`, key `console.readOnlyNotice`). Plain text on one line, at most 280 characters. Absent when none is set: the console shows its own.",
+    },
   },
 };
 

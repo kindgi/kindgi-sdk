@@ -18,6 +18,7 @@ What I may do, in one call, so a client can hide what the caller can't do instea
   - `tenant-admin`.
 - **`orgs` and `teams`:** the caller's own, with its role in each.
 - **`capabilities`:** what each project role allows on the project and each object type in it, from the runtime's authorization model. A client decides an action as `capabilities[project.role][type]` holding it.
+- **`readOnlyNotice`:** the line a console shows someone who may only view a project, when a tenant admin set one. It's in the tenant config, `kind: 'config'`, key `console.readOnlyNotice`, plain text on one line, at most 280 characters.
 
 **The key's limits are applied:**
 - a `member` key is never tenant admin;

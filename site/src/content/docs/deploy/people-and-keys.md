@@ -127,6 +127,10 @@ a role.
 - **`capabilities`:** what each project role allows on the project and on
   each kind of object in it, read from the runtime's authorization model.
   Your project role's entry is what you may do there.
+- **`readOnlyNotice`:** the line the console shows someone who may only
+  view a project, when a tenant admin set one. It's in the tenant config,
+  `kind: 'config'`, key `console.readOnlyNotice`, plain text on one line, at
+  most 280 characters.
 
 A key limited to a project sees that project alone. A `member` key is never
 a tenant admin. You only see what you may read: no project you can't read,

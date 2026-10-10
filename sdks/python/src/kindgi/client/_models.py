@@ -10908,6 +10908,10 @@ class MyPermissions(BaseModel):
     The teams the caller is a member or admin of, by name.
     """
     capabilities: RoleCapabilities
+    read_only_notice: Annotated[str | None, Field(alias="readOnlyNotice", max_length=280)] = None
+    """
+    The line a console shows a caller who may only view a project, as a tenant admin set it in the tenant config (`kind: 'config'`, key `console.readOnlyNotice`). Plain text on one line, at most 280 characters. Absent when none is set: the console shows its own.
+    """
 
 
 class DeploymentSecretsSyncRequest(BaseModel):

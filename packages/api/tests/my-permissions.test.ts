@@ -21,6 +21,7 @@ import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type {
+  EnvBinding,
   MyAccess,
   MyAccessBinding,
   ReviewerBinding,
@@ -154,13 +155,34 @@ const ALICE_ACCESS: MyAccess = {
   capabilities: { admin: { project: ['read', 'write', 'admin'] } },
 };
 
-function harness(myAccess?: MyAccessBinding) {
+/** A tenant config holding only the console's read-only line (or failing to be read). */
+function configWith(notice: string | Error | undefined): EnvBinding {
+  return {
+    get: async ({ name }: { name: string }) => {
+      if (notice instanceof Error) throw notice;
+      return notice !== undefined && name === 'console.readOnlyNotice'
+        ? {
+            scope: { kind: 'tenant', tenantId },
+            envName: 'default',
+            name,
+            value: notice,
+            revision: 1,
+            createdAt: '2026-10-09T00:00:00.000Z',
+            updatedAt: '2026-10-09T00:00:00.000Z',
+          }
+        : null;
+    },
+  } as unknown as EnvBinding;
+}
+
+function harness(myAccess?: MyAccessBinding, envBinding?: EnvBinding) {
   const app = createApp({
     ...createStubAppBindings(),
     resolveToken,
     runHandler: noopRunHandler,
     reviewerBinding,
     ...(myAccess !== undefined && { myAccess }),
+    ...(envBinding !== undefined && { envBinding }),
     authz: { fgaApiUrl: 'http://fga.invalid', authzCheckBinding },
   });
   return async (token?: string): Promise<{ status: number; body: Record<string, unknown> }> => {
@@ -285,6 +307,38 @@ describe('GET /v1/identity/me/permissions', () => {
   test("the token's capabilities, sorted", async () => {
     const r = await harness(store)(DEPLOYMENT);
     expect(r.body.tokenCapabilities).toEqual(['env:write', 'kindgi:system', 'secrets:write']);
+  });
+
+  describe("the console's read-only line, from the tenant config", () => {
+    const READ_ONLY = "You're looking at Kindgi's own workspace, read-only.";
+
+    test('served to every caller, as a tenant admin set it', async () => {
+      const r = await harness(store, configWith(READ_ONLY))(BOB);
+      expect(r.body.readOnlyNotice).toBe(READ_ONLY);
+    });
+
+    test('absent when none is set, or with no tenant config', async () => {
+      expect(
+        (await harness(store, configWith(undefined))(BOB)).body.readOnlyNotice,
+      ).toBeUndefined();
+      expect((await harness(store)(BOB)).body.readOnlyNotice).toBeUndefined();
+      expect((await harness(store, configWith('  \n '))(BOB)).body.readOnlyNotice).toBeUndefined();
+    });
+
+    test('one line, cut at 280 characters', async () => {
+      expect(
+        (await harness(store, configWith('Read-only\n  here. '))(BOB)).body.readOnlyNotice,
+      ).toBe('Read-only here.');
+      const long = (await harness(store, configWith('x'.repeat(400)))(BOB)).body.readOnlyNotice;
+      expect(long).toBe(`${'x'.repeat(279)}…`);
+    });
+
+    test("a config that can't be read leaves it out; the permissions still answer", async () => {
+      const r = await harness(store, configWith(new Error('env down')))(BOB);
+      expect(r.status).toBe(200);
+      expect(r.body.readOnlyNotice).toBeUndefined();
+      expect(r.body.projects).toHaveLength(2);
+    });
   });
 
   test("a store that can't be read: 503 authz-backend-unavailable", async () => {
