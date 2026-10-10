@@ -245,7 +245,16 @@ function makeMockImageRegistry(images: readonly FakeImage[]): ImageRegistryBindi
 
 let lastToolRegisterProjectId: ProjectId | undefined;
 
-function makeInMemoryToolRegistry(): ToolRegistryBinding {
+/** JSON with keys sorted: equality of values, as a store compares them. */
+function canon(value: unknown): string {
+  return JSON.stringify(value ?? null, (_k, v: unknown) =>
+    v !== null && typeof v === 'object' && !Array.isArray(v)
+      ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+      : v,
+  );
+}
+
+function makeInMemoryToolRegistry(opts: { refreshes?: boolean } = {}): ToolRegistryBinding {
   const store = new Map<string, Map<string, unknown>>();
   const forT = (t: TenantId): Map<string, unknown> => {
     const k = t as unknown as string;
@@ -264,12 +273,33 @@ function makeInMemoryToolRegistry(): ToolRegistryBinding {
     async get({ tenantId, toolId }) {
       return (forT(tenantId).get(toolId as unknown as string) as never) ?? null;
     },
-    async getVersion() {
-      return null;
+    async getVersion({ tenantId, toolId, version }) {
+      const tool = forT(tenantId).get(toolId as unknown as string) as
+        | { version?: string }
+        | undefined;
+      return tool !== undefined && tool.version === (version as unknown as string)
+        ? (tool as never)
+        : null;
     },
     async headExists({ tenantId, toolId }) {
       return forT(tenantId).has(toolId as unknown as string);
     },
+    ...(opts.refreshes === true && {
+      async refreshCodeArtifactRef({ tenantId, toolId, codeArtifactRef, expected }) {
+        const s = forT(tenantId);
+        const tool = s.get(toolId as unknown as string) as Record<string, unknown> | undefined;
+        if (tool === undefined) return { refreshed: false };
+        if (expected !== undefined && canon(tool.codeArtifactRef) !== canon(expected)) {
+          return { refreshed: false };
+        }
+        const { codeArtifactRef: _old, ...rest } = tool;
+        s.set(toolId as unknown as string, {
+          ...rest,
+          ...(codeArtifactRef !== null && { codeArtifactRef }),
+        });
+        return { refreshed: true };
+      },
+    }),
     async listVersions({ tenantId, toolId }) {
       const tool = forT(tenantId).get(toolId as unknown as string);
       return { data: tool === undefined ? [] : [tool as never] };
@@ -298,7 +328,9 @@ function makeInMemoryToolRegistry(): ToolRegistryBinding {
 let lastGuardrailRegisterProjectId: ProjectId | undefined;
 
 /** Guardrails by tenant, each row in its project, as the registry keeps them. */
-function makeInMemoryGuardrailRegistry(): GuardrailRegistryBinding {
+function makeInMemoryGuardrailRegistry(
+  opts: { refreshes?: boolean } = {},
+): GuardrailRegistryBinding {
   const store = new Map<string, Map<string, { guardrail: unknown; projectId: ProjectId }>>();
   const forT = (t: TenantId): Map<string, { guardrail: unknown; projectId: ProjectId }> => {
     const k = t as unknown as string;
@@ -331,6 +363,43 @@ function makeInMemoryGuardrailRegistry(): GuardrailRegistryBinding {
     async unregister({ tenantId, guardrailId }) {
       return { unregistered: forT(tenantId).delete(guardrailId as unknown as string) };
     },
+    ...(opts.refreshes === true && {
+      async refreshDeployedFields({
+        tenantId,
+        guardrailId,
+        codeArtifactRef,
+        configSchema,
+        expected,
+      }) {
+        const s = forT(tenantId);
+        const row = s.get(guardrailId as unknown as string);
+        if (row === undefined) return { refreshed: false };
+        const held = row.guardrail as { codeArtifactRef?: unknown; configSchema?: unknown };
+        if (
+          expected !== undefined &&
+          canon({
+            codeArtifactRef: held.codeArtifactRef ?? null,
+            configSchema: held.configSchema ?? null,
+          }) !== canon(expected)
+        ) {
+          return { refreshed: false };
+        }
+        const {
+          codeArtifactRef: _ref,
+          configSchema: _schema,
+          ...rest
+        } = row.guardrail as Record<string, unknown>;
+        s.set(guardrailId as unknown as string, {
+          projectId: row.projectId,
+          guardrail: {
+            ...rest,
+            ...(codeArtifactRef !== null && { codeArtifactRef }),
+            ...(configSchema !== null && { configSchema }),
+          },
+        });
+        return { refreshed: true };
+      },
+    }),
   };
 }
 
@@ -613,6 +682,8 @@ function makeApp(opts: {
   writes?: string[];
   /** The project the deploy lands in. Default `DEFAULT_PROJECT_ID`. */
   projectId?: ProjectId;
+  /** The tool and guardrail registries take a redeploy's code pointer (and config schema). */
+  refreshes?: boolean;
 }) {
   const deploymentRegistry = opts.deploymentRegistry ?? makeInMemoryDeploymentBinding();
   const trust: TrustEntry[] = [
@@ -641,8 +712,9 @@ function makeApp(opts: {
     ...(opts.extraImages ?? []),
   ];
   const imageRegistry = opts.imageRegistry ?? makeMockImageRegistry(images);
-  const toolRegistry = opts.toolRegistry ?? makeInMemoryToolRegistry();
-  const guardrailRegistry = makeInMemoryGuardrailRegistry();
+  const refreshes = { refreshes: opts.refreshes === true };
+  const toolRegistry = opts.toolRegistry ?? makeInMemoryToolRegistry(refreshes);
+  const guardrailRegistry = makeInMemoryGuardrailRegistry(refreshes);
   const agentRegistry = opts.agentRegistry ?? makeInMemoryAgentRegistry();
   const flowRegistry = opts.flowRegistry ?? makeInMemoryFlowRegistry();
 
@@ -961,7 +1033,7 @@ describe('POST /v1/deployments — happy path', () => {
     });
   });
 
-  test("an index guardrail carrying fields this runtime doesn't know (a newer CLI) deploys: they are dropped, not refused", async () => {
+  test("an index guardrail carrying a field this runtime doesn't know (a newer CLI) deploys: it's dropped, not refused; the built-in marker is kept", async () => {
     const fixture = buildSignedDeploy({
       index: {
         v: 1,
@@ -998,7 +1070,9 @@ describe('POST /v1/deployments — happy path', () => {
       guardrailId: 'acme.cites' as never,
     })) as unknown as Record<string, unknown>;
     expect(guardrail).toMatchObject({ check: 'must-cite', config: { minCitations: 1 } });
-    expect(guardrail.checkBuiltIn).toBeUndefined();
+    // The marker the runtime reads to tell a guardrail merely naming a built-in from an older
+    // CLI's pack that may ship its own check under one.
+    expect(guardrail.checkBuiltIn).toBe(true);
     expect(guardrail.someLaterField).toBeUndefined();
   });
 
@@ -3408,13 +3482,14 @@ function indexWith(
 const SECOND_KEY_ID = 'aperture-staging-2026-02' as SigningKeyId;
 
 /** An app that trusts two images of the pack: the first, and a later one (`second`). */
-function twoImages(second: SignedDeploy) {
+function twoImages(second: SignedDeploy, opts: { refreshes?: boolean } = {}) {
   const first = buildSignedDeploy({
     artifactVersion: '20260920.1',
     index: indexWith('20260920.1'),
   });
   const made = makeApp({
     fixture: first,
+    ...(opts.refreshes === true && { refreshes: true }),
     extraTrust: [
       {
         keyId: SECOND_KEY_ID,
@@ -3483,15 +3558,25 @@ describe("POST /v1/deployments — a guardrail id that's already live", () => {
 
   test('in this project, the same definition in a new image: kept, the deploy goes through', async () => {
     const second = laterImage();
-    const { guardrailRegistry, deploy, first } = twoImages(second);
+    const { guardrailRegistry, toolRegistry, deploy, first } = twoImages(second);
     expect((await deploy(first)).status).toBe(201);
     expect((await deploy(second)).status).toBe(201);
-    // Kept as it was: a deploy never changes a guardrail.
+    // Kept as it was: a registry without the refresh methods keeps the
+    // first image's pointer, for the guardrail and the tool alike.
     const kept = (await guardrailRegistry.get({
       tenantId,
       guardrailId: 'acme.no-fabricated-quotes' as never,
-    })) as unknown as { codeArtifactRef: { artifactVersion: string } };
+    })) as unknown as { codeArtifactRef: { artifactVersion: string; imageRef: string } };
     expect(kept.codeArtifactRef.artifactVersion).toBe('20260920.1');
+    expect(kept.codeArtifactRef.imageRef).toBe(first.imageRef);
+    const tool = (await toolRegistry.get({
+      tenantId,
+      toolId: 'acme.verify-citation' as never,
+    })) as unknown as { codeArtifactRef: { artifactVersion: string; imageRef: string } };
+    expect(tool.codeArtifactRef).toMatchObject({
+      artifactVersion: '20260920.1',
+      imageRef: first.imageRef,
+    });
   });
 
   test('in this project with another definition: 409 guardrail-already-registered, nothing deployed', async () => {
@@ -3624,5 +3709,143 @@ describe('sameGuardrailDefinition', () => {
     ['no code pointer', g({ codeArtifactRef: undefined })],
   ])('different, with %s', (_why, other) => {
     expect(sameGuardrailDefinition(base, other)).toBe(false);
+  });
+});
+
+describe('POST /v1/deployments — a redeploy refreshes what it derived', () => {
+  const SCHEMA = { type: 'object', properties: { min: { type: 'integer' } } };
+  const pointerOf = async (made: ReturnType<typeof twoImages>) => {
+    const guardrail = (await made.guardrailRegistry.get({
+      tenantId,
+      guardrailId: 'acme.no-fabricated-quotes' as never,
+    })) as unknown as { codeArtifactRef: { artifactVersion: string }; configSchema?: unknown };
+    const tool = (await made.toolRegistry.get({
+      tenantId,
+      toolId: 'acme.verify-citation' as never,
+    })) as unknown as { codeArtifactRef: { artifactVersion: string } };
+    return {
+      guardrail: guardrail.codeArtifactRef.artifactVersion,
+      schema: guardrail.configSchema,
+      tool: tool.codeArtifactRef.artifactVersion,
+    };
+  };
+
+  test("a kept tool version and guardrail get the new image's pointer, the guardrail its config schema", async () => {
+    const second = laterImage({ configSchema: SCHEMA });
+    const made = twoImages(second, { refreshes: true });
+    expect((await made.deploy(made.first)).status).toBe(201);
+    expect(await pointerOf(made)).toEqual({
+      guardrail: '20260920.1',
+      schema: undefined,
+      tool: '20260920.1',
+    });
+    expect((await made.deploy(second)).status).toBe(201);
+    expect(await pointerOf(made)).toEqual({
+      guardrail: '20260921.1',
+      schema: SCHEMA,
+      tool: '20260921.1',
+    });
+  });
+
+  test('a deploy refused after refreshing puts the old pointer and schema back', async () => {
+    // The later image also brings a guardrail whose id lives in another project.
+    const index = indexWith('20260921.1', { configSchema: SCHEMA }) as { guardrails: unknown[] };
+    index.guardrails.push({
+      id: 'acme.elsewhere',
+      kind: 'zero-llm',
+      check: 'must-cite',
+      action: { 'on-violation': 'halt' },
+    });
+    const second = buildSignedDeploy({
+      artifactVersion: '20260921.1',
+      keyId: SECOND_KEY_ID,
+      index: index as Record<string, unknown>,
+    });
+    const made = twoImages(second, { refreshes: true });
+    expect((await made.deploy(made.first)).status).toBe(201);
+    await made.guardrailRegistry.register({
+      tenantId,
+      projectId: randomUUID() as ProjectId,
+      guardrail: {
+        id: 'acme.elsewhere',
+        kind: 'zero-llm',
+        check: 'must-cite',
+        action: { 'on-violation': 'halt' },
+      } as never,
+      enqueueTuples: () => [],
+    });
+
+    expect((await made.deploy(second)).status).toBe(409);
+    expect(await pointerOf(made)).toEqual({
+      guardrail: '20260920.1',
+      schema: undefined,
+      tool: '20260920.1',
+    });
+  });
+
+  test("a rollback leaves another deploy's later refresh in place (compare-and-set)", async () => {
+    // This deploy refreshes, then is refused by a later guardrail; between
+    // the two, another deploy of the tenant refreshes the same rows.
+    const index = indexWith('20260921.1', { configSchema: SCHEMA }) as { guardrails: unknown[] };
+    index.guardrails.push({
+      id: 'acme.elsewhere',
+      kind: 'zero-llm',
+      check: 'must-cite',
+      action: { 'on-violation': 'halt' },
+    });
+    const second = buildSignedDeploy({
+      artifactVersion: '20260921.1',
+      keyId: SECOND_KEY_ID,
+      index: index as Record<string, unknown>,
+    });
+    const made = twoImages(second, { refreshes: true });
+    expect((await made.deploy(made.first)).status).toBe(201);
+    await made.guardrailRegistry.register({
+      tenantId,
+      projectId: randomUUID() as ProjectId,
+      guardrail: {
+        id: 'acme.elsewhere',
+        kind: 'zero-llm',
+        check: 'must-cite',
+        action: { 'on-violation': 'halt' },
+      } as never,
+      enqueueTuples: () => [],
+    });
+    const third = (modulePath: string) => ({
+      kind: 'oci' as const,
+      imageRef: 'ghcr.io/acme/aperture@sha256:third',
+      modulePath,
+      artifactVersion: '20260922.1',
+    });
+    const THIRD_SCHEMA = { type: 'object', properties: { max: { type: 'integer' } } };
+    const get = made.guardrailRegistry.get.bind(made.guardrailRegistry);
+    let raced = false;
+    (made.guardrailRegistry as { get: GuardrailRegistryBinding['get'] }).get = async (input) => {
+      if (input.guardrailId === ('acme.elsewhere' as never) && !raced) {
+        raced = true;
+        await made.toolRegistry.refreshCodeArtifactRef?.({
+          tenantId,
+          toolId: 'acme.verify-citation' as never,
+          version: '1.0.0' as never,
+          codeArtifactRef: third('./tools/legal/verify-citation.js'),
+        });
+        await made.guardrailRegistry.refreshDeployedFields?.({
+          tenantId,
+          guardrailId: 'acme.no-fabricated-quotes' as never,
+          codeArtifactRef: third('./guardrails/must-cite.js'),
+          configSchema: THIRD_SCHEMA,
+        });
+      }
+      return get(input);
+    };
+
+    expect((await made.deploy(second)).status).toBe(409);
+    expect(raced).toBe(true);
+    // The other deploy's refresh stands: this one's rollback didn't undo it.
+    expect(await pointerOf(made)).toEqual({
+      guardrail: '20260922.1',
+      schema: THIRD_SCHEMA,
+      tool: '20260922.1',
+    });
   });
 });

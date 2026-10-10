@@ -699,6 +699,39 @@ describe('API — tools versions', () => {
     expect(res.status).toBe(404);
   });
 
+  const enc = (v: string) => Buffer.from(v, 'utf8').toString('base64url');
+  test.each([
+    [
+      'a position',
+      200,
+      enc(
+        JSON.stringify({
+          p: '2026-10-09 12:00:00.123456+00',
+          i: '6f1c2a4e-3b5d-4c7e-8f90-1a2b3c4d5e6f',
+        }),
+      ),
+    ],
+    ['a bare time, from before', 200, enc('2026-10-09T12:00:00.123Z')],
+    ['not base64 of anything', 400, 'not-a-cursor'],
+    ['a position whose time and id are not', 400, enc(JSON.stringify({ p: 'x', i: 'y' }))],
+    ['broken JSON', 400, enc('{"p":')],
+  ])('GET /:toolId/versions with %s as the cursor → %i', async (_name, status, cursor) => {
+    const { app, binding } = makeApp();
+    await binding.publish({
+      tenantId,
+      projectId: randomUUID() as ProjectId,
+      tool: toolBody({ version: '1.0.0' }) as unknown as ToolManifest,
+      enqueueTuples: () => [],
+    });
+    const res = await app.request(`/v1/tools/acme.verify-citation/versions?cursor=${cursor}`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(res.status).toBe(status);
+    if (status === 400) {
+      expect(((await res.json()) as { error: { code: string } }).error.code).toBe('bad-input');
+    }
+  });
+
   test('GET /:toolId/versions/:version → 200 exact version', async () => {
     const { app, binding } = makeApp();
     const projectId = randomUUID() as ProjectId;

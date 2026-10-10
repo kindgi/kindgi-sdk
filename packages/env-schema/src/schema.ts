@@ -346,6 +346,15 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_AUTH_TENANT_PROVIDERS',
+    description:
+      "Whether a tenant's admins may add, change and remove its identity providers: `on` or `off`. Default `on`. `off` when the operator manages sign-in: then only the deployment's own token (`KINDGI_API_TOKEN`) can, and a tenant's change answers `403 identity-providers-operator-managed`. The providers already there keep signing people in either way, and anyone may still read them.",
+    example: 'off',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_AUTH_GOOGLE_CLIENT_ID',
     description:
       "Turns on \"Continue with Google\": the client id of the deployment's own Google app (an OAuth client (Web application)). People who've been added to a workspace sign in with their Google account, by its verified email. The app allows the redirect URI `<KINDGI_PUBLIC_URL>/auth/kindgi/social/callback/google`. Needs sign-in on (`KINDGI_AUTH_SECRET_PATH`) and the app's secret (`KINDGI_AUTH_GOOGLE_CLIENT_SECRET` or `…_SECRET_PATH`).",
@@ -440,6 +449,15 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     description:
       'A file (mode 0600) holding the SMTP URL with its credentials. Set this or `KINDGI_AUTH_EMAIL_SMTP_URL`, not both.',
     example: '/etc/kindgi/smtp-url',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_REVIEWER_EMAIL',
+    description:
+      "`on` emails reviewers when an approval waits for them: the people the approvals inbox would show it to (its assigned reviewer, else every active reviewer of its required role or above), and only those who may read its project. The first email goes at once; anything more for the same person within five minutes comes as one digest. Each email has the approval's title, project, required role and a link, never what it's about (that stays behind sign-in). Sent through the emailed sign-in link's server, so it needs `KINDGI_AUTH_EMAIL_SMTP_URL` (or `_PATH`) and `KINDGI_AUTH_EMAIL_FROM`; turned on without them, the runtime refuses to start. Off by default: emailing people is the operator's choice.",
+    example: 'on',
     required: false,
     appliesTo: appliesToServer,
     group: 'core',
@@ -674,6 +692,42 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     name: 'KINDGI_ERASURE_LEDGER_KEY',
     description:
       "The erasure ledger's 32-byte key itself, base64: for platforms that give secrets as environment variables (Cloud Run with Secret Manager), where a key file's mode can't be 0600. See `KINDGI_ERASURE_LEDGER_KEY_PATH`; this or that, not both.",
+    example: '',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_PAGINATION_KEY_PATH',
+    description:
+      "Absolute path to the 32-byte key (mode 0600) every list's page cursors are sealed with, so a cursor never shows the row it points after; the same on every instance. Unset (and no `KINDGI_PAGINATION_KEY`): a key made at boot and kept nowhere, so a cursor handed out before a restart answers 400 after it, and more than one instance behind one address needs the key set. Rotate it yearly (each cursor is sealed with a random nonce): the new key here, the old one in `KINDGI_PAGINATION_PREVIOUS_KEY_PATH` for at least a day. Its own key: never the erasure ledger's or the secrets AAD key. This or `KINDGI_PAGINATION_KEY`, not both.",
+    example: '/etc/kindgi/pagination.key',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_PAGINATION_KEY',
+    description:
+      'The page-cursor key itself, base64: for platforms that give secrets as environment variables (Cloud Run with Secret Manager). See `KINDGI_PAGINATION_KEY_PATH`; this or that, not both.',
+    example: '',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_PAGINATION_PREVIOUS_KEY_PATH',
+    description:
+      "While the page-cursor key rotates, the key before it (a 32-byte file, mode 0600): it still opens the cursors it sealed. Keep it at least a day (a cursor's life) after rotating, then remove it. Needs `KINDGI_PAGINATION_KEY(_PATH)`, and must differ from it. This or `KINDGI_PAGINATION_PREVIOUS_KEY`, not both.",
+    example: '/etc/kindgi/pagination.previous.key',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_PAGINATION_PREVIOUS_KEY',
+    description:
+      'The previous page-cursor key itself, base64. See `KINDGI_PAGINATION_PREVIOUS_KEY_PATH`; this or that, not both.',
     example: '',
     required: false,
     appliesTo: appliesToServer,
