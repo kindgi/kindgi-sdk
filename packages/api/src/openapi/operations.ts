@@ -3366,6 +3366,28 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
   {
     method: 'post',
+    honoPath: '/v1/proposals/:proposalId/rescore',
+    openapiPath: '/v1/proposals/{proposalId}/rescore',
+    operationId: 'proposals.rescore',
+    summary: "Rescore a proposal's latest evaluation",
+    description:
+      "After people judge a comparison's new answers on its replay runs (`perCase[].changes.new`, `runIds`), a new comparison eval run scores the same replays again, counting those judgments, as `POST /v1/eval-runs/{runId}/rescore` does: same test set version and settings, `comparison.rescoreOf`, nothing replayed. It becomes the proposal's evaluation, so the proposal is `evaluating`, then `evaluated` or `not-better` as the rescore says; the run rescored stays as it was. Takes no body fields. Needs `publish` on the agent. Allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`.",
+    tags: ['proposals'],
+    security: 'bearer',
+    parameters: [ProposalIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '202': { description: 'The proposal, `evaluating`.', schema: ref('FixProposal') },
+      ...CommonMutationErrors,
+      '404': ErrorResponse(
+        'No such proposal, or its candidate version is unregistered (`agent-version-not-found`).',
+      ),
+      '409': ErrorResponse(
+        "`proposal-invalid-state-transition`: the proposal's status doesn't allow it. `eval-run-not-rescorable`: the latest evaluation isn't a completed comparison.",
+      ),
+    },
+  },
+  {
+    method: 'post',
     honoPath: '/v1/proposals/:proposalId/request',
     openapiPath: '/v1/proposals/{proposalId}/request',
     operationId: 'proposals.request',
