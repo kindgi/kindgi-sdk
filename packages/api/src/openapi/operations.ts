@@ -388,6 +388,15 @@ const FlowNameFilterQueryParam: ParameterSpec = {
   schema: { type: 'string' },
 };
 
+const IncludeRetiredQueryParam: ParameterSpec = {
+  name: 'includeRetired',
+  in: 'query',
+  required: false,
+  description:
+    "When `true`, retired items (every version unregistered) are listed too, each as its highest version with that version's `unregisteredAt`. Default: `false` (items with an active version only).",
+  schema: { type: 'boolean', default: false },
+};
+
 const AgentVersionPathParam: ParameterSpec = {
   name: 'version',
   in: 'path',
@@ -2641,7 +2650,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'flows.list',
     summary: 'List flows',
     description:
-      'Cursor-paginated list of the latest version per flow id. Optional `?name=` filters by prefix on flow id.',
+      'Cursor-paginated list of the latest version per flow id. Optional `?name=` filters by prefix on flow id. A retired flow (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.',
     tags: ['flows'],
     security: 'bearer',
     parameters: [
@@ -2651,6 +2660,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ScopeKindQueryParam,
       ScopeIdQueryParam,
       InheritQueryParam,
+      IncludeRetiredQueryParam,
     ],
     responses: {
       '200': { description: 'Page of flows.', schema: ref('FlowCollectionPage') },
@@ -2679,14 +2689,15 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/flows/{flowId}/versions',
     operationId: 'flows.listVersions',
     summary: 'List versions of a flow',
-    description: 'Cursor-paginated. Sort order is binding-defined (for example semver asc).',
+    description:
+      'Cursor-paginated. Sort order is binding-defined (for example semver asc). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired flow (every version unregistered) answers too, with its versions to reinstate.',
     tags: ['flows'],
     security: 'bearer',
-    parameters: [FlowIdPathParam, LimitQueryParam, CursorQueryParam],
+    parameters: [FlowIdPathParam, LimitQueryParam, CursorQueryParam, IncludeTombstonedQueryParam],
     responses: {
       '200': { description: 'Page of flow versions.', schema: ref('FlowCollectionPage') },
       ...CommonAuthErrors,
-      '404': ErrorResponse('No flow with that id under this tenant.'),
+      '404': ErrorResponse('No flow was ever registered with that id under this tenant.'),
     },
   },
   {

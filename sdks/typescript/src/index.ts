@@ -93,6 +93,8 @@ export type {
   FlowFilter,
   FlowsClient,
   FlowValidateResult,
+  FlowVersionFilter,
+  FlowVersionRow,
   PageFilter,
 } from './resources/flows.js';
 export type {
