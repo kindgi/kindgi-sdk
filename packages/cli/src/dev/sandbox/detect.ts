@@ -7,9 +7,9 @@
  * the system's). Each is tried once with an empty policy, so the answer
  * is what happens, not a guess:
  *
- * - `sandbox-exec` refuses inside a process that is already sandboxed
- *   (`sandbox_apply: Operation not permitted`): a coding agent's sandbox
- *   around `kindgi dev`. A sandbox can't be nested.
+ * - `sandbox-exec` refuses inside a process that is already sandboxed by a
+ *   profile that restricts anything (`sandbox_apply: Operation not
+ *   permitted`): a coding agent's sandbox around `kindgi dev`.
  * - `bwrap` needs unprivileged user namespaces. Ubuntu 23.10 and later
  *   restrict them with AppArmor (`setting up uid map: Permission
  *   denied`); a default Docker container doesn't allow them (`Creating
@@ -97,7 +97,7 @@ function seatbeltAvailability(probe: ProbeResult): SandboxAvailability {
   }
   if (/sandbox_apply/i.test(probe.stderr)) {
     return unavailable(
-      'kindgi dev is already inside a sandbox (a coding agent’s?), and sandboxes don’t nest',
+      'kindgi dev is already inside a sandbox (a coding agent’s?) that won’t let it add its own',
       'Run kindgi dev in your own terminal.',
     );
   }

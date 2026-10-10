@@ -155,11 +155,12 @@ jobs:
       # namespaces.
       - name: bubblewrap (for kindgi dev's sandbox test)
         run: |
+          # The same commands guides/secrets/dev-sandbox.mdx gives a reader.
           sudo apt-get update -qq
-          sudo apt-get install -y -qq bubblewrap
+          sudo apt-get install bubblewrap
           if [ "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns 2>/dev/null)" = 1 ]; then
-            printf 'profile bwrap /usr/bin/bwrap flags=(unconfined) {\n  userns,\n}\n' | sudo tee /etc/apparmor.d/bwrap > /dev/null
-            sudo apparmor_parser -r /etc/apparmor.d/bwrap
+            printf 'profile bwrap /usr/bin/bwrap flags=(unconfined) {\n  userns,\n}\n' | sudo tee /etc/apparmor.d/bwrap
+            sudo systemctl reload apparmor
           fi
           bwrap --ro-bind / / true
       - name: Test

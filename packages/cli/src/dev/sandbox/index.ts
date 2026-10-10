@@ -5,7 +5,7 @@
  * `kindgi dev` runs the pack service sandboxed: the tool and module code a
  * coding agent writes can't read the user's keys, other projects, or the
  * Docker socket. It still reaches the network, and reads and writes the
- * app's own files. Design: `.scratch/DESIGN-t550-dev-sandbox.md`.
+ * app's own files. The guide: https://docs.kindgi.com/v0.1/guides/secrets/dev-sandbox/.
  *
  * At every start, {@link sandboxedCommand} works out what this start runs
  * (the runtime, the dependencies: `policy.ts`), writes the sandbox for it
