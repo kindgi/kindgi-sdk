@@ -406,6 +406,8 @@ describe('API keys act for a principal', () => {
     expect(me.body).toMatchObject({
       userId: 'bob',
       principal: { kind: 'user', id: 'bob' },
+      // As approvals name a person (`requestedBy`, `decidedBy`).
+      actor: 'user:bob',
       tokenId: bob.tokenId,
       role: 'member',
     });
@@ -584,6 +586,7 @@ describe('/v1/service-accounts', () => {
     const me = await h.call(key.token, 'GET', '/v1/identity/whoami');
     expect(me.body).toMatchObject({
       principal: { kind: 'service-account', id: 'sa-acme-ci' },
+      actor: 'service_account:sa-acme-ci',
       tokenId: key.tokenId,
       role: 'member',
       projectId: P1,

@@ -239,13 +239,19 @@ export interface StoredProposalPage {
 /**
  * Observation readback filter. Tenant-scoped; every other filter is
  * optional. `since` / `until` bound `observedAt`; `cursor` is an opaque
- * ISO timestamp from a prior page's `nextCursor`. `limit` is clamped by
- * the binding.
+ * ISO timestamp from a prior page's `nextCursor`; `after` is a prior
+ * page's `next`. `limit` is clamped by the binding.
  */
 export interface SupervisorQueryObservationsInput {
   readonly tenantId: TenantId;
   readonly limit: number;
+  /** A bare time: observations before it. No tie-breaker; `after` replaces it. */
   readonly cursor?: Cursor;
+  /**
+   * Only observations after this one in the list's order (`observedAt`
+   * desc, then `id` desc): where a page that ended on it continues.
+   */
+  readonly after?: ObservationPosition;
   readonly status?: ObservationStatus;
   readonly supervisorId?: SupervisorId;
   readonly agentId?: AgentId;
@@ -258,6 +264,19 @@ export interface SupervisorQueryObservationsInput {
 export interface SupervisorObservationPage {
   readonly data: readonly Observation[];
   readonly nextCursor?: Cursor;
+  /**
+   * Where the next page starts: the page's last observation, its
+   * `observedAt` as stored and its id. Set with `nextCursor`. Absent from
+   * a binding that doesn't give it: the caller then continues by
+   * `nextCursor`, a bare time that skips observations at the same instant.
+   */
+  readonly next?: ObservationPosition;
+}
+
+/** Where a page of observations ends: an observation's `observedAt` as stored, and its id. */
+export interface ObservationPosition {
+  readonly observedAt: string;
+  readonly id: string;
 }
 
 export type SupervisorQueryObservationsOutcome =

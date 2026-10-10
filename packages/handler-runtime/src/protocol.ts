@@ -33,6 +33,12 @@ export interface PackCallContext {
   /** The individual call — e.g. the model's tool-call id. */
   readonly requestId?: string;
   /**
+   * The call's idempotency key: the same every time this call runs (a
+   * resume, a retry, a re-run after a crash), different for every other
+   * call (protocol 2.6.0). A pack service from before 2.6.0 ignores it.
+   */
+  readonly idempotencyKey?: string;
+  /**
    * The env values the tool declares (`needsSpec.env`), resolved for this
    * call: project, else org, else tenant (protocol 2.5.0). Strings.
    */
