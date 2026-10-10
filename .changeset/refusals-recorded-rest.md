@@ -13,7 +13,7 @@ Each keeps its code and message, and its error gains the `action`, `resource` an
 Four 403s stay out of the audit, because they don't refuse the caller:
 - `signer-not-trusted`, which refuses an artifact;
 - `csrf-origin-mismatch`, where the request may not be the principal's;
-- a public run token used outside its two progress routes, since it names a run, not a principal;
+- a request with no principal: a public run token used outside its two progress routes, since it names a run, not a principal, and judging without a user or a service token;
 - `role-exceeds-principal`, a limit on the key being minted.
 
 A 401 (an unknown caller) never is in the audit.
