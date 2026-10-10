@@ -1,0 +1,274 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- Copyright (C) 2026 Kindgi Inc. -->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.kindgi</groupId>
+  <artifactId>kindgi-java-parent</artifactId>
+  <!-- Moves in lockstep with the npm packages and the Python SDK. -->
+  <version>0.1.5</version>
+  <packaging>pom</packaging>
+
+  <name>Kindgi Java SDK (parent)</name>
+  <description>Java SDK for Kindgi™: call the Kindgi API from a Java app, and write a pack's tools in Java or Scala. In preview: tested and supported, but the API may still change in 0.1.6 without the usual deprecation period.</description>
+  <url>https://github.com/kindgi/kindgi-sdk/tree/main/sdks/java</url>
+  <inceptionYear>2026</inceptionYear>
+  <organization>
+    <name>Kindgi Inc.</name>
+    <url>https://kindgi.com</url>
+  </organization>
+  <licenses>
+    <license>
+      <name>Apache-2.0</name>
+      <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+  <developers>
+    <developer>
+      <name>Kindgi Inc.</name>
+      <organization>Kindgi Inc.</organization>
+      <organizationUrl>https://kindgi.com</organizationUrl>
+    </developer>
+  </developers>
+  <scm>
+    <connection>scm:git:https://github.com/kindgi/kindgi-sdk.git</connection>
+    <developerConnection>scm:git:https://github.com/kindgi/kindgi-sdk.git</developerConnection>
+    <url>https://github.com/kindgi/kindgi-sdk/tree/main/sdks/java</url>
+  </scm>
+  <issueManagement>
+    <system>GitHub</system>
+    <url>https://github.com/kindgi/kindgi-sdk/issues</url>
+  </issueManagement>
+
+  <modules>
+    <module>codegen</module>
+    <module>kindgi-models</module>
+    <module>kindgi-client</module>
+    <module>kindgi-pack</module>
+  </modules>
+
+  <profiles>
+    <!-- The client inside Spring Boot 3 and 4 apps, with the Jackson versions Boot manages. -->
+    <profile>
+      <id>compat</id>
+      <modules>
+        <module>compat/spring-boot-3</module>
+        <module>compat/spring-boot-4</module>
+      </modules>
+    </profile>
+    <!--
+      Maven Central (.github/workflows/release.yml): every published jar with its sources and
+      javadoc jars, and every file signed. `deploy` writes them to target/central-staging, a Maven
+      repository on disk; scripts/check-jars.mjs checks that directory and
+      scripts/central-bundle.mjs uploads it to the Central Portal, with the Scala layer's, as one
+      deployment. With -Dgpg.skip=true nothing is signed (CI checks the jars on every pull request).
+      The signing key is the one in GNUPGHOME's keyring, its passphrase in MAVEN_GPG_PASSPHRASE: never
+      in a file or on a command line.
+    -->
+    <profile>
+      <id>release</id>
+      <properties>
+        <altDeploymentRepository>central-staging::file:${maven.multiModuleProjectDirectory}/target/central-staging</altDeploymentRepository>
+      </properties>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-source-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>attach-sources</id>
+                <goals>
+                  <goal>jar-no-fork</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-javadoc-plugin</artifactId>
+            <configuration>
+              <!-- Every check but a missing comment: the generated models document what the API does. -->
+              <doclint>all,-missing</doclint>
+            </configuration>
+            <executions>
+              <execution>
+                <id>attach-javadocs</id>
+                <goals>
+                  <goal>jar</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-gpg-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>sign-artifacts</id>
+                <phase>verify</phase>
+                <goals>
+                  <goal>sign</goal>
+                </goals>
+                <configuration>
+                  <!-- The passphrase only from MAVEN_GPG_PASSPHRASE or the agent, never settings.xml. -->
+                  <bestPractices>true</bestPractices>
+                  <gpgArguments>
+                    <arg>--pinentry-mode</arg>
+                    <arg>loopback</arg>
+                  </gpgArguments>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
+
+  <properties>
+    <maven.compiler.release>17</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+    <!-- Reproducible jars: a fixed timestamp in every archive entry. -->
+    <project.build.outputTimestamp>2026-01-01T00:00:00Z</project.build.outputTimestamp>
+
+    <jackson.version>3.2.3</jackson.version>
+    <javapoet.version>0.20.0</javapoet.version>
+    <junit.version>6.1.3</junit.version>
+    <assertj.version>3.27.7</assertj.version>
+    <maven-api.version>3.9.16</maven-api.version>
+    <maven-plugin-tools.version>3.16.0</maven-plugin-tools.version>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <!-- Jackson 3's BOM is imported by the modules that use Jackson 3 (kindgi-client and codegen),
+           never here: a parent's managed versions reach every artifact's consumers that honour them
+           (sbt does), and kindgi-pack and kindgi-models are on Jackson 2. -->
+      <dependency>
+        <groupId>org.junit</groupId>
+        <artifactId>junit-bom</artifactId>
+        <version>${junit.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>com.palantir.javapoet</groupId>
+        <artifactId>javapoet</artifactId>
+        <version>${javapoet.version}</version>
+      </dependency>
+      <dependency>
+        <groupId>org.assertj</groupId>
+        <artifactId>assertj-core</artifactId>
+        <version>${assertj.version}</version>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <build>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-clean-plugin</artifactId>
+          <version>3.5.0</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-resources-plugin</artifactId>
+          <version>3.5.0</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-compiler-plugin</artifactId>
+          <version>3.16.0</version>
+          <configuration>
+            <compilerArgs>
+              <arg>-Xlint:all,-processing,-requires-transitive-automatic</arg>
+            </compilerArgs>
+          </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-surefire-plugin</artifactId>
+          <version>3.6.0</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-jar-plugin</artifactId>
+          <version>3.5.1</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-source-plugin</artifactId>
+          <version>3.4.0</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-javadoc-plugin</artifactId>
+          <version>3.12.0</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-install-plugin</artifactId>
+          <version>3.2.0</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-deploy-plugin</artifactId>
+          <version>3.2.0</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-dependency-plugin</artifactId>
+          <version>3.11.0</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-plugin-plugin</artifactId>
+          <version>${maven-plugin-tools.version}</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-enforcer-plugin</artifactId>
+          <version>3.6.3</version>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-gpg-plugin</artifactId>
+          <version>3.2.8</version>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-enforcer-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>enforce-toolchain</id>
+            <goals>
+              <goal>enforce</goal>
+            </goals>
+            <configuration>
+              <rules>
+                <requireMavenVersion>
+                  <version>[3.9,)</version>
+                </requireMavenVersion>
+                <requireJavaVersion>
+                  <version>[17,)</version>
+                </requireJavaVersion>
+              </rules>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+</project>

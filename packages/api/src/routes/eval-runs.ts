@@ -2,11 +2,14 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 
 import type { AgentId } from '@kindgi/agents';
+import { type Action, ref } from '@kindgi/authz';
 import type { Cursor, FlowId, ProjectId, RunId, Semver, TenantId, Timestamp } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
+import { rescoreRefusal, rescoreStart } from '../eval-rescore.js';
 import {
   type AgentRef,
   EVAL_RUN_STATUSES,
@@ -14,16 +17,21 @@ import {
   type EvalRun,
   type EvalRunBinding,
   type EvalRunFilter,
+  type EvalRunStartOutcome,
   type EvalRunStatus,
   type FlowRef,
 } from '../eval-run-binding.js';
 import { VERSIONS_NEED_A_FLOW } from '../judged-dispatcher.js';
+import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
+import { deniedBy } from './denied.js';
 import { parseComparison } from './eval-comparison.js';
+import { type SettingsOverridesCheck, checkSettingsOverrides } from './eval-overrides.js';
 import { type FlowVersionsCheck, checkFlowVersions } from './eval-versions.js';
 import { clampLimit } from './pagination.js';
 import { parseScopeParams } from './scope-params.js';
 import { formatSseFrame } from './sse.js';
+import { parseTimeInput } from './time-input.js';
 
 /**
  * Eval-run resource routes — data-plane surface for the evaluation
@@ -43,6 +51,13 @@ import { formatSseFrame } from './sse.js';
  * The binding chooses its underlying substrate (the in-process
  * reference keeps runs in memory; a durable binding can back them with
  * runs and their journal); this route only sees the surface.
+ *
+ * With an authorizer (T243 A): starting a run needs `write` on the
+ * project it lands in and `execute` on what it evaluates (the agent or
+ * flow), on top of the eval-suites router's own check on the suite. An
+ * eval run is read through its suite: `read` on the suite to list, get or
+ * follow it, `write` to cancel it. A run that isn't there is still the
+ * handler's 404.
  */
 export interface EvalRunsRouters {
   readonly start: Hono<AppEnv>;
@@ -57,10 +72,12 @@ export interface EvalRunsRouters {
 export function evalRunsRouters(
   binding: EvalRunBinding,
   versionsCheck?: FlowVersionsCheck,
+  overridesCheck?: SettingsOverridesCheck,
+  authorizer?: Authorizer,
 ): EvalRunsRouters {
   return {
-    start: startRouter(binding, versionsCheck),
-    readback: readbackRouter(binding),
+    start: startRouter(binding, versionsCheck, overridesCheck, authorizer),
+    readback: readbackRouter(binding, authorizer),
   };
 }
 
@@ -91,7 +108,42 @@ async function versionsRefusal(
   };
 }
 
-function startRouter(binding: EvalRunBinding, versionsCheck?: FlowVersionsCheck): Hono<AppEnv> {
+/** The `validation-failed` error for an agent candidate's settings `overrides` that don't fit it; `undefined` when they do. */
+async function overridesRefusal(
+  check: SettingsOverridesCheck | undefined,
+  tenantId: TenantId,
+  start: ParsedStartBody,
+) {
+  const overrides = start.comparison?.overrides;
+  const agentRef = start.agentRef;
+  if (overrides === undefined || agentRef?.version === undefined) return undefined;
+  if (check === undefined) {
+    return {
+      code: 'validation-failed' as const,
+      message: "This runtime can't check overrides (it serves no agent or block registry).",
+      issues: [],
+    };
+  }
+  const issues = await checkSettingsOverrides(
+    check,
+    tenantId,
+    { agentId: agentRef.agentId as unknown as string, version: agentRef.version },
+    overrides,
+  );
+  if (issues.length === 0) return undefined;
+  return {
+    code: 'validation-failed' as const,
+    message: `The overrides don't fit ${agentRef.agentId as unknown as string} ${agentRef.version} (${issues.length} issue${issues.length === 1 ? '' : 's'})`,
+    issues: issues as unknown as Record<string, unknown>[],
+  };
+}
+
+function startRouter(
+  binding: EvalRunBinding,
+  versionsCheck?: FlowVersionsCheck,
+  overridesCheck?: SettingsOverridesCheck,
+  authorizer?: Authorizer,
+): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
   r.post('/:suiteId/runs', async (c) => {
@@ -119,7 +171,21 @@ function startRouter(binding: EvalRunBinding, versionsCheck?: FlowVersionsCheck)
       c.status(statusFor(parsed.error.code) as never);
       return c.json(toWireError(parsed.error, requestId));
     }
-    const refusal = await versionsRefusal(versionsCheck, tenantId, parsed.value);
+    const { projectId, agentRef, flowRef } = parsed.value;
+    const target =
+      agentRef !== undefined
+        ? ref('agent', agentRef.agentId as unknown as string)
+        : ref('flow', flowRef?.flowId as unknown as string);
+    // Running the suite takes `execute` on it (an editor of its project, or
+    // an executor), whichever project the run lands in.
+    const refused =
+      (await deniedBy(authorizer, c, 'execute', ref('eval_suite', suiteId))) ??
+      (await deniedBy(authorizer, c, 'write', ref('project', projectId as unknown as string))) ??
+      (await deniedBy(authorizer, c, 'execute', target));
+    if (refused !== undefined) return refused;
+    const refusal =
+      (await versionsRefusal(versionsCheck, tenantId, parsed.value)) ??
+      (await overridesRefusal(overridesCheck, tenantId, parsed.value));
     if (refusal !== undefined) {
       c.status(statusFor(refusal.code) as never);
       return c.json(toWireError(refusal, requestId));
@@ -137,77 +203,94 @@ function startRouter(binding: EvalRunBinding, versionsCheck?: FlowVersionsCheck)
       }),
       ...(parsed.value.comparison !== undefined && { comparison: parsed.value.comparison }),
     });
-    if (outcome.kind === 'suite-not-found') {
-      c.status(statusFor('eval-suite-not-found') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'eval-suite-not-found',
-            message: `No eval suite registered with id "${outcome.suiteId}"`,
-            suiteId: outcome.suiteId,
-          },
-          requestId,
-        ),
-      );
-    }
-    if (outcome.kind === 'dispatcher-not-registered') {
-      c.status(statusFor('dispatcher-not-registered') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'dispatcher-not-registered',
-            message: `No eval-run dispatcher registered for kind "${outcome.evalKind}". This kind is registry-only today.`,
-            evalKind: outcome.evalKind,
-          },
-          requestId,
-        ),
-      );
-    }
-    if (outcome.kind === 'dispatcher-input-invalid') {
-      c.status(statusFor('dispatcher-input-invalid') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'dispatcher-input-invalid',
-            message: outcome.message,
-          },
-          requestId,
-        ),
-      );
-    }
-    if (outcome.kind === 'project-not-found') {
-      // Caller supplied a `projectId` that does not resolve within
-      // this tenant. Distinct signal from `dispatcher-input-invalid`
-      // so the client can prompt for a valid project rather than
-      // assume a dispatcher wiring problem. Answered as `400 bad-input`,
-      // like the eval-suites route; the caller learns from the message
-      // which field was invalid.
-      c.status(statusFor('bad-input') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'bad-input',
-            message: `\`projectId\` "${outcome.projectId as unknown as string}" does not resolve to a project in this tenant`,
-          },
-          requestId,
-        ),
-      );
-    }
-
-    c.status(201);
-    return c.json({
-      runId: outcome.runId as unknown as string,
-      ...(outcome.dryRunPreview !== undefined && { dryRunPreview: outcome.dryRunPreview }),
-    });
+    return startAnswer(c, requestId, outcome);
   });
 
   return r;
 }
 
+/** A started eval run's answer: 201 with its id, or why it didn't start. */
+function startAnswer(
+  c: Context<AppEnv>,
+  requestId: string,
+  outcome: EvalRunStartOutcome,
+): Response {
+  if (outcome.kind === 'suite-not-found') {
+    c.status(statusFor('eval-suite-not-found') as never);
+    return c.json(
+      toWireError(
+        {
+          code: 'eval-suite-not-found',
+          message: `No eval suite registered with id "${outcome.suiteId}"`,
+          suiteId: outcome.suiteId,
+        },
+        requestId,
+      ),
+    );
+  }
+  if (outcome.kind === 'dispatcher-not-registered') {
+    c.status(statusFor('dispatcher-not-registered') as never);
+    return c.json(
+      toWireError(
+        {
+          code: 'dispatcher-not-registered',
+          message: `No eval-run dispatcher registered for kind "${outcome.evalKind}". This kind is registry-only today.`,
+          evalKind: outcome.evalKind,
+        },
+        requestId,
+      ),
+    );
+  }
+  if (outcome.kind === 'dispatcher-input-invalid') {
+    c.status(statusFor('dispatcher-input-invalid') as never);
+    return c.json(
+      toWireError(
+        {
+          code: 'dispatcher-input-invalid',
+          message: outcome.message,
+        },
+        requestId,
+      ),
+    );
+  }
+  if (outcome.kind === 'project-not-found') {
+    // Caller supplied a `projectId` that does not resolve within
+    // this tenant. Distinct signal from `dispatcher-input-invalid`
+    // so the client can prompt for a valid project rather than
+    // assume a dispatcher wiring problem. Answered as `400 bad-input`,
+    // like the eval-suites route; the caller learns from the message
+    // which field was invalid.
+    c.status(statusFor('bad-input') as never);
+    return c.json(
+      toWireError(
+        {
+          code: 'bad-input',
+          message: `\`projectId\` "${outcome.projectId as unknown as string}" does not resolve to a project in this tenant`,
+        },
+        requestId,
+      ),
+    );
+  }
+
+  c.status(201);
+  return c.json({
+    runId: outcome.runId as unknown as string,
+    ...(outcome.dryRunPreview !== undefined && { dryRunPreview: outcome.dryRunPreview }),
+  });
+}
+
 // ---------- /v1/eval-runs/* (readback + cancel + SSE) ----------
 
-function readbackRouter(binding: EvalRunBinding): Hono<AppEnv> {
+function readbackRouter(binding: EvalRunBinding, authorizer?: Authorizer): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+  /** The refusal, if any, of `action` on the suite of the run named in the path. */
+  const onRunSuite = async (c: Context<AppEnv>, action: Action): Promise<Response | undefined> => {
+    if (authorizer === undefined) return undefined;
+    const tenantId = c.get('tenantId') as TenantId;
+    const run = await binding.get({ tenantId, runId: c.req.param('runId') as RunId });
+    if (run === null) return undefined;
+    return deniedBy(authorizer, c, action, ref('eval_suite', run.suiteId));
+  };
 
   // ---------- GET / (list) ----------
   r.get('/', async (c) => {
@@ -245,13 +328,20 @@ function readbackRouter(binding: EvalRunBinding): Hono<AppEnv> {
     if (flowIdRaw !== undefined && flowIdRaw.length > 0) {
       (filter as { flowId?: FlowId }).flowId = flowIdRaw as FlowId;
     }
-    const fromRaw = c.req.query('from');
-    if (fromRaw !== undefined && fromRaw.length > 0) {
-      (filter as { from?: Timestamp }).from = fromRaw as Timestamp;
-    }
-    const toRaw = c.req.query('to');
-    if (toRaw !== undefined && toRaw.length > 0) {
-      (filter as { to?: Timestamp }).to = toRaw as Timestamp;
+    for (const bound of ['from', 'to'] as const) {
+      const raw = c.req.query(bound);
+      if (raw === undefined || raw.length === 0) continue;
+      const at = parseTimeInput(raw);
+      if (at === null) {
+        c.status(statusFor('bad-input') as never);
+        return c.json(
+          toWireError(
+            { code: 'bad-input', message: `\`${bound}\` must be an ISO 8601 time` },
+            requestId,
+          ),
+        );
+      }
+      (filter as { from?: Timestamp; to?: Timestamp })[bound] = at.toISOString() as Timestamp;
     }
 
     const scopeParsed = parseScopeParams(c.req.query(), { tenantId });
@@ -270,8 +360,14 @@ function readbackRouter(binding: EvalRunBinding): Hono<AppEnv> {
       ...(scopeParsed.scope !== undefined && { scope: scopeParsed.scope }),
       ...(scopeParsed.inherit !== undefined && { inherit: scopeParsed.inherit }),
     });
+    const visible =
+      authorizer === undefined
+        ? page.data
+        : await authorizer.filterByCan(c, 'read', page.data, (run) =>
+            ref('eval_suite', run.suiteId),
+          );
     return c.json({
-      data: page.data.map(serializeEvalRun),
+      data: visible.map(serializeEvalRun),
       hasMore: page.nextCursor !== undefined,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });
@@ -279,6 +375,8 @@ function readbackRouter(binding: EvalRunBinding): Hono<AppEnv> {
 
   // ---------- GET /:runId ----------
   r.get('/:runId', async (c) => {
+    const refused = await onRunSuite(c, 'read');
+    if (refused !== undefined) return refused;
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const runId = c.req.param('runId') as RunId;
@@ -296,8 +394,61 @@ function readbackRouter(binding: EvalRunBinding): Hono<AppEnv> {
     return c.json(serializeEvalRun(run));
   });
 
+  // ---------- POST /:runId/rescore ----------
+  // A new comparison eval run of the same test set version, candidate and
+  // settings that replays nothing: it scores the run's replays again, with
+  // what people judged on them since. The run rescored stays as it was.
+  r.post('/:runId/rescore', async (c) => {
+    const refused = await onRunSuite(c, 'admin');
+    if (refused !== undefined) return refused;
+    const requestId = c.get('requestId');
+    const tenantId = c.get('tenantId') as TenantId;
+    const runId = c.req.param('runId') as RunId;
+    const run = await binding.get({ tenantId, runId });
+    if (run === null) {
+      c.status(statusFor('eval-run-not-found') as never);
+      return c.json(
+        toWireError(
+          { code: 'eval-run-not-found', message: `No eval run with id ${runId}`, runId },
+          requestId,
+        ),
+      );
+    }
+    const notRescorable = rescoreRefusal(run);
+    if (notRescorable !== undefined) {
+      c.status(statusFor('eval-run-not-rescorable') as never);
+      return c.json(
+        toWireError({ code: 'eval-run-not-rescorable', message: notRescorable, runId }, requestId),
+      );
+    }
+    const body = (await c.req.json().catch(() => ({}))) as { projectId?: unknown } | null;
+    const projectId =
+      run.projectId ??
+      (typeof body?.projectId === 'string' && body.projectId.length > 0
+        ? (body.projectId as ProjectId)
+        : undefined);
+    if (projectId === undefined) {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'bad-input',
+            message:
+              "`projectId` is required: this runtime doesn't record the project the run belongs to.",
+          },
+          requestId,
+        ),
+      );
+    }
+    const denied = await deniedBy(authorizer, c, 'write', ref('project', projectId as string));
+    if (denied !== undefined) return denied;
+    return startAnswer(c, requestId, await binding.start(rescoreStart(run, projectId)));
+  });
+
   // ---------- POST /:runId/cancel ----------
   r.post('/:runId/cancel', async (c) => {
+    const refused = await onRunSuite(c, 'write');
+    if (refused !== undefined) return refused;
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const runId = c.req.param('runId') as RunId;
@@ -340,6 +491,8 @@ function readbackRouter(binding: EvalRunBinding): Hono<AppEnv> {
 
   // ---------- GET /:runId/events (SSE) ----------
   r.get('/:runId/events', async (c) => {
+    const refused = await onRunSuite(c, 'read');
+    if (refused !== undefined) return refused;
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const runId = c.req.param('runId') as RunId;
@@ -475,6 +628,7 @@ function serializeEvalRun(run: EvalRun): Record<string, unknown> {
   return {
     runId: run.runId as unknown as string,
     tenantId: run.tenantId as unknown as string,
+    ...(run.projectId !== undefined && { projectId: run.projectId as unknown as string }),
     suiteId: run.suiteId,
     suiteVersion: run.suiteVersion,
     kind: run.kind,

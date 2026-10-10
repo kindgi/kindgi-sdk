@@ -159,7 +159,7 @@ export interface DryRunWarning {
 }
 
 // ============================================================
-// RunEvent — SSE stream shape for client.runs.stream(id).
+// RunEvent — SSE stream shape for client.runs.follow(id).
 // @wire `@kindgi/api/openapi.json#/components/schemas/RunEvent`.
 // SSE frame mapper: `packages/api/src/routes/sse.ts` (journal entry →
 //   wire `RunEvent`; drops journal-only kinds like `edge.evaluated` and
@@ -397,57 +397,112 @@ export interface Supervisor {
 }
 
 /**
- * Wire shape — matches `@kindgi/api/openapi.json#FixProposalStatus`:
- * `draft → dry-running → dry-run-passed|failed → proposed-for-review →
- * approved|rejected → applied|rolled-back | withdrawn`, with a
- * transient `dry-running` state while the dry run executes.
+ * Where an improvement proposal stands — `@kindgi/api/openapi.json#FixProposalStatus`.
+ * Derived by the server from the proposal's comparison and promotion.
  */
 export type FixProposalStatus =
   | 'draft'
-  | 'dry-running'
-  | 'dry-run-passed'
-  | 'dry-run-failed'
-  | 'proposed-for-review'
-  | 'approved'
+  | 'evaluating'
+  | 'evaluated'
+  | 'not-better'
+  | 'evaluation-failed'
+  | 'in-review'
+  | 'promoted'
+  | 'refused'
   | 'rejected'
-  | 'applied'
+  | 'expired'
+  | 'superseded'
   | 'rolled-back'
   | 'withdrawn';
 
+/** What a proposal changes: a settings block (new values) or a prompt block (a new template). */
+export type ProposalTier = 'settings-block' | 'prompt-block';
+
+/** New content for a block: `{ values }` (settings) or `{ template }` (prompt). */
+export type ProposalContent =
+  | { readonly values: Readonly<Record<string, unknown>> }
+  | { readonly template: string };
+
+/** The metric that says whether a candidate is better. */
+export type ProposalObjective = 'weightedYesShare' | 'weightedPrecisionAtK';
+
 /**
- * Wire shape — matches `@kindgi/api/openapi.json#FixProposal`. The row
- * carries no review outcome, dry-run result or materialized run:
- * decisions live in the linked HITL approval (`reviewApprovalId`),
- * dry-run results are returned as `DryRunProposalResult` by the dry-run
- * route, and the applied agent version is `appliedVersion`.
+ * An improvement proposal — `@kindgi/api/openapi.json#FixProposal`: a
+ * change to one data block an agent version pins, for one live scope,
+ * taken through the same comparison, gate and promotion as any version.
  */
 export interface FixProposal {
   readonly id: FixProposalId;
-  readonly tenantId: import('@kindgi/types').TenantId;
-  readonly supervisorId: SupervisorId;
   readonly agentId: import('@kindgi/types').AgentId;
-  readonly agentVersion: string;
-  readonly tier: 'prompt' | 'retrieval' | 'tool-config';
-  /** Polymorphic change payload — shape depends on `tier`. */
-  readonly change: Readonly<Record<string, unknown>>;
-  readonly patternRefs: readonly Readonly<Record<string, unknown>>[];
-  /** Short human-readable why-this-change note. */
+  /** The agent version the change applies to. */
+  readonly fromVersion: string;
+  /** The live scope it's for. */
+  readonly scope: import('./generated/api.js').LiveScope;
+  readonly tier: ProposalTier;
+  readonly change: {
+    readonly blockId: string;
+    /** The block version `fromVersion` pins. */
+    readonly fromVersion: string;
+    readonly content: ProposalContent;
+  };
+  /** What the change should improve, and why. */
   readonly hypothesis: string;
-  /** Proposer-rule identifier that produced this proposal. */
-  readonly proposerRuleId: string;
+  readonly evidence?: { readonly judgmentIds?: readonly string[] };
+  readonly drafter:
+    | { readonly kind: 'person'; readonly by: string }
+    | {
+        readonly kind: 'settings-optimizer' | 'prompt-drafter';
+        readonly version: string;
+        readonly model?: { readonly providerId: string; readonly model: string };
+      };
   readonly status: FixProposalStatus;
-  /** sha256(tier + agentId + agentVersion + canonical(change)) — dedup key. */
-  readonly fingerprint: string;
-  readonly resolutionReason?: string;
-  /** Linked HITL approval id once the proposal reaches `proposed-for-review`. */
-  readonly reviewApprovalId?: ApprovalId;
-  /** Semver of the new agent version once applied. */
-  readonly appliedVersion?: string;
-  readonly appliedAt?: import('@kindgi/types').Timestamp;
-  readonly rolledBackAt?: import('@kindgi/types').Timestamp;
+  /** The versions evaluating it published; they serve no scope until promoted. */
+  readonly candidate?: {
+    readonly agentVersion: string;
+    readonly blockVersion: string;
+    readonly pinsDigest: string;
+  };
+  /** Its comparison, and what it found on the objective metric. */
+  readonly evaluation?: {
+    readonly evalRunId: string;
+    readonly suiteId: string;
+    readonly objective: ProposalObjective;
+    readonly startedAt: import('@kindgi/types').Timestamp;
+    readonly runStatus?: 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
+    readonly baseline?: number | null;
+    readonly candidate?: number | null;
+    readonly delta?: number | null;
+    readonly spread?: number;
+    readonly cases?: number;
+    readonly better?: boolean;
+  };
+  /** The promotion its request made. */
+  readonly promotion?: {
+    readonly id: string;
+    readonly status:
+      | 'promoted'
+      | 'pending-approval'
+      | 'refused'
+      | 'superseded'
+      | 'rejected'
+      | 'expired';
+    readonly approvalId?: string;
+    /** For a promoted proposal: whether its version still serves the scope. */
+    readonly liveNow?: boolean;
+  };
+  readonly rolledBack?: {
+    readonly at: import('@kindgi/types').Timestamp;
+    readonly promotionId: string;
+    readonly by: string;
+    readonly reason?: string;
+  };
+  readonly withdrawn?: {
+    readonly at: import('@kindgi/types').Timestamp;
+    readonly by: string;
+    readonly reason: string;
+  };
   readonly createdAt: import('@kindgi/types').Timestamp;
   readonly updatedAt: import('@kindgi/types').Timestamp;
-  readonly resolvedAt?: import('@kindgi/types').Timestamp;
 }
 
 /**
@@ -476,12 +531,7 @@ export interface ProposalDryRunScore {
   readonly judgeRationale?: string;
 }
 
-/**
- * Wire shape — matches `@kindgi/api/openapi.json#PassCriterion`.
- * `min-pass-rate` requires the candidate pass rate to hit a floor;
- * `strict-improvement` requires the candidate to beat a baseline by at
- * least `minDelta`.
- */
+/** @deprecated Removed in 0.1.5 with the dry-run, submit-review and apply routes (proposals now change data blocks: `client.proposals`); removed at 0.2. */
 export type DryRunCriterion =
   | { readonly kind: 'min-pass-rate'; readonly minPassRate: number }
   | {
@@ -490,20 +540,14 @@ export type DryRunCriterion =
       readonly minDelta: number;
     };
 
-/**
- * Wire shape — matches `@kindgi/api/openapi.json#DryRunProposalResult`.
- * Returned by `POST /v1/proposals/{id}/dry-run`.
- */
+/** @deprecated Removed in 0.1.5 with the dry-run, submit-review and apply routes (proposals now change data blocks: `client.proposals`); removed at 0.2. */
 export interface DryRunProposalResult {
   readonly proposal: FixProposal;
   /** True when the candidate met the criterion (proposal moved to `dry-run-passed`). */
   readonly passed: boolean;
 }
 
-/**
- * Wire shape — matches `@kindgi/api/openapi.json#SubmitReviewProposalResult`.
- * Returned by `POST /v1/proposals/{id}/submit-review`.
- */
+/** @deprecated Removed in 0.1.5 with the dry-run, submit-review and apply routes (proposals now change data blocks: `client.proposals`); removed at 0.2. */
 export interface SubmitReviewProposalResult {
   readonly proposal: FixProposal;
   readonly approvalId: ApprovalId;
@@ -511,20 +555,14 @@ export interface SubmitReviewProposalResult {
   readonly metaFix: boolean;
 }
 
-/**
- * Wire shape — matches `@kindgi/api/openapi.json#ApplyProposalResult`.
- * Returned by `POST /v1/proposals/{id}/apply`.
- */
+/** @deprecated Removed in 0.1.5 with the dry-run, submit-review and apply routes (proposals now change data blocks: `client.proposals`); removed at 0.2. */
 export interface ApplyProposalResult {
   readonly proposalId: FixProposalId;
   readonly appliedVersion: string;
   readonly appliedAt: import('@kindgi/types').Timestamp;
 }
 
-/**
- * Wire shape — matches `@kindgi/api/openapi.json#RollbackProposalResult`.
- * Returned by `POST /v1/proposals/{id}/rollback`.
- */
+/** @deprecated Removed in 0.1.5 with the dry-run, submit-review and apply routes (proposals now change data blocks: `client.proposals`); removed at 0.2. */
 export interface RollbackProposalResult {
   readonly proposalId: FixProposalId;
   readonly rolledBackAt: import('@kindgi/types').Timestamp;
@@ -762,8 +800,9 @@ export interface AuditBundle {
   readonly approvalId: ApprovalId;
   /** Base64-encoded canonical JSON of the bundle body. */
   readonly bundle: string;
-  /** Integer schema version for the bundle body. Currently `1`. */
-  readonly bundleSchemaVersion: number;
+  readonly kind?: 'audit-bundle';
+  /** The body's version, semver: `2.0.0` (it was the integer `1`). */
+  readonly bundleSchemaVersion: string;
   readonly algorithm: 'ed25519';
   readonly signingKeyId: string;
   /** Base64-encoded Ed25519 signature over the bundle bytes. */
@@ -993,6 +1032,8 @@ export interface Conversation {
   readonly turnCount: number;
   readonly openedAt: import('@kindgi/types').Timestamp;
   readonly closedAt?: import('@kindgi/types').Timestamp;
+  /** Set on the answer to `unregister`: reads no longer return it. */
+  readonly unregisteredAt?: import('@kindgi/types').Timestamp;
   readonly lastMessageAt?: import('@kindgi/types').Timestamp;
   readonly metadata?: Readonly<Record<string, unknown>>;
 }
@@ -1048,18 +1089,20 @@ export interface ConversationMessage {
 /**
  * Facts are versioned rows with a typed discoverable interface.
  * Content is a JSON payload; `type` selects the schema; `scope`
- * narrows to a project/thread/tenant.
+ * narrows to a project/thread/tenant (or one end user, `participantId`).
+ * A fact keeps its `id` across revisions: supersede and verify write the
+ * next one, delete closes the current one.
  *
- * Wire shape — matches `@kindgi/api/openapi.json#Fact`: a numeric
- * `version`, `createdAt / updatedAt?`, and optional `contentRef` (for
- * externally-stored payloads), `contentHash`, `size`, `embeddingModel`,
- * `retention`, `source`, `causedByLogId`, `supersedes`.
+ * Wire shape — matches `@kindgi/api/openapi.json#Fact`.
  */
 export interface Fact {
+  /** The fact id, kept across revisions. */
   readonly id: import('@kindgi/types').FactId;
+  /** This revision's own id; absent where it equals `id`. */
+  readonly revisionId?: string;
   readonly type: string;
   readonly scope: Readonly<Record<string, unknown>>;
-  /** Monotonic version within (scope, id). Supersession increments. */
+  /** The revision number: 1, then one more per supersede or verify. */
   readonly version: number;
   readonly createdAt: import('@kindgi/types').Timestamp;
   readonly updatedAt?: import('@kindgi/types').Timestamp;
@@ -1069,14 +1112,55 @@ export interface Fact {
   readonly contentHash?: string;
   readonly size?: number;
   readonly embeddingModel?: string;
-  readonly retention?: {
-    readonly keepUntil?: import('@kindgi/types').Timestamp;
-    readonly keepDays?: number;
-    readonly legalHold?: boolean;
-  };
+  readonly retention?: FactRetention;
   readonly source?: Readonly<Record<string, unknown>>;
   readonly causedByLogId?: readonly string[];
+  /** The revision this one replaced. */
   readonly supersedes?: import('@kindgi/types').FactId;
+  /**
+   * `verified`: a person with the right checked it. `asserted`: an app or
+   * a person wrote it. `unverified`: an agent remembered it. Absent:
+   * `asserted`.
+   */
+  readonly trust?: 'verified' | 'asserted' | 'unverified';
+  readonly verifiedBy?: string;
+  readonly verifiedAt?: import('@kindgi/types').Timestamp;
+  /** Who asserted it, set by the server from the writer. */
+  readonly attributedTo?: {
+    readonly kind: 'user' | 'service' | 'agent';
+    readonly id: string;
+    readonly agentVersion?: string;
+  };
+  /** The run step that wrote it, for a fact an agent wrote. */
+  readonly generatedBy?: {
+    readonly runId: string;
+    readonly stepId?: string;
+    readonly toolCallId?: string;
+  };
+  readonly subjects?: readonly FactSubject[];
+  /** When it is true in the world; absent: always. */
+  readonly validFrom?: import('@kindgi/types').Timestamp;
+  readonly validUntil?: import('@kindgi/types').Timestamp;
+  /** When it was said or seen. */
+  readonly observedAt?: import('@kindgi/types').Timestamp;
+  /** When this revision stopped being current, by whom and why; absent: current. */
+  readonly invalidatedAt?: import('@kindgi/types').Timestamp;
+  readonly invalidatedBy?: string;
+  readonly invalidationReason?: 'superseded' | 'deleted' | 'erased' | 'expired';
+  /** `pending` while a person must approve it: a pending fact is never retrieved. */
+  readonly review?: 'pending';
+}
+
+export interface FactRetention {
+  readonly keepUntil?: import('@kindgi/types').Timestamp;
+  readonly keepDays?: number;
+  readonly legalHold?: boolean;
+}
+
+/** Whom a fact is about — matches `@kindgi/api/openapi.json#FactSubject`. */
+export interface FactSubject {
+  readonly kind: 'participant' | 'user' | 'external';
+  readonly id: string;
 }
 
 /**
@@ -1089,18 +1173,37 @@ export interface WriteFactInput {
   readonly type: string;
   readonly scope: Readonly<Record<string, unknown>>;
   readonly content: unknown;
-  readonly retention?: {
-    readonly keepUntil?: import('@kindgi/types').Timestamp;
-    readonly keepDays?: number;
-    readonly legalHold?: boolean;
-  };
+  readonly retention?: FactRetention;
   /** Caller-supplied idempotence hint (runtime computes its own hash regardless). */
   readonly contentHash?: string;
+  /** Whom it is about (at most 20). */
+  readonly subjects?: readonly FactSubject[];
+  readonly validFrom?: import('@kindgi/types').Timestamp;
+  readonly validUntil?: import('@kindgi/types').Timestamp;
+  readonly observedAt?: import('@kindgi/types').Timestamp;
+}
+
+/**
+ * Body for `POST /v1/memory/facts/{factId}/supersede` — matches
+ * `@kindgi/api/openapi.json#SupersedeFactBody`: the next revision's
+ * content; absent fields keep their current values.
+ */
+export interface SupersedeFactInput {
+  readonly content: unknown;
+  /** Only if the current revision is still this one (else `409 fact-changed`). */
+  readonly expectVersion?: number;
+  readonly retention?: FactRetention;
+  readonly subjects?: readonly FactSubject[];
+  readonly validFrom?: import('@kindgi/types').Timestamp;
+  readonly validUntil?: import('@kindgi/types').Timestamp;
+  readonly observedAt?: import('@kindgi/types').Timestamp;
 }
 
 export interface FactFilter extends Filter {
   readonly type?: string;
   readonly scope?: Readonly<Record<string, unknown>>;
+  /** Memory as it stood at this time (ISO 8601). */
+  readonly asOf?: string;
 }
 
 /**
@@ -1171,6 +1274,86 @@ export interface RetrievalResult {
   readonly score?: number;
 }
 
+// -- Memory erasures ------------------------------------------
+
+/**
+ * Whose words to erase: one fact, a person (an app's end user
+ * `participant`, or an `external` subject facts name), or one
+ * conversation. Erasing a Kindgi user isn't offered. Matches
+ * `@kindgi/api/openapi.json#MemoryErasureSelector`.
+ */
+export type MemoryErasureSelector =
+  | { readonly factId: string }
+  | {
+      readonly subject: {
+        readonly kind: 'participant' | 'external';
+        readonly id: string;
+      };
+    }
+  | { readonly conversationId: string };
+
+export type MemoryErasureStatus = 'pending' | 'running' | 'waiting-on-run' | 'completed' | 'failed';
+
+/** An erasure and how far it got. Matches `@kindgi/api/openapi.json#MemoryErasure`. */
+export interface MemoryErasure {
+  readonly id: string;
+  readonly selectorKind: 'fact' | 'participant' | 'external' | 'conversation';
+  /** Only while it runs: a completed or failed erasure keeps no identifier. */
+  readonly selector?: MemoryErasureSelector;
+  readonly status: MemoryErasureStatus;
+  /** `settle`: the person's unfinished runs end, or it waits for them, before anything is cleared. */
+  readonly phase: 'seed' | 'expand' | 'settle' | 'erase' | 'done';
+  readonly requestedBy: string;
+  /** A replay after a backup restore can find this person again. */
+  readonly matchable: boolean;
+  /** What each store cleared or deleted, by store. */
+  readonly counts: Readonly<Record<string, number>>;
+  readonly attempts: number;
+  /** The last failure's code, or `not-yet:<reason>` while it waits. Never content. */
+  readonly lastError?: string;
+  /**
+   * The run it waits (or waited) for, and until when: a turn of the
+   * person's in a flow that serves other people (`waiting-on-run`).
+   */
+  readonly waitingOn?: { readonly runId: string; readonly until?: string };
+  /** A tenant admin said not to wait. */
+  readonly forced?: true;
+  /** Runs of the person's kept appearing: it went on to erase after its last round. */
+  readonly settleRoundsCapped?: true;
+  readonly createdAt: string;
+  readonly startedAt?: string;
+  readonly completedAt?: string;
+  readonly replayedAt?: string;
+}
+
+/** `POST /v1/memory/erasures`'s answer: the erasure, and what to know about it. */
+export interface MemoryErasureCreated extends MemoryErasure {
+  /** `erasure-unmatchable`: no erasure ledger key (`KINDGI_ERASURE_LEDGER_KEY`), so a replay after a restore can't find this person. */
+  readonly warnings?: readonly { readonly code: 'erasure-unmatchable'; readonly message: string }[];
+}
+
+/** One ledger row, as exported off-box and given back to a replay. Content-free. */
+export interface MemoryErasureLedgerEntry {
+  readonly id: string;
+  readonly selectorKind: MemoryErasure['selectorKind'];
+  readonly selectorHmac?: string;
+  readonly keyId?: string;
+  readonly requestedBy: string;
+  readonly status: MemoryErasureStatus;
+  readonly createdAt: string;
+  readonly completedAt?: string;
+}
+
+export interface ReplayMemoryErasuresResult {
+  /** Found in the tenant again: run again. */
+  readonly replayed: readonly string[];
+  /** Put back in the ledger; nothing in the tenant matches. */
+  readonly restored: readonly string[];
+  readonly unmatched: readonly {
+    readonly id: string;
+    readonly reason: 'no-keyed-hash' | 'unknown-key';
+  }[];
+}
 // ============================================================
 // Provenance shapes — read + export + verify.
 // ============================================================
@@ -1246,6 +1429,7 @@ export interface ProvenanceRecordMetadata {
  */
 export interface ExportedProvenance {
   readonly runId: import('@kindgi/types').RunId;
+  readonly kind?: 'provenance';
   readonly bundle: string;
   readonly bundleSchemaVersion: string;
   readonly algorithm: 'ed25519';
@@ -1520,6 +1704,14 @@ export interface CapabilityDeclaration {
   /** Capability kind (`llm-inference`, `embedding`, `gpu-compute`, ...). Absent = `llm-inference`. */
   readonly kind?: string;
   readonly paramsSchema?: Readonly<Record<string, unknown>>;
+  /**
+   * The tenant's providers with a model that has the feature, and those
+   * models. Absent from servers that don't read the provider registry.
+   */
+  readonly providers?: readonly {
+    readonly providerId: string;
+    readonly models: readonly string[];
+  }[];
 }
 
 export interface CapabilityNeed {
@@ -1685,7 +1877,8 @@ export type PolicyStatus = 'draft' | 'active' | 'archived';
 
 /**
  * A tombstoning domain a `retention` policy can cover; `*` is the
- * tenant-wide default. Wire enum — matches
+ * tenant-wide default, except for `memory` and `conversation`, which
+ * only a policy naming them covers. Wire enum — matches
  * `@kindgi/api/openapi.json#RetentionDomain`.
  */
 export type RetentionDomain =
@@ -1699,10 +1892,15 @@ export type RetentionDomain =
   | 'env'
   | 'secret'
   | 'run'
+  | 'artifact'
   | 'policy'
   | 'judgment'
   | 'judge_class'
   | 'provider'
+  | 'memory'
+  | 'conversation'
+  | 'api_key'
+  | 'service_account'
   | '*';
 
 /**
@@ -1832,7 +2030,7 @@ export interface Session {
 /**
  * Wire shape — matches `@kindgi/api/openapi.json#UserRecord`:
  * `{ userId, tenantId, primaryEmail?, displayName?, createdAt,
- * lastActiveAt?, metadata? }`. The API does not own user persistence
+ * lastActiveAt?, unregisteredAt?, metadata? }`. The API does not own user persistence
  * (deployments plug in their identity plane — LDAP, SCIM, or a bespoke
  * store); attributes such as email verification or deactivation, when
  * an identity provider has them, travel in `metadata`.
@@ -1844,7 +2042,26 @@ export interface User {
   readonly displayName?: string;
   readonly createdAt: import('@kindgi/types').Timestamp;
   readonly lastActiveAt?: import('@kindgi/types').Timestamp;
+  /** When they were removed from the tenant (`client.users.unregister`); absent while they're here. */
+  readonly unregisteredAt?: import('@kindgi/types').Timestamp;
   readonly metadata?: Readonly<Record<string, unknown>>;
+  /**
+   * The person's grants: only from `users.list({ includeGrants: true })`,
+   * and only from a runtime that reads grants (absent otherwise, as from
+   * an older one).
+   */
+  readonly grants?: PersonGrants;
+}
+
+/**
+ * A removed person and what removing them took away (each 0 when they
+ * were already removed). Matches `@kindgi/api/openapi.json#UnregisterUserResult`.
+ */
+export interface UnregisterUserResult {
+  readonly user: User;
+  readonly keysRevoked: number;
+  readonly sessionsRevoked: number;
+  readonly grantsRemoved: number;
 }
 
 /**
@@ -1853,7 +2070,9 @@ export interface User {
  * see `tenantId` only (plus optional `userId` when the token was minted
  * with one); session-token callers additionally see `sessionId`,
  * `providerId`, `scopes`, and `expiresAt`. When the token carries a
- * `userId`, the identity directory adds `user: UserRecord`.
+ * `userId`, the identity directory adds `user: UserRecord`. `principal`
+ * says whom the caller acts as; an API key adds `tokenId`, its `role` and
+ * the `projectId` it is limited to.
  */
 export interface WhoamiResult {
   readonly tenantId: import('@kindgi/types').TenantId;
@@ -1863,17 +2082,23 @@ export interface WhoamiResult {
   readonly providerId?: string;
   readonly expiresAt?: import('@kindgi/types').Timestamp;
   readonly user?: User;
+  readonly principal?: ApiKeyPrincipal;
+  readonly tokenId?: string;
+  readonly role?: ApiTokenRole;
+  readonly projectId?: string;
 }
 
 /**
- * @deprecated No user-creation route on the wire (the API does not own
- *   user persistence — deployments plug in their own identity plane).
- *   Used only by `client.users.create`, which throws `not-yet-wired`.
+ * A person to add (`client.users.create`), with no grants yet. Matches
+ * `@kindgi/api/openapi.json#CreateUserBody` (`email` is `primaryEmail`).
  */
 export interface UserSpec {
-  readonly email: string;
   readonly displayName: string;
+  /** Unique among the tenant's people. */
+  readonly email?: string;
+  /** @deprecated Not on the wire: `users.create` throws `not-yet-wired` when it is set. */
   readonly orgId?: import('@kindgi/types').OrgId;
+  /** @deprecated Not on the wire: `users.create` throws `not-yet-wired` when it is set. */
   readonly metadata?: Readonly<Record<string, unknown>>;
 }
 
@@ -1997,10 +2222,10 @@ export interface ProjectPatch {
 
 /**
  * Roles on a `ProjectMembership` — the direct `User → Project`
- * grant shape. Additive with team-grants. Mirrors the OpenFGA
- * project-type relations (owner / editor / viewer)
- * plus the lightweight `member` and administrative `admin`
- * shorthands.
+ * grant shape. Additive with team-grants. `owner`, `admin`, `editor`
+ * and `viewer`, each including the ones after it; `member` only reads
+ * back on a role given before it was retired (it grants what `viewer`
+ * does), and writes refuse it.
  */
 export type ProjectRole = 'viewer' | 'editor' | 'owner' | 'admin' | 'member';
 
@@ -2022,14 +2247,30 @@ export type ApiTokenRole = 'admin' | 'member';
  * with a role and explicit capabilities. The secret is shown once, at
  * creation.
  */
+/**
+ * Whom an API key acts for: a person (`user`) or a service account.
+ * Matches `@kindgi/api/openapi.json#ApiKeyPrincipal`.
+ */
+export interface ApiKeyPrincipal {
+  readonly kind: 'user' | 'service-account';
+  /** The user id, or the service account id. */
+  readonly id: string;
+}
+
 export interface ApiToken {
   readonly id: ApiTokenId;
+  /**
+   * Whom the key acts for, with their grants. Absent on a key that is a
+   * service account of its own, as keys minted before principals are.
+   */
+  readonly principal?: ApiKeyPrincipal;
+  /** The most the key may do, under its principal's grants. */
   readonly role: ApiTokenRole;
   /** Framework capabilities the key carries (`env:write`, `secrets:write`, …). */
   readonly capabilities: readonly string[];
   readonly label?: string;
   readonly projectId?: import('@kindgi/types').ProjectId;
-  /** Who minted it: `user:<id>` or `service_account:<tokenId>`. */
+  /** Who minted it: `user:<id>` or `service_account:<id>`. */
   readonly createdBy?: string;
   readonly createdAt: import('@kindgi/types').Timestamp;
   readonly lastUsedAt?: import('@kindgi/types').Timestamp;
@@ -2038,12 +2279,21 @@ export interface ApiToken {
 }
 
 export interface ApiTokenSpec {
-  /** `member` when absent. */
+  /**
+   * Whom the key acts for; the caller when absent. Only a tenant admin
+   * mints for someone else.
+   */
+  readonly for?: ApiKeyPrincipal;
+  /** `member` when absent; `admin` needs a tenant admin minting it. */
   readonly role?: ApiTokenRole;
   /** None when absent. Only capabilities the caller holds can be granted. */
   readonly capabilities?: readonly string[];
   readonly label?: string;
   readonly expiresAt?: import('@kindgi/types').Timestamp;
+  /**
+   * Limit the key to this project: a request naming another project is
+   * refused (`key-project-mismatch`).
+   */
   readonly projectId?: import('@kindgi/types').ProjectId;
 }
 
@@ -2054,6 +2304,87 @@ export interface ApiTokenSpec {
 export interface ApiTokenCreated {
   readonly meta: ApiToken;
   readonly secret: string;
+}
+
+/**
+ * What a service account may do: tenant admin, tenant member (read the
+ * tenant's settings), or a role on one project. A project role reads
+ * `member` only when given before it was retired.
+ * Matches `@kindgi/api/openapi.json#ServiceAccountGrant`.
+ */
+export type ServiceAccountGrant =
+  | { readonly kind: 'tenant-admin' }
+  | { readonly kind: 'tenant-member' }
+  | {
+      readonly kind: 'project';
+      readonly projectId: string;
+      readonly role: 'viewer' | 'editor' | 'owner' | 'admin' | 'member';
+    };
+
+/**
+ * A grant to give a service account: tenant admin, tenant member, or a
+ * role on one project (`member` is refused: give `viewer`).
+ * Matches `@kindgi/api/openapi.json#ServiceAccountGrantBody`.
+ */
+export type ServiceAccountGrantInput =
+  | { readonly kind: 'tenant-admin' }
+  | { readonly kind: 'tenant-member' }
+  | {
+      readonly kind: 'project';
+      readonly projectId: string;
+      readonly role: 'viewer' | 'editor' | 'owner' | 'admin';
+    };
+
+/** A grant to remove: tenant admin, tenant member, or whatever role the account has on a project. */
+export type ServiceAccountGrantTarget =
+  | { readonly kind: 'tenant-admin' }
+  | { readonly kind: 'tenant-member' }
+  | { readonly kind: 'project'; readonly projectId: string };
+
+/** Matches `@kindgi/api/openapi.json#ServiceAccount`. */
+export interface ServiceAccount {
+  readonly serviceAccountId: string;
+  /** Unique among the tenant's active accounts, e.g. `acme-ci`. */
+  readonly name: string;
+  readonly description?: string;
+  readonly grants: readonly ServiceAccountGrant[];
+  /** Who created it: `user:<id>` or `service_account:<id>`. */
+  readonly createdBy?: string;
+  readonly createdAt: import('@kindgi/types').Timestamp;
+  /** Set once unregistered: it has no grants, and its keys no longer work. */
+  readonly unregisteredAt?: import('@kindgi/types').Timestamp;
+}
+
+/**
+ * What a person may do, as granted directly: tenant admin, a role on a
+ * project, a role in a team, the reviewer roster. What a team's or an
+ * org's grants imply is not expanded. Matches
+ * `@kindgi/api/openapi.json#PersonGrants`.
+ */
+export interface PersonGrants {
+  readonly userId: string;
+  /** Absent when the runtime has no authorization store: nothing grants it then. */
+  readonly tenantAdmin?: boolean;
+  /** A tenant member: reads the tenant's settings, not its projects. Absent when not reported. */
+  readonly tenantMember?: boolean;
+  readonly projects: readonly {
+    readonly projectId: string;
+    readonly role: 'viewer' | 'editor' | 'owner' | 'admin' | 'member';
+  }[];
+  readonly teams: readonly { readonly teamId: string; readonly role: 'member' | 'admin' }[];
+  readonly reviewer?: { readonly role: 'standard' | 'senior' | 'admin' };
+}
+
+/** What `users.grant` / `users.ungrant` take: tenant admin. Matches `#PersonGrantBody`. */
+export type PersonGrant = { readonly kind: 'tenant-admin' };
+
+/** Input for `POST /v1/service-accounts` per `#CreateServiceAccountBody`. */
+export interface CreateServiceAccountInput {
+  /** Lowercase letters, digits and hyphens, e.g. `acme-ci`. */
+  readonly name: string;
+  readonly description?: string;
+  /** Written before the account is returned, so its first key works at once. */
+  readonly grants?: readonly ServiceAccountGrantInput[];
 }
 
 // ============================================================
@@ -2138,6 +2469,8 @@ export interface McpEndpoint {
   readonly transport: McpTransport;
   readonly config: McpEndpointConfig;
   readonly secretRef?: McpEndpointSecretRef;
+  /** Whether the run's `traceparent` is sent to the endpoint (see `RegisterMcpEndpointInput`). */
+  readonly sendTraceparent?: boolean;
 }
 
 /**
@@ -2155,6 +2488,12 @@ export interface RegisterMcpEndpointInput {
    * (`403 host-access-denied`) unless it runs with `KINDGI_TENANT_HOST_ACCESS=local`.
    */
   readonly secretRef?: McpEndpointSecretRef;
+  /**
+   * Send the W3C `traceparent` of the run calling a tool to the endpoint,
+   * as a request header (ids only, never content). Default `false`. HTTP
+   * transports only: `true` on `stdio` is refused.
+   */
+  readonly sendTraceparent?: boolean;
   /** The scope the endpoint is registered in; authorization checks it. */
   readonly scope: import('./scope-wire.js').ScopeRef;
 }
@@ -2162,8 +2501,9 @@ export interface RegisterMcpEndpointInput {
 /**
  * @unwired SDK-defined event shapes; the API has no event emission or
  * subscription routes (`client.events.*` throws `not-yet-wired`).
- * Event-driven runs are configured with `client.eventTriggers`. Filters
- * are declarative predicates over event fields.
+ * Event triggers, which would start runs from events, aren't served yet:
+ * the runtime fires schedules only. Filters are declarative predicates
+ * over event fields.
  */
 export interface Event {
   readonly id: import('@kindgi/types').EventId;
@@ -2256,7 +2596,43 @@ export interface BlobMeta {
   readonly hash: string;
   readonly tags: Readonly<Record<string, string>>;
   readonly ownerRunId?: import('@kindgi/types').RunId;
+  /** The project it belongs to (who may read and delete it). Absent from older servers. */
+  readonly projectId?: string;
+  /** Who uploaded it: `user:<id>` or `service_account:<id>`. */
+  readonly createdBy?: string;
   readonly createdAt: import('@kindgi/types').Timestamp;
+}
+
+/** Input for `artifacts.upload` (`POST /v1/artifacts`, multipart). */
+export interface UploadArtifactInput {
+  /** The bytes. */
+  readonly body: Blob | Uint8Array | string;
+  /** Default: `file`. */
+  readonly name?: string;
+  /** Default: the Blob's type, else `application/octet-stream`. */
+  readonly contentType?: string;
+  readonly tags?: Readonly<Record<string, string>>;
+  /** The run that produced it: the artifact belongs to its project. */
+  readonly ownerRunId?: import('@kindgi/types').RunId;
+  /** With no `ownerRunId`: the project it belongs to (default: the tenant's default project). */
+  readonly projectId?: string;
+  /** sha256, hex, lowercase: the upload is refused when the bytes differ. */
+  readonly expectedHash?: string;
+}
+
+/** What `artifacts.head` returns: an artifact's download headers, no bytes. */
+export interface ArtifactHead {
+  readonly blobId: string;
+  readonly name: string;
+  readonly contentType: string;
+  readonly size: number;
+  /** sha256, hex, lowercase. */
+  readonly hash: string;
+}
+
+/** What `artifacts.download` returns: the bytes, streamed, and what the headers say. */
+export interface DownloadedArtifact extends ArtifactHead {
+  readonly body: ReadableStream<Uint8Array>;
 }
 
 export interface PutArtifactInput {
@@ -2397,7 +2773,10 @@ export type AuthConfig =
   | {
       readonly kind: 'oauth';
       readonly accessToken: string;
-      /** Called when the server returns `auth/token-expired`. */
+      /**
+       * Not called yet. On an `auth` error with reason `token-expired`, get a
+       * new token and make the call again.
+       */
       readonly refresh?: () => Promise<string>;
     };
 
@@ -2407,6 +2786,12 @@ export interface ClientOptions {
   readonly auth: AuthConfig;
   /** Overridable fetch impl for testing. Defaults to global `fetch`. */
   readonly fetch?: typeof fetch;
+  /**
+   * How long one request may take, in milliseconds, before it fails with
+   * a `network` error. Default 30 000. Streams (`runs.stream` and the
+   * like) aren't bound by it. `runs.start` also takes its own.
+   */
+  readonly timeoutMs?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -2439,6 +2824,16 @@ export interface JudgeClassAssertableBy {
   readonly principalIds?: readonly string[];
 }
 
+/**
+ * Who may assert a judge class, as the caller sees it. `principalIds` comes
+ * only to an admin on the class's scope; `principalCount` to every reader.
+ * Matches `@kindgi/api/openapi.json#JudgeClassAssertableByView`.
+ */
+export interface JudgeClassAssertableByView extends JudgeClassAssertableBy {
+  /** How many principals the class is restricted to; absent when it names none. */
+  readonly principalCount?: number;
+}
+
 /** Matches `@kindgi/api/openapi.json#JudgeClass`. */
 export interface JudgeClass {
   readonly id: string;
@@ -2450,7 +2845,7 @@ export interface JudgeClass {
   readonly weight: number;
   readonly description?: string;
   /** Who may assert it; absent: anyone who may judge the run. */
-  readonly assertableBy?: JudgeClassAssertableBy;
+  readonly assertableBy?: JudgeClassAssertableByView;
   readonly createdAt: import('@kindgi/types').Timestamp;
   readonly updatedAt: import('@kindgi/types').Timestamp;
   /** Set when the class was retired. */

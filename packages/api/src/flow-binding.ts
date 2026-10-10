@@ -39,14 +39,15 @@ export interface FlowRegistryBinding {
    * Cursor-paginated list of flows (latest version per id, sorted by
    * flow id ascending). Optional `nameFilter` is a prefix match on the
    * flow id — the runtime uses dotted namespaces (`ingest.contract-pdf`),
-   * so prefix matching is the natural filter shape.
+   * so prefix matching is the natural filter shape. A retired flow (no
+   * active version) is left out unless `includeRetired`.
    */
   list(input: FlowListInput): Promise<FlowPage>;
   /**
    * Latest version of the given flow id, or `null` if unknown. The
    * route surfaces `null` as `404 flow-not-found`.
    */
-  get(input: FlowGetInput): Promise<Flow | null>;
+  get(input: FlowGetInput): Promise<FlowVersionRecord | null>;
   /**
    * Specific `(flowId, version)` lookup, or `null` if unknown. Returns
    * unregistered (tombstoned) versions too, with `unregisteredAt` set:
@@ -63,7 +64,9 @@ export interface FlowRegistryBinding {
   /**
    * Cursor-paginated list of versions for a specific flow id. Sort
    * order is binding-defined (for example ascending semver). Returns an empty page (no error) when the id
-   * is unknown — the route flips that to `404` via a prior `get`.
+   * is unknown — the route flips that to `404` via a prior `headExists`.
+   * Active versions only, unless `includeTombstoned`: then unregistered
+   * ones too, each with `unregisteredAt`, a retired flow's included.
    */
   listVersions(input: FlowListVersionsInput): Promise<FlowPage>;
   /**
@@ -72,6 +75,8 @@ export interface FlowRegistryBinding {
    * well-formed `Flow`. Bindings MAY reject with `already-registered`
    * when the same `(flowId, version)` is re-published; the route maps
    * that to `409`.
+   * A version of a flow whose versions live in another project is
+   * `project-mismatch` (flows never move between projects; `409 flow-project-mismatch`).
    */
   publish(input: FlowPublishInput): Promise<FlowPublishOutcome>;
   /**
@@ -89,10 +94,21 @@ export interface FlowRegistryBinding {
   reinstateVersion(input: FlowReinstateVersionInput): Promise<FlowReinstateVersionOutcome>;
 }
 
-/** A flow version as `getVersion` reads it: `unregisteredAt` is set when it's unregistered. */
+/**
+ * A flow version as the registry reads it (`get`, `getVersion`, `list`
+ * and `listVersions`): the definition, the flow's project when the
+ * store records it, and `unregisteredAt` on an unregistered version
+ * `getVersion` reads.
+ */
 export type FlowVersionRecord = Flow & {
   /** ISO-8601; present only on an unregistered version. */
   readonly unregisteredAt?: string;
+  /**
+   * The flow's project, when the store records it: flows never move
+   * between projects, so every version reads the same one (a deploy
+   * into another project is refused even when it writes nothing).
+   */
+  readonly projectId?: ProjectId;
 };
 
 export interface FlowListInput {
@@ -125,6 +141,12 @@ export interface FlowListInput {
    * SDK and OpenAPI schemas.
    */
   readonly inherit?: boolean;
+  /**
+   * `true` lists retired flows too (every version unregistered), each
+   * as its highest version, with that version's `unregisteredAt`, so a
+   * client can find one to reinstate. Default: active flows only.
+   */
+  readonly includeRetired?: boolean;
 }
 
 export interface FlowGetInput {
@@ -143,6 +165,8 @@ export interface FlowListVersionsInput {
   readonly flowId: FlowId;
   readonly limit: number;
   readonly cursor?: Cursor;
+  /** `true` lists unregistered versions too, each with `unregisteredAt`. Default: active only. */
+  readonly includeTombstoned?: boolean;
 }
 
 export interface FlowPublishInput {
@@ -180,7 +204,7 @@ export interface FlowReinstateVersionInput {
 }
 
 export interface FlowPage {
-  readonly data: readonly Flow[];
+  readonly data: readonly FlowVersionRecord[];
   readonly nextCursor?: Cursor;
 }
 
@@ -208,6 +232,18 @@ export type FlowPublishOutcome =
       readonly kind: 'project-not-found';
       readonly flowId: FlowId;
       readonly version: string;
+      readonly projectId: ProjectId;
+    }
+  | {
+      /**
+       * The flow's versions live in another project: a flow belongs to
+       * the project its first version was published into, and never
+       * moves. Nothing is written (the route answers `409 flow-project-mismatch`).
+       */
+      readonly kind: 'project-mismatch';
+      readonly flowId: FlowId;
+      readonly version: string;
+      /** The project the flow belongs to. */
       readonly projectId: ProjectId;
     };
 

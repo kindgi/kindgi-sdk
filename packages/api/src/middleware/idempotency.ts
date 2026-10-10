@@ -1,16 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
-import type { MiddlewareHandler } from 'hono';
+import type { Context, MiddlewareHandler } from 'hono';
 
 import type { TenantId } from '@kindgi/types';
 
+import { callerIdentity } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
+import type { AppEnv } from '../types.js';
 
 /**
- * Idempotency-key store: `(tenantId, route, key) → cached response`,
+ * Idempotency-key store: `(tenantId, caller, route, key) → cached response`,
  * cached for `ttlMs` (default 24h per API-ROUTE-CONVENTIONS.md §3.1).
  *
  * Injected into the middleware so deployments can plug in a durable
@@ -20,38 +22,117 @@ import { statusFor, toWireError } from '../errors.js';
  */
 export interface IdempotencyStore {
   get(key: string): Promise<StoredIdempotencyEntry | null>;
+  /** Store an answer. It replaces a hold on the key, never a stored answer: the first stays. */
   set(key: string, entry: StoredIdempotencyEntry): Promise<void>;
+  /**
+   * Hold a key while its request runs (T349), so a repeat sent meanwhile
+   * is answered 409 `idempotency-key-in-flight` instead of running the
+   * operation again. Optional: a store without holds holds nothing, and
+   * such a repeat runs again (the behaviour before 0.1.5).
+   */
+  readonly holds?: IdempotencyHolds;
 }
+
+/** A store's holds: all three or none. */
+export interface IdempotencyHolds {
+  /** Take the key for `hold.holder`, unless an unexpired hold or a stored answer has it. */
+  hold(key: string, hold: IdempotencyHold): Promise<IdempotencyHoldOutcome>;
+  /** Extend the holder's hold: its request still runs. */
+  renew(key: string, holder: string, expiresAt: number): Promise<void>;
+  /** Drop the holder's hold: its request ended with nothing to replay. */
+  release(key: string, holder: string): Promise<void>;
+}
+
+export interface IdempotencyHold {
+  /** Who holds it: one id per request. */
+  readonly holder: string;
+  readonly bodyHash: string;
+  readonly expiresAt: number;
+}
+
+export type IdempotencyHoldOutcome =
+  | { readonly kind: 'held' }
+  | { readonly kind: 'in-flight'; readonly bodyHash: string }
+  | { readonly kind: 'stored'; readonly entry: StoredIdempotencyEntry };
 
 export interface StoredIdempotencyEntry {
   readonly bodyHash: string;
   readonly status: number;
   readonly contentType: string;
+  /** The answer's body; empty when it's `withheld`. */
   readonly bodyText: string;
   readonly expiresAt: number;
+  /**
+   * The answer carried a secret (`withholdFromReplay`), so only that the
+   * request succeeded is kept: a repeat is answered 409
+   * `idempotency-key-replay-withheld`, never the secret. Optional: a store
+   * that doesn't keep it stores the empty body, and a repeat replays that.
+   */
+  readonly withheld?: boolean;
+  /** When the answer was stored (ms since the epoch), for the withheld 409. */
+  readonly storedAt?: number;
+}
+
+/**
+ * For a route whose answer carries a secret (an API key, a session token,
+ * a signing secret): the Idempotency-Key middleware keeps that the request
+ * succeeded and when, never the answer. A repeat with the same key gets 409
+ * `idempotency-key-replay-withheld` instead of the secret, and instead of
+ * running again (which would make a second one). Call it before answering.
+ */
+export function withholdFromReplay(c: Context<AppEnv>): void {
+  c.set('idempotencyWithhold', true);
 }
 
 /** Simple in-memory store with lazy expiry — swap for a DB store in prod. */
 export function createInMemoryIdempotencyStore(): IdempotencyStore {
   const table = new Map<string, StoredIdempotencyEntry>();
+  const held = new Map<string, IdempotencyHold>();
+  const stored = (key: string): StoredIdempotencyEntry | null => {
+    const hit = table.get(key);
+    if (hit === undefined) return null;
+    if (hit.expiresAt <= Date.now()) {
+      table.delete(key);
+      return null;
+    }
+    return hit;
+  };
   return {
     async get(key) {
-      const hit = table.get(key);
-      if (hit === undefined) return null;
-      if (hit.expiresAt <= Date.now()) {
-        table.delete(key);
-        return null;
-      }
-      return hit;
+      return stored(key);
     },
     async set(key, entry) {
-      table.set(key, entry);
+      held.delete(key);
+      if (stored(key) === null) table.set(key, entry);
+    },
+    holds: {
+      async hold(key, hold) {
+        const entry = stored(key);
+        if (entry !== null) return { kind: 'stored', entry };
+        const current = held.get(key);
+        if (current !== undefined && current.expiresAt > Date.now()) {
+          return { kind: 'in-flight', bodyHash: current.bodyHash };
+        }
+        held.set(key, hold);
+        return { kind: 'held' };
+      },
+      async renew(key, holder, expiresAt) {
+        const current = held.get(key);
+        if (current?.holder === holder) held.set(key, { ...current, expiresAt });
+      },
+      async release(key, holder) {
+        if (held.get(key)?.holder === holder) held.delete(key);
+      },
     },
   };
 }
 
 const MUTATING_METHODS: ReadonlySet<string> = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000;
+/** How long a hold lasts unless renewed; renewed every third of it while the request runs. */
+const DEFAULT_HOLD_MS = 30 * 1000;
+/** What a repeat in flight is told to wait, in seconds. */
+const IN_FLIGHT_RETRY_AFTER_S = 5;
 
 /**
  * Idempotency-Key middleware per API-ROUTE-CONVENTIONS.md §3.1.
@@ -68,16 +149,30 @@ const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000;
  *   nothing, and a failure (5xx) may be transient: neither is stored, so
  *   a retry with the same key after fixing the cause runs again instead
  *   of replaying the old error.
+ * - With a store that holds keys (`store.holds`, T349): the key is held
+ *   while the handler runs (for `holdMs`, renewed every third of it), so
+ *   a repeat sent meanwhile gets 409 `idempotency-key-in-flight` with
+ *   `Retry-After`, or `idempotency-key-body-mismatch` for another body,
+ *   instead of running the operation again. The hold becomes the stored
+ *   answer, or is released when nothing is stored. A crashed request's
+ *   hold lapses within `holdMs`.
  *
- * The middleware sits AFTER auth so `tenantId` is available; the
- * cache key is namespaced by tenant so callers can't collide across
- * tenants.
+ * The middleware sits AFTER auth so `tenantId` is available. The cache
+ * key is the tenant, the caller (`user:…`, `service_account:…`, else the
+ * key or session it came with), the route and the key: someone else in
+ * the tenant who sends the same key and body runs the request themselves,
+ * and never gets another caller's answer (T392).
+ *
+ * A route whose answer carries a secret calls `withholdFromReplay`: its
+ * answer isn't kept, only that it succeeded (status, when). A repeat with
+ * the same key and body gets 409 `idempotency-key-replay-withheld`.
  */
 export function idempotencyMiddleware(
   store: IdempotencyStore,
-  opts: { ttlMs?: number } = {},
+  opts: { ttlMs?: number; holdMs?: number } = {},
 ): MiddlewareHandler {
   const ttlMs = opts.ttlMs ?? DEFAULT_TTL_MS;
+  const holdMs = opts.holdMs ?? DEFAULT_HOLD_MS;
   return async (c, next) => {
     if (!MUTATING_METHODS.has(c.req.method.toUpperCase())) {
       return next();
@@ -96,49 +191,126 @@ export function idempotencyMiddleware(
     }
 
     const bodyText = await readRawBody(c.req.raw);
-    const bodyHash = hashBody(bodyText);
-    const cacheKey = `${tenantId}|${c.req.method.toUpperCase()}:${c.req.path}|${rawKey}`;
+    const bodyHash = sha256Hex(bodyText);
+    const cacheKey = `${tenantId}|${callerIdentity(c as Context<AppEnv>)}|${c.req.method.toUpperCase()}:${c.req.path}|${rawKey}`;
     const hit = await store.get(cacheKey);
+    if (hit !== null) return replay(c, hit, bodyHash, requestId, ttlMs);
 
-    if (hit !== null) {
-      if (hit.bodyHash !== bodyHash) {
-        c.status(statusFor('idempotency-key-body-mismatch') as never);
+    const { holds } = store;
+    const holder = randomUUID();
+    if (holds !== undefined) {
+      const held = await holds.hold(cacheKey, {
+        holder,
+        bodyHash,
+        expiresAt: Date.now() + holdMs,
+      });
+      if (held.kind === 'stored') return replay(c, held.entry, bodyHash, requestId, ttlMs);
+      if (held.kind === 'in-flight') {
+        if (held.bodyHash !== bodyHash) return bodyMismatch(c, requestId);
+        c.header('Retry-After', String(IN_FLIGHT_RETRY_AFTER_S));
+        c.status(statusFor('idempotency-key-in-flight') as never);
         return c.json(
           toWireError(
             {
-              code: 'idempotency-key-body-mismatch',
+              code: 'idempotency-key-in-flight',
               message:
-                'Idempotency-Key was reused with a different request body. Use a fresh key or the original body.',
+                "A request with this Idempotency-Key is still running. Retry after it answers (Retry-After), and you'll get its answer.",
             },
             requestId,
           ),
         );
       }
-      return c.body(hit.bodyText, hit.status as never, {
-        'Content-Type': hit.contentType,
-        'X-Idempotent-Replay': 'true',
-      });
     }
 
     // Re-attach the buffered body so downstream handlers reading
     // `c.req.json()` see the same bytes.
     if (bodyText.length > 0) rebindBody(c, bodyText);
-    await next();
+    const renewal =
+      holds === undefined
+        ? undefined
+        : setInterval(
+            () => {
+              holds.renew(cacheKey, holder, Date.now() + holdMs).catch(() => undefined);
+            },
+            Math.max(1, Math.floor(holdMs / 3)),
+          );
+    renewal?.unref?.();
+    let answered = false;
+    try {
+      await next();
 
-    const res = c.res;
-    // Only what took effect is replayed; see the doc above.
-    if (res.status >= 400) return;
-    const savedBody = await res.clone().text();
-    const contentType = res.headers.get('Content-Type') ?? 'application/octet-stream';
-    await store.set(cacheKey, {
-      bodyHash,
-      status: res.status,
-      contentType,
-      bodyText: savedBody,
-      expiresAt: Date.now() + ttlMs,
-    });
-    return;
+      const res = c.res;
+      // Only what took effect is replayed; see the doc above.
+      if (res.status >= 400) return;
+      const withheld = (c as Context<AppEnv>).get('idempotencyWithhold') === true;
+      const savedBody = withheld ? '' : await res.clone().text();
+      const contentType = res.headers.get('Content-Type') ?? 'application/octet-stream';
+      const now = Date.now();
+      await store.set(cacheKey, {
+        bodyHash,
+        status: res.status,
+        contentType,
+        bodyText: savedBody,
+        expiresAt: now + ttlMs,
+        ...(withheld && { withheld: true }),
+        storedAt: now,
+      });
+      answered = true;
+    } finally {
+      if (renewal !== undefined) clearInterval(renewal);
+      // Nothing stored (a refusal, a failure, a throw): let a retry run.
+      if (!answered && holds !== undefined) {
+        await holds.release(cacheKey, holder).catch(() => undefined);
+      }
+    }
   };
+}
+
+/**
+ * A stored answer, replayed; or the refusal for the same key with another
+ * body; or, for an answer that carried a secret, what succeeded and when.
+ */
+function replay(
+  c: Context,
+  hit: StoredIdempotencyEntry,
+  bodyHash: string,
+  requestId: string,
+  ttlMs: number,
+) {
+  if (hit.bodyHash !== bodyHash) return bodyMismatch(c, requestId);
+  if (hit.withheld === true) {
+    const at = new Date(hit.storedAt ?? hit.expiresAt - ttlMs).toISOString();
+    c.status(statusFor('idempotency-key-replay-withheld') as never);
+    return c.json(
+      toWireError(
+        {
+          code: 'idempotency-key-replay-withheld',
+          message: `The request with this Idempotency-Key succeeded (${hit.status}, at ${at}). Its answer carried a secret, which isn't kept, so it can't be sent again: read what it made (for an API key, \`GET /v1/tokens\`), or make a new one with a fresh key.`,
+          status: hit.status,
+          at,
+        },
+        requestId,
+      ),
+    );
+  }
+  return c.body(hit.bodyText, hit.status as never, {
+    'Content-Type': hit.contentType,
+    'X-Idempotent-Replay': 'true',
+  });
+}
+
+function bodyMismatch(c: Context, requestId: string) {
+  c.status(statusFor('idempotency-key-body-mismatch') as never);
+  return c.json(
+    toWireError(
+      {
+        code: 'idempotency-key-body-mismatch',
+        message:
+          'Idempotency-Key was reused with a different request body. Use a fresh key or the original body.',
+      },
+      requestId,
+    ),
+  );
 }
 
 async function readRawBody(req: Request): Promise<string> {
@@ -151,8 +323,8 @@ async function readRawBody(req: Request): Promise<string> {
   }
 }
 
-function hashBody(body: string): string {
-  return createHash('sha256').update(body).digest('hex');
+function sha256Hex(text: string): string {
+  return createHash('sha256').update(text).digest('hex');
 }
 
 function rebindBody(c: { req: { raw: Request } }, body: string): void {

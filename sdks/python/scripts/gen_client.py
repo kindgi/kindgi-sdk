@@ -96,6 +96,7 @@ class Operation:
     # When the 2xx answers carry different models: each status's model
     # class name (`secrets.rotate`: 201 sync, 202 async). Empty otherwise.
     responses: dict[int, str] = field(default_factory=dict)
+    follow: bool = False  # a FOLLOWS method: `_follow`, not `_stream`
 
     @property
     def resource(self) -> tuple[str, ...]:
@@ -132,8 +133,10 @@ def param_annotation(doc: dict[str, Any], schema: dict[str, Any], name: str = ""
         return "Literal[" + ", ".join(json.dumps(v) for v in resolved["enum"]) + "]"
     kind = resolved.get("type")
     if kind == "array":
-        # A repeated query parameter (`segment=a&segment=b`): httpx repeats a list's key.
-        return f"list[{param_annotation(doc, resolved.get('items', {}), name)}]"
+        # A repeated query parameter (`segment=a&segment=b`): httpx repeats a list's
+        # key. One value is one too, so a parameter that took one before still does.
+        item = param_annotation(doc, resolved.get("items", {}), name)
+        return f"{item} | list[{item}]"
     if kind == "string" and (resolved.get("format") == "uuid" or ID_PARAM.search(name)):
         # An id: the models carry ids as `UUID` (`format: uuid`), so a model's
         # id passes straight back in (`client.runs.get(run.id)`); it's sent as text.
@@ -160,6 +163,54 @@ def hoist(doc: dict[str, Any], schema: dict[str, Any], name: str) -> str:
 ALIASES: dict[str, tuple[str, ...]] = {
     "evalSuites.versions.unregister": ("evalSuites.unregister",),
 }
+
+# A run stream's follow method, generated beside it: the same call, through
+# to the run's terminal event. The server ends a run's stream after 5 minutes
+# while the run goes on; `_follow` reconnects after the last event. Named as
+# the Java client names them (`runs().follow`, `runs().followProgress`).
+FOLLOWS: dict[str, tuple[str, str]] = {
+    "runs.stream": ("runs.follow", "Follow a run's events to its end"),
+    "runs.progressStream": ("runs.followProgress", "Follow a run's progress to its end"),
+}
+FOLLOW_DESCRIPTION = (
+    "`{stream}`, through to the run's terminal event (`run.completed`, `run.failed` or "
+    "`run.cancelled`), each event once. The server ends a run's stream after 5 minutes "
+    "while the run goes on; this reconnects with `Last-Event-Id` and goes on. A dropped "
+    "connection, a 429 or a 502-504 is retried with backoff; any other error is raised. "
+    "Ends after the terminal event."
+)
+
+
+# Operations a patch release removed from the API: each stays a method that
+# raises, naming its replacement, until the next minor (`id: (release,
+# replacement)`). Old calls still import and fail with a clear message.
+REMOVED: dict[str, tuple[str, str]] = {
+    "proposals.draft": ("0.1.5", "proposals.create"),
+    "proposals.dryRun": ("0.1.5", "proposals.evaluate"),
+    "proposals.submitReview": ("0.1.5", "proposals.request"),
+    "proposals.apply": ("0.1.5", "proposals.request"),
+}
+
+
+def removed_stubs(node: Resource, asynchronous: bool) -> list[str]:
+    out: list[str] = []
+    for op_id, (release, replacement) in REMOVED.items():
+        *resource, method = op_id.split(".")
+        if tuple(resource) != node.path:
+            continue
+        name = snake(method)
+        message = (
+            f"{'.'.join(snake(p) for p in resource)}.{name} was removed in {release}: "
+            f"use client.{'.'.join(snake(p) for p in replacement.split('.'))}"
+        )
+        prefix = "async def" if asynchronous else "def"
+        out += [
+            "",
+            f"    {prefix} {name}(self, *args: Any, **kwargs: Any) -> NoReturn:",
+            f'        """Removed in {release}: use `client.{replacement}`."""',
+            f'        raise InvalidRequestError("{message}", issues=[])',
+        ]
+    return out
 
 
 def operations(source: dict[str, Any]) -> tuple[dict[str, Any], list[Operation]]:
@@ -267,7 +318,23 @@ def operations(source: dict[str, Any]) -> tuple[dict[str, Any], list[Operation]]
                 )
             )
     ops += [replace(op, id=alias) for op in list(ops) for alias in ALIASES.get(op.id, ())]
+    ops += [
+        replace(
+            op,
+            id=FOLLOWS[op.id][0],
+            follow=True,
+            summary=FOLLOWS[op.id][1],
+            description=FOLLOW_DESCRIPTION.format(stream=snake_path(op.id)),
+        )
+        for op in list(ops)
+        if op.id in FOLLOWS
+    ]
     return doc, ops
+
+
+def snake_path(op_id: str) -> str:
+    """`runs.progressStream` → `runs.progress_stream`, as the client names it."""
+    return ".".join(snake(part) for part in op_id.split("."))
 
 
 def tree(ops: list[Operation]) -> Resource:
@@ -353,7 +420,7 @@ def call(op: Operation, asynchronous: bool) -> str:
     args.append("timeout=timeout")
     inner = ", ".join(args)
     if op.response_kind == "sse":
-        return f"        return self._client._stream({inner})"
+        return f"        return self._client._{'follow' if op.follow else 'stream'}({inner})"
     keyword_await = "await " if asynchronous else ""
     return f"        return {keyword_await}self._client._request({inner})"
 
@@ -381,6 +448,7 @@ def render_resource(node: Resource, asynchronous: bool) -> list[str]:
         )
     for op in node.operations:
         out += ["", signature(op, asynchronous), docstring(op, "        "), call(op, asynchronous)]
+    out += removed_stubs(node, asynchronous)
     return out
 
 
@@ -394,11 +462,12 @@ def render_resources(root: Resource, ops: list[Operation]) -> str:
         "from __future__ import annotations",
         "",
         "from collections.abc import AsyncIterator, Iterator, Mapping, Sequence",
-        "from typing import Any, Literal, cast",
+        "from typing import Any, Literal, NoReturn, cast",
         "from uuid import UUID",
         "",
         "from . import _models",
         "from ._base import AsyncClientBase, Operation, SyncClientBase, _body, _segments",
+        "from ._errors import InvalidRequestError",
         "",
         '__all__ = ["OPERATIONS", "AsyncResources", "Resources"]',
         "",

@@ -135,11 +135,12 @@ export const deployCommand: LeafCommand = {
     'artifact-version': {
       type: 'string',
       description:
-        "For an inline build: the artifact version. Default: today's date as `YYYYMMDD.1` (UTC).",
+        'For an inline build: the artifact version. Default: the build time as `YYYYMMDD.HHMMSS` (UTC). For a reproducible build, pass `--artifact-version` and `--published-at`.',
     },
     'published-at': {
       type: 'string',
-      description: 'For an inline build: the publish time (ISO 8601). Default: the Unix epoch.',
+      description:
+        'For an inline build: the publish time (an ISO 8601 time with a zone, or a date: its start, UTC). Default: the build time. For a reproducible build, pass `--artifact-version` and `--published-at`.',
     },
     'signing-key': {
       type: 'string',

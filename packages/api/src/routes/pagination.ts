@@ -11,6 +11,8 @@
  * `createdAt`.
  */
 
+import { isTimeInput } from './time-input.js';
+
 export interface DecodedCursor {
   readonly createdAt: string;
   readonly id: string;
@@ -41,6 +43,17 @@ export function decodeCursor(raw: string): DecodedCursor | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * A cursor's time, as a list's binding compares it: one a server writes
+ * (Postgres's `timestamptz` text, a page's exact position, or an ISO 8601
+ * time from a cursor before that), by the API's one time rule
+ * (`parseTimeInput`). A hand-made cursor with any other time is answered
+ * `400 bad-input` rather than handed to the binding's `::timestamptz`.
+ */
+export function isCursorTime(value: string): boolean {
+  return isTimeInput(value);
 }
 
 export function clampLimit(raw: string | undefined, def = 25, cap = 100): number {

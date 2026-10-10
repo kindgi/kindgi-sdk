@@ -29,17 +29,39 @@ each one by the name in the second column.
 | `secret` | Deleted secrets | revoked secrets |
 | `run` | Deleted runs | **finished runs**, counted from when they finished |
 | `policy` | Retired policy versions | unregistered policy versions |
-| `judgment` | Removed judgments | removed judgments |
+| `judgment` | Removed judgments | removed judgments, and the judging queue's history: closed items and skipped runs |
 | `judge_class` | Retired judge classes | retired judge classes |
 | `org` | Deleted orgs | deleted orgs, once their environments' and MCP endpoints' records are purged |
 | `provider` | Removed model providers | unregistered model providers |
-| `*` | All deleted records | every domain that has no policy of its own |
+| `artifact` | Deleted artifacts | deleted artifacts, with their files |
+| `api_key` | Revoked API keys | revoked and expired API keys |
+| `service_account` | Removed service accounts | unregistered service accounts |
+| `memory` | Ended memory facts | every revision of a fact whose life ended (deleted, or past its expiry); a fact under legal hold is never purged |
+| `conversation` | Deleted conversations | unregistered conversations, with their messages and what recall indexed |
+| `*` | All deleted records | every domain that has no policy of its own, except `memory` and `conversation` |
+
+`memory` and `conversation` hold people's words, so their retention is
+opt-in: a `*` policy doesn't reach them, only a policy naming them does.
 
 :::caution[`run` and `*` purge finished runs]
 Runs aren't deleted first: a policy on `run`, or a `*` policy, purges every
 finished run once its grace has passed since the run finished. To keep runs
 while purging the rest, give `run` a policy of its own.
 :::
+
+### What outlives a run
+
+A purged run takes its journal, provenance and snapshot with it. These stay,
+under their own setting:
+
+- **Judgments,** with the copy of the run's input and output each judged
+  run keeps. A judgment that isn't removed stays for good; a removed one
+  goes under `judgment`.
+- **The judging queue's history:** items that closed (judged, dismissed,
+  or `erased`) and runs a rule skipped at its cap. They hold ids, versions,
+  statuses and times only. They go under `judgment`, counted from when they
+  closed or were skipped. A purged run's waiting item closes as `erased`.
+- **Model-call costs,** which are billing history and stay.
 
 ## Set a policy
 
@@ -210,6 +232,16 @@ A pass that purged something logs it, per tenant:
 
 A value under `60000` stops the runtime at start:
 `KINDGI_RETENTION_SWEEP_INTERVAL_MS must be at least 60000 milliseconds. Got 59999.`
+
+**Expired rows go on their own,** whatever this setting says: every hour, the
+runtime deletes expired idempotency answers, sessions and sign-in state. They
+aren't records a policy keeps, so no setting turns that on. The retention
+sweep is for deleted records past their policy's grace. The startup log says
+so:
+
+```text
+  Expired rows: deleted every 1 h (idempotency answers, sessions, sign-in state)
+```
 
 ## Keep records for good
 

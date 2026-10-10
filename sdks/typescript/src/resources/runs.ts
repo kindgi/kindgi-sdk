@@ -6,10 +6,10 @@ import type { AgentId, FlowId, RunId, TenantId, Timestamp } from '@kindgi/types'
 import type { ScopeRef } from '../scope-wire.js';
 
 import { KindgiApiError, notYetWired } from '../errors.js';
-import type { LiveScope, RunProgress, ScopeSegment } from '../generated/api.js';
+import type { LiveScope, RunFailureGroups, RunProgress, ScopeSegment } from '../generated/api.js';
 import { type RunProgressEvent, followRun } from '../run-follow.js';
 import { scopeToQuery } from '../scope-wire.js';
-import type { Transport } from '../transport.js';
+import { type Transport, seconds } from '../transport.js';
 import type { DryRunResult, RunEvent } from '../types.js';
 
 /**
@@ -33,6 +33,11 @@ export interface RunsClient {
    * with `options.wait: false` as soon as it exists (202) — poll
    * `get(runId)` until it finishes.
    *
+   * A waited start is bound by the client's timeout (`timeoutMs`, 30 s by
+   * default; this call can set its own). When it runs out, the run may
+   * still be going and its id never arrived: the `network` error says so.
+   * Start a run that can take longer with `options.wait: false`.
+   *
    * `idempotencyKey` makes retries safe: two calls with the same key
    * within the server's retention window return the same `Run`.
    *
@@ -55,7 +60,10 @@ export interface RunsClient {
   dryRun(input: StartRunInput): Promise<DryRunResult>;
 
   /**
-   * Subscribe to the run's event stream as an async iterable.
+   * The run's events, once each, through to its terminal event
+   * (`run.completed`, `run.failed` or `run.cancelled`), as an async
+   * iterable. Python's `runs.follow` and the Java client's
+   * `runs().follow` do the same.
    *
    * @wire `GET /v1/runs/{runId}/stream` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1runs~1{runId}~1stream/get`.
@@ -67,14 +75,32 @@ export interface RunsClient {
    * backoff (500 ms → 30 s cap; up to 10 attempts by default) with
    * `Last-Event-Id` set to the last-observed frame so the server
    * resumes from the next sequence. When the server ends the stream
-   * before the run finished (its time limit), the iterable reconnects
-   * the same way; it completes after the run's terminal event
-   * (`run.completed`, `run.failed`, `run.cancelled`). Consumers pass
-   * `AbortSignal` for caller-side cancellation; the iterable completes
-   * cleanly on abort.
+   * before the run finished (its 5-minute limit), the iterable
+   * reconnects the same way; it completes after the run's terminal
+   * event. Consumers pass `AbortSignal` for caller-side cancellation;
+   * the iterable completes cleanly on abort.
    *
-   * @param runId — the run to subscribe to.
+   * @param runId — the run to follow.
    * @param options — optional `signal` for cancellation + backoff overrides.
+   */
+  follow(
+    runId: RunId,
+    options?: {
+      readonly signal?: AbortSignal;
+      readonly initialBackoffMs?: number;
+      readonly maxBackoffMs?: number;
+    },
+  ): AsyncIterable<RunEvent>;
+
+  /**
+   * The run's events, following it to its end, as `follow` does today.
+   *
+   * @deprecated Use `runs.follow`, which does the same. In a later minor
+   *   release, announced in advance, `runs.stream` becomes the plain
+   *   call, as in Python and Java: it ends when the server closes the
+   *   stream (after the run's terminal event, or after 5 minutes).
+   *
+   * @wire `GET /v1/runs/{runId}/stream`
    */
   stream(
     runId: RunId,
@@ -95,8 +121,28 @@ export interface RunsClient {
 
   /**
    * The run's events without their payloads, through to the terminal one
-   * (reconnecting like `stream`). For browsers, see `subscribeToRun`,
-   * which takes a public run token.
+   * (reconnecting like `follow`). Python's `runs.follow_progress` and the
+   * Java client's `runs().followProgress` do the same. For browsers, see
+   * `subscribeToRun`, which takes a public run token.
+   *
+   * @wire `GET /v1/runs/{runId}/progress/stream`
+   */
+  followProgress(
+    runId: RunId,
+    options?: {
+      readonly signal?: AbortSignal;
+      readonly initialBackoffMs?: number;
+      readonly maxBackoffMs?: number;
+    },
+  ): AsyncIterable<RunProgressEvent>;
+
+  /**
+   * The run's progress events, following it to its end, as
+   * `followProgress` does today.
+   *
+   * @deprecated Use `runs.followProgress`, which does the same. In a
+   *   later minor release, announced in advance, `runs.streamProgress`
+   *   becomes the plain call, as in Python and Java.
    *
    * @wire `GET /v1/runs/{runId}/progress/stream`
    */
@@ -156,6 +202,35 @@ export interface RunsClient {
    * @wire `GET /v1/runs/:runId/journal`
    */
   journal(runId: RunId, filter?: RunJournalFilter): Promise<RunJournalPage>;
+
+  /**
+   * A project's failed runs over a window (at most 90 days), grouped by
+   * cause and version: per group, how many failed, when the first and the
+   * latest failed, and the latest run. People's decisions (`hitl-*`) come
+   * apart as `outcomes`; runs that failed before their cause was recorded,
+   * as `unrecorded`. Needs `read` on the project.
+   *
+   * @wire `GET /v1/runs/failures`
+   */
+  failures(query: RunFailuresQuery): Promise<RunFailureGroups>;
+}
+
+export type { RunFailureGroups };
+
+export interface RunFailuresQuery {
+  readonly projectId: string;
+  /** Runs that failed at or after this time. */
+  readonly from: Date | string;
+  /** Runs that failed before this time. */
+  readonly to: Date | string;
+  /** Only this agent's turns (not with `flowId`). */
+  readonly agentId?: AgentId | string;
+  /** Only this flow's runs (not with `agentId`). */
+  readonly flowId?: FlowId | string;
+  /** What to group by: `['code', 'version']` by default. */
+  readonly groupBy?: readonly ('code' | 'version')[];
+  /** The most groups in each list, 1 to 200 (50 by default). */
+  readonly limit?: number;
 }
 
 export interface RunJournalFilter {
@@ -186,6 +261,20 @@ export interface ListRunsFilter {
   readonly replays?: 'exclude' | 'include' | 'only';
   /** Only the replay runs of this eval run (implies replays are included). */
   readonly evalRunId?: string;
+  /** Only the runs this trigger started. */
+  readonly triggerId?: string;
+  /** Only runs in this status, or in any of these (e.g. `['failed', 'cancelled']`). */
+  readonly status?: RunStatus | readonly RunStatus[];
+  /** Only runs created strictly after this time. */
+  readonly createdAfter?: Timestamp | string;
+  /** Only runs created strictly before this time. */
+  readonly createdBefore?: Timestamp | string;
+  /** With `agentId`: only the turns that ran this version. */
+  readonly agentVersion?: string;
+  /** Only runs of this flow (an agent's turns run `agent.turn`; use `agentId` for an agent's). */
+  readonly flowId?: FlowId | string;
+  /** With `flowId`: only runs of this version. */
+  readonly flowVersion?: string;
   /** Include each run's `output` (omitted from lists by default). */
   readonly includeOutput?: boolean;
 }
@@ -216,6 +305,13 @@ export type StartRunInput =
       readonly input: unknown;
       readonly options?: StartRunOptions;
       readonly idempotencyKey?: string;
+      /**
+       * How long to wait for the answer, in milliseconds: this call's
+       * `ClientOptions.timeoutMs`. A waited start answers only when the run
+       * ends, so a run that can take longer is better started with
+       * `options: { wait: false }` and followed.
+       */
+      readonly timeoutMs?: number;
     }
   | {
       readonly flow: FlowId | string;
@@ -227,6 +323,13 @@ export type StartRunInput =
       readonly input: unknown;
       readonly options?: StartRunOptions;
       readonly idempotencyKey?: string;
+      /**
+       * How long to wait for the answer, in milliseconds: this call's
+       * `ClientOptions.timeoutMs`. A waited start answers only when the run
+       * ends, so a run that can take longer is better started with
+       * `options: { wait: false }` and followed.
+       */
+      readonly timeoutMs?: number;
     };
 
 export interface StartRunOptions {
@@ -267,6 +370,27 @@ export interface RunAgent {
   readonly liveScope?: LiveScope;
 }
 
+/** Why a failed run failed. Matches `@kindgi/api/openapi.json#RunFailure`. */
+export interface RunFailure {
+  /** The error's own code, or `run-failed`. */
+  readonly code: string;
+  readonly message: string;
+  /** What the error came from, when it says (e.g. the router's reasons). */
+  readonly cause?: unknown;
+}
+
+/**
+ * The trigger that started a run (`@kindgi/api/openapi.json#RunTrigger`):
+ * the trigger, and the fire in its history that started the run.
+ */
+export interface RunTrigger {
+  readonly triggerId: string;
+  readonly kind: 'schedule' | 'event' | 'webhook';
+  readonly fireId: string;
+  /** A schedule's fire: the occurrence the run is for. */
+  readonly scheduledFor?: Timestamp;
+}
+
 /**
  * Wire shape — matches `@kindgi/api/openapi.json#Run`. Runs are
  * flow-native on the wire: an agent run executes as a flow on the
@@ -284,7 +408,14 @@ export interface Run {
   readonly createdAt: Timestamp;
   readonly updatedAt: Timestamp;
   readonly completedAt?: Timestamp;
+  /** The failure as the runtime recorded it; read `failure` instead. */
   readonly failureMessage?: string;
+  /**
+   * Why a failed run failed: an agent turn's own error (`budget-exceeded`,
+   * `capability-routing-failed`, …) or `run-failed`. Absent unless the run
+   * is `failed`, and from runtimes before 0.1.5.
+   */
+  readonly failure?: RunFailure;
   /** The run's output once it completed. Lists carry it only with `includeOutput`. */
   readonly output?: unknown;
   /** Set on a child run: the run that started it. */
@@ -296,8 +427,15 @@ export interface Run {
    * started). Absent on other runs, and on turns from before 0.1.3.
    */
   readonly agent?: RunAgent;
+  /** Set on a run a trigger started (a schedule, an event trigger, an inbound webhook). */
+  readonly trigger?: RunTrigger;
   /** The segment path the run was started with; a child run has its parent's. */
   readonly segments?: readonly ScopeSegment[];
+  /**
+   * When an erasure cleared the run's content (its input, output, failure
+   * message and journal payloads): a person's words were erased.
+   */
+  readonly contentErasedAt?: string;
   /**
    * The W3C trace id of the request that started the run (yours, when you
    * sent a `traceparent`). Absent for a run no request started, and from
@@ -322,7 +460,53 @@ export interface StartedRun extends Run {
   readonly publicAccessTokenExpiresAt?: Timestamp;
 }
 
+/**
+ * A waited start that the client's timeout ended: the run may still be
+ * going, and its id never arrived. Says how to start a long run instead.
+ * Any other error is returned as it is.
+ */
+function waitedStartTimeout(e: unknown): unknown {
+  if (!(e instanceof KindgiApiError) || e.error.code !== 'network') return e;
+  const { timeoutMs } = e.error;
+  if (timeoutMs === undefined) return e;
+  return new KindgiApiError({
+    code: 'network',
+    message: `The run didn't end within ${seconds(timeoutMs)}, the client's timeout (timeoutMs). A waited start answers only when the run ends, so the run may still be going, and its id didn't arrive. Start a run that can take longer with \`options: { wait: false }\`: the answer carries its id at once. Then follow it with \`runs.stream(runId)\` or \`runs.get(runId)\`. Or raise \`timeoutMs\`.`,
+    cause: e.error.cause,
+    timeoutMs,
+  });
+}
+
 export function makeRunsClient(transport: Transport): RunsClient {
+  // `follow` / `followProgress`, and the deprecated `stream` /
+  // `streamProgress`, which do the same (a method may be called unbound).
+  const followEvents: RunsClient['follow'] = (runId, options) =>
+    followRun<RunEvent>({
+      url: `${transport.apiUrl}/v1/runs/${encodeURIComponent(runId as unknown as string)}/stream`,
+      headers: () => transport.authHeaders(),
+      fetchImpl: transport.fetchImpl,
+      ...(options?.signal !== undefined && { signal: options.signal }),
+      ...(options?.initialBackoffMs !== undefined && {
+        initialBackoffMs: options.initialBackoffMs,
+      }),
+      ...(options?.maxBackoffMs !== undefined && {
+        maxBackoffMs: options.maxBackoffMs,
+      }),
+    });
+  const followProgressEvents: RunsClient['followProgress'] = (runId, options) =>
+    followRun<RunProgressEvent>({
+      url: `${transport.apiUrl}/v1/runs/${encodeURIComponent(runId as unknown as string)}/progress/stream`,
+      headers: () => transport.authHeaders(),
+      fetchImpl: transport.fetchImpl,
+      ...(options?.signal !== undefined && { signal: options.signal }),
+      ...(options?.initialBackoffMs !== undefined && {
+        initialBackoffMs: options.initialBackoffMs,
+      }),
+      ...(options?.maxBackoffMs !== undefined && {
+        maxBackoffMs: options.maxBackoffMs,
+      }),
+    });
+
   return {
     async start(input) {
       const body: Record<string, unknown> =
@@ -343,14 +527,19 @@ export function makeRunsClient(transport: Transport): RunsClient {
               input: input.input,
               ...(input.options !== undefined && { options: input.options }),
             };
-      return transport.request<StartedRun>({
-        method: 'POST',
-        path: '/v1/runs',
-        body,
-        ...(input.idempotencyKey !== undefined && {
-          idempotencyKey: input.idempotencyKey,
-        }),
-      });
+      try {
+        return await transport.request<StartedRun>({
+          method: 'POST',
+          path: '/v1/runs',
+          body,
+          ...(input.idempotencyKey !== undefined && {
+            idempotencyKey: input.idempotencyKey,
+          }),
+          ...(input.timeoutMs !== undefined && { timeoutMs: input.timeoutMs }),
+        });
+      } catch (e) {
+        throw input.options?.wait === false ? e : waitedStartTimeout(e);
+      }
     },
 
     async dryRun(_input) {
@@ -369,35 +558,13 @@ export function makeRunsClient(transport: Transport): RunsClient {
       });
     },
 
-    streamProgress(runId, options) {
-      return followRun<RunProgressEvent>({
-        url: `${transport.apiUrl}/v1/runs/${encodeURIComponent(runId as unknown as string)}/progress/stream`,
-        headers: () => transport.authHeaders(),
-        fetchImpl: transport.fetchImpl,
-        ...(options?.signal !== undefined && { signal: options.signal }),
-        ...(options?.initialBackoffMs !== undefined && {
-          initialBackoffMs: options.initialBackoffMs,
-        }),
-        ...(options?.maxBackoffMs !== undefined && {
-          maxBackoffMs: options.maxBackoffMs,
-        }),
-      });
-    },
+    followProgress: followProgressEvents,
 
-    stream(runId, options) {
-      return followRun<RunEvent>({
-        url: `${transport.apiUrl}/v1/runs/${encodeURIComponent(runId as unknown as string)}/stream`,
-        headers: () => transport.authHeaders(),
-        fetchImpl: transport.fetchImpl,
-        ...(options?.signal !== undefined && { signal: options.signal }),
-        ...(options?.initialBackoffMs !== undefined && {
-          initialBackoffMs: options.initialBackoffMs,
-        }),
-        ...(options?.maxBackoffMs !== undefined && {
-          maxBackoffMs: options.maxBackoffMs,
-        }),
-      });
-    },
+    follow: followEvents,
+
+    streamProgress: followProgressEvents,
+
+    stream: followEvents,
 
     async get(runId) {
       return transport.request<Run>({
@@ -446,6 +613,19 @@ export function makeRunsClient(transport: Transport): RunsClient {
           ...(filter?.agentId !== undefined && { agentId: filter.agentId as string }),
           ...(filter?.replays !== undefined && { replays: filter.replays }),
           ...(filter?.evalRunId !== undefined && { evalRunId: filter.evalRunId }),
+          ...(filter?.triggerId !== undefined && { triggerId: filter.triggerId }),
+          ...(filter?.status !== undefined && {
+            status: typeof filter.status === 'string' ? [filter.status] : [...filter.status],
+          }),
+          ...(filter?.createdAfter !== undefined && {
+            createdAfter: filter.createdAfter as unknown as string,
+          }),
+          ...(filter?.createdBefore !== undefined && {
+            createdBefore: filter.createdBefore as unknown as string,
+          }),
+          ...(filter?.agentVersion !== undefined && { agentVersion: filter.agentVersion }),
+          ...(filter?.flowId !== undefined && { flowId: filter.flowId as string }),
+          ...(filter?.flowVersion !== undefined && { flowVersion: filter.flowVersion }),
           ...(filter?.includeOutput === true && { include: 'output' }),
         },
       });
@@ -459,6 +639,23 @@ export function makeRunsClient(transport: Transport): RunsClient {
           ...(filter?.limit !== undefined && { limit: filter.limit }),
           ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
           ...(filter?.since !== undefined && { since: filter.since }),
+        },
+      });
+    },
+
+    async failures(query) {
+      const at = (t: Date | string) => (t instanceof Date ? t.toISOString() : t);
+      return transport.request<RunFailureGroups>({
+        method: 'GET',
+        path: '/v1/runs/failures',
+        query: {
+          projectId: query.projectId,
+          from: at(query.from),
+          to: at(query.to),
+          ...(query.agentId !== undefined && { agentId: query.agentId as string }),
+          ...(query.flowId !== undefined && { flowId: query.flowId as string }),
+          ...(query.groupBy !== undefined && { groupBy: query.groupBy.join(',') }),
+          ...(query.limit !== undefined && { limit: query.limit }),
         },
       });
     },

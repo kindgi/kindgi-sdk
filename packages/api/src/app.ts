@@ -10,7 +10,7 @@ import type { AuditEventBinding } from '@kindgi/audit-events';
 import type { AuthzCheckBinding } from '@kindgi/authz';
 import type { AdapterFactoryRegistry } from '@kindgi/capabilities';
 import type { ComplianceEvidenceGenerator, LoadedClassifier } from '@kindgi/compliance';
-import type { SigningKeyBinding } from '@kindgi/crypto';
+import type { ExportSigningBinding } from '@kindgi/crypto';
 import type { TenantHierarchyBinding } from '@kindgi/platform';
 import type {
   OrgBinding,
@@ -30,6 +30,7 @@ import type { AgentRegistryBinding } from './agent-binding.js';
 import type { BlockRegistryBinding } from './block-binding.js';
 import type { CapabilityRegistryBinding } from './capability-binding.js';
 import type { CostBinding } from './cost-binding.js';
+import type { CursorSealer } from './cursor-seal.js';
 import type { DeploymentBinding } from './deployment-binding.js';
 import type { EnvBinding } from './env-binding.js';
 import type { WireErrorBody } from './errors.js';
@@ -42,17 +43,21 @@ import type { GuardrailRegistryBinding } from './guardrail-binding.js';
 import type { RunHandlerBinding } from './handler-binding.js';
 import type { HitlBinding } from './hitl-binding.js';
 import type { IdentityDirectoryBinding } from './identity-directory-binding.js';
-import type {
-  ExchangeCodeFn,
-  IdentityProviderBinding,
-  RefreshTokenFn,
-} from './identity-provider-binding.js';
+import type { IdentityProviderBinding } from './identity-provider-binding.js';
 import type { ImageRegistryBinding } from './image-registry-binding.js';
+import type { ImprovementPassBinding } from './improvement-pass-binding.js';
+import type { JudgingQueueBinding } from './judging-queue-binding.js';
 import type { JudgmentRegistryBinding } from './judgment-binding.js';
 import type { AgentReleaseBindings } from './live-version-binding.js';
 import type { MCPClientProbeBinding, MCPEndpointRegistryBinding } from './mcp-endpoint-binding.js';
 import type { MemoryBinding } from './memory-binding.js';
-import { type TokenResolver, bearerAuthMiddleware } from './middleware/auth.js';
+import type { MemoryErasureBinding } from './memory-erasure-binding.js';
+import {
+  type SessionCookieOptions,
+  type TokenResolver,
+  bearerAuthMiddleware,
+  sessionCookieOf,
+} from './middleware/auth.js';
 import { type Authorizer, createAuthorizer } from './middleware/authorize.js';
 import { mapThrownError } from './middleware/error-mapper.js';
 import {
@@ -60,15 +65,22 @@ import {
   createInMemoryIdempotencyStore,
   idempotencyMiddleware,
 } from './middleware/idempotency.js';
+import { refuseOtherProjectForKey } from './middleware/key-project.js';
+import { noStoreMiddleware } from './middleware/no-store.js';
 import { principalMiddleware } from './middleware/principal.js';
 import { PROJECT_REF_ROUTES, refuseBadProjectId } from './middleware/project-ref.js';
 import { publicRunCorsMiddleware, publicRunRouteMatcher } from './middleware/public-run-routes.js';
 import { requestIdMiddleware } from './middleware/request-id.js';
 import { requestLogMiddleware } from './middleware/request-log.js';
+import { sealedCursors } from './middleware/sealed-cursors.js';
 import { sigv4Middleware } from './middleware/sigv4.js';
+import type { MyAccessBinding } from './my-access-binding.js';
 import { type GenerateOptions, generateOpenApiDocument } from './openapi/generate.js';
+import type { PersonGrantsBinding } from './person-grants-binding.js';
+import type { ProjectAccessBinding } from './project-access-binding.js';
 import type { ProvenanceBinding } from './provenance-binding.js';
 import type { ProviderRegistryBinding } from './provider-binding.js';
+import { providerKeysOf, usersOfSecret } from './provider-keys.js';
 import {
   type PublicRunTokenConfig,
   mintPublicRunToken,
@@ -85,7 +97,7 @@ import { agentsRouter } from './routes/agents.js';
 import { approvalsRouter } from './routes/approvals.js';
 import { artifactsRouter } from './routes/artifacts.js';
 import { auditRouter } from './routes/audit.js';
-import { authRouters } from './routes/auth.js';
+import { authRouter, logoutHandler } from './routes/auth.js';
 import { blocksRouter } from './routes/blocks.js';
 import { capabilitiesRouter } from './routes/capabilities.js';
 import { complianceRouter } from './routes/compliance.js';
@@ -96,17 +108,22 @@ import { envRouter } from './routes/env.js';
 import { evalRunsRouters } from './routes/eval-runs.js';
 import { evalSuitesRouter } from './routes/eval-suites.js';
 import { eventTriggersRouter } from './routes/event-triggers.js';
+import { exportSigningKeysRouter } from './routes/export-signing-keys.js';
 import { flowsRouter } from './routes/flows.js';
 import { gatePoliciesRouter } from './routes/gate-policies.js';
 import { guardrailsRouter } from './routes/guardrails.js';
 import { identityRouter } from './routes/identity.js';
+import { improvementPassesRouter, mountImproveRoute } from './routes/improvement-passes.js';
 import { judgedSuitesRouter } from './routes/judged-suites.js';
+import { judgingRouter } from './routes/judging.js';
 import { judgeClassesRouter, judgmentsRouter } from './routes/judgments.js';
 import { mcpRouter } from './routes/mcp.js';
+import { memoryErasuresRouter } from './routes/memory-erasures.js';
 import { memoryRouter } from './routes/memory.js';
 import { observationsRouter } from './routes/observations.js';
 import { orgsRouter } from './routes/orgs.js';
 import { policiesRouter } from './routes/policies.js';
+import { projectAccessRouter } from './routes/project-access.js';
 import { projectsRouter } from './routes/projects.js';
 import { proposalsRouter } from './routes/proposals.js';
 import { provenanceRouter } from './routes/provenance.js';
@@ -118,23 +135,27 @@ import { runsRouter } from './routes/runs.js';
 import { s3Router } from './routes/s3.js';
 import { schedulesRouter } from './routes/schedules.js';
 import { secretsRouter } from './routes/secrets.js';
+import { serviceAccountsRouter } from './routes/service-accounts.js';
+import { type SignInOptionsRateLimit, signInOptionsRouter } from './routes/sign-in-options.js';
 import { signingKeysRouter } from './routes/signing-keys.js';
+import { projectTeamGrantsRouter, teamProjectGrantsRouter } from './routes/team-grants.js';
 import { teamsRouter } from './routes/teams.js';
 import { tenantRouter } from './routes/tenant.js';
+import { tokenSignInRouter } from './routes/token-sign-in.js';
 import { tokensRouter } from './routes/tokens.js';
 import { toolsRouter } from './routes/tools.js';
 import { webhookEndpointsRouter } from './routes/webhook-endpoints.js';
 import { webhooksRouter } from './routes/webhooks.js';
 import type { S3CredentialBinding } from './s3-credential-binding.js';
 import type { SecretBinding } from './secrets-binding.js';
+import type { ServiceAccountBinding } from './service-account-binding.js';
 import type { SessionStoreBinding } from './session-store-binding.js';
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from './signing-key-binding.js';
-import { type OauthStateStore, createInMemoryOauthStateStore } from './state-store-binding.js';
 import type { SupervisorBinding } from './supervisor-binding.js';
 import type { TenantHostAccess } from './tenant-host-access.js';
 import type { TokenAdmin } from './token-admin.js';
 import type { ToolRegistryBinding } from './tool-binding.js';
-import type { TriggerRegistryBinding } from './trigger-binding.js';
+import { TRIGGER_KINDS, type TriggerKind, type TriggerRegistryBinding } from './trigger-binding.js';
 import type { AppEnv } from './types.js';
 import type { WebhookEndpointBinding } from './webhook-endpoint-binding.js';
 
@@ -248,6 +269,10 @@ export interface CreateAppInput {
    *   - `/v1/compliance/*` is mounted as a view filtered to
    *     classifier-marked exportable kinds (needs
    *     `complianceClassifier` too).
+   *   - Every secret and env write through `/v1/secrets` and `/v1/env` is
+   *     recorded at the route (`secret-set`, `secret-rotated`,
+   *     `secret-revoked`, `env-set`, `env-deleted`, …): the caller as
+   *     `actor`, the request as `correlationId`, never a value.
    * Absent = no durable audit trail; every subsystem's audit
    * writes become no-ops.
    *
@@ -267,7 +292,7 @@ export interface CreateAppInput {
    * `auditEvents` + `complianceClassifier` are provided (i.e., when
    * `/v1/compliance/*` mounts). The Kindgi runtime supplies the
    * generator (or pass a bespoke implementation). The public interface
-   * has recordFromRun / exportSigned / describe; implementations may add
+   * has recordFromRun / describe; implementations may add
    * more (e.g. subscriptions), which @kindgi/api doesn't use.
    */
   readonly complianceGenerator?: ComplianceEvidenceGenerator;
@@ -279,12 +304,40 @@ export interface CreateAppInput {
    */
   readonly idempotencyStore?: IdempotencyStore;
   /**
+   * Optional. Seals every list's page cursors (`createAeadCursorSealer`
+   * with the runtime's pagination key): a cursor then shows nothing of the
+   * row it points after, and opens only for the tenant, caller, list and
+   * filters it was handed out for, for a day. Absent: cursors are the
+   * bindings' own, readable positions.
+   */
+  readonly cursorSealer?: CursorSealer;
+  /**
    * Optional. When present, mounts the API-key routes: `POST /v1/tokens`
    * (mint), `GET /v1/tokens` (list), `GET /v1/tokens/:tokenId` and
    * `POST /v1/tokens/:tokenId/revoke`. Omit if the deployment manages
    * keys out-of-band (e.g. via a separate admin console).
    */
   readonly tokenAdmin?: TokenAdmin;
+  /**
+   * Optional. When present, mounts `/v1/service-accounts` (tenant admins):
+   * create with grants, list, get, grant, ungrant, unregister. Keys for an
+   * account are minted at `POST /v1/tokens` with `for`.
+   */
+  readonly serviceAccountBinding?: ServiceAccountBinding;
+  /**
+   * Optional. A person's grants under `/v1/identity/users/:userId`:
+   * `GET grants` (tenant admins, or the person) and `POST grant|ungrant`
+   * (tenant admin; tenant admins only). Without it they answer
+   * `501 person-grants-unsupported`. Needs `identityDirectory`.
+   */
+  readonly personGrants?: PersonGrantsBinding;
+  /**
+   * Optional. What the caller holds, for `GET /v1/identity/me/permissions`:
+   * its projects with their roles, its orgs and teams, and what each
+   * project role allows, from the authorization model. Without it, that
+   * route answers `501 permissions-unsupported`.
+   */
+  readonly myAccess?: MyAccessBinding;
   /**
    * Optional. When present, mounts the HITL surface:
    *   - `GET /v1/approvals` (list, role-scoped)
@@ -380,6 +433,13 @@ export interface CreateAppInput {
    */
   readonly onGuardrailWrite?: import('./routes/guardrails.js').GuardrailWriteHook;
   /**
+   * Checks a guardrail being registered (`POST /v1/guardrails`) against
+   * the `configSchema` of the check it names; a problem refuses it with
+   * `422 guardrail-config-invalid`. A runtime passes it with the pack
+   * checks' schemas from their deployments. Absent: no check.
+   */
+  readonly checkGuardrailConfig?: import('./routes/guardrails.js').GuardrailConfigCheck;
+  /**
    * Optional. When present, mounts the retention surface
    * (`/v1/retention/scheduled`, `/v1/retention/sweep`,
    * `/v1/retention/sweep/:domain`). Caller-plugged; the Kindgi runtime
@@ -396,6 +456,13 @@ export interface CreateAppInput {
    */
   readonly memory?: MemoryBinding;
   /**
+   * Optional. When present, mounts erasing a person's words
+   * (`/v1/memory/erasures`: create, get, list, export, replay), for a
+   * tenant admin only. The Kindgi runtime supplies an implementation over
+   * its erasure jobs and ledger.
+   */
+  readonly memoryErasures?: MemoryErasureBinding;
+  /**
    * Optional. When present, mounts the supervisor proposals surface
    * (`/v1/proposals` list/get/draft, plus lifecycle actions
    * dry-run / submit-review / apply / rollback / withdraw). Every
@@ -409,19 +476,28 @@ export interface CreateAppInput {
    */
   readonly supervisor?: SupervisorBinding;
   /**
-   * Optional. Caller-plugged key store for signed provenance exports
-   * (`POST /v1/provenance/:runId/export`). When omitted, the export
-   * route responds `404 signing-not-configured` — the read routes
-   * (`GET /v1/provenance`, `GET /v1/provenance/:runId`) remain mounted
-   * either way because they read through `provenanceBinding` and do not
-   * need signing material.
-   *
-   * Same caller-plugged pattern as the other bindings — the API package
-   * does NOT own key persistence. Deployments plug in a binding that
-   * wraps their KMS / HSM / env-var store; see `SigningKeyBinding` in
-   * `@kindgi/crypto`.
+   * Optional. Improvement passes (`POST /v1/proposals/improve`,
+   * `/v1/improvement-passes`): the runtime's search for better settings
+   * values, written as an improvement proposal. Without it, both answer
+   * `501 improve-unsupported`. Mounted with `/v1/proposals`.
    */
-  readonly signingKey?: SigningKeyBinding;
+  readonly improvementPasses?: ImprovementPassBinding;
+  /**
+   * Optional. The key the deployment signs its exports with: an
+   * approval's audit bundle (`POST /v1/approvals/:approvalId/audit-bundle`),
+   * a run's provenance (`POST /v1/provenance/:runId/export`) and
+   * compliance evidence (`POST /v1/compliance/evidence/export`). Its
+   * public keys are `GET /v1/export-signing-keys`. Each signed export is
+   * recorded as an `export-signed` audit event when `auditEvents` is
+   * given.
+   *
+   * Without it (and without `signingKey`), the three exports answer
+   * `404 signing-not-configured`; the read routes stay mounted. The API
+   * doesn't own key material: a deployment plugs a file key
+   * (`createEd25519ExportSigner` in `@kindgi/crypto`) or a KMS-backed
+   * binding.
+   */
+  readonly exportSigning?: ExportSigningBinding;
   /**
    * Optional. Issue and accept public run tokens (`kgi_pt_…`):
    * short-lived, read-only tokens a browser uses to follow specific runs
@@ -442,6 +518,11 @@ export interface CreateAppInput {
    * production.
    */
   readonly blobStorage?: BlobStorageBinding;
+  /**
+   * The most bytes one artifact upload may carry (`POST /v1/artifacts`);
+   * more is `413 artifact-too-large`. Default 100 MB.
+   */
+  readonly artifactMaxBytes?: number;
   /**
    * Optional. When present, mounts the read-only capabilities catalog
    * surface (`/v1/capabilities` list, `/v1/capabilities/:capabilityId`
@@ -558,6 +639,13 @@ export interface CreateAppInput {
    */
   readonly triggerRegistry?: TriggerRegistryBinding;
   /**
+   * The trigger kinds whose admin surface mounts with `triggerRegistry`:
+   * `cron` → `/v1/schedules`, `event` → `/v1/event-triggers`, `webhook` →
+   * `/v1/webhooks`. Absent: all three. A runtime that fires only some kinds
+   * lists those, so nobody registers a trigger that would never fire.
+   */
+  readonly triggerKinds?: readonly TriggerKind[];
+  /**
    * Optional. When present, mounts the outbound webhook surface at
    * `/v1/webhook-endpoints/*`: endpoints the platform sends signed
    * events to (`run.finished`), their delivery log, redelivery and a test
@@ -615,6 +703,13 @@ export interface CreateAppInput {
    */
   readonly judgmentRegistry?: JudgmentRegistryBinding;
   /**
+   * Optional. A project's judging rules and the queue they fill, under
+   * `/v1/projects/:projectId/judging-rules` and `…/judging-queue`: which
+   * runs need a person's judgment. Without it, those routes aren't
+   * mounted.
+   */
+  readonly judgingQueue?: JudgingQueueBinding;
+  /**
    * Optional. With `evalSuiteRegistry` and `judgmentRegistry`, mounts test
    * sets built from judgments: `POST /v1/eval-suites/:suiteId/versions/from-judgments`
    * and `GET /v1/eval-suites/:suiteId/versions/:version/cases`.
@@ -656,9 +751,9 @@ export interface CreateAppInput {
    */
   readonly s3Credentials?: S3CredentialBinding;
   /**
-   * Optional. When present, mounts the OAuth session persistence
-   * surface. Combined with `identityProvider` + `exchangeCode` (below),
-   * this activates the full `/v1/auth/*` route family. The static
+   * Optional. When present, mounts the session persistence surface.
+   * Combined with `identityProvider` (below), this activates the
+   * `/v1/auth/*` route family. The static
    * bearer-token flow remains available on the same routes byte-
    * shape-identical; the middleware detects `kgi_sk_*` prefixed
    * tokens and routes them through this store.
@@ -677,40 +772,39 @@ export interface CreateAppInput {
    */
   readonly session?: SessionConfig;
   /**
-   * Optional. When present alongside `sessionStore` + `exchangeCode`,
-   * mounts the identity-provider catalog + auth flow at `/v1/auth/*`.
+   * Optional. When present alongside `sessionStore`, mounts the
+   * identity-provider catalog, refresh and logout at `/v1/auth/*`. Sign-in
+   * itself runs in the deployment (its browser flow), which reads the
+   * catalog.
    *
-   * Deployments register their OAuth/OIDC providers at boot (or via
+   * Deployments register their OIDC and SAML providers at boot (or via
    * `POST /v1/auth/providers`); the framework does NOT bake in a
    * provider list.
    */
   readonly identityProvider?: IdentityProviderBinding;
   /**
-   * Required alongside `identityProvider`. Called by
-   * `POST /v1/auth/callback/:providerId` to exchange the authorization
-   * code for provider tokens + userinfo. Deployments implementing
-   * `IdentityProviderBinding` typically pair it with their own
-   * `exchangeCode` that speaks OAuth 2.0 + PKCE against the provider's
-   * `tokenEndpoint`.
+   * Who may add, change and remove the tenant's identity providers:
+   * `tenant` (default) its admins; `operator` only the deployment's own
+   * token (`kindgi:system`), for a deployment whose operator manages
+   * sign-in. Changes answer `403 identity-providers-operator-managed`
+   * otherwise; reads and sign-in are unchanged.
    */
-  readonly exchangeCode?: ExchangeCodeFn;
+  readonly identityProviderChanges?: 'tenant' | 'operator';
   /**
-   * Optional. When present, `POST /v1/auth/refresh` rotates the
-   * underlying provider tokens via this callback before re-issuing a
-   * session token. When absent, refresh only rotates the framework's
-   * session token (still useful for scoping expiry to the framework
-   * boundary; the provider tokens keep their original TTL).
+   * The rate limit on `GET /v1/auth/sign-in-options` (unauthenticated):
+   * requests per client per window, and how to tell clients apart.
+   * Default: 30 a minute, per nearest (rightmost) `X-Forwarded-For` hop.
    */
-  readonly refreshToken?: RefreshTokenFn;
+  readonly signInOptionsRateLimit?: SignInOptionsRateLimit;
   /**
-   * Optional. Short-lived CSRF-`state` + PKCE-`code_verifier` cache
-   * used between login initiation and callback. When absent, a per-app
-   * in-memory store is used — appropriate for single-process dev + tests.
-   * Multi-pod deployments MUST plug in a shared store (Redis, Postgres)
-   * because the callback frequently lands on a different pod than the
-   * login. Mirror of the `idempotencyStore` caller-plugged pattern.
+   * The emailed sign-in link, when the deployment offers it (it serves the
+   * link itself): sign-in options say so, with the captcha's site key.
    */
-  readonly oauthStateStore?: OauthStateStore;
+  readonly signInEmailLink?: {
+    readonly captchaSiteKey?: string;
+    /** Whether the link is offered for an email's domain. Absent: every domain. */
+    readonly allowedFor?: (emailDomain: string) => Promise<boolean>;
+  };
   /**
    * Optional. Signed-deployment ledger — the audit anchor for every
    * `POST /v1/deployments` landing. Caller-plugged per the pattern
@@ -787,11 +881,18 @@ export interface CreateAppInput {
   readonly projectBinding?: ProjectBinding;
   readonly projectMembershipBinding?: ProjectMembershipBinding;
   /**
-   * Optional. The team↔project grant binding. Not consumed by this
-   * package's routes; the authz backend uses it to resolve
-   * team-mediated project grants.
+   * Optional. The team↔project grant binding. With `projectBinding` and
+   * `teamBinding`, it mounts `/v1/projects/:projectId/team-grants` and
+   * `/v1/teams/:teamId/project-grants`. With an authorizer, writes go
+   * through the tenant-hierarchy binding (row and tuple together).
    */
   readonly teamProjectGrantBinding?: TeamProjectGrantBinding;
+  /**
+   * Optional. Who has access to a project and how
+   * (`GET /v1/projects/:projectId/access`), read from the authorization
+   * store. Without it, that route answers `501 project-access-unsupported`.
+   */
+  readonly projectAccess?: ProjectAccessBinding;
   /**
    * Optional. Non-sensitive per-env values. When present alongside or
    * separately from `secretsBinding`, mounts the `/v1/tenant/config`
@@ -875,6 +976,21 @@ export interface SessionConfig {
    * but coarser inactivity enforcement.
    */
   readonly touchThrottle?: number;
+  /**
+   * Browser sessions in a cookie: the middleware reads the session token
+   * from it when a request has no `Authorization` header, and refuses a
+   * cookie-authenticated unsafe request whose `Origin` isn't allowed
+   * (403 `csrf-origin-mismatch`). Absent → session tokens come only in
+   * the `Authorization` header.
+   */
+  readonly cookie?: SessionCookieOptions;
+  /**
+   * Whether a person may sign in to the console with an API token
+   * (`POST /v1/auth/token-sign-in`): a person's full key is exchanged once
+   * for a browser session in `cookie`. Needs `cookie` and a session store.
+   * Absent or `false`: the route answers 403 `token-sign-in-off`.
+   */
+  readonly tokenSignIn?: boolean;
 }
 
 /**
@@ -894,15 +1010,37 @@ export interface ScalarDocsConfig {
   readonly theme?: string;
 }
 
+/** A token sign-in's session lifetime when `SessionConfig.ttl` is unset: 12 hours. */
+const DEFAULT_TOKEN_SIGN_IN_TTL_MS = 12 * 60 * 60 * 1000;
+
 export function createApp(input: CreateAppInput): Hono<AppEnv> {
+  // A cookie session's value is the token the store minted. A store that
+  // can't resolve its own tokens would put the session id there instead,
+  // and the id is no secret (whoami and the audit trail show it).
+  if (
+    input.session?.cookie !== undefined &&
+    input.sessionStore !== undefined &&
+    input.sessionStore.resolveToken === undefined
+  ) {
+    throw new Error(
+      'Cookie sessions need a session store that resolves its own tokens (`resolveToken`): without it, the session id would be the credential.',
+    );
+  }
   const app = new Hono<AppEnv>();
 
   const runBinding = input.kernelBinding.run;
+  const exportSigning = input.exportSigning;
+  const exportOptions = {
+    ...(exportSigning !== undefined && { exportSigning }),
+    ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
+  };
 
   // ---------- global middleware ----------
   app.use('*', requestIdMiddleware());
   // The request's trace context and logger, and its access line.
   app.use('*', requestLogMiddleware(input.logger ?? noopLogger));
+  // No `/v1` answer is kept by a browser or a proxy (data and errors alike).
+  app.use('/v1/*', noStoreMiddleware());
   // A thrown exception: a 500 wire error with its message and request id, logged.
   app.onError(mapThrownError);
 
@@ -971,6 +1109,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(sessionCfg?.touchThrottle !== undefined && {
         touchThrottleMs: sessionCfg.touchThrottle,
       }),
+      ...(sessionCfg?.cookie !== undefined && { sessionCookie: sessionCfg.cookie }),
     }),
   );
   // Principal construction — runs after bearer so it can read the
@@ -986,6 +1125,10 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   });
   const authorizer: Authorizer | undefined =
     input.authz !== undefined ? createAuthorizer(input.authz.authzCheckBinding) : undefined;
+  // A key limited to a project names no other one.
+  v1.use('*', refuseOtherProjectForKey(authorizer));
+  // Page cursors are sealed at the edge, for every list.
+  if (input.cursorSealer !== undefined) v1.use('*', sealedCursors(input.cursorSealer));
 
   const tenantHierarchyBinding: TenantHierarchyBinding = input.tenantHierarchyBinding;
   v1.use('*', idempotencyMiddleware(input.idempotencyStore ?? createInMemoryIdempotencyStore()));
@@ -1001,6 +1144,16 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       runBinding,
       {
         ...(input.eventBus !== undefined && { eventBus: input.eventBus }),
+        ...(input.hitlBinding !== undefined && { hitl: input.hitlBinding }),
+        ...(input.agentRegistry !== undefined &&
+          input.flowRegistry !== undefined && {
+            targetExists: async (tenantId, target) =>
+              target.kind === 'agent'
+                ? (await input.agentRegistry?.get({ tenantId, agentId: target.id as never })) !==
+                  null
+                : (await input.flowRegistry?.get({ tenantId, flowId: target.id as never })) !==
+                  null,
+          }),
         ...(publicRunTokenLimits !== undefined && {
           publicRunTokens: {
             mint: (tenantId, runIds) =>
@@ -1013,7 +1166,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   );
   v1.route(
     '/conversations',
-    conversationsRouter(input.conversationBinding, runBinding, input.projectBinding),
+    conversationsRouter(input.conversationBinding, runBinding, input.projectBinding, authorizer),
   );
   if (publicRunTokenLimits !== undefined) {
     v1.route(
@@ -1028,11 +1181,17 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   if (input.tokenAdmin !== undefined) {
     v1.route('/tokens', tokensRouter(input.tokenAdmin, authorizer));
   }
+  if (input.serviceAccountBinding !== undefined) {
+    v1.route('/service-accounts', serviceAccountsRouter(input.serviceAccountBinding, authorizer));
+  }
   // Mount the reviewer roster sub-resource BEFORE the approvals router
   // so `/v1/approvals/reviewers/*` resolves here rather than being
   // captured by the `:approvalId` param on the approvals router.
   if (input.reviewerRegistry !== undefined) {
-    v1.route('/approvals/reviewers', reviewersRouter(input.reviewerRegistry, authorizer));
+    v1.route(
+      '/approvals/reviewers',
+      reviewersRouter(input.reviewerRegistry, authorizer, input.reviewerBinding),
+    );
   }
   if (input.reviewerBinding !== undefined && input.hitlBinding !== undefined) {
     v1.route(
@@ -1043,7 +1202,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         input.hitlBinding,
         runBinding,
         {
-          ...(input.signingKey !== undefined && { signingKey: input.signingKey }),
+          ...exportOptions,
           // Inline resume after approval-complete drives
           // completeToken. Passing the runHandler here means the route
           // calls `runHandler.resumeRun(...)` synchronously in the same
@@ -1051,11 +1210,12 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           // new state (running / completed / re-suspended).
           runHandler: input.runHandler,
         },
+        authorizer,
       ),
     );
   }
   if (input.enableObservations === true && input.supervisor !== undefined) {
-    v1.route('/observations', observationsRouter(input.supervisor));
+    v1.route('/observations', observationsRouter(input.supervisor, authorizer));
   }
   if (input.agentRegistry !== undefined) {
     v1.route(
@@ -1069,6 +1229,17 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         {
           ...(input.evalRunBinding !== undefined && { evalRuns: input.evalRunBinding }),
           ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
+        },
+        {
+          ...(input.memory?.semanticSearch !== undefined && {
+            semanticSearch: input.memory.semanticSearch,
+          }),
+          ...(input.memory?.agentRemember !== undefined && {
+            remember: input.memory.agentRemember,
+          }),
+          ...(input.memory?.conversationRecall !== undefined && {
+            conversationRecall: input.memory.conversationRecall,
+          }),
         },
       ),
     );
@@ -1092,30 +1263,94 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ),
     );
   }
+  // A model provider's key is used by its provider only: the routes that
+  // write a tool, an endpoint or a provider check names against it.
+  const providerKeys = providerKeysOf(input.providerRegistry);
+  const secretUsers = (tenantId: import('@kindgi/types').TenantId, name: string) =>
+    usersOfSecret(
+      {
+        ...(input.toolRegistry !== undefined && { tools: input.toolRegistry }),
+        ...(input.mcpEndpointRegistry !== undefined && { mcpEndpoints: input.mcpEndpointRegistry }),
+        ...(input.webhookEndpoints !== undefined && { webhookEndpoints: input.webhookEndpoints }),
+      },
+      tenantId,
+      name,
+    );
   if (input.toolRegistry !== undefined) {
-    v1.route('/tools', toolsRouter(input.toolRegistry, authorizer, input.onToolWrite));
+    v1.route(
+      '/tools',
+      toolsRouter(input.toolRegistry, authorizer, input.onToolWrite, { providerKeys }),
+    );
   }
   if (input.guardrailRegistry !== undefined) {
     v1.route(
       '/guardrails',
-      guardrailsRouter(input.guardrailRegistry, authorizer, input.onGuardrailWrite),
+      guardrailsRouter(
+        input.guardrailRegistry,
+        authorizer,
+        input.onGuardrailWrite,
+        input.checkGuardrailConfig,
+      ),
     );
   }
   if (input.retention !== undefined) {
     v1.route('/retention', retentionRouter(input.retention, authorizer));
   }
+  // Before `/memory`, so its routes answer first.
+  if (input.memoryErasures !== undefined) {
+    v1.route('/memory/erasures', memoryErasuresRouter(input.memoryErasures, authorizer));
+  }
   if (input.memory !== undefined) {
-    v1.route('/memory', memoryRouter(input.memory));
+    v1.route(
+      '/memory',
+      memoryRouter(input.memory, {
+        ...(authorizer !== undefined && { authorizer }),
+        ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
+      }),
+    );
   }
-  if (input.supervisor !== undefined) {
-    v1.route('/proposals', proposalsRouter(input.supervisor));
+  if (
+    input.supervisor !== undefined &&
+    input.agentRegistry !== undefined &&
+    input.blockRegistry !== undefined &&
+    input.evalRunBinding !== undefined &&
+    input.agentReleases !== undefined
+  ) {
+    const improveDeps = {
+      ...(input.improvementPasses !== undefined && { passes: input.improvementPasses }),
+      agents: input.agentRegistry,
+      blocks: input.blockRegistry,
+      releases: input.agentReleases,
+    };
+    v1.route(
+      '/proposals',
+      proposalsRouter(
+        input.supervisor,
+        {
+          agents: input.agentRegistry,
+          blocks: input.blockRegistry,
+          evalRuns: input.evalRunBinding,
+          releases: input.agentReleases,
+          ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
+        },
+        authorizer,
+        (r) => mountImproveRoute(r, improveDeps, authorizer),
+      ),
+    );
+    v1.route('/improvement-passes', improvementPassesRouter(input.improvementPasses, authorizer));
   }
+  v1.route('/export-signing-keys', exportSigningKeysRouter(exportSigning));
   v1.route(
     '/provenance',
-    provenanceRouter(input.provenanceBinding, {
-      conversationBinding: input.conversationBinding,
-      ...(input.signingKey !== undefined && { signingKey: input.signingKey }),
-    }),
+    provenanceRouter(
+      input.provenanceBinding,
+      {
+        conversationBinding: input.conversationBinding,
+        runBinding,
+        ...exportOptions,
+      },
+      authorizer,
+    ),
   );
   if (
     input.auditEvents !== undefined &&
@@ -1124,28 +1359,48 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   ) {
     v1.route(
       '/compliance',
-      complianceRouter({
-        auditEvents: input.auditEvents,
-        classifier: input.complianceClassifier,
-        complianceGenerator: input.complianceGenerator,
-        ...(input.signingKey !== undefined && { signingKey: input.signingKey }),
-      }),
+      complianceRouter(
+        {
+          auditEvents: input.auditEvents,
+          classifier: input.complianceClassifier,
+          ...(exportSigning !== undefined && { exportSigning }),
+        },
+        authorizer,
+      ),
     );
   }
   if (input.blobStorage !== undefined) {
-    v1.route('/artifacts', artifactsRouter(input.blobStorage));
+    v1.route(
+      '/artifacts',
+      artifactsRouter(input.blobStorage, {
+        runBinding,
+        ...(input.projectBinding !== undefined && { projectBinding: input.projectBinding }),
+        ...(authorizer !== undefined && { authorizer }),
+        ...(input.artifactMaxBytes !== undefined && { maxBytes: input.artifactMaxBytes }),
+      }),
+    );
   }
   if (input.capabilityRegistry !== undefined) {
-    v1.route('/capabilities', capabilitiesRouter(input.capabilityRegistry));
+    v1.route('/capabilities', capabilitiesRouter(input.capabilityRegistry, authorizer));
   }
   if (input.providerRegistry !== undefined) {
-    v1.route('/providers', providersRouter(input.providerRegistry, input.onProviderWrite));
+    v1.route(
+      '/providers',
+      providersRouter(
+        input.providerRegistry,
+        input.onProviderWrite,
+        input.adapterFactories,
+        authorizer,
+        { secretUsers },
+      ),
+    );
   }
   if (input.mcpEndpointRegistry !== undefined) {
     v1.route(
       '/mcp',
       mcpRouter(input.mcpEndpointRegistry, input.mcpClientProbe, authorizer, {
         hostAccess: input.tenantHostAccess ?? 'deployed',
+        providerKeys,
       }),
     );
   }
@@ -1159,28 +1414,53 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(input.identityDirectory !== undefined && { directory: input.identityDirectory }),
       ...(input.sessionStore !== undefined && { sessionStore: input.sessionStore }),
       ...(input.reviewerBinding !== undefined && { reviewerBinding: input.reviewerBinding }),
+      ...(authorizer !== undefined && { authorizer }),
+      ...(input.personGrants !== undefined && { personGrants: input.personGrants }),
+      ...(input.myAccess !== undefined && { myAccess: input.myAccess }),
+      ...(input.envBinding !== undefined && { tenantConfig: input.envBinding }),
     }),
   );
   if (input.cost !== undefined) {
-    v1.route('/cost', costRouter(input.cost));
+    v1.route('/cost', costRouter(input.cost, authorizer, input.projectBinding));
   }
   if (input.adapterRegistry !== undefined) {
-    v1.route('/adapters', adaptersRouter(input.adapterRegistry, input.adapterFactories));
+    v1.route(
+      '/adapters',
+      adaptersRouter(input.adapterRegistry, input.adapterFactories, authorizer),
+    );
   }
   // Trigger admin surfaces. Three sibling routers over the same
   // `TriggerRegistryBinding` — each pins its own kind. There is no
   // external webhook receiver route here (it would need
   // unauthenticated tenant resolution).
   if (input.triggerRegistry !== undefined) {
-    v1.route('/schedules', schedulesRouter(input.triggerRegistry));
-    v1.route('/event-triggers', eventTriggersRouter(input.triggerRegistry));
-    v1.route('/webhooks', webhooksRouter(input.triggerRegistry));
+    const kinds = new Set<TriggerKind>(input.triggerKinds ?? TRIGGER_KINDS);
+    if (kinds.has('cron')) {
+      v1.route(
+        '/schedules',
+        schedulesRouter(input.triggerRegistry, authorizer, input.projectBinding, {
+          ...(input.identityDirectory !== undefined && { directory: input.identityDirectory }),
+          ...(input.serviceAccountBinding !== undefined && {
+            serviceAccounts: input.serviceAccountBinding,
+          }),
+        }),
+      );
+    }
+    if (kinds.has('event')) {
+      v1.route('/event-triggers', eventTriggersRouter(input.triggerRegistry, authorizer));
+    }
+    if (kinds.has('webhook')) {
+      v1.route('/webhooks', webhooksRouter(input.triggerRegistry, authorizer));
+    }
   }
   if (input.webhookEndpoints !== undefined) {
-    v1.route('/webhook-endpoints', webhookEndpointsRouter(input.webhookEndpoints));
+    v1.route(
+      '/webhook-endpoints',
+      webhookEndpointsRouter(input.webhookEndpoints, authorizer, { providerKeys }),
+    );
   }
   if (input.policyRegistry !== undefined) {
-    v1.route('/policies', policiesRouter(input.policyRegistry));
+    v1.route('/policies', policiesRouter(input.policyRegistry, authorizer));
   }
   if (input.evalSuiteRegistry !== undefined) {
     v1.route('/eval-suites', evalSuitesRouter(input.evalSuiteRegistry, authorizer));
@@ -1201,6 +1481,17 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ),
     );
     v1.route('/judge-classes', judgeClassesRouter(input.judgmentRegistry, authorizer));
+  }
+  if (input.judgingQueue !== undefined) {
+    v1.route(
+      '/projects',
+      judgingRouter(input.judgingQueue, {
+        ...(authorizer !== undefined && { authorizer }),
+        ...(input.judgmentRegistry !== undefined && { judgments: input.judgmentRegistry }),
+        ...(input.reviewerBinding !== undefined && { reviewers: input.reviewerBinding }),
+        ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
+      }),
+    );
   }
   if (
     input.evalSuiteRegistry !== undefined &&
@@ -1243,8 +1534,34 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         input.projectMembershipBinding,
         tenantHierarchyBinding,
         authorizer,
+        input.identityDirectory,
       ),
     );
+  }
+  if (input.projectBinding !== undefined && input.projectMembershipBinding !== undefined) {
+    v1.route(
+      '/projects',
+      projectAccessRouter({
+        projects: input.projectBinding,
+        ...(input.projectAccess !== undefined && { access: input.projectAccess }),
+        ...(authorizer !== undefined && { authorizer }),
+      }),
+    );
+  }
+  if (
+    input.teamProjectGrantBinding !== undefined &&
+    input.projectBinding !== undefined &&
+    input.teamBinding !== undefined
+  ) {
+    const teamGrants = {
+      grants: input.teamProjectGrantBinding,
+      projects: input.projectBinding,
+      teams: input.teamBinding,
+      tenantHierarchy: tenantHierarchyBinding,
+      ...(authorizer !== undefined && { authorizer }),
+    };
+    v1.route('/projects', projectTeamGrantsRouter(teamGrants));
+    v1.route('/teams', teamProjectGrantsRouter(teamGrants));
   }
   // `/v1/tenant` is always mounted (reads the tenant through the
   // tenant-hierarchy binding);
@@ -1266,7 +1583,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // store — an in-memory reference is used when the caller doesn't
   // plug in a durable one.
   if (input.envBinding !== undefined) {
-    v1.route('/env', envRouter(input.envBinding, authorizer));
+    v1.route('/env', envRouter(input.envBinding, authorizer, input.auditEvents));
   }
   // Audit query surface. Admin-only PEP applied inside the router
   // (self-contained; no plumbing here).
@@ -1280,6 +1597,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         secretsBinding: input.secretsBinding,
         rotationStatusStore: input.rotationStatusStore ?? createInMemoryRotationStatusStore(),
         ...(authorizer !== undefined && { authorizer }),
+        ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
       }),
     );
   }
@@ -1294,7 +1612,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // Mounted on its own: a deployment can trust keys before it accepts
   // deployments.
   if (input.signingKeyRegistry !== undefined) {
-    v1.route('/signing-keys', signingKeysRouter(input.signingKeyRegistry));
+    v1.route('/signing-keys', signingKeysRouter(input.signingKeyRegistry, authorizer));
   }
   if (
     input.deploymentRegistry !== undefined &&
@@ -1303,33 +1621,37 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   ) {
     v1.route(
       '/deployments',
-      deploymentsRouter({
-        deploymentRegistry: input.deploymentRegistry,
-        signingKeyRegistry: input.signingKeyRegistry,
-        imageRegistry: input.imageRegistry,
-        ...(input.toolRegistry !== undefined && { toolRegistry: input.toolRegistry }),
-        ...(input.blockRegistry !== undefined && { blockRegistry: input.blockRegistry }),
-        ...(input.guardrailRegistry !== undefined && {
-          guardrailRegistry: input.guardrailRegistry,
-        }),
-        ...(input.agentRegistry !== undefined && { agentRegistry: input.agentRegistry }),
-        ...(input.flowRegistry !== undefined && { flowRegistry: input.flowRegistry }),
-        ...(input.agentReleases !== undefined && { liveVersions: input.agentReleases.live }),
-        // The deployments router's agents publish loop resolves the
-        // Default project through this binding. Optional at wiring so
-        // app compositions without a project binding still boot; the loop
-        // fails fast at runtime if agents are in the deployment index
-        // but the binding is absent.
-        ...(input.projectBinding !== undefined && { projectBinding: input.projectBinding }),
-        // POST /v1/deployments/:deploymentId/secrets needs the
-        // secretsBinding. Absent binding → the route answers 500 with an
-        // operator-actionable message.
-        ...(input.secretsBinding !== undefined && { secretsBinding: input.secretsBinding }),
-        // A deploy registers tools and guardrails: the same cache hooks
-        // `POST /v1/tools` / `POST /v1/guardrails` call.
-        ...(input.onToolWrite !== undefined && { onToolWrite: input.onToolWrite }),
-        ...(input.onGuardrailWrite !== undefined && { onGuardrailWrite: input.onGuardrailWrite }),
-      }),
+      deploymentsRouter(
+        {
+          deploymentRegistry: input.deploymentRegistry,
+          signingKeyRegistry: input.signingKeyRegistry,
+          providerKeys,
+          imageRegistry: input.imageRegistry,
+          ...(input.toolRegistry !== undefined && { toolRegistry: input.toolRegistry }),
+          ...(input.blockRegistry !== undefined && { blockRegistry: input.blockRegistry }),
+          ...(input.guardrailRegistry !== undefined && {
+            guardrailRegistry: input.guardrailRegistry,
+          }),
+          ...(input.agentRegistry !== undefined && { agentRegistry: input.agentRegistry }),
+          ...(input.flowRegistry !== undefined && { flowRegistry: input.flowRegistry }),
+          ...(input.agentReleases !== undefined && { liveVersions: input.agentReleases.live }),
+          // The deployments router's agents publish loop resolves the
+          // Default project through this binding. Optional at wiring so
+          // app compositions without a project binding still boot; the loop
+          // fails fast at runtime if agents are in the deployment index
+          // but the binding is absent.
+          ...(input.projectBinding !== undefined && { projectBinding: input.projectBinding }),
+          // POST /v1/deployments/:deploymentId/secrets needs the
+          // secretsBinding. Absent binding → the route answers 500 with an
+          // operator-actionable message.
+          ...(input.secretsBinding !== undefined && { secretsBinding: input.secretsBinding }),
+          // A deploy registers tools and guardrails: the same cache hooks
+          // `POST /v1/tools` / `POST /v1/guardrails` call.
+          ...(input.onToolWrite !== undefined && { onToolWrite: input.onToolWrite }),
+          ...(input.onGuardrailWrite !== undefined && { onGuardrailWrite: input.onGuardrailWrite }),
+        },
+        authorizer,
+      ),
     );
   }
   if (input.evalRunBinding !== undefined) {
@@ -1348,36 +1670,84 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
             ...(input.toolRegistry !== undefined && { tools: input.toolRegistry }),
           }
         : undefined,
+      input.agentRegistry !== undefined && input.blockRegistry !== undefined
+        ? { agents: input.agentRegistry, blocks: input.blockRegistry }
+        : undefined,
+      authorizer,
     );
     v1.route('/eval-suites', evalRuns.start);
     v1.route('/eval-runs', evalRuns.readback);
   }
   // ---------- auth routes ----------
-  // Requires all three bindings: session store + identity-provider
-  // catalog + code exchange. When wired, the authed sub-router mounts
-  // under `/v1/auth/*` (protected by the same bearer chain, so callers
-  // authenticate with either a static bearer or a session token to
-  // reach it), and the callback sub-router mounts OUTSIDE the bearer
-  // chain at `/v1/auth/callback/*` because the redirect from the
-  // provider carries no framework token yet.
-  if (
-    input.sessionStore !== undefined &&
-    input.identityProvider !== undefined &&
-    input.exchangeCode !== undefined
-  ) {
-    const routers = authRouters({
-      sessionStore: input.sessionStore,
-      identityProvider: input.identityProvider,
-      exchangeCode: input.exchangeCode,
-      ...(input.refreshToken !== undefined && { refreshToken: input.refreshToken }),
-      stateStore: input.oauthStateStore ?? createInMemoryOauthStateStore(),
-    });
-    v1.route('/auth', routers.authed);
-    // Callback mounts on the parent `app` under /v1/auth/callback so it
-    // bypasses the bearer chain. The v1 router's use('*', bearer) has
-    // already been installed above, so we mount at the parent scope.
-    app.route('/v1/auth/callback', routers.callback);
+  // The session store + identity-provider catalog: the auth router mounts
+  // under `/v1/auth/*`, behind the same bearer chain (a static bearer or a
+  // session token reaches it).
+  if (input.sessionStore !== undefined && input.identityProvider !== undefined) {
+    v1.route(
+      '/auth',
+      authRouter({
+        sessionStore: input.sessionStore,
+        identityProvider: input.identityProvider,
+        ...(authorizer !== undefined && { authorizer }),
+        ...(input.identityProviderChanges !== undefined && {
+          providerChanges: input.identityProviderChanges,
+        }),
+        ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
+      }),
+    );
   }
+  // How a person can sign in, before anyone is: outside the bearer chain
+  // (mounted ahead of `/v1`). Always mounted, so the
+  // console and `kindgi doctor` get a definite answer even when there is no
+  // way in at all: the case an operator most needs to hear about.
+  const cookieSessions = input.sessionStore !== undefined && input.session?.cookie !== undefined;
+  const tokenSignIn = cookieSessions && input.session?.tokenSignIn === true;
+  const sessionCookie = sessionCookieOf(input.session?.cookie);
+  // A browser refuses `__Host-` / `__Secure-` cookies that aren't `Secure`.
+  if (!sessionCookie.secure && /^__(Host|Secure)-/.test(sessionCookie.name)) {
+    throw new Error(
+      `createApp: session.cookie.secure is false, so its name can't start with __Host- or __Secure- (got ${sessionCookie.name}); leave name unset for ${'`kindgi_session`'}.`,
+    );
+  }
+  app.route(
+    '/v1/auth/sign-in-options',
+    signInOptionsRouter({
+      ...(input.identityProvider !== undefined && { identityProvider: input.identityProvider }),
+      tokenSignIn,
+      ...(cookieSessions && { sessionCookie: sessionCookie.secure ? 'secure' : 'plain' }),
+      ...(input.signInOptionsRateLimit !== undefined && {
+        rateLimit: input.signInOptionsRateLimit,
+      }),
+      ...(input.signInEmailLink !== undefined && { emailLink: input.signInEmailLink }),
+    }),
+  );
+  // Browser sessions need a way out even without identity providers
+  // (which bring their own `/auth` routes, logout included).
+  if (cookieSessions && input.identityProvider === undefined && input.sessionStore !== undefined) {
+    v1.post('/auth/logout', logoutHandler(input.sessionStore, input.auditEvents));
+  }
+  // A person signs in to the console with an API token: inside the bearer
+  // chain (the token arrives in `Authorization`). Always mounted: without
+  // browser sessions, or unless the deployment allows it, it refuses with
+  // 403 token-sign-in-off.
+  v1.route(
+    '/auth/token-sign-in',
+    tokenSignInRouter(
+      input.sessionStore !== undefined &&
+        input.session?.cookie !== undefined &&
+        input.session.tokenSignIn === true
+        ? {
+            enabled: true,
+            sessionStore: input.sessionStore,
+            ttlMs: input.session.ttl ?? DEFAULT_TOKEN_SIGN_IN_TTL_MS,
+            cookieName: sessionCookieOf(input.session.cookie).name,
+            cookieSecure: sessionCookieOf(input.session.cookie).secure,
+            ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
+          }
+        : { enabled: false },
+      authorizer,
+    ),
+  );
   app.route('/v1', v1);
 
   // ---------- S3-compat surface (/s3/*, SigV4 auth) ----------

@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/client",
-  "version": "0.1.4-rc.5",
+  "version": "0.1.5",
   "description": "TypeScript client SDK for Kindgi™ — the sovereign AI OS. Preview: wire-generated from openapi.json via typed-openapi, ergonomic hand-authored resource clients (Transport, KindgiApiError, SSE with Last-Event-Id resume).",
   "license": "Apache-2.0",
   "repository": {
@@ -27,6 +27,16 @@
         "types": "./dist/index.d.cts",
         "default": "./dist/index.cjs"
       }
+    },
+    "./sso-handoff": {
+      "import": {
+        "types": "./dist/sso-handoff.d.ts",
+        "default": "./dist/sso-handoff.js"
+      },
+      "require": {
+        "types": "./dist/sso-handoff.d.cts",
+        "default": "./dist/sso-handoff.cjs"
+      }
     }
   },
   "files": [
@@ -34,6 +44,11 @@
     "dist/index.cjs",
     "dist/index.d.ts",
     "dist/index.d.cts",
+    "dist/sso-handoff.js",
+    "dist/sso-handoff.cjs",
+    "dist/sso-handoff.d.ts",
+    "dist/sso-handoff.d.cts",
+    "sso-handoff/package.json",
     "README.md",
     "LICENSE"
   ],

@@ -70,6 +70,19 @@ export const EVIDENCE_KINDS = [
   'agent-live-unpinned',
   // A live pin whose version was unregistered: runs use the scope above.
   'agent-live-pin-inactive',
+  // Who can act, and with which key: an API key minted or revoked (never
+  // its secret), a service account created, granted a role, ungranted or
+  // unregistered, a person added, and a person made tenant admin or no
+  // longer one.
+  'api-key-minted',
+  'api-key-revoked',
+  'service-account-created',
+  'service-account-granted',
+  'service-account-ungranted',
+  'service-account-unregistered',
+  'person-added',
+  'person-granted',
+  'person-ungranted',
 ] as const;
 
 /**
@@ -327,8 +340,8 @@ export interface RecordFromRunOptions {
 }
 
 /**
- * Filter shape shared by evidence listing and signed export
- * (`ComplianceEvidenceGenerator.exportSigned`). `ComplianceProvider.list`
+ * Filter shape shared by evidence listing and the signed compliance
+ * export (`@kindgi/api` collects, then signs). `ComplianceProvider.list`
  * takes `ListEvidenceFilter` instead. Every field is optional; an empty
  * filter is "everything in the tenant". Composition is AND — all
  * populated fields must match.

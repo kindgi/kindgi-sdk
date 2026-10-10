@@ -22,11 +22,11 @@ import { readFile, stat } from 'node:fs/promises';
 
 import type {
   RotationOutcome,
+  ScopeRef,
   SecretRecord,
   SecretVersionRecord,
   SecretsClient,
 } from '@kindgi/client';
-import type { Scope } from '@kindgi/platform';
 import type { EnvName } from '@kindgi/types';
 
 import type { CommandContext } from '../context.js';
@@ -40,7 +40,14 @@ import {
   realTtySeam,
   stripTrailingNewline,
 } from '../terminal-input.js';
-import { commandResultFromThrown, integerFlag, requiredPositional, stringFlag } from './helpers.js';
+import {
+  commandResultFromThrown,
+  integerFlag,
+  requiredPositional,
+  stringFlag,
+  timeFlag,
+} from './helpers.js';
+import { secretsCopyCmd } from './secrets-copy.js';
 import type { Command, CommandResult, LeafCommand } from './types.js';
 
 // ---------------------------------------------------------------------
@@ -65,7 +72,7 @@ const SCOPE_OPTION_SPEC = {
 // ---------------------------------------------------------------------
 
 interface ScopeAndEnv {
-  readonly scope: Scope;
+  readonly scope: ScopeRef;
   readonly envName: EnvName;
 }
 
@@ -74,10 +81,9 @@ type ScopeResult =
   | { readonly kind: 'err'; readonly stderr: string };
 
 /**
- * Parse `--scope=<kind>[:id]`. Every value the CLI accepts
- * maps to a `Scope` from `@kindgi/platform`. `tenantId` is
- * synthesized as a placeholder — the server derives the real tenantId
- * from the session bearer; the CLI just needs the discriminant + id.
+ * Parse `--scope=<kind>[:id]` into the kind and its id. There's no
+ * tenant id: the server takes the tenant from the bearer, and the CLI
+ * doesn't know it, so what it prints from its own input names none.
  */
 function parseScopeAndEnv(ctx: CommandContext): ScopeResult {
   const envName = stringFlag(ctx, 'env');
@@ -97,7 +103,6 @@ function parseScopeAndEnv(ctx: CommandContext): ScopeResult {
     };
   }
   const [kind, id] = rawScope.split(':');
-  const tenantId = 'session-tenant' as unknown as Scope extends { tenantId: infer T } ? T : never;
   if (kind === 'tenant') {
     if (id !== undefined && id !== '') {
       return {
@@ -107,7 +112,7 @@ function parseScopeAndEnv(ctx: CommandContext): ScopeResult {
     }
     return {
       kind: 'ok',
-      value: { scope: { kind: 'tenant', tenantId }, envName: envName as unknown as EnvName },
+      value: { scope: { kind: 'tenant' }, envName: envName as unknown as EnvName },
     };
   }
   if (kind === 'org') {
@@ -120,7 +125,7 @@ function parseScopeAndEnv(ctx: CommandContext): ScopeResult {
     return {
       kind: 'ok',
       value: {
-        scope: { kind: 'org', tenantId, orgId: id as never },
+        scope: { kind: 'org', orgId: id },
         envName: envName as unknown as EnvName,
       },
     };
@@ -135,7 +140,7 @@ function parseScopeAndEnv(ctx: CommandContext): ScopeResult {
     return {
       kind: 'ok',
       value: {
-        scope: { kind: 'project', tenantId, projectId: id as never },
+        scope: { kind: 'project', projectId: id },
         envName: envName as unknown as EnvName,
       },
     };
@@ -391,9 +396,14 @@ const setCmd: LeafCommand = {
   description:
     'Write a new secret value. Default: interactive TTY prompt. Use --from-stdin | --from-file for automation.',
   usage:
-    'kindgi secrets set <NAME> --env=<name> --scope=<kind>[:id] [--write-mode=create-new|add-version] [--from-stdin | --from-file <path>] [--rotation-due-at=<iso>] [--if-version=<n>]',
+    'kindgi secrets set <NAME> --env=<name> --scope=<kind>[:id] [--write-mode=create-new|add-version] [--from-stdin | --from-file <path>] [--rotation-due-at=<iso>] [--if-version=<n>] [--app]',
   optionSpec: {
     ...SCOPE_OPTION_SPEC,
+    app: {
+      type: 'boolean' as const,
+      description:
+        "Under `kindgi dev`: write it to your app's env file (the last of `dev.envFiles`, `.env.local` by default) instead of Kindgi's `.kindgi/secrets.env`, for a value your app reads too, such as a webhook signing secret.",
+    },
     'from-stdin': {
       type: 'boolean' as const,
       description: "Read the secret's value from stdin instead of prompting.",
@@ -411,7 +421,7 @@ const setCmd: LeafCommand = {
     'rotation-due-at': {
       type: 'string' as const,
       description:
-        'When the secret is due for rotation, as an ISO 8601 timestamp; kept with its metadata.',
+        'When the secret is due for rotation: an ISO 8601 time with a zone, or a date (its start, UTC); kept with its metadata.',
     },
     'if-version': {
       type: 'string' as const,
@@ -447,6 +457,12 @@ const setCmd: LeafCommand = {
         exitCode: 2,
       };
     }
+    let rotationDueAt: string | undefined;
+    try {
+      rotationDueAt = timeFlag(ctx, 'rotation-due-at');
+    } catch (err) {
+      return { kind: 'error', stderr: `${(err as Error).message}\n`, exitCode: 2 };
+    }
 
     try {
       const outcome = await secretsFrom(ctx).set({
@@ -455,33 +471,33 @@ const setCmd: LeafCommand = {
         name,
         value: valueRes.value,
         writeMode: writeModeRaw,
-        ...(stringFlag(ctx, 'rotation-due-at') !== undefined && {
-          rotationDueAt: stringFlag(ctx, 'rotation-due-at')!,
-        }),
+        ...(rotationDueAt !== undefined && { rotationDueAt }),
         ...(stringFlag(ctx, 'if-version') !== undefined && {
           ifVersion: integerFlag(ctx, 'if-version')!,
         }),
+        ...(ctx.options.app === true && { appEnvFile: true }),
       });
 
-      if (outcome.kind === 'version-conflict') {
+      if (outcome.kind !== 'ok') {
         return {
           kind: 'error',
           stderr: `Version conflict: ${name} already exists (version ${outcome.currentVersion}). To store a new version, retry with --write-mode=add-version${stringFlag(ctx, 'if-version') !== undefined ? ` --if-version=${outcome.currentVersion}` : ''}.\n`,
           exitCode: 1,
         };
       }
+      // The server's record: the scope the secret was written to, its tenant included.
       const summary = {
         name,
-        scope: parsed.value.scope,
+        scope: outcome.record.scope,
         envName: parsed.value.envName as unknown as string,
-        versionId: outcome.kind === 'ok' ? outcome.versionId : undefined,
+        versionId: outcome.versionId,
       };
       const rendered = renderJson(summary, ctx.globals.format);
       return {
         kind: 'ok',
         rendered: {
           stdout: rendered.stdout,
-          stderr: `\n  Set ${name} at ${describeScope(parsed.value.scope)} in ${parsed.value.envName as unknown as string}.\n\n`,
+          stderr: `\n  Set ${name} at ${describeScope(parsed.value.scope)} in ${parsed.value.envName as unknown as string}${ctx.options.app === true ? ", in your app's env file" : ''}.\n\n`,
         },
       };
     } catch (err) {
@@ -789,17 +805,17 @@ export const secretsCommand: Command = {
   kind: 'group',
   name: 'secrets',
   description: 'Manage per-environment secrets via the /v1/secrets/* wire.',
-  subcommands: [listCmd, getCmd, setCmd, rotateCmd, revokeCmd, pullCmd],
+  subcommands: [listCmd, getCmd, setCmd, secretsCopyCmd, rotateCmd, revokeCmd, pullCmd],
 };
 
 // ---------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------
 
-function describeScope(scope: Scope): string {
+function describeScope(scope: ScopeRef): string {
   if (scope.kind === 'tenant') return 'tenant';
-  if (scope.kind === 'org') return `org:${scope.orgId as unknown as string}`;
-  return `project:${scope.projectId as unknown as string}`;
+  if (scope.kind === 'org') return `org:${scope.orgId}`;
+  return `project:${scope.projectId}`;
 }
 
 function sanitizeSecret(rec: SecretRecord): Record<string, unknown> {

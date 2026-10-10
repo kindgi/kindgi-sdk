@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { Capability } from '@kindgi/capabilities';
-import type { Fact, MemoryScope } from '@kindgi/memory';
+import type { Fact, MemoryScope, RecalledMessage } from '@kindgi/memory';
 import type { ToolErrorsSpec, ToolHitlMode, ToolHitlRule } from '@kindgi/policy-contract';
 import type { Brand, ConversationId, ProjectId, Semver, TenantId, Timestamp } from '@kindgi/types';
 
@@ -92,18 +92,114 @@ export interface PromptParameter {
  * Distinct from tool invocation — retrieval is background reading the
  * agent does silently to ground its response.
  *
- * Scope options:
- *   - `same-conversation`: prior messages in this conversation only.
- *   - `same-project`:      facts under the project (from Scope.projectId).
- *   - `tenant`:            any tenant-scoped fact of the declared type.
+ * Scope options, each within what the run may see (its project and org,
+ * the user it acts for, its conversation and that conversation's end
+ * user, and tenant-wide facts; never another conversation's or another
+ * end user's):
+ *   - `same-conversation`: this conversation's facts.
+ *   - `same-user`:         the facts of this run's end user (the
+ *                          conversation's participant) only. None in a
+ *                          run that names no end user (`participantId`);
+ *                          never facts keyed to the user a credential
+ *                          acts for, which may serve many people (the
+ *                          turn says so: `memory-needs-participant`).
+ *   - `same-project`:      the run's project's facts; none in a run
+ *                          without a project.
+ *   - `tenant`:            any fact of the declared type the run may see.
+ *
+ * Mode, with the user's message as the query:
+ *   - absent:    no query, the newest facts first;
+ *   - `keyword`: full-text search;
+ *   - `semantic`: search by meaning. A runtime without embeddings fails
+ *                the turn with `semantic-unavailable` (never a silent skip);
+ *   - `both`:    both, fused by rank (reciprocal rank fusion). Without
+ *                embeddings it runs the keyword half, and the turn's
+ *                journal says so (`degraded: no-embeddings`).
  */
 export interface RetrievalIntent {
-  readonly types: readonly string[];
-  readonly scope: 'same-conversation' | 'same-project' | 'tenant';
-  /** Cap on facts loaded per turn to keep the prompt small. Default 10. */
+  /**
+   * What it reads: `facts` (the default), or `conversations`: messages of
+   * this agent's earlier conversations, quoted in the turn's `<memory>`
+   * block as earlier conversations, never as turns. For conversations:
+   *   - `same-user` (the usual choice): this end user's other
+   *     conversations; none in a run that names no end user
+   *     (`participantId`);
+   *   - `same-conversation`: this conversation's messages older than the
+   *     history window;
+   *   - `same-segment`: conversations in the run's segment path (the same
+   *     customer), whoever had them;
+   *   - `same-project`: the project's conversations, whoever had them.
+   * The last two quote other people's conversations: publishing warns,
+   * and their messages are marked as another person's.
+   */
+  readonly source?: 'facts' | 'conversations';
+  /**
+   * For conversations: whose messages it recalls. Default `['user']`: the
+   * people's own words. Adding `'agent'` recalls the agent's earlier
+   * answers too, which can carry its mistakes: they are marked as
+   * unverified earlier answers, and publishing warns.
+   */
+  readonly roles?: readonly ('user' | 'agent')[];
+  /** The fact types it retrieves: at least one, for facts. Not used for conversations. */
+  readonly types?: readonly string[];
+  readonly scope: 'same-conversation' | 'same-user' | 'same-segment' | 'same-project' | 'tenant';
+  /** Cap on facts (or messages) loaded per turn to keep the prompt small. Default 10. */
   readonly limit?: number;
-  /** If `keyword` or `semantic`, biases which retrieval mode is used. */
   readonly mode?: 'keyword' | 'semantic' | 'both';
+}
+
+/**
+ * How an agent uses what it retrieves. By default every retrieved fact
+ * is data, in a labelled block the model reads as information, never as
+ * instructions.
+ */
+export interface AgentMemoryPolicy {
+  /**
+   * Fact types that are instructions for this agent (e.g. `policy`): a
+   * retrieved fact of one of these types that a person **verified** goes
+   * into the system message under "Policies (verified)". Unverified
+   * facts of these types stay data. Default: none.
+   */
+  readonly instructionTypes?: readonly string[];
+  /**
+   * Lets the agent remember: the turn offers the built-in tool
+   * `kindgi_remember` (`REMEMBER_TOOL_ID`). Absent: it can't.
+   */
+  readonly remember?: RememberPolicy;
+}
+
+/**
+ * Where an agent's remembered facts go, always within its run:
+ *   - `same-user`:         the conversation's end user. A run that
+ *                          names none (`participantId`) isn't offered
+ *                          the tool: the user a credential acts for may
+ *                          serve many people;
+ *   - `same-conversation`: this conversation;
+ *   - `same-project`:      the run's project (a person approves each
+ *                          one first);
+ *   - `tenant`:            the whole tenant (a person approves each
+ *                          one first).
+ * Each but `tenant` includes the run's project when there is one.
+ */
+export type RememberScope = 'same-user' | 'same-conversation' | 'same-project' | 'tenant';
+
+/**
+ * What an agent may remember. The model picks the type (one of `types`),
+ * the text (up to 2,000 characters), an optional slot `key` and when it
+ * stops being true; never the scope. Every remembered fact is
+ * `unverified`, attributed to the agent version and the tool call that
+ * wrote it, and kept `keepDays` unless a person verifies it.
+ *
+ * A person approves a fact before any read sees it when the scope is
+ * wider than one person, or the text reads like an instruction ("always
+ * …", "ignore …", a URL, a tool name). Otherwise it's used at once.
+ */
+export interface RememberPolicy {
+  /** The fact types it may write, e.g. `preference`. At least one. */
+  readonly types: readonly string[];
+  readonly scope: RememberScope;
+  /** Days an unverified fact is kept, 1–3650. Default 30. */
+  readonly keepDays?: number;
 }
 
 /**
@@ -358,6 +454,8 @@ export interface Agent {
    * retrieval pass before the model call.
    */
   readonly retrieval: readonly RetrievalIntent[];
+  /** How the agent uses what it retrieves (`instructionTypes`). Absent: all data. */
+  readonly memory?: AgentMemoryPolicy;
   /**
    * Guardrail ids the agent is subject to. Resolved at turn start
    * against the guardrail definitions bound for the run
@@ -393,7 +491,7 @@ export interface Agent {
    *   - Only `preferredProvider` set → any model of that provider is
    *     promoted.
    *
-   * The value is a `ModelInfo.name` string (e.g. `'claude-sonnet-4-6'`).
+   * The value is a `ModelInfo.name` string (e.g. `'claude-sonnet-5-5'`).
    * Enables model-level A/B'ing under one connection: register
    * Anthropic once with `models: [sonnet, opus, haiku]`, then pin
    * per-agent.
@@ -487,6 +585,8 @@ export interface Conversation {
   readonly openedAt: Timestamp;
   /** Set when the conversation is closed. Reopening is not supported. */
   readonly closedAt?: Timestamp;
+  /** Set when it was unregistered: reads no longer return it. */
+  readonly unregisteredAt?: Timestamp;
   /**
    * Denormalized turn counter — one +1 per completed agent turn.
    * Incremented by the conversation binding when a turn's final
@@ -510,10 +610,34 @@ export interface AgentBindings {
   readonly memoryPolicyRegistry?: unknown;
 }
 
+/**
+ * A message of an earlier conversation a retrieval intent over
+ * conversations recalled, with the intent and why: its rank in each
+ * search. Quoted in the turn's `<memory>` block as earlier conversation,
+ * never as a turn.
+ */
+export interface RecalledMemory {
+  readonly message: RecalledMessage;
+  readonly intent: RetrievalIntent;
+  readonly score?: number;
+  readonly ranks?: { readonly keyword?: number; readonly semantic?: number };
+  /**
+   * The conversation was another person's (neither this turn's end user
+   * nor the user it acts for): only `same-segment` and `same-project`
+   * recall those.
+   */
+  readonly anotherPerson?: true;
+}
+
 /** A retrieved fact + the retrieval intent that pulled it. */
 export interface RetrievedFact {
   readonly fact: Fact<unknown>;
   readonly intent: RetrievalIntent;
-  /** Similarity or keyword-rank score, if the retrieval mode produced one. */
+  /**
+   * The mode's score, if it produced one: a full-text rank (`keyword`),
+   * a cosine similarity (`semantic`) or the fused rank score (`both`).
+   */
   readonly score?: number;
+  /** Its 1-based rank in each search that found it: why it was retrieved. */
+  readonly ranks?: { readonly keyword?: number; readonly semantic?: number };
 }

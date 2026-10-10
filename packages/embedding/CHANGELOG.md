@@ -1,5 +1,29 @@
 # @kindgi/embedding
 
+## 0.1.5
+
+### Patch Changes
+
+- Updated dependencies [eff6249]
+  - @kindgi/types@0.1.5
+
+## 0.1.5-rc.0
+
+### Patch Changes
+
+- Updated dependencies [eff6249]
+  - @kindgi/types@0.1.5-rc.0
+
+## 0.1.4
+
+### Patch Changes
+
+- Updated dependencies [fac7472]
+- Updated dependencies [26b2a23]
+- Updated dependencies [2040daf]
+- Updated dependencies [ae417f7]
+  - @kindgi/types@0.1.4
+
 ## 0.1.4-rc.5
 
 ### Patch Changes

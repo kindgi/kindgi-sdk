@@ -14,7 +14,7 @@ description: >
   kindgi-python-getting-started.
 type: core
 library: "kindgi (Python)"
-version: "0.1.2"
+version: "0.1.3"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -103,8 +103,16 @@ def verify_citation(citation: Citation, ctx: ToolContext) -> Verdict:
 - `ctx.tenant_id` — the tenant the call is for. Key any per-tenant
   state by it.
 - `ctx.run_id` — the run (an agent turn or a flow step) the call belongs to.
-- `ctx.request_id` — this call, e.g. the model's tool-call id; useful
-  for logs and idempotency keys.
+- `ctx.request_id` — this call, e.g. the model's tool-call id; for logs.
+  A model's call id is only unique within one of its answers: don't
+  dedupe on it.
+- `ctx.idempotency_key` — the same every time this call runs (resumed,
+  retried, or run again after a crash), different for every other call. A
+  step can run more than once, so a tool that writes passes it to the
+  system it writes to (an `Idempotency-Key` header, a client reference, a
+  unique column) or looks for it there first: a refund never goes out
+  twice. A UUID; `None` outside a run and from a runtime before 0.1.6.
+  Docs: https://docs.kindgi.com/v0.1/guides/tools/write-a-tool/#make-a-side-effect-happen-once
 - `ctx.project_id`, `ctx.org_id` — the run's project, and that project's
   org (`None` when it has none). The runtime sets them from the run, never
   from the input: to check an org or project id the input names, compare
@@ -116,7 +124,19 @@ def verify_citation(citation: Citation, ctx: ToolContext) -> Verdict:
   or wait with `ctx.cancellation.wait(timeout)` between slow steps.
 - `ctx.secrets` — the secrets the tool declares in `needs_spec`,
   resolved for the call's tenant (below).
-- `ctx.env`, `ctx.config` — **reserved, empty today**.
+- `ctx.env` — the env values the tool declares in `needs_spec`, resolved
+  for the call: its project's value, else its org's, else the tenant's
+  (`kindgi env set NAME <value> --scope=project:<id> --env=<env>`).
+  Strings, and not secret. Empty from an older runtime.
+- `ctx.config` — **reserved, empty today**.
+- `ctx.log` — a logger bound to the call (its records carry the run's ids,
+  the tool's id and the trace id): `ctx.log.info("refund issued",
+  {"orderId": order_id, "amountCents": amount_cents})`, or the fields as
+  keywords. Values go in the fields, never in the message. Log ids,
+  amounts and outcomes, never what a person typed (a refund's reason, a
+  message, an address): the log is read by whoever operates the runtime.
+  `ToolContext.for_test(…)` logs nothing unless you pass it `log=`. Docs:
+  https://docs.kindgi.com/v0.1/guides/tools/write-a-tool/#log-from-a-tool
 
 ## Configuration and secrets
 
@@ -135,19 +155,57 @@ def verify_citation(citation: Citation, ctx: ToolContext) -> Verdict:
 
 The runtime resolves every declared secret on every call — for the
 call's tenant, in its env (`KINDGI_ENV`; in `kindgi dev`, `local`: the
-pack's `.env` and `.env.local`) — checks it against its schema, and
+pack's `.env` and `.env.local`, then Kindgi's own `.kindgi/secrets.env`, where
+`kindgi secrets set` writes) — checks it against its schema, and
 fails the call, naming the secret, when it is missing or doesn't match.
-Every declared secret is required. In a test, pass them:
+A declared secret is required, unless its schema names null
+(`{"type": ["string", "null"]}`): an optional one the env doesn't have, or
+has empty, is absent from `ctx.secrets` (read it with `.get`), and the call
+goes on (runtime 0.1.6 or later; an older runtime requires it). In a test, pass them:
 `ToolContext.for_test(secrets={"CITATOR_KEY": "…"})`.
+
+A value that differs per tenant, org or project but isn't secret (a base URL, a region, an account id) is an **env value**: declared in `needs_spec`, read from `ctx.env`:
+
+```python
+@tool(
+    id="acme.find-order",
+    mutating=False,
+    needs_spec={
+        "env": {
+            "ORDERS_BASE_URL": {"type": "string", "pattern": "^https://"},
+            "ORDERS_REGION": {"type": "string", "enum": ["eu", "us"], "default": "eu"},
+        }
+    },
+)
+def find_order(lookup: Lookup, ctx: ToolContext) -> Found:
+    """…"""
+    return Found(url=f"{ctx.env['ORDERS_BASE_URL']}/{ctx.env['ORDERS_REGION']}/orders/{lookup.order_id}")
+```
+
+- **Which value a call gets:** its project's, else its org's, else the tenant's, in the runtime's env; a schema `default` makes a name optional. The values a call used are recorded with it, so a retry or a resume sees the same ones.
+- **Setting them:** `kindgi env set ORDERS_REGION us --scope=project:<project-id> --env=local` (or `--scope=tenant`, for every project). Changing a value that's already set takes `--force`.
+- **A declared value nobody set** stops the call before the tool runs. For a tool `acme-orders.needs-account` that declares `ACME_ACCOUNT_ID`, the message reads:
+  ```text
+  precondition-failed: Tool "acme-orders.needs-account" was not run: env-value-missing: tool "acme-orders.needs-account" needs env value "ACME_ACCOUNT_ID" in env "local", and none is set for project e889c1f5-eae7-45dc-8669-5bd029a5d85c, its org, or the tenant. Set it: kindgi env set ACME_ACCOUNT_ID <value> --scope=project:e889c1f5-eae7-45dc-8669-5bd029a5d85c --env=local (or --scope=tenant, for every project)
+  ```
+- **Not secret:** env values are recorded with each run that uses them and shown in its journal. A credential is a secret, never an env value.
+- **In a test:** `ToolContext.for_test(env={"ORDERS_BASE_URL": "…"})`.
 
 Everything else comes from the process environment: `os.environ["CITATOR_URL"]`.
 The pack service runs with the pack's environment — in `kindgi dev`
 that is the pack's `.env` and `.env.local` (or `[tool.kindgi.dev]
 envFiles`), restarted when they change; nothing else from your shell
-reaches it except `PATH`, `HOME` and `TMPDIR`. Put a secret there by
-hand or with `kindgi secrets set NAME --env=local --scope=tenant` (a
-no-echo prompt), and keep the env files out of git. `KINDGI_*` names
-are Kindgi's own settings and never reach pack code.
+reaches it except `PATH`, `HOME` and `TMPDIR`. Put a setting there by
+hand, and keep the env files out of git. A secret stored with `kindgi
+secrets set NAME --env=local --scope=tenant` (a no-echo prompt) never
+reaches the process environment: declare it and read it from
+`ctx.secrets`. A model provider's key reaches no tool at all: a tool
+that calls a model declares a key of its own. Declare every name the
+code reads in `[tool.kindgi.env]` (`required`, `optional`): in an image
+the pack service drops every other variable before your code loads
+(`kindgi dev` keeps them), so an undeclared one works locally and is
+unset once deployed. `KINDGI_*` names are Kindgi's own settings: a pack
+can't declare one.
 
 ## Errors and output
 
@@ -274,9 +332,9 @@ removed field, a narrower type — not on every save.
 ## Common mistakes
 
 1. **Copying the sample tool's shape without asking what the tool should do.**
-2. **Reading `ctx.env` / `ctx.config`, or an undeclared `ctx.secrets` name.**
-   The first two are empty, and `ctx.secrets` holds only what `needs_spec`
-   declares; use `os.environ` for the rest.
+2. **Reading `ctx.config`, or an undeclared `ctx.env` or `ctx.secrets` name.**
+   `ctx.config` is empty, and `ctx.env` and `ctx.secrets` hold only what
+   `needs_spec` declares; use `os.environ` for the rest.
 3. **A non-object input** (`def f(n: int)`): the input must be a model,
    TypedDict, dataclass or object schema.
 4. **No docstring and no `description=`**, or an unannotated input or

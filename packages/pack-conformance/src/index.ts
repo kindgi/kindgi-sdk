@@ -62,8 +62,13 @@ export interface PackServiceTarget {
  * A part of the contract a target can roll out separately.
  * - `pack-env`: the index's declared process env (`env.required`) gates
  *   readiness under `KINDGI_PACK_ENV_CHECK`, and `/v1/info` lists `missingEnv`.
+ * - `log-records`: the service's stderr lines are log records: the lifecycle,
+ *   and a record per call with its ids and the caller's trace.
+ * - `env-filter`: only the names the pack declares (and Kindgi's and the
+ *   platform's) reach its code, unless `KINDGI_PACK_ENV_FILTER=off`; the
+ *   service names the ones it dropped (`env-dropped`).
  */
-export type ConformanceFeature = 'pack-env';
+export type ConformanceFeature = 'pack-env' | 'log-records' | 'env-filter';
 
 /** Root of a fixture pack shipped with this package (`node-pack`, `python-pack`). */
 export function fixturePackDir(name: string): string {
@@ -105,7 +110,8 @@ function specValidators(): {
   readonly info: ValidateFunction;
   readonly compile: (schema: object) => ValidateFunction;
 } {
-  const ajv = new Ajv2020({ strict: true, allErrors: true, allowUnionTypes: false });
+  // Type unions allowed, as every Kindgi schema compiler (`@kindgi/schema`'s ALLOW_UNION_TYPES).
+  const ajv = new Ajv2020({ strict: true, allErrors: true, allowUnionTypes: true });
   addFormats(ajv);
   const load = (name: string): object =>
     JSON.parse(
@@ -146,22 +152,73 @@ interface RunningService {
   readonly token: string;
   readonly events: ServiceEvent[];
   readonly stdout: string[];
+  readonly stderr: string[];
   readonly exited: Promise<{ readonly code: number | null; readonly signal: string | null }>;
   terminate(): Promise<{ readonly code: number | null; readonly signal: string | null }>;
 }
+
+/**
+ * Names a pack service keeps although the pack doesn't declare them, one
+ * of each kind the contract lists, with values that don't change how a
+ * runtime starts: the process's, the platform's workload identity and
+ * metadata (Cloud Run, AWS, Azure), and the kept prefixes (`LC_`,
+ * `PYTHON`, `OTEL_`, `CLOUD_RUN_`, `CONTAINER_APP_`). `PATH` and `PORT`
+ * are always set. Static credentials (`AWS_SECRET_ACCESS_KEY`) are not
+ * among them.
+ */
+const PLATFORM_ENV_PROBES: Readonly<Record<string, string>> = {
+  HOSTNAME: 'conformance',
+  K_SERVICE: 'conformance',
+  K_REVISION: 'conformance-00001',
+  AWS_REGION: 'eu-west-1',
+  AWS_CONTAINER_CREDENTIALS_RELATIVE_URI: '/v2/credentials/conformance',
+  AWS_WEB_IDENTITY_TOKEN_FILE: '/var/run/secrets/conformance/token',
+  ECS_CONTAINER_METADATA_URI_V4: 'http://169.254.170.2/v4/conformance',
+  IDENTITY_ENDPOINT: 'http://localhost:42356/msi/token',
+  AZURE_CLIENT_ID: 'conformance',
+  AZURE_FEDERATED_TOKEN_FILE: '/var/run/secrets/azure/tokens/conformance',
+  LC_MESSAGES: 'C',
+  PYTHONDONTWRITEBYTECODE: '1',
+  OTEL_SERVICE_NAME: 'conformance',
+  CLOUD_RUN_EXECUTION: 'conformance',
+  CONTAINER_APP_NAME: 'conformance',
+};
 
 function serviceArgs(target: PackServiceTarget, indexPath: string): string[] {
   const [, ...rest] = target.command;
   return [...rest, '--index', indexPath, '--module-root', target.packDir, '--host', '127.0.0.1'];
 }
 
+/**
+ * The service's environment: `PORT=0`, `PATH`, the declared names as a
+ * built image lists them (`KINDGI_PACK_ENV_DECLARED`, which a JVM pack
+ * service's launcher reads), then the target's and the case's.
+ */
 function serviceEnv(
   target: PackServiceTarget,
+  indexPath: string,
   extra: Readonly<Record<string, string>>,
 ): Record<string, string> {
   const env: Record<string, string> = { PORT: '0' };
   if (process.env.PATH !== undefined) env.PATH = process.env.PATH;
+  const declared = declaredEnv(indexPath);
+  if (declared !== undefined) env.KINDGI_PACK_ENV_DECLARED = declared;
   return { ...env, ...target.env, ...extra };
+}
+
+/** The index's `env.required` and `env.optional`, comma-separated; undefined when it can't be read. */
+function declaredEnv(indexPath: string): string | undefined {
+  try {
+    const { env } = JSON.parse(readFileSync(indexPath, 'utf8')) as {
+      readonly env?: {
+        readonly required?: readonly string[];
+        readonly optional?: readonly string[];
+      };
+    };
+    return [...(env?.required ?? []), ...(env?.optional ?? [])].sort().join(',');
+  } catch {
+    return undefined;
+  }
 }
 
 function spawnService(
@@ -177,7 +234,7 @@ function spawnService(
   const command = target.command[0];
   if (command === undefined) throw new Error(`${target.name}: empty command`);
   const child = spawn(command, serviceArgs(target, indexPath), {
-    env: serviceEnv(target, env),
+    env: serviceEnv(target, indexPath, env),
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const events: ServiceEvent[] = [];
@@ -254,6 +311,7 @@ async function startService(
     token,
     events,
     stdout,
+    stderr,
     exited,
     async terminate() {
       if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
@@ -486,6 +544,43 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
         expect(typeof listening?.port).toBe('number');
       });
 
+      test.skipIf(target.unsupported?.includes('log-records') === true)(
+        "its lines are log records: the lifecycle, and each call with its ids and the caller's trace",
+        async () => {
+          const listening = service.events.find((e) => e.kind === 'listening');
+          expect(listening).toMatchObject({
+            event: 'listening',
+            subsystem: 'pack',
+            level: 'info',
+            severity: 'INFO',
+          });
+          expect(typeof listening?.time).toBe('string');
+          const traceId = '4bf92f3577b34da6a3ce929d0e0e4736';
+          const answer = await invoke(
+            service,
+            toolCall('conformance.echo', { message: 'traced' }),
+            {
+              traceparent: `00-${traceId}-00f067aa0ba902b7-01`,
+            },
+          );
+          expect(answer.status).toBe(200);
+          const record = await waitFor(
+            () => service.events.find((e) => e.kind === 'call' && e.traceId === traceId),
+            5000,
+            'the call record',
+          );
+          expect(record).toMatchObject({
+            event: 'call',
+            subsystem: 'pack',
+            outcome: 'ok',
+            tenantId: CTX.tenantId,
+            runId: CTX.runId,
+            toolId: 'conformance.echo',
+          });
+          expect(record.spanId).toMatch(/^[0-9a-f]{16}$/);
+        },
+      );
+
       test('without a token: exit 1 with a config-invalid line', async () => {
         const { code, events } = await runToExit(target, indexPath, {
           KINDGI_PACK_SERVICE_TOKEN: '',
@@ -676,6 +771,106 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
       });
     });
 
+    describe.skipIf(target.unsupported?.includes('env-filter') === true)(
+      "the pack's environment",
+      () => {
+        const DECLARED = { optional: ['CONFORMANCE_OPTIONAL'], required: ['CONFORMANCE_A'] };
+        /** A value no line the service writes may hold. */
+        const UNDECLARED_VALUE = 'conformance-undeclared-value';
+
+        /** The fixture index with `env` declared, written beside it. */
+        async function declaredIndexPath(): Promise<string> {
+          const declared = { ...(JSON.parse(indexText) as typeof index), env: DECLARED };
+          expectValid(spec.index, declared);
+          const path = join(workDir, 'filter-index.json');
+          await writeFile(path, JSON.stringify(declared), 'utf8');
+          return path;
+        }
+
+        async function namesIn(running: RunningService): Promise<string[]> {
+          const answer = response(await invoke(running, toolCall('conformance.process-env', {})));
+          return (answer.output as { names: string[] }).names;
+        }
+
+        test("only the names the pack declares reach its code, with Kindgi's and the platform's", async () => {
+          const running = await startService(target, await declaredIndexPath(), {
+            CONFORMANCE_A: 'a',
+            CONFORMANCE_OPTIONAL: 'o',
+            CONFORMANCE_UNDECLARED: UNDECLARED_VALUE,
+            AWS_SECRET_ACCESS_KEY: UNDECLARED_VALUE,
+            KINDGI_LOG_FORMAT: 'json',
+            ...PLATFORM_ENV_PROBES,
+          });
+          try {
+            const names = await namesIn(running);
+            expect(names).toEqual(
+              expect.arrayContaining([
+                'CONFORMANCE_A',
+                'CONFORMANCE_OPTIONAL',
+                'KINDGI_LOG_FORMAT',
+                'PORT',
+                'PATH',
+                ...Object.keys(PLATFORM_ENV_PROBES),
+              ]),
+            );
+            expect(names).not.toContain('CONFORMANCE_UNDECLARED');
+            expect(names).not.toContain('AWS_SECRET_ACCESS_KEY');
+            const dropped = await waitFor(
+              () => running.events.find((e) => e.kind === 'env-dropped'),
+              SERVICE_WAIT_MS,
+              'an env-dropped line',
+            );
+            expect(dropped.names).toEqual(
+              expect.arrayContaining(['AWS_SECRET_ACCESS_KEY', 'CONFORMANCE_UNDECLARED']),
+            );
+            expect(dropped.names).not.toContain('CONFORMANCE_A');
+            expect(running.stderr.join('\n')).not.toContain(UNDECLARED_VALUE);
+          } finally {
+            await running.terminate();
+          }
+        });
+
+        test("a pack that declares nothing keeps only Kindgi's and the platform's", async () => {
+          const running = await startService(target, indexPath, {
+            CONFORMANCE_UNDECLARED: UNDECLARED_VALUE,
+            K_SERVICE: 'conformance',
+          });
+          try {
+            const names = await namesIn(running);
+            expect(names).toContain('K_SERVICE');
+            expect(names).not.toContain('CONFORMANCE_UNDECLARED');
+          } finally {
+            await running.terminate();
+          }
+        });
+
+        test('KINDGI_PACK_ENV_FILTER=off: every name reaches it, and none is dropped', async () => {
+          const running = await startService(target, await declaredIndexPath(), {
+            CONFORMANCE_A: 'a',
+            CONFORMANCE_UNDECLARED: UNDECLARED_VALUE,
+            KINDGI_PACK_ENV_FILTER: 'off',
+          });
+          try {
+            expect(await namesIn(running)).toEqual(
+              expect.arrayContaining(['CONFORMANCE_A', 'CONFORMANCE_UNDECLARED']),
+            );
+            expect(running.events.map((e) => e.kind)).not.toContain('env-dropped');
+          } finally {
+            await running.terminate();
+          }
+        });
+
+        test('KINDGI_PACK_ENV_FILTER other than on or off: exit 1 with a config-invalid line', async () => {
+          const { code, events } = await runToExit(target, indexPath, {
+            KINDGI_PACK_SERVICE_TOKEN: 'x',
+            KINDGI_PACK_ENV_FILTER: 'no',
+          });
+          expect(code).toBe(1);
+          expect(events.map((e) => e.kind)).toContain('config-invalid');
+        });
+      },
+    );
+
     describe('routes', () => {
       test('GET /healthz and /readyz need no token', async () => {
         const health = await call(service, '/healthz', { token: null });
@@ -863,6 +1058,8 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
         const ctx = {
           ...CTX,
           requestId: 'req-1',
+          // Pack protocol 2.6.0: the call's idempotency key, as the runtime sends it.
+          idempotencyKey: '0d6f4c1a-9a43-5b1e-8f1d-2b7e6c3d9a10',
           projectId: 'project-1',
           orgId: 'org-1',
           env: { REGION: 'eu' },
@@ -883,6 +1080,13 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
         );
         expect(answer.output).toMatchObject({ projectId: 'project-1' });
         expect(answer.output).not.toHaveProperty('orgId');
+      });
+
+      test('a call from a runtime that sends no idempotency key: the handler gets none', async () => {
+        const answer = response(
+          await invoke(service, toolCall('conformance.context', {}, { ctx: CTX })),
+        );
+        expect(answer.output).not.toHaveProperty('idempotencyKey');
       });
 
       test("pack code doesn't see the service token", async () => {
@@ -994,6 +1198,34 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
         });
       });
 
+      test("a config that breaks the check's configSchema: input-validation-failed, and the check doesn't run", async () => {
+        const negative = response(
+          await invoke(service, checkCall('conformance.checks.min-length', { minLength: -1 }, 'x')),
+        );
+        // The message names the first issue: a runtime reports a check's error
+        // by its code and message alone.
+        expect(negative).toMatchObject({
+          kind: 'error',
+          code: 'input-validation-failed',
+          checkId: 'conformance.checks.min-length',
+          message:
+            'Check "conformance.checks.min-length" config failed validation at /minLength: must be >= 0',
+        });
+        expect(negative.issues).toContainEqual(
+          expect.objectContaining({ instancePath: '/minLength', keyword: 'minimum' }),
+        );
+        const wrongType = response(
+          await invoke(
+            service,
+            checkCall('conformance.checks.min-length', { minLength: 'three' }, 'x'),
+          ),
+        );
+        expect(wrongType).toMatchObject({ kind: 'error', code: 'input-validation-failed' });
+        expect(wrongType.issues).toContainEqual(
+          expect.objectContaining({ instancePath: '/minLength', keyword: 'type' }),
+        );
+      });
+
       test('an unknown check: check-not-in-pack', async () => {
         const answer = response(
           await invoke(service, checkCall('conformance.checks.nope', {}, 'x')),
@@ -1055,11 +1287,13 @@ export function describeCallContextCompatibility(target: PackServiceTarget): voi
       if (workDir !== '') await rm(workDir, { recursive: true, force: true });
     });
 
-    test('a tool call whose context has the project and org: answered', async () => {
+    test('a tool call whose context has the project, the org and an idempotency key: answered', async () => {
       if (service === undefined) throw new Error('the service did not start');
+      // The idempotency key is pack protocol 2.6.0: an older service ignores it.
+      const ctx = { ...newer, idempotencyKey: '0d6f4c1a-9a43-5b1e-8f1d-2b7e6c3d9a10' };
       const answer = await invoke(
         service,
-        toolCall('conformance.echo', { message: 'hi' }, { ctx: newer }),
+        toolCall('conformance.echo', { message: 'hi' }, { ctx }),
       );
       expect(answer.status).toBe(200);
       expectValid(spec.response, answer.json);

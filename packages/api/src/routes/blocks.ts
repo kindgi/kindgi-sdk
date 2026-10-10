@@ -3,22 +3,19 @@
 
 import { type Context, Hono } from 'hono';
 
-import {
-  BLOCK_KINDS,
-  type BlockDefinition,
-  type BlockKind,
-  settingsSchemaIssues,
-  validateBlock,
-} from '@kindgi/agents';
+import { BLOCK_KINDS, type BlockKind, validateBlock } from '@kindgi/agents';
 import { ref } from '@kindgi/authz';
 import type { Cursor, ProjectId, TenantId } from '@kindgi/types';
 
 import type { BlockPublishOutcome, BlockRecord, BlockRegistryBinding } from '../block-binding.js';
+import { continuityIssues, withCarriedSchema } from '../block-publish.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
+import { projectMismatch } from './project-mismatch.js';
 import { parseScopeParams } from './scope-params.js';
+import { isRegistryVersionsCursor } from './versions-cursor.js';
 
 /**
  * Data blocks: versioned prompts and settings that agent versions pin
@@ -117,6 +114,12 @@ export function blocksRouter(binding: BlockRegistryBinding, authorizer?: Authori
     const tenantId = c.get('tenantId') as TenantId;
     const blockId = c.req.param('blockId');
     const cursor = c.req.query('cursor');
+    if (cursor !== undefined && cursor.length > 0 && !isRegistryVersionsCursor(cursor)) {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError({ code: 'bad-input', message: '`cursor` is malformed' }, c.get('requestId')),
+      );
+    }
     const page = await binding.listVersions({
       tenantId,
       blockId,
@@ -249,52 +252,6 @@ function isBlockKind(value: string): value is BlockKind {
   return (BLOCK_KINDS as readonly string[]).includes(value);
 }
 
-/**
- * A new version against the block's latest: the same kind, and a
- * settings version without a schema of its own satisfies the schema it
- * keeps (`carriedSchema`).
- */
-function continuityIssues(
-  latest: BlockRecord | null,
-  block: BlockDefinition,
-): { path: string; message: string }[] {
-  if (latest === null) return [];
-  if (latest.kind !== block.kind) {
-    return [
-      {
-        path: '/kind',
-        message: `block "${block.id}" is a ${latest.kind} block; a version can't change its kind`,
-      },
-    ];
-  }
-  const carried = carriedSchema(latest, block);
-  if (block.kind !== 'settings' || carried === undefined) return [];
-  return settingsSchemaIssues(block.content.values, carried).map((i) => ({
-    ...i,
-    message: `${i.message} (the schema of version ${latest.version})`,
-  }));
-}
-
-/**
- * The schema a settings version that gives none keeps: the latest
- * version's. A version that gives a schema replaces it (`{}` drops the
- * check on purpose).
- */
-function carriedSchema(
-  latest: BlockRecord | null,
-  block: BlockDefinition,
-): Readonly<Record<string, unknown>> | undefined {
-  if (latest?.kind !== 'settings' || block.kind !== 'settings') return undefined;
-  return block.content.schema === undefined ? latest.content.schema : undefined;
-}
-
-/** The version as stored: with the schema it keeps, if any. */
-function withCarriedSchema(latest: BlockRecord | null, block: BlockDefinition): BlockDefinition {
-  const schema = carriedSchema(latest, block);
-  if (schema === undefined || block.kind !== 'settings') return block;
-  return { ...block, content: { ...block.content, schema } };
-}
-
 /** The response to a publish outcome. */
 function published(c: Context<AppEnv>, outcome: BlockPublishOutcome) {
   const requestId = c.get('requestId');
@@ -316,18 +273,7 @@ function published(c: Context<AppEnv>, outcome: BlockPublishOutcome) {
         ),
       );
     case 'project-mismatch':
-      c.status(statusFor('block-project-mismatch') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'block-project-mismatch',
-            message: `Block "${outcome.blockId}" belongs to project "${outcome.projectId as unknown as string}"; publish its versions there`,
-            blockId: outcome.blockId,
-            projectId: outcome.projectId as unknown as string,
-          },
-          requestId,
-        ),
-      );
+      return projectMismatch(c, 'block', outcome.blockId, outcome.projectId);
     case 'project-not-found':
       c.status(statusFor('bad-input') as never);
       return c.json(

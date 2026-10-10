@@ -6,10 +6,12 @@ import { type Context, Hono } from 'hono';
 import type { Cursor, SigningKeyId, TenantId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
+import type { Authorizer } from '../middleware/authorize.js';
 import type { SigningKeyBinding, TrustedKey } from '../signing-key-binding.js';
 import type { AppEnv } from '../types.js';
-import { hasCapability } from './env.js';
+import { capabilityRefusal } from './denied.js';
 import { clampLimit } from './pagination.js';
+import { tenantResourceAccess } from './tenant-access.js';
 
 /**
  * The tenant's trusted signing keys: the public keys whose signatures
@@ -29,14 +31,18 @@ import { clampLimit } from './pagination.js';
  * Writes need the `signing-keys:write` capability; reads, the tenant's
  * bearer.
  */
-export function signingKeysRouter(binding: SigningKeyBinding): Hono<AppEnv> {
+export function signingKeysRouter(
+  binding: SigningKeyBinding,
+  authorizer?: Authorizer,
+): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+  r.use('*', tenantResourceAccess(authorizer));
 
   // ---------- POST / (trust a key) ----------
   r.post('/', async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
-    const denied = requireWrite(c, requestId);
+    const denied = requireWrite(c, authorizer);
     if (denied !== undefined) return denied;
 
     let body: unknown;
@@ -123,7 +129,7 @@ export function signingKeysRouter(binding: SigningKeyBinding): Hono<AppEnv> {
   r.post('/:keyId/revoke', async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
-    const denied = requireWrite(c, requestId);
+    const denied = requireWrite(c, authorizer);
     if (denied !== undefined) return denied;
     const keyId = c.req.param('keyId') as SigningKeyId;
 
@@ -160,19 +166,16 @@ export function signingKeysRouter(binding: SigningKeyBinding): Hono<AppEnv> {
   return r;
 }
 
-/** A 403 unless the bearer holds `signing-keys:write` (fail-closed). */
-function requireWrite(c: Context<AppEnv>, requestId: string): Response | undefined {
-  if (hasCapability(c, 'signing-keys:write')) return undefined;
-  c.status(statusFor('permission-denied') as never);
-  return c.json(
-    toWireError(
-      {
-        code: 'permission-denied',
-        message:
-          'Bearer token is missing the `signing-keys:write` capability required to change the trusted signing keys.',
-      },
-      requestId,
-    ),
+/** A 403 unless the bearer holds `signing-keys:write` (fail-closed), recorded. */
+function requireWrite(
+  c: Context<AppEnv>,
+  authorizer: Authorizer | undefined,
+): Response | undefined {
+  return capabilityRefusal(
+    c,
+    authorizer,
+    'signing-keys:write',
+    'to change the trusted signing keys',
   );
 }
 

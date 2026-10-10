@@ -7,10 +7,6 @@ sidebar:
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
-:::note[Preview (0.1.4-rc)]
-Judgments are new in Kindgi 0.1.4, available now in its release candidates:
-`npx @kindgi/cli@next`, and `uv add --prerelease allow kindgi`.
-:::
 
 A **judgment** is a yes or no, with an optional reason, about one item of a
 finished run's output: the whole answer, or one element of a list it
@@ -156,13 +152,16 @@ kindgi judge-classes add --name=expert --weight=3 --tenant --min-reviewer-role=s
 - **`--principal-id`**: named users or tokens, by id.
 
 The last two repeat; a caller must meet each one you set (`assertableBy` in
-the API and the clients). Anyone else naming the class is refused with `403`,
-and nothing is recorded:
+the API and the clients). One who doesn't is refused with `403`, and nothing
+is recorded:
 
 ```text
 Error [auth]: You can't judge as "expert": it needs a senior reviewer or above; you're a standard reviewer.
 Error [auth]: You can't judge as "tokens": only service tokens may assert it.
 ```
+
+Whom a class names is for the admins of its scope: anyone else who reads the
+class gets how many it names (`principalCount`), not their ids.
 
 A judgment made under a restriction carries `"restricted": true` (in
 `kindgi judgments list` too). It's decided when the judgment is made, so:
@@ -177,3 +176,235 @@ restriction. A test set counts restricted judgments apart, and a comparison
 can count only them: see
 [Compare a version on a test set](../compare-an-agent-version/#count-only-restricted-judges).
 
+## Queue the runs to judge
+
+Rather than have your experts pick runs one at a time, give the project
+**judging rules**: which of its runs need a person's judgment. As a run of
+the project ends, each rule checks it, and a run that any rule matches joins
+the project's **judging queue**, once.
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// judging-rule.ts
+import { createClient } from '@kindgi/sdk/client';
+
+const kindgi = createClient();
+const project = await kindgi.projects.getDefault();
+
+const rule = await kindgi.projects.judgingRules.create(project.id, {
+  name: 'Live refund runs',
+  when: { agentIds: ['acme.refunds'], versions: ['live'] },
+  sample: 0.05, // 5% of them
+  maxOpen: 20, // at most 20 waiting at once
+});
+console.log(rule.ruleId, rule.version);
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# judging_rule.py
+from kindgi.client import Kindgi
+
+kindgi = Kindgi()
+project = kindgi.projects.get_default()
+
+rule = kindgi.projects.judging_rules.create(
+    project.id,
+    name="Live refund runs",
+    when={"agent_ids": ["acme.refunds"], "versions": ["live"]},
+    sample=0.05,  # 5% of them
+    max_open=20,  # at most 20 waiting at once
+)
+print(rule.rule_id, rule.version)
+```
+
+</TabItem>
+</Tabs>
+
+A rule as the runtime returns it, its version 1, here one made with `sample: 1`
+and `maxOpen: 2`:
+
+```json
+{
+  "ruleId": "19191620-85c3-4e2a-bd87-a0270d15ab53",
+  "projectId": "153a0091-613e-4c34-9535-da8194f9068e",
+  "version": 1,
+  "name": "Live refund runs",
+  "when": {
+    "agentIds": [
+      "acme.refunds"
+    ],
+    "versions": [
+      "live"
+    ]
+  },
+  "sample": 1,
+  "maxOpen": 2,
+  "enabled": true,
+  "createdBy": "user:6161fd71-761c-4b92-be40-153923bad755",
+  "createdAt": "2026-10-10T02:44:01.075Z"
+}
+```
+
+What a rule matches (`when`, each field narrowing it):
+
+- **`agentIds`** or **`flowIds`**: runs of these agents or flows (one or the
+  other, not both). A rule naming an agent matches the agent's own runs, not
+  its turns as a step of a flow.
+- **`versions`**: these versions exactly, or `live`: runs that ran the
+  agent's live version rather than one the caller named, so the rule follows
+  each release.
+- **`status`**: how the run ended. Only `completed` for now, since only a
+  completed run can be judged; it's also the default.
+- **`includeDryRuns`**: dry runs are left out unless this is `true`. A
+  comparison's runs on a test set are never queued.
+
+And how much of it to queue:
+
+- **`sample`**: the share of matching runs, `0.05` for 5%. The same run and
+  rule always give the same answer, across the rule's versions too: raising
+  it later keeps the runs it took before, and adds more.
+- **`maxOpen`**: the rule adds nothing while this many of its runs wait, and
+  starts again as they're judged.
+- **`judgeClassId`**: whose judgment the rule wants, a
+  [judge class](#weight-judges-by-class). Without it, any judgment does.
+
+A rule applies to runs that end after it's made. To try one before you make
+it, `judgingRules.preview` takes the same fields and answers how many of the
+project's last 100 runs (`last`, up to 500) it would have queued, with its
+`sample` but not its `maxOpen`. Give an existing rule's `ruleId` to sample
+as it does; without one, the count is an estimate. Runs from before the runtime recorded how
+their version was chosen never match `live`.
+
+A rule only lists runs: it never runs a model or spends anything.
+
+### Work through the queue
+
+`judgingQueue.list` gives the queue, oldest first:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+const waiting = await kindgi.projects.judgingQueue.list(project.id, { forMe: true });
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+waiting = kindgi.projects.judging_queue.list(project.id, for_me=True)
+```
+
+</TabItem>
+</Tabs>
+
+One item, as that rule queued it:
+
+```json
+{
+  "runId": "4d5fb3c0-6835-436d-ba29-fd182661d189",
+  "projectId": "153a0091-613e-4c34-9535-da8194f9068e",
+  "agentId": "acme.refunds",
+  "agentVersion": "2.1.0",
+  "flowId": "agent.turn",
+  "runStatus": "completed",
+  "completedAt": "2026-10-10T02:44:01.450Z",
+  "rules": [
+    {
+      "ruleId": "19191620-85c3-4e2a-bd87-a0270d15ab53",
+      "version": 1
+    }
+  ],
+  "wantedClassIds": [],
+  "anyJudgment": true,
+  "progress": {
+    "total": 0,
+    "byClass": []
+  },
+  "addedAt": "2026-10-10T02:44:01.447Z",
+  "state": "open",
+  "can": {
+    "dismiss": true,
+    "reopen": false
+  }
+}
+```
+
+- **Each item** is a run: its agent or flow and version, how it ended, the
+  rules that queued it (each at the version that did), the judge classes
+  they want, and the judgments on it so far, by class. It carries none of
+  the run's content: open the run to judge it.
+- **`forMe: true`** keeps the items you can close: those that want a class
+  you may judge as, or any judgment.
+- **An item closes** as `judged` once each rule that queued it has the
+  judgment it wants: one of its class, or any judgment for a rule without a
+  class.
+- **`judgingQueue.dismiss`**, with an optional reason, takes a run not worth
+  judging out of the queue, and `judgingQueue.reopen` puts it back. Each
+  item's `can` says whether you may.
+- **Counts:** `limit: 0` answers only the `total`. With `state`,
+  `addedAfter` and `closedAfter`, it gives "N waiting, M judged this week".
+- **When a run's content is gone,** erased or purged by
+  [retention](../../../deploy/retention/), its waiting item closes as
+  `erased` and shows nothing of the run.
+
+Reading the rules and the queue takes read access to the project. Changing
+a rule, and dismissing or reopening an item, take write access, as judging
+a run does.
+
+### Change a rule, and read its results
+
+- **`judgingRules.update`** writes a new version of the rule, and
+  `judgingRules.versions` lists them all, newest first, with who wrote each
+  and when. Runs queued from then on count toward the new version. `null`
+  removes `maxOpen` or `judgeClassId`.
+- **`judgingRules.unregister`** stops a rule. It queues nothing more; its
+  versions and the runs it queued stay.
+- **`judgingRules.results`** gives a group for each version of the rule and
+  each agent version: the runs it queued (waiting, judged, dismissed,
+  erased), the judgments on them with their weighted `yes` share, and the
+  judgments by class.
+  - **The `yes` share is per judgment:** one person's verdict on one item
+    of a run's output.
+  - **`skippedByCap`** counts the runs the rule matched and sampled but
+    didn't queue because `maxOpen` were waiting, even when another rule
+    queued them, so `added` + `skippedByCap` is every run it matched and
+    sampled. When it isn't 0, the queued runs
+    lean toward quiet times.
+  - **Never pooled:** each version of each rule is a sample of its own
+    `when`, so its results are never added to another's.
+
+That rule's results (capped at 2 waiting) after three live runs: one judged
+`yes`, one dismissed, and one skipped while both waited.
+
+```json
+{
+  "ruleId": "19191620-85c3-4e2a-bd87-a0270d15ab53",
+  "groups": [
+    {
+      "ruleVersion": 1,
+      "agentVersion": "2.1.0",
+      "added": 2,
+      "open": 0,
+      "judged": 1,
+      "dismissed": 1,
+      "erased": 0,
+      "skippedByCap": 1,
+      "judgments": 1,
+      "yesShare": 1,
+      "byClass": [
+        {
+          "judgeClassId": null,
+          "judgments": 1,
+          "yes": 1
+        }
+      ]
+    }
+  ]
+}
+```

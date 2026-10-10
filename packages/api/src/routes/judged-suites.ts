@@ -4,7 +4,7 @@
 import { type Context, Hono } from 'hono';
 
 import { type Principal, ref, tuplesForCreate } from '@kindgi/authz';
-import type { Cursor, ProjectId, TenantId, UserId } from '@kindgi/types';
+import type { Cursor, ProjectId, ScopeSegment, TenantId, UserId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import type {
@@ -13,15 +13,20 @@ import type {
   JudgedItemSummary,
 } from '../eval-case-binding.js';
 import type { EvalSuiteRegistryBinding } from '../eval-suite-binding.js';
-import type {
-  JudgedRunListInput,
-  JudgedRunWithJudgments,
-  Judgment,
-  JudgmentRegistryBinding,
+import { classWeightReader, summarizeJudgments } from '../judged-summary.js';
+import {
+  type JudgedRunListInput,
+  type JudgedRunWithJudgments,
+  type Judgment,
+  type JudgmentRegistryBinding,
+  isReplayCopy,
 } from '../judgment-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
+import { projectMismatch } from './project-mismatch.js';
+import { parseSegmentsBody } from './segments.js';
+import { parseTimeInput } from './time-input.js';
 
 /** The most cases a test set built from judgments holds. */
 export const MAX_JUDGED_CASES = 1000;
@@ -66,35 +71,13 @@ export function judgedSuitesRouter(
       );
     }
 
-    const built = await buildCases(judgments, tenantId, body);
     const principal = c.get('principal') as Principal | undefined;
     const creatorUserId =
       principal?.actor.kind === 'user' ? (principal.actor.id as UserId) : undefined;
-    const outcome = await suites.publish({
-      tenantId,
-      projectId: body.projectId,
-      suite: {
-        id: suiteId,
-        tenantId,
-        version: body.version,
-        kind: 'judged',
-        ...(body.description !== undefined && { description: body.description }),
-        spec: {
-          source: 'judgments',
-          // Where the judgments came from: a comparison's summary names it.
-          projectId: body.projectId,
-          query: body.query,
-          caseCount: built.cases.length,
-          truncated: built.truncated,
-          builtAt: new Date().toISOString(),
-        },
-      },
-      enqueueTuples: (id) =>
-        tuplesForCreate(
-          { kind: 'eval_suite', id, tenantId, projectId: body.projectId },
-          creatorUserId,
-        ),
-    });
+    const outcome = await buildJudgedSuite(
+      { suites, judgments, cases },
+      { tenantId, suiteId, ...body, ...(creatorUserId !== undefined && { creatorUserId }) },
+    );
     if (outcome.kind === 'already-registered') {
       return fail(
         c,
@@ -105,14 +88,16 @@ export function judgedSuitesRouter(
     if (outcome.kind === 'project-not-found') {
       return fail(c, 'bad-input', `\`projectId\` "${body.projectId}" is not a project here.`);
     }
-    await cases.putCases({ tenantId, suiteId, version: body.version, cases: built.cases });
+    if (outcome.kind === 'project-mismatch') {
+      return projectMismatch(c, 'eval-suite', suiteId, outcome.projectId, 'build');
+    }
     c.status(201);
     return c.json({
       suiteId,
       version: body.version,
       kind: 'judged',
-      caseCount: built.cases.length,
-      truncated: built.truncated,
+      caseCount: outcome.caseCount,
+      truncated: outcome.truncated,
     });
   });
 
@@ -144,6 +129,87 @@ export function judgedSuitesRouter(
   return r;
 }
 
+/** Which judged runs a test set is built from, and which of their judgments count. */
+export interface JudgedSuiteQuery {
+  readonly agentId?: string;
+  readonly agentVersion?: string;
+  readonly flowId?: string;
+  readonly since?: string;
+  readonly until?: string;
+  readonly judgeClassIds?: readonly string[];
+  readonly minJudgments?: number;
+  /** Only runs started in this segment path or below it. */
+  readonly segments?: readonly ScopeSegment[];
+}
+
+export interface BuildJudgedSuiteInput {
+  readonly tenantId: TenantId;
+  readonly suiteId: string;
+  readonly version: string;
+  /** The project whose judged runs it takes, and the suite's project. */
+  readonly projectId: ProjectId;
+  readonly description?: string;
+  readonly query: JudgedSuiteQuery;
+  /** The user who built it, made the suite's creator. */
+  readonly creatorUserId?: UserId;
+}
+
+export type BuildJudgedSuiteOutcome =
+  | { readonly kind: 'ok'; readonly caseCount: number; readonly truncated: boolean }
+  | { readonly kind: 'already-registered' }
+  | { readonly kind: 'project-not-found' }
+  /** The suite belongs to another project: nothing is written. */
+  | { readonly kind: 'project-mismatch'; readonly projectId: ProjectId };
+
+/**
+ * Build a test set and publish it as a `judged` suite version, as
+ * `POST /v1/eval-suites/{suiteId}/versions/from-judgments` does: the
+ * judged runs the query picks (newest first, at most `MAX_JUDGED_CASES`),
+ * each a case with its items' judgments summed up. The binding must list
+ * judged runs (`listJudgedRuns`).
+ */
+export async function buildJudgedSuite(
+  deps: {
+    readonly suites: EvalSuiteRegistryBinding;
+    readonly judgments: JudgmentRegistryBinding;
+    readonly cases: EvalCaseStoreBinding;
+  },
+  input: BuildJudgedSuiteInput,
+): Promise<BuildJudgedSuiteOutcome> {
+  const { tenantId, suiteId, version, projectId } = input;
+  const built = await buildCases(deps.judgments, tenantId, input);
+  const outcome = await deps.suites.publish({
+    tenantId,
+    projectId,
+    suite: {
+      id: suiteId,
+      tenantId,
+      version,
+      kind: 'judged',
+      ...(input.description !== undefined && { description: input.description }),
+      spec: {
+        source: 'judgments',
+        // Where the judgments came from: a comparison's summary names it.
+        projectId,
+        query: input.query,
+        caseCount: built.cases.length,
+        truncated: built.truncated,
+        builtAt: new Date().toISOString(),
+      },
+    },
+    enqueueTuples: (id) =>
+      tuplesForCreate({ kind: 'eval_suite', id, tenantId, projectId }, input.creatorUserId),
+  });
+  if (outcome.kind === 'already-registered' || outcome.kind === 'project-not-found') {
+    return { kind: outcome.kind };
+  }
+  if (outcome.kind === 'project-mismatch') {
+    return { kind: 'project-mismatch', projectId: outcome.projectId };
+  }
+  await deps.cases.putCases({ tenantId, suiteId, version, cases: built.cases });
+  return { kind: 'ok', caseCount: built.cases.length, truncated: built.truncated };
+}
+
 function fail(c: Context<AppEnv>, code: string, message: string): Response {
   c.status(statusFor(code) as never);
   return c.json(toWireError({ code, message }, c.get('requestId')));
@@ -156,37 +222,12 @@ interface BuildBody {
   readonly projectId: ProjectId;
   readonly description?: string;
   /** The judged-run filter, as recorded in the suite's spec. */
-  readonly query: {
-    readonly agentId?: string;
-    readonly agentVersion?: string;
-    readonly flowId?: string;
-    readonly since?: string;
-    readonly until?: string;
-    readonly judgeClassIds?: readonly string[];
-    readonly minJudgments?: number;
-  };
-}
-
-/** Each class's weight, read once (an unclassified judgment counts 1; a missing class too). */
-function classWeights(
-  judgments: JudgmentRegistryBinding,
-  tenantId: TenantId,
-): (judgeClassId: string | undefined) => Promise<number> {
-  const weights = new Map<string, number>();
-  return async (judgeClassId) => {
-    if (judgeClassId === undefined) return 1;
-    const known = weights.get(judgeClassId);
-    if (known !== undefined) return known;
-    const k = await judgments.getClass({ tenantId, judgeClassId, includeUnregistered: true });
-    const w = k?.weight ?? 1;
-    weights.set(judgeClassId, w);
-    return w;
-  };
+  readonly query: JudgedSuiteQuery;
 }
 
 function judgedRunFilter(
   tenantId: TenantId,
-  body: BuildBody,
+  body: Pick<BuildBody, 'projectId' | 'query'>,
 ): Omit<JudgedRunListInput, 'limit' | 'cursor'> {
   const { judgeClassIds: _ids, minJudgments: _min, ...runFilter } = body.query;
   return { tenantId, projectId: body.projectId, ...runFilter };
@@ -196,10 +237,10 @@ function judgedRunFilter(
 async function buildCases(
   judgments: JudgmentRegistryBinding,
   tenantId: TenantId,
-  body: BuildBody,
+  body: Pick<BuildBody, 'projectId' | 'query'>,
 ): Promise<{ readonly cases: JudgedEvalCase[]; readonly truncated: boolean }> {
   const list = judgments.listJudgedRuns as NonNullable<JudgmentRegistryBinding['listJudgedRuns']>;
-  const weightOf = classWeights(judgments, tenantId);
+  const weightOf = classWeightReader(judgments, tenantId);
   const filter = judgedRunFilter(tenantId, body);
   const cases: JudgedEvalCase[] = [];
   let cursor: Cursor | undefined;
@@ -220,6 +261,8 @@ async function toCase(
   q: BuildBody['query'],
   weightOf: (judgeClassId: string | undefined) => Promise<number>,
 ): Promise<JudgedEvalCase | undefined> {
+  // A comparison's replay is never a case, whatever the binding lists.
+  if (isReplayCopy(judged.run)) return undefined;
   const kept =
     q.judgeClassIds === undefined
       ? judged.judgments
@@ -230,7 +273,7 @@ async function toCase(
   const byKey = new Map<string, Judgment[]>();
   for (const j of kept) byKey.set(j.item.key, [...(byKey.get(j.item.key) ?? []), j]);
   const items: JudgedItemSummary[] = [];
-  for (const [key, list] of byKey) items.push(await summarize(key, list, weightOf));
+  for (const [key, list] of byKey) items.push(await summarizeJudgments(key, list, weightOf));
   items.sort((a, b) => (a.rank ?? Number.MAX_SAFE_INTEGER) - (b.rank ?? Number.MAX_SAFE_INTEGER));
   const run = judged.run;
   return {
@@ -240,45 +283,6 @@ async function toCase(
     ...(run.context !== undefined && { context: run.context }),
     output: run.output,
     items,
-  };
-}
-
-async function summarize(
-  key: string,
-  judgments: readonly Judgment[],
-  weightOf: (judgeClassId: string | undefined) => Promise<number>,
-): Promise<JudgedItemSummary> {
-  let yes = 0;
-  let no = 0;
-  let yesWeight = 0;
-  let totalWeight = 0;
-  // What judges a class was restricted to asserted, as it was when each judgment was recorded.
-  const restricted = { yesWeight: 0, totalWeight: 0 };
-  for (const j of judgments) {
-    const w = await weightOf(j.judgeClassId);
-    totalWeight += w;
-    if (j.restricted === true) restricted.totalWeight += w;
-    if (j.verdict === 'yes') {
-      yes += 1;
-      yesWeight += w;
-      if (j.restricted === true) restricted.yesWeight += w;
-    } else {
-      no += 1;
-    }
-  }
-  const first = judgments[0];
-  return {
-    key,
-    ...(first?.item.pointer !== undefined && { pointer: first.item.pointer }),
-    ...(first?.item.rank !== undefined && { rank: first.item.rank }),
-    yes,
-    no,
-    yesWeight,
-    totalWeight,
-    restricted,
-    reasons: judgments.flatMap((j) =>
-      j.reason !== undefined ? [{ verdict: j.verdict, reason: j.reason }] : [],
-    ),
   };
 }
 
@@ -297,7 +301,7 @@ function parseStringFilters(b: Record<string, unknown>): Record<string, string> 
     const v = b[field];
     if (v === undefined) continue;
     if (typeof v !== 'string' || v.length === 0) return `${field} must be a non-empty string.`;
-    if ((field === 'since' || field === 'until') && Number.isNaN(Date.parse(v))) {
+    if ((field === 'since' || field === 'until') && parseTimeInput(v) === null) {
       return `${field} must be an ISO 8601 time.`;
     }
     query[field] = v;
@@ -335,7 +339,13 @@ function parseQuery(b: Record<string, unknown>): BuildBody['query'] | string {
   if (typeof strings === 'string') return strings;
   const counted = parseJudgmentFilters(b);
   if (typeof counted === 'string') return counted;
-  return { ...strings, ...counted };
+  const segments = parseSegmentsBody(b.segments);
+  if (segments.kind === 'err') return segments.message;
+  return {
+    ...strings,
+    ...counted,
+    ...(segments.segments !== undefined && { segments: segments.segments }),
+  };
 }
 
 function parseBuildBody(raw: unknown): Parsed<BuildBody> {

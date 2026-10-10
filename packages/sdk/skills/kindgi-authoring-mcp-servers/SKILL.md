@@ -17,9 +17,9 @@ description: >
   `kindgi secrets set` flow.
 type: core
 library: "@kindgi/sdk"
-version: "0.3.0"
+version: "0.3.2"
 sdk_version: "0.0.0"
-pack_languages: [node, python]
+pack_languages: [node, python, java, scala]
 ---
 
 # Wiring an MCP server for a Kindgi pack
@@ -28,7 +28,8 @@ pack_languages: [node, python]
 > (`@kindgi/cli`), not a global command. Run it through the project's
 > package manager — `pnpm exec kindgi …`, `npx --no kindgi …` (npm),
 > `yarn kindgi …` or `bun run kindgi …`. A Python pack (`[tool.kindgi]` in
-> `pyproject.toml`) has no Node project: run the `kindgi` on `PATH`.
+> `pyproject.toml`) has no Node project: run the `kindgi` on `PATH`. A Java
+> or Scala pack (`kindgi.config.json`) runs the CLI it pins: `./kindgiw …`.
 > Commands below are written `kindgi …` for brevity.
 
 If the user has an external resource (Postgres DB, GitHub org, Notion
@@ -78,10 +79,11 @@ MY_DB_URL=…       →  { "command": "pnpm",    →  reads .env +         →  
 Three moving parts:
 
 1. **The secret on disk** — for `local`, the project's env files at the
-   pack root (`.env`, then `.env.local`; `dev.envFiles` to change);
-   other environments use `.env.<envName>`. Add it by hand or with
-   `kindgi secrets set` (interactive no-echo prompt; never the value on
-   argv), which writes `.env.local`. See `kindgi-authoring-providers`
+   pack root (`.env`, then `.env.local`; `dev.envFiles` to change), then
+   Kindgi's own `.kindgi/secrets.env`; other environments use
+   `.env.<envName>`. Add it with `kindgi secrets set` (interactive no-echo
+   prompt; never the value on argv), which writes `.kindgi/secrets.env`,
+   or by hand. See `kindgi-authoring-providers`
    for the same flow used for LLM API keys.
 2. **`.mcp.json` at the pack root** — Kindgi writes this via
    `kindgi mcp add`. Every entry runs the project's own `kindgi
@@ -89,7 +91,8 @@ Three moving parts:
    (`"command": "pnpm", "args": ["exec", "kindgi", "mcp-launch", …]`;
    npm: `npx --no kindgi …`) — never a global `kindgi`, never a
    download. A Python pack has no Node project, so its entries run the
-   `kindgi` on `PATH` (`"command": "kindgi", "args": ["mcp-launch", …]`).
+   `kindgi` on `PATH` (`"command": "kindgi", "args": ["mcp-launch", …]`). A
+   Java or Scala pack's run the CLI it pins (`"command": "./kindgiw"`).
    The file is safe to commit — it references secrets by NAME, not
    value.
 3. **The launcher** — `kindgi mcp-launch` is what the coding agent
@@ -255,8 +258,8 @@ gotcha #4.
 The invariants this skill inherits — every bullet here is enforced by
 you, the coding agent, in the session where MCP is wired:
 
-- **Never Read `.env`, `.env.local` or `.env.<envName>` files.** Their contents are the raw
-  secret values. Reading them puts the secret in your tool result and
+- **Never Read `.env`, `.env.local`, `.env.<envName>`, `.kindgi/secrets.env`
+  or `.kindgi/dev/runtime.env`.** Their contents are the raw secret values. Reading them puts the secret in your tool result and
   from there in every subsequent turn's context sent to the model
   provider.
 - **Never run `env | grep SECRET_NAME`, `printenv SECRET_NAME`, or

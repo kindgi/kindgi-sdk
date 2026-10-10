@@ -120,13 +120,23 @@ describe('createAnthropicProvider — invoke wire shape', () => {
     const [callBody] = create.mock.calls[0] as [Record<string, unknown>];
     expect(callBody.model).toBe('claude-opus-4-7');
     expect(callBody.max_tokens).toBe(1024);
-    expect(callBody.system).toBe('You are helpful.');
-    expect(callBody.messages).toEqual([{ role: 'user', content: [{ type: 'text', text: 'Hi' }] }]);
+    // Cache breakpoints: the tools, the agent's prompt, and (a call with
+    // tools can continue) the last message.
+    expect(callBody.system).toEqual([
+      { type: 'text', text: 'You are helpful.', cache_control: { type: 'ephemeral' } },
+    ]);
+    expect(callBody.messages).toEqual([
+      {
+        role: 'user',
+        content: [{ type: 'text', text: 'Hi', cache_control: { type: 'ephemeral' } }],
+      },
+    ]);
     expect(callBody.tools).toEqual([
       {
         name: 'demo__echo',
         description: 'Echo back a message.',
         input_schema: { type: 'object', properties: { message: { type: 'string' } } },
+        cache_control: { type: 'ephemeral' },
       },
     ]);
   });
@@ -151,12 +161,21 @@ describe('createAnthropicProvider — invoke wire shape', () => {
     };
     await provider.invoke(input);
     const [callBody] = create.mock.calls[0] as [Record<string, unknown>];
-    expect(callBody.system).toBe(
-      'Call `demo__echo` with the message. Never demo.echoes or other.echo.',
-    );
+    expect(callBody.system).toEqual([
+      {
+        type: 'text',
+        text: 'Call `demo__echo` with the message. Never demo.echoes or other.echo.',
+        cache_control: { type: 'ephemeral' },
+      },
+    ]);
     // The user's own words, and the trail the caller keeps, are untouched.
     expect(callBody.messages).toEqual([
-      { role: 'user', content: [{ type: 'text', text: 'Use demo.echo please' }] },
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Use demo.echo please', cache_control: { type: 'ephemeral' } },
+        ],
+      },
     ]);
     expect(input.messages[0]?.content).toBe(system);
   });
@@ -174,6 +193,43 @@ describe('createAnthropicProvider — invoke wire shape', () => {
     });
     const [callBody] = create.mock.calls[0] as [Record<string, unknown>];
     expect(callBody.max_tokens).toBe(4096);
+  });
+
+  test("each system message is its own block and only the agent's prompt is cached: retrieved context changes per turn", async () => {
+    const { client, create } = fakeClient();
+    const provider = createAnthropicProvider({
+      apiKey: 'sk-unused',
+      metadata: OPUS_METADATA,
+      client,
+    });
+    await provider.invoke({
+      model: 'claude-opus-4-7',
+      messages: [
+        { role: 'system', content: 'You answer questions about orders. Use demo.echo to repeat.' },
+        { role: 'system', content: 'Retrieved: order A-1042 shipped.' },
+        { role: 'user', content: 'Where is A-1042?' },
+        { role: 'assistant', content: 'It shipped.' },
+        { role: 'user', content: 'Thanks. And A-1043?' },
+      ],
+      tools: [
+        { name: 'demo.echo', description: 'Echo back a message.', inputSchema: { type: 'object' } },
+      ],
+    });
+    const [callBody] = create.mock.calls[0] as [Record<string, unknown>];
+    expect(callBody.system).toEqual([
+      {
+        type: 'text',
+        text: 'You answer questions about orders. Use demo__echo to repeat.',
+        cache_control: { type: 'ephemeral' },
+      },
+      { type: 'text', text: 'Retrieved: order A-1042 shipped.' },
+    ]);
+    const messages = callBody.messages as { content: { cache_control?: unknown }[] }[];
+    expect(messages.map((m) => m.content.map((b) => b.cache_control !== undefined))).toEqual([
+      [false],
+      [false],
+      [true],
+    ]);
   });
 
   test('per-model maxOutputTokens overrides the adapter DEFAULT when caller omits maxOutputTokens', async () => {
@@ -226,6 +282,38 @@ describe('createAnthropicProvider — invoke wire shape', () => {
     });
     const [, options] = create.mock.calls[0] as [unknown, Record<string, unknown>];
     expect(options.signal).toBe(controller.signal);
+  });
+
+  test('a call with a traceparent sends it as a header, on a retry too, never in the body; without, none', async () => {
+    const traceparent = '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01';
+    const sent: { traceparent: string | null; body: string }[] = [];
+    const fetch: typeof globalThis.fetch = async (_input, init) => {
+      sent.push({
+        traceparent: new Headers(init?.headers).get('traceparent'),
+        body: String(init?.body),
+      });
+      if (sent.length === 1) {
+        return new Response(
+          JSON.stringify({ type: 'error', error: { type: 'overloaded_error' } }),
+          { status: 529, headers: { 'content-type': 'application/json', 'retry-after-ms': '1' } },
+        );
+      }
+      return new Response(JSON.stringify(fakeResponse()), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    };
+    const provider = createAnthropicProvider({
+      apiKey: 'sk-test',
+      metadata: OPUS_METADATA,
+      clientOptions: { fetch },
+    });
+    const call = { model: 'claude-opus-4-7', messages: [{ role: 'user', content: 'hi' }] };
+    await provider.invoke({ ...call, traceparent } as ModelCallInput);
+    expect(sent.map((s) => s.traceparent)).toEqual([traceparent, traceparent]);
+    expect(sent.every((s) => !s.body.includes('traceparent'))).toBe(true);
+    await provider.invoke(call as ModelCallInput);
+    expect(sent[2]?.traceparent).toBeNull();
   });
 
   test('rejects unknown model names with a clean error listing available models', async () => {
@@ -526,5 +614,41 @@ describe("createAnthropicProvider — thinking: 'lowest'", () => {
     expect(result.message.content).toBe('PASS\nOn topic.');
     expect(result.finishReason).toBe('stop');
     expect(result.usage.completionTokens).toBe(90);
+  });
+});
+
+describe('createAnthropicProvider — a long prompt', () => {
+  test("prices at the registration's long-context rates", async () => {
+    const { client } = fakeClient(
+      fakeResponse({ usage: { input_tokens: 150_000, output_tokens: 2000 } }),
+    );
+    const provider = createAnthropicProvider({
+      apiKey: 'sk-unused',
+      metadata: {
+        id: 'anthropic',
+        region: 'us-east-1',
+        models: [
+          {
+            ...OPUS_MODEL,
+            name: 'claude-haiku-5-5',
+            cost: {
+              promptUsdPer1kTokens: 0.0001,
+              completionUsdPer1kTokens: 0.0005,
+              longContext: {
+                thresholdTokens: 100_000,
+                promptUsdPer1kTokens: 0.0005,
+                completionUsdPer1kTokens: 0.0025,
+              },
+            },
+          },
+        ],
+      },
+      client,
+    });
+    const result = await provider.invoke({
+      model: 'claude-haiku-5-5',
+      messages: [{ role: 'user', content: 'Summarize the attached corpus.' }],
+    });
+    expect(result.costUsd).toBeCloseTo((150_000 * 0.0005 + 2000 * 0.0025) / 1000, 10);
   });
 });

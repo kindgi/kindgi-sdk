@@ -69,6 +69,20 @@ save. It prints the API's URL and a token, and writes them to
 `.kindgirc.json` in the pack, so the commands below find the runtime by
 themselves. Leave it running.
 
+The first address its banner prints is the console's, where you can see each
+run: what it was asked, the steps it took and what it answered:
+
+```text
+    Console    http://127.0.0.1:4000/console/   (open in your browser)
+               Sign in: "Sign in as seeded user" on the sign-in page (the dev token, below)
+```
+
+Open it in your browser (the port is `4000`, or the next free one; the
+runtime's own address, `http://127.0.0.1:4000/`, leads there too), or run
+`pnpm exec kindgi console`, which opens it for you. On the sign-in page, click
+**Sign in as seeded user**. `kindgi dev --open` opens the console as soon as
+Kindgi is up. Open the console in Chrome or Firefox. Safari can't keep the local sign-in over http yet ([Known limitations](../../deploy/operate/#known-limitations-in-015)).
+
 ## 3. Run the agent
 
 In a second terminal, in `my-pack`:

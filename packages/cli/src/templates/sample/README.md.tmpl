@@ -28,9 +28,9 @@ run with `kindgi dev`.
 ## Run
 
 ```sh
-pnpm install
-pnpm typecheck                                # verify the pack compiles
-kindgi dev                                 # runs the Kindgi runtime (Docker) + hot-reloads this pack
+{{INSTALL}}
+{{TYPECHECK}}  # verify the pack compiles
+{{KINDGI}} dev  # runs the Kindgi runtime (Docker) + hot-reloads this pack
 ```
 
 `kindgi dev` bundles every primitive under the four folders above,
@@ -47,15 +47,15 @@ use a real model, set one LLM provider's key and register its preset, with
 `kindgi dev` running, from another terminal. For Claude:
 
 ```sh
-kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant   # no-echo prompt; writes .env.local
-kindgi providers register --preset=anthropic                      # Opus 5.5, Sonnet 5.5, Haiku 4.5
+{{KINDGI}} secrets set ANTHROPIC_API_KEY --env=local --scope=tenant   # no-echo prompt; writes .kindgi/secrets.env
+{{KINDGI}} providers register --preset=anthropic                      # Opus 5.5, Sonnet 5.5 (default), Haiku 5.5, Haiku 4.5
 ```
 
 Claude takes over from dev-echo on the next turn; nothing to restart.
 `--models=claude-sonnet-5-5` registers one model only. OpenAI
 (`OPENAI_API_KEY`, `--preset=openai`), Gemini (`GEMINI_API_KEY`,
 `--preset=gemini-api`), Groq (`GROQ_API_KEY`, `--preset=groq`) and
-OpenRouter, many vendors' models with one key (`OPENROUTER_API_KEY`,
+OpenRouter, a hosted service your prompts pass through (`OPENROUTER_API_KEY`,
 `--preset=openrouter`), work the same way; `kindgi providers presets` lists
 the presets (Gemini on Vertex AI too). Picking a model per
 agent, and other providers: `.claude/skills/kindgi-authoring-providers/SKILL.md`.
@@ -83,9 +83,3 @@ import { z } from 'zod';
 
 Every `define*` export ships with JSDoc — hover it in your editor for
 field-level docs.
-
-## Note on `@kindgi/sdk` versioning
-
-This template pins `@kindgi/sdk: "workspace:*"` because the SDK is not
-yet published to npm. Until it is, add the pack to a pnpm workspace that
-contains the Kindgi packages (`pnpm-workspace.yaml`).

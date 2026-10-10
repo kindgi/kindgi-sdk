@@ -1,5 +1,169 @@
 # @kindgi/capabilities
 
+## 0.1.5
+
+### Patch Changes
+
+- 490d083: Artifacts belong to a project, and the capability catalog says what each feature means and which of your models have it.
+  - **Artifacts (`/v1/artifacts`):**
+    - Every artifact belongs to a project: its owner run's, else the upload's new `projectId`, else the tenant's default project. `BlobMeta` carries `projectId` and `createdBy`, and `BlobPutInput` takes them (both optional).
+    - With authorization on, listing and downloading need `read` on that project, and uploading and deleting need `write`.
+      - An artifact the caller can't read is `404`, as if absent.
+      - A list shows only what the caller can read. `?projectId=` narrows it.
+    - An upload naming an owner run that doesn't exist is `404 run-not-found`. A `projectId` that isn't the owner run's project is `400`.
+    - The runtime caps an upload: `413 artifact-too-large`, with `details.maxBytes`. `CreateAppInput.artifactMaxBytes` sets it (default 100 MB).
+  - **Retention domain `artifact`:** a retention policy can purge deleted artifacts after its grace.
+  - **Capabilities:**
+    - `FEATURE_DESCRIPTIONS` (`@kindgi/capabilities`) says in a line what each of the 13 features means.
+    - A `CapabilityDescriptor` may carry `providers: [{providerId, models}]`, the tenant's providers with a model that has the feature (optional in the spec).
+  - **TypeScript client:**
+    - `artifacts.upload` (multipart), `download` (streamed bytes) and `head`; `list` takes `projectId`.
+    - `put` and `get` (content-addressed `BlobRef`s) have no API route: they throw, pointing to `upload` and `download`.
+    - `artifact-too-large` is an invalid request.
+  - **Python client:** the new fields; a 413 is an `InvalidRequestError`.
+  - **Runtime settings (`@kindgi/env-schema`):**
+    - `KINDGI_ARTIFACTS` is `local:<absolute dir>` or `gcs:<bucket>[/<prefix>]`; it turns on `/v1/artifacts`.
+    - `KINDGI_ARTIFACT_MAX_BYTES` sets the upload cap.
+    - `kindgi dev` sets artifacts to the pack's `.kindgi/dev/artifacts`, which is gitignored.
+  - **CLI:**
+    - `kindgi artifacts list|get|upload|download|delete` and `kindgi capabilities list|get` work; before, they were hidden.
+    - `artifacts head` is folded into `get`.
+- 88953c7: **A model call can carry a `traceparent`, and the three model adapters send it to the vendor.**
+  - **`ModelCallInput.traceparent?`** (optional) is a W3C `traceparent` for the call.
+  - **The adapters** send it as the `traceparent` header on that request, and only when it's set:
+    - anthropic, through its request options (on the SDK's retries too);
+    - openai-compat, on both the Chat Completions and Responses paths;
+    - gemini, through the request's `httpOptions.headers`.
+    It's never in the body and never logged, and an adapter never makes one up.
+  - **A runtime sets it only for a provider whose registration opts in.** Trace ids leave the process only on opt-in.
+  - **`ResumeRunBindingInput.trace?`:** the approval that resumes a run passes its request's trace context, as starting a run does.
+- 0fe157e: A provider registration the runtime couldn't build is refused when it registers, naming the setting. Before, a bad `adapter_config` (an unknown `api`, a missing `baseURL`, a Vertex registration without `project`, …) registered fine, and the provider was skipped at the first model call with the reason only in the runtime's log.
+  - **`POST /v1/providers`** runs the adapter's own check before storing: `422 provider-config-invalid`, with each problem in `details.issues` (`path`, a JSON pointer such as `/adapter_config/api`, and `message`), the shape other validation errors use; the clients read it as an invalid-request error. Without the runtime's adapter factories (an older runtime), nothing changes.
+  - **`GET /v1/providers/{providerId}/check`** runs the same check over a registered provider (`{ providerId, adapterId, checked, issues }`); TS `providers.check(id)`, Python `providers.check(provider_id)`.
+  - **Adapters:** `AdapterFactoryEntry.checkConfig` (static: no network, no secret read): `{ path, message }` problems, the message naming the setting and what it takes; the factory throws the same problems as `adapterConfigError` words them (`<adapter>: provider "<id>": <message>`). The 422's own message is one sentence naming the provider, its adapter and the first problem, with a count of the rest. Each adapter exports its entry: `openAICompatAdapterEntry`, `geminiAdapterEntry`, `anthropicAdapterEntry` (new `anthropicAdapterFactory`: needs `secret_ref`) and `inProcessAdapterEntry` (new `inProcessAdapterFactory`).
+- Updated dependencies [e27d050]
+- Updated dependencies [eff6249]
+  - @kindgi/schema@0.1.5
+  - @kindgi/types@0.1.5
+  - @kindgi/platform@0.1.5
+
+## 0.1.5-rc.0
+
+### Patch Changes
+
+- 490d083: Artifacts belong to a project, and the capability catalog says what each feature means and which of your models have it.
+  - **Artifacts (`/v1/artifacts`):**
+    - Every artifact belongs to a project: its owner run's, else the upload's new `projectId`, else the tenant's default project. `BlobMeta` carries `projectId` and `createdBy`, and `BlobPutInput` takes them (both optional).
+    - With authorization on, listing and downloading need `read` on that project, and uploading and deleting need `write`.
+      - An artifact the caller can't read is `404`, as if absent.
+      - A list shows only what the caller can read. `?projectId=` narrows it.
+    - An upload naming an owner run that doesn't exist is `404 run-not-found`. A `projectId` that isn't the owner run's project is `400`.
+    - The runtime caps an upload: `413 artifact-too-large`, with `details.maxBytes`. `CreateAppInput.artifactMaxBytes` sets it (default 100 MB).
+  - **Retention domain `artifact`:** a retention policy can purge deleted artifacts after its grace.
+  - **Capabilities:**
+    - `FEATURE_DESCRIPTIONS` (`@kindgi/capabilities`) says in a line what each of the 13 features means.
+    - A `CapabilityDescriptor` may carry `providers: [{providerId, models}]`, the tenant's providers with a model that has the feature (optional in the spec).
+  - **TypeScript client:**
+    - `artifacts.upload` (multipart), `download` (streamed bytes) and `head`; `list` takes `projectId`.
+    - `put` and `get` (content-addressed `BlobRef`s) have no API route: they throw, pointing to `upload` and `download`.
+    - `artifact-too-large` is an invalid request.
+  - **Python client:** the new fields; a 413 is an `InvalidRequestError`.
+  - **Runtime settings (`@kindgi/env-schema`):**
+    - `KINDGI_ARTIFACTS` is `local:<absolute dir>` or `gcs:<bucket>[/<prefix>]`; it turns on `/v1/artifacts`.
+    - `KINDGI_ARTIFACT_MAX_BYTES` sets the upload cap.
+    - `kindgi dev` sets artifacts to the pack's `.kindgi/dev/artifacts`, which is gitignored.
+  - **CLI:**
+    - `kindgi artifacts list|get|upload|download|delete` and `kindgi capabilities list|get` work; before, they were hidden.
+    - `artifacts head` is folded into `get`.
+- 88953c7: **A model call can carry a `traceparent`, and the three model adapters send it to the vendor.**
+  - **`ModelCallInput.traceparent?`** (optional) is a W3C `traceparent` for the call.
+  - **The adapters** send it as the `traceparent` header on that request, and only when it's set:
+    - anthropic, through its request options (on the SDK's retries too);
+    - openai-compat, on both the Chat Completions and Responses paths;
+    - gemini, through the request's `httpOptions.headers`.
+    It's never in the body and never logged, and an adapter never makes one up.
+  - **A runtime sets it only for a provider whose registration opts in.** Trace ids leave the process only on opt-in.
+  - **`ResumeRunBindingInput.trace?`:** the approval that resumes a run passes its request's trace context, as starting a run does.
+- 0fe157e: A provider registration the runtime couldn't build is refused when it registers, naming the setting. Before, a bad `adapter_config` (an unknown `api`, a missing `baseURL`, a Vertex registration without `project`, …) registered fine, and the provider was skipped at the first model call with the reason only in the runtime's log.
+  - **`POST /v1/providers`** runs the adapter's own check before storing: `422 provider-config-invalid`, with each problem in `details.issues` (`path`, a JSON pointer such as `/adapter_config/api`, and `message`), the shape other validation errors use; the clients read it as an invalid-request error. Without the runtime's adapter factories (an older runtime), nothing changes.
+  - **`GET /v1/providers/{providerId}/check`** runs the same check over a registered provider (`{ providerId, adapterId, checked, issues }`); TS `providers.check(id)`, Python `providers.check(provider_id)`.
+  - **Adapters:** `AdapterFactoryEntry.checkConfig` (static: no network, no secret read): `{ path, message }` problems, the message naming the setting and what it takes; the factory throws the same problems as `adapterConfigError` words them (`<adapter>: provider "<id>": <message>`). The 422's own message is one sentence naming the provider, its adapter and the first problem, with a count of the rest. Each adapter exports its entry: `openAICompatAdapterEntry`, `geminiAdapterEntry`, `anthropicAdapterEntry` (new `anthropicAdapterFactory`: needs `secret_ref`) and `inProcessAdapterEntry` (new `inProcessAdapterFactory`).
+- Updated dependencies [e27d050]
+- Updated dependencies [eff6249]
+  - @kindgi/schema@0.1.5-rc.0
+  - @kindgi/types@0.1.5-rc.0
+  - @kindgi/platform@0.1.5-rc.0
+
+## 0.1.4
+
+### Patch Changes
+
+- 1c0252c: **A model that rejects `temperature` no longer fails the call.** Anthropic's Claude 4.7 and later (Opus 5.5, Sonnet 5.5, Haiku 5.5) answer a non-default `temperature` with a 400, and OpenAI's GPT-6 models take none at their reasoning efforts. A model's `ModelInfo` now says so with `sampling: false`. For such a model, every adapter sends the call without the temperature and says so in the answer's `warnings`, code `sampling-unsupported`. That covers a model-settings block, a guardrail judge and an eval judge alike.
+  - `@kindgi/capabilities`: `ModelInfo.sampling`, and `samplingFor(model, input)`, the one place an adapter asks what to send.
+  - The HTTP API keeps a model's `sampling` (it must be a boolean; otherwise 400, reason `invalid-sampling`) and returns it. The Python client's `ModelInfo` has it too.
+  - The `anthropic`, `openai` and `openrouter` presets mark those models. A registration made from an older preset keeps sending the temperature: re-register to pick up the marks.
+  - `kindgi providers register --preset` reads the provider back, and on a runtime that drops these rules (older than 0.1.4) says so in one line, naming the models whose temperature may be refused.
+- 1c0252c: **A guardrail judge on a model that thinks still gets its verdict.** Claude Sonnet 5.5 and Opus 5.5, Haiku 5.5, Gemini 3.8 Flash and OpenAI's GPT-6 models think by default, and their thinking counts against the output cap. A judge's 256 tokens could be gone before the verdict.
+  - `ModelInfo.thinking` (`{ mode: 'adaptive' | 'always', lowest }`) says how a model thinks and its vendor's setting for the least thinking. The HTTP API validates it (otherwise 400, reason `invalid-thinking`) and returns it; the Python client has `ModelThinking`.
+  - `ModelCallInput.thinking: 'lowest'` asks for that least. The anthropic adapter sends Sonnet 5.5's `between_tools` or Haiku 5.5's `disabled` with effort `low`, and Opus 5.5's effort `low` alone. The gemini adapter sends the thinking level (`LOW` on 3.8 Flash, which refuses `MINIMAL`; `MINIMAL` on 3.5 Flash-Lite). openai-compat sends `reasoning_effort`. A model without `thinking` gets nothing extra.
+  - A guardrail judge asks for it, and on a thinking model its cap is 256 + 2048 tokens (`JUDGE_VERDICT_TOKENS`, `JUDGE_THINKING_TOKENS`).
+  - The presets mark the models: anthropic's Opus, Sonnet and Haiku 5.5, gemini and gemini-api's 3.8 Flash and 3.5 Flash-Lite, openai's gpt-6.1-sol and gpt-6-luna. Re-register to pick the marks up.
+- b9d3c01: A provider can name its **default model** (`metadata.defaultModel`, one of its models). When the router's candidates rank equally (an agent with no preference and no `preferredModel`), the provider's default comes before its other models. Without one, ties break by model name, so the "default" was whichever name sorted first: for the `openai` preset that was its flagship (`gpt-6-astra`), and for `gemini-api` a preview model.
+  
+  Each preset now names a mid-priced default: `anthropic` claude-sonnet-5-5, `openai` gpt-6.1-sol, `gemini-api` and `gemini` gemini-3.8-flash, `groq` openai/gpt-oss-120b, `openrouter` anthropic/claude-sonnet-5.5. `kindgi providers register --preset` marks it `(default)`; registering only some of a preset's models keeps the default only when it's among them. A runtime that predates default models drops the field, and the CLI then says what an agent that chooses no model gets instead. The API refuses a `defaultModel` that isn't one of the provider's models (400, reason `unknown-default-model`).
+  
+  The `anthropic` preset adds `claude-haiku-5-5`, Anthropic's newer Haiku: the cheap option once `claude-haiku-4-5` retires (on or after 2026-10-15). It has a 1M-token context window and costs $0.10 / $0.50 per 1M tokens, or $0.50 / $2.50 for a prompt over 100,000 tokens. It rejects a non-default `temperature`.
+- 7b63137: An agent whose instructions name a tool by its id (`call acme.lookup_order`) now gets the tool called on Anthropic and OpenAI-compatible models. Those providers forbid dots in tool names, so the tool is sent as `acme__lookup_order`; a model told the dotted id would call a name it wasn't given, writing the call as text or having it dropped (measured on local models: 43% of such turns). The adapters now name the call's own tools in the system prompt by the names they're sent under: whole ids only, deterministically, at the wire boundary. The journal, the conversation and provenance keep the dotted ids. Gemini keeps dots and is unchanged. `nameToolsAsSent` (`@kindgi/capabilities/tool-names`) is the helper.
+- f999acd: **dev-echo says it isn't a model, and there are presets for more LLM provider keys.**
+  
+  - **dev-echo's text answers start with one line:** "⚠ dev-echo isn't a real model: it only repeats what it's given. Add an LLM provider key (Anthropic, OpenAI, Gemini, Groq, OpenRouter…) to get real answers." So a developer can't mistake it for a model wherever the answer shows, their own app included. An answer that is JSON (what a typed-output agent parses) stays bare, as does one asked for with `structuredOutput`.
+  - **Every dev-echo result carries a warning, `dev-echo-not-a-model`,** with the commands that add a model. `ModelCallResult.warnings` (new, optional) lets any provider warn about its answers. An agent turn collects them into its result's `warnings`, a resumed turn too, and `kindgi runs start` prints them on stderr. dev-echo's own warning stands in for the `fallback-provider` one there.
+  - **New presets for key-based LLM providers:**
+    - `openai` (`OPENAI_API_KEY`), `groq` (`GROQ_API_KEY`) and `openrouter` (`OPENROUTER_API_KEY`, many vendors' models with one key), on the OpenAI-compatible adapter;
+    - `gemini-api` (`GEMINI_API_KEY`), Gemini with a Google AI Studio key.
+  
+    A preset can now fix adapter settings itself (`adapterConfigValues`, such as the `baseURL`).
+  - **`@kindgi/adapter-model-gemini` takes a Gemini Developer API key** (`apiKey`, or `adapter_config.api: "developer"` with the key as `secret_ref`), next to Vertex AI. Vertex stays the default and the `gemini` preset, the route for a regulated deployment.
+  - **`kindgi doctor`** looks for every preset's key, and its fixes offer any one of them: the key to set, and the preset to register.
+  - **The init templates** ask for "an LLM provider key" (Anthropic, OpenAI, Gemini, Groq or OpenRouter), not Claude's alone.
+- 2923703: A provider can carry labels, and `provider` is a retention domain.
+  
+  - **`ProviderMetadata.labels`**, optional: string keys to string values, for bookkeeping such as who manages the provider. The router ignores them. `POST /v1/providers` stores them, and get and list return them. At most 32 keys; a key is 1-63 lowercase letters and digits, with `.`, `-`, `_` or `/` inside; a value is at most 256 characters. Anything else is `400 invalid-provider` with reason `invalid-labels`, and `createProviderRegistry` refuses the same labels. The convention key `kindgi.com/managed-by` (`PROVIDER_LABEL_MANAGED_BY`) names the manager: `kindgi-dev`, `kindgi-dev:<pack id>` or `kindgi-deploy:<environment>`. `@kindgi/capabilities` exports `validateProviderLabels` and the limits. The TypeScript and Python clients have the field.
+  - **`provider` in `RETENTION_DOMAINS`.** `ProviderRegistryBinding.unregister` is a tombstone, not an erase: the provider is gone from list, get, capabilities and routing at once, its id is free to register again, and a retention policy on `provider` purges the row. A runtime that still erases on unregister behaves the same through the API.
+- d0ebeb6: Replay turns: an agent turn can re-run a past run for an eval run without doing anything the past run didn't do.
+  
+  - `@kindgi/agents`:
+    - `InvokeAgentInput.replay` (`{ of, evalRunId }`) marks a turn as a replay. It is kept on the turn's run and in its run snapshot (new nullable `agent_run_snapshots.replay` column), so a resumed turn stays a replay.
+    - The new optional `InvokeAgentBindings.replay` (`ReplayBinding`) decides each tool call:
+      - `live`: the tool runs;
+      - `recorded`: the past run's result is used;
+      - `refused`: the model gets the given result.
+    - Whatever the binding says, only a tool declared read-only (`mutating: false`, no writing effect, see `isReadOnlyTool`) with no approval to wait for runs. A replay with no binding refuses every call.
+    - Each decision is journaled, and `AgentTurnResult.replay` lists them. A refused call shows what the turn would have done.
+    - `retrievals` can supply the past run's retrieved facts. `sessionApproval` gives the past run's decision at the session approval gate, which the replay follows (a recorded rejection fails the turn with `hitl-rejected`). Without a recorded decision the gate is skipped, and the result says so.
+    - `tool.completed` events carry `replay: 'live' | 'recorded' | 'refused'`.
+  - `@kindgi/runtime`: `RunReplayRef`; `replay` on `runGraph` and `startRun`; `replayOf` and `evalRunId` on `KernelRunRecord`; `replays` and `evalRunId` on `ListRunsInput`.
+  - `@kindgi/capabilities`: `ModelUsageRecord.replay` tags a replay's model calls with the past run and the eval run.
+  - `@kindgi/api`:
+    - A run carries `replayOf` and `evalRunId`.
+    - `GET /v1/runs` leaves replay runs out unless `replays=include|only`; `evalRunId` lists one eval run's replays.
+    - A judged agent turn's captured `context` also keeps `sessionApproval`, the decision at its session approval gate.
+  - `@kindgi/client`: `runs.list({ replays, evalRunId })`; the Python client too.
+  - `@kindgi/cli`: `kindgi runs list --replays=<exclude|include|only> --eval-run=<id>`.
+- Updated dependencies [fac7472]
+- Updated dependencies [26b2a23]
+- Updated dependencies [7a8e764]
+- Updated dependencies [2040daf]
+- Updated dependencies [71412f6]
+- Updated dependencies [06b5fc0]
+- Updated dependencies [e17b230]
+- Updated dependencies [e7e2f86]
+- Updated dependencies [3d23304]
+- Updated dependencies [ae417f7]
+  - @kindgi/types@0.1.4
+  - @kindgi/platform@0.1.4
+  - @kindgi/schema@0.1.4
+
 ## 0.1.4-rc.5
 
 ### Patch Changes

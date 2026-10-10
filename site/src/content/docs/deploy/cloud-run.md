@@ -11,8 +11,10 @@ end to end on runtime 0.1.1, the first apply takes about ten minutes (most of
 it Cloud SQL), and a tool call from the runtime to your pack takes 42 ms at the
 median (100 ms at p95).
 
-:::note[Private preview]
-The runtime image is in private preview: request access at contact@kindgi.com
+:::note[Access to the runtime image]
+The runtime image is in private preview: request access at contact@kindgi.com.
+You get its pull credentials, a robot name and a token, and log in once with
+`kindgi auth registry` (see [Install](../../start/install/#access-to-the-runtime-image)).
 :::
 
 ## What you'll have
@@ -132,13 +134,26 @@ built for:
 ```sh
 REPO=$(terraform output -raw image_repository)
 gcloud auth configure-docker "${REPO%%/*}"
-docker buildx imagetools create --tag "$REPO/runtime:0.1.3" \
-  quay.io/kindgi/runtime:0.1.3@sha256:<the release's digest>
+docker buildx imagetools create --tag "$REPO/runtime:0.1.5.1" \
+  quay.io/kindgi/runtime:0.1.5.1@sha256:7c1b111ff22091d137f45d9770f6ff9f2521575bf28130957a5db1ce80a2e56e
 ```
 
 The copy keeps the release's digest. (A plain `docker pull`, `tag` and `push`
 from an Apple silicon machine pushes only the arm64 image, which Cloud Run
 can't run.)
+
+**A repository you already have** instead of the module's own:
+`image_repository = { project, location, repository }`. The module then creates
+none, gives the runtime's service account `roles/artifactregistry.reader` on
+it, and, for a repository in another project, gives this project's Cloud Run
+service agent the same role so it can pull. `terraform output image_repository`
+names where images go, either way.
+
+:::caution[Check the repository's cleanup policies]
+A cleanup policy that deletes tags or images by age can delete the digest a
+running revision pins, and the next instance start then fails. Keep Kindgi's
+images out of such a policy, or use the module's own repository.
+:::
 
 Then build and push your pack's image, signed:
 
@@ -177,12 +192,43 @@ openssl rand -hex 32 | tr -d '\n' | gcloud secrets versions add $N-pack-service-
 
 # The first API token, and the two keys, base64.
 printf 'kgi_bt_%s' "$(openssl rand -hex 32)" | gcloud secrets versions add $N-api-token --data-file=-
-openssl rand 32 | base64 | gcloud secrets versions add $N-secrets-aad-key --data-file=-
+openssl rand 32 | base64 | gcloud secrets versions add $N-secrets-aad-key --data-file=-   # version 1 (not with secrets_backend = "none")
 openssl genpkey -algorithm ed25519 | base64 | gcloud secrets versions add $N-public-token-key --data-file=-
+# Only with export_signing = "secret": the key that signs exports.
+openssl genpkey -algorithm ed25519 | base64 | gcloud secrets versions add $N-export-signing-key --data-file=-
 
 # The license key, pasted, never echoed.
 read -rs LICENSE_KEY && printf '%s' "$LICENSE_KEY" | gcloud secrets versions add $N-license-key --data-file=- && unset LICENSE_KEY
 ```
+
+The server reads the AAD key's version that `secrets_aad_key_version` names in
+`prod.tfvars`: `"1"`, the one just added (the example files have it). Every
+secret stored in Postgres is bound to that key, so the module pins it and
+refuses `latest`:
+
+```text
+secrets_aad_key_version is a version number ("1" for a new deployment), never "latest": every secret stored in Postgres is bound to the key it names.
+```
+
+### Without a KMS key
+
+By default (`secrets_backend = "postgres"`), secrets set through Kindgi's API
+(a model's API key, a webhook's secret) are envelope-encrypted in its
+database under a Cloud KMS key the module creates. With
+`secrets_backend = "none"`:
+
+- **Not created:** the KMS key ring and key, their grants, and the
+  `$N-secrets-aad-key` secret; `secrets_aad_key_version` isn't needed.
+- **The runtime stores no secrets of its own.** `/v1/secrets` isn't served:
+  it answers `404 route-not-found`, and the runtime checks no KMS key at
+  start.
+- **Who it fits:** a deployment whose pack's secrets all come by reference
+  (`pack_secret_env`) and whose model uses the service's own identity
+  ([Gemini on Vertex AI](#use-gemini)). A provider whose API key would be
+  stored in Kindgi doesn't fit it.
+- **An existing deployment stays as it is:** changing it from `"postgres"`
+  stops the plan at the key's `prevent_destroy`, on purpose, since the
+  secrets stored under it would become unreadable. Move them out first.
 
 **The database user** is a built-in Cloud SQL user. It isn't a superuser, but
 it has `CREATEROLE` and owns the database through `cloudsqlsuperuser`, which is
@@ -204,13 +250,44 @@ terraform apply -var-file=prod.tfvars
 ```
 
 The pack's service comes up first (22 seconds), and is ready only when every
-module loaded and every required variable is set. Then the runtime. Its
-startup log names the pack's service it reached, and how it calls it:
+module loaded and every required variable is set. Then the runtime. On Cloud
+Run it logs JSON, so its startup lines are the `lines` of one log record,
+`Kindgi runtime ready`:
+
+```sh
+gcloud logging read 'resource.labels.service_name="'$N'-server" AND jsonPayload.message="Kindgi runtime ready"' \
+  --limit=1 --format=json | jq -r '.[0].jsonPayload.lines[]'
+```
+
+They name the pack's service it reached, and how it calls it:
 
 ```text
-Pack service: https://kindgi-pack-…a.run.app — acme (artifact 20261004.1), protocol 2, 3 tools, 1 check
+Pack service: https://kindgi-pack-…a.run.app — acme (artifact …), protocol 2, 3 tools, 1 check
 Pack service auth: a Google ID token per call (KINDGI_PACK_SERVICE_AUTH)
 ```
+
+The KMS check comes just before, as a log line of its own:
+
+```sh
+gcloud logging read 'resource.labels.service_name="'$N'-server" AND textPayload:"KMS probe"' \
+  --limit=1 --format='value(textPayload)'
+```
+
+```text
+KMS probe OK (gcp-cloud-kms): gcp-cloud-kms v1 (encrypt/decrypt round trip, key version 1) (170ms)
+```
+
+**On the first apply,** the pack service line can read instead:
+
+```text
+⚠ Pack service at https://… isn't answering (pack-service-unauthorized: The platform in front of the pack service refused the call: check the identity token (KINDGI_PACK_SERVICE_AUTH) and that the server may invoke the service). The server is up; pack tools and checks fail until it answers.
+```
+
+The runtime's permission to call the pack's service is seconds old then, and
+Google Cloud is still applying it. It clears without a restart: in our run,
+the first tool call, 3½ minutes after the warning, worked. If tool calls still
+fail after that, check that the runtime's service account has
+`roles/run.invoker` on the pack's service.
 
 ### How the runtime calls your pack's service
 
@@ -223,6 +300,89 @@ pack's service checks the shared pack token.
 
 If the pack's service refuses the token, the runtime's startup log says so:
 `⚠ Pack service at https://… isn't answering (pack-service-unauthorized: The pack service rejected the pack token).`
+
+### Call your app's Cloud Run services from a tool
+
+When a tool calls one of your app's IAM-protected Cloud Run services, list it
+in `pack_run_invokers`, by its name, not its URL:
+
+```hcl
+pack_run_invokers = [
+  { project = "acme-app", location = "europe-west1", service = "orders-api" },
+]
+```
+
+The pack's service account gets `roles/run.invoker` on each one, beside its
+other members; nothing else of the service changes. The tool asks the
+metadata server for a Google ID token for the service's URL and sends it as
+`Authorization: Bearer`:
+
+```ts
+// tools/call-service/index.ts
+// acme.call-service: calls one of the app's IAM-protected Cloud Run services
+// with a Google ID token for its URL from the metadata server, and reports
+// what came back, as is.
+
+import { defineTool } from '@kindgi/sdk/define';
+import type { ToolId } from '@kindgi/sdk/types';
+import { z } from 'zod';
+
+const Input = z.object({ url: z.string().url() });
+
+const Output = z.object({
+  token: z.string(),
+  status: z.number().optional(),
+  body: z.string().optional(),
+  headers: z.record(z.string(), z.string()).optional(),
+  error: z.string().optional(),
+});
+
+const METADATA =
+  'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity';
+
+const defined = defineTool({
+  id: 'acme.call-service' as ToolId,
+  description: "Call an app Cloud Run service with the pack's Google ID token; report the answer.",
+  version: '0.1.0',
+  input: Input,
+  output: Output,
+  effects: [{ kind: 'reads', resource: 'external:cloud-run' }],
+  mutating: false,
+  handler: async ({ url }) => {
+    const audience = new URL(url).origin;
+    const minted = await fetch(`${METADATA}?audience=${encodeURIComponent(audience)}`, {
+      headers: { 'Metadata-Flavor': 'Google' },
+    });
+    if (!minted.ok) return { token: `refused ${minted.status}`, body: await minted.text() };
+    const idToken = (await minted.text()).trim();
+    try {
+      const res = await fetch(url, { headers: { authorization: `Bearer ${idToken}` } });
+      const headers: Record<string, string> = {};
+      for (const name of ['content-type', 'www-authenticate', 'server', 'x-cloud-trace-context']) {
+        const value = res.headers.get(name);
+        if (value !== null) headers[name] = value;
+      }
+      return { token: 'minted', status: res.status, body: (await res.text()).slice(0, 2000), headers };
+    } catch (cause) {
+      return { token: 'minted', error: cause instanceof Error ? `${cause.name}: ${cause.message}` : String(cause) };
+    }
+  },
+});
+
+if (defined.kind === 'err') {
+  throw new Error(`acme.call-service failed to compile: ${defined.error.message}`);
+}
+
+export default defined.value;
+```
+
+The call leaves through the pack's own egress, so the service's ingress has
+to take it. A service with ingress `all` does, with IAM as the guard. A
+service with internal ingress refuses it with a `404`, Google's "Page not
+found" page, not a `403`, so the tool's error can look like a wrong URL.
+A call from Cloud Run to an internal service has to go through a VPC
+network, and the pack's calls to your services don't
+([Cloud Run: Restrict network endpoint ingress](https://docs.cloud.google.com/run/docs/securing/ingress)).
 
 ## 5. Trust your key, and deploy
 
@@ -240,7 +400,7 @@ pnpm exec kindgi deploy --env prod --endpoint "$(terraform output -raw server_ur
 
 ```text
 ✓ POST /v1/deployments  →  201 Created
-  artifactVersion: 20261004.1
+  artifactVersion: …
   primitives:      3 tools, 1 guardrail, 1 agent, 2 flows
 Deploy complete.
 ```
@@ -263,18 +423,98 @@ In the verification run: every run completed; a new instance of the runtime
 was ready in about 7 seconds (8 with its first migrations), the pack's
 service in about 5.
 
+## 7. Turn on sign-in
+
+Nobody can sign in to the console until you turn sign-in on; the API, the
+CLI and the SDKs take API tokens either way. Until then the startup lines
+say so:
+
+```text
+  ⚠ Console sign-in: nobody can sign in to the console. KINDGI_CONSOLE_TOKEN_SIGN_IN=on allows an API token; KINDGI_AUTH_SECRET_PATH turns on sign-in with identity providers.
+```
+
+The runtime's own settings go in two variables, as the pack's do:
+`server_env` for plain values, and `server_secret_env` for Secret Manager
+secrets, read with the runtime's identity. You create each secret, and the
+runtime gets read access to exactly those (a secret in another project is
+granted there). The plan refuses a name the module sets itself (its own
+variables cover those, such as `public_url` below), `KINDGI_DEV`, and a
+secret given as a plain value: a name with `SECRET` in it, or the SMTP URL.
+
+**With an API token,** which the console's sign-in page then takes:
+
+```hcl
+server_env = {
+  KINDGI_CONSOLE_TOKEN_SIGN_IN = "on"
+}
+```
+
+**With an emailed link,** you need the runtime's sign-in secret, an SMTP
+server and `public_url`:
+
+```sh
+# The sign-in secret: 32 bytes, base64.
+openssl rand 32 | base64 | gcloud secrets create $N-auth-secret --data-file=-
+# The SMTP URL, password included: paste it; it never goes in a file.
+read -rs SMTP_URL && printf '%s' "$SMTP_URL" | gcloud secrets create $N-smtp-url --data-file=- && unset SMTP_URL
+```
+
+```hcl
+public_url = "https://kindgi-dev-server-abc123-pd.a.run.app" # terraform output -raw server_url
+server_env = {
+  KINDGI_CONSOLE_TOKEN_SIGN_IN = "on"
+  KINDGI_AUTH_EMAIL_FROM       = "kindgi@acme.example"
+}
+server_secret_env = {
+  KINDGI_AUTH_SECRET         = { secret = "kindgi-dev-auth-secret", version = "1" }
+  KINDGI_AUTH_EMAIL_SMTP_URL = { secret = "kindgi-dev-smtp-url", version = "1" }
+}
+```
+
+Pin each secret to a version, as here, rather than `latest`: a new version
+then reaches the runtime only when you change `version`.
+
+- **`public_url`** (`KINDGI_PUBLIC_URL`) is the address people open the
+  console at: `terraform output -raw server_url` after the first apply, so
+  the emailed link comes with a second apply, or your own domain in front.
+  Console sessions are then accepted from that address only. The plan
+  refuses `KINDGI_AUTH_SECRET` without it, because the runtime wouldn't
+  start.
+- **Continue with Google, Microsoft or GitHub, verified domains and
+  Turnstile** go the same way: each provider's client id,
+  `KINDGI_AUTH_VERIFIED_DOMAINS` and the Turnstile site key in `server_env`;
+  each `…_CLIENT_SECRET` and `KINDGI_AUTH_TURNSTILE_SECRET` in
+  `server_secret_env`. The module mounts no files, so use the value forms of
+  the settings, not their `…_PATH` forms.
+
+**Check it worked:** after the apply, the new revision's startup lines say
+where it's reached, and which ways in the console has, instead of the
+warning. From a deployment with identity providers and the emailed link:
+
+```text
+Kindgi API server listening on http://localhost:4000 (reached at https://kindgi-server-…a.run.app)
+  Console sign-in: identity providers, or an API token (KINDGI_CONSOLE_TOKEN_SIGN_IN)
+  …
+  Pack service: https://kindgi-pack-…a.run.app — acme (artifact 20261009.132057), protocol 2, 4 tools, 1 check
+  Pack service auth: a Google ID token per call (KINDGI_PACK_SERVICE_AUTH)
+```
+
+What each setting does, and the ways in: [Turn on sign-in](../sign-in/).
+
 ## The IAM it sets up
 
 | Who | Role | On |
 |---|---|---|
 | The runtime's service account | `roles/run.invoker` | the pack's service (and no one else) |
-| | `roles/cloudkms.cryptoKeyEncrypterDecrypter` | the KMS key (the startup check encrypts and decrypts with it) |
+| | `roles/cloudkms.cryptoKeyEncrypterDecrypter`, not with `secrets_backend = "none"` | the KMS key (the startup check encrypts and decrypts with it) |
 | | `roles/cloudkms.viewer` | the KMS key; needed only by runtimes before 0.1.3, whose startup check read the key's metadata |
-| | `roles/artifactregistry.reader` | the repository |
+| | `roles/artifactregistry.reader` | the repository, or yours (`image_repository`) |
 | | `roles/cloudsql.client` | the project, conditioned on Kindgi's instance |
-| | `roles/secretmanager.secretAccessor` | each of its secrets |
+| | `roles/secretmanager.secretAccessor` | each of its secrets, and each one in `server_secret_env` |
 | | `roles/aiplatform.user`, only with `vertex_ai = true` | the project: [Gemini](#use-gemini) |
+| | `roles/cloudkms.signerVerifier` and `roles/cloudkms.publicKeyViewer`, only with `export_signing = "kms"` | the export signing key: [signed exports](../../guides/observability/export-signed-evidence/) |
 | The pack's service account | `roles/secretmanager.secretAccessor` | the pack token and your pack's secrets |
+| | `roles/run.invoker` | each service in `pack_run_invokers` |
 | | what your tools need | your own resources |
 
 ## Use Gemini
@@ -289,7 +529,7 @@ pnpm exec kindgi providers register --preset=gemini --project=<project> --models
 ```
 
 ```text
-✓ Registered gemini: gemini-3.8-flash
+✓ Registered gemini: gemini-3.8-flash (default)
 ```
 
 Without the role, every model call fails (this one was captured with
@@ -303,13 +543,51 @@ A new grant can take a minute or two to apply.
 
 ## Operate it
 
+- **To runtime 0.1.5:** add `KINDGI_CONSOLE_TOKEN_SIGN_IN = "on"` to
+  `server_env` first, or nobody can sign in to the console. Up to 0.1.4 its
+  sign-in page took the API token on its own; from 0.1.5 that's off by
+  default ([7. Turn on sign-in](#7-turn-on-sign-in) has the other ways in).
 - **Upgrade:** back up Cloud SQL, copy the new runtime image by digest, set
   `server_image`, and apply. The new revision takes all the traffic.
   Migrations only go forward: never run two runtime versions on one
-  database, and go back by restoring the backup.
+  database, and go back by restoring the backup. From a module copy older
+  than `secrets_aad_key_version`, add it to `prod.tfvars` first, set to the
+  version your server reads now (`gcloud secrets versions list $N-secrets-aad-key`,
+  normally `1`); without it, `terraform plan` stops and asks for it.
 - **Rotate a secret:** add a version, then roll a new revision of each service
   that reads it (`gcloud run services update … --update-labels=rotated=$(date +%s)`).
-  Never rotate the AAD key this way: every stored secret is bound to it.
+- **The AAD key is never rotated.** Every stored secret is bound to the
+  version the server reads, so a new version is a key change that needs every
+  stored secret re-encrypted first. The pin keeps a version added by mistake
+  away from the server.
+- **Client addresses:** the module trusts one proxy, Cloud Run's front end,
+  which adds the caller to `X-Forwarded-For` (`trusted_proxies = "1"`, the
+  runtime's `KINDGI_TRUSTED_PROXIES`), so rate limits and sign-in records see
+  the caller. Behind an external Application Load Balancer, set `"2"`: it
+  adds the client and then its own address
+  ([Google: X-Forwarded-For header](https://docs.cloud.google.com/load-balancing/docs/https#x-forwarded-for_header)).
+- **Erasures, after a restore:** a memory erasure keeps a keyed hash of whom
+  it erased, so it can be replayed after you restore a backup. The key goes
+  in Secret Manager, named in `server_secret_env`:
+
+  ```sh
+  openssl rand 32 | base64 | gcloud secrets create $N-erasure-ledger-key --data-file=-
+  ```
+
+  ```hcl
+  server_secret_env = {
+    KINDGI_ERASURE_LEDGER_KEY = { secret = "kindgi-dev-erasure-ledger-key", version = "1" }
+  }
+  ```
+
+  The startup lines then say:
+
+  ```text
+    Erasures: on; the ledger is replayable after a backup restore (key from KINDGI_ERASURE_LEDGER_KEY)
+  ```
+
+  Without it, they say erasures aren't replayable. Keep the key: losing it
+  means losing replay ([Operate](../operate/)).
 - **Logs:** Cloud Logging, per service. The runtime logs JSON there, one
   record per line, and Cloud Logging reads each record's `severity`; filter by
   `jsonPayload.traceId` to follow one request or run. The startup lines are
@@ -325,7 +603,7 @@ the rest, then schedule the key's versions for destruction:
 
 ```sh
 terraform apply -var-file=prod.tfvars -var=database_deletion_protection=false
-terraform state rm google_kms_crypto_key.secrets google_kms_key_ring.kindgi
+terraform state rm 'google_kms_crypto_key.secrets[0]' 'google_kms_key_ring.kindgi[0]'   # none with secrets_backend = "none"
 terraform destroy -var-file=prod.tfvars
 gcloud kms keys versions destroy 1 --key=… --keyring=… --location=…
 ```
@@ -335,5 +613,6 @@ Cloud Run hasn't released its addresses yet: run it again later.
 
 ## Limits today
 
-- **One runtime instance.** Several aren't supported yet.
-- **Signing in through OAuth** doesn't work on Cloud SQL yet; API tokens do.
+- **One runtime instance.** Several aren't supported yet: for one thing, a
+  guardrail change reaches other instances only after they restart
+  ([Known limitations](../operate/#known-limitations-in-015)).

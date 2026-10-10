@@ -4,20 +4,32 @@
 import type { ModelMessage, ModelToolCall } from '@kindgi/capabilities';
 import type { NodeHandler } from '@kindgi/handler';
 
-import { formatRetrievedForPrompt } from '../retrieval.js';
+import {
+  MEMORY_DATA_RULE,
+  formatPoliciesForPrompt,
+  formatRetrievedForPrompt,
+  isPolicyFact,
+} from '../retrieval.js';
 import type { ConversationMessage } from '../types.js';
 
 import type { TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
+import { readHistory } from './history.js';
 
 /**
  * Compose the initial `modelMessages` array the loop's first iteration
  * feeds to the model:
  *
- *   [ system: rendered prompt,
- *     system: retrieved context (if any),
+ *   [ system: rendered prompt
+ *             (+ the memory rule, + "Policies (verified)", when there are),
  *     ...history,
+ *     user: <memory> data block (if anything was retrieved),
  *     user: current message ]
+ *
+ * Retrieved facts are data: a labelled block in a user-role message, read
+ * as information about the world, never as instructions. Only a verified
+ * fact of a type the agent lists in `memory.instructionTypes` is an
+ * instruction, in the system message.
  *
  * Output shape: `{ nextMessages: ModelMessage[] }` — matches the loop
  * iteration output's `nextMessages` field so the loop body can treat
@@ -37,24 +49,14 @@ export function buildBuildInitialMessagesHandler(ctx: TurnContext): NodeHandler 
     // the closure by render-prompt through the local field `renderedPrompt`).
     void input;
 
-    const historyLimit = ctx.input.agent.conversationPolicy?.historyLimit;
-    const messages = await ctx.bindings.conversationBinding.readMessages({
-      tenantId: ctx.input.tenantId,
-      conversationId: ctx.input.conversationId,
-    });
-    if (messages.kind === 'err') throwAgentTurnFailure(messages.error);
-    // The user message just appended is included in the history read;
-    // drop it because the composer adds it explicitly as the last
-    // element.
-    const historyRaw = messages.value.filter((m) => m.sequence !== ctx.userMessage?.sequence);
-    const history =
-      historyLimit === undefined
-        ? historyRaw
-        : historyRaw.slice(Math.max(0, historyRaw.length - historyLimit));
+    const history = await readHistory(ctx);
 
-    const contextBlock = formatRetrievedForPrompt(ctx.retrieved);
-    const contextMessage: ModelMessage | undefined =
-      contextBlock.length > 0 ? { role: 'system', content: contextBlock } : undefined;
+    const agent = ctx.input.agent;
+    const policies = ctx.retrieved.filter((r) => isPolicyFact(agent, r));
+    const data = ctx.retrieved.filter((r) => !isPolicyFact(agent, r));
+    const memoryBlock = formatRetrievedForPrompt(data, ctx.recalled ?? []);
+    const memoryMessage: ModelMessage | undefined =
+      memoryBlock.length > 0 ? { role: 'user', content: memoryBlock } : undefined;
 
     const rendered = ctx.renderedPrompt;
     if (rendered === undefined) {
@@ -65,10 +67,15 @@ export function buildBuildInitialMessagesHandler(ctx: TurnContext): NodeHandler 
       });
     }
 
+    const system = [
+      rendered,
+      ...(memoryMessage !== undefined ? [MEMORY_DATA_RULE] : []),
+      ...(policies.length > 0 ? [formatPoliciesForPrompt(policies)] : []),
+    ].join('\n\n');
     const modelMessages: ModelMessage[] = [
-      { role: 'system', content: rendered },
-      ...(contextMessage !== undefined ? [contextMessage] : []),
+      { role: 'system', content: system },
       ...history.map(conversationToModelMessage),
+      ...(memoryMessage !== undefined ? [memoryMessage] : []),
       { role: 'user', content: ctx.input.userMessage },
     ];
 

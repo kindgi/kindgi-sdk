@@ -3,7 +3,7 @@
 
 import type { TupleEnqueueHook } from '@kindgi/authz';
 import type { Scope } from '@kindgi/platform';
-import type { ToolManifest } from '@kindgi/tools';
+import type { CodeArtifactRef, ToolManifest } from '@kindgi/tools';
 import type { Cursor, ProjectId, Semver, TenantId, ToolId } from '@kindgi/types';
 
 import type { RegistryReadOnly } from './registry-read-only.js';
@@ -53,12 +53,12 @@ export interface ToolRegistryBinding {
    * The route uses `headExists` to distinguish 410 gone from 404
    * not-found.
    */
-  get(input: ToolGetInput): Promise<ToolManifest | null>;
+  get(input: ToolGetInput): Promise<ToolRecord | null>;
   /**
    * Exact `(toolId, version)` lookup, including tombstoned versions.
    * Provenance paths use this to resolve historical run references.
    */
-  getVersion(input: ToolGetVersionInput): Promise<ToolManifest | null>;
+  getVersion(input: ToolGetVersionInput): Promise<ToolRecord | null>;
   /**
    * Cursor-paginated list of versions for a specific tool id. Sort
    * order is binding-defined (for example, publish timestamp
@@ -96,6 +96,8 @@ export interface ToolRegistryBinding {
    * same `(toolId, version)` is re-published; the route maps that to
    * `409`. Semver hygiene: version numbers are single-use even after
    * unregister — reinstate instead of republishing the same bytes.
+   * A version of a tool whose versions live in another project is
+   * `project-mismatch` (tools never move between projects; `409 tool-project-mismatch`).
    */
   publish(input: ToolPublishInput): Promise<ToolPublishOutcome>;
   /**
@@ -112,6 +114,34 @@ export interface ToolRegistryBinding {
    * bytes verbatim (semver hygiene). Idempotent.
    */
   reinstateVersion(input: ToolReinstateVersionInput): Promise<ToolReinstateVersionOutcome>;
+  /**
+   * Optional. Point a published version at where its code is now
+   * (`codeArtifactRef`): a deploy of the same version from a new image of
+   * the pack. Nothing else about the version changes. Without it, the
+   * version keeps the pointer its first deploy gave it: metadata only, as
+   * pack code runs by tool id and version.
+   */
+  refreshCodeArtifactRef?(input: ToolRefreshCodeInput): Promise<RegistryRefreshOutcome>;
+}
+
+export interface ToolRefreshCodeInput {
+  readonly tenantId: TenantId;
+  readonly toolId: ToolId;
+  readonly version: Semver;
+  /** Where the version's code is now; `null` for none. */
+  readonly codeArtifactRef: CodeArtifactRef | null;
+  /**
+   * Compare-and-set: refresh only while the version still points here
+   * (`null`: nowhere), else answer `{ refreshed: false }` and change
+   * nothing. A deploy's rollback passes what it wrote, so it never undoes
+   * a refresh another deploy made since.
+   */
+  readonly expected?: CodeArtifactRef | null;
+}
+
+/** `refreshed: false` when there's no such live row to refresh. */
+export interface RegistryRefreshOutcome {
+  readonly refreshed: boolean;
 }
 
 export interface ToolListInput {
@@ -131,6 +161,13 @@ export interface ToolListInput {
    * (documented for uniformity).
    */
   readonly inherit?: boolean;
+  /**
+   * `true` lists retired tools too (every version unregistered), each
+   * as its highest version, with that version's `unregisteredAt`, so a
+   * client can find one to reinstate. Default: tools with an active
+   * version only.
+   */
+  readonly includeRetired?: boolean;
 }
 
 export interface ToolGetInput {
@@ -148,6 +185,12 @@ export interface ToolListVersionsInput {
   readonly tenantId: TenantId;
   readonly toolId: ToolId;
   readonly limit: number;
+  /**
+   * A prior page's `nextCursor`, which the route checks before asking the
+   * binding: url-safe base64 of `{ "p": <the last version's publish time as
+   * stored>, "i": <its row id> }`, or (a cursor from before) of a bare ISO
+   * time. Anything else is `400 bad-input`.
+   */
   readonly cursor?: Cursor;
   /**
    * `false` (default) → return only active versions. `true` → return
@@ -201,17 +244,31 @@ export interface ToolReinstateVersionInput {
 }
 
 export interface ToolPage {
-  readonly data: readonly ToolManifest[];
+  /** A retired tool `includeRetired` lists carries its highest version's `unregisteredAt`. */
+  readonly data: readonly ToolVersionRow[];
   readonly nextCursor?: Cursor;
 }
 
 /**
- * A single row in a `listVersions` result. Manifest fields plus an
+ * A tool version as the registry reads it (`get`, `getVersion`, `list`):
+ * the manifest, and the tool's project when the store records it.
+ * Callers that ignore the extra field see a plain `ToolManifest`.
+ */
+export type ToolRecord = ToolManifest & {
+  /**
+   * The tool's project, when the store records it: tools never move
+   * between projects, so every version reads the same one.
+   */
+  readonly projectId?: ProjectId;
+};
+
+/**
+ * A single row in a `listVersions` result. A `ToolRecord` plus an
  * optional `unregisteredAt` timestamp — present iff the version has
  * been soft-tombstoned via `unregister`. Callers that ignore the extra
- * field see a plain `ToolManifest`.
+ * fields see a plain `ToolManifest`.
  */
-export type ToolVersionRow = ToolManifest & {
+export type ToolVersionRow = ToolRecord & {
   readonly unregisteredAt?: string;
 };
 
@@ -235,6 +292,18 @@ export type ToolPublishOutcome =
       readonly kind: 'project-not-found';
       readonly toolId: ToolId;
       readonly version: Semver;
+      readonly projectId: ProjectId;
+    }
+  | {
+      /**
+       * The tool's versions live in another project: a tool belongs to
+       * the project its first version was published into, and never
+       * moves. Nothing is written (the route answers `409 tool-project-mismatch`).
+       */
+      readonly kind: 'project-mismatch';
+      readonly toolId: ToolId;
+      readonly version: Semver;
+      /** The project the tool belongs to. */
       readonly projectId: ProjectId;
     };
 

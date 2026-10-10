@@ -12,17 +12,23 @@ It checks, from the outside:
   indent, trailing newline), the same bytes on a second build;
 - **the process contract**: `--index` / `--module-root` / `--host`,
   `KINDGI_PACK_SERVICE_TOKEN`, `PORT=0`, `KINDGI_PACK_SERVICE_MAX_CONCURRENCY`,
-  `KINDGI_PACK_ENV_CHECK`;
+  `KINDGI_PACK_ENV_CHECK`, `KINDGI_PACK_ENV_FILTER`;
   the `listening`, `config-invalid` and `boot-failed` lines on stderr; SIGTERM
   draining in-flight calls and exiting 0;
 - **every route and status**: `/healthz`, `/readyz`, `/v1/info`, `/v1/invoke`;
   401 / 404 / 405 / 413 / 415 / 503 with `Retry-After`;
 - **the declared process env**: an index's `env.required` names, unset or empty,
   keep `/readyz` and calls at 503 (`missing env`), and `/v1/info` lists them;
+- **the pack's environment**: a variable the index doesn't declare is absent
+  in a tool, while the declared ones, `KINDGI_*` and the platform's are there;
+  `env-dropped` names it, never its value; `KINDGI_PACK_ENV_FILTER=off` keeps
+  it. The suite sets `KINDGI_PACK_ENV_DECLARED` from the index, as a built
+  image does, for a JVM pack service's launcher;
 - **every message**: results, Ajv-shaped validation issues, `handler-throw`,
   `tool-not-in-pack`, `tool-version-mismatch`, malformed requests,
   `deadline-exceeded` from `kindgi-timeout-ms`, `cancelled` on disconnect,
-  check results — each answer validated against the protocol schema.
+  check results, a check's `config` refused against its `configSchema` (the
+  first issue in the message) — each answer validated against the protocol schema.
 
 ## Targets
 
@@ -30,9 +36,25 @@ It checks, from the outside:
 |---|---|---|---|
 | `tests/node.test.ts` | `runIndexer` (`@kindgi/handler-runtime`) | `@kindgi/handler-runtime/pack-service-main` | `fixtures/node-pack` |
 | `tests/python.test.ts` | `python -m kindgi.pack index` | `python -m kindgi.pack serve` | `fixtures/python-pack` |
+| `tests/java.test.ts` | `com.kindgi.pack.Main index` | `kindgi-pack-java … com.kindgi.pack.Main serve` | `fixtures/java-pack` |
+| `tests/scala.test.ts` | `com.kindgi.pack.Main index` | `kindgi-pack-java … com.kindgi.pack.Main serve` | `fixtures/scala-pack` |
 
 The Python target uses `KINDGI_CONFORMANCE_PYTHON`, else `sdks/python/.venv`
 (`uv sync` in `sdks/python`), and is skipped — saying why — when neither exists.
+
+The Java target uses the JDK 17+ in `KINDGI_CONFORMANCE_JAVA_HOME`, else
+`JAVA_HOME`, else the `java` on PATH, and the built `sdks/java/kindgi-pack`
+(`./mvnw -pl kindgi-pack -am compile` in `sdks/java`). It compiles the fixture
+pack against them and starts the service through its launcher. Without a JDK or
+the build it's skipped, saying why; under CI it fails instead.
+
+The Scala target runs the same service and indexer on the fixture pack in Scala
+(`kindgi-pack-scala`, `sdks/scala`). sbt builds that fixture against the layer
+from source: with kindgi-pack installed (`./mvnw -pl kindgi-pack -am install
+-DskipTests`), `sbt writeClasspath` in `fixtures/scala-pack` writes
+`target/classpath.txt` (Scala 3; `sbt "++2.13.18!" writeClasspath` for 2.13).
+Without it the target is skipped, saying why. The Scala job sets
+`KINDGI_CONFORMANCE_SCALA=1`, under which it fails instead.
 
 A target that hasn't implemented part of the contract yet lists it in
 `unsupported` (`ConformanceFeature`, e.g. `'pack-env'`): those cases are skipped

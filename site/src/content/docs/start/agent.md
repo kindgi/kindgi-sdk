@@ -10,12 +10,16 @@ This page is written for a coding agent (Claude Code, Cursor, Codex, or any
 other). A person pastes this prompt into their agent:
 
 ```text
-Set up Kindgi for me: read https://docs.kindgi.com/next/start/agent/ and follow it step by step. Tell me whenever you need me to do something, and wait for me.
+Set up Kindgi for me: read https://docs.kindgi.com/start/agent/ and follow it step by step. Tell me whenever you need me to do something, and wait for me.
 ```
 
 If you are that agent: follow the steps below in order. Do everything you
 can yourself. Ask the person only for what the steps say needs them, one
 thing at a time, and wait until they say they've done it.
+
+If your fetch tool cut this page short, read it from
+<https://docs.kindgi.com/_llms-txt/start.txt>: the Start section as plain
+text, with this page under "Set up Kindgi with your coding agent".
 
 ## Rules for the whole setup
 
@@ -29,14 +33,16 @@ thing at a time, and wait until they say they've done it.
 - **When something fails, run doctor** (below) and read what it says before
   you guess.
 - **`kindgi` in the commands below** means, until step 2 makes a project:
-  `npx --yes @kindgi/cli@next` if `node --version` works; else, for someone
+  `npx --yes @kindgi/cli@0.1` if `node --version` works; else, for someone
   using Python without Node, `uvx --from "kindgi-cli>=0.1,<0.2" kindgi`
   (the CLI from PyPI; it needs no Node). From step 2 on, from the project's
   folder:
   - a TypeScript project: `pnpm exec kindgi` if `pnpm --version` works,
     else `npx --no kindgi`;
   - a Python project: `uv run kindgi` (the project's dev dependencies bring
-    the CLI).
+    the CLI);
+  - a Java or Scala project: `./kindgiw` (the CLI version the project pins in
+    `kindgi.config.json`; `kindgiw.cmd` on Windows).
 
 ## Step 0: check the machine
 
@@ -69,31 +75,64 @@ running and no model key yet:
 ```json
 {
   "ok": false,
-  "cliVersion": "0.1.4-rc.4",
-  "project": { "dir": "/Users/you/my-agents", "language": "node" },
+  "cliVersion": "0.1.5",
+  "project": {
+    "dir": "…/my-agents",
+    "language": "node"
+  },
+  "consoleUrl": "http://127.0.0.1:4000/console/",
   "checks": [
-    {"id": "node", "status": "pass", "message": "Node 22.21.1."},
+    {
+      "id": "node",
+      "status": "pass",
+      "message": "Node 22.21.1."
+    },
     …,
-    {"id": "model-key", "status": "fail", "message": "No model key in .env or .env.local (looked for ANTHROPIC_API_KEY, GEMINI_API_KEY, GROQ_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY).", "fix": "With kindgi dev running, set one LLM provider's key: pnpm exec kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant, or the same with GEMINI_API_KEY, GROQ_API_KEY, OPENAI_API_KEY or OPENROUTER_API_KEY (it prompts without echoing; or pipe it in with --from-stdin). Never paste a key into a chat."},
-    {"id": "runtime", "status": "pass", "message": "The runtime answers at http://127.0.0.1:63421."},
-    {"id": "provider", "status": "fail", "message": "Only dev-echo is registered: agents get its canned replies, not a model's.", "fix": "Register the provider whose key you set: pnpm exec kindgi providers register --preset=<preset>, where <preset> is anthropic, gemini-api, groq, openai or openrouter (see Model key)."}
+    {
+      "id": "model-key",
+      "status": "fail",
+      "message": "No model key in .env or .env.local (looked for ANTHROPIC_API_KEY, GEMINI_API_KEY, GROQ_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY).",
+      "fix": "With kindgi dev running, set one LLM provider's key: pnpm exec kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant, or the same with GEMINI_API_KEY, GROQ_API_KEY, OPENAI_API_KEY or OPENROUTER_API_KEY (it prompts without echoing; or pipe it in with --from-stdin). Never paste a key into a chat."
+    },
+    {
+      "id": "runtime",
+      "status": "pass",
+      "message": "The runtime answers at http://127.0.0.1:4000; its console is at http://127.0.0.1:4000/console/."
+    },
+    {
+      "id": "provider",
+      "status": "fail",
+      "message": "Only dev-echo is registered: agents get its canned replies, not a model's.",
+      "fix": "Register the provider whose key you set: pnpm exec kindgi providers register --preset=<preset>, where <preset> is anthropic, gemini-api, groq, openai or openrouter (see Model key)."
+    },
+    {
+      "id": "erasures",
+      "status": "skip",
+      "message": "Erasures run, but a replay after a backup restore can't find whom they erased: the runtime has no KINDGI_ERASURE_LEDGER_KEY. Fine for development; set it where you run in production."
+    }
   ]
 }
 ```
 
-The checks come in this order: `node`, `npm`, `python`, `uv`, `docker`,
-`registry`, `project`, `dependencies`, `model-key`, `runtime`, `provider`.
+The checks come in this order: `node`, `npm`, `python`, `uv`, `java`,
+`maven`, `sbt`, `docker`, `registry`, `console-sign-in`, `project`,
+`dependencies`, `model-key`, `runtime`, `provider`, `erasures`.
 
 - **`fail`:** run its `fix`, as written: it names the CLI to use in that
   folder. When the fix needs the person (start Docker Desktop, sign in, copy
   a key), ask them, then run doctor again.
 - **`warn`:** it works now, but the person should know: tell them its
   `message` and `fix`, and go on. `ok` stays `true` and the exit code `0`.
-  In this release only `provider` warns: when an agent that names no model
-  would get a model the preset no longer lists, or one other than the
-  preset's default.
+  In this release two checks warn. `provider`: when an agent that names no
+  model would get a model the preset no longer lists, or one other than the
+  preset's default; or when the runtime can't build a registered provider
+  (each problem is in the check's `details`). When it can build none,
+  `provider` fails instead. `console-sign-in`: when nobody can sign in to the
+  console of the runtime the CLI points at.
 - **`skip`:** not applicable yet. Outside a project, `project` and every
   check after it skip; `runtime` skips while `kindgi dev` isn't running.
+  `erasures` skips with a note when the runtime has no erasure ledger key,
+  as under `kindgi dev`: fine for development.
 
 Fix every `fail` up to and including `docker` before you go on. `registry` is
 step 1.
@@ -103,9 +142,11 @@ step 1.
 If doctor's `registry` check passes, this machine can already pull the
 runtime: skip this step.
 
-1. Ask the person: "Sign in at https://access.kindgi.com with GitHub, click
-   **Copy** next to the pull token, and tell me when you're done. Also tell
-   me the robot name shown there (it isn't secret)."
+1. Ask the person for the runtime image's pull credentials, a robot name
+   and a pull token: "Copy your Kindgi pull token, and tell me when you're
+   done. Also tell me your robot name (it isn't secret)." The image is in
+   private preview: someone without credentials requests access at
+   contact@kindgi.com, and you stop here until they have them.
 2. When they say they're done, pipe the clipboard into the login, with the
    robot name they gave you:
 
@@ -121,12 +162,15 @@ runtime: skip this step.
 1. Ask the person for a name for their project, or use `my-agents`. Use
    TypeScript if doctor's `node` check passes and the person has no
    preference; Python if they ask for it, or if there's no Node (doctor's
-   `python` and `uv` say whether it's ready).
+   `python` and `uv` say whether it's ready); Java if they ask for it
+   (doctor's `java` says whether there's a JDK 17 or later; Maven comes with
+   the project); Scala if they ask for it (a JDK 17 or later too, and
+   doctor's `sbt` says whether sbt is installed).
 2. Create it and install its dependencies:
 
    ```sh
    # TypeScript
-   npx --yes @kindgi/cli@next init my-agents
+   npx --yes @kindgi/cli@0.1 init my-agents
    cd my-agents
    pnpm install     # if pnpm --version works; else: npm install
    ```
@@ -138,10 +182,25 @@ runtime: skip this step.
    uv sync          # brings the CLI too: from now on, uv run kindgi …
    ```
 
+   ```sh
+   # Java (preview)
+   npx --yes @kindgi/cli@0.1 init my-agents --template=java   # from now on: ./kindgiw …
+   cd my-agents
+   ./mvnw -q test
+   ```
+
+   ```sh
+   # Scala (preview)
+   npx --yes @kindgi/cli@0.1 init my-agents --template=scala   # from now on: ./kindgiw …
+   cd my-agents
+   sbt -batch test
+   ```
+
 3. Run doctor again from the project's folder; `project` and
    `dependencies` should pass.
 
-`init` also gives you Kindgi's skills, in `.claude/skills/`. Read them: they
+`init` also gives you Kindgi's skills, in `.claude/skills/`, for the
+project's language (a Java or Scala project gets its own). Read them: they
 are how you write tools and agents for this project.
 
 ## Step 3: start Kindgi
@@ -163,7 +222,13 @@ real one.
 
 Run doctor every few seconds until `runtime` passes. `model-key` and
 `provider` still fail: that's expected until step 4. Then tell the person
-it's running, and how to stop it: `kill <the process id>`.
+it's running, and how to stop it: `kill <the process id>`. Also tell them
+where the console is: the `Console` line of `.kindgi/dev.log`, its first
+address (`kindgi doctor --json` has it as `consoleUrl`, and `kindgi console`
+opens it in their browser). They sign in there with **Sign in as seeded
+user**, which needs no token: don't print the token in the chat. Tell them
+to use Chrome or Firefox: Safari can't keep the local sign-in over http yet
+([Known limitations](../../deploy/operate/#known-limitations-in-015)).
 
 ## Step 4: the model key
 
@@ -178,7 +243,7 @@ it's running, and how to stop it: `kill <the process id>`.
    | OpenAI | `OPENAI_API_KEY` | `openai` |
    | Gemini (a Google AI Studio key) | `GEMINI_API_KEY` | `gemini-api` |
    | Groq | `GROQ_API_KEY` | `groq` |
-   | OpenRouter (many vendors, one key) | `OPENROUTER_API_KEY` | `openrouter` |
+   | OpenRouter (a hosted gateway) | `OPENROUTER_API_KEY` | `openrouter` |
 
    **If they have no key, or don't want to add one now,** stop here,
    honestly: Kindgi is running with its stand-in model, `dev-echo`, which
@@ -239,7 +304,7 @@ Tell the person, in your own words:
 >    the agent call it".
 > 2. **Judge a few answers:** say yes or no to what it answered, so later
 >    versions can be checked against your judgments
->    ([Judge a run's output](https://docs.kindgi.com/next/guides/evals/judge-a-runs-output/)).
+>    ([Judge a run's output](https://docs.kindgi.com/guides/evals/judge-a-runs-output/)).
 > 3. **Compare two versions:** change its instructions and see whether people's
 >    judgments rate the new version higher
->    ([Compare a version on a test set](https://docs.kindgi.com/next/guides/evals/compare-an-agent-version/)).
+>    ([Compare a version on a test set](https://docs.kindgi.com/guides/evals/compare-an-agent-version/)).

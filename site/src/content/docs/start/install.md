@@ -21,12 +21,13 @@ sidebar:
 Nothing else: the runtime is a container image that `kindgi dev` pulls and
 runs for you.
 
-:::note[Private preview]
-The runtime image is in private preview: request access at contact@kindgi.com.
-With the pull credentials you receive (a robot name and a token), log in to
-its registry once. The CLI asks for the token without showing it, hands both
-to `docker login` (Kindgi keeps no copy), and checks that you can pull the
-image it runs:
+### Access to the runtime image
+
+The runtime image is in private preview: request access at
+contact@kindgi.com. You get its pull credentials, a robot name and a token.
+Log in to its registry once with them. The CLI asks for the token without showing
+it, hands both to `docker login` (Kindgi keeps no copy), and checks that you
+can pull the image it runs:
 
 ```sh
 npx --yes @kindgi/cli@0.1 auth registry --username <your robot name>
@@ -38,8 +39,7 @@ npx --yes @kindgi/cli@0.1 auth registry --username <your robot name>
 ```
 
 The first `kindgi dev` then pulls the image (about 700 MB; `amd64` and
-`arm64`).
-:::
+`arm64`). Questions or trouble: contact@kindgi.com.
 
 ### Check this machine
 
@@ -64,8 +64,21 @@ run:
 
 A `!` line is a warning: it doesn't fail, and things work now, but read it.
 
+The Provider check also asks the runtime about each registered provider
+(runtimes from 0.1.5). A registration the runtime can't build a provider from
+(one stored before the runtime checked registrations, say) is a warning, and a
+failure when no working provider is left. Each problem is on a line of its
+own:
+
+```text
+  ! Provider: 2 providers are registered: anthropic, openai. The runtime can't build openai from its registration, so agents only get the others.
+      ✗ openai: /adapter_config/api: adapter_config.api must be one of responses, chat-completions.
+      Fix: Unregister openai (pnpm exec kindgi providers unregister openai), then register it again: pnpm exec kindgi providers register --preset=openai.
+```
+
 `--json` gives the same checks as JSON, for a script or a coding agent
-([Set up with a coding agent](../agent/) has an agent read it).
+([Set up with a coding agent](../agent/) has an agent read it). A check's
+problems, such as each provider's above, are in its `details`.
 
 ## A TypeScript project
 

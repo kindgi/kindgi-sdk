@@ -12,7 +12,9 @@
  *                (`/_redirects`)
  *   /next/       the newest pre-release (`@kindgi/sdk@0.1.4-rc.0`) while it's
  *                newer than every release: marked as a release candidate,
- *                never indexed, and gone once its release ships
+ *                never indexed, and gone once its release ships. Like a
+ *                release, it builds from its `release-docs/<version>` branch
+ *                when there is one.
  *   /versions.json   the list the version menu and the banner read: each build
  *                    with the exact release it's from (`0.1.3`, `0.1.4-rc.3`)
  *
@@ -33,7 +35,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { menu, plan, redirects } from './versions-plan.mjs';
+import { docsSource, menu, plan, redirects } from './versions-plan.mjs';
 
 const args = process.argv.slice(2);
 const option = (name) => {
@@ -81,6 +83,29 @@ if (releases.length === 0) {
   );
   process.exit(1);
 }
+/**
+ * The ref a release's (or the pre-release's) docs build from: its
+ * `release-docs/<version>` branch on origin when there is one (fetch first),
+ * else its tag. See `docsSource`.
+ */
+function releaseDocsRef(tag, version) {
+  const branch = `origin/release-docs/${version}`;
+  const exists = spawnSync('git', ['rev-parse', '--verify', '--quiet', `${branch}^{commit}`], {
+    cwd: repo,
+  });
+  if (exists.status !== 0) return tag;
+  const startsAtTag =
+    spawnSync('git', ['merge-base', '--is-ancestor', tag, branch], { cwd: repo }).status === 0;
+  const changed = startsAtTag
+    ? execFileSync('git', ['diff', '--name-only', tag, branch], { cwd: repo, encoding: 'utf8' })
+        .split('\n')
+        .filter(Boolean)
+    : [];
+  const source = docsSource({ tag, branch, startsAtTag, changed });
+  if ('error' in source) throw new Error(`build-versions: ${source.error}`);
+  return source.ref;
+}
+
 /** Checks out `tag` in a temporary worktree, builds its workspace, and runs `build` in it. */
 function atTag(tag, name, build) {
   const worktree = mkdtempSync(join(tmpdir(), `kindgi-docs-${name}-`));
@@ -93,16 +118,20 @@ function atTag(tag, name, build) {
     run('git', ['worktree', 'remove', '--force', worktree], repo);
   }
 }
+/** Where a build's docs come from, for the log. */
+const from = (tag, ref) => (ref === tag ? tag : `${ref} (its docs fixed since ${tag})`);
 for (const [i, { tag, parsed }] of releases.entries()) {
-  console.log(`build-versions: v${parsed.version} from ${tag}`);
-  atTag(tag, parsed.version, (worktree) => {
+  const ref = releaseDocsRef(tag, parsed.version);
+  console.log(`build-versions: v${parsed.version} from ${from(tag, ref)}`);
+  atTag(ref, parsed.version, (worktree) => {
     if (i === 0) buildDocs(worktree, '/', tag, out);
     buildDocs(worktree, `/v${parsed.version}/`, tag, join(out, `v${parsed.version}`));
   });
 }
 if (next) {
-  console.log(`build-versions: next (v${next.parsed.version}) from ${next.tag}`);
-  atTag(next.tag, 'next', (worktree) => buildDocs(worktree, '/next/', next.tag, join(out, 'next')));
+  const ref = releaseDocsRef(next.tag, next.parsed.version);
+  console.log(`build-versions: next (v${next.parsed.version}) from ${from(next.tag, ref)}`);
+  atTag(ref, 'next', (worktree) => buildDocs(worktree, '/next/', next.tag, join(out, 'next')));
 }
 writeFileSync(join(out, 'versions.json'), `${JSON.stringify(menu(planned), null, 2)}\n`);
 writeFileSync(join(out, '_redirects'), redirects(planned));

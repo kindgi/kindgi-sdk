@@ -8,13 +8,14 @@ import { describe, expect, test } from 'vitest';
 import { type Agent, type AgentPins, pinsDigest } from '@kindgi/agents';
 import { generateEd25519KeyPair, serializePublicKeyPem, signEd25519 } from '@kindgi/crypto';
 import { type Flow, type FlowPins, flowPinsDigest } from '@kindgi/flow';
+import type { Guardrail } from '@kindgi/guardrails';
 import type { Project, ProjectBinding } from '@kindgi/platform';
 import { latestVersion } from '@kindgi/tools';
 import type { Cursor, ProjectId, Semver, SigningKeyId, TenantId } from '@kindgi/types';
 
 import type { Scope } from '@kindgi/platform';
-import { createStubAppBindings } from '@kindgi/testing';
 import { makeEnvName } from '@kindgi/types';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type {
@@ -27,6 +28,7 @@ import type {
   GuardrailRegistryBinding,
   ImageRegistryBinding,
   LiveResolveInput,
+  ProviderRegistryBinding,
   RunHandlerBinding,
   SecretBinding,
   SecretRecord,
@@ -35,6 +37,7 @@ import type {
   TokenResolver,
   ToolRegistryBinding,
 } from '../src/index.js';
+import { sameGuardrailDefinition } from '../src/routes/deployments.js';
 
 /**
  * Deployments route tests. Every binding is
@@ -243,7 +246,16 @@ function makeMockImageRegistry(images: readonly FakeImage[]): ImageRegistryBindi
 
 let lastToolRegisterProjectId: ProjectId | undefined;
 
-function makeInMemoryToolRegistry(): ToolRegistryBinding {
+/** JSON with keys sorted: equality of values, as a store compares them. */
+function canon(value: unknown): string {
+  return JSON.stringify(value ?? null, (_k, v: unknown) =>
+    v !== null && typeof v === 'object' && !Array.isArray(v)
+      ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+      : v,
+  );
+}
+
+function makeInMemoryToolRegistry(opts: { refreshes?: boolean } = {}): ToolRegistryBinding {
   const store = new Map<string, Map<string, unknown>>();
   const forT = (t: TenantId): Map<string, unknown> => {
     const k = t as unknown as string;
@@ -262,12 +274,33 @@ function makeInMemoryToolRegistry(): ToolRegistryBinding {
     async get({ tenantId, toolId }) {
       return (forT(tenantId).get(toolId as unknown as string) as never) ?? null;
     },
-    async getVersion() {
-      return null;
+    async getVersion({ tenantId, toolId, version }) {
+      const tool = forT(tenantId).get(toolId as unknown as string) as
+        | { version?: string }
+        | undefined;
+      return tool !== undefined && tool.version === (version as unknown as string)
+        ? (tool as never)
+        : null;
     },
     async headExists({ tenantId, toolId }) {
       return forT(tenantId).has(toolId as unknown as string);
     },
+    ...(opts.refreshes === true && {
+      async refreshCodeArtifactRef({ tenantId, toolId, codeArtifactRef, expected }) {
+        const s = forT(tenantId);
+        const tool = s.get(toolId as unknown as string) as Record<string, unknown> | undefined;
+        if (tool === undefined) return { refreshed: false };
+        if (expected !== undefined && canon(tool.codeArtifactRef) !== canon(expected)) {
+          return { refreshed: false };
+        }
+        const { codeArtifactRef: _old, ...rest } = tool;
+        s.set(toolId as unknown as string, {
+          ...rest,
+          ...(codeArtifactRef !== null && { codeArtifactRef }),
+        });
+        return { refreshed: true };
+      },
+    }),
     async listVersions({ tenantId, toolId }) {
       const tool = forT(tenantId).get(toolId as unknown as string);
       return { data: tool === undefined ? [] : [tool as never] };
@@ -295,9 +328,12 @@ function makeInMemoryToolRegistry(): ToolRegistryBinding {
 
 let lastGuardrailRegisterProjectId: ProjectId | undefined;
 
-function makeInMemoryGuardrailRegistry(): GuardrailRegistryBinding {
-  const store = new Map<string, Map<string, unknown>>();
-  const forT = (t: TenantId): Map<string, unknown> => {
+/** Guardrails by tenant, each row in its project, as the registry keeps them. */
+function makeInMemoryGuardrailRegistry(
+  opts: { refreshes?: boolean } = {},
+): GuardrailRegistryBinding {
+  const store = new Map<string, Map<string, { guardrail: unknown; projectId: ProjectId }>>();
+  const forT = (t: TenantId): Map<string, { guardrail: unknown; projectId: ProjectId }> => {
     const k = t as unknown as string;
     let s = store.get(k);
     if (s === undefined) {
@@ -307,11 +343,14 @@ function makeInMemoryGuardrailRegistry(): GuardrailRegistryBinding {
     return s;
   };
   return {
-    async list({ tenantId }) {
-      return { data: [...forT(tenantId).values()] as never[] };
+    async list({ tenantId, scope, nameFilter }) {
+      const rows = [...forT(tenantId).entries()]
+        .filter(([id]) => nameFilter === undefined || id.startsWith(nameFilter))
+        .filter(([, row]) => scope?.kind !== 'project' || row.projectId === scope.projectId);
+      return { data: rows.map(([, row]) => row.guardrail) as never[] };
     },
     async get({ tenantId, guardrailId }) {
-      return (forT(tenantId).get(guardrailId as unknown as string) as never) ?? null;
+      return (forT(tenantId).get(guardrailId as unknown as string)?.guardrail as never) ?? null;
     },
     async register({ tenantId, projectId, guardrail }) {
       lastGuardrailRegisterProjectId = projectId;
@@ -319,19 +358,59 @@ function makeInMemoryGuardrailRegistry(): GuardrailRegistryBinding {
       if (s.has(guardrail.id as unknown as string)) {
         return { kind: 'already-registered', guardrailId: guardrail.id };
       }
-      s.set(guardrail.id as unknown as string, guardrail);
+      s.set(guardrail.id as unknown as string, { guardrail, projectId });
       return { kind: 'ok', guardrailId: guardrail.id };
     },
     async unregister({ tenantId, guardrailId }) {
       return { unregistered: forT(tenantId).delete(guardrailId as unknown as string) };
     },
+    ...(opts.refreshes === true && {
+      async refreshDeployedFields({
+        tenantId,
+        guardrailId,
+        codeArtifactRef,
+        configSchema,
+        expected,
+      }) {
+        const s = forT(tenantId);
+        const row = s.get(guardrailId as unknown as string);
+        if (row === undefined) return { refreshed: false };
+        const held = row.guardrail as { codeArtifactRef?: unknown; configSchema?: unknown };
+        if (
+          expected !== undefined &&
+          canon({
+            codeArtifactRef: held.codeArtifactRef ?? null,
+            configSchema: held.configSchema ?? null,
+          }) !== canon(expected)
+        ) {
+          return { refreshed: false };
+        }
+        const {
+          codeArtifactRef: _ref,
+          configSchema: _schema,
+          ...rest
+        } = row.guardrail as Record<string, unknown>;
+        s.set(guardrailId as unknown as string, {
+          projectId: row.projectId,
+          guardrail: {
+            ...rest,
+            ...(codeArtifactRef !== null && { codeArtifactRef }),
+            ...(configSchema !== null && { configSchema }),
+          },
+        });
+        return { refreshed: true };
+      },
+    }),
   };
 }
 
 let lastAgentPublishProjectId: ProjectId | undefined;
 
+/** The project an agent of `elsewhereAgentId` belongs to, in these tests. */
+const ELSEWHERE_PROJECT_ID = randomUUID() as ProjectId;
+
 function makeInMemoryAgentRegistry(
-  opts: { failOnAgentId?: string; refuseAgentId?: string } = {},
+  opts: { failOnAgentId?: string; refuseAgentId?: string; elsewhereAgentId?: string } = {},
 ): AgentRegistryBinding {
   const store = new Map<string, Map<string, Map<string, unknown>>>();
   return {
@@ -368,6 +447,17 @@ function makeInMemoryAgentRegistry(
           version: agent.version,
           projectId,
         } as never;
+      }
+      if (
+        opts.elsewhereAgentId !== undefined &&
+        (agent.id as unknown as string) === opts.elsewhereAgentId
+      ) {
+        return {
+          kind: 'project-mismatch',
+          agentId: agent.id,
+          version: agent.version,
+          projectId: ELSEWHERE_PROJECT_ID,
+        };
       }
       const key = tenantId as unknown as string;
       let byTenant = store.get(key);
@@ -591,6 +681,10 @@ function makeApp(opts: {
   extraImages?: readonly FakeImage[];
   fixture?: SignedDeploy;
   writes?: string[];
+  /** The project the deploy lands in. Default `DEFAULT_PROJECT_ID`. */
+  projectId?: ProjectId;
+  /** The tool and guardrail registries take a redeploy's code pointer (and config schema). */
+  refreshes?: boolean;
 }) {
   const deploymentRegistry = opts.deploymentRegistry ?? makeInMemoryDeploymentBinding();
   const trust: TrustEntry[] = [
@@ -619,8 +713,9 @@ function makeApp(opts: {
     ...(opts.extraImages ?? []),
   ];
   const imageRegistry = opts.imageRegistry ?? makeMockImageRegistry(images);
-  const toolRegistry = opts.toolRegistry ?? makeInMemoryToolRegistry();
-  const guardrailRegistry = makeInMemoryGuardrailRegistry();
+  const refreshes = { refreshes: opts.refreshes === true };
+  const toolRegistry = opts.toolRegistry ?? makeInMemoryToolRegistry(refreshes);
+  const guardrailRegistry = makeInMemoryGuardrailRegistry(refreshes);
   const agentRegistry = opts.agentRegistry ?? makeInMemoryAgentRegistry();
   const flowRegistry = opts.flowRegistry ?? makeInMemoryFlowRegistry();
 
@@ -639,7 +734,9 @@ function makeApp(opts: {
     // Content-scope anchor — the deployments router's agents publish
     // loop resolves Default project through this binding. Opt out via
     // `omitProjectBinding: true` for the negative-path test.
-    ...(opts.omitProjectBinding === true ? {} : { projectBinding: makeMockProjectBinding() }),
+    ...(opts.omitProjectBinding === true
+      ? {}
+      : { projectBinding: makeMockProjectBinding(opts.projectId) }),
     ...(opts.writes !== undefined && {
       onToolWrite: ({ toolId, version, kind }) => {
         opts.writes?.push(`tool ${toolId as unknown as string}@${version} ${kind}`);
@@ -756,6 +853,59 @@ describe("POST /v1/deployments — the image's index is what registers", () => {
 // ---------------- happy path ----------------
 
 describe('POST /v1/deployments — happy path', () => {
+  test("a tool naming a model provider's key is refused, naming the tool, the key and the provider", async () => {
+    const fixture = buildSignedDeploy({
+      index: {
+        v: 1,
+        packId: 'acme.aperture',
+        packVersion: '1.0.0',
+        artifactVersion: '20260920.1',
+        publishedAt: '2026-09-20T14:32:07.104Z',
+        tools: [
+          {
+            id: 'acme.summarize',
+            description: 'Summarize with a model of its own.',
+            version: '1.0.0',
+            input: { type: 'object' },
+            output: { type: 'object' },
+            modulePath: './tools/summarize.js',
+            needsSpec: { secrets: { ANTHROPIC_API_KEY: { type: 'string' } } },
+          },
+        ],
+        guardrails: [],
+      },
+    });
+    const providerRegistry = {
+      resolveForRuntime: async () => [
+        {
+          metadata: { id: 'anthropic-main' },
+          adapterId: 'anthropic',
+          secretRef: { envName: 'prod', name: 'ANTHROPIC_API_KEY' },
+        },
+      ],
+    } as unknown as ProviderRegistryBinding;
+    const { app, toolRegistry } = makeApp({ fixture, extra: { providerRegistry } });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string; details: { issues: unknown[] } } };
+    expect(body.error.code).toBe('deployment-validation-failed');
+    expect(body.error.details.issues).toEqual([
+      {
+        primitive: 'tool',
+        index: 0,
+        id: 'acme.summarize',
+        path: '/secrets/ANTHROPIC_API_KEY',
+        message:
+          '`ANTHROPIC_API_KEY` is the key of model provider "anthropic-main": a tool never gets a model provider\'s key. If it needs to call a model itself, store the key under its own name (the same value is fine) and use that name',
+      },
+    ]);
+    expect(await toolRegistry.get({ tenantId, toolId: 'acme.summarize' as never })).toBeNull();
+  });
+
   test('signed deployment → 201 with all primitives registered', async () => {
     const fixture = buildSignedDeploy();
     const { app, toolRegistry, guardrailRegistry } = makeApp({ fixture });
@@ -798,6 +948,38 @@ describe('POST /v1/deployments — happy path', () => {
       guardrailId: 'acme.no-fabricated-quotes' as never,
     });
     expect(inv).not.toBeNull();
+  });
+
+  test("an unpinned `kindgi build`'s artifact version (YYYYMMDD.HHMMSS) deploys; one that isn't YYYYMMDD.N is refused", async () => {
+    const deploy = async (artifactVersion: string) => {
+      const fixture = buildSignedDeploy({
+        artifactVersion,
+        publishedAt: '2026-10-08T09:05:03.042Z',
+      });
+      const { app } = makeApp({ fixture });
+      return app.request('/v1/deployments', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify(fixture.wire),
+      });
+    };
+    const ok = await deploy('20261008.090503');
+    expect(ok.status).toBe(201);
+    expect(((await ok.json()) as { artifactVersion: string }).artifactVersion).toBe(
+      '20261008.090503',
+    );
+    for (const bad of ['2026-10-08.1', '20261008', '20261008.09:05:03']) {
+      const res = await deploy(bad);
+      expect(res.status, bad).toBe(400);
+      const body = (await res.json()) as {
+        error: { code: string; details?: { issues?: { path: string; message: string }[] } };
+      };
+      expect(body.error.code).toBe('bad-input');
+      expect(body.error.details?.issues).toContainEqual({
+        path: 'artifactVersion',
+        message: 'artifactVersion must match YYYYMMDD.N',
+      });
+    }
   });
 
   test('tools and guardrails keep where their code is: an oci pointer into the deployed image', async () => {
@@ -854,7 +1036,7 @@ describe('POST /v1/deployments — happy path', () => {
     expect(writes).toHaveLength(2);
   });
 
-  test('a guardrail as the indexer writes it (checkId, configSchema) deploys, its check from checkId', async () => {
+  test('a guardrail as the indexer writes it (checkId, configSchema) deploys, its check from checkId, its configSchema kept (T338)', async () => {
     const fixture = buildSignedDeploy({
       index: {
         v: 1,
@@ -898,7 +1080,99 @@ describe('POST /v1/deployments — happy path', () => {
       codeArtifactRef: { kind: 'oci', modulePath: 'guardrails/cites.mjs' },
     });
     expect(guardrail.checkId).toBeUndefined();
-    expect(guardrail.configSchema).toBeUndefined();
+    // Kept: the runtime checks a guardrail naming this check against it.
+    expect(guardrail.configSchema).toEqual({
+      type: 'object',
+      properties: { strict: { type: 'boolean' } },
+    });
+  });
+
+  test("an index guardrail carrying a field this runtime doesn't know (a newer CLI) deploys: it's dropped, not refused; the built-in marker is kept", async () => {
+    const fixture = buildSignedDeploy({
+      index: {
+        v: 1,
+        packId: 'acme.aperture',
+        packVersion: '1.0.0',
+        artifactVersion: '20260920.1',
+        publishedAt: '2026-09-20T14:32:07.104Z',
+        tools: [],
+        guardrails: [
+          {
+            id: 'acme.cites',
+            kind: 'zero-llm',
+            action: { 'on-violation': 'halt' },
+            checkModulePath: 'guardrails/cites.mjs',
+            checkId: 'must-cite',
+            config: { minCitations: 1 },
+            checkBuiltIn: true,
+            someLaterField: { anything: 1 },
+          },
+        ],
+        agents: [],
+        flows: [],
+      },
+    });
+    const { app, guardrailRegistry } = makeApp({ fixture });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status, await res.clone().text()).toBe(201);
+    const guardrail = (await guardrailRegistry.get({
+      tenantId,
+      guardrailId: 'acme.cites' as never,
+    })) as unknown as Record<string, unknown>;
+    expect(guardrail).toMatchObject({ check: 'must-cite', config: { minCitations: 1 } });
+    // The marker the runtime reads to tell a guardrail merely naming a built-in from an older
+    // CLI's pack that may ship its own check under one.
+    expect(guardrail.checkBuiltIn).toBe(true);
+    expect(guardrail.someLaterField).toBeUndefined();
+  });
+
+  test("an index guardrail naming a built-in with a config the built-in refuses: 400, the config's problem named", async () => {
+    const fixture = buildSignedDeploy({
+      index: {
+        v: 1,
+        packId: 'acme.aperture',
+        packVersion: '1.0.0',
+        artifactVersion: '20260920.1',
+        publishedAt: '2026-09-20T14:32:07.104Z',
+        tools: [],
+        guardrails: [
+          {
+            id: 'acme.no-refunds',
+            kind: 'zero-llm',
+            action: { 'on-violation': 'halt' },
+            checkModulePath: 'guardrails/no-refunds.mjs',
+            checkId: 'never-call-tool',
+            config: { tools: 'acme.refund' },
+          },
+        ],
+        agents: [],
+        flows: [],
+      },
+    });
+    const { app } = makeApp({ fixture });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      error: { code: string; details?: { issues?: unknown[] } };
+    };
+    expect(body.error.code).toBe('deployment-validation-failed');
+    expect(body.error.details?.issues).toEqual([
+      {
+        primitive: 'guardrail',
+        index: 0,
+        id: 'acme.no-refunds',
+        path: '/config/tools',
+        message: 'config.tools must be array.',
+      },
+    ]);
   });
 
   test("an index that declares the pack's process env deploys; the env is signed content, not a primitive", async () => {
@@ -1098,6 +1372,50 @@ describe('POST /v1/deployments — manifest validation', () => {
     expect(body.error.code).toBe('deployment-validation-failed');
     expect(body.error.details?.issues?.some((d) => d.primitive === 'tool' && d.index === 0)).toBe(
       true,
+    );
+  });
+
+  test("a tool's needsSpec schema that wouldn't compile → 400, naming the tool and where", async () => {
+    const fixture = buildSignedDeploy({
+      index: {
+        v: 1,
+        artifactVersion: '20260920.1',
+        publishedAt: '2026-09-20T14:32:07.104Z',
+        tools: [
+          {
+            id: 'acme.sign',
+            description: 'Signs a receipt.',
+            version: '0.1.0',
+            input: { type: 'object' },
+            output: { type: 'object' },
+            modulePath: 'tools/sign.js',
+            needsSpec: { secrets: { SIGNING_KEY: { type: 'string', 'x-unknown': true } } },
+          },
+        ],
+        guardrails: [],
+        agents: [],
+        flows: [],
+      },
+    });
+    const { app } = makeApp({ fixture });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      error: { code: string; details?: { issues?: Array<Record<string, unknown>> } };
+    };
+    expect(body.error.code).toBe('deployment-validation-failed');
+    expect(body.error.details?.issues).toContainEqual(
+      expect.objectContaining({
+        primitive: 'tool',
+        index: 0,
+        id: 'acme.sign',
+        path: '/needsSpec/secrets/SIGNING_KEY',
+        message: expect.stringContaining('unknown keyword: "x-unknown"'),
+      }),
     );
   });
 
@@ -1302,6 +1620,75 @@ describe('POST /v1/deployments — rollback', () => {
     );
     expect(body.error.details).toEqual({ primitive: 'agent', id: 'acme.drafting@1.0.0' });
     // Before: skipped, and the deployment recorded without its agent.
+    expect(
+      await toolRegistry.get({ tenantId, toolId: 'acme.verify-citation' as never }),
+    ).toBeNull();
+    expect(
+      await guardrailRegistry.get({ tenantId, guardrailId: 'acme.no-fabricated-quotes' as never }),
+    ).toBeNull();
+    expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
+  });
+
+  test('an agent that belongs to another project → 409 agent-project-mismatch, rolled back, nothing deployed', async () => {
+    const fixture = buildSignedDeploy({
+      index: {
+        v: 1,
+        artifactVersion: '20260920.1',
+        publishedAt: '2026-09-20T14:32:07.104Z',
+        tools: [
+          {
+            id: 'acme.verify-citation',
+            description: 'x',
+            version: '1.0.0',
+            input: { type: 'object' },
+            output: { type: 'object' },
+          },
+        ],
+        guardrails: [
+          {
+            id: 'acme.no-fabricated-quotes',
+            kind: 'zero-llm',
+            check: 'must-cite',
+            action: { 'on-violation': 'halt' },
+          },
+        ],
+        agents: [
+          {
+            id: 'acme.drafting',
+            version: '1.0.0',
+            name: 'Drafting',
+            instructions: 'do it',
+            capabilities: [{ feature: 'model.text.chat' }],
+            tools: [],
+          },
+        ],
+        flows: [],
+      },
+    });
+    const deploymentRegistry = makeInMemoryDeploymentBinding();
+    const { app, toolRegistry, guardrailRegistry } = makeApp({
+      fixture,
+      agentRegistry: makeInMemoryAgentRegistry({ elsewhereAgentId: 'acme.drafting' }),
+      deploymentRegistry,
+    });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status).toBe(409);
+    const text = await res.text();
+    const body = JSON.parse(text) as {
+      error: { code: string; message: string; details?: Record<string, unknown> };
+    };
+    expect(body.error.code).toBe('agent-project-mismatch');
+    expect(body.error.message).toBe(
+      "The agent acme.drafting@1.0.0 wasn't published: it belongs to another project; nothing was deployed",
+    );
+    expect(body.error.details).toEqual({ primitive: 'agent', id: 'acme.drafting@1.0.0' });
+    // The project it belongs to stays off the wire.
+    expect(text).not.toContain(ELSEWHERE_PROJECT_ID);
+    // A deploy never moves it: what it published before is rolled back.
     expect(
       await toolRegistry.get({ tenantId, toolId: 'acme.verify-citation' as never }),
     ).toBeNull();
@@ -2578,11 +2965,15 @@ function makeVersionedToolRegistry(): ToolRegistryBinding & { versions: (id: str
 }
 
 /** An agent registry that lists and reads its versions back, as the runtime's does. */
-function makeVersionedAgentRegistry(): AgentRegistryBinding & {
+function makeVersionedAgentRegistry(
+  opts: { recordsProject?: boolean } = {},
+): AgentRegistryBinding & {
   versions: () => Agent[];
   seed: (agent: Agent) => void;
 } {
   const rows = new Map<string, Agent>();
+  // With `recordsProject`, the agent stays in its first version's project.
+  let owner: ProjectId | undefined;
   return {
     versions: () => [...rows.values()],
     seed: (agent) => rows.set(agent.version as unknown as string, agent),
@@ -2594,7 +2985,9 @@ function makeVersionedAgentRegistry(): AgentRegistryBinding & {
       return latest === undefined ? null : (rows.get(latest) ?? null);
     },
     async getVersion({ version }) {
-      return rows.get(version as unknown as string) ?? null;
+      const row = rows.get(version as unknown as string);
+      if (row === undefined) return null;
+      return owner === undefined ? row : { ...row, projectId: owner };
     },
     async headExists() {
       return rows.size > 0;
@@ -2602,11 +2995,20 @@ function makeVersionedAgentRegistry(): AgentRegistryBinding & {
     async listVersions() {
       return { data: [...rows.values()] };
     },
-    async publish({ agent }) {
+    async publish({ agent, projectId }) {
+      if (owner !== undefined && owner !== projectId) {
+        return {
+          kind: 'project-mismatch',
+          agentId: agent.id,
+          version: agent.version,
+          projectId: owner,
+        };
+      }
       if (rows.has(agent.version as unknown as string)) {
         return { kind: 'already-registered', agentId: agent.id, version: agent.version };
       }
       rows.set(agent.version as unknown as string, agent);
+      if (opts.recordsProject === true) owner = projectId;
       return { kind: 'ok', agentId: agent.id, version: agent.version };
     },
     async unregister({ version }) {
@@ -2619,8 +3021,12 @@ function makeVersionedAgentRegistry(): AgentRegistryBinding & {
 }
 
 /** A flow registry that lists and reads its versions back, as the runtime's does. */
-function makeVersionedFlowRegistry(): FlowRegistryBinding & { versions: () => Flow[] } {
+function makeVersionedFlowRegistry(
+  opts: { recordsProject?: boolean } = {},
+): FlowRegistryBinding & { versions: () => Flow[] } {
   const rows = new Map<string, Flow>();
+  // With `recordsProject`, the flow stays in its first version's project.
+  let owner: ProjectId | undefined;
   return {
     versions: () => [...rows.values()],
     async list() {
@@ -2630,7 +3036,9 @@ function makeVersionedFlowRegistry(): FlowRegistryBinding & { versions: () => Fl
       return null;
     },
     async getVersion({ version }: Parameters<FlowRegistryBinding['getVersion']>[0]) {
-      return rows.get(version as unknown as string) ?? null;
+      const row = rows.get(version as unknown as string);
+      if (row === undefined) return null;
+      return owner === undefined ? row : { ...row, projectId: owner };
     },
     async headExists() {
       return rows.size > 0;
@@ -2638,11 +3046,20 @@ function makeVersionedFlowRegistry(): FlowRegistryBinding & { versions: () => Fl
     async listVersions() {
       return { data: [...rows.values()] };
     },
-    async publish({ flow }: Parameters<FlowRegistryBinding['publish']>[0]) {
+    async publish({ flow, projectId }: Parameters<FlowRegistryBinding['publish']>[0]) {
+      if (owner !== undefined && owner !== projectId) {
+        return {
+          kind: 'project-mismatch',
+          flowId: flow.id,
+          version: flow.version,
+          projectId: owner,
+        };
+      }
       if (rows.has(flow.version)) {
         return { kind: 'already-registered', flowId: flow.id, version: flow.version };
       }
       rows.set(flow.version, flow);
+      if (opts.recordsProject === true) owner = projectId;
       return { kind: 'ok', flowId: flow.id, version: flow.version };
     },
     async unregister({ version }: Parameters<FlowRegistryBinding['unregister']>[0]) {
@@ -2828,6 +3245,86 @@ describe('POST /v1/deployments — agents are pinned, and a deploy never keeps o
     ).toEqual(['1.4.0', '1.4.1']);
   });
 
+  /** A deploy of each pack into `projectId`, against the same registries. */
+  function deployInto(
+    registries: {
+      tools: ToolRegistryBinding;
+      agents: AgentRegistryBinding;
+      flows: FlowRegistryBinding;
+    },
+    projectId: ProjectId,
+    deploymentRegistry: DeploymentBinding,
+    ...packs: SignedDeploy[]
+  ) {
+    const { app } = makeApp({
+      toolRegistry: registries.tools,
+      agentRegistry: registries.agents,
+      flowRegistry: registries.flows,
+      deploymentRegistry,
+      projectId,
+      extraTrust: packs.map(trustOf),
+      extraImages: packs.map(imageOf),
+    });
+    return async (f: SignedDeploy) => {
+      const res = await app.request('/v1/deployments', {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify(f.wire),
+      });
+      const text = await res.text();
+      return { status: res.status, text, body: JSON.parse(text) as Record<string, any> };
+    };
+  }
+
+  test('an unchanged agent of another project is refused: 409 agent-project-mismatch, nothing deployed', async () => {
+    const pack = pinnedPack({ toolVersion: '1.0.0', agentVersion: '1.4.0' });
+    const registries = {
+      tools: makeVersionedToolRegistry(),
+      agents: makeVersionedAgentRegistry({ recordsProject: true }),
+      flows: makeVersionedFlowRegistry({ recordsProject: true }),
+    };
+    const projectB = randomUUID() as ProjectId;
+    const recordedB = makeInMemoryDeploymentBinding();
+    const intoA = deployInto(registries, DEFAULT_PROJECT_ID, makeInMemoryDeploymentBinding(), pack);
+    const intoB = deployInto(registries, projectB, recordedB, pack);
+
+    expect((await intoA(pack)).status).toBe(201);
+    // The same pack again, unchanged, into another project: it would write nothing.
+    const moved = await intoB(pack);
+    expect(moved.status).toBe(409);
+    expect(moved.body.error.code).toBe('agent-project-mismatch');
+    expect(moved.body.error.details).toEqual({ primitive: 'agent', id: 'acme.matcher@1.4.0' });
+    expect(moved.text).not.toContain(DEFAULT_PROJECT_ID);
+    expect((await recordedB.list({ tenantId, limit: 10 })).data).toEqual([]);
+    // The same project, unchanged: as before.
+    const again = deployInto(registries, DEFAULT_PROJECT_ID, makeInMemoryDeploymentBinding(), pack);
+    const same = await again(pack);
+    expect(same.status).toBe(201);
+    expect(same.body.contents.agents).toEqual([{ id: 'acme.matcher', version: '1.4.0' }]);
+  });
+
+  test('an unchanged flow of another project is refused: 409 flow-project-mismatch, nothing deployed', async () => {
+    const pack = pinnedPack({ toolVersion: '1.0.0', agentVersion: '1.4.0', flowVersion: '1.0.0' });
+    const registries = {
+      tools: makeVersionedToolRegistry(),
+      // The agent's registry records no project: only the flow is held to its project here.
+      agents: makeVersionedAgentRegistry(),
+      flows: makeVersionedFlowRegistry({ recordsProject: true }),
+    };
+    const projectB = randomUUID() as ProjectId;
+    const recordedB = makeInMemoryDeploymentBinding();
+    const intoA = deployInto(registries, DEFAULT_PROJECT_ID, makeInMemoryDeploymentBinding(), pack);
+    const intoB = deployInto(registries, projectB, recordedB, pack);
+
+    expect((await intoA(pack)).status).toBe(201);
+    const moved = await intoB(pack);
+    expect(moved.status).toBe(409);
+    expect(moved.body.error.code).toBe('flow-project-mismatch');
+    expect(moved.body.error.details).toEqual({ primitive: 'flow', id: 'acme.review@1.0.0' });
+    expect(moved.text).not.toContain(DEFAULT_PROJECT_ID);
+    expect((await recordedB.list({ tenantId, limit: 10 })).data).toEqual([]);
+  });
+
   test('a version taken by a different definition registers the next free one in its line', async () => {
     const first = pinnedPack({ toolVersion: '1.0.0', agentVersion: '1.4.0' });
     const edited = pinnedPack({
@@ -2995,5 +3492,414 @@ describe('POST /v1/deployments — agents are pinned, and a deploy never keeps o
         .map((f) => f.version)
         .sort(),
     ).toEqual(['2.0.0', '2.0.1']);
+  });
+});
+
+// ---------------- a guardrail id that's already live ----------------
+
+/** The fixture's index, its guardrail changed by `guardrail`, for `artifactVersion`. */
+function indexWith(
+  artifactVersion: string,
+  guardrail: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    v: 1,
+    packId: 'acme.aperture',
+    packVersion: '1.0.0',
+    artifactVersion,
+    publishedAt: '2026-09-20T14:32:07.104Z',
+    tools: [
+      {
+        id: 'acme.verify-citation',
+        description: 'Verify a legal citation.',
+        version: '1.0.0',
+        input: { type: 'object', properties: { citation: { type: 'string' } } },
+        output: { type: 'object', properties: { verified: { type: 'boolean' } } },
+        modulePath: './tools/legal/verify-citation.js',
+      },
+    ],
+    guardrails: [
+      {
+        id: 'acme.no-fabricated-quotes',
+        kind: 'zero-llm',
+        check: 'must-cite',
+        action: { 'on-violation': 'halt' },
+        checkModulePath: './guardrails/must-cite.js',
+        ...guardrail,
+      },
+    ],
+    agents: [],
+    flows: [],
+  };
+}
+
+const SECOND_KEY_ID = 'aperture-staging-2026-02' as SigningKeyId;
+
+/** An app that trusts two images of the pack: the first, and a later one (`second`). */
+function twoImages(second: SignedDeploy, opts: { refreshes?: boolean } = {}) {
+  const first = buildSignedDeploy({
+    artifactVersion: '20260920.1',
+    index: indexWith('20260920.1'),
+  });
+  const made = makeApp({
+    fixture: first,
+    ...(opts.refreshes === true && { refreshes: true }),
+    extraTrust: [
+      {
+        keyId: SECOND_KEY_ID,
+        tenantId,
+        publicKey: Buffer.from(second.publicKeyRaw).toString('base64'),
+      },
+    ],
+    extraImages: [
+      { imageRef: second.imageRef, digest: second.digest, indexBytes: second.indexBytes },
+    ],
+  });
+  const deploy = async (fixture: SignedDeploy) => {
+    const res = await made.app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    return { status: res.status, text: await res.text() };
+  };
+  return { ...made, first, deploy };
+}
+
+const laterImage = (guardrail: Record<string, unknown> = {}) =>
+  buildSignedDeploy({
+    artifactVersion: '20260921.1',
+    keyId: SECOND_KEY_ID,
+    index: indexWith('20260921.1', guardrail),
+  });
+
+describe("POST /v1/deployments — a guardrail id that's already live", () => {
+  test('in another project: 409 guardrail-project-mismatch, its project unnamed, and nothing deployed', async () => {
+    const elsewhere = randomUUID() as ProjectId;
+    const { guardrailRegistry, toolRegistry, deploymentRegistry, deploy, first } = twoImages(
+      laterImage(),
+    );
+    await guardrailRegistry.register({
+      tenantId,
+      projectId: elsewhere,
+      guardrail: {
+        id: 'acme.no-fabricated-quotes',
+        kind: 'zero-llm',
+        check: 'must-cite',
+        action: { 'on-violation': 'halt' },
+      } as never,
+      enqueueTuples: () => [],
+    });
+
+    const answer = await deploy(first);
+    expect(answer.status).toBe(409);
+    const body = JSON.parse(answer.text) as {
+      error: { code: string; message: string; details?: Record<string, unknown> };
+    };
+    expect(body.error.code).toBe('guardrail-project-mismatch');
+    expect(body.error.message).toBe(
+      "The guardrail acme.no-fabricated-quotes wasn't published: it belongs to another project; nothing was deployed",
+    );
+    expect(body.error.details).toEqual({ primitive: 'guardrail', id: 'acme.no-fabricated-quotes' });
+    // The project it belongs to stays off the wire.
+    expect(answer.text).not.toContain(elsewhere);
+    expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toEqual([]);
+    // The tool this deploy had registered is rolled back.
+    expect(
+      await toolRegistry.get({ tenantId, toolId: 'acme.verify-citation' as never }),
+    ).toBeNull();
+  });
+
+  test('in this project, the same definition in a new image: kept, the deploy goes through', async () => {
+    const second = laterImage();
+    const { guardrailRegistry, toolRegistry, deploy, first } = twoImages(second);
+    expect((await deploy(first)).status).toBe(201);
+    expect((await deploy(second)).status).toBe(201);
+    // Kept as it was: a registry without the refresh methods keeps the
+    // first image's pointer, for the guardrail and the tool alike.
+    const kept = (await guardrailRegistry.get({
+      tenantId,
+      guardrailId: 'acme.no-fabricated-quotes' as never,
+    })) as unknown as { codeArtifactRef: { artifactVersion: string; imageRef: string } };
+    expect(kept.codeArtifactRef.artifactVersion).toBe('20260920.1');
+    expect(kept.codeArtifactRef.imageRef).toBe(first.imageRef);
+    const tool = (await toolRegistry.get({
+      tenantId,
+      toolId: 'acme.verify-citation' as never,
+    })) as unknown as { codeArtifactRef: { artifactVersion: string; imageRef: string } };
+    expect(tool.codeArtifactRef).toMatchObject({
+      artifactVersion: '20260920.1',
+      imageRef: first.imageRef,
+    });
+  });
+
+  test('in this project with another definition: 409 guardrail-already-registered, nothing deployed', async () => {
+    const second = laterImage({ action: { 'on-violation': 'flag' } });
+    const { guardrailRegistry, deploymentRegistry, deploy, first } = twoImages(second);
+    expect((await deploy(first)).status).toBe(201);
+
+    const answer = await deploy(second);
+    expect(answer.status).toBe(409);
+    const body = JSON.parse(answer.text) as { error: { code: string; message: string } };
+    expect(body.error.code).toBe('guardrail-already-registered');
+    expect(body.error.message).toBe(
+      "The guardrail acme.no-fabricated-quotes wasn't published: it is already registered with a different definition; unregister it (`kindgi guardrails unregister acme.no-fabricated-quotes`) and deploy again; nothing was deployed",
+    );
+    expect((await deploymentRegistry.list({ tenantId, limit: 10 })).data).toHaveLength(1);
+    const kept = (await guardrailRegistry.get({
+      tenantId,
+      guardrailId: 'acme.no-fabricated-quotes' as never,
+    })) as unknown as { action: unknown };
+    expect(kept.action).toEqual({ 'on-violation': 'halt' });
+  });
+
+  test.each([
+    [
+      'stored by a 0.1.4 deploy (no configSchema), the pack now carrying one',
+      {},
+      { configSchema: { type: 'object', properties: { min: { type: 'integer' } } } },
+    ],
+    ['stored with a field a later release added', { checkBuiltIn: false }, {}],
+  ])('in this project, %s: kept, the deploy goes through', async (_why, stored, indexed) => {
+    const fixture = buildSignedDeploy({ index: indexWith('20260920.1', indexed) });
+    const { app, guardrailRegistry } = makeApp({ fixture });
+    await guardrailRegistry.register({
+      tenantId,
+      projectId: DEFAULT_PROJECT_ID,
+      guardrail: {
+        id: 'acme.no-fabricated-quotes',
+        kind: 'zero-llm',
+        check: 'must-cite',
+        action: { 'on-violation': 'halt' },
+        codeArtifactRef: {
+          kind: 'oci',
+          imageRef: 'ghcr.io/acme/aperture@sha256:0123',
+          modulePath: './guardrails/must-cite.js',
+          artifactVersion: '20260901.1',
+        },
+        ...stored,
+      } as never,
+      enqueueTuples: () => [],
+    });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status, await res.text()).toBe(201);
+  });
+
+  test('unregistered between the registry answering and the deploy looking: registered again', async () => {
+    const fixture = buildSignedDeploy({ index: indexWith('20260920.1') });
+    const { app, guardrailRegistry } = makeApp({ fixture });
+    // The registry answers `already-registered` once, for a row that's then gone.
+    const register = guardrailRegistry.register.bind(guardrailRegistry);
+    let answered = false;
+    (guardrailRegistry as { register: GuardrailRegistryBinding['register'] }).register = async (
+      input,
+    ) => {
+      if (!answered) {
+        answered = true;
+        return { kind: 'already-registered', guardrailId: input.guardrail.id };
+      }
+      return register(input);
+    };
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status).toBe(201);
+    expect(
+      await guardrailRegistry.get({ tenantId, guardrailId: 'acme.no-fabricated-quotes' as never }),
+    ).not.toBeNull();
+  });
+});
+
+describe('sameGuardrailDefinition', () => {
+  const base = {
+    id: 'acme.no-fabricated-quotes',
+    kind: 'zero-llm',
+    check: 'must-cite',
+    action: { 'on-violation': 'halt' },
+    codeArtifactRef: {
+      kind: 'oci',
+      imageRef: 'ghcr.io/acme/aperture@sha256:aaa',
+      modulePath: './guardrails/must-cite.js',
+      artifactVersion: '20260920.1',
+    },
+  } as unknown as Guardrail;
+  const g = (patch: Record<string, unknown>) => ({ ...base, ...patch }) as unknown as Guardrail;
+
+  test.each([
+    ['keys in another order', g({ action: { 'on-violation': 'halt' }, id: base.id })],
+    ['an undefined field', g({ description: undefined })],
+    ['a configSchema only one has', g({ configSchema: { type: 'object' } })],
+    ['a field a later release adds', g({ checkBuiltIn: true })],
+    [
+      'another image and artifact version',
+      g({
+        codeArtifactRef: {
+          kind: 'oci',
+          artifactVersion: '20260921.1',
+          modulePath: './guardrails/must-cite.js',
+          imageRef: 'ghcr.io/acme/aperture@sha256:bbb',
+        },
+      }),
+    ],
+  ])('the same, with %s', (_why, other) => {
+    expect(sameGuardrailDefinition(base, other)).toBe(true);
+  });
+
+  test.each([
+    ['another action', g({ action: { 'on-violation': 'flag' } })],
+    ['another check', g({ check: 'never-call-tool' })],
+    ['another description', g({ description: 'Quotes must be cited.' })],
+    ['a config', g({ config: { min: 1 } })],
+    [
+      'another module path',
+      g({ codeArtifactRef: { ...(base.codeArtifactRef as object), modulePath: './other.js' } }),
+    ],
+    ['no code pointer', g({ codeArtifactRef: undefined })],
+  ])('different, with %s', (_why, other) => {
+    expect(sameGuardrailDefinition(base, other)).toBe(false);
+  });
+});
+
+describe('POST /v1/deployments — a redeploy refreshes what it derived', () => {
+  const SCHEMA = { type: 'object', properties: { min: { type: 'integer' } } };
+  const pointerOf = async (made: ReturnType<typeof twoImages>) => {
+    const guardrail = (await made.guardrailRegistry.get({
+      tenantId,
+      guardrailId: 'acme.no-fabricated-quotes' as never,
+    })) as unknown as { codeArtifactRef: { artifactVersion: string }; configSchema?: unknown };
+    const tool = (await made.toolRegistry.get({
+      tenantId,
+      toolId: 'acme.verify-citation' as never,
+    })) as unknown as { codeArtifactRef: { artifactVersion: string } };
+    return {
+      guardrail: guardrail.codeArtifactRef.artifactVersion,
+      schema: guardrail.configSchema,
+      tool: tool.codeArtifactRef.artifactVersion,
+    };
+  };
+
+  test("a kept tool version and guardrail get the new image's pointer, the guardrail its config schema", async () => {
+    const second = laterImage({ configSchema: SCHEMA });
+    const made = twoImages(second, { refreshes: true });
+    expect((await made.deploy(made.first)).status).toBe(201);
+    expect(await pointerOf(made)).toEqual({
+      guardrail: '20260920.1',
+      schema: undefined,
+      tool: '20260920.1',
+    });
+    expect((await made.deploy(second)).status).toBe(201);
+    expect(await pointerOf(made)).toEqual({
+      guardrail: '20260921.1',
+      schema: SCHEMA,
+      tool: '20260921.1',
+    });
+  });
+
+  test('a deploy refused after refreshing puts the old pointer and schema back', async () => {
+    // The later image also brings a guardrail whose id lives in another project.
+    const index = indexWith('20260921.1', { configSchema: SCHEMA }) as { guardrails: unknown[] };
+    index.guardrails.push({
+      id: 'acme.elsewhere',
+      kind: 'zero-llm',
+      check: 'must-cite',
+      action: { 'on-violation': 'halt' },
+    });
+    const second = buildSignedDeploy({
+      artifactVersion: '20260921.1',
+      keyId: SECOND_KEY_ID,
+      index: index as Record<string, unknown>,
+    });
+    const made = twoImages(second, { refreshes: true });
+    expect((await made.deploy(made.first)).status).toBe(201);
+    await made.guardrailRegistry.register({
+      tenantId,
+      projectId: randomUUID() as ProjectId,
+      guardrail: {
+        id: 'acme.elsewhere',
+        kind: 'zero-llm',
+        check: 'must-cite',
+        action: { 'on-violation': 'halt' },
+      } as never,
+      enqueueTuples: () => [],
+    });
+
+    expect((await made.deploy(second)).status).toBe(409);
+    expect(await pointerOf(made)).toEqual({
+      guardrail: '20260920.1',
+      schema: undefined,
+      tool: '20260920.1',
+    });
+  });
+
+  test("a rollback leaves another deploy's later refresh in place (compare-and-set)", async () => {
+    // This deploy refreshes, then is refused by a later guardrail; between
+    // the two, another deploy of the tenant refreshes the same rows.
+    const index = indexWith('20260921.1', { configSchema: SCHEMA }) as { guardrails: unknown[] };
+    index.guardrails.push({
+      id: 'acme.elsewhere',
+      kind: 'zero-llm',
+      check: 'must-cite',
+      action: { 'on-violation': 'halt' },
+    });
+    const second = buildSignedDeploy({
+      artifactVersion: '20260921.1',
+      keyId: SECOND_KEY_ID,
+      index: index as Record<string, unknown>,
+    });
+    const made = twoImages(second, { refreshes: true });
+    expect((await made.deploy(made.first)).status).toBe(201);
+    await made.guardrailRegistry.register({
+      tenantId,
+      projectId: randomUUID() as ProjectId,
+      guardrail: {
+        id: 'acme.elsewhere',
+        kind: 'zero-llm',
+        check: 'must-cite',
+        action: { 'on-violation': 'halt' },
+      } as never,
+      enqueueTuples: () => [],
+    });
+    const third = (modulePath: string) => ({
+      kind: 'oci' as const,
+      imageRef: 'ghcr.io/acme/aperture@sha256:third',
+      modulePath,
+      artifactVersion: '20260922.1',
+    });
+    const THIRD_SCHEMA = { type: 'object', properties: { max: { type: 'integer' } } };
+    const get = made.guardrailRegistry.get.bind(made.guardrailRegistry);
+    let raced = false;
+    (made.guardrailRegistry as { get: GuardrailRegistryBinding['get'] }).get = async (input) => {
+      if (input.guardrailId === ('acme.elsewhere' as never) && !raced) {
+        raced = true;
+        await made.toolRegistry.refreshCodeArtifactRef?.({
+          tenantId,
+          toolId: 'acme.verify-citation' as never,
+          version: '1.0.0' as never,
+          codeArtifactRef: third('./tools/legal/verify-citation.js'),
+        });
+        await made.guardrailRegistry.refreshDeployedFields?.({
+          tenantId,
+          guardrailId: 'acme.no-fabricated-quotes' as never,
+          codeArtifactRef: third('./guardrails/must-cite.js'),
+          configSchema: THIRD_SCHEMA,
+        });
+      }
+      return get(input);
+    };
+
+    expect((await made.deploy(second)).status).toBe(409);
+    expect(raced).toBe(true);
+    // The other deploy's refresh stands: this one's rollback didn't undo it.
+    expect(await pointerOf(made)).toEqual({
+      guardrail: '20260922.1',
+      schema: THIRD_SCHEMA,
+      tool: '20260922.1',
+    });
   });
 });

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import type { RunAgentRef } from '@kindgi/runtime';
 import type {
   Cursor,
   EnvName,
@@ -68,13 +69,20 @@ export interface WebhookEndpointBinding {
 }
 
 /** Event types an endpoint can subscribe to. */
-export const WEBHOOK_EVENT_TYPES = ['run.finished'] as const;
+export const WEBHOOK_EVENT_TYPES = [
+  'run.finished',
+  'improvement-pass.finished',
+  'approval.requested',
+] as const;
 export type WebhookEventType = (typeof WEBHOOK_EVENT_TYPES)[number];
 
 /**
  * Which events reach the endpoint. Every field narrows; absent fields
  * don't. `run.finished` is sent for top-level runs only (never for a
- * child run, such as an agent step's turn).
+ * child run, such as an agent step's turn). `projectId` narrows
+ * `improvement-pass.finished` and `approval.requested` too (the pass's or
+ * the approval's project); `flowIds` and `includeDryRuns` are about runs
+ * only.
  */
 export interface WebhookEndpointFilter {
   /** Only runs in this project. */
@@ -186,6 +194,13 @@ export interface FinishedRun {
     readonly costUsd: number;
     readonly tokens: CostTokenTotals;
   };
+  /**
+   * On an agent's run: the agent, the version that ran and the
+   * conversation, as `GET /v1/runs/:runId` shows them (its `flowId` is
+   * `agent.turn`). Absent on a flow's run, and from a runtime that doesn't
+   * send it yet.
+   */
+  readonly agent?: RunAgentRef;
 }
 
 export interface RunFinishedEvent {
@@ -193,6 +208,46 @@ export interface RunFinishedEvent {
   readonly type: 'run.finished';
   readonly createdAt: Timestamp;
   readonly data: { readonly run: FinishedRun };
+}
+
+/**
+ * An improvement pass ended (`completed`, `failed` or `cancelled`), one a
+ * person started or one an `improve` schedule did. `data.pass` is the pass
+ * as `GET /v1/improvement-passes/{passId}` shows it: its outcome names the
+ * proposal it wrote, if it wrote one.
+ */
+export interface ImprovementPassFinishedEvent {
+  readonly id: WebhookEventId;
+  readonly type: 'improvement-pass.finished';
+  readonly createdAt: Timestamp;
+  readonly data: { readonly pass: Readonly<Record<string, unknown>> };
+}
+
+/**
+ * An approval was asked for: a reviewer's decision is waiting. What the
+ * approval is about stays behind sign-in: no `context`, no tool call or
+ * run input. `url` is its page in the console, when the runtime knows its
+ * public address.
+ */
+export interface ApprovalRequestedEvent {
+  readonly id: WebhookEventId;
+  readonly type: 'approval.requested';
+  readonly createdAt: Timestamp;
+  readonly data: { readonly approval: RequestedApproval };
+}
+
+/** The approval an `approval.requested` event names, without its context. */
+export interface RequestedApproval {
+  readonly approvalId: string;
+  readonly projectId?: string;
+  /** The least reviewer role that may decide it. */
+  readonly requiredRole: 'standard' | 'senior' | 'admin';
+  readonly title?: string;
+  /** The one reviewer it's assigned to, when it is. */
+  readonly assignedTo?: string;
+  readonly createdAt: Timestamp;
+  readonly expiresAt?: Timestamp;
+  readonly url?: string;
 }
 
 /** Sent only by `POST /v1/webhook-endpoints/:endpointId/test`. */
@@ -204,7 +259,11 @@ export interface WebhookTestEvent {
 }
 
 /** The JSON body of every webhook request. */
-export type WebhookEvent = RunFinishedEvent | WebhookTestEvent;
+export type WebhookEvent =
+  | RunFinishedEvent
+  | ImprovementPassFinishedEvent
+  | ApprovalRequestedEvent
+  | WebhookTestEvent;
 
 // ---------- deliveries ----------
 

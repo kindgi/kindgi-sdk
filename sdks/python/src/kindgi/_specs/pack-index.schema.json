@@ -195,6 +195,11 @@
           "minLength": 1,
           "description": "The check's id — what a pack service resolves a `check-invoke` by. Absent: the guardrail's `id`."
         },
+        "checkBuiltIn": {
+          "type": "boolean",
+          "const": true,
+          "description": "The guardrail names a built-in check (`checkId`) without shipping a check of its own: `checkModulePath` is only the file it's declared in. The CLI sets it; a runtime warns about a guardrail naming a built-in without it."
+        },
         "configSchema": {
           "$ref": "#/$defs/jsonSchema",
           "description": "JSON Schema of the check's config."
@@ -244,6 +249,7 @@
           }
         },
         "retrieval": { "type": "array" },
+        "memory": { "$ref": "#/$defs/openObject" },
         "guardrails": { "type": "array", "items": { "type": "string" } },
         "budget": { "$ref": "#/$defs/openObject" },
         "parameters": { "type": "array" },

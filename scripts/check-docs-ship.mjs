@@ -30,6 +30,9 @@ const CONTRACTS = [
   'packages/cli/src/commands/',
   'packages/sdk/src/',
   'sdks/python/src/kindgi/',
+  'sdks/java/kindgi-client/src/main/',
+  'sdks/java/kindgi-models/src/main/',
+  'sdks/java/kindgi-pack/src/main/',
 ];
 const DOCS = [
   /^site\/src\/content\/docs\//,

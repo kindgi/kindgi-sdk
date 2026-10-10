@@ -66,6 +66,7 @@ import { tmpdir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { UsageError } from '../errors.js';
 import { renderJson } from '../output.js';
 import { resolveSdkPackageRoot } from '../sdk-package.js';
 import { commandResultFromThrown, stringFlag } from './helpers.js';
@@ -144,19 +145,19 @@ const write: LeafCommand = {
     try {
       const kindArg = stringFlag(ctx, 'kind');
       if (kindArg === undefined)
-        throw new Error('--kind=<bug|friction|question|design> is required');
+        throw new UsageError('--kind=<bug|friction|question|design> is required');
       if (!(KINDS as readonly string[]).includes(kindArg)) {
-        throw new Error(`--kind must be one of: ${KINDS.join(', ')} (got "${kindArg}")`);
+        throw new UsageError(`--kind must be one of: ${KINDS.join(', ')} (got "${kindArg}")`);
       }
       const kind = kindArg as FeedbackKind;
 
       const title = stringFlag(ctx, 'title');
       if (title === undefined || title.trim() === '')
-        throw new Error('--title=<short> is required');
+        throw new UsageError('--title=<short> is required');
 
       const severityArg = stringFlag(ctx, 'severity') ?? 'medium';
       if (!(SEVERITIES as readonly string[]).includes(severityArg)) {
-        throw new Error(
+        throw new UsageError(
           `--severity must be one of: ${SEVERITIES.join(', ')} (got "${severityArg}")`,
         );
       }
@@ -164,7 +165,7 @@ const write: LeafCommand = {
 
       const authoredByArg = stringFlag(ctx, 'authored-by') ?? 'human';
       if (!['claude-code', 'human', 'mixed'].includes(authoredByArg)) {
-        throw new Error(
+        throw new UsageError(
           `--authored-by must be claude-code, human, or mixed (got "${authoredByArg}")`,
         );
       }

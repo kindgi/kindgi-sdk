@@ -128,7 +128,8 @@ const DEFAULT_ENV_NAME: EnvName = ((): EnvName => {
   return validated ?? (raw as EnvName);
 })();
 
-function resolveTenantConfigEnvName(): EnvName {
+/** The environment the tenant config's `env` and `config` entries live in. */
+export function resolveTenantConfigEnvName(): EnvName {
   const raw = process.env.KINDGI_ENV_NAME;
   if (raw === undefined || raw.length === 0) return DEFAULT_ENV_NAME;
   const validated = makeEnvName(raw);
@@ -148,6 +149,12 @@ export function tenantRouter(options: TenantRouterOptions): Hono<AppEnv> {
       '*',
       authorizer.authorize('read', (c) => ref('tenant', c.get('tenantId') as unknown as string)),
     );
+    // Changing the config writes the tenant's secrets and env: `admin`
+    // on the tenant (T243 A), as every tenant-wide write.
+    const admin = authorizer.authorize('admin', (c) =>
+      ref('tenant', c.get('tenantId') as unknown as string),
+    );
+    r.use('/config', async (c, next) => (c.req.method === 'PATCH' ? admin(c, next) : next()));
   }
 
   // ---------- GET / ----------

@@ -1,5 +1,83 @@
 # @kindgi/pack-conformance
 
+## 0.1.5
+
+### Patch Changes
+
+- 88a2846: **The TypeScript pack service checks a check's `config` against the guardrail's indexed `configSchema` before it runs the check, as the Python pack service does.**
+  - **A config that doesn't fit** answers `input-validation-failed`, with `checkId` and the issues, and the check doesn't run.
+    - **Before:** a check defined with `defineCheck` refused it as `handler-throw`.
+    - **Before:** a check whose `configSchema` was only on the guardrail ran with it.
+  - **The message names the first issue** in both pack services: `Check "<id>" config failed validation at /maxChars: must be > 0`. A runtime reports a check's error by its code and message alone.
+  - **The config is checked as sent.** The schema's defaults aren't filled in, as when the indexer checks a declared config; the check's own schema fills them in.
+  - **A `configSchema` that doesn't compile** answers `input-validation-failed` in both pack services, as a tool's input schema does. The Python pack service used to skip the check.
+  - **`CheckInvocationSpec.configSchema`** is new and optional, for `runCheck`.
+  - **pack-conformance** has a case for it, so the two services can't diverge again.
+- f0a9b41: The suite runs against the Java pack service too. The package ships the fixture pack in Java (`fixtures/java-pack`, a `kindgi.config.json` and its classes under `src/main/java`), next to the Node and Python ones. `FIXTURE.md` is unchanged: same ids, same behaviour.
+- 9b03544: The suite runs against Scala packs too, on the Java pack service. The package ships the fixture pack in Scala (`fixtures/scala-pack`, a `kindgi.config.json`, its sources under `src/main/scala` and the sbt build that compiles them), next to the Node, Python and Java ones. `FIXTURE.md` is unchanged: same ids, same behaviour.
+- Updated dependencies [0919fe6]
+- Updated dependencies [a211c34]
+- Updated dependencies [b67c599]
+- Updated dependencies [93ebe85]
+- Updated dependencies [d94a98c]
+- Updated dependencies [70c5737]
+- Updated dependencies [646a906]
+- Updated dependencies [280377e]
+- Updated dependencies [e88c3cc]
+  - @kindgi/specs@0.1.5
+
+## 0.1.5-rc.0
+
+### Patch Changes
+
+- 88a2846: **The TypeScript pack service checks a check's `config` against the guardrail's indexed `configSchema` before it runs the check, as the Python pack service does.**
+  - **A config that doesn't fit** answers `input-validation-failed`, with `checkId` and the issues, and the check doesn't run.
+    - **Before:** a check defined with `defineCheck` refused it as `handler-throw`.
+    - **Before:** a check whose `configSchema` was only on the guardrail ran with it.
+  - **The message names the first issue** in both pack services: `Check "<id>" config failed validation at /maxChars: must be > 0`. A runtime reports a check's error by its code and message alone.
+  - **The config is checked as sent.** The schema's defaults aren't filled in, as when the indexer checks a declared config; the check's own schema fills them in.
+  - **A `configSchema` that doesn't compile** answers `input-validation-failed` in both pack services, as a tool's input schema does. The Python pack service used to skip the check.
+  - **`CheckInvocationSpec.configSchema`** is new and optional, for `runCheck`.
+  - **pack-conformance** has a case for it, so the two services can't diverge again.
+- f0a9b41: The suite runs against the Java pack service too. The package ships the fixture pack in Java (`fixtures/java-pack`, a `kindgi.config.json` and its classes under `src/main/java`), next to the Node and Python ones. `FIXTURE.md` is unchanged: same ids, same behaviour.
+- 9b03544: The suite runs against Scala packs too, on the Java pack service. The package ships the fixture pack in Scala (`fixtures/scala-pack`, a `kindgi.config.json`, its sources under `src/main/scala` and the sbt build that compiles them), next to the Node, Python and Java ones. `FIXTURE.md` is unchanged: same ids, same behaviour.
+- Updated dependencies [0919fe6]
+- Updated dependencies [a211c34]
+- Updated dependencies [b67c599]
+- Updated dependencies [93ebe85]
+- Updated dependencies [d94a98c]
+- Updated dependencies [70c5737]
+- Updated dependencies [646a906]
+- Updated dependencies [280377e]
+- Updated dependencies [e88c3cc]
+  - @kindgi/specs@0.1.5-rc.0
+
+## 0.1.4
+
+### Patch Changes
+
+- 024a47f: **An agent's prompt and settings can come from data blocks, pinned when the agent version is published.**
+  
+  - **References:**
+    - `instructions` is the system prompt, or a prompt block by range: `{ prompt: 'acme.intake-prompt', version: '^1.0.0' }`. Its template and declared parameters are used instead.
+    - `settings: [{ id, version }]` lists settings blocks.
+    - `modelSettings: { id, version }` names a model-settings block (`MODEL_SETTINGS_SCHEMA`: `temperature`, `maxOutputTokens`).
+  - **Pinned at publish:** `POST /v1/agents` and deploys resolve each reference by `pickVersion` into `pins.prompts` / `pins.settings`, alongside the tools.
+  - **Refusals:** a reference that matches no published version, names a block of the other kind, names model settings that aren't, or runs on a runtime with no block registry refuses the publish (`400 validation-failed`).
+  - **At run time:** a turn loads each block at its pinned version. A resumed turn uses the versions its `setup` journaled (`blockVersions`).
+    - The prompt block renders as the instructions.
+    - Settings values reach tools as `ToolContext.settings['<id>']` and templates as `settings["<id>"]`.
+    - Model settings go into the model call.
+    - A block that can't load fails the turn (`block-unresolvable`).
+    - `InvokeAgentBindings` takes an optional `blockReader`.
+  - **Changed elsewhere:** the agent spec, the pack index, both indexers (TS and Python: `Agent(instructions={...}, settings=[...], model_settings={...})`), and both clients.
+  - **Pack protocol 2.4.0:** `callContext` gets optional `settings`, so pack code reads them: `ctx.settings['acme.weights']` in TS, `ctx.settings["acme.weights"]` in Python. Older pack services still answer calls that carry it: a TS one passes it to the handler, a Python one drops it.
+  - **`settings` is now a reserved template name.**
+- Updated dependencies [024a47f]
+- Updated dependencies [2040daf]
+- Updated dependencies [9801f64]
+  - @kindgi/specs@0.1.4
+
 ## 0.1.4-rc.5
 
 ### Patch Changes

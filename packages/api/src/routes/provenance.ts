@@ -2,15 +2,18 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import { Hono } from 'hono';
+import type { Context, Next } from 'hono';
 
 import type { ConversationBinding } from '@kindgi/agents';
-import { serializePublicKeyPem, signEd25519 } from '@kindgi/crypto';
-import type { SigningKeyBinding } from '@kindgi/crypto';
-import { canonicalize } from '@kindgi/schema';
-import type { ConversationId, RunId, SigningKeyId, TenantId, Timestamp } from '@kindgi/types';
+import type { AuditEventBinding } from '@kindgi/audit-events';
+import { ref } from '@kindgi/authz';
+import type { ExportSigningBinding } from '@kindgi/crypto';
+import type { RunBinding } from '@kindgi/runtime';
+import type { ConversationId, RunId, TenantId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 
+import type { Authorizer } from '../middleware/authorize.js';
 import type {
   CallUsageByCallId,
   ProvenanceBinding,
@@ -18,9 +21,19 @@ import type {
   ProvenanceListCursor,
   ProvenanceRecordSummary,
 } from '../provenance-binding.js';
+import {
+  exportActor,
+  parseSigningKeyId,
+  readExportBody,
+  signExport,
+  signExportFailure,
+  signingNotConfigured,
+} from '../signed-export.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit, decodeCursor, encodeCursor } from './pagination.js';
 import { parseListScope } from './scope-params.js';
+import { parseTimeInput } from './time-input.js';
+import { UUID_RE } from './uuid-param.js';
 
 /**
  * Provenance resource routes.
@@ -41,25 +54,56 @@ import { parseListScope } from './scope-params.js';
  * server round trip.
  */
 export interface ProvenanceRouterOptions {
-  readonly signingKey?: SigningKeyBinding;
+  /** Signs provenance exports. Absent: `POST /:runId/export` answers `404 signing-not-configured`. */
+  readonly exportSigning?: ExportSigningBinding;
+  /** Records each signed export (`export-signed`). */
+  readonly auditEvents?: AuditEventBinding;
   /**
    * Conversation binding used by the signed-export path to read
    * conversation transcripts (`readMessages`) alongside provenance
    * DAGs. Absent = the export omits messages (empty array).
    */
   readonly conversationBinding?: ConversationBinding;
+  /** Where a run's project is read, for the per-run checks (T243 A). */
+  readonly runBinding?: RunBinding;
 }
 
 /** Bundle schema version — bump when the wire shape of `bundle.body` changes. */
 /** 1.1.0 adds `callUsage`: the model calls' usage from the cost ledger, when the run has any. */
-const BUNDLE_SCHEMA_VERSION = '1.1.0';
+/** 1.2.0: `exportedAt` is in the signed body (was the envelope's only). */
+const BUNDLE_SCHEMA_VERSION = '1.2.0';
 
 export function provenanceRouter(
   binding: ProvenanceBinding,
   options: ProvenanceRouterOptions = {},
+  /**
+   * With one (T243 A): a run's provenance (and its export) needs `read`
+   * on the run's project; the list holds only records whose project the
+   * caller may read (the tenant, for one with no project).
+   */
+  authorizer?: Authorizer,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
-  const signingKey = options.signingKey;
+  if (authorizer !== undefined) {
+    // A run that isn't there is the handler's 404 (`read` on the tenant).
+    // An id that isn't a run id is never looked up (its uuid cast would
+    // fail the query as a 500).
+    const onRunProject = async (c: Context<AppEnv>, next: Next) => {
+      const tenantId = c.get('tenantId') as TenantId;
+      const runId = c.req.param('runId') ?? '';
+      const run = UUID_RE.test(runId)
+        ? await options.runBinding?.getRun(tenantId, runId as RunId)
+        : undefined;
+      const at =
+        run === undefined || run === null
+          ? ref('tenant', tenantId as unknown as string)
+          : ref('project', run.projectId as unknown as string);
+      return authorizer.authorize('read', () => at)(c, next);
+    };
+    r.use('/:runId', async (c, next) => (c.req.method === 'GET' ? onRunProject(c, next) : next()));
+    r.use('/:runId/export', onRunProject);
+  }
+  const exportSigning = options.exportSigning;
 
   // ---------- GET / (list metadata, cursor-paginated) ----------
   r.get('/', async (c) => {
@@ -94,8 +138,8 @@ export function provenanceRouter(
 
     let createdAfter: Date | undefined;
     if (createdAfterRaw !== undefined && createdAfterRaw.length > 0) {
-      const parsed = new Date(createdAfterRaw);
-      if (Number.isNaN(parsed.getTime())) {
+      const parsed = parseTimeInput(createdAfterRaw);
+      if (parsed === null) {
         c.status(statusFor('bad-input') as never);
         return c.json(
           toWireError(
@@ -125,8 +169,16 @@ export function provenanceRouter(
     }
     const { records, nextCursor } = result.value;
     const hasMore = nextCursor !== undefined;
+    const visible =
+      authorizer === undefined
+        ? records
+        : await authorizer.filterByCan(c, 'read', records, (rec) =>
+            rec.projectId !== undefined
+              ? ref('project', rec.projectId as unknown as string)
+              : ref('tenant', tenantId as unknown as string),
+          );
     return c.json({
-      data: records.map(serializeRecordMetadata),
+      data: visible.map(serializeRecordMetadata),
       hasMore,
       ...(nextCursor !== undefined && {
         nextCursor: encodeCursor({ createdAt: nextCursor.createdAt, id: nextCursor.id }),
@@ -195,36 +247,10 @@ export function provenanceRouter(
     const tenantId = c.get('tenantId') as TenantId;
     const runId = c.req.param('runId') as RunId;
 
-    if (signingKey === undefined) {
-      c.status(statusFor('signing-not-configured') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'signing-not-configured',
-            message:
-              'This deployment does not have a `signingKey` binding mounted; signed provenance exports are unavailable.',
-          },
-          requestId,
-        ),
-      );
-    }
+    if (exportSigning === undefined) return signingNotConfigured(c, 'signed provenance exports');
 
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
-      c.status(statusFor('bad-input') as never);
-      return c.json(
-        toWireError({ code: 'bad-input', message: 'Request body must be valid JSON' }, requestId),
-      );
-    }
-    if (body === null || typeof body !== 'object' || Array.isArray(body)) {
-      c.status(statusFor('bad-input') as never);
-      return c.json(
-        toWireError({ code: 'bad-input', message: 'Request body must be an object' }, requestId),
-      );
-    }
-    const parsed = parseExportBody(body as Record<string, unknown>);
+    const read = await readExportBody(c);
+    const parsed = read.kind === 'ok' ? parseExportBody(read.value) : read;
     if (parsed.kind === 'err') {
       c.status(statusFor('bad-input') as never);
       return c.json(toWireError({ code: 'bad-input', message: parsed.message }, requestId));
@@ -282,94 +308,43 @@ export function provenanceRouter(
       }
     }
 
-    // 3. Look up the private key material.
-    const privateKey = signingKey.getPrivateKey(signingKeyId);
-    if (privateKey === null) {
-      c.status(statusFor('signing-key-not-found') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'signing-key-not-found',
-            message: `No signing key registered with id "${signingKeyId as unknown as string}"`,
-            signingKeyId: signingKeyId as unknown as string,
-          },
-          requestId,
-        ),
-      );
-    }
-    const publicKeyRaw = signingKey.getPublicKey(signingKeyId);
-    if (publicKeyRaw === null) {
-      // Contract: `getPublicKey` never returns null for a key that
-      // `getPrivateKey` resolved. Treat mismatch as a binding bug.
-      c.status(statusFor('signing-key-not-found') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'signing-key-not-found',
-            message: `Signing key "${signingKeyId as unknown as string}" resolved a private key but no public key`,
-            signingKeyId: signingKeyId as unknown as string,
-          },
-          requestId,
-        ),
-      );
-    }
-
-    // 4. Build the canonical bundle body. Bundle shape is v1.0.0 —
-    //    ordering here is irrelevant for signing (canonicalize sorts
-    //    keys) but declared explicitly for reviewer scanability.
-    const bundleBody = {
+    // 3. Sign the bundle body (and record the export).
+    const signed = await signExport({
+      signer: exportSigning,
+      kind: 'provenance',
       bundleSchemaVersion: BUNDLE_SCHEMA_VERSION,
-      provenanceId: provenance.id as unknown as string,
-      runId: provenance.runId as unknown as string,
-      tenantId: provenance.tenantId as unknown as string,
-      version: provenance.version,
-      createdAt: provenance.createdAt as unknown as string,
-      ...(provenance.flowRef !== undefined && {
-        flowRef: {
-          id: provenance.flowRef.id as unknown as string,
-          version: provenance.flowRef.version,
+      ...(signingKeyId !== undefined && { signingKeyId }),
+      body: {
+        provenanceId: provenance.id as unknown as string,
+        runId: provenance.runId as unknown as string,
+        tenantId: provenance.tenantId as unknown as string,
+        version: provenance.version,
+        createdAt: provenance.createdAt as unknown as string,
+        ...(provenance.flowRef !== undefined && {
+          flowRef: {
+            id: provenance.flowRef.id as unknown as string,
+            version: provenance.flowRef.version,
+          },
+        }),
+        dag: {
+          nodes: provenance.nodes,
+          edges: provenance.edges,
+        },
+        ...(messages !== undefined && { messages }),
+        ...(callUsage.value !== undefined && { callUsage: callUsage.value }),
+      },
+      ...(options.auditEvents !== undefined && {
+        record: {
+          auditEvents: options.auditEvents,
+          tenantId,
+          runId: runId as unknown as string,
+          actor: exportActor(c),
+          subject: { runId: runId as unknown as string },
         },
       }),
-      dag: {
-        nodes: provenance.nodes,
-        edges: provenance.edges,
-      },
-      ...(messages !== undefined && { messages }),
-      ...(callUsage.value !== undefined && { callUsage: callUsage.value }),
-    };
-    const canonicalBundleBytes = new TextEncoder().encode(canonicalize(bundleBody));
-
-    // 5. Sign the canonical bytes.
-    const signResult = signEd25519(privateKey, canonicalBundleBytes);
-    if (signResult.kind === 'err') {
-      c.status(statusFor('export-key-error') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'export-key-error',
-            message: `Failed to sign provenance bundle: ${signResult.error.message}`,
-          },
-          requestId,
-        ),
-      );
-    }
-
-    // 6. Emit the signed envelope. `bundle` is a base64 of the exact
-    //    bytes that were signed — verifiers decode + re-canonicalize
-    //    is unnecessary, they can verify against `atob(bundle)`
-    //    directly.
-    const exportedAt = new Date().toISOString() as Timestamp;
-    return c.json({
-      runId: runId as unknown as string,
-      bundle: Buffer.from(canonicalBundleBytes).toString('base64'),
-      bundleSchemaVersion: BUNDLE_SCHEMA_VERSION,
-      algorithm: 'ed25519' as const,
-      signingKeyId: signingKeyId as unknown as string,
-      signature: Buffer.from(signResult.value).toString('base64'),
-      publicKey: serializePublicKeyPem(publicKeyRaw),
-      canonicalization: 'sorted-key-json' as const,
-      exportedAt: exportedAt as unknown as string,
     });
+    if (signed.kind === 'err') return signExportFailure(c, signed.error, 'export-key-error');
+    return c.json({ runId: runId as unknown as string, ...signed.value });
   });
 
   return r;
@@ -407,7 +382,7 @@ function serializeRecordMetadata(row: ProvenanceRecordSummary): RecordMetadata {
 }
 
 interface ValidatedExportBody {
-  readonly signingKeyId: SigningKeyId;
+  readonly signingKeyId: string | undefined;
   readonly includeMessages: boolean;
 }
 
@@ -416,10 +391,8 @@ type ParseResult<T> =
   | { readonly kind: 'err'; readonly message: string };
 
 function parseExportBody(body: Record<string, unknown>): ParseResult<ValidatedExportBody> {
-  const raw = body.signingKeyId;
-  if (typeof raw !== 'string' || raw.length === 0) {
-    return { kind: 'err', message: 'Field `signingKeyId` must be a non-empty string' };
-  }
+  const signingKeyId = parseSigningKeyId(body);
+  if (signingKeyId.kind === 'err') return signingKeyId;
   let includeMessages = false;
   if ('includeMessages' in body) {
     const im = body.includeMessages;
@@ -428,13 +401,7 @@ function parseExportBody(body: Record<string, unknown>): ParseResult<ValidatedEx
     }
     includeMessages = im;
   }
-  return {
-    kind: 'ok',
-    value: {
-      signingKeyId: raw as SigningKeyId,
-      includeMessages,
-    },
-  };
+  return { kind: 'ok', value: { signingKeyId: signingKeyId.value, includeMessages } };
 }
 
 /** The run's call usage, when the binding has a cost ledger and the run made calls. */

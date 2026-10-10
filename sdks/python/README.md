@@ -99,7 +99,7 @@ def record_expense(expense: Expense, ctx: ToolContext) -> Recorded:
   (`needs_spec={"secrets": {"CITATOR_KEY": {"type": "string"}}}`): the
   runtime resolves them on every call, for the call's tenant, in its env
   (`KINDGI_ENV`; in `kindgi dev`, `local` — the pack's `.env` and
-  `.env.local`), and fails the call, naming the secret, when one is missing.
+  `.env.local`, then Kindgi's own `.kindgi/secrets.env`), and fails the call, naming the secret, when one is missing.
   `ctx.env` and `ctx.config` are reserved and still empty: read other
   configuration from the process environment — the pack service's, which in
   `kindgi dev` is the pack's `.env` and `.env.local`.
@@ -242,8 +242,17 @@ KINDGI_PACK_SERVICE_TOKEN=… python -m kindgi.pack serve --index index.json
 
 `serve` has the Node pack service's process contract: `--index`,
 `--module-root` and `--host`; `KINDGI_PACK_SERVICE_TOKEN`, `PORT`,
-`KINDGI_PACK_SERVICE_MAX_CONCURRENCY` and `KINDGI_PACK_ENV_CHECK`; JSON log
-lines on stderr; SIGTERM drains in-flight calls for up to 8 s.
+`KINDGI_PACK_SERVICE_MAX_CONCURRENCY`, `KINDGI_PACK_ENV_CHECK` and
+`KINDGI_PACK_ENV_FILTER`; JSON log lines on stderr; SIGTERM drains in-flight
+calls for up to 8 s.
+
+Before the pack's code loads, it drops from its environment every variable
+the pack doesn't declare (`[tool.kindgi.env]`), except `KINDGI_*` and the
+platform's (`kindgi.pack.env_filter`: the process's basics, the language
+runtime's settings, `PORT`, proxies and certificates, and Cloud Run's, AWS's
+and Azure's workload identity and metadata), and logs their names once
+(`env-dropped`), never their values. `KINDGI_PACK_ENV_FILTER=off` keeps
+every variable; `kindgi dev` sets it.
 
 At startup it checks the index's `env.required`. Under
 `KINDGI_PACK_ENV_CHECK=strict` (the default), a name that is unset or `""`
@@ -271,7 +280,7 @@ try:
 except GuardrailViolationError as blocked:
     print(blocked.violations)
 
-for event in client.runs.stream(str(turn.id)):        # SSE, resumes after a drop
+for event in client.runs.follow(turn.id):             # SSE, to the run's end
     print(event.kind)
 
 for agent in paginate(client.agents.list, limit=50):  # every page
@@ -289,10 +298,18 @@ never reads `.kindgirc.json`. It's the same lookup as the TypeScript SDK's
 - A request body is a model from `kindgi.client.models`, a mapping, or its
   fields as keywords (snake_case or the wire's camelCase); answers are models.
 - Path parameters are positional; query and header parameters keyword-only.
-- An operation that takes an `Idempotency-Key` gets one when you pass none, so
-  a retry never runs it twice. Calls that are safe to repeat are retried on a
-  connection error, 429, 502, 503 or 504 (`max_retries=2`, honouring
-  `Retry-After`).
+- An operation that takes an `Idempotency-Key` gets one when you pass none.
+  Retries (`max_retries=2`, honouring `Retry-After`):
+  - **A GET** is retried after a connection error or timeout, or a 429, 502,
+    503 or 504.
+  - **Any other call** is retried only when nothing can have run: a failure to
+    connect (or a connect or pool timeout), or a 429 or 503.
+  - **Once a call was sent,** a timeout, a dropped connection or a proxy's 502
+    or 504 is raised at once. The call may still be running on the server, and
+    sending it again could run it twice.
+  - **A waited `runs.start` that times out** says so, and that the run may
+    still be going. Start a run that can take longer than `timeout` (60 s by
+    default) with `options={"wait": False}`, and follow it.
 - Errors are typed: `NotFoundError`, `ConflictError`, `InvalidRequestError`,
   `GuardrailViolationError`, `AuthError`, `RateLimitedError`, `ServerError`,
   `NetworkError` — all `KindgiApiError`, with `.status`, `.server_code`,

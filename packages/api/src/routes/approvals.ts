@@ -2,40 +2,56 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import { Hono } from 'hono';
+import type { Context } from 'hono';
 
-import { AGENT_GATE_SUBJECTS, TOOL_CALL_GATE_SUBJECT } from '@kindgi/agents';
+import {
+  AGENT_GATE_SUBJECTS,
+  APPROVAL_WITHDRAWN_REASON,
+  TOOL_CALL_GATE_SUBJECT,
+} from '@kindgi/agents';
 import type { ConversationBinding, GateDecisionValue } from '@kindgi/agents';
-import { REVIEWER_ROLE_RANK, type ReviewerRole } from '@kindgi/authz';
-import { serializePublicKeyPem, signEd25519 } from '@kindgi/crypto';
-import type { SigningKeyBinding } from '@kindgi/crypto';
+import type { AuditEventBinding } from '@kindgi/audit-events';
+import { REVIEWER_ROLE_RANK, type ResourceRef, type ReviewerRole, ref } from '@kindgi/authz';
+import type { ExportSigningBinding } from '@kindgi/crypto';
 import type { RunBinding } from '@kindgi/runtime';
-import { canonicalize } from '@kindgi/schema';
 import type {
   ApprovalId,
   ConversationId,
   Cursor,
   ReviewerId,
   RunId,
-  SigningKeyId,
   TenantId,
   Timestamp,
   UserId,
 } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
-import type { RunHandlerBinding } from '../handler-binding.js';
+import type { RunHandlerBinding, RunTrace } from '../handler-binding.js';
 import type {
   Approval,
+  ApprovalPosition,
   ApprovalStatus,
   HitlBinding,
   ReviewDecisionKind,
   ReviewDecisionRecord,
 } from '../hitl-binding.js';
+import type { Authorizer } from '../middleware/authorize.js';
 import type { ReviewerBinding } from '../reviewer-binding.js';
 import { callerReviewerRole } from '../reviewer-role.js';
+import {
+  exportActor,
+  parseSigningKeyId,
+  readExportBody,
+  signExport,
+  signExportFailure,
+  signingNotConfigured,
+} from '../signed-export.js';
 import type { AppEnv } from '../types.js';
-import { clampLimit } from './pagination.js';
+import { refused } from './denied.js';
+import { clampLimit, decodeCursor, encodeCursor, isCursorTime } from './pagination.js';
 import { parseListScope } from './scope-params.js';
+import { parseTimeInput } from './time-input.js';
+import { UUID_RE } from './uuid-param.js';
 
 const APPROVAL_STATUSES: ReadonlySet<ApprovalStatus> = new Set([
   'pending',
@@ -73,11 +89,18 @@ const DECIDED_STATUSES: ReadonlySet<ApprovalStatus> = new Set([
   'withdrawn',
 ]);
 
-/** Audit-bundle body schema version — bump when the bundle wire shape changes. */
-const AUDIT_BUNDLE_SCHEMA_VERSION = 1;
+/**
+ * Audit-bundle body schema version — bump when the bundle wire shape changes.
+ * 2.0.0: a string like the other exports' (was the integer 1), named
+ * `bundleSchemaVersion` in the body too, `exportedAt` signed once.
+ */
+const AUDIT_BUNDLE_SCHEMA_VERSION = '2.0.0';
 
 export interface ApprovalsRouterOptions {
-  readonly signingKey?: SigningKeyBinding;
+  /** Signs audit bundles. Absent: `POST /:approvalId/audit-bundle` answers `404 signing-not-configured`. */
+  readonly exportSigning?: ExportSigningBinding;
+  /** Records each signed export (`export-signed`). */
+  readonly auditEvents?: AuditEventBinding;
   /**
    * When supplied, the POST /:approvalId/complete handler
    * invokes `runHandler.resumeRun(runId)` INLINE after `completeToken`
@@ -111,29 +134,47 @@ export function approvalsRouter(
   hitlBinding: HitlBinding,
   runBinding: RunBinding,
   options: ApprovalsRouterOptions = {},
+  /**
+   * With one (T243 A): on top of the reviewer role, a caller sees and
+   * decides only approvals whose project it may read (the approval's, or
+   * its run's). Another project's approval is not found, as one above the
+   * caller's tier is.
+   */
+  authorizer?: Authorizer,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
-  const signingKey = options.signingKey;
+  const { exportSigning, auditEvents } = options;
   const runHandler = options.runHandler;
+
+  /** What an approval is checked on: its project, else its run's, else the tenant. */
+  const approvalRef = async (tenantId: TenantId, approval: Approval): Promise<ResourceRef> => {
+    if (approval.projectId !== undefined) {
+      return ref('project', approval.projectId as unknown as string);
+    }
+    const runId = approval.provenanceRef?.runId;
+    const run = runId === undefined ? null : await runBinding.getRun(tenantId, runId as never);
+    return run === null
+      ? ref('tenant', tenantId as unknown as string)
+      : ref('project', run.projectId as unknown as string);
+  };
+  /** Whether the caller may read the approval's project (always, without an authorizer). */
+  const mayRead = async (c: Context<AppEnv>, approval: Approval): Promise<boolean> =>
+    authorizer === undefined ||
+    authorizer.can(c, 'read', await approvalRef(c.get('tenantId') as TenantId, approval));
 
   // ---------- role gate for the whole resource ----------
   // A reviewer: a token that carries a role, or whose user the roster
   // names (a session or API key of a registered reviewer).
   r.use('*', async (c, next) => {
-    const requestId = c.get('requestId');
     const role = await callerReviewerRole(c, reviewerBinding);
     if (role === undefined) {
-      c.status(statusFor('permission-denied') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'permission-denied',
-            message:
-              "The caller isn't a reviewer: its token carries no reviewer role, and its user isn't registered as one (`kindgi reviewers register`). The approvals surface is reviewer-only.",
-          },
-          requestId,
-        ),
-      );
+      return refused(c, authorizer, {
+        action: c.req.method === 'GET' ? 'read' : 'admin',
+        resource: ref('tenant', c.get('tenantId') as unknown as string),
+        message:
+          "The caller isn't a reviewer: its token carries no reviewer role, and its user isn't registered as one (`kindgi reviewers register`). The approvals surface is reviewer-only.",
+        failing: 'actor',
+      });
     }
     await next();
     return;
@@ -154,19 +195,37 @@ export function approvalsRouter(
       );
     }
 
-    const statusRaw = c.req.query('status');
-    let statusFilter: ApprovalStatus | undefined;
-    if (statusRaw !== undefined && statusRaw.length > 0) {
-      if (!APPROVAL_STATUSES.has(statusRaw as ApprovalStatus)) {
-        c.status(statusFor('bad-input') as never);
-        return c.json(
-          toWireError(
-            { code: 'bad-input', message: `Unknown \`status\` value: ${statusRaw}` },
-            requestId,
-          ),
-        );
-      }
-      statusFilter = statusRaw as ApprovalStatus;
+    const statusesParsed = parseStatuses(c.req.queries('status'));
+    if (statusesParsed.kind === 'err') {
+      c.status(statusFor('bad-input') as never);
+      return c.json(toWireError({ code: 'bad-input', message: statusesParsed.message }, requestId));
+    }
+    const statuses = statusesParsed.value;
+
+    // `?assignedTo=me`: the approvals assigned to the caller's own reviewer row.
+    const assignedToRaw = c.req.query('assignedTo');
+    if (assignedToRaw !== undefined && assignedToRaw !== 'me') {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError(
+          { code: 'bad-input', message: '`assignedTo` takes `me` (the approvals assigned to you)' },
+          requestId,
+        ),
+      );
+    }
+
+    const orderRaw = c.req.query('order');
+    if (orderRaw !== undefined && orderRaw !== 'asc' && orderRaw !== 'desc') {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'bad-input',
+            message: '`order` is `asc` (oldest first) or `desc` (newest first)',
+          },
+          requestId,
+        ),
+      );
     }
 
     const requiredRoleRaw = c.req.query('requiredRole');
@@ -189,24 +248,20 @@ export function approvalsRouter(
       // preserves the "reviewer never sees above their tier" guardrail
       // regardless of what the caller passes.
       if (REVIEWER_ROLE_RANK[requiredRoleFilter] > REVIEWER_ROLE_RANK[role]) {
-        c.status(statusFor('permission-denied') as never);
-        return c.json(
-          toWireError(
-            {
-              code: 'permission-denied',
-              message: `Role ${role} cannot query approvals scoped to ${requiredRoleFilter}.`,
-            },
-            requestId,
-          ),
-        );
+        return refused(c, authorizer, {
+          action: 'read',
+          resource: ref('tenant', c.get('tenantId') as unknown as string),
+          message: `Role ${role} cannot query approvals scoped to ${requiredRoleFilter}.`,
+          failing: 'actor',
+        });
       }
     }
 
     const createdAfterRaw = c.req.query('createdAfter');
     let createdAfterIso: string | undefined;
     if (createdAfterRaw !== undefined && createdAfterRaw.length > 0) {
-      const parsed = new Date(createdAfterRaw);
-      if (Number.isNaN(parsed.getTime())) {
+      const parsed = parseTimeInput(createdAfterRaw);
+      if (parsed === null) {
         c.status(statusFor('bad-input') as never);
         return c.json(
           toWireError(
@@ -235,31 +290,100 @@ export function approvalsRouter(
       );
     }
 
-    const cursor = c.req.query('cursor');
-    if (cursor !== undefined && cursor.length > 0) {
-      const parsed = new Date(cursor);
-      if (Number.isNaN(parsed.getTime())) {
+    // `runId`: the approvals one run asked for; with `includeDescendants=true`,
+    // also those its child runs asked for, at any depth (a flow's agent
+    // steps). The same pair the cost routes take.
+    const runIdRaw = c.req.query('runId');
+    const descendantsRaw = c.req.query('includeDescendants');
+    const runFilterError =
+      runIdRaw !== undefined && !UUID_RE.test(runIdRaw)
+        ? '`runId` must be a run id (a UUID)'
+        : descendantsRaw !== undefined && descendantsRaw !== 'true' && descendantsRaw !== 'false'
+          ? '`includeDescendants` must be `true` or `false`'
+          : descendantsRaw === 'true' && runIdRaw === undefined
+            ? '`includeDescendants` needs a `runId`'
+            : undefined;
+    if (runFilterError !== undefined) {
+      c.status(statusFor('bad-input') as never);
+      return c.json(toWireError({ code: 'bad-input', message: runFilterError }, requestId));
+    }
+    const runFilter =
+      runIdRaw === undefined
+        ? undefined
+        : { runId: runIdRaw as RunId, includeDescendants: descendantsRaw === 'true' };
+
+    // The cursor: where the last page ended (an approval's exact
+    // `createdAt` and its id), or a bare time from before that (milliseconds,
+    // no tie-breaker), which still answers as it did. An oldest-first page's
+    // cursor says so (`ASC_CURSOR`), so it can't continue a newest-first
+    // list, nor the other way round.
+    const rawCursor = c.req.query('cursor');
+    let after: ApprovalPosition | undefined;
+    let cursor: string | undefined;
+    let cursorOrder: 'asc' | 'desc' | undefined;
+    if (rawCursor !== undefined && rawCursor.length > 0) {
+      const ascending = rawCursor.startsWith(ASC_CURSOR);
+      const decoded = decodeCursor(ascending ? rawCursor.slice(ASC_CURSOR.length) : rawCursor);
+      if (decoded !== null && isCursorTime(decoded.createdAt)) {
+        after = { createdAt: decoded.createdAt, id: decoded.id as unknown as ApprovalId };
+        cursorOrder = ascending ? 'asc' : 'desc';
+      } else if (!ascending && decoded === null && isCursorTime(rawCursor)) {
+        cursor = rawCursor;
+        cursorOrder = 'desc';
+      } else {
         c.status(statusFor('bad-input') as never);
         return c.json(
           toWireError({ code: 'bad-input', message: '`cursor` is malformed' }, requestId),
         );
       }
     }
+    const order = orderRaw ?? cursorOrder ?? 'desc';
+    if (cursorOrder !== undefined && cursorOrder !== order) {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'bad-input',
+            message:
+              '`cursor` continues a list in the other order: drop `order`, or start again without `cursor`',
+          },
+          requestId,
+        ),
+      );
+    }
 
-    // `listApprovals` takes an ISO-timestamp cursor. Over-fetch up to 4×
-    // the page size (capped at 500) so a page still fills when
-    // role-scoping filters rows out; the extra rows (or the binding's
-    // own cursor) also tell us `hasMore`.
+    // Assigned to the caller: its reviewer row, as deciding resolves it. A
+    // caller with none has nothing assigned to it.
+    let assignee: ReviewerId | undefined;
+    if (assignedToRaw === 'me') {
+      const userId = c.get('userId');
+      const found =
+        userId === undefined
+          ? null
+          : await reviewerBinding.resolveReviewer({ tenantId, userId: userId as UserId });
+      if (found === null) return c.json({ data: [], hasMore: false, order });
+      assignee = found as ReviewerId;
+    }
+
+    // Over-fetch up to 4× the page size (capped at 500) so a page still
+    // fills when role-scoping filters rows out; the extra rows (or the
+    // binding's own cursor) also tell us `hasMore`.
     const HITL_LIMIT_CAP = Math.min(limit * 4, 500);
     const listInput = {
       tenantId,
       limit: HITL_LIMIT_CAP,
       ...(scopeParsed.scope !== undefined && { scope: scopeParsed.scope }),
-      ...(statusFilter !== undefined && { status: statusFilter }),
+      // One status also as `status`, which a binding from before `statuses` reads.
+      ...(statuses?.length === 1 && { status: statuses[0] }),
+      ...(statuses !== undefined && { statuses }),
+      ...(assignee !== undefined && { assignedTo: assignee }),
+      ...(order === 'asc' && { order }),
       ...(requiredRoleFilter !== undefined && { requiredRole: requiredRoleFilter }),
       ...(createdAfterIso !== undefined && { since: createdAfterIso as unknown as Timestamp }),
-      ...(cursor !== undefined && cursor.length > 0 && { cursor: cursor as Cursor }),
+      ...(after !== undefined && { after }),
+      ...(cursor !== undefined && { cursor: cursor as Cursor }),
       ...(waitTokenIds.length > 0 && { waitTokenIds }),
+      ...(runFilter !== undefined && { run: runFilter }),
     };
     const listed = await hitlBinding.listApprovals(listInput);
     if (listed.kind === 'err') {
@@ -267,18 +391,54 @@ export function approvalsRouter(
       return c.json(toWireError(listed.error as never, requestId));
     }
     const roleRank = REVIEWER_ROLE_RANK[role];
-    const visible = listed.value.approvals.filter(
-      (a) => REVIEWER_ROLE_RANK[a.requiredRole] <= roleRank,
+    // The binding narrows; these keep a page right from one that doesn't.
+    const inTier = listed.value.approvals.filter(
+      (a) =>
+        REVIEWER_ROLE_RANK[a.requiredRole] <= roleRank &&
+        (statuses === undefined || statuses.includes(a.status)) &&
+        (assignee === undefined || a.assignedTo === assignee),
     );
+    let visible = inTier;
+    if (authorizer !== undefined) {
+      const refs = await Promise.all(inTier.map((a) => approvalRef(tenantId, a)));
+      const readable = await authorizer.filterByCan(
+        c,
+        'read',
+        inTier.map((approval, i) => ({ approval, at: refs[i] as ResourceRef })),
+        (row) => row.at,
+      );
+      visible = readable.map((row) => row.approval);
+    }
     const page = visible.slice(0, limit);
     const hasMore = visible.length > limit || listed.value.nextCursor !== undefined;
-    const last = page[page.length - 1];
+    // Continue after the last approval shown. With sealed cursors, a page
+    // that holds every approval of the window the caller may read continues
+    // after the last one fetched instead: past those it can't read (so a
+    // window of them never ends the paging), which the sealed cursor won't
+    // show. At its exact `createdAt` when the binding gives it, else (a
+    // binding from before) at its time.
+    const fetched = listed.value.approvals;
+    const last =
+      c.get('cursorsSealed') === true && visible.length <= limit
+        ? fetched[fetched.length - 1]
+        : page[page.length - 1];
+    const exact = last !== undefined ? listed.value.exactCreatedAt?.[last.id] : undefined;
+    // The order the page is in: what the binding applied (newest first from
+    // one that doesn't know `order`). The page says it, so a client can tell.
+    const listedOrder = listed.value.order ?? 'desc';
     const nextCursor =
-      hasMore && last !== undefined ? (last.createdAt as unknown as string) : undefined;
+      !hasMore || last === undefined
+        ? undefined
+        : exact !== undefined
+          ? `${listedOrder === 'asc' ? ASC_CURSOR : ''}${encodeCursor({ createdAt: exact, id: last.id as unknown as string })}`
+          : listedOrder === 'asc'
+            ? undefined
+            : (last.createdAt as unknown as string);
     return c.json({
       data: page.map(serializeApproval),
-      hasMore,
+      hasMore: hasMore && (nextCursor !== undefined || listedOrder === 'desc'),
       ...(nextCursor !== undefined && { nextCursor }),
+      order: listedOrder,
     });
   });
 
@@ -297,7 +457,10 @@ export function approvalsRouter(
     const approval = got.value;
     // Out-of-scope reads are 404 (per API-ROUTE-CONVENTIONS.md §2.4 —
     // avoid leaking existence across role tiers).
-    if (REVIEWER_ROLE_RANK[approval.requiredRole] > REVIEWER_ROLE_RANK[role]) {
+    if (
+      REVIEWER_ROLE_RANK[approval.requiredRole] > REVIEWER_ROLE_RANK[role] ||
+      !(await mayRead(c, approval))
+    ) {
       c.status(statusFor('approval-not-found') as never);
       return c.json(
         toWireError(
@@ -322,17 +485,13 @@ export function approvalsRouter(
     const approvalId = c.req.param('approvalId') as ApprovalId;
 
     if (userId === undefined) {
-      c.status(statusFor('permission-denied') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'permission-denied',
-            message:
-              'Token has a reviewer role but no user identity — cannot resolve reviewer for decision.',
-          },
-          requestId,
-        ),
-      );
+      return refused(c, authorizer, {
+        action: 'admin',
+        resource: ref('tenant', c.get('tenantId') as unknown as string),
+        message:
+          'Token has a reviewer role but no user identity — cannot resolve reviewer for decision.',
+        failing: 'actor',
+      });
     }
 
     let body: unknown;
@@ -356,7 +515,10 @@ export function approvalsRouter(
       return c.json(toWireError(found.error as never, requestId));
     }
     const approval = found.value;
-    if (REVIEWER_ROLE_RANK[approval.requiredRole] > REVIEWER_ROLE_RANK[role]) {
+    if (
+      REVIEWER_ROLE_RANK[approval.requiredRole] > REVIEWER_ROLE_RANK[role] ||
+      !(await mayRead(c, approval))
+    ) {
       c.status(statusFor('approval-not-found') as never);
       return c.json(
         toWireError(
@@ -391,16 +553,12 @@ export function approvalsRouter(
       userId: userId as UserId,
     });
     if (reviewerId === null) {
-      c.status(statusFor('permission-denied') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'permission-denied',
-            message: 'No reviewer row registered for this user under this tenant.',
-          },
-          requestId,
-        ),
-      );
+      return refused(c, authorizer, {
+        action: 'admin',
+        resource: ref('tenant', c.get('tenantId') as unknown as string),
+        message: 'No reviewer row registered for this user under this tenant.',
+        failing: 'actor',
+      });
     }
 
     const submitted = await hitlBinding.submitReview({
@@ -415,11 +573,12 @@ export function approvalsRouter(
       return c.json(toWireError(submitted.error as never, requestId));
     }
 
-    // If the approval carries a waitpoint reference AND the decision is
-    // a terminal accept/reject, resolve the run's waitpoint so the
-    // suspended run resumes. Escalate/withdraw don't resume — the run
-    // stays suspended until the new (escalated) approval terminates,
-    // or the run is cancelled explicitly.
+    // An approval that carries a waitpoint reference resolves the run's
+    // waitpoint on a terminal decision, so the suspended run goes on:
+    // approve and reject complete it with the decision; withdraw cancels
+    // it (`approval-withdrawn`), so the run ends saying why (the gates
+    // fail the turn with `hitl-withdrawn`). Escalate doesn't: the new
+    // approval carries the same waitpoint.
     //
     // Resume value shape: `GateDecisionValue`, `{ decided, rationale?,
     // decidedBy, approvalId }`, the shape the agent's approval gate
@@ -427,32 +586,51 @@ export function approvalsRouter(
     // another subject, the caller CAN supply an explicit `value` to
     // override it, when the resume payload must carry more than the
     // decision (an agent gate refuses one, above).
+    //
+    // The decision is recorded first, and stands. A run that ended in
+    // between (a cancel that landed after it) isn't an error: the answer
+    // says the waitpoint wasn't resolved, and the run's status.
     let waitpointResolved = false;
+    let runStatus: string | undefined;
     let resume: ResumeReport | undefined;
+    const decision = parsed.value.decision;
     if (
       approval.waitTokenId !== undefined &&
       approval.provenanceRef?.runId !== undefined &&
-      (parsed.value.decision === 'approve' || parsed.value.decision === 'reject')
+      (decision === 'approve' || decision === 'reject' || decision === 'withdraw')
     ) {
-      const decided: GateDecisionValue = {
-        decided: parsed.value.decision,
-        ...(parsed.value.rationale !== undefined && { rationale: parsed.value.rationale }),
-        decidedBy: `user:${userId as unknown as string}`,
-        approvalId: approval.id as unknown as string,
-      };
-      const resumeValue = parsed.value.value !== undefined ? parsed.value.value : decided;
-      const resolved = await runBinding.completeToken(
-        tenantId,
-        approval.provenanceRef.runId as RunId,
-        approval.waitTokenId,
-        resumeValue,
-      );
-      if (resolved.kind === 'err') {
+      const runId = approval.provenanceRef.runId as RunId;
+      let resolved: Awaited<ReturnType<RunBinding['completeToken']>>;
+      if (decision === 'withdraw') {
+        resolved = await runBinding.cancelToken(
+          tenantId,
+          runId,
+          approval.waitTokenId,
+          APPROVAL_WITHDRAWN_REASON,
+        );
+      } else {
+        const decided: GateDecisionValue = {
+          decided: decision,
+          ...(parsed.value.rationale !== undefined && { rationale: parsed.value.rationale }),
+          decidedBy: `user:${userId as unknown as string}`,
+          approvalId: approval.id as unknown as string,
+        };
+        const resumeValue = parsed.value.value !== undefined ? parsed.value.value : decided;
+        resolved = await runBinding.completeToken(
+          tenantId,
+          runId,
+          approval.waitTokenId,
+          resumeValue,
+        );
+      }
+      if (resolved.kind === 'err' && resolved.error.code === 'run-already-terminal') {
+        runStatus = resolved.error.status;
+      } else if (resolved.kind === 'err') {
         c.status(statusFor(resolved.error.code) as never);
         return c.json(toWireError(resolved.error as never, requestId));
+      } else {
+        waitpointResolved = true;
       }
-      waitpointResolved = true;
-
       // Inline resume — when a runHandler is wired,
       // drive resumeRun synchronously in the same request. The runtime
       // replays from the journal; the parked run reaches its next
@@ -467,8 +645,14 @@ export function approvalsRouter(
       // The response says how the resume went (`resume`), so a decision
       // whose run couldn't go on (a tool version it started with is gone,
       // say) isn't reported as plain success.
-      if (runHandler !== undefined) {
-        resume = await resumeInline(runHandler, tenantId, approval.provenanceRef.runId as RunId);
+      if (waitpointResolved && runHandler !== undefined) {
+        const trace = c.get('trace');
+        resume = await resumeInline(
+          runHandler,
+          tenantId,
+          runId,
+          trace !== undefined ? { traceId: trace.traceId, spanId: trace.spanId } : undefined,
+        );
       }
     }
 
@@ -481,6 +665,7 @@ export function approvalsRouter(
         nextApproval: serializeApproval(result.nextApproval),
       }),
       waitpointResolved,
+      ...(runStatus !== undefined && { runStatus }),
       ...(resume !== undefined && { resume }),
     });
   });
@@ -492,36 +677,10 @@ export function approvalsRouter(
     const role = c.get('reviewerRole') as ReviewerRole;
     const approvalId = c.req.param('approvalId') as ApprovalId;
 
-    if (signingKey === undefined) {
-      c.status(statusFor('signing-not-configured') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'signing-not-configured',
-            message:
-              'This deployment does not have a `signingKey` binding mounted; signed audit bundles are unavailable.',
-          },
-          requestId,
-        ),
-      );
-    }
+    if (exportSigning === undefined) return signingNotConfigured(c, 'signed audit bundles');
 
-    let body: unknown;
-    try {
-      body = await c.req.json();
-    } catch {
-      c.status(statusFor('bad-input') as never);
-      return c.json(
-        toWireError({ code: 'bad-input', message: 'Request body must be valid JSON' }, requestId),
-      );
-    }
-    if (body === null || typeof body !== 'object' || Array.isArray(body)) {
-      c.status(statusFor('bad-input') as never);
-      return c.json(
-        toWireError({ code: 'bad-input', message: 'Request body must be an object' }, requestId),
-      );
-    }
-    const parsed = parseAuditBundleBody(body as Record<string, unknown>);
+    const read = await readExportBody(c);
+    const parsed = read.kind === 'ok' ? parseAuditBundleBody(read.value) : read;
     if (parsed.kind === 'err') {
       c.status(statusFor('bad-input') as never);
       return c.json(toWireError({ code: 'bad-input', message: parsed.message }, requestId));
@@ -535,7 +694,10 @@ export function approvalsRouter(
       return c.json(toWireError(found.error as never, requestId));
     }
     const approval = found.value;
-    if (REVIEWER_ROLE_RANK[approval.requiredRole] > REVIEWER_ROLE_RANK[role]) {
+    if (
+      REVIEWER_ROLE_RANK[approval.requiredRole] > REVIEWER_ROLE_RANK[role] ||
+      !(await mayRead(c, approval))
+    ) {
       c.status(statusFor('approval-not-found') as never);
       return c.json(
         toWireError(
@@ -596,96 +758,54 @@ export function approvalsRouter(
       messages = [];
     }
 
-    // 5. Look up the private key material.
-    const privateKey = signingKey.getPrivateKey(signingKeyId);
-    if (privateKey === null) {
-      c.status(statusFor('signing-key-not-found') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'signing-key-not-found',
-            message: `No signing key registered with id "${signingKeyId as unknown as string}"`,
-            signingKeyId: signingKeyId as unknown as string,
-          },
-          requestId,
-        ),
-      );
-    }
-    const publicKeyRaw = signingKey.getPublicKey(signingKeyId);
-    if (publicKeyRaw === null) {
-      c.status(statusFor('signing-key-not-found') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'signing-key-not-found',
-            message: `Signing key "${signingKeyId as unknown as string}" resolved a private key but no public key`,
-            signingKeyId: signingKeyId as unknown as string,
-          },
-          requestId,
-        ),
-      );
-    }
-
-    // 6. Build the canonical bundle body.
+    // 5. Sign the bundle body (and record the export).
     const guardrailResults = extractGuardrailResults(approval.context);
-    const bundleBody: Record<string, unknown> = {
-      bundleVersion: AUDIT_BUNDLE_SCHEMA_VERSION,
-      approvalId: approval.id as unknown as string,
-      tenantId: approval.tenantId as unknown as string,
-      subjectKind: approval.subjectKind,
-      subjectRef: approval.subjectRef,
-      requiredRole: approval.requiredRole,
-      status: approval.status,
-      createdAt: approval.createdAt as unknown as string,
-      ...(approval.decidedAt !== undefined && {
-        decidedAt: approval.decidedAt as unknown as string,
-      }),
-      decision:
-        decisionRow !== null
-          ? {
-              kind: decisionRow.decision,
-              reviewerId: decisionRow.reviewerId,
-              reviewerRoleAtDecision: decisionRow.reviewerRoleAtDecision,
-              decidedAt: decisionRow.decidedAt as unknown as string,
-              ...(decisionRow.rationale !== undefined && { rationale: decisionRow.rationale }),
-            }
-          : null,
-      evidence: {
-        ...(guardrailResults !== undefined && { guardrailResults }),
-        ...(messages !== undefined && { messages }),
-      },
-      exportedAt: new Date().toISOString(),
-    };
-    const canonicalBundleBytes = new TextEncoder().encode(canonicalize(bundleBody));
-
-    // 7. Sign.
-    const signResult = signEd25519(privateKey, canonicalBundleBytes);
-    if (signResult.kind === 'err') {
-      c.status(statusFor('export-key-error') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'export-key-error',
-            message: `Failed to sign audit bundle: ${signResult.error.message}`,
-          },
-          requestId,
-        ),
-      );
-    }
-
-    return c.json({
-      approvalId: approvalId as unknown as string,
-      bundle: Buffer.from(canonicalBundleBytes).toString('base64'),
+    const runId = approval.provenanceRef?.runId as unknown as string | undefined;
+    const signed = await signExport({
+      signer: exportSigning,
+      kind: 'audit-bundle',
       bundleSchemaVersion: AUDIT_BUNDLE_SCHEMA_VERSION,
-      algorithm: 'ed25519' as const,
-      signingKeyId: signingKeyId as unknown as string,
-      signature: Buffer.from(signResult.value).toString('base64'),
-      publicKey: serializePublicKeyPem(publicKeyRaw),
-      canonicalization: 'sorted-key-json' as const,
-      exportedAt: new Date().toISOString() as unknown as Timestamp,
+      ...(signingKeyId !== undefined && { signingKeyId }),
+      body: {
+        approvalId: approval.id as unknown as string,
+        tenantId: approval.tenantId as unknown as string,
+        subjectKind: approval.subjectKind,
+        subjectRef: approval.subjectRef,
+        requiredRole: approval.requiredRole,
+        status: approval.status,
+        createdAt: approval.createdAt as unknown as string,
+        ...(approval.decidedAt !== undefined && {
+          decidedAt: approval.decidedAt as unknown as string,
+        }),
+        decision:
+          decisionRow !== null
+            ? {
+                kind: decisionRow.decision,
+                reviewerId: decisionRow.reviewerId,
+                reviewerRoleAtDecision: decisionRow.reviewerRoleAtDecision,
+                decidedAt: decisionRow.decidedAt as unknown as string,
+                ...(decisionRow.rationale !== undefined && { rationale: decisionRow.rationale }),
+              }
+            : null,
+        evidence: {
+          ...(guardrailResults !== undefined && { guardrailResults }),
+          ...(messages !== undefined && { messages }),
+        },
+      },
+      ...(auditEvents !== undefined && {
+        record: {
+          auditEvents,
+          tenantId,
+          ...(approval.projectId !== undefined && { projectId: approval.projectId }),
+          ...(runId !== undefined && { runId }),
+          actor: exportActor(c),
+          subject: { approvalId: approval.id as unknown as string },
+        },
+      }),
     });
+    if (signed.kind === 'err') return signExportFailure(c, signed.error, 'export-key-error');
+    return c.json({ approvalId: approvalId as unknown as string, ...signed.value });
   });
-
   return r;
 }
 
@@ -722,6 +842,11 @@ function serializeApproval(a: Approval): Record<string, unknown> {
     decidedAt: a.decidedAt,
     expiresAt: a.expiresAt,
     decision: a.decision === undefined ? undefined : serializeApprovalDecision(a.decision),
+    ...(a.requestedBy !== undefined && { requestedBy: a.requestedBy }),
+    ...(a.separateApprover !== undefined && { separateApprover: a.separateApprover }),
+    ...(a.withdrawnBecause !== undefined && { withdrawnBecause: a.withdrawnBecause }),
+    ...(a.escalatedFrom !== undefined && { escalatedFrom: a.escalatedFrom }),
+    ...(a.escalatedTo !== undefined && { escalatedTo: a.escalatedTo }),
   };
 }
 
@@ -800,7 +925,7 @@ function parseCompleteBody(
 }
 
 interface ParsedAuditBundle {
-  readonly signingKeyId: SigningKeyId;
+  readonly signingKeyId: string | undefined;
   readonly includeMessages: boolean;
 }
 
@@ -809,10 +934,8 @@ function parseAuditBundleBody(
 ):
   | { readonly kind: 'ok'; readonly value: ParsedAuditBundle }
   | { readonly kind: 'err'; readonly message: string } {
-  const raw = body.signingKeyId;
-  if (typeof raw !== 'string' || raw.length === 0) {
-    return { kind: 'err', message: 'Field `signingKeyId` must be a non-empty string' };
-  }
+  const signingKeyId = parseSigningKeyId(body);
+  if (signingKeyId.kind === 'err') return signingKeyId;
   let includeMessages = false;
   if ('includeMessages' in body) {
     const im = body.includeMessages;
@@ -821,13 +944,7 @@ function parseAuditBundleBody(
     }
     includeMessages = im;
   }
-  return {
-    kind: 'ok',
-    value: {
-      signingKeyId: raw as SigningKeyId,
-      includeMessages,
-    },
-  };
+  return { kind: 'ok', value: { signingKeyId: signingKeyId.value, includeMessages } };
 }
 
 /** How the inline resume after a decision went. */
@@ -844,9 +961,14 @@ async function resumeInline(
   runHandler: RunHandlerBinding,
   tenantId: TenantId,
   runId: RunId,
+  trace: RunTrace | undefined,
 ): Promise<ResumeReport> {
   try {
-    const outcome = await runHandler.resumeRun({ tenantId, runId });
+    const outcome = await runHandler.resumeRun({
+      tenantId,
+      runId,
+      ...(trace !== undefined && { trace }),
+    });
     return outcome.kind === 'ok'
       ? { kind: 'ok' }
       : { kind: 'failed', code: outcome.error.code, message: outcome.error.message };
@@ -857,4 +979,32 @@ async function resumeInline(
       message: cause instanceof Error ? cause.message : String(cause),
     };
   }
+}
+
+/** Marks an oldest-first page's cursor (`order=asc`), which only continues that order. */
+const ASC_CURSOR = 'a.';
+
+/**
+ * `?status=`, repeated or comma-separated (`status=pending&status=escalated`,
+ * `status=pending,escalated`), de-duplicated: as `GET /v1/runs` takes it. An
+ * empty value is no filter, as before; an unknown one is `400 bad-input`.
+ */
+function parseStatuses(
+  raw: readonly string[] | undefined,
+):
+  | { readonly kind: 'ok'; readonly value: readonly ApprovalStatus[] | undefined }
+  | { readonly kind: 'err'; readonly message: string } {
+  const given = (raw ?? [])
+    .flatMap((v) => v.split(','))
+    .map((v) => v.trim())
+    .filter((v) => v.length > 0);
+  if (given.length === 0) return { kind: 'ok', value: undefined };
+  const unknown = given.filter((v) => !APPROVAL_STATUSES.has(v as ApprovalStatus));
+  if (unknown.length > 0) {
+    return {
+      kind: 'err',
+      message: `Unknown \`status\` value${unknown.length === 1 ? '' : 's'}: ${unknown.join(', ')}. Expected one or more of: ${[...APPROVAL_STATUSES].join(', ')}`,
+    };
+  }
+  return { kind: 'ok', value: [...new Set(given as ApprovalStatus[])] };
 }

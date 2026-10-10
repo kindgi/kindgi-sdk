@@ -5,13 +5,18 @@ import { randomUUID } from 'node:crypto';
 
 import { describe, expect, test } from 'vitest';
 
-import type { Guardrail } from '@kindgi/guardrails';
+import { type Guardrail, guardrailConfigProblems } from '@kindgi/guardrails';
 import type { Cursor, ProjectId, TenantId } from '@kindgi/types';
 
-import { createStubAppBindings } from '@kindgi/testing';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
-import type { GuardrailRegistryBinding, RunHandlerBinding, TokenResolver } from '../src/index.js';
+import type {
+  GuardrailConfigCheck,
+  GuardrailRegistryBinding,
+  RunHandlerBinding,
+  TokenResolver,
+} from '../src/index.js';
 
 /**
  * Guardrails route tests.
@@ -137,13 +142,16 @@ function guardrailPostBody(
   };
 }
 
-function makeApp() {
+function makeApp(options: { checkGuardrailConfig?: GuardrailConfigCheck } = {}) {
   const binding = makeInMemoryBinding();
   const app = createApp({
     ...createStubAppBindings(),
     resolveToken,
     runHandler,
     guardrailRegistry: binding,
+    ...(options.checkGuardrailConfig !== undefined && {
+      checkGuardrailConfig: options.checkGuardrailConfig,
+    }),
   });
   return { app, binding };
 }
@@ -388,6 +396,116 @@ describe('API — guardrails register', () => {
     const body = (await res.json()) as { error: { code: string; message: string } };
     expect(body.error.code).toBe('bad-input');
     expect(body.error.message).toContain('projectId');
+  });
+});
+
+describe("API — guardrails register: the config against its check's configSchema (T338)", () => {
+  const SCHEMA = {
+    type: 'object',
+    properties: { maxChars: { type: 'integer', exclusiveMinimum: 0 } },
+  };
+  // As a runtime wires it: the schema of the check the guardrail names.
+  const checkGuardrailConfig: GuardrailConfigCheck = async ({ guardrail }) =>
+    guardrail.check === 'my-pack.checks.answer-length'
+      ? guardrailConfigProblems({ configSchema: SCHEMA, config: guardrail.config })
+      : [];
+  const post = (app: ReturnType<typeof makeApp>['app'], body: Record<string, unknown>) =>
+    app.request('/v1/guardrails', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({ ...guardrailPostBody(), ...body }),
+    });
+
+  test('a config the check refuses → 422 guardrail-config-invalid, details.issues, nothing registered', async () => {
+    const { app, binding } = makeApp({ checkGuardrailConfig });
+    const res = await post(app, {
+      id: 'acme.strict-length',
+      check: 'my-pack.checks.answer-length',
+      config: { maxChars: -5 },
+    });
+    expect(res.status).toBe(422);
+    const body = (await res.json()) as {
+      error: { code: string; message: string; details: { issues: unknown[] } };
+    };
+    const message =
+      'Guardrail "acme.strict-length" doesn\'t fit check "my-pack.checks.answer-length": config.maxChars must be > 0.';
+    expect(body.error.code).toBe('guardrail-config-invalid');
+    expect(body.error.message).toBe(message);
+    expect(body.error.details.issues).toEqual([
+      { path: '/config/maxChars', message: 'config.maxChars must be > 0.' },
+    ]);
+    expect(
+      (await binding.list({ tenantId, limit: 10 })).data.map((g) => g.id as unknown as string),
+    ).toEqual([]);
+  });
+
+  test("a built-in check's config is checked against the built-in's schema, whatever the runtime passes", async () => {
+    // The runtime's check knows nothing of built-ins (it answers []); the route checks them itself.
+    const { app, binding } = makeApp({ checkGuardrailConfig });
+    const typo = await post(app, {
+      id: 'acme.no-refunds',
+      check: 'never-call-tool',
+      config: { tools: 'acme.refund' },
+    });
+    expect(typo.status).toBe(422);
+    const body = (await typo.json()) as {
+      error: { code: string; message: string; details: { issues: unknown[] } };
+    };
+    expect(body.error.code).toBe('guardrail-config-invalid');
+    expect(body.error.message).toBe(
+      'Guardrail "acme.no-refunds" doesn\'t fit check "never-call-tool": config.tools must be array.',
+    );
+    expect(body.error.details.issues).toEqual([
+      { path: '/config/tools', message: 'config.tools must be array.' },
+    ]);
+    expect((await binding.list({ tenantId, limit: 10 })).data).toEqual([]);
+    const fits = await post(app, {
+      id: 'acme.no-refunds',
+      check: 'never-call-tool',
+      config: { tools: ['acme.refund'] },
+    });
+    expect(fits.status).toBe(201);
+  });
+
+  test('a config that fits → 201', async () => {
+    const { app } = makeApp({ checkGuardrailConfig });
+    const res = await post(app, {
+      id: 'acme.strict-length',
+      check: 'my-pack.checks.answer-length',
+      config: { maxChars: 60 },
+    });
+    expect(res.status).toBe(201);
+  });
+
+  test('a check with nothing to check against → 201', async () => {
+    // A pack check the runtime has no schema for (a built-in, like the default body's
+    // `must-cite`, has its own: see the built-in test above).
+    const { app } = makeApp({ checkGuardrailConfig });
+    expect(
+      (await post(app, { check: 'my-pack.checks.other', config: { anything: true } })).status,
+    ).toBe(201);
+  });
+
+  test('without the hook: no check, 201 as before', async () => {
+    const { app } = makeApp();
+    const res = await post(app, {
+      check: 'my-pack.checks.answer-length',
+      config: { maxChars: -5 },
+    });
+    expect(res.status).toBe(201);
+  });
+
+  test('a spec validation failure still answers 400 before the config is checked', async () => {
+    let called = false;
+    const { app } = makeApp({
+      checkGuardrailConfig: async () => {
+        called = true;
+        return [];
+      },
+    });
+    const res = await post(app, { kind: '' });
+    expect(res.status).toBe(400);
+    expect(called).toBe(false);
   });
 });
 

@@ -22,6 +22,7 @@ import type {
   JudgedRunContext,
   JudgedToolCall,
 } from '../judgment-binding.js';
+import { addToolEnv, turnCallIds } from './judgment-context.js';
 
 /** The most tool calls a judged flow run keeps. */
 export const MAX_JUDGED_FLOW_CALLS = 500;
@@ -94,6 +95,8 @@ function scopeOf(loopContext: unknown): string | undefined {
 class Collector {
   readonly calls: JudgedToolCall[] = [];
   readonly steps: JudgedFlowStep[] = [];
+  /** The env values each tool's calls were sent, by tool id (`JudgedRunContext.toolEnv`). */
+  readonly toolEnv: Record<string, Readonly<Record<string, string>>> = {};
   truncated = false;
 
   add(call: JudgedToolCall): void {
@@ -127,6 +130,11 @@ async function nodeCalls(
   ]);
   const tools = toolNodes(flow);
   if (journal.kind === 'err' || tools.size === 0) return;
+  addToolEnv(
+    journal.value,
+    [...new Set(tools.values())].map((toolId) => ({ toolId })),
+    c.toolEnv,
+  );
   const inputs = new Map<string, unknown>();
   for (const e of journal.value) {
     if (typeof e.nodeId !== 'string' || !tools.has(e.nodeId)) continue;
@@ -147,7 +155,7 @@ async function nodeCalls(
   }
 }
 
-/** An agent step's turn: its calls, and what it retrieved. */
+/** An agent step's turn: its calls, and what it retrieved and recalled. */
 async function stepTurn(r: Reader, c: Collector, child: KernelRunRecord): Promise<void> {
   const agent = child.agent;
   if (agent === undefined) return;
@@ -156,6 +164,7 @@ async function stepTurn(r: Reader, c: Collector, child: KernelRunRecord): Promis
   const nodeId = (child.parentNodeId as unknown as string | null | undefined) ?? undefined;
   const scope = child.parentScope ?? undefined;
   const retrieved = obj(output)?.retrieved;
+  const recalled = obj(output)?.recalled;
   c.steps.push({
     runId: child.runId as unknown as string,
     ...(nodeId !== undefined && { nodeId }),
@@ -163,6 +172,7 @@ async function stepTurn(r: Reader, c: Collector, child: KernelRunRecord): Promis
     agentId: agent.id,
     agentVersion: agent.version,
     ...(retrieved !== undefined && { retrieved }),
+    ...(recalled !== undefined && { recalled }),
   });
   for (const call of turnToolCalls(output)) {
     c.add({
@@ -172,6 +182,10 @@ async function stepTurn(r: Reader, c: Collector, child: KernelRunRecord): Promis
       ...call,
     });
   }
+  const calls = turnCallIds(output);
+  if (calls.length === 0) return;
+  const journal = await r.runBinding.readJournal(r.tenantId, child.runId);
+  if (journal.kind === 'ok') addToolEnv(journal.value, calls, c.toolEnv);
 }
 
 /** A run's child runs (agent steps' turns, sub-flows); none when they can't be read. */
@@ -241,5 +255,5 @@ export async function captureFlowContext(input: {
     steps: c.steps,
     ...(c.truncated && { truncated: true }),
   };
-  return { flow };
+  return { flow, ...(Object.keys(c.toolEnv).length > 0 && { toolEnv: c.toolEnv }) };
 }

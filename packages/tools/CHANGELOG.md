@@ -1,5 +1,137 @@
 # @kindgi/tools
 
+## 0.1.5
+
+### Patch Changes
+
+- 93ebe85: Agents can remember, under rules the model can't change.
+  
+  - **The declaration.** `defineAgent({ memory: { remember: { types: ['preference'], scope: 'same-user', keepDays: 30 } } })` gives the agent's turns the built-in tool `kindgi_remember`. The model picks the type (one of `types`), the text (up to 2,000 characters), an optional slot `key` and when it stops being true. It never picks the scope: `same-user` (the conversation's end user, else the user the run acts for), `same-conversation`, `same-project` or `tenant` come from the declaration and the run. Built-in tools are `kindgi_<verb>`, with no dots, so the model calls exactly the name the docs and instructions use, and the tool's description names it. The prefix is reserved: an agent can't list a built-in in `tools`, and publishing a tool whose id starts with `kindgi_` is refused (`BUILT_IN_TOOL_PREFIX` in `@kindgi/tools`).
+  - **Every remembered fact** is `unverified`, attributed to the agent version (`attributedTo`) and to the run, step and tool call that wrote it (`generatedBy`). It expires after `keepDays` (default 30) unless a person verifies it. A new value for the same type and `key` replaces the one the same agent remembered before, as that fact's next revision. An agent never replaces another agent's fact or a person's.
+  - **A person approves it first** when the scope is wider than one person (`same-project`, `tenant`), or the text reads like an instruction (always/never, ignore/disregard, "you must", a link, one of the agent's tools). Until then no read sees it, and the model is told it waits for review. Otherwise it's used at once.
+  - **The tool dispatches like any other.** The agent's `hitl.tools` policy applies to it, a replay refuses it or uses the recording, and the tool error policy decides what a failed store does. `InvokeAgentBindings.memoryWriter` (`MemoryRememberBinding` in `@kindgi/memory`) is where the runtime stores it. On a host without one, a call answers that nothing was remembered, and publishing warns `remember-unavailable` (`MemoryBinding.agentRemember`).
+  - **The `<memory>` block** now gives each fact the time it was recorded (`recordedAt`), and for a fact an agent remembered, which agent (`agent`). Two agents' values for the same slot both show, each with its agent and time; none is picked silently. **This changes what models see.**
+  - **Provenance.**
+    - Each retrieval intent is a `memory-read` node with `operation: search_memory`, holding what it searched and the ids it found. Each retrieved fact is `retrieved-from` its search and carries its ranks.
+    - Each remembered fact is a `memory-write` node with `operation: create_memory` or `update_memory`, its actor the agent version, `produced` by the tool call.
+    - These are the OpenTelemetry GenAI operation names, as an attribute on the existing node kinds, so no client sees a new enum value.
+  - **`Fact.expiresAt`** (optional in the API): when a revision stops being readable. No read returns a fact after it. The runtime sets it from the fact's retention, or from an agent-remembered fact's unverified window.
+  - **Specs.** The agent spec (schema-version 1.5.0) carries `memory.remember`. The pack index keeps it, as it keeps all of `memory`.
+- 768ad8f: The TypeScript pack service writes `@kindgi/log` records on stderr (subsystem `pack`), the same schema as the runtime's: one record per call carrying the call's `tenantId`, `runId`, `requestId`, `toolId`, its outcome and duration, and the caller's `traceId` from the `traceparent` it sent. The lifecycle (`listening`, `boot-failed`, `config-invalid`, `draining`, `stopped`) is written whatever the levels; `KINDGI_LOG_LEVEL`, `KINDGI_LOG_LEVELS` and `KINDGI_LOG_FORMAT` apply to the rest (`auto` is JSON unless stderr is a terminal). The service's records keep `kind` beside `event`, so an older supervisor still reads them.
+  
+  `ctx.log` (an optional `ToolContext.log`): a logger bound to the call, so a tool's own records carry the run's ids and trace (`ctx.log.info('looked up order', { orderId })`, subsystem `pack.tool`). `kindgi dev` shows them as `[pack]` lines.
+  
+  The supervisor reads records and older bare events, acts only on the service's own lifecycle, and no longer swallows the pack's own JSON output that happens to have a `kind` field. It runs its child with `KINDGI_LOG_FORMAT=json`. `createPackService` takes `log`; its `logger` callback still gets the events.
+- 81f46aa: **A replay sends a read-only tool the env values the past run's call saw.** A comparison that replays a run (a candidate agent version over a test set) runs some read-only tools live. Those tools now read the config the past run read, not today's, so an env value changed since then can't skew the judged deltas.
+  
+  - **`@kindgi/api`:** a judged run's copy keeps `context.toolEnv`, each tool's recorded env values by tool id. It's taken from an agent turn's calls and from a flow's tool steps, agent steps and sub-flows. It's optional in the spec, and a run from before env was recorded has none.
+  - **`@kindgi/agents`:** a replay binding's `live` decision can carry `env`. The turn journals it with the decision, keeps it out of the replay report, and sends it as the call's `ctx.env`. Names it doesn't hold (a tool version that declares more) resolve as usual.
+  - **`@kindgi/tools`:** `toolCallRecordKey` and `TOOL_ENV_RECORD_KEY` name where a call's `ToolContext.record` decisions are journaled, so dispatch sites and capture agree.
+- 280377e: **A tool's env values, per project (`ctx.env`).** A tool that declares names in `needsSpec.env` gets their values in `ctx.env` on each call: the call's project's value, else its org's, else the tenant's, in the env the runtime serves (`KINDGI_ENV`). A schema `default` makes a name optional. The values a call used are recorded with it (`ToolContext.record`, new: the step's durable record, set by the dispatch site), so the call re-run after a wait or a retry sees the same ones. A runtime that resolves them is needed; with an older one, `ctx.env` stays absent.
+  
+  - **`@kindgi/tools`:** `ToolContext.env`; `ToolContext.record`, which an agent turn's tool dispatch (`@kindgi/agents`) sets to its step's record under `tool-call:<call id>:<tool id>:<key>`; and `TypedNeeds` documents what `env` and `secrets` take (strings, checked by their schema; `config` is reserved).
+  - **Pack protocol 2.5.0** (`@kindgi/specs`, `@kindgi/handler-runtime`, the Python SDK): `callContext.env` holds the declared names' string values. It's additive: a pack service that predates it already passes it through.
+  - **`kindgi env set/list/unset --scope=tenant|org:<id>|project:<id> --env=<name>`** act on the runtime's env values (`/v1/env`). Without `--scope` they edit the pack's local env files, as before. `--env` is required with `--scope`. `set` refuses to change a value without `--force`, and warns about a name that looks like a credential. A runtime that doesn't serve `/v1/env` gets a plain message.
+  - `kindgi env`'s description now says what it manages. It used to say values "resolve into `needs.env` at deploy time", which nothing did.
+- Updated dependencies [e27d050]
+- Updated dependencies [b67c599]
+- Updated dependencies [eff6249]
+  - @kindgi/schema@0.1.5
+  - @kindgi/log@0.1.5
+  - @kindgi/types@0.1.5
+
+## 0.1.5-rc.0
+
+### Patch Changes
+
+- 93ebe85: Agents can remember, under rules the model can't change.
+  
+  - **The declaration.** `defineAgent({ memory: { remember: { types: ['preference'], scope: 'same-user', keepDays: 30 } } })` gives the agent's turns the built-in tool `kindgi_remember`. The model picks the type (one of `types`), the text (up to 2,000 characters), an optional slot `key` and when it stops being true. It never picks the scope: `same-user` (the conversation's end user, else the user the run acts for), `same-conversation`, `same-project` or `tenant` come from the declaration and the run. Built-in tools are `kindgi_<verb>`, with no dots, so the model calls exactly the name the docs and instructions use, and the tool's description names it. The prefix is reserved: an agent can't list a built-in in `tools`, and publishing a tool whose id starts with `kindgi_` is refused (`BUILT_IN_TOOL_PREFIX` in `@kindgi/tools`).
+  - **Every remembered fact** is `unverified`, attributed to the agent version (`attributedTo`) and to the run, step and tool call that wrote it (`generatedBy`). It expires after `keepDays` (default 30) unless a person verifies it. A new value for the same type and `key` replaces the one the same agent remembered before, as that fact's next revision. An agent never replaces another agent's fact or a person's.
+  - **A person approves it first** when the scope is wider than one person (`same-project`, `tenant`), or the text reads like an instruction (always/never, ignore/disregard, "you must", a link, one of the agent's tools). Until then no read sees it, and the model is told it waits for review. Otherwise it's used at once.
+  - **The tool dispatches like any other.** The agent's `hitl.tools` policy applies to it, a replay refuses it or uses the recording, and the tool error policy decides what a failed store does. `InvokeAgentBindings.memoryWriter` (`MemoryRememberBinding` in `@kindgi/memory`) is where the runtime stores it. On a host without one, a call answers that nothing was remembered, and publishing warns `remember-unavailable` (`MemoryBinding.agentRemember`).
+  - **The `<memory>` block** now gives each fact the time it was recorded (`recordedAt`), and for a fact an agent remembered, which agent (`agent`). Two agents' values for the same slot both show, each with its agent and time; none is picked silently. **This changes what models see.**
+  - **Provenance.**
+    - Each retrieval intent is a `memory-read` node with `operation: search_memory`, holding what it searched and the ids it found. Each retrieved fact is `retrieved-from` its search and carries its ranks.
+    - Each remembered fact is a `memory-write` node with `operation: create_memory` or `update_memory`, its actor the agent version, `produced` by the tool call.
+    - These are the OpenTelemetry GenAI operation names, as an attribute on the existing node kinds, so no client sees a new enum value.
+  - **`Fact.expiresAt`** (optional in the API): when a revision stops being readable. No read returns a fact after it. The runtime sets it from the fact's retention, or from an agent-remembered fact's unverified window.
+  - **Specs.** The agent spec (schema-version 1.5.0) carries `memory.remember`. The pack index keeps it, as it keeps all of `memory`.
+- 768ad8f: The TypeScript pack service writes `@kindgi/log` records on stderr (subsystem `pack`), the same schema as the runtime's: one record per call carrying the call's `tenantId`, `runId`, `requestId`, `toolId`, its outcome and duration, and the caller's `traceId` from the `traceparent` it sent. The lifecycle (`listening`, `boot-failed`, `config-invalid`, `draining`, `stopped`) is written whatever the levels; `KINDGI_LOG_LEVEL`, `KINDGI_LOG_LEVELS` and `KINDGI_LOG_FORMAT` apply to the rest (`auto` is JSON unless stderr is a terminal). The service's records keep `kind` beside `event`, so an older supervisor still reads them.
+  
+  `ctx.log` (an optional `ToolContext.log`): a logger bound to the call, so a tool's own records carry the run's ids and trace (`ctx.log.info('looked up order', { orderId })`, subsystem `pack.tool`). `kindgi dev` shows them as `[pack]` lines.
+  
+  The supervisor reads records and older bare events, acts only on the service's own lifecycle, and no longer swallows the pack's own JSON output that happens to have a `kind` field. It runs its child with `KINDGI_LOG_FORMAT=json`. `createPackService` takes `log`; its `logger` callback still gets the events.
+- 81f46aa: **A replay sends a read-only tool the env values the past run's call saw.** A comparison that replays a run (a candidate agent version over a test set) runs some read-only tools live. Those tools now read the config the past run read, not today's, so an env value changed since then can't skew the judged deltas.
+  
+  - **`@kindgi/api`:** a judged run's copy keeps `context.toolEnv`, each tool's recorded env values by tool id. It's taken from an agent turn's calls and from a flow's tool steps, agent steps and sub-flows. It's optional in the spec, and a run from before env was recorded has none.
+  - **`@kindgi/agents`:** a replay binding's `live` decision can carry `env`. The turn journals it with the decision, keeps it out of the replay report, and sends it as the call's `ctx.env`. Names it doesn't hold (a tool version that declares more) resolve as usual.
+  - **`@kindgi/tools`:** `toolCallRecordKey` and `TOOL_ENV_RECORD_KEY` name where a call's `ToolContext.record` decisions are journaled, so dispatch sites and capture agree.
+- 280377e: **A tool's env values, per project (`ctx.env`).** A tool that declares names in `needsSpec.env` gets their values in `ctx.env` on each call: the call's project's value, else its org's, else the tenant's, in the env the runtime serves (`KINDGI_ENV`). A schema `default` makes a name optional. The values a call used are recorded with it (`ToolContext.record`, new: the step's durable record, set by the dispatch site), so the call re-run after a wait or a retry sees the same ones. A runtime that resolves them is needed; with an older one, `ctx.env` stays absent.
+  
+  - **`@kindgi/tools`:** `ToolContext.env`; `ToolContext.record`, which an agent turn's tool dispatch (`@kindgi/agents`) sets to its step's record under `tool-call:<call id>:<tool id>:<key>`; and `TypedNeeds` documents what `env` and `secrets` take (strings, checked by their schema; `config` is reserved).
+  - **Pack protocol 2.5.0** (`@kindgi/specs`, `@kindgi/handler-runtime`, the Python SDK): `callContext.env` holds the declared names' string values. It's additive: a pack service that predates it already passes it through.
+  - **`kindgi env set/list/unset --scope=tenant|org:<id>|project:<id> --env=<name>`** act on the runtime's env values (`/v1/env`). Without `--scope` they edit the pack's local env files, as before. `--env` is required with `--scope`. `set` refuses to change a value without `--force`, and warns about a name that looks like a credential. A runtime that doesn't serve `/v1/env` gets a plain message.
+  - `kindgi env`'s description now says what it manages. It used to say values "resolve into `needs.env` at deploy time", which nothing did.
+- Updated dependencies [e27d050]
+- Updated dependencies [b67c599]
+- Updated dependencies [eff6249]
+  - @kindgi/schema@0.1.5-rc.0
+  - @kindgi/log@0.1.5-rc.0
+  - @kindgi/types@0.1.5-rc.0
+
+## 0.1.4
+
+### Patch Changes
+
+- 024a47f: **An agent's prompt and settings can come from data blocks, pinned when the agent version is published.**
+  
+  - **References:**
+    - `instructions` is the system prompt, or a prompt block by range: `{ prompt: 'acme.intake-prompt', version: '^1.0.0' }`. Its template and declared parameters are used instead.
+    - `settings: [{ id, version }]` lists settings blocks.
+    - `modelSettings: { id, version }` names a model-settings block (`MODEL_SETTINGS_SCHEMA`: `temperature`, `maxOutputTokens`).
+  - **Pinned at publish:** `POST /v1/agents` and deploys resolve each reference by `pickVersion` into `pins.prompts` / `pins.settings`, alongside the tools.
+  - **Refusals:** a reference that matches no published version, names a block of the other kind, names model settings that aren't, or runs on a runtime with no block registry refuses the publish (`400 validation-failed`).
+  - **At run time:** a turn loads each block at its pinned version. A resumed turn uses the versions its `setup` journaled (`blockVersions`).
+    - The prompt block renders as the instructions.
+    - Settings values reach tools as `ToolContext.settings['<id>']` and templates as `settings["<id>"]`.
+    - Model settings go into the model call.
+    - A block that can't load fails the turn (`block-unresolvable`).
+    - `InvokeAgentBindings` takes an optional `blockReader`.
+  - **Changed elsewhere:** the agent spec, the pack index, both indexers (TS and Python: `Agent(instructions={...}, settings=[...], model_settings={...})`), and both clients.
+  - **Pack protocol 2.4.0:** `callContext` gets optional `settings`, so pack code reads them: `ctx.settings['acme.weights']` in TS, `ctx.settings["acme.weights"]` in Python. Older pack services still answer calls that carry it: a TS one passes it to the handler, a Python one drops it.
+  - **`settings` is now a reserved template name.**
+- fa6680c: **A deploy pins its agents and never keeps a version's old pins.** `POST /v1/deployments` pins each agent as `POST /v1/agents` does. A deploy registers an agent under the version its definition names. When that version is already registered with other pins or content (versions never change), the deploy registers the next free version in its line instead (`1.4.0` → `1.4.1`, `1.4.0-rc.1` → `1.4.0-rc.2`). A deploy never refuses a routine deploy over this.
+  
+  - **Why a new version:**
+    - `pins-changed`: a tool the agent uses has a new version in range.
+    - `unpinned`: the version was published before pins existed.
+    - `version-taken`: the number is registered with another definition.
+  - **Redeploys are idempotent.** A redeploy finds the version an earlier deploy registered for the same definition and pins.
+  - **The record:**
+    - The registered version records `derivedFrom: {version, reason}`.
+    - The deployment's `contents.agents` names each agent's registered `version`. Where it differs from the definition's, it also gives `authoredVersion`, `reason`, `newVersion` and `pinChanges`.
+  - **`kindgi deploy` prints one line per such agent:** `agent acme.matcher: registered new version 1.4.1 (1.4.0's pins changed: tool acme.score 1.0.0 → 1.1.0); set version: '1.4.1' in acme.matcher to match`.
+  - **A range that matches no published version refuses the deploy:** `400 validation-failed`, with one issue per tool (`/agents/<i>/tools/<j>/version`), and the deploy's tools are rolled back.
+  - **New exports:**
+    - `@kindgi/agents`: `pinChanges()` and the `AgentDerivation` and `PinChange` types.
+    - `@kindgi/tools`: `nextVersion()`.
+- 8b28a25: **`pickVersion` and `latestVersion`: one rule for picking a version from a range.** `@kindgi/tools` now exports the rule the tool registry uses when a turn resolves an agent's tool ranges. A range picks the highest version it allows. A prerelease is picked only when the range names one, as in npm. With no range, the pick is the latest version. Other places that turn a range into a version use the same rule: the runtime's registries, `kindgi dev`, and (next) the versions an agent version pins when it's published. So a pin is always the version a run would have picked. `createToolRegistry`'s `resolve` behaves as before.
+- 62608e3: **Unregister stops a version being chosen, not the pins that hold it.**
+  
+  - **Retired tool versions.** `createToolRegistry().register(tool, { retired: true })` keeps an unregistered tool version for the published agent and flow versions that pin it.
+    - Only its exact version (`getVersion`, `hasVersion`) reaches it.
+    - `resolve` (a range), `get` (latest), `list`, `versions`, `has` and `ids` skip it.
+  - **A pinned turn reaches it.** A turn resolves a pinned tool by its exact version, so a published agent version pinned to a retired tool version keeps running it. A range never picks one.
+  - **`getVersion` reads unregistered versions.** `AgentRegistryBinding.getVersion` and `FlowRegistryBinding.getVersion` return them too (`AgentVersionRecord`, `FlowVersionRecord`, with `unregisteredAt`). `GET /v1/agents/:id/versions/:version` and `GET /v1/flows/:id/versions/:version` return `unregisteredAt`.
+  - **Who reads what:** a resumed run, provenance, and a flow version that pins an agent version read unregistered versions. A new run that names one is refused by the runtime.
+- Updated dependencies [fac7472]
+- Updated dependencies [26b2a23]
+- Updated dependencies [2040daf]
+- Updated dependencies [ae417f7]
+  - @kindgi/types@0.1.4
+  - @kindgi/schema@0.1.4
+
 ## 0.1.4-rc.5
 
 ### Patch Changes

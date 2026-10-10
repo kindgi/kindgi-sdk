@@ -2,7 +2,16 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { CommandContext } from '../context.js';
-import { integerFlag, listFlag, requiredPositional, runSdk, stringFlag } from './helpers.js';
+import { UsageError } from '../errors.js';
+import {
+  integerFlag,
+  listFlag,
+  requiredPositional,
+  runSdk,
+  segmentsFlag,
+  stringFlag,
+  timeFlag,
+} from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
 
 const KINDS = [
@@ -26,7 +35,7 @@ function suiteVersion(ctx: CommandContext): string | undefined {
 
 function requiredSuiteVersion(ctx: CommandContext): string {
   const version = suiteVersion(ctx);
-  if (version === undefined) throw new Error('--suite-version=<semver> is required');
+  if (version === undefined) throw new UsageError('--suite-version=<semver> is required');
   return version;
 }
 
@@ -55,17 +64,22 @@ const list: LeafCommand = {
   kind: 'leaf',
   name: 'list',
   description: 'List eval suites (the latest version of each).',
-  usage: `kindgi eval-suites list [--project=<id>] [--kind=${KINDS.join('|')}] [--limit=<n>] [--cursor=<c>]`,
+  usage: `kindgi eval-suites list [--project=<id>] [--kind=${KINDS.join('|')}] [--include-retired] [--limit=<n>] [--cursor=<c>]`,
   optionSpec: {
     project: { type: 'string', description: 'Only suites in this project.' },
     kind: { type: 'string', description: `Only this kind: ${KINDS.join(', ')}.` },
+    'include-retired': {
+      type: 'boolean',
+      description:
+        'Include retired suites (every version unregistered), each as its highest version with `unregisteredAt`.',
+    },
     ...PAGE_FLAGS,
   },
   run: (ctx) =>
     runSdk(ctx, 'eval-suites list', async () => {
       const kind = stringFlag(ctx, 'kind');
       if (kind !== undefined && !(KINDS as readonly string[]).includes(kind)) {
-        throw new Error(`--kind must be one of ${KINDS.join(', ')}, got "${kind}"`);
+        throw new UsageError(`--kind must be one of ${KINDS.join(', ')}, got "${kind}"`);
       }
       const projectId = stringFlag(ctx, 'project');
       const limit = integerFlag(ctx, 'limit');
@@ -75,6 +89,7 @@ const list: LeafCommand = {
         ...(projectId !== undefined && { scopeKind: 'project' as const, scopeId: projectId }),
         ...(limit !== undefined && { limit }),
         ...(cursor !== undefined && { cursor }),
+        ...(ctx.options['include-retired'] === true && { includeRetired: true }),
       });
     }),
 };
@@ -104,7 +119,7 @@ const fromJudgments: LeafCommand = {
   description:
     "Build a test set: publish a `judged` suite version whose cases are copies of an agent's or flow's judged runs, with each item's judgments summed up.",
   usage:
-    'kindgi eval-suites from-judgments <suite-id> --suite-version=<semver> --project=<id> (--agent=<id> [--agent-version=<v>] | --flow=<id>) [--since=<iso>] [--until=<iso>] [--class=<judge-class-id> ...] [--min-judgments=<n>] [--description=<text>]',
+    'kindgi eval-suites from-judgments <suite-id> --suite-version=<semver> --project=<id> (--agent=<id> [--agent-version=<v>] | --flow=<id>) [--since=<iso>] [--until=<iso>] [--class=<judge-class-id> ...] [--min-judgments=<n>] [--segment=<key:value> ...] [--description=<text>]',
   optionSpec: {
     'suite-version': { type: 'string', description: 'The version to publish. Required.' },
     project: { type: 'string', description: 'The project whose judged runs to use. Required.' },
@@ -116,9 +131,14 @@ const fromJudgments: LeafCommand = {
     flow: { type: 'string', description: 'Use judged runs of this flow.' },
     since: {
       type: 'string',
-      description: 'Only runs first judged at or after this ISO 8601 time.',
+      description:
+        'Only runs first judged at or after this time: an ISO 8601 time with a zone, or a date (its start, UTC).',
     },
-    until: { type: 'string', description: 'Only runs first judged before this ISO 8601 time.' },
+    until: {
+      type: 'string',
+      description:
+        'Only runs first judged before this time: an ISO 8601 time with a zone, or a date (its start, UTC).',
+    },
     class: {
       type: 'string',
       multiple: true,
@@ -129,6 +149,12 @@ const fromJudgments: LeafCommand = {
       type: 'string',
       description: 'Leave out runs with fewer counted judgments (default 1).',
     },
+    segment: {
+      type: 'string',
+      multiple: true,
+      description:
+        'Only runs started in this segment or below it, as key:value; repeat it for a path, coarse to fine (`--segment=company:acme --segment=role:cfo`).',
+    },
     description: { type: 'string', description: 'A description for the suite version.' },
   },
   run: (ctx) =>
@@ -136,20 +162,23 @@ const fromJudgments: LeafCommand = {
       const suiteId = requiredPositional(ctx, 0, 'suite-id');
       const version = requiredSuiteVersion(ctx);
       const projectId = stringFlag(ctx, 'project');
-      if (projectId === undefined) throw new Error('--project=<id> is required');
+      if (projectId === undefined) throw new UsageError('--project=<id> is required');
       const agent = stringFlag(ctx, 'agent');
       const flow = stringFlag(ctx, 'flow');
       if ((agent === undefined) === (flow === undefined)) {
-        throw new Error('Give exactly one of --agent=<id> or --flow=<id>');
+        throw new UsageError('Give exactly one of --agent=<id> or --flow=<id>');
       }
       if (stringFlag(ctx, 'agent-version') !== undefined && agent === undefined) {
-        throw new Error('--agent-version needs --agent');
+        throw new UsageError('--agent-version needs --agent');
       }
       const minJudgments = integerFlag(ctx, 'min-judgments');
       if (minJudgments !== undefined && minJudgments < 1) {
-        throw new Error('--min-judgments must be 1 or more');
+        throw new UsageError('--min-judgments must be 1 or more');
       }
       const classes = listFlag(ctx, 'class');
+      const segments = segmentsFlag(ctx);
+      const since = timeFlag(ctx, 'since');
+      const until = timeFlag(ctx, 'until');
       return await ctx.client().evalSuites.buildFromJudgments(suiteId, {
         version,
         projectId,
@@ -157,12 +186,13 @@ const fromJudgments: LeafCommand = {
           agent: 'agentId',
           'agent-version': 'agentVersion',
           flow: 'flowId',
-          since: 'since',
-          until: 'until',
           description: 'description',
         }),
+        ...(since !== undefined && { since }),
+        ...(until !== undefined && { until }),
         ...(classes.length > 0 && { judgeClassIds: classes }),
         ...(minJudgments !== undefined && { minJudgments }),
+        ...(segments.length > 0 && { segments: [...segments] }),
       });
     }),
 };

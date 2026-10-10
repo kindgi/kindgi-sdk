@@ -89,6 +89,13 @@ export interface EvalRunSubjectInvokeOutcome {
     readonly arguments: unknown;
     readonly reason?: string;
   };
+  /**
+   * The past run was erased after the case was read (a person's words
+   * were removed): nothing was replayed. Not an error: the dispatcher
+   * leaves the case out and counts it, like a case erased before. A
+   * runtime that predates erasure never sets it.
+   */
+  readonly erased?: true;
 }
 
 /**
@@ -329,10 +336,14 @@ export function createInProcessEvalRunBinding(
 
   return {
     async start(input: EvalRunStartInput): Promise<EvalRunStartOutcome> {
-      const suite = await options.suiteRegistry.get({
-        tenantId: input.tenantId,
-        suiteId: input.suiteId,
-      });
+      const suite =
+        input.suiteVersion === undefined
+          ? await options.suiteRegistry.get({ tenantId: input.tenantId, suiteId: input.suiteId })
+          : await options.suiteRegistry.getVersion({
+              tenantId: input.tenantId,
+              suiteId: input.suiteId,
+              version: input.suiteVersion,
+            });
       if (suite === null) {
         return { kind: 'suite-not-found', suiteId: input.suiteId };
       }
@@ -530,6 +541,7 @@ function newRunRecord(input: EvalRunStartInput, suite: EvalSuite, runId: RunId, 
     startedAt: at.toISOString() as unknown as Timestamp,
     ...(input.correlationId !== undefined && { correlationId: input.correlationId }),
     ...(input.comparison !== undefined && { comparison: input.comparison }),
+    projectId: input.projectId,
   };
 }
 

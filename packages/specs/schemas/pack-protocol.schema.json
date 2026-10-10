@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://kindgi.com/schemas/v1/pack-protocol.schema.json",
-  "$comment": "schema-version: 2.4.1",
+  "$comment": "schema-version: 2.5.0",
   "title": "Pack protocol",
   "description": "Pack protocol v2 — the messages a runtime exchanges with a pack service to run pack code (tool handlers and guardrail checks). One request, one response. Transport (HTTP): `POST /v1/invoke` takes a request and answers 200 with a response; `GET /v1/info` (token) answers `info`; `GET /healthz` (no token) answers 200 while the process is up; `GET /readyz` (no token) answers 200 once every module the index names has loaded and the service isn't draining. Headers: `kindgi-pack-token` (required on `/v1/invoke` and `/v1/info`; `Authorization` is deliberately not used, since platforms like Cloud Run put their own identity token there), `kindgi-timeout-ms` (relative deadline; default 120000), `kindgi-run-id`, `kindgi-request-id`, `kindgi-protocol`, `traceparent` (W3C Trace Context: the run's trace, so a pack service's records can carry its trace id; optional, protocol 2.4.1); the answer to an invoke carries `kindgi-duration-ms` and `kindgi-artifact-version`. Every outcome of running pack code is a response message with status 200 — a validation failure, a throw, an unknown tool, `deadline-exceeded`, `cancelled` (the caller closed the connection). Non-2xx statuses are transport-level only: 401 (bad token), 404, 405, 413 (body over 10 MiB), 415 (not `application/json`), 503 with `Retry-After` (not ready, draining, or at the concurrency cap — the call provably did not run), 500 (the service itself failed). Process contract: a pack service reads `--index`, `--module-root` and `--host` arguments, `KINDGI_PACK_SERVICE_TOKEN`, `PORT` (`0` picks a free port) and `KINDGI_PACK_SERVICE_MAX_CONCURRENCY`; it removes `KINDGI_PACK_SERVICE_TOKEN` from its process environment before it loads pack code, which never sees it; it loads every module before listening and exits 1 with a `{\"kind\":\"boot-failed\",\"problems\":[…]}` JSON line on stderr when one fails; once listening it writes `{\"kind\":\"listening\",\"port\":N,…}` on stderr; SIGTERM drains in-flight calls (up to 8 s; `/readyz` and new invokes answer 503 meanwhile) and exits 0.",
   "oneOf": [
@@ -44,14 +44,20 @@
           "type": "string",
           "description": "The individual call — e.g. the model's tool-call id."
         },
+        "idempotencyKey": {
+          "type": "string",
+          "format": "uuid",
+          "description": "The call's idempotency key (protocol 2.6.0): the same every time this call runs (a resume after a wait, a retry after a failure, a re-run after a crash), different for every other call. A tool that changes something passes it to the system it writes to, or looks for it there first. A version 5 UUID (RFC 9562, SHA-1) under the namespace a70d5bff-e713-4322-b2ea-9d5c4926a861, over the UTF-8 bytes of the compact JSON array [runId, stepScope, toolId] with the model's call id appended for a call a model asked for; stepScope is the step's own (its node id, a loop body's step with its iteration, a fanout branch). Absent from a runtime that can't name its steps."
+        },
         "env": {
           "type": "object",
-          "description": "Resolved environment values for the call (open)."
+          "additionalProperties": { "type": "string" },
+          "description": "The env values the tool declares (`needsSpec.env`), by name, resolved for this call: the project's value, else its org's, else the tenant's, in the env the runtime serves; a schema `default` when no scope sets one (protocol 2.5.0). The runtime records them with the call, so the call re-run after a wait or a retry sends the same values. Absent when the tool declares none, and from an older runtime."
         },
         "secrets": { "type": "object", "description": "Resolved secrets for the call (open)." },
         "config": {
           "type": "object",
-          "description": "Resolved configuration for the call (open)."
+          "description": "Reserved: no runtime sends it yet (open)."
         },
         "settings": {
           "type": "object",

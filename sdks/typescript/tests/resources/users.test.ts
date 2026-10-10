@@ -130,8 +130,142 @@ describe('users.sessions.list / revokeAll', () => {
   });
 });
 
+describe('users.unregister — POST /v1/identity/users/{userId}/unregister', () => {
+  it('removes a person: the record with unregisteredAt, and what went', async () => {
+    const stub = jsonFetch({
+      user: { ...WIRE_USER, unregisteredAt: '2026-10-07T12:00:00.000Z' },
+      keysRevoked: 2,
+      sessionsRevoked: 1,
+      grantsRemoved: 3,
+    });
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+
+    const result = await client.users.unregister('user-alice' as never, {
+      idempotencyKey: 'idem-rm',
+    });
+    expect(result.user.unregisteredAt).toBe('2026-10-07T12:00:00.000Z');
+    expect(result).toMatchObject({ keysRevoked: 2, sessionsRevoked: 1, grantsRemoved: 3 });
+    const req = stub.calls[0]!;
+    expect(req.method).toBe('POST');
+    expect(req.url).toBe('https://api.example.com/v1/identity/users/user-alice/unregister');
+    expect(req.headers['idempotency-key']).toBe('idem-rm');
+  });
+
+  it('a refusal is a conflict naming its reason', async () => {
+    for (const code of ['last-tenant-admin', 'identity-user-unregister-refused']) {
+      const stub = errorFetch(409, { code, message: 'refused' });
+      const client = createClient({
+        apiUrl: 'https://api.example.com',
+        auth: AUTH,
+        fetch: stub.fetch,
+      });
+      await expect(client.users.unregister('user-alice' as never)).rejects.toMatchObject({
+        error: { code: 'conflict', reason: code },
+      });
+    }
+  });
+
+  it('list asks for removed people too only when told', async () => {
+    const stub = recordingFetch([
+      { status: 200, body: JSON.stringify({ data: [WIRE_USER], hasMore: false }) },
+      { status: 200, body: JSON.stringify({ data: [WIRE_USER], hasMore: false }) },
+    ]);
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    await client.users.list();
+    await client.users.list({ includeUnregistered: true });
+    expect(stub.calls[0]?.url).toBe('https://api.example.com/v1/identity/users');
+    expect(stub.calls[1]?.url).toBe(
+      'https://api.example.com/v1/identity/users?includeUnregistered=true',
+    );
+  });
+
+  it("list carries each person's grants only when asked", async () => {
+    const grants = { userId: WIRE_USER.userId, tenantAdmin: false, projects: [], teams: [] };
+    const stub = recordingFetch([
+      {
+        status: 200,
+        body: JSON.stringify({ data: [{ ...WIRE_USER, grants }], hasMore: false }),
+      },
+      { status: 200, body: JSON.stringify({ data: [WIRE_USER], hasMore: false }) },
+    ]);
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    const page = await client.users.list({ includeGrants: true });
+    expect(stub.calls[0]?.url).toBe('https://api.example.com/v1/identity/users?include=grants');
+    expect(page.data[0]?.grants).toEqual(grants);
+    await client.identity.users.list({ includeGrants: true, query: 'a' });
+    expect(stub.calls[1]?.url).toBe(
+      'https://api.example.com/v1/identity/users?query=a&include=grants',
+    );
+  });
+});
+
+describe('users.create — POST /v1/identity/users', () => {
+  it('adds a person and returns their id', async () => {
+    const stub = jsonFetch(WIRE_USER, { status: 201 });
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    const id = await client.users.create(
+      { displayName: 'Alice', email: 'alice@example.com' },
+      { idempotencyKey: 'idem-u' },
+    );
+    expect(id).toBe('user-alice');
+    const req = stub.calls[0]!;
+    expect(req.method).toBe('POST');
+    expect(req.url).toBe('https://api.example.com/v1/identity/users');
+    expect(req.headers['idempotency-key']).toBe('idem-u');
+    expect(JSON.parse(req.body ?? '{}')).toEqual({
+      displayName: 'Alice',
+      primaryEmail: 'alice@example.com',
+    });
+  });
+
+  it('a taken email is a conflict', async () => {
+    const stub = errorFetch(409, {
+      code: 'identity-user-email-taken',
+      message: 'taken',
+      details: { userId: 'user-bob' },
+    });
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    await expect(client.users.create({ displayName: 'B', email: 'b@x' })).rejects.toMatchObject({
+      error: { code: 'conflict', reason: 'identity-user-email-taken' },
+    });
+  });
+
+  it('orgId and metadata are not on the wire: not-yet-wired, nothing sent', async () => {
+    const stub = recordingFetch([]);
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    await expect(
+      client.users.create({ displayName: 'X', orgId: 'o' as never }),
+    ).rejects.toMatchObject({ error: { code: 'not-yet-wired', method: 'users.create' } });
+    expect(stub.calls.length).toBe(0);
+  });
+});
+
 describe('users not-yet-wired surface', () => {
-  it('create / update / deactivate / sessions.revoke throw not-yet-wired', async () => {
+  it('update / deactivate / sessions.revoke throw not-yet-wired', async () => {
     const stub = recordingFetch([]);
     const client = createClient({
       apiUrl: 'https://api.example.com',
@@ -139,11 +273,6 @@ describe('users not-yet-wired surface', () => {
       fetch: stub.fetch,
     });
 
-    await expect(client.users.create({ email: 'x@y.com', displayName: 'X' })).rejects.toMatchObject(
-      {
-        error: { code: 'not-yet-wired', method: 'users.create' },
-      },
-    );
     await expect(client.users.update('x' as never, { displayName: 'Y' })).rejects.toMatchObject({
       error: { code: 'not-yet-wired', method: 'users.update' },
     });

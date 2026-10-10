@@ -13,7 +13,7 @@ import { describe, expect, test } from 'vitest';
 import type { JournalEntry, KernelRunRecord, RunBinding } from '@kindgi/runtime';
 import type { ProjectId, RunId, TenantId, Timestamp } from '@kindgi/types';
 
-import { createStubAppBindings } from '@kindgi/testing';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type { EventBusBinding, RunHandlerBinding, TokenResolver } from '../src/index.js';

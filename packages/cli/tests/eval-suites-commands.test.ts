@@ -57,7 +57,7 @@ describe('kindgi eval-suites', () => {
 
   test('list rejects an unknown kind', async () => {
     const out = await run(['eval-suites', 'list', '--kind=bogus'], { evalSuites: {} });
-    expect(out.exitCode).toBe(1);
+    expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain('--kind must be one of');
   });
 
@@ -88,11 +88,13 @@ describe('kindgi eval-suites', () => {
         '--project=p-1',
         '--agent=acme.matcher',
         '--agent-version=2.0.0',
-        '--since=2026-10-01T00:00:00Z',
-        '--until=2026-10-05T00:00:00Z',
+        '--since=2026-10-01',
+        '--until=2026-10-05T02:00:00+02:00',
         '--class=jc-1',
         '--class=jc-2',
         '--min-judgments=2',
+        '--segment=company:acme',
+        '--segment=role:cfo',
         '--description=First set',
       ],
       { evalSuites: { buildFromJudgments: rec('build', { caseCount: 3 }) } },
@@ -107,11 +109,15 @@ describe('kindgi eval-suites', () => {
           projectId: 'p-1',
           agentId: 'acme.matcher',
           agentVersion: '2.0.0',
-          since: '2026-10-01T00:00:00Z',
-          until: '2026-10-05T00:00:00Z',
+          since: '2026-10-01T00:00:00.000Z',
+          until: '2026-10-05T00:00:00.000Z',
           description: 'First set',
           judgeClassIds: ['jc-1', 'jc-2'],
           minJudgments: 2,
+          segments: [
+            { key: 'company', value: 'acme' },
+            { key: 'role', value: 'cfo' },
+          ],
         },
       ],
     ]);
