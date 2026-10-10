@@ -43,6 +43,12 @@ export type { KindgiClient } from '@kindgi/client';
  * browser, pass `apiUrl` and `auth`. `@kindgi/client`'s `createClient` is
  * the explicit form underneath.
  *
+ * The options are found on first use, not here: a module-scope
+ * `const kindgi = createClient()` is safe to import where the runtime's
+ * settings aren't set, as a production build (`next build`) imports every
+ * module. When they're missing, the first use (`kindgi.runs`, …) throws
+ * the error that says what to set; once they're set, the next use works.
+ *
  * @example
  * ```ts
  * import { createClient } from '@kindgi/sdk/client';
@@ -51,7 +57,27 @@ export type { KindgiClient } from '@kindgi/client';
  * ```
  */
 export function createClient(options: Partial<ClientOptions> = {}): KindgiClient {
-  return createKindgiClient(resolveClientOptions(options));
+  let client: KindgiClient | undefined;
+  // A failed lookup isn't kept: the env may be set by the next use.
+  const resolved = (): KindgiClient => {
+    client ??= createKindgiClient(resolveClientOptions(options));
+    return client;
+  };
+  return new Proxy({} as KindgiClient, {
+    get(_target, key) {
+      // Never resolve to answer whether the client is a promise (`await`,
+      // `return` from an async function), or for a symbol a tool inspects.
+      if (client === undefined && (key === 'then' || typeof key === 'symbol')) return undefined;
+      return Reflect.get(resolved(), key);
+    },
+    has: (_target, key) => key in resolved(),
+    ownKeys: () => Reflect.ownKeys(resolved()),
+    getOwnPropertyDescriptor(_target, key) {
+      const descriptor = Reflect.getOwnPropertyDescriptor(resolved(), key);
+      // The target holds none of the client's fields, so none may be reported fixed.
+      return descriptor === undefined ? undefined : { ...descriptor, configurable: true };
+    },
+  });
 }
 
 // ---- Resource client types + per-resource input shapes ----
