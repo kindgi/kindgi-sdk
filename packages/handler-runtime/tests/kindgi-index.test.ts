@@ -371,6 +371,75 @@ describe('built-in check ids', () => {
   });
 });
 
+describe("check ids without the pack's prefix (a warning)", () => {
+  // The fixture's pack id is `acme.pack`, so a check's id should start `acme.pack.`.
+  const index = async (guardrailFile: FixtureFile) => {
+    const fixture = await makeFixture({
+      files: { 'kindgi.config.mjs': config(), 'guardrails/cites.mjs': guardrailFile },
+    });
+    const outcome = await runIndexer({
+      packDir: fixture.packDir,
+      publishedAt: FIXED_TIMESTAMP,
+      artifactVersion: '20261009.1',
+      importModule: fixture.importModule,
+    });
+    if (outcome.kind !== 'ok') throw new Error('indexer failed');
+    return outcome.value;
+  };
+  const evaluate = async () => ({ passed: true });
+  const warning = (id: string) => ({
+    code: 'check-id-unprefixed',
+    filePath: 'guardrails/cites.mjs',
+    field: 'check',
+    message: `guardrails/cites.mjs: check "${id}" doesn't start with this pack's id ("acme.pack."). Name it "acme.pack.checks.<name>" so it can't collide with another pack's check in the same tenant. The pack builds as it is.`,
+  });
+
+  test.each([
+    ["the guardrail's own check", (id: string) => guardrailModule({ check: { id, evaluate } })],
+    [
+      'a check the module exports',
+      (id: string) => ({
+        module: {
+          default: (guardrailModule({ check: 'must-cite' }).module as { default: unknown }).default,
+          check: { id, evaluate },
+        },
+      }),
+    ],
+  ] as const)(
+    'an unprefixed id, as %s: a warning, and the guardrail still indexes',
+    async (_how, file) => {
+      const report = await index(file('acme.checks.cites') as FixtureFile);
+      expect(report.fileErrors).toEqual([]);
+      expect(report.warnings).toEqual([warning('acme.checks.cites')]);
+      expect(report.counts.guardrails).toBe(1);
+    },
+  );
+
+  test("a prefix that isn't the pack's whole id (acme.packs.…) is no prefix", async () => {
+    const report = await index(guardrailModule({ check: { id: 'acme.packs.cites', evaluate } }));
+    expect(report.warnings).toEqual([warning('acme.packs.cites')]);
+  });
+
+  test('the same check, as the guardrail and exported, is one warning', async () => {
+    const check = { id: 'cites', evaluate };
+    const report = await index({
+      module: {
+        default: (guardrailModule({ check }).module as { default: unknown }).default,
+        check,
+      },
+    });
+    expect(report.warnings).toEqual([warning('cites')]);
+  });
+
+  test("a check under the pack's id, or a built-in named by its id: no warning", async () => {
+    expect(
+      (await index(guardrailModule({ check: { id: 'acme.pack.checks.cites', evaluate } })))
+        .warnings,
+    ).toEqual([]);
+    expect((await index(guardrailModule({ check: 'must-cite' }))).warnings).toEqual([]);
+  });
+});
+
 // -----------------------------------------------------------------------
 // Zod → JSON Schema pass
 // -----------------------------------------------------------------------

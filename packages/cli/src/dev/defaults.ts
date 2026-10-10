@@ -651,6 +651,12 @@ async function indexResultOf(outcome: IndexerOutcome): Promise<IndexResult> {
       message: e.message,
       ...(e.filePath !== undefined && { filePath: e.filePath }),
     })),
+    // A Python or JVM indexer from an older SDK sends no `warnings`.
+    warnings: (report.warnings ?? []).map((w) => ({
+      code: w.code,
+      message: w.message,
+      ...(w.filePath !== undefined && { filePath: w.filePath }),
+    })),
     index,
   };
 }

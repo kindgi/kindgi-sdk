@@ -12,6 +12,7 @@ import type { EnvBinding, EnvRecord, EnvSetOutcome } from '../env-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
+import { capabilityRefusal } from './denied.js';
 import { clampLimit } from './pagination.js';
 import { parseScopeParams, queryScopeResourceRef } from './scope-params.js';
 
@@ -134,18 +135,8 @@ export function envRouter(envBinding: EnvBinding, authorizer?: Authorizer): Hono
     const tenantId = c.get('tenantId') as TenantId;
     const name = c.req.param('name');
 
-    if (!hasCapability(c, 'env:write')) {
-      c.status(statusFor('permission-denied') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'permission-denied',
-            message: 'Bearer token is missing the `env:write` capability required for this route.',
-          },
-          requestId,
-        ),
-      );
-    }
+    const missing = capabilityRefusal(c, authorizer, 'env:write');
+    if (missing !== undefined) return missing;
 
     let body: unknown;
     try {
@@ -286,18 +277,8 @@ export function envRouter(envBinding: EnvBinding, authorizer?: Authorizer): Hono
     const tenantId = c.get('tenantId') as TenantId;
     const name = c.req.param('name');
 
-    if (!hasCapability(c, 'env:write')) {
-      c.status(statusFor('permission-denied') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'permission-denied',
-            message: 'Bearer token is missing the `env:write` capability required for this route.',
-          },
-          requestId,
-        ),
-      );
-    }
+    const missing = capabilityRefusal(c, authorizer, 'env:write');
+    if (missing !== undefined) return missing;
 
     const envNameResult = requireEnvName(c.req.query('envName'));
     if (envNameResult.kind === 'err') {
@@ -404,16 +385,6 @@ export function scopesEqual(a: unknown, b: Scope): boolean {
     return ao.projectId === (b.projectId as unknown as string);
   }
   return true;
-}
-
-/** Capability presence check — fail-closed if `capabilities` is absent. */
-export function hasCapability(
-  c: { get: (k: 'capabilities') => readonly string[] | undefined },
-  cap: string,
-): boolean {
-  const caps = c.get('capabilities');
-  if (caps === undefined) return false;
-  return caps.includes(cap);
 }
 
 function serializeEnvRecord(rec: EnvRecord): Record<string, unknown> {
