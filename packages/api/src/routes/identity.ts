@@ -188,6 +188,11 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
     const cursorRaw = c.req.query('cursor');
     const queryRaw = c.req.query('query');
     const includeUnregistered = c.req.query('includeUnregistered') === 'true';
+    const include = parseUsersInclude(c.req.query('include'));
+    if (typeof include === 'string') {
+      c.status(statusFor('bad-input') as never);
+      return c.json(toWireError({ code: 'bad-input', message: include }, c.get('requestId')));
+    }
 
     const page = await directory.listUsers({
       tenantId,
@@ -196,8 +201,23 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
       ...(queryRaw !== undefined && queryRaw.length > 0 && { query: queryRaw }),
       ...(includeUnregistered && { includeUnregistered: true }),
     });
+    // Without a grants binding, the people come as an older runtime answers: no `grants`.
+    const grants =
+      include.grants && personGrants !== undefined
+        ? await grantsOf(
+            personGrants,
+            tenantId,
+            page.data.map((u) => u.userId as unknown as string),
+          )
+        : undefined;
     return c.json({
-      data: page.data.map(serializeUser),
+      data: page.data.map((u) => {
+        const held = grants?.get(u.userId as unknown as string);
+        return {
+          ...serializeUser(u),
+          ...(held !== undefined && { grants: serializePersonGrants(held) }),
+        };
+      }),
       hasMore: page.nextCursor !== undefined,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });
@@ -703,6 +723,39 @@ function notFound(c: Context<AppEnv>, userId: string) {
 function grantError(c: Context<AppEnv>, error: PersonGrantError) {
   c.status(statusFor(error.code) as never);
   return c.json(toWireError({ code: error.code, message: error.message }, c.get('requestId')));
+}
+
+/** How many people's grants the users list reads at once, without `readMany`. */
+const GRANTS_READ_AT_ONCE = 8;
+
+/** The users list's `include`: comma-separated extras (`grants`), or why not. */
+function parseUsersInclude(raw: string | undefined): { readonly grants: boolean } | string {
+  const includes = raw === undefined ? [] : raw.split(',').map((i) => i.trim());
+  const unknown = includes.filter((i) => i !== 'grants');
+  if (unknown.length > 0) return `Unknown \`include\` value(s): ${unknown.join(', ')}`;
+  return { grants: includes.includes('grants') };
+}
+
+/**
+ * The listed people's grants: in one call when the binding can, otherwise
+ * each person's, a few at a time (a page is at most 100 people).
+ */
+async function grantsOf(
+  binding: PersonGrantsBinding,
+  tenantId: TenantId,
+  userIds: readonly string[],
+): Promise<ReadonlyMap<string, PersonGrants>> {
+  if (binding.readMany !== undefined) return binding.readMany({ tenantId, userIds });
+  const out = new Map<string, PersonGrants>();
+  for (let i = 0; i < userIds.length; i += GRANTS_READ_AT_ONCE) {
+    const batch = userIds.slice(i, i + GRANTS_READ_AT_ONCE);
+    const read = await Promise.all(batch.map((userId) => binding.read({ tenantId, userId })));
+    read.forEach((grants, j) => {
+      const userId = batch[j];
+      if (grants !== null && userId !== undefined) out.set(userId, grants);
+    });
+  }
+  return out;
 }
 
 /** `{kind: 'tenant-admin'}`, or why not. */

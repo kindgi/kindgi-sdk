@@ -34,6 +34,8 @@ export interface ListIdentityUsersFilter {
   readonly limit?: number;
   readonly cursor?: string;
   readonly query?: string;
+  /** Each person's `grants` too, in the same read. A runtime that doesn't read grants leaves them out. */
+  readonly includeGrants?: boolean;
 }
 
 export interface IdentityClient {
@@ -100,6 +102,7 @@ export function makeIdentityClient(transport: Transport): IdentityClient {
             ...(filter?.limit !== undefined && { limit: filter.limit }),
             ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
             ...(filter?.query !== undefined && { query: filter.query }),
+            ...(filter?.includeGrants === true && { include: 'grants' }),
           },
         });
       },
