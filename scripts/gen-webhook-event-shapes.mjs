@@ -28,8 +28,18 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 export const OPENAPI = join(ROOT, 'packages/api/openapi.json');
 export const OUT = join(ROOT, 'packages/sdk/src/webhook-event-shapes.generated.ts');
 
-/** Keywords that say nothing a receiver checks. */
-const IGNORED = new Set(['description', 'title', 'examples', 'default', 'deprecated']);
+/** Keywords that say nothing a receiver checks; so does any `x-…` extension. */
+const IGNORED = new Set([
+  'description',
+  'title',
+  'examples',
+  'example',
+  'default',
+  'deprecated',
+  'readOnly',
+  'writeOnly',
+]);
+const ignored = (key) => IGNORED.has(key) || key.startsWith('x-');
 const KNOWN = {
   string: ['type', 'enum', 'const', 'format', 'minLength', 'maxLength', 'pattern'],
   number: ['type', 'minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum'],
@@ -83,7 +93,7 @@ function typeOf(schema, path) {
   if (kinds.length !== 1 || KNOWN[kind] === undefined) {
     throw new Error(`${path}: type ${JSON.stringify(schema.type)} isn't one the checker reads`);
   }
-  const unread = Object.keys(schema).find((k) => !IGNORED.has(k) && !KNOWN[kind].includes(k));
+  const unread = Object.keys(schema).find((k) => !ignored(k) && !KNOWN[kind].includes(k));
   if (unread !== undefined) {
     throw new Error(`${path}: "${unread}" on a ${kind} isn't a keyword the checker reads`);
   }
@@ -93,6 +103,14 @@ function typeOf(schema, path) {
 function stringShape(shape, schema, path) {
   if (schema.format !== undefined && !FORMATS.has(schema.format)) {
     throw new Error(`${path}: format "${schema.format}" isn't one the checker reads`);
+  }
+  if (schema.pattern !== undefined) {
+    // As the checker compiles it (Unicode), so a pattern it can't run fails here, not in parseEvent.
+    try {
+      new RegExp(schema.pattern, 'u');
+    } catch (cause) {
+      throw new Error(`${path}: pattern ${schema.pattern} doesn't compile: ${cause.message}`);
+    }
   }
   const values = schema.const !== undefined ? [schema.const] : schema.enum;
   return {

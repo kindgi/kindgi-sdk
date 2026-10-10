@@ -136,7 +136,7 @@ function checkString(shape: Of<'string'>, value: unknown, at: string): string | 
   if (shape.maxLength !== undefined && length > shape.maxLength) {
     return `${at} is longer than ${shape.maxLength} characters.`;
   }
-  if (shape.pattern !== undefined && !new RegExp(shape.pattern, 'u').test(value)) {
+  if (shape.pattern !== undefined && !patternOf(shape.pattern).test(value)) {
     return `${at} doesn't match ${shape.pattern}.`;
   }
   return undefined;
@@ -233,6 +233,17 @@ const FORMATS: Readonly<Record<'uuid' | 'date-time', (value: string) => boolean>
   uuid: (v) => UUID.test(v),
   'date-time': (v) => DATE_TIME.test(v) && !Number.isNaN(Date.parse(v)),
 };
+
+/** Each pattern compiled once (Unicode, as the generator checked it compiles). */
+const patterns = new Map<string, RegExp>();
+function patternOf(source: string): RegExp {
+  let compiled = patterns.get(source);
+  if (compiled === undefined) {
+    compiled = new RegExp(source, 'u');
+    patterns.set(source, compiled);
+  }
+  return compiled;
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);

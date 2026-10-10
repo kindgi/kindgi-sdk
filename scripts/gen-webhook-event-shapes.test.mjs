@@ -77,3 +77,19 @@ test("LiveScope's variants are keyed by their kind, and a nullable type is kept 
   assert.deepEqual(Object.keys(scope.variants), ['tenant', 'org', 'project', 'segment']);
   assert.deepEqual(runFields(shapes).required.failureMessage, { kind: 'string', nullable: true });
 });
+
+test('an x- extension or another annotation-only keyword is skipped', () => {
+  const doc = openapi();
+  Object.assign(schemas(doc).RequestedApproval.properties.url, {
+    'x-kindgi-note': 'console link',
+    readOnly: true,
+    example: 'https://console.acme.example/approvals/appr_1',
+  });
+  assert.equal(render(shapesOf(doc)), render(shapesOf(openapi())));
+});
+
+test("a pattern the checker can't compile fails the generation", () => {
+  const doc = openapi();
+  schemas(doc).ScopeSegment.properties.key.pattern = '^[a-z](?<!x';
+  assert.throws(() => shapesOf(doc), /ScopeSegment\.key: pattern .* doesn't compile/);
+});
