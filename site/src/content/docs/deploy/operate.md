@@ -319,7 +319,7 @@ Run 0.1.5.1, pulled by its digest, with the same `kindgi.env`. It has no
 migration:
 
 ```sh
-docker pull quay.io/kindgi/runtime:0.1.5.1@sha256:<the release's digest>
+docker pull quay.io/kindgi/runtime:0.1.5.1@sha256:7c1b111ff22091d137f45d9770f6ff9f2521575bf28130957a5db1ce80a2e56e
 ```
 
 On Cloud Run, copy it into your repository the same way as 0.1.5 (see
