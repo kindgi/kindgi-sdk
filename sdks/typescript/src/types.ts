@@ -2459,6 +2459,43 @@ export interface McpEndpointSecretRef {
 }
 
 /**
+ * HTTP Basic sign-in (`@kindgi/api/openapi.json#MCPBasicAuth`): the runtime
+ * sends `Authorization: Basic base64(<username>:<secret>)` (a WordPress
+ * Application Password, for one).
+ */
+export interface McpBasicAuth {
+  readonly scheme: 'basic';
+  /** The user name. Not a secret; no `:`. */
+  readonly username: string;
+  /** The password, by reference. */
+  readonly secretRef: McpEndpointSecretRef;
+}
+
+/**
+ * OAuth 2 client credentials
+ * (`@kindgi/api/openapi.json#MCPOAuth2ClientCredentialsAuth`): the runtime
+ * asks `tokenUrl` for an access token, sends it as the endpoint's bearer,
+ * and asks again before it expires (Drupal's Simple OAuth, for one).
+ */
+export interface McpOAuth2ClientCredentialsAuth {
+  readonly scheme: 'oauth2-client-credentials';
+  /** The token endpoint: https, or http to a loopback host. */
+  readonly tokenUrl: string;
+  readonly clientId: string;
+  /** The client secret, by reference. */
+  readonly secretRef: McpEndpointSecretRef;
+  /** The scopes to ask for, space-separated. */
+  readonly scope?: string;
+  /** An `audience` parameter, for identity providers that need one. */
+  readonly audience?: string;
+  /** How the client authenticates to the token endpoint. Default `client_secret_basic`. */
+  readonly clientAuth?: 'client_secret_basic' | 'client_secret_post';
+}
+
+/** How an endpoint signs in when it isn't a plain bearer (`@kindgi/api/openapi.json#MCPEndpointAuth`). */
+export type McpEndpointAuth = McpBasicAuth | McpOAuth2ClientCredentialsAuth;
+
+/**
  * Wire shape — matches `@kindgi/api/openapi.json#MCPEndpoint`. Represents an
  * external MCP server the tenant has registered as reachable.
  */
@@ -2469,6 +2506,8 @@ export interface McpEndpoint {
   readonly transport: McpTransport;
   readonly config: McpEndpointConfig;
   readonly secretRef?: McpEndpointSecretRef;
+  /** How it signs in, when it isn't a plain bearer (see `RegisterMcpEndpointInput`). */
+  readonly auth?: McpEndpointAuth;
   /** Whether the run's `traceparent` is sent to the endpoint (see `RegisterMcpEndpointInput`). */
   readonly sendTraceparent?: boolean;
 }
@@ -2488,6 +2527,13 @@ export interface RegisterMcpEndpointInput {
    * (`403 host-access-denied`) unless it runs with `KINDGI_TENANT_HOST_ACCESS=local`.
    */
   readonly secretRef?: McpEndpointSecretRef;
+  /**
+   * How it signs in when it isn't a plain bearer: `basic` (a user name and a
+   * password secret) or `oauth2-client-credentials` (a token the runtime
+   * fetches and refreshes). Not with `secretRef`, not on `stdio`, and not with
+   * an `Authorization` header in `config.headers`.
+   */
+  readonly auth?: McpEndpointAuth;
   /**
    * Send the W3C `traceparent` of the run calling a tool to the endpoint,
    * as a request header (ids only, never content). Default `false`. HTTP

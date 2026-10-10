@@ -257,6 +257,72 @@ there when the endpoint is registered, no tools are registered, and the
 Store the secret (`kindgi secrets set INVENTORY_TOKEN --env=local --scope=tenant`),
 then register the endpoint again, as below.
 
+### Sign in with a user name and password
+
+For a server that takes HTTP Basic, such as a WordPress site's MCP Adapter
+(WooCommerce's MCP tools included) with an Application Password, use `auth`
+instead of `secretRef`:
+
+```json
+"auth": {
+  "scheme": "basic",
+  "username": "kindgi-agent",
+  "secretRef": { "envName": "local", "name": "SHOP_APP_PASSWORD" }
+}
+```
+
+Kindgi sends `Authorization: Basic <base64 of username:password>`, the password
+resolved from the tenant's secrets when it connects. Give the agent its own
+WordPress user, with a role that allows only what it should do, and create
+the Application Password on that user's profile.
+
+### Sign in with OAuth client credentials
+
+For a server behind an OAuth 2 token endpoint, such as a Drupal site's MCP
+Server with Simple OAuth:
+
+```json
+"auth": {
+  "scheme": "oauth2-client-credentials",
+  "tokenUrl": "https://cms.example.com/oauth/token",
+  "clientId": "kindgi",
+  "secretRef": { "envName": "local", "name": "CMS_CLIENT_SECRET" },
+  "scope": "mcp_server"
+}
+```
+
+Kindgi asks `tokenUrl` for an access token (`grant_type=client_credentials`)
+and sends it as `Authorization: Bearer <token>`:
+
+- **Refreshed before it expires:** a fifth of the token's lifetime early, at
+  most a minute. A 300-second token is replaced after 240 seconds. A token
+  answered without `expires_in` is used for 60 seconds.
+- **The client's credentials:** an `Authorization: Basic` header to the token
+  endpoint by default; `"clientAuth": "client_secret_post"` sends
+  `client_id` and `client_secret` in the form instead. `audience` is sent
+  when it's set.
+- **Never stored:** tokens live in the runtime's memory only, and each runtime
+  instance gets its own. The secret is resolved at each token request, so a
+  rotated secret is used from the next one.
+- **The token URL** is https, or http to `localhost`, `127.0.0.1` or `[::1]`.
+- **When it fails:**
+  - a token request that's refused (`invalid_client`, a scope it may not
+    have) fails the tool call with `mcp-auth-refused`;
+  - one that can't be made (the token endpoint down, a malformed answer) fails
+    it with `mcp-auth-failed`.
+
+  Neither message includes the secret or a token.
+- **A token the server stops taking early** (a 401): Kindgi asks for a new
+  one and sends that request once more.
+
+### What `auth` can't be set with
+
+`secretRef` stays the plain bearer form, and `auth` is the other schemes. A
+registration with both is refused (`invalid-mcp-endpoint`, reason
+`auth-with-secret-ref`), and so is `auth` on a `stdio` endpoint
+(`auth-on-stdio`: a stdio server gets no headers), or beside an
+`Authorization` header in `config.headers` (`auth-with-authorization-header`).
+
 ## Send the run's trace
 
 Add `"sendTraceparent": true` to the registration, and each tool call to the

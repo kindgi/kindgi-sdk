@@ -11,6 +11,7 @@ import { statusFor, toWireError } from '../errors.js';
 import {
   type MCPClientProbeBinding,
   type MCPEndpoint,
+  type MCPEndpointAuth,
   type MCPEndpointConfig,
   type MCPEndpointRegistryBinding,
   type MCPPromptDescriptor,
@@ -18,7 +19,10 @@ import {
   type MCPResourceContent,
   type MCPResourceDescriptor,
   type MCPTransport,
+  MCP_AUTH_SCHEMES,
+  MCP_OAUTH_CLIENT_AUTH,
   MCP_TRANSPORTS,
+  mcpEndpointSecretNames,
 } from '../mcp-endpoint-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
@@ -212,7 +216,7 @@ export function mcpRouter(
     const refusal = await refuseProviderKeys(
       options.providerKeys,
       tenantId,
-      validation.value.secretRef === undefined ? [] : [validation.value.secretRef.name],
+      mcpEndpointSecretNames(validation.value),
       'an MCP endpoint',
     );
     if (refusal !== undefined) {
@@ -645,6 +649,7 @@ function serializeEndpoint(e: MCPEndpoint): Record<string, unknown> {
     transport: e.transport,
     config: e.config,
     ...(e.secretRef !== undefined && { secretRef: e.secretRef }),
+    ...(e.auth !== undefined && { auth: e.auth }),
     ...(e.instructions !== undefined && { instructions: e.instructions }),
     ...(e.metadata !== undefined && { metadata: e.metadata }),
     ...(e.sendTraceparent !== undefined && { sendTraceparent: e.sendTraceparent }),
@@ -658,6 +663,7 @@ const REGISTER_BODY_FIELDS = new Set([
   'transport',
   'config',
   'secretRef',
+  'auth',
   'instructions',
   'metadata',
   'sendTraceparent',
@@ -743,6 +749,19 @@ function validateMCPEndpoint(
       },
     };
   }
+  let auth: MCPEndpointAuth | undefined;
+  if (b.auth !== undefined) {
+    const refusal = authConflict(
+      b.endpointId,
+      b.transport as MCPTransport,
+      b.secretRef,
+      configResult.value,
+    );
+    if (refusal !== undefined) return { kind: 'err', error: refusal };
+    const parsed = parseAuth(b.endpointId, b.auth);
+    if (parsed.kind === 'err') return parsed;
+    auth = parsed.value;
+  }
   if (b.instructions !== undefined && typeof b.instructions !== 'string') {
     return {
       kind: 'err',
@@ -786,6 +805,7 @@ function validateMCPEndpoint(
     transport: b.transport as MCPTransport,
     config: configResult.value,
     ...(secretRef !== undefined && { secretRef: secretRef.value }),
+    ...(auth !== undefined && { auth }),
     ...(b.instructions !== undefined && { instructions: b.instructions as string }),
     ...(b.metadata !== undefined && {
       metadata: b.metadata as Readonly<Record<string, unknown>>,
@@ -793,6 +813,153 @@ function validateMCPEndpoint(
     ...(b.sendTraceparent !== undefined && { sendTraceparent: b.sendTraceparent }),
   };
   return { kind: 'ok', value };
+}
+
+/** What `auth` can't be set with: `secretRef` (the bearer form), a stdio transport, an `Authorization` header. */
+function authConflict(
+  endpointId: string,
+  transport: MCPTransport,
+  secretRef: unknown,
+  config: MCPEndpointConfig,
+): { readonly message: string; readonly reason: string } | undefined {
+  if (secretRef !== undefined) {
+    return {
+      message: `endpoint "${endpointId}" sets both secretRef and auth: secretRef is the bearer form, auth the others. Set one.`,
+      reason: 'auth-with-secret-ref',
+    };
+  }
+  if (transport === 'stdio') {
+    return {
+      message: `endpoint "${endpointId}" auth needs an HTTP transport: a stdio server gets no headers`,
+      reason: 'auth-on-stdio',
+    };
+  }
+  const headers = config.transport === 'stdio' ? undefined : config.headers;
+  if (
+    headers !== undefined &&
+    Object.keys(headers).some((h) => h.toLowerCase() === 'authorization')
+  ) {
+    return {
+      message: `endpoint "${endpointId}" sets auth and an Authorization header in config.headers: auth sends that header. Drop the header.`,
+      reason: 'auth-with-authorization-header',
+    };
+  }
+  return undefined;
+}
+
+const BASIC_AUTH_FIELDS = new Set(['scheme', 'username', 'secretRef']);
+const OAUTH2_AUTH_FIELDS = new Set([
+  'scheme',
+  'tokenUrl',
+  'clientId',
+  'secretRef',
+  'scope',
+  'audience',
+  'clientAuth',
+]);
+/** The hosts a token URL may reach over plain http: this machine's own. */
+const LOOPBACK_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+/** Whether `value` is a string of 1 to `max` characters. */
+function boundedString(value: unknown, max: number): boolean {
+  return typeof value === 'string' && value.length > 0 && value.length <= max;
+}
+
+function parsedUrl(raw: string): URL | null {
+  try {
+    return new URL(raw);
+  } catch {
+    return null;
+  }
+}
+
+type AuthParse =
+  | { kind: 'ok'; value: MCPEndpointAuth }
+  | { kind: 'err'; error: { message: string; reason: string } };
+type AuthRefusal = (message: string, reason?: string) => AuthParse;
+
+/** `auth`, checked: a known scheme with its fields, the secret by reference. */
+function parseAuth(endpointId: string, raw: unknown): AuthParse {
+  const bad: AuthRefusal = (message, reason = 'invalid-auth') => ({
+    kind: 'err',
+    error: { message: `endpoint "${endpointId}" ${message}`, reason },
+  });
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    return bad('auth must be an object with a `scheme`');
+  }
+  const a = raw as Record<string, unknown>;
+  if (a.scheme !== 'basic' && a.scheme !== 'oauth2-client-credentials') {
+    return bad(`auth.scheme must be one of ${MCP_AUTH_SCHEMES.join(' / ')}`);
+  }
+  const allowed = a.scheme === 'basic' ? BASIC_AUTH_FIELDS : OAUTH2_AUTH_FIELDS;
+  const unknown = Object.keys(a).find((key) => !allowed.has(key));
+  if (unknown !== undefined) {
+    return bad(`auth: unknown field \`auth.${unknown}\` for scheme ${a.scheme}`);
+  }
+  const secretRef = parseSecretRef(a.secretRef, 'auth.secretRef');
+  if (secretRef.kind === 'err') return bad(`auth: ${secretRef.message}`, 'invalid-secret-ref');
+  return a.scheme === 'basic'
+    ? parseBasicAuth(a, secretRef.value, bad)
+    : parseOAuth2Auth(a, secretRef.value, bad);
+}
+
+function parseBasicAuth(
+  a: Record<string, unknown>,
+  secretRef: MCPEndpointAuth['secretRef'],
+  bad: AuthRefusal,
+): AuthParse {
+  if (!boundedString(a.username, 256) || (a.username as string).includes(':')) {
+    return bad('auth.username must be 1 to 256 characters, without `:`');
+  }
+  return { kind: 'ok', value: { scheme: 'basic', username: a.username as string, secretRef } };
+}
+
+/** Whether a token URL may carry a client secret: https, or http to this machine; no credentials or fragment. */
+function tokenUrlAllowed(raw: unknown): boolean {
+  const url = boundedString(raw, 2048) ? parsedUrl(raw as string) : null;
+  if (url === null || url.username !== '' || url.password !== '' || url.hash !== '') return false;
+  return (
+    url.protocol === 'https:' || (url.protocol === 'http:' && LOOPBACK_HOSTS.has(url.hostname))
+  );
+}
+
+function parseOAuth2Auth(
+  a: Record<string, unknown>,
+  secretRef: MCPEndpointAuth['secretRef'],
+  bad: AuthRefusal,
+): AuthParse {
+  if (!tokenUrlAllowed(a.tokenUrl)) {
+    return bad(
+      'auth.tokenUrl must be an https URL (or http to localhost, 127.0.0.1 or [::1]), without credentials or a fragment',
+      'invalid-token-url',
+    );
+  }
+  if (!boundedString(a.clientId, 512)) return bad('auth.clientId must be 1 to 512 characters');
+  for (const field of ['scope', 'audience'] as const) {
+    if (a[field] !== undefined && !boundedString(a[field], 1024)) {
+      return bad(`auth.${field} must be 1 to 1024 characters`);
+    }
+  }
+  if (
+    a.clientAuth !== undefined &&
+    !(MCP_OAUTH_CLIENT_AUTH as readonly unknown[]).includes(a.clientAuth)
+  ) {
+    return bad(`auth.clientAuth must be one of ${MCP_OAUTH_CLIENT_AUTH.join(' / ')}`);
+  }
+  return {
+    kind: 'ok',
+    value: {
+      scheme: 'oauth2-client-credentials',
+      tokenUrl: a.tokenUrl as string,
+      clientId: a.clientId as string,
+      secretRef,
+      ...(a.scope !== undefined && { scope: a.scope as string }),
+      ...(a.audience !== undefined && { audience: a.audience as string }),
+      ...(a.clientAuth !== undefined && {
+        clientAuth: a.clientAuth as (typeof MCP_OAUTH_CLIENT_AUTH)[number],
+      }),
+    },
+  };
 }
 
 function validateConfig(
