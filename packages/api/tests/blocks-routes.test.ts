@@ -13,6 +13,7 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, test } from 'vitest';
 
 import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
+import { createLogger } from '@kindgi/log';
 import type { OrgId, ProjectId, TenantId, UserId } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
@@ -50,8 +51,10 @@ function decision(authz: Authz, action: Action, resource: ResourceRef): Decision
 
 function harness(authz?: Authz) {
   const binding = inMemoryBlocks([projectA, projectB], { [projectA]: orgA });
+  const logLines: string[] = [];
   const app = createApp({
     ...createStubAppBindings(),
+    logger: createLogger({ write: (line) => logLines.push(line) }),
     resolveToken,
     runHandler: {} as RunHandlerBinding,
     blockRegistry: binding,
@@ -75,9 +78,10 @@ function harness(authz?: Authz) {
       },
       ...(body !== undefined && { body: JSON.stringify(body) }),
     });
-    return { status: res.status, body: (await res.json()) as Record<string, any> };
+    const text = await res.text();
+    return { status: res.status, text, body: JSON.parse(text) as Record<string, any> };
   };
-  return { call, binding };
+  return { call, binding, logLines };
 }
 
 const prompt = (version: string, template = 'Sort the request for {{ firm }}.') => ({
@@ -250,6 +254,20 @@ describe('/v1/blocks: publish and read', () => {
     const moved = await call('POST', '/v1/blocks', { ...prompt('2.0.0'), projectId: projectB });
     expect(moved.status).toBe(409);
     expect(moved.body.error.code).toBe('block-project-mismatch');
+  });
+
+  test("another project's block: 409, and the answer doesn't name the project it belongs to (the log does)", async () => {
+    const { call, logLines } = harness();
+    expect((await call('POST', '/v1/blocks', prompt('1.0.0'))).status).toBe(201);
+    const moved = await call('POST', '/v1/blocks', { ...prompt('2.0.0'), projectId: projectB });
+    expect(moved.status).toBe(409);
+    expect(moved.body.error.code).toBe('block-project-mismatch');
+    expect(moved.body.error.message).toBe(
+      'Block "acme.intake-prompt" belongs to another project; publish its versions there',
+    );
+    expect(moved.body.error.details).toEqual({ blockId: 'acme.intake-prompt' });
+    expect(moved.text).not.toContain(projectA);
+    expect(logLines.some((l) => l.includes(`"ownerProjectId":"${projectA}"`))).toBe(true);
   });
 
   test('unregister is soft: GET still reads the version, with unregisteredAt; reinstate brings it back', async () => {

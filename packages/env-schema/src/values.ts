@@ -19,6 +19,11 @@ export const EXPORT_SIGNING_KEY_PATH_VAR = 'KINDGI_EXPORT_SIGNING_KEY_PATH';
 export const EXPORT_SIGNING_KEY_VAR = 'KINDGI_EXPORT_SIGNING_KEY';
 export const EXPORT_SIGNING_KMS_KEY_VAR = 'KINDGI_EXPORT_SIGNING_KMS_KEY';
 
+/** Retired export public keys (PEM, concatenated): a file's absolute path, or its base64 value; at most one. */
+export const EXPORT_SIGNING_RETIRED_PUBLIC_KEYS_PATH_VAR =
+  'KINDGI_EXPORT_SIGNING_RETIRED_PUBLIC_KEYS_PATH';
+export const EXPORT_SIGNING_RETIRED_PUBLIC_KEYS_VAR = 'KINDGI_EXPORT_SIGNING_RETIRED_PUBLIC_KEYS';
+
 /** The license key the server checks at startup outside development mode. */
 export const LICENSE_KEY_VAR = 'KINDGI_LICENSE_KEY';
 
@@ -160,6 +165,61 @@ export function parsePublicUrl(raw: string | undefined): string | undefined {
     );
   }
   return url.href.replace(/\/+$/, '');
+}
+
+/** The Azure Key Vault key that wraps DEKs (postgres backend, KMS `azure`). */
+export const AZURE_KEY_ID_VAR = 'KINDGI_SECRETS_AZURE_KEY_ID';
+
+/** A Key Vault key, as `KINDGI_SECRETS_AZURE_KEY_ID` names it. */
+export interface AzureKeyId {
+  /** `https://<vault>.vault.azure.net/keys/<name>`, without a version or trailing slash. */
+  readonly keyUrl: string;
+  /** The vault's origin, `https://<vault>.vault.azure.net`. */
+  readonly vaultUrl: string;
+  readonly keyName: string;
+}
+
+/**
+ * `KINDGI_SECRETS_AZURE_KEY_ID`: a Key Vault key's https URL **without a
+ * version** (`https://<vault>.vault.azure.net/keys/<name>`, any Azure
+ * cloud's vault or Managed HSM host). New DEKs are wrapped with the
+ * key's current version, and each records the version it used, so a URL
+ * pinned to one version is refused: it would outlive the key's rotation.
+ * Unset or blank: `undefined`.
+ */
+export function parseAzureKeyId(raw: string | undefined): AzureKeyId | undefined {
+  if (raw === undefined || raw.trim() === '') return undefined;
+  const value = raw.trim();
+  let url: URL | undefined;
+  try {
+    url = new URL(value);
+  } catch {
+    url = undefined;
+  }
+  const path = url?.pathname.match(/^\/keys\/([^/]+)(?:\/([^/]*))?\/?$/);
+  if (
+    url === undefined ||
+    path === null ||
+    path === undefined ||
+    url.protocol !== 'https:' ||
+    url.username !== '' ||
+    url.password !== '' ||
+    url.search !== '' ||
+    url.hash !== '' ||
+    !/^[0-9A-Za-z-]{1,127}$/.test(path[1] ?? '')
+  ) {
+    throw new Error(
+      `${AZURE_KEY_ID_VAR} must be a Key Vault key's URL without a version, like https://my-vault.vault.azure.net/keys/kindgi-secrets. Got: ${value}.`,
+    );
+  }
+  const version = path[2];
+  if (version !== undefined && version !== '') {
+    throw new Error(
+      `${AZURE_KEY_ID_VAR} names one version of the key (${version}). Give the key without it, ${url.origin}/keys/${path[1]}: new secrets are wrapped with the key's current version, so a pinned version would outlive the key's rotation.`,
+    );
+  }
+  const keyName = path[1] as string;
+  return { keyUrl: `${url.origin}/keys/${keyName}`, vaultUrl: url.origin, keyName };
 }
 
 function isExactOrigin(value: string): boolean {

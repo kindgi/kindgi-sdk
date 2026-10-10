@@ -216,6 +216,16 @@ export interface IndexOutcome {
     readonly filePath?: string;
   }[];
   /**
+   * What the pack should change but that doesn't stop the build (for
+   * example a check id without the pack's prefix). Absent from an indexer
+   * that reports none.
+   */
+  readonly warnings?: readonly {
+    readonly code: string;
+    readonly message: string;
+    readonly filePath?: string;
+  }[];
+  /**
    * The parsed `index.json` payload — passed straight to the
    * registration bridge. Kept as `unknown` because the CLI does not
    * re-validate the shape (`runIndexer` is the authority).

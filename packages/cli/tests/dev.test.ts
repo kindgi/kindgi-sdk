@@ -37,6 +37,7 @@ import type { DevProject, ProjectOutcome } from '../src/dev/project.js';
 import type {
   DevRunners,
   ExternalPackage,
+  IndexOutcome,
   IndexResult,
   PackBuild,
   RunningApiServer,
@@ -1642,6 +1643,69 @@ describe('kindgi dev — watch flow', () => {
     expect(log.startsWith('  Stopping kindgi dev...\n  ')).toBe(true);
     expect(log).toContain('✓ loaded');
     expect(log.endsWith('  kindgi dev stopped.\n')).toBe(true);
+  });
+
+  test("a reload prints only the warnings the last load didn't; the standing ones are one line", async () => {
+    const message = (check: string): string =>
+      `guardrails/${check}.ts: check "${check}" doesn't start with this pack's id ("my-pack.").`;
+    const withWarnings = (...checks: string[]): IndexResult => ({
+      ...(defaultHappyOutcome() as IndexOutcome),
+      warnings: checks.map((c) => ({
+        code: 'check-id-unprefixed',
+        message: message(c),
+        filePath: `guardrails/${c}.ts`,
+      })),
+    });
+    const controller = new AbortController();
+    const fixtures = makeFixtures({
+      outcomes: [
+        withWarnings('cites'), // boot
+        withWarnings('cites'),
+        withWarnings('cites', 'grounded'),
+        withWarnings('grounded'),
+        defaultHappyOutcome(),
+        withWarnings('cites'),
+      ],
+    });
+    const { writes, restore } = captureStderr();
+    const reload = async (): Promise<string> => {
+      const from = writes.length;
+      fixtures.triggerChange();
+      // The tick writes its loaded line and its warnings together.
+      await vi.waitFor(
+        () => expect(writes.slice(from).join('')).toMatch(/✓ loaded \d+ primitives/),
+        WAIT,
+      );
+      return writes.slice(from).join('');
+    };
+    const warned = (log: string): string[] => log.split('\n').filter((line) => line.includes('⚠'));
+    try {
+      const promise = runCli({
+        ...baseInputs(fixtures, { stopSignal: controller.signal }),
+        argv: ['dev', `--path=${packDir}`],
+      });
+      await vi.waitFor(() => expect(fixtures.captureWatchCalls).toHaveLength(2), WAIT);
+      expect(writes.join('')).toContain(`    ⚠ ${message('cites')}\n`);
+      // The same warning as the boot's: not repeated.
+      expect(warned(await reload())).toEqual([
+        '      ⚠ 1 warning from the last load still applies',
+      ]);
+      // A new one in full, beside the standing one.
+      expect(warned(await reload())).toEqual([
+        `      ⚠ ${message('grounded')}`,
+        '      ⚠ 1 warning from the last load still applies',
+      ]);
+      expect(warned(await reload())).toEqual([
+        '      ⚠ 1 warning from the last load still applies',
+      ]);
+      // Fixed: nothing; one that comes back is new again.
+      expect(warned(await reload())).toEqual([]);
+      expect(warned(await reload())).toEqual([`      ⚠ ${message('cites')}`]);
+      controller.abort();
+      await promise;
+    } finally {
+      restore();
+    }
   });
 
   test('--json in watch mode: the summary reports an empty pack as ok, not as an indexer error', async () => {

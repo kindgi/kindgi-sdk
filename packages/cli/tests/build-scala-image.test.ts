@@ -41,7 +41,7 @@ describe('the Scala Containerfile', () => {
     publishedAt: '1970-01-01T00:00:00.000Z',
     buildTarget: 'staging',
   };
-  const text = renderScalaContainerfile({ ...inputs, systemPackages: [] });
+  const text = renderScalaContainerfile({ ...inputs, systemPackages: [], declaredEnv: [] });
 
   test('pins its images by digest: sbt + JDK 17 to build, a JRE 17 to run', () => {
     expect(DEFAULT_SCALA_BUILD_IMAGE_REF).toMatch(
@@ -77,8 +77,23 @@ describe('the Scala Containerfile', () => {
     ]);
   });
 
+  test("the launcher's list: the names the pack declares, and none when it declares none", () => {
+    const declared = renderScalaContainerfile({
+      ...inputs,
+      systemPackages: [],
+      declaredEnv: ['A_URL', 'CACHE_DIR'],
+    });
+    const final = declared.slice(declared.indexOf('AS final'));
+    expect(final).toContain('KINDGI_PACK_ENV_DECLARED="A_URL,CACHE_DIR"');
+    expect(text).toContain('KINDGI_PACK_ENV_DECLARED=""');
+  });
+
   test('system packages install in the final stage', () => {
-    const withApt = renderScalaContainerfile({ ...inputs, systemPackages: ['libpq5'] });
+    const withApt = renderScalaContainerfile({
+      ...inputs,
+      systemPackages: ['libpq5'],
+      declaredEnv: [],
+    });
     const final = withApt.slice(withApt.indexOf('AS final'));
     expect(final).toContain('libpq5');
   });

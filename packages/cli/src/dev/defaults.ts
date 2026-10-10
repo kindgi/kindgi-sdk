@@ -26,6 +26,7 @@ import {
   DEFAULT_DISCOVERY,
   type IndexerReport,
   PACK_ENV_CHECK_VAR,
+  PACK_ENV_FILTER_VAR,
   createGlobMatcher,
   discoveryRoots,
   runIndexer as runIndexerReal,
@@ -136,9 +137,15 @@ export function packServiceCommand(code: PackCode): readonly [string, ...string[
  */
 export function createPackServiceReal(opts: DevPackServiceOptions): DevPackService {
   // A required env name the pack lacks is a warning in dev (the
-  // service still serves), not a refusal as in a deployment.
+  // service still serves), not a refusal as in a deployment. And the
+  // service keeps the app's env files' names: in dev the pack reads the
+  // app's settings, declared or not.
   const env = async (): Promise<Readonly<Record<string, string>>> => {
-    const base: Record<string, string> = { ...(await opts.env()), [PACK_ENV_CHECK_VAR]: 'warn' };
+    const base: Record<string, string> = {
+      ...(await opts.env()),
+      [PACK_ENV_CHECK_VAR]: 'warn',
+      [PACK_ENV_FILTER_VAR]: 'off',
+    };
     if (opts.sandbox !== undefined) {
       base.TMPDIR = opts.sandbox.engine === 'seatbelt' ? sandboxTmpDir(opts.packDir) : '/tmp';
     }
@@ -666,6 +673,12 @@ async function indexResultOf(outcome: IndexerOutcome): Promise<IndexResult> {
       code: e.code,
       message: e.message,
       ...(e.filePath !== undefined && { filePath: e.filePath }),
+    })),
+    // A Python or JVM indexer from an older SDK sends no `warnings`.
+    warnings: (report.warnings ?? []).map((w) => ({
+      code: w.code,
+      message: w.message,
+      ...(w.filePath !== undefined && { filePath: w.filePath }),
     })),
     index,
   };

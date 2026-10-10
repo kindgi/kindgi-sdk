@@ -27,7 +27,7 @@ import asyncio
 import random
 import time
 import uuid
-from collections.abc import AsyncIterator, Iterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from functools import cache
 from typing import Any, Literal, cast
@@ -166,26 +166,42 @@ def _network_error(
     )
 
 
+Settings = Callable[[], tuple[str, str]]
+"""Finds the client's URL and token; raises `ValueError`, naming what to set, when it can't."""
+
+
 class _Common:
     def __init__(
         self,
-        base_url: str,
-        token: str,
+        settings: Settings,
         *,
         timeout: float,
         max_retries: int,
         default_headers: Mapping[str, str] | None,
     ) -> None:
-        self.base_url = base_url.rstrip("/")
-        self.token = token
+        # Found on first use, not here: a module-scope `Kindgi()` must load in a
+        # build step that imports the app without its settings (`collectstatic`).
+        self._settings = settings
+        self._resolved: tuple[str, str] | None = None
         self.timeout = timeout
         self.max_retries = max_retries
-        self._headers = {
-            "Accept": "application/json",
-            "Authorization": f"Bearer {token}",
-            "User-Agent": f"kindgi-python/{__version__}",
-            **(default_headers or {}),
-        }
+        self._default_headers = dict(default_headers or {})
+
+    def _resolve(self) -> tuple[str, str]:
+        """The URL and token, found the first time they're needed. A failure isn't
+        kept: once the settings are there, the next use finds them."""
+        if self._resolved is None:
+            url, token = self._settings()
+            self._resolved = (url.rstrip("/"), token)
+        return self._resolved
+
+    @property
+    def base_url(self) -> str:
+        return self._resolve()[0]
+
+    @property
+    def token(self) -> str:
+        return self._resolve()[1]
 
     def _prepare(
         self,
@@ -194,15 +210,22 @@ class _Common:
         query: Mapping[str, Any],
         headers: Mapping[str, Any],
     ) -> tuple[str, dict[str, Any], dict[str, str], bool]:
+        base_url, token = self._resolve()
         url_path = op.path
         for name, value in path.items():
             url_path = url_path.replace("{" + name + "}", quote(str(value), safe=""))
         params = {k: _query_value(v) for k, v in query.items() if v is not None}
-        sent = {**self._headers, **{k: str(v) for k, v in headers.items() if v is not None}}
+        sent = {
+            "Accept": "application/json",
+            "Authorization": f"Bearer {token}",
+            "User-Agent": f"kindgi-python/{__version__}",
+            **self._default_headers,
+            **{k: str(v) for k, v in headers.items() if v is not None},
+        }
         if op.idempotency_key and "Idempotency-Key" not in sent:
             sent["Idempotency-Key"] = str(uuid.uuid4())
         safe = op.method == "GET" or "Idempotency-Key" in sent
-        return self.base_url + url_path, params, sent, safe
+        return base_url + url_path, params, sent, safe
 
     @staticmethod
     def _answer(op: Operation, response: httpx.Response, model: Any) -> Any:
@@ -247,8 +270,7 @@ class _Common:
 class SyncClientBase(_Common):
     def __init__(
         self,
-        base_url: str,
-        token: str,
+        settings: Settings,
         *,
         timeout: float = DEFAULT_TIMEOUT,
         max_retries: int = DEFAULT_MAX_RETRIES,
@@ -256,8 +278,7 @@ class SyncClientBase(_Common):
         http_client: httpx.Client | None = None,
     ) -> None:
         super().__init__(
-            base_url,
-            token,
+            settings,
             timeout=timeout,
             max_retries=max_retries,
             default_headers=default_headers,
@@ -414,8 +435,7 @@ class SyncClientBase(_Common):
 class AsyncClientBase(_Common):
     def __init__(
         self,
-        base_url: str,
-        token: str,
+        settings: Settings,
         *,
         timeout: float = DEFAULT_TIMEOUT,
         max_retries: int = DEFAULT_MAX_RETRIES,
@@ -423,8 +443,7 @@ class AsyncClientBase(_Common):
         http_client: httpx.AsyncClient | None = None,
     ) -> None:
         super().__init__(
-            base_url,
-            token,
+            settings,
             timeout=timeout,
             max_retries=max_retries,
             default_headers=default_headers,

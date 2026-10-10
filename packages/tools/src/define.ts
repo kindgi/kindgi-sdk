@@ -68,6 +68,16 @@ function resolveZodConverterSync(): ZodConverter | undefined {
 }
 
 /**
+ * For a schema Ajv's strict mode refuses (an authoring lint, not invalid JSON Schema), the way
+ * out for a value of any JSON shape. Empty for other failures.
+ */
+function strictHint(cause: unknown): string {
+  return cause instanceof Error && /strict mode/.test(cause.message)
+    ? '. For a field that may hold any JSON value, `z.json()` (or `{}` in JSON Schema) compiles.'
+    : '';
+}
+
+/**
  * Sanity-check that a candidate JSON Schema compiles as the tool's
  * schemas do (`schemaOptions`): a pack's own tool's as Draft 2020-12 in
  * Ajv's strict mode, an MCP server's in the dialect it declares.
@@ -83,7 +93,7 @@ function compilesAsSchema(
   } catch (cause) {
     return {
       code: 'invalid-schema',
-      message: `Tool ${where} schema does not compile: ${cause instanceof Error ? cause.message : String(cause)}`,
+      message: `Tool ${where} schema does not compile: ${cause instanceof Error ? cause.message : String(cause)}${strictHint(cause)}`,
       where,
       cause,
     };
