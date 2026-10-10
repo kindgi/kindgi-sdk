@@ -2718,8 +2718,20 @@ export const ToolSchema: JsonSchema = {
     needsSpec: { $ref: '#/components/schemas/TypedNeeds' },
     codeArtifactRef: { $ref: '#/components/schemas/CodeArtifactRef' },
     spec: { $ref: '#/components/schemas/ToolSpec' },
+    unregisteredAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'Present only on an unregistered version: a retired tool (every version unregistered) as `GET /v1/tools?includeRetired=true` lists it.',
+    },
   },
 };
+
+/** `Tool`'s properties but what the registry sets on a read (a register body never carries it). */
+const { unregisteredAt: _readOnly, ...toolManifestProperties } = ToolSchema.properties as Record<
+  string,
+  JsonSchema
+>;
 
 export const RegisterToolBodySchema: JsonSchema = {
   description:
@@ -2727,7 +2739,7 @@ export const RegisterToolBodySchema: JsonSchema = {
   ...ToolSchema,
   required: [...(ToolSchema.required as readonly string[]), 'projectId'],
   properties: {
-    ...(ToolSchema.properties as Record<string, JsonSchema>),
+    ...toolManifestProperties,
     projectId: ContentProjectIdProperty,
   },
 };
@@ -6591,6 +6603,12 @@ export const EvalSuiteSchema: JsonSchema = {
       description:
         'Kind-specific suite body. For `accuracy`, typically `{ cases: [{ input, expectedOutput }], grader?: { adapterId, config? } }`. For `pairwise`, typically `{ prompts, variantA, variantB }`. For `regression`, typically `{ baseline, cases }`. For `human-review`, typically `{ rubric, reviewerRole }`. For `benchmark`, typically `{ benchmark: { name, version } }`. For `custom`, typically `{ handler: { modulePath, entrypointPath }, cases }`.',
     },
+    unregisteredAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'Present only on an unregistered version: one `GET …/versions?includeTombstoned=true` lists, or a retired test set (every version unregistered) as `GET /v1/eval-suites?includeRetired=true` lists it.',
+    },
   },
 };
 
@@ -7370,6 +7388,12 @@ export const EvalRunSchema: JsonSchema = {
   properties: {
     runId: { type: 'string', format: 'uuid' },
     tenantId: { type: 'string', format: 'uuid' },
+    projectId: {
+      type: 'string',
+      format: 'uuid',
+      description:
+        'The project the eval run is in: the one it was started in. Absent on a runtime before Kindgi 0.1.6.',
+    },
     suiteId: { type: 'string' },
     suiteVersion: { type: 'string', pattern: '^\\d+\\.\\d+\\.\\d+$' },
     kind: { $ref: '#/components/schemas/EvalKind' },

@@ -6319,6 +6319,11 @@
           },
           "spec": {
             "$ref": "#/components/schemas/ToolSpec"
+          },
+          "unregisteredAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Present only on an unregistered version: a retired tool (every version unregistered) as `GET /v1/tools?includeRetired=true` lists it."
           }
         }
       },
@@ -11818,6 +11823,11 @@
             "type": "object",
             "additionalProperties": true,
             "description": "Kind-specific suite body. For `accuracy`, typically `{ cases: [{ input, expectedOutput }], grader?: { adapterId, config? } }`. For `pairwise`, typically `{ prompts, variantA, variantB }`. For `regression`, typically `{ baseline, cases }`. For `human-review`, typically `{ rubric, reviewerRole }`. For `benchmark`, typically `{ benchmark: { name, version } }`. For `custom`, typically `{ handler: { modulePath, entrypointPath }, cases }`."
+          },
+          "unregisteredAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Present only on an unregistered version: one `GET …/versions?includeTombstoned=true` lists, or a retired test set (every version unregistered) as `GET /v1/eval-suites?includeRetired=true` lists it."
           }
         }
       },
@@ -13168,6 +13178,11 @@
           "tenantId": {
             "type": "string",
             "format": "uuid"
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The project the eval run is in: the one it was started in. Absent on a runtime before Kindgi 0.1.6."
           },
           "suiteId": {
             "type": "string"
@@ -23139,7 +23154,7 @@
             }
           }
         },
-        "description": "Cursor-paginated list of the latest version per agent id. Optional `?name=` filters by prefix on agent id.",
+        "description": "Cursor-paginated list of the latest version per agent id. Optional `?name=` filters by prefix on agent id. A retired agent (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.",
         "parameters": [
           {
             "name": "limit",
@@ -23199,6 +23214,16 @@
             },
             "required": false,
             "description": "Default `true`. `false` = literal-at-this-scope only (admin/audit view). Load-bearing for policy/config-scoped resources (mcp-endpoints); documented no-op for content-scoped resources (agents/flows/tools/...)."
+          },
+          {
+            "name": "includeRetired",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "required": false,
+            "description": "When `true`, retired items (every version unregistered) are listed too, each as its highest version with that version's `unregisteredAt`. Default: `false` (items with an active version only)."
           }
         ],
         "security": [
@@ -23391,7 +23416,7 @@
             }
           },
           "404": {
-            "description": "No agent with that id under this tenant.",
+            "description": "No agent was ever registered with that id under this tenant.",
             "content": {
               "application/json": {
                 "schema": {
@@ -23401,7 +23426,7 @@
             }
           }
         },
-        "description": "Cursor-paginated. Sort order is binding-defined (built-in registry: semver asc).",
+        "description": "Cursor-paginated. Sort order is binding-defined (built-in registry: semver asc). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired agent (every version unregistered) answers too, with its versions to reinstate.",
         "parameters": [
           {
             "name": "agentId",
@@ -23432,6 +23457,16 @@
             },
             "required": false,
             "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+          },
+          {
+            "name": "includeTombstoned",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "required": false,
+            "description": "When `true`, the response includes soft-tombstoned versions in addition to active ones. Tombstoned rows carry an `unregisteredAt` ISO timestamp; active rows omit the field. Default: `false` (active-only)."
           }
         ],
         "security": [
@@ -25933,7 +25968,7 @@
             }
           }
         },
-        "description": "Cursor-paginated list of registered tool manifests. Optional `?name=` filters by prefix on tool id.",
+        "description": "Cursor-paginated list of registered tool manifests. Optional `?name=` filters by prefix on tool id. A retired tool (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.",
         "parameters": [
           {
             "name": "limit",
@@ -25993,6 +26028,16 @@
             },
             "required": false,
             "description": "Default `true`. `false` = literal-at-this-scope only (admin/audit view). Load-bearing for policy/config-scoped resources (mcp-endpoints); documented no-op for content-scoped resources (agents/flows/tools/...)."
+          },
+          {
+            "name": "includeRetired",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "required": false,
+            "description": "When `true`, retired items (every version unregistered) are listed too, each as its highest version with that version's `unregisteredAt`. Default: `false` (items with an active version only)."
           }
         ],
         "security": [
@@ -34894,7 +34939,7 @@
             }
           }
         },
-        "description": "Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `EvalSuite.id`. Sort order: suite id ascending. Latest version per id.",
+        "description": "Cursor-paginated. Optional `?kind=` narrows to a single eval kind (exact match); optional `?name=` is a prefix match on `EvalSuite.id`. Sort order: suite id ascending. Latest version per id. A retired suite (every version unregistered) is listed only with `?includeRetired=true`, as its highest version with `unregisteredAt`, so it can be found and a version reinstated.",
         "parameters": [
           {
             "name": "limit",
@@ -34963,6 +35008,16 @@
             },
             "required": false,
             "description": "Default `true`. `false` = literal-at-this-scope only (admin/audit view). Load-bearing for policy/config-scoped resources (mcp-endpoints); documented no-op for content-scoped resources (agents/flows/tools/...)."
+          },
+          {
+            "name": "includeRetired",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "required": false,
+            "description": "When `true`, retired items (every version unregistered) are listed too, each as its highest version with that version's `unregisteredAt`. Default: `false` (items with an active version only)."
           }
         ],
         "security": [
@@ -35156,7 +35211,7 @@
             }
           },
           "404": {
-            "description": "No eval suite with that id under this tenant.",
+            "description": "No eval suite was ever registered with that id under this tenant.",
             "content": {
               "application/json": {
                 "schema": {
@@ -35166,7 +35221,7 @@
             }
           }
         },
-        "description": "Cursor-paginated. Sort order is binding-defined (for example ascending semver).",
+        "description": "Cursor-paginated. Sort order is binding-defined (for example ascending semver). Defaults to active versions only. Pass `?includeTombstoned=true` to include unregistered versions too, each with `unregisteredAt`: a retired suite (every version unregistered) answers too, with its versions to reinstate.",
         "parameters": [
           {
             "name": "suiteId",
@@ -35198,6 +35253,16 @@
             },
             "required": false,
             "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+          },
+          {
+            "name": "includeTombstoned",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "required": false,
+            "description": "When `true`, the response includes soft-tombstoned versions in addition to active ones. Tombstoned rows carry an `unregisteredAt` ISO timestamp; active rows omit the field. Default: `false` (active-only)."
           }
         ],
         "security": [

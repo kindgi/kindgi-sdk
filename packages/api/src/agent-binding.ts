@@ -149,6 +149,13 @@ export interface AgentListInput {
    * SDK and OpenAPI schemas.
    */
   readonly inherit?: boolean;
+  /**
+   * `true` lists retired agents too (every version unregistered), each
+   * as its highest version, with that version's `unregisteredAt`, so a
+   * client can find one to reinstate. Default: agents with an active
+   * version only.
+   */
+  readonly includeRetired?: boolean;
 }
 
 export interface AgentGetInput {
@@ -167,6 +174,8 @@ export interface AgentListVersionsInput {
   readonly agentId: AgentId;
   readonly limit: number;
   readonly cursor?: Cursor;
+  /** `true` lists unregistered versions too, each with `unregisteredAt`. Default: active only. */
+  readonly includeTombstoned?: boolean;
 }
 
 export interface AgentPublishInput {
