@@ -294,6 +294,23 @@ When it starts, the runtime brings the database up to date: it applies the migra
 
 Migrations only go forward, and an older runtime isn't guaranteed to work on a database a newer one migrated. To go back, [restore the backup](#restore-into-a-fresh-database) you took before the upgrade, and run the older version on it.
 
+### Checks you can run before upgrading
+
+From 0.1.6, the runtime image runs read-only checks against a database. They read only what the previous release has, so run the new version's image against the database you're about to upgrade, with the same `kindgi.env`:
+
+```sh
+docker run --rm --network kindgi --env-file kindgi.env \
+  quay.io/kindgi/runtime:<version> check provider-keys
+```
+
+Nothing starts and nothing is written, and they print names and ids, never a value. Each exits `0` when it finds nothing, `1` when it lists what it found, and `2` when it can't run. `--tenant <uuid>` checks one tenant; by default they check every tenant in the database.
+
+| Check | What it lists |
+| --- | --- |
+| `provider-keys` | Each tool version, MCP endpoint and webhook endpoint that names a model provider's key. A model provider's key is used by its provider only, so from 0.1.6 they're refused: a tool's calls fail with `provider-key-refused`, and so do an MCP endpoint's connections and a webhook endpoint's deliveries. For each, store the key it needs under its own name (the same value is fine), name that instead, and deploy or register it again. See [Give a tool a secret](../../guides/tools/give-a-tool-a-secret/#a-model-providers-key-isnt-a-tools). |
+
+The runtime logs the same at every start, one `WARN` per tool version or endpoint: `provider-key-declared tenant=<id> tool=<id>@<version> secret=<name> provider=<id>`.
+
 ### From 0.1.4 to 0.1.5
 
 The database migrates when 0.1.5 starts. What to check before you upgrade,

@@ -325,6 +325,10 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'project-not-found': 404,
   'team-membership-not-found': 404,
   'project-membership-not-found': 404,
+  // A model provider's key is used by its provider only: named by a tool or
+  // an endpoint (400), or registered for a provider while one uses it (409).
+  'provider-key-refused': 400,
+  'provider-key-in-use': 409,
   // A slug another org, team or project in the tenant already has; a
   // second Default project.
   'slug-conflict': 409,

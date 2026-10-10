@@ -798,6 +798,19 @@ export type {
   SecretVersionRecord,
 } from './secrets-binding.js';
 export { RESERVED_SECRET_NAME_PREFIX } from './secrets-binding.js';
+// A model provider's key is used by its provider only.
+export {
+  guardProviderKeys,
+  providerKeyRefusal,
+  providerKeysOf,
+  usersOfSecret,
+} from './provider-keys.js';
+export type {
+  ProviderKeys,
+  SecretUse,
+  SecretUser,
+  SecretUsersDeps,
+} from './provider-keys.js';
 export type {
   ListProvenanceRecordsInput,
   ListProvenanceRecordsResult,

@@ -4,11 +4,12 @@
 import { Hono } from 'hono';
 
 import { type Principal, ref, tuplesForCreate } from '@kindgi/authz';
-import { type ToolManifest, validateToolManifest } from '@kindgi/tools';
+import { type ToolManifest, toolSecretNames, validateToolManifest } from '@kindgi/tools';
 import type { Cursor, ProjectId, TenantId, ToolId, UserId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
 import { refuseWritesWhenReadOnly } from '../registry-read-only.js';
 import type { ToolRegistryBinding } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
@@ -47,6 +48,7 @@ export function toolsRouter(
   binding: ToolRegistryBinding,
   authorizer?: Authorizer,
   onWrite?: ToolWriteHook,
+  options: { readonly providerKeys?: ProviderKeys } = {},
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   // A read-only registry (under `kindgi dev`, the pack's files) refuses
@@ -311,6 +313,18 @@ export function toolsRouter(
           requestId,
         ),
       );
+    }
+
+    // A model provider's key is never a tool's.
+    const refusal = await refuseProviderKeys(
+      options.providerKeys,
+      tenantId,
+      toolSecretNames(validated.value),
+      'a tool',
+    );
+    if (refusal !== undefined) {
+      c.status(statusFor(refusal.code) as never);
+      return c.json(toWireError(refusal, requestId));
     }
 
     const principal = c.get('principal') as Principal | undefined;

@@ -16,7 +16,7 @@ import {
   validateGuardrailSpec,
 } from '@kindgi/guardrails';
 import type { ProjectBinding, Scope } from '@kindgi/platform';
-import { validateToolManifest } from '@kindgi/tools';
+import { toolSecretNames, validateToolManifest } from '@kindgi/tools';
 import type {
   Cursor,
   FlowId,
@@ -48,6 +48,7 @@ import type { GuardrailRegistryBinding } from '../guardrail-binding.js';
 import type { ImageRegistryBinding } from '../image-registry-binding.js';
 import type { LiveVersionBinding } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
 import { PublishRefused } from '../publish-refused.js';
 import { type RegistryReadOnly, refuseReadOnly } from '../registry-read-only.js';
 import type { SecretBinding } from '../secrets-binding.js';
@@ -124,6 +125,8 @@ import type { ToolWriteHook } from './tools.js';
  * The route is register-only + read-only.
  */
 export interface DeploymentsRouterBindings {
+  /** The tenant's model providers' keys: no tool a deployment brings may name one. */
+  readonly providerKeys?: ProviderKeys;
   readonly deploymentRegistry: DeploymentBinding;
   readonly signingKeyRegistry: SigningKeyRegistryBinding;
   readonly imageRegistry: ImageRegistryBinding;
@@ -506,6 +509,42 @@ export function deploymentsRouter(
       );
     }
     const validated = validation.value;
+
+    // A model provider's key is never a tool's: each tool naming one is an issue.
+    const keyIssues: ValidationDetail[] = [];
+    if (bindings.providerKeys !== undefined && validated.tools.length > 0) {
+      const tenantId = c.get('tenantId') as TenantId;
+      for (const [index, tool] of validated.tools.entries()) {
+        const refusal = await refuseProviderKeys(
+          bindings.providerKeys,
+          tenantId,
+          toolSecretNames(tool),
+          'a tool',
+        );
+        if (refusal !== undefined) {
+          keyIssues.push({
+            primitive: 'tool',
+            index,
+            id: tool.id as unknown as string,
+            path: `/secrets/${refusal.secret}`,
+            message: refusal.message,
+          });
+        }
+      }
+    }
+    if (keyIssues.length > 0) {
+      c.status(statusFor('deployment-validation-failed') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'deployment-validation-failed',
+            message: `Deployment manifest validation failed (${keyIssues.length} issue${keyIssues.length === 1 ? '' : 's'})`,
+            issues: keyIssues as unknown as Record<string, unknown>[],
+          },
+          requestId,
+        ),
+      );
+    }
 
     // A read-only registry (under `kindgi dev`, the pack's files) takes
     // nothing a deployment brings: refuse before any write.
