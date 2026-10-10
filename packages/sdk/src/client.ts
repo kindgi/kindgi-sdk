@@ -71,6 +71,8 @@ export function createClient(options: Partial<ClientOptions> = {}): KindgiClient
       return Reflect.get(resolved(), key);
     },
     // A write (a test swapping a resource) is a use: it lands on the client.
+    // A property defined non-configurable (`defineProperty`'s default) throws:
+    // a proxy can't hold one its target doesn't. Define it `configurable: true`.
     set: (_target, key, value) => Reflect.set(resolved(), key, value),
     defineProperty: (_target, key, descriptor) =>
       Reflect.defineProperty(resolved(), key, descriptor),
