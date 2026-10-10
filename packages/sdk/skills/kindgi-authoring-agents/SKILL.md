@@ -174,6 +174,10 @@ export default defined.value;
   own words only, unless `roles: ['user', 'agent']` (its own earlier
   answers come back marked unverified). `same-segment`/`same-project`
   recall other people's conversations, and publishing warns.
+  `same-user` memory (facts, recall or `remember`) is the run's end user's:
+  pass `participantId` on every run. A run without one reads and keeps
+  none (its result warns `memory-needs-participant`), never the memory of
+  the user a key acts for, who may serve many people.
 - **`memory`** — `{ remember: { types, scope, keepDays? } }` gives the
   turn the built-in tool `kindgi_remember` (name it exactly so in the
   instructions; built-ins have no dots). The model picks the type, the
