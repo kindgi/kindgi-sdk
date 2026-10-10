@@ -50,10 +50,10 @@ The verifiers below check either, and refuse an algorithm they don't know (see [
 
   Or set `export_signing = "kms"` and `export_signing_kms_key` to a key version: the module grants the server's service account `roles/cloudkms.signerVerifier` and `roles/cloudkms.publicKeyViewer` on its key.
 - **On Azure, a Key Vault key:** set `KINDGI_EXPORT_SIGNING_KMS_KEY` to the
-  key version's URL. The version is required, so exports keep the key id of
-  the version that signs them; any Azure cloud's vault works, or a Managed
-  HSM. The key must be EC P-256 (`EC` or `EC-HSM`) and allowed to sign, so
-  exports are `ecdsa-p256-sha256` (Key Vault has no Ed25519):
+  key version's URL, `https://<vault>.vault.azure.net/keys/<name>/<version>`.
+  The version is required, so exports keep the key id of the version that
+  signs them. The key must be EC P-256 (`EC` or `EC-HSM`) and allowed to
+  sign, so exports are `ecdsa-p256-sha256` (Key Vault has no Ed25519):
 
   ```sh
   az keyvault key create --vault-name <vault> -n <name> --kty EC --curve P-256 --ops sign verify
