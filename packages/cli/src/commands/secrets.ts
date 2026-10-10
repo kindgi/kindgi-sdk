@@ -40,7 +40,13 @@ import {
   realTtySeam,
   stripTrailingNewline,
 } from '../terminal-input.js';
-import { commandResultFromThrown, integerFlag, requiredPositional, stringFlag } from './helpers.js';
+import {
+  commandResultFromThrown,
+  integerFlag,
+  requiredPositional,
+  stringFlag,
+  timeFlag,
+} from './helpers.js';
 import { secretsCopyCmd } from './secrets-copy.js';
 import type { Command, CommandResult, LeafCommand } from './types.js';
 
@@ -415,7 +421,7 @@ const setCmd: LeafCommand = {
     'rotation-due-at': {
       type: 'string' as const,
       description:
-        'When the secret is due for rotation, as an ISO 8601 timestamp; kept with its metadata.',
+        'When the secret is due for rotation: an ISO 8601 time with a zone, or a date (its start, UTC); kept with its metadata.',
     },
     'if-version': {
       type: 'string' as const,
@@ -451,6 +457,12 @@ const setCmd: LeafCommand = {
         exitCode: 2,
       };
     }
+    let rotationDueAt: string | undefined;
+    try {
+      rotationDueAt = timeFlag(ctx, 'rotation-due-at');
+    } catch (err) {
+      return { kind: 'error', stderr: `${(err as Error).message}\n`, exitCode: 2 };
+    }
 
     try {
       const outcome = await secretsFrom(ctx).set({
@@ -459,9 +471,7 @@ const setCmd: LeafCommand = {
         name,
         value: valueRes.value,
         writeMode: writeModeRaw,
-        ...(stringFlag(ctx, 'rotation-due-at') !== undefined && {
-          rotationDueAt: stringFlag(ctx, 'rotation-due-at')!,
-        }),
+        ...(rotationDueAt !== undefined && { rotationDueAt }),
         ...(stringFlag(ctx, 'if-version') !== undefined && {
           ifVersion: integerFlag(ctx, 'if-version')!,
         }),

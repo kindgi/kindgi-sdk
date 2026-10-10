@@ -242,7 +242,8 @@ image installs them: `"image": {"systemPackages": ["tesseract-ocr"]}`
 (names, or `name=version`). So are the variables the code reads, names only:
 `"env": {"required": ["DATABASE_URL"], "optional": ["SENTRY_DSN"]}`. A
 deployed pack service missing a required one isn't ready, and its `/readyz`
-names it.
+names it; one the pack doesn't declare is dropped before the code loads
+(`kindgi dev` keeps it).
 
 ## Two things need the human
 

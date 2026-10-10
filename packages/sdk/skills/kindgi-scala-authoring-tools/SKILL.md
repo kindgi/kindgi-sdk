@@ -147,8 +147,16 @@ object Citator {
 
 - `ctx.tenantId`: the tenant the call is for. Key per-tenant state by it.
 - `ctx.runId`: the run (an agent turn or a flow step) the call belongs to.
-- `ctx.requestId`: this call, such as the model's tool-call id. Useful for
-  logs and idempotency keys.
+- `ctx.requestId`: this call, such as the model's tool-call id. For logs: a
+  model's call id is only unique within one of its answers, so don't dedupe
+  on it.
+- `ctx.idempotencyKey`: the same every time this call runs (resumed,
+  retried, or run again after a crash), different for every other call. A
+  step can run more than once, so a tool that writes passes it to the system
+  it writes to (`Option(ctx.idempotencyKey).foreach(k => request.header("Idempotency-Key", k))`)
+  or looks for it there first: a refund never goes out twice. A UUID; `null`
+  outside a run and from a runtime before 0.1.6. Docs:
+  https://docs.kindgi.com/v0.1/guides/tools/write-a-tool/#make-a-side-effect-happen-once
 - `ctx.projectId`, `ctx.orgId`: the run's project, and its org (`null` when
   it has none). The runtime sets them from the run, never from the input.
   To check an id the input names, compare it with these.
@@ -169,8 +177,11 @@ above. The runtime resolves every declared secret on every call, for the
 call's tenant, in its env (`KINDGI_ENV`; under `kindgi dev`, `local`: the
 pack's `.env` and `.env.local`, then Kindgi's own `.kindgi/secrets.env`, where
 `./kindgiw secrets set` writes). It checks each against its schema, and fails
-the call, naming the secret, when one is missing or doesn't match. Every
-declared secret is required.
+the call, naming the secret, when one is missing or doesn't match. A
+declared secret is required, unless its schema names null
+(`"type": ["string", "null"]`): an optional one the env doesn't have, or has
+empty, is absent from `ctx.secrets`, and the call goes on (runtime 0.1.6 or
+later; an older runtime requires it).
 
 Everything else comes from the process environment: `sys.env("CITATOR_URL")`.
 Under `kindgi dev`, the pack service gets the pack's `.env` and `.env.local`,
@@ -182,8 +193,10 @@ any model provider's key, never reach the process environment: declare the
 secret and read it from `ctx.secrets`. A deployed service
 names the variables it needs in `kindgi.config.json`:
 `"env": {"required": ["DATABASE_URL"], "optional": ["SENTRY_DSN"]}`. Without
-a required one it isn't ready. `KINDGI_*` names are Kindgi's own and never
-reach pack code.
+a required one it isn't ready, and every variable it doesn't declare is
+dropped before your code loads (`kindgi dev` keeps them), so an undeclared
+one works locally and is unset once deployed. `KINDGI_*` names are Kindgi's
+own: a pack can't declare one.
 
 ## Errors and output
 

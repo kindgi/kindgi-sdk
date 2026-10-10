@@ -74,6 +74,8 @@ final class Indexer {
   private final PackConfig config;
   private final ClassLoader loader;
   private final List<Map<String, Object>> fileErrors = new ArrayList<>();
+  /** What the pack should change but that doesn't stop the build. */
+  private final List<Map<String, Object>> warnings = new ArrayList<>();
 
   private Indexer(PackConfig config, ClassLoader loader) {
     this.config = config;
@@ -222,6 +224,12 @@ final class Indexer {
         }
         defined.put(version, rel);
         entries.get(kind).add(entry);
+        if (primitive instanceof Guardrail) {
+          Map<String, Object> warning = unprefixedCheck((Guardrail<?>) primitive, rel, config.id());
+          if (warning != null) {
+            warnings.add(warning);
+          }
+        }
       }
     }
 
@@ -267,6 +275,7 @@ final class Indexer {
     value.put("counts", counts);
     value.put("outputPath", output.toString());
     value.put("fileErrors", fileErrors);
+    value.put("warnings", warnings);
     Map<String, Object> outcome = new LinkedHashMap<>();
     outcome.put("kind", "ok");
     outcome.put("value", value);
@@ -586,6 +595,26 @@ final class Indexer {
     outcome.put("kind", "err");
     outcome.put("error", error);
     return outcome;
+  }
+
+  /**
+   * A warning when a guardrail's check id (its {@code checkId}, or its own id) doesn't start with
+   * the pack's id ({@code <pack id>.}): packs in one tenant share one space of check names, so a
+   * check named for its pack can't collide with another pack's. Never a refusal: the pack builds
+   * as it did.
+   */
+  private static @Nullable Map<String, Object> unprefixedCheck(Guardrail<?> guardrail, String rel, String packId) {
+    String own = guardrail.checkId();
+    String checkId = own != null ? own : guardrail.id();
+    if (checkId.startsWith(packId + ".")) {
+      return null;
+    }
+    Map<String, Object> w = fileError("check-id-unprefixed", rel + ": check \"" + checkId
+        + "\" doesn't start with this pack's id (\"" + packId + ".\"). Name it \"" + packId
+        + ".checks.<name>\" so it can't collide with another pack's check in the same tenant."
+        + " The pack builds as it is.", rel, null);
+    w.put("field", "check");
+    return w;
   }
 
   private static Map<String, Object> fileError(String code, String message, String rel, @Nullable Throwable cause) {

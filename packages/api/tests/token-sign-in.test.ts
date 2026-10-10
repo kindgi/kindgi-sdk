@@ -10,7 +10,12 @@ import type { ApiTokenId, SessionId, TenantId, Timestamp, UserId } from '@kindgi
 
 import { createStubAppBindings } from '../src/testing/index.js';
 
-import { SESSION_COOKIE_NAME, SESSION_TOKEN_PREFIX, createApp } from '../src/index.js';
+import {
+  PLAIN_SESSION_COOKIE_NAME,
+  SESSION_COOKIE_NAME,
+  SESSION_TOKEN_PREFIX,
+  createApp,
+} from '../src/index.js';
 import type {
   IdentityProviderBinding,
   RunHandlerBinding,
@@ -301,7 +306,7 @@ describe('GET /v1/auth/sign-in-options: the ways in', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       data: [],
-      methods: { identityProviders: false, apiToken: true },
+      methods: { identityProviders: false, apiToken: true, sessionCookie: 'secure' },
     });
   });
 
@@ -313,6 +318,7 @@ describe('GET /v1/auth/sign-in-options: the ways in', () => {
     expect(((await (await lookup(app)).json()) as { methods: unknown }).methods).toEqual({
       identityProviders: true,
       apiToken: false,
+      sessionCookie: 'secure',
     });
   });
 
@@ -324,6 +330,83 @@ describe('GET /v1/auth/sign-in-options: the ways in', () => {
       data: [],
       methods: { identityProviders: false, apiToken: false },
     });
+  });
+});
+
+describe('a plain session cookie (development on a loopback address)', () => {
+  const plain = {
+    ttl: 12 * HOUR,
+    cookie: { allowedOrigins: [CONSOLE], secure: false },
+    tokenSignIn: true,
+  };
+  const cookieOf = (res: Response) => res.headers.get('set-cookie') ?? '';
+
+  test('sign-in sets kindgi_session: HttpOnly, SameSite=Lax, Path=/, not Secure', async () => {
+    const { app } = makeApp(plain);
+    const cookie = cookieOf(await signIn(app, 'kgi_person_full'));
+    expect(cookie).toMatch(new RegExp(`^${PLAIN_SESSION_COOKIE_NAME}=${SESSION_TOKEN_PREFIX}`));
+    expect(cookie).toContain('HttpOnly');
+    expect(cookie).toContain('SameSite=Lax');
+    expect(cookie).toContain('Path=/');
+    expect(cookie).not.toContain('Secure');
+  });
+
+  test('each mode reads only its own cookie', async () => {
+    const plainApp = makeApp(plain).app;
+    const secureApp = makeApp().app;
+    const token = cookieOf(await signIn(plainApp, 'kgi_person_full'))
+      .split(';')[0]
+      ?.split('=')[1] as string;
+    const whoami = (app: typeof plainApp, cookie: string) =>
+      app.request('/v1/identity/whoami', { headers: { cookie } });
+    expect((await whoami(plainApp, `${PLAIN_SESSION_COOKIE_NAME}=${token}`)).status).toBe(200);
+    expect((await whoami(plainApp, `${SESSION_COOKIE_NAME}=${token}`)).status).toBe(401);
+    // Where the cookie is Secure, a plain one never counts.
+    const secureToken = cookieOf(await signIn(secureApp, 'kgi_person_full'))
+      .split(';')[0]
+      ?.split('=')[1] as string;
+    expect((await whoami(secureApp, `${PLAIN_SESSION_COOKIE_NAME}=${secureToken}`)).status).toBe(
+      401,
+    );
+    expect((await whoami(secureApp, `${SESSION_COOKIE_NAME}=${secureToken}`)).status).toBe(200);
+  });
+
+  test('signing out clears the plain cookie, without Secure', async () => {
+    const { app } = makeApp(plain);
+    const cookie = cookieOf(await signIn(app, 'kgi_person_full')).split(';')[0] as string;
+    const out = await app.request('/v1/auth/logout', {
+      method: 'POST',
+      headers: { cookie, origin: CONSOLE },
+    });
+    expect(out.status).toBe(200);
+    const cleared = cookieOf(out);
+    expect(cleared).toMatch(new RegExp(`^${PLAIN_SESSION_COOKIE_NAME}=;`));
+    expect(cleared).toContain('Max-Age=0');
+    expect(cleared).not.toContain('Secure');
+  });
+
+  test('the sign-in options say which kind, so a sign-in page checks the right one', async () => {
+    const methods = async (app: ReturnType<typeof makeApp>['app']) =>
+      (
+        (await (await app.request('/v1/auth/sign-in-options')).json()) as {
+          methods: { sessionCookie?: string };
+        }
+      ).methods.sessionCookie;
+    expect(await methods(makeApp(plain).app)).toBe('plain');
+    expect(await methods(makeApp().app)).toBe('secure');
+    expect(await methods(makeApp(null).app)).toBeUndefined();
+  });
+
+  test('a __Host- (or __Secure-) name with secure: false is refused at createApp', () => {
+    for (const name of ['__Host-x', '__Secure-x']) {
+      expect(() =>
+        makeApp({
+          ttl: HOUR,
+          cookie: { allowedOrigins: [CONSOLE], secure: false, name },
+          tokenSignIn: true,
+        }),
+      ).toThrow("can't start with __Host- or __Secure-");
+    }
   });
 });
 

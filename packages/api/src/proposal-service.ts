@@ -7,12 +7,21 @@ import type { AgentId } from '@kindgi/agents';
 import { tuplesForCreate } from '@kindgi/authz';
 import type { ProjectBinding } from '@kindgi/platform';
 import { canonicalize } from '@kindgi/schema';
-import type { LiveScope, RunId, Semver, TenantId, Timestamp, UserId } from '@kindgi/types';
+import type {
+  LiveScope,
+  ProjectId,
+  RunId,
+  Semver,
+  TenantId,
+  Timestamp,
+  UserId,
+} from '@kindgi/types';
 
 import type { AgentRegistryBinding, AgentVersionRecord } from './agent-binding.js';
 import type { BlockRecord, BlockRegistryBinding } from './block-binding.js';
 import { type BlockEdit, blockEditDefinition, publishBlockEdit } from './block-publish.js';
 import { deriveAgentVersion } from './derive-agent-version.js';
+import { rescoreRefusal, rescoreStart } from './eval-rescore.js';
 import type { EvalComparison, EvalRunBinding, EvalRunStartOutcome } from './eval-run-binding.js';
 import type { GateApproval } from './gate.js';
 import type {
@@ -103,6 +112,11 @@ export interface EvaluateProposalInput {
   readonly actor: PromotionActor;
 }
 
+export interface RescoreProposalInput {
+  readonly tenantId: TenantId;
+  readonly proposal: StoredProposal;
+}
+
 /**
  * What a promotion that a drafter (not a person) asks for needs even when
  * the scope's policy asks for none: a reviewer (K2). Any reviewer may
@@ -186,6 +200,17 @@ export function createProposalService(deps: ProposalServiceDeps) {
       message: `Proposal ${proposal.id as unknown as string} changed while this ran: read it again`,
       proposalId: proposal.id as unknown as string,
     });
+  }
+
+  /** The project the candidate version is registered in; `undefined` when it's unregistered. */
+  async function candidateProject(proposal: StoredProposal): Promise<ProjectId | undefined> {
+    if (proposal.candidate === undefined) return undefined;
+    const version = await deps.agents.getVersion({
+      tenantId: proposal.tenantId,
+      agentId: proposal.agentId,
+      version: proposal.candidate.agentVersion as Semver,
+    });
+    return version === null || version.unregisteredAt !== undefined ? undefined : version.projectId;
   }
 
   /** Publish the block version and derive the agent version a proposal is evaluated as. */
@@ -387,6 +412,54 @@ export function createProposalService(deps: ProposalServiceDeps) {
           evalRunId: started.runId as unknown as string,
           suiteId: input.suiteId,
           objective: input.objective,
+          startedAt: new Date().toISOString() as Timestamp,
+        },
+      });
+    },
+
+    /**
+     * Rescore the proposal's latest evaluation: its replays scored again,
+     * with what people judged on them since. The new run is the proposal's
+     * evaluation, so its status follows; the run rescored stays as it was.
+     */
+    async rescore(input: RescoreProposalInput): Promise<ProposalOutcome<StoredProposal>> {
+      const { tenantId, proposal } = input;
+      const refused = await refuseStatus('rescore', proposal);
+      if (refused !== undefined) return err(refused);
+      const latest = proposal.evaluation;
+      if (latest === undefined) throw new Error('an evaluated proposal has an evaluation');
+      const runId = latest.evalRunId;
+      const run = await deps.evalRuns.get({ tenantId, runId: runId as RunId });
+      if (run === null) {
+        return err({ code: 'eval-run-not-found', message: `No eval run with id ${runId}`, runId });
+      }
+      const notRescorable = rescoreRefusal(run);
+      if (notRescorable !== undefined) {
+        return err({ code: 'eval-run-not-rescorable', message: notRescorable, runId });
+      }
+      // As evaluate: not for a candidate unregistered since.
+      const candidateIn = await candidateProject(proposal);
+      if (candidateIn === undefined) {
+        return err({
+          code: 'agent-version-not-found',
+          message: `The candidate ${proposal.agentId as unknown as string} ${proposal.candidate?.agentVersion} is unregistered: withdraw this proposal and draft it again`,
+        });
+      }
+      // A runtime that doesn't record the run's project: the candidate's, as evaluate starts it.
+      const started = await deps.evalRuns.start(
+        rescoreStart(
+          run,
+          run.projectId ?? candidateIn,
+          `proposal:${proposal.id as unknown as string}`,
+        ),
+      );
+      if (started.kind !== 'ok') return err(startError(started));
+      return record(proposal, {
+        kind: 'evaluation',
+        evaluation: {
+          evalRunId: started.runId as unknown as string,
+          suiteId: latest.suiteId,
+          objective: latest.objective,
           startedAt: new Date().toISOString() as Timestamp,
         },
       });
