@@ -30,26 +30,33 @@ export async function deniedBy(
 
 /**
  * A refusal a route decides itself, on a check the authorization model
- * doesn't make (a reviewer role, an API key's capability): recorded with
- * the authorizer (`record`), as its own refusals are, so the access audit
- * holds it, and answered `403 permission-denied` with what was refused in
- * the details. The message stays the route's own words. `failing`:
- * `actor` when it's who the caller is, `scope` when it's what their key
- * carries. `code`: a 403 code of the refusal's own, when the API names one
+ * doesn't make (a reviewer role, an API key's capability or project, a
+ * deployment setting). `failing`: `actor` when it's who the caller is,
+ * `scope` when it's what their key, or the deployment, allows. `code`: a
+ * 403 code of the refusal's own, when the API names one
  * (`identity-providers-operator-managed`); else `permission-denied`.
+ * `details`: more of the route's own, beside what was refused.
  */
-export function refused(
+export interface Refusal {
+  readonly action: Action;
+  readonly resource: ResourceRef;
+  readonly message: string;
+  readonly failing: 'actor' | 'scope';
+  readonly code?: string;
+  readonly details?: Readonly<Record<string, unknown>>;
+}
+
+/**
+ * Records `refusal` with the authorizer (`record`), as its own refusals
+ * are, so the access audit holds it. For a route that answers through its
+ * own error path; `refused` records and answers.
+ */
+export function recordRefusal(
   c: Context<AppEnv>,
   authorizer: Authorizer | undefined,
-  refusal: {
-    readonly action: Action;
-    readonly resource: ResourceRef;
-    readonly message: string;
-    readonly failing: 'actor' | 'scope';
-    readonly code?: string;
-  },
-): Response {
-  const { action, resource, message, failing, code } = refusal;
+  refusal: Refusal,
+): void {
+  const { action, resource, message, failing } = refusal;
   const decision: Decision = {
     allowed: false,
     failing,
@@ -62,21 +69,39 @@ export function refused(
     },
   };
   authorizer?.record?.(c, action, resource, decision);
+}
+
+/** The error a refusal answers: its code and the route's message, with what was refused in the details. */
+export function refusalError(refusal: Refusal): {
+  readonly code: string;
+  readonly message: string;
+} & Readonly<Record<string, unknown>> {
+  const { action, resource, message, code, details } = refusal;
   const deny = denyPayload(action, resource.type, resource.id, message);
+  return {
+    code: code ?? deny.code,
+    message,
+    ...details,
+    action: deny.action,
+    resource: deny.resource,
+    reason: deny.reason,
+  };
+}
+
+/**
+ * A refusal a route decides itself, recorded (`recordRefusal`) and
+ * answered 403 with `refusalError`. The message stays the route's own
+ * words.
+ */
+export function refused(
+  c: Context<AppEnv>,
+  authorizer: Authorizer | undefined,
+  refusal: Refusal,
+): Response {
+  recordRefusal(c, authorizer, refusal);
   const requestId = c.get('requestId');
   c.status(403);
-  return c.json(
-    toWireError(
-      {
-        code: code ?? deny.code,
-        message,
-        action: deny.action,
-        resource: deny.resource,
-        reason: deny.reason,
-      },
-      typeof requestId === 'string' ? requestId : '',
-    ),
-  );
+  return c.json(toWireError(refusalError(refusal), typeof requestId === 'string' ? requestId : ''));
 }
 
 /** Whether the caller's key carries `cap`: fail-closed when `capabilities` is absent. */

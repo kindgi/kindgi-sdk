@@ -33,6 +33,10 @@ const tenantId = '00000000-0000-4000-8000-0000000000aa' as TenantId;
 const MEMBER_KEY = 'member-key-token';
 /** An admin key carrying no capabilities: past the role checks, to the capability gates. */
 const NO_CAPS_KEY = 'no-caps-admin-key-token';
+/** An admin key limited to one project, carrying no capabilities. */
+const PROJECT_KEY = 'project-key-token';
+const KEY_PROJECT = '00000000-0000-4000-8000-0000000000a1';
+const OTHER_PROJECT = '00000000-0000-4000-8000-0000000000a2';
 const ID = '00000000-0000-4000-8000-0000000000ff';
 
 /**
@@ -45,7 +49,22 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'identity-providers-operator-managed',
   'token-sign-in-not-allowed',
   'token-sign-in-off',
+  'key-project-mismatch',
+  'judge-class-not-allowed',
+  'host-access-denied',
 ]);
+
+/**
+ * 403s that aren't recorded, by design: they don't refuse the caller. A
+ * public run token outside its two progress routes is one more (`permission-denied`):
+ * a run token names a run, not a principal, so there's no one to record it for.
+ */
+const NOT_A_REFUSAL_OF_THE_CALLER: Readonly<Record<string, string>> = {
+  'signer-not-trusted': 'it refuses an artifact, not a caller',
+  'csrf-origin-mismatch': "the request may not be the principal's",
+  'role-exceeds-principal':
+    "a limit on the key being minted: the caller may mint, the key's principal isn't a tenant admin",
+};
 
 /** What each caller must be refused (and have recorded): the sweep's floor. */
 const MUST_REFUSE: Readonly<Record<string, readonly string[]>> = {
@@ -103,6 +122,16 @@ const resolveToken: TokenResolver = async (token) => {
       userId: 'u-admin' as UserId,
       tokenId: 'key-1' as never,
       tokenRole: 'member',
+    };
+  }
+  if (token === PROJECT_KEY) {
+    return {
+      tenantId,
+      userId: 'u-admin' as UserId,
+      tokenId: 'key-3' as never,
+      tokenRole: 'admin',
+      capabilities: [],
+      tokenProjectId: KEY_PROJECT,
     };
   }
   if (token === NO_CAPS_KEY) {
@@ -200,6 +229,7 @@ describe('every refusal the API decides itself is recorded', () => {
             error?: { code?: string; requestId?: string };
           };
           const code = body.error?.code ?? '(no code)';
+          if (NOT_A_REFUSAL_OF_THE_CALLER[code] !== undefined) continue;
           if (!REFUSAL_CODES.has(code)) unnamed.push(`${token}: ${key} ${code}`);
           refused.push(key, `${key} ${code}`);
           const requestId = body.error?.requestId;
@@ -227,4 +257,70 @@ describe('every refusal the API decides itself is recorded', () => {
 test('every refusal code the sweep names is a 403', () => {
   // `refused` answers 403 whatever code it's given: its codes must be 403s.
   expect([...REFUSAL_CODES].filter((code) => statusFor(code) !== 403)).toEqual([]);
+});
+
+describe('refusals deeper in a route, which an empty body never reaches, are recorded too', () => {
+  /** One request, its answer and whether its refusal was recorded for it. */
+  async function refusal(token: string, method: string, path: string, body?: unknown) {
+    const { app, recorded } = sweepApp();
+    const res = await app.request(path, {
+      method,
+      headers: {
+        authorization: `Bearer ${token}`,
+        ...(body !== undefined && { 'content-type': 'application/json' }),
+      },
+      ...(body !== undefined && { body: JSON.stringify(body) }),
+    });
+    const error = ((await res.json()) as { error: Record<string, any> }).error;
+    const ours = recorded.filter((r) => r.correlationId === error.requestId && !r.decision.allowed);
+    return { status: res.status, error, recorded: ours };
+  }
+
+  test('a key limited to a project naming another one (key-project-mismatch)', async () => {
+    const r = await refusal(PROJECT_KEY, 'GET', `/v1/flows?projectId=${OTHER_PROJECT}`);
+    expect([r.status, r.error.code]).toEqual([403, 'key-project-mismatch']);
+    expect(r.error.details).toMatchObject({ keyProjectId: KEY_PROJECT, projectId: OTHER_PROJECT });
+    expect(r.recorded.map((x) => [x.action, x.resource, x.decision.failing])).toEqual([
+      ['read', `project:${OTHER_PROJECT}`, 'scope'],
+    ]);
+  });
+
+  test("minting a key with capabilities the minter doesn't hold", async () => {
+    const r = await refusal(NO_CAPS_KEY, 'POST', '/v1/tokens', {
+      role: 'member',
+      capabilities: ['secrets:write'],
+    });
+    expect([r.status, r.error.code]).toEqual([403, 'permission-denied']);
+    expect(r.recorded.map((x) => [x.action, x.resource, x.decision.failing])).toEqual([
+      ['admin', `tenant:${tenantId}`, 'scope'],
+    ]);
+  });
+
+  test('a key limited to a project minting one that is not (key-project-mismatch)', async () => {
+    const r = await refusal(PROJECT_KEY, 'POST', '/v1/tokens', {
+      role: 'member',
+      capabilities: [],
+    });
+    expect([r.status, r.error.code]).toEqual([403, 'key-project-mismatch']);
+    expect(r.recorded.map((x) => [x.action, x.resource, x.decision.failing])).toEqual([
+      ['admin', `tenant:${tenantId}`, 'scope'],
+    ]);
+  });
+
+  test('a stdio MCP endpoint where the deployment runs no commands (host-access-denied)', async () => {
+    const r = await refusal(NO_CAPS_KEY, 'POST', '/v1/mcp/endpoints', {
+      scopeKind: 'tenant',
+      endpointId: 'acme.docs',
+      name: 'Docs',
+      transport: 'stdio',
+      config: { transport: 'stdio', command: '/usr/local/bin/docs-mcp', args: ['--stdio'] },
+    });
+    expect([r.status, r.error.code]).toEqual([403, 'host-access-denied']);
+    expect(r.recorded.map((x) => [x.action, x.resource, x.decision.failing])).toEqual([
+      ['admin', 'mcp_endpoint:acme.docs', 'scope'],
+    ]);
+  });
+
+  // `judge-class-not-allowed` needs a run and a restricted judge class: its
+  // recording is pinned in judgments-routes.test.ts.
 });
