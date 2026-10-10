@@ -1,0 +1,74 @@
+name: AI SDK candidate
+
+# The model adapters' tests against a candidate release of an AI SDK package
+# they pin, before anyone bumps the pin. Dispatched by hand
+# (`gh workflow run ai-sdk-candidate.yml -f packages='@ai-sdk/amazon-bedrock@5.0.120'`)
+# or by the release-watch agent, with `packages`: space-separated
+# `@ai-sdk/<name>@<major>.<minor>.<patch>` pairs.
+#
+# It reads nothing secret and changes nothing: no repository secrets, a
+# read-only token that isn't kept in the checkout, no push or comment. The
+# input reaches the scripts only through `env:`, and
+# `scripts/ai-sdk-candidate.mjs validate` refuses anything but a pinned
+# package at a stable version before it's used.
+
+on:
+  workflow_dispatch:
+    inputs:
+      packages:
+        description: "Space-separated @ai-sdk/<name>@<major>.<minor>.<patch> pairs (packages a model adapter pins)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "22"
+
+jobs:
+  candidate:
+    name: The adapters on the candidate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CANDIDATES: ${{ inputs.packages }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Validate the candidates
+        run: node scripts/ai-sdk-candidate.mjs validate
+      - run: pnpm install --frozen-lockfile
+      - name: Use the candidate versions
+        run: |
+          node scripts/ai-sdk-candidate.mjs apply
+          pnpm install --no-frozen-lockfile
+      - name: Build the adapters
+        run: pnpm --filter "./packages/adapters/model-*..." run build
+      - name: Test the adapters
+        # Each adapter's vitest writes a JSON report; one that writes none
+        # (it crashed before reporting) counts as failed. `report` decides.
+        run: |
+          mkdir -p .ai-sdk-candidate
+          for dir in packages/adapters/model-*; do
+            name=$(basename "$dir")
+            out="$PWD/.ai-sdk-candidate/$name.json"
+            (cd "$dir" && pnpm exec vitest run --reporter=default --reporter=json --outputFile="$out") || true
+            if [ ! -s "$out" ]; then
+              printf '{"testResults":[{"name":"%s","status":"failed","message":"vitest wrote no report"}]}\n' "$name" > "$out"
+            fi
+          done
+      - name: Report
+        run: node scripts/ai-sdk-candidate.mjs report
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ai-sdk-candidate
+          path: .ai-sdk-candidate/
+          retention-days: 30
