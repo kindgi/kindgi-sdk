@@ -7066,6 +7066,52 @@ class TokenSignInResult(BaseModel):
     """
 
 
+class SignInEvent(BaseModel):
+    """
+    One sign-in audit event, flattened: who signed in or out, how, from where, and what was refused.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    timestamp: AwareDatetime
+    kind: Literal[
+        "signed-in",
+        "signed-out",
+        "sign-in-refused",
+        "sign-in-link-sent",
+        "sign-in-link-capped",
+        "sessions-revoked",
+        "sessions-ended",
+    ]
+    """
+    `signed-in` / `signed-out`; `sign-in-refused` (with `reason`); `sign-in-link-sent` / `sign-in-link-capped` (an emailed link, for `userId`; `reason` is the limit that held); `sessions-revoked` ("sign out everywhere", or removing a person); `sessions-ended` (a changed boot token).
+    """
+    outcome: str
+    """
+    `succeeded` or `denied`.
+    """
+    user_id: Annotated[str | None, Field(alias="userId")] = None
+    """
+    The person: who signed in or out, or whom a link was for. Absent on a refusal.
+    """
+    method: str | None = None
+    """
+    How: `api-token`, `email-link`, `google`, `microsoft`, `github`, or a workspace identity provider's id.
+    """
+    client_address: Annotated[str | None, Field(alias="clientAddress")] = None
+    """
+    The client's address, as the runtime trusts it.
+    """
+    reason: str | None = None
+    """
+    Why a sign-in was refused, or which limit held.
+    """
+    session_id: Annotated[str | None, Field(alias="sessionId")] = None
+
+
 class RegisterIdentityProviderResult(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -9510,6 +9556,16 @@ class AdaptersPrepareBody(BaseModel):
 
 class AdaptersPrepareResponse(RootModel[str]):
     root: str
+
+
+class AuditSignInsListResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[SignInEvent]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
 class Datum4(BaseModel):

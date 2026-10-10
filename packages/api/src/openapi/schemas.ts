@@ -7528,6 +7528,48 @@ export const SignInOptionsSchema: JsonSchema = {
   },
 };
 
+export const SignInEventSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'timestamp', 'kind', 'outcome'],
+  description:
+    'One sign-in audit event, flattened: who signed in or out, how, from where, and what was refused.',
+  properties: {
+    id: { type: 'string' },
+    timestamp: { type: 'string', format: 'date-time' },
+    kind: {
+      type: 'string',
+      enum: [
+        'signed-in',
+        'signed-out',
+        'sign-in-refused',
+        'sign-in-link-sent',
+        'sign-in-link-capped',
+        'sessions-revoked',
+        'sessions-ended',
+      ],
+      description:
+        '`signed-in` / `signed-out`; `sign-in-refused` (with `reason`); `sign-in-link-sent` / `sign-in-link-capped` (an emailed link, for `userId`; `reason` is the limit that held); `sessions-revoked` ("sign out everywhere", or removing a person); `sessions-ended` (a changed boot token).',
+    },
+    outcome: { type: 'string', description: '`succeeded` or `denied`.' },
+    userId: {
+      type: 'string',
+      description: 'The person: who signed in or out, or whom a link was for. Absent on a refusal.',
+    },
+    method: {
+      type: 'string',
+      description:
+        "How: `api-token`, `email-link`, `google`, `microsoft`, `github`, or a workspace identity provider's id.",
+    },
+    clientAddress: {
+      type: 'string',
+      description: "The client's address, as the runtime trusts it.",
+    },
+    reason: { type: 'string', description: 'Why a sign-in was refused, or which limit held.' },
+    sessionId: { type: 'string' },
+  },
+};
+
 export const TokenSignInResultSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -10527,6 +10569,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['SignInOption', SignInOptionSchema],
   ['SignInOptions', SignInOptionsSchema],
   ['TokenSignInResult', TokenSignInResultSchema],
+  ['SignInEvent', SignInEventSchema],
   ['RegisterIdentityProviderResult', RegisterIdentityProviderResultSchema],
   ['UnregisterIdentityProviderResult', UnregisterIdentityProviderResultSchema],
   ['UpdateIdentityProviderBody', UpdateIdentityProviderBodySchema],

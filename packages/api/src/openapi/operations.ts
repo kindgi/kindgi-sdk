@@ -5826,6 +5826,85 @@ export const OPERATIONS: readonly OperationSpec[] = [
   // ---------- audit query surface (unified audit substrate) ----------
   {
     method: 'get',
+    honoPath: '/v1/audit/sign-ins',
+    openapiPath: '/v1/audit/sign-ins',
+    operationId: 'audit.signIns.list',
+    summary: 'List sign-in audit events',
+    description:
+      "The tenant's sign-in history: who signed in and out, how (`method`), when and from where (`clientAddress`), what was refused and why, and emailed links sent or capped. `?userId=` narrows to one person's own sign-ins and sign-outs. Oldest first; `?order=desc` for newest first. A tenant admin's to read (403 `permission-denied` otherwise). Only mounted when `CreateAppInput.auditEvents` is wired.",
+    tags: ['audit'],
+    security: 'bearer',
+    parameters: [
+      LimitQueryParam,
+      CursorQueryParam,
+      {
+        name: 'userId',
+        in: 'query',
+        required: false,
+        description: "One person's own sign-ins and sign-outs.",
+        schema: { type: 'string' },
+      },
+      {
+        name: 'kind',
+        in: 'query',
+        required: false,
+        description: 'One kind of event.',
+        schema: {
+          type: 'string',
+          enum: [
+            'signed-in',
+            'signed-out',
+            'sign-in-refused',
+            'sign-in-link-sent',
+            'sign-in-link-capped',
+            'sessions-revoked',
+            'sessions-ended',
+          ],
+        },
+      },
+      {
+        name: 'from',
+        in: 'query',
+        required: false,
+        description: 'Inclusive lower bound on `timestamp`.',
+        schema: { type: 'string', format: 'date-time' },
+      },
+      {
+        name: 'to',
+        in: 'query',
+        required: false,
+        description: 'Inclusive upper bound on `timestamp`.',
+        schema: { type: 'string', format: 'date-time' },
+      },
+      {
+        name: 'order',
+        in: 'query',
+        required: false,
+        description:
+          '`asc` (the default): oldest first. `desc`: newest first. `nextCursor` continues in the same order.',
+        schema: { type: 'string', enum: ['asc', 'desc'] },
+      },
+    ],
+    responses: {
+      '200': {
+        description: 'A page of sign-in audit events.',
+        schema: {
+          type: 'object',
+          required: ['data', 'hasMore'],
+          properties: {
+            data: { type: 'array', items: ref('SignInEvent') },
+            hasMore: { type: 'boolean' },
+            nextCursor: { type: 'string' },
+          },
+        },
+      },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('Malformed cursor, `kind`, `from`, `to`, or `order`.'),
+      '403': ErrorResponse('Not a tenant admin (`permission-denied`).'),
+    },
+  },
+  {
+    method: 'get',
     honoPath: '/v1/audit/authz',
     openapiPath: '/v1/audit/authz',
     operationId: 'audit.authz.list',
