@@ -38,6 +38,8 @@ const MUST_REFUSE: Readonly<Record<string, readonly string[]>> = {
     'GET /v1/audit/authz',
     'POST /v1/service-accounts',
     'POST /v1/approvals/reviewers',
+    // The roster names people: only tenant admins and reviewers read it.
+    'GET /v1/approvals/reviewers',
   ],
   // An admin key without the capability a write needs; a caller who isn't a reviewer.
   [NO_CAPS_KEY]: ['PUT /v1/env/{name}', 'POST /v1/secrets', 'GET /v1/approvals'],

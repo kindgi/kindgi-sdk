@@ -62,7 +62,9 @@ the list, and fetching or deciding it answers `not-found`.
 
 Registering again changes the role. `kindgi reviewers list` shows the
 reviewers; `kindgi reviewers unregister <reviewer-id>` removes one (their
-past decisions stay). A user who isn't a reviewer is refused:
+past decisions stay). The list names people, so with authorization on only
+a tenant admin or a reviewer reads it; anyone else, a project's viewer say,
+gets `permission-denied`. A user who isn't a reviewer is refused:
 
 ```text
 Error [auth]: The caller isn't a reviewer: its token carries no reviewer role, and its user isn't registered as one (`kindgi reviewers register`). The approvals surface is reviewer-only.

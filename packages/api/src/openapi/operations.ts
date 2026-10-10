@@ -1881,7 +1881,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'approvals.reviewers.list',
     summary: "List reviewers registered for the caller's tenant",
     description:
-      'Cursor-paginated. Optional `?role=` narrows to a specific role class. Reviewer-role gate does NOT apply — roster management is an admin surface, not a reviewer-only action.',
+      'Cursor-paginated. Optional `?role=` narrows to a specific role class. The roster names people: with authorization on, a tenant admin or a reviewer (a role on the token, or one the roster gives the user) reads it, and anyone else gets `403 permission-denied`.',
     tags: ['approvals'],
     security: 'bearer',
     parameters: [LimitQueryParam, CursorQueryParam, ReviewerRoleQueryParam],
@@ -1897,6 +1897,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
     openapiPath: '/v1/approvals/reviewers/{reviewerId}',
     operationId: 'approvals.reviewers.get',
     summary: 'Fetch a reviewer',
+    description:
+      'With authorization on, a tenant admin or a reviewer reads it, as the roster; anyone else gets `403 permission-denied`.',
     tags: ['approvals'],
     security: 'bearer',
     parameters: [ReviewerIdPathParam],

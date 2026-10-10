@@ -1487,7 +1487,7 @@ class ApprovalsReviewersResource:
     ) -> _models.ReviewerCollectionPage:
         """List reviewers registered for the caller's tenant. `GET /v1/approvals/reviewers`
 
-        Cursor-paginated. Optional `?role=` narrows to a specific role class. Reviewer-role gate does NOT apply — roster management is an admin surface, not a reviewer-only action.
+        Cursor-paginated. Optional `?role=` narrows to a specific role class. The roster names people: with authorization on, a tenant admin or a reviewer (a role on the token, or one the roster gives the user) reads it, and anyone else gets `403 permission-denied`.
         """
         return self._client._request(
             _OPERATIONS["approvals.reviewers.list"],
@@ -1522,7 +1522,10 @@ class ApprovalsReviewersResource:
         )
 
     def get(self, reviewer_id: str | UUID, /, *, timeout: float | None = None) -> _models.Reviewer:
-        """Fetch a reviewer. `GET /v1/approvals/reviewers/{reviewerId}`"""
+        """Fetch a reviewer. `GET /v1/approvals/reviewers/{reviewerId}`
+
+        With authorization on, a tenant admin or a reviewer reads it, as the roster; anyone else gets `403 permission-denied`.
+        """
         return self._client._request(
             _OPERATIONS["approvals.reviewers.get"],
             path={"reviewerId": reviewer_id},
@@ -8199,7 +8202,7 @@ class AsyncApprovalsReviewersResource:
     ) -> _models.ReviewerCollectionPage:
         """List reviewers registered for the caller's tenant. `GET /v1/approvals/reviewers`
 
-        Cursor-paginated. Optional `?role=` narrows to a specific role class. Reviewer-role gate does NOT apply — roster management is an admin surface, not a reviewer-only action.
+        Cursor-paginated. Optional `?role=` narrows to a specific role class. The roster names people: with authorization on, a tenant admin or a reviewer (a role on the token, or one the roster gives the user) reads it, and anyone else gets `403 permission-denied`.
         """
         return await self._client._request(
             _OPERATIONS["approvals.reviewers.list"],
@@ -8236,7 +8239,10 @@ class AsyncApprovalsReviewersResource:
     async def get(
         self, reviewer_id: str | UUID, /, *, timeout: float | None = None
     ) -> _models.Reviewer:
-        """Fetch a reviewer. `GET /v1/approvals/reviewers/{reviewerId}`"""
+        """Fetch a reviewer. `GET /v1/approvals/reviewers/{reviewerId}`
+
+        With authorization on, a tenant admin or a reviewer reads it, as the roster; anyone else gets `403 permission-denied`.
+        """
         return await self._client._request(
             _OPERATIONS["approvals.reviewers.get"],
             path={"reviewerId": reviewer_id},

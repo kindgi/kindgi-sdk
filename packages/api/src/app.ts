@@ -1176,7 +1176,10 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // so `/v1/approvals/reviewers/*` resolves here rather than being
   // captured by the `:approvalId` param on the approvals router.
   if (input.reviewerRegistry !== undefined) {
-    v1.route('/approvals/reviewers', reviewersRouter(input.reviewerRegistry, authorizer));
+    v1.route(
+      '/approvals/reviewers',
+      reviewersRouter(input.reviewerRegistry, authorizer, input.reviewerBinding),
+    );
   }
   if (input.reviewerBinding !== undefined && input.hitlBinding !== undefined) {
     v1.route(
