@@ -43,6 +43,18 @@ export function decodeCursor(raw: string): DecodedCursor | null {
   }
 }
 
+/**
+ * A cursor's time, as a list's binding compares it: Postgres's own text for
+ * a `timestamptz` (`2026-10-09 12:00:00.123456+00`, microseconds, which a
+ * binding gives as a page's exact position) or an ISO 8601 time (a cursor
+ * from before, milliseconds).
+ */
+export function isCursorTime(value: string): boolean {
+  return PG_TIMESTAMP_TEXT.test(value) || Number.isFinite(Date.parse(value));
+}
+
+const PG_TIMESTAMP_TEXT = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(\.\d{1,6})?[+-]\d{2}(:\d{2})?$/;
+
 export function clampLimit(raw: string | undefined, def = 25, cap = 100): number {
   if (raw === undefined) return def;
   const n = Number.parseInt(raw, 10);

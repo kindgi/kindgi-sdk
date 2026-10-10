@@ -222,7 +222,12 @@ A value under `60000` stops the runtime at start:
 **Expired rows go on their own,** whatever this setting says: every hour, the
 runtime deletes expired idempotency answers, sessions and sign-in state. They
 aren't records a policy keeps, so no setting turns that on. The retention
-sweep is for deleted records past their policy's grace.
+sweep is for deleted records past their policy's grace. The startup log says
+so:
+
+```text
+  Expired rows: deleted every 1 h (idempotency answers, sessions, sign-in state)
+```
 
 ## Keep records for good
 

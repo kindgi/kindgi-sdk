@@ -28,7 +28,9 @@ The run's status becomes `cancelled`, and the journal ends with
 
 That run was waiting for an approval. A run can be cancelled while it runs
 too: no further step starts, and the run ends `cancelled`. Cancelling a
-flow's run cancels the agent turns inside it.
+flow's run cancels the agent turns inside it. In 0.1.5, a flow cancelled while
+it runs a loop can still start a few more of the loop's steps before it stops
+([Known limitations](../../../deploy/operate/#known-limitations-in-015)).
 
 A run that already ended can't be cancelled:
 

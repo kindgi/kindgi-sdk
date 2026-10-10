@@ -411,7 +411,7 @@ export function augmentNextSteps(pm: PackageManager, samplePackId?: string): rea
     `Install: ${installCommand(pm)}`,
     `Boot the dev server: ${binDisplay(pm, 'kindgi', ['dev'])}`,
     `Secrets: kindgi dev reads your .env and .env.local — keys there are available, or run ${setSecret}`,
-    `Model provider: agents answer with the dev-echo fallback until you register one — e.g. ${binDisplay(pm, 'kindgi', ['providers', 'register', '--preset=anthropic'])} (ANTHROPIC_API_KEY in .env); more in .claude/skills/kindgi-authoring-providers/SKILL.md`,
+    `Model provider: until you register one, agents under kindgi dev answer with its dev-echo fallback (canned replies) — e.g. ${binDisplay(pm, 'kindgi', ['providers', 'register', '--preset=anthropic'])} (ANTHROPIC_API_KEY in .env); more in .claude/skills/kindgi-authoring-providers/SKILL.md`,
     ...(samplePackId === undefined
       ? []
       : [
