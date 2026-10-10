@@ -13,7 +13,7 @@
 import { ENV_GROUPS, KINDGI_ENV_SCHEMA } from '@kindgi/env-schema';
 
 const BACKENDS = ['none', 'postgres', 'dotenv', 'secret-manager'];
-const KMS = ['gcp', 'aws', 'libsodium', 'vault'];
+const KMS = ['gcp', 'azure', 'aws', 'libsodium', 'vault'];
 
 /** Every server target: each backend × KMS × pack transport (and the unset forms). */
 function serverTargets() {

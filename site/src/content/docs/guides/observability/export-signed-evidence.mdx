@@ -23,7 +23,7 @@ The runtime signs with one key, its **export signing key**. Set exactly one of:
 |---|---|
 | `KINDGI_EXPORT_SIGNING_KEY_PATH` | The path of a private key file: Ed25519 or EC P-256 (PKCS#8 PEM, mode `0600`). |
 | `KINDGI_EXPORT_SIGNING_KEY` | The same PEM file, base64: for a platform that gives secrets as environment variables, such as Cloud Run with Secret Manager. |
-| `KINDGI_EXPORT_SIGNING_KMS_KEY` | A Cloud KMS key version (`EC_SIGN_ED25519` or `EC_SIGN_P256_SHA256`), so the private key never leaves KMS. Optional. |
+| `KINDGI_EXPORT_SIGNING_KMS_KEY` | A KMS key version, so the private key never leaves the KMS: a Cloud KMS key version (`EC_SIGN_ED25519` or `EC_SIGN_P256_SHA256`), or an Azure Key Vault key version (`https://<vault>.vault.azure.net/keys/<name>/<version>`, an EC P-256 key). Optional. |
 
 Make a key for this alone:
 
@@ -49,6 +49,7 @@ The verifiers below check either, and refuse an algorithm they don't know (see [
   For a P-256 key, put `openssl genpkey -algorithm EC -pkeyopt ec_paramgen_curve:P-256` in place of the first command; the rest is the same.
 
   Or set `export_signing = "kms"` and `export_signing_kms_key` to a key version: the module grants the server's service account `roles/cloudkms.signerVerifier` and `roles/cloudkms.publicKeyViewer` on its key.
+- **On Azure Container Apps,** set `export_signing = "kms"` in the Terraform module: it makes an EC P-256 key in the deployment's vault, gives the server's identity Key Vault Crypto User on it, and the server signs there. Exports are `ecdsa-p256-sha256`: Key Vault has no Ed25519. Or `export_signing = "secret"`, with the key's PEM, base64, as the vault secret `export-signing-key`.
 - **Without a key** (outside development), the exports answer `404 signing-not-configured`.
 
 The runtime publishes its key's public half. Pin it, so you can tell your deployment's exports from anyone else's:
@@ -183,6 +184,24 @@ It exits 0. The TypeScript and Python verifiers give the same line in `notes`. O
 
 ## Rotate the key
 
-Replace the key (the file, the secret's version, or the KMS key version) and restart. New exports carry the new key's id, and `GET /v1/export-signing-keys` lists only the new key. An export signed before still checks out against the old public key, so keep the old key's public half wherever you pinned it.
+Replace the key (the file, the secret's version, or the KMS key version) and restart. New exports carry the new key's id.
+
+An export signed before still checks out against the old public key wherever you pinned it. For `--from-runtime` to keep trusting it, list the old key as retired. Save its public half before you replace it:
+
+```sh
+curl -s "$KINDGI_API_URL/v1/export-signing-keys" -H "Authorization: Bearer $KINDGI_API_TOKEN" \
+  | jq -r '.data[] | select(.active) | .publicKeyPem' >> export-signing-retired.pem
+```
+
+Then give the runtime the file, in one of these:
+
+| Setting | What it holds |
+|---|---|
+| `KINDGI_EXPORT_SIGNING_RETIRED_PUBLIC_KEYS_PATH` | The path of a file of retired keys' public halves: PEM (`-----BEGIN PUBLIC KEY-----`), Ed25519 or EC P-256, concatenated. |
+| `KINDGI_EXPORT_SIGNING_RETIRED_PUBLIC_KEYS` | The same file, base64 (`base64 < export-signing-retired.pem`): for a platform that gives settings as environment variables. |
+
+- **What it lists:** `GET /v1/export-signing-keys` lists the active key first and the retired ones after it, with `active: false`. So `kindgi exports verify --from-runtime` trusts what they signed.
+- **They never sign:** a request that asks for a retired key's id is `404 signing-key-not-found`. A private key in the file stops the runtime at boot, and so does a block it can't read.
+- **Any signing key:** it works whatever signs now: a file, a secret or a KMS key version.
 
 See [Provenance](../../../reference/api/operations/tags/provenance/) and [Compliance](../../../reference/api/operations/tags/compliance/) in the HTTP API.

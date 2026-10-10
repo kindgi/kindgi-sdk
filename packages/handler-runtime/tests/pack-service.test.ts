@@ -10,6 +10,7 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, test } from 'vitest';
 
 import type { Index } from '../src/kindgi-index.js';
+import { undeclaredPackEnv } from '../src/pack-env.js';
 import {
   type RunningPackService,
   createPackService,
@@ -684,5 +685,135 @@ describe('pack service — the declared process env', () => {
       kind: 'err',
       problems: ['KINDGI_PACK_ENV_CHECK must be `strict` or `warn`, not "loose"'],
     });
+  });
+});
+
+describe('pack service — only the names a pack declares reach its code', () => {
+  test("undeclaredPackEnv: the undeclared go; declared, KINDGI_* and the platform's stay", () => {
+    const env = {
+      A_URL: 'postgres://db',
+      CACHE_DIR: '/tmp/c',
+      ANTHROPIC_API_KEY: 'fake-not-a-key',
+      AWS_SECRET_ACCESS_KEY: 'fake',
+      DATABASE_URL: 'postgres://other',
+      KINDGI_LOG_FORMAT: 'json',
+      PATH: '/bin',
+      PORT: '8080',
+      NODE_OPTIONS: '--max-old-space-size=512',
+      LC_ALL: 'C.UTF-8',
+      PYTHONPATH: '/app',
+      OTEL_EXPORTER_OTLP_ENDPOINT: 'http://collector:4318',
+      K_SERVICE: 'pack',
+      CONTAINER_APP_NAME: 'pack',
+      AWS_CONTAINER_CREDENTIALS_RELATIVE_URI: '/v2/credentials/x',
+      IDENTITY_ENDPOINT: 'http://localhost:42356/msi/token',
+      UNSET: undefined,
+    };
+    const declared = { required: ['A_URL'], optional: ['CACHE_DIR'] };
+    expect(undeclaredPackEnv(declared, env)).toEqual([
+      'ANTHROPIC_API_KEY',
+      'AWS_SECRET_ACCESS_KEY',
+      'DATABASE_URL',
+    ]);
+    // Declaring nothing keeps only Kindgi's and the platform's.
+    expect(undeclaredPackEnv(undefined, env)).toEqual([
+      'ANTHROPIC_API_KEY',
+      'AWS_SECRET_ACCESS_KEY',
+      'A_URL',
+      'CACHE_DIR',
+      'DATABASE_URL',
+    ]);
+  });
+
+  test('KINDGI_PACK_ENV_FILTER: on by default, off on request, anything else refused', () => {
+    const base = { KINDGI_PACK_SERVICE_TOKEN: 't' };
+    expect(readPackServiceConfig([], base)).toMatchObject({
+      kind: 'ok',
+      value: { envFilter: 'on' },
+    });
+    expect(readPackServiceConfig([], { ...base, KINDGI_PACK_ENV_FILTER: 'off' })).toMatchObject({
+      kind: 'ok',
+      value: { envFilter: 'off' },
+    });
+    expect(readPackServiceConfig([], { ...base, KINDGI_PACK_ENV_FILTER: 'no' })).toEqual({
+      kind: 'err',
+      problems: ['KINDGI_PACK_ENV_FILTER must be `on` or `off`, not "no"'],
+    });
+  });
+
+  test("on: gone before the pack's code loads (and from what it starts); the warning names them, never a value", async () => {
+    const root = await mkdtemp(join(tmpdir(), 'kindgi-pack-env-filter-'));
+    // The test runner's environment, restored exactly afterwards: the filter
+    // works on this process's own environment.
+    const saved = { ...process.env };
+    const seen = '__kindgiEnvSeenAtImport';
+    try {
+      Object.assign(process.env, {
+        ACME_UNDECLARED_KEY: 'fake-not-a-key',
+        A_URL: 'postgres://db',
+        OTEL_SERVICE_NAME: 'pack',
+        KINDGI_PACK_TEST: '1',
+      });
+      const indexPath = await writePack(
+        root,
+        { ...INDEX, env: { optional: [], required: ['A_URL'] } },
+        {
+          ...MODULES,
+          'tools/echo.mjs': `globalThis.${seen} = {
+  undeclared: process.env.ACME_UNDECLARED_KEY !== undefined,
+  declared: process.env.A_URL !== undefined,
+};
+${MODULES['tools/echo.mjs'] ?? ''}`,
+        },
+      );
+      const logged: (PackServiceLogEvent | Record<string, unknown>)[] = [];
+      const started = await startPackService(
+        { indexPath, moduleRoot: root, token: TOKEN, port: 0, envFilter: 'on' },
+        (e) => logged.push(e),
+      );
+      expect(started.kind).toBe('ok');
+      expect((globalThis as Record<string, unknown>)[seen]).toEqual({
+        undeclared: false,
+        declared: true,
+      });
+      expect(process.env.ACME_UNDECLARED_KEY).toBeUndefined();
+      expect(process.env.A_URL).toBe('postgres://db');
+      expect(process.env.OTEL_SERVICE_NAME).toBe('pack');
+      expect(process.env.KINDGI_PACK_TEST).toBe('1');
+      const dropped = logged.find((e) => e.kind === 'env-dropped') as
+        | { names: string[] }
+        | undefined;
+      expect(dropped?.names).toContain('ACME_UNDECLARED_KEY');
+      expect(dropped?.names).not.toContain('A_URL');
+      expect(JSON.stringify(logged)).not.toContain('fake-not-a-key');
+      if (started.kind === 'ok') await started.value.stop(0);
+    } finally {
+      for (const name of Object.keys(process.env)) {
+        if (!(name in saved)) Reflect.deleteProperty(process.env, name);
+      }
+      Object.assign(process.env, saved);
+      Reflect.deleteProperty(globalThis, seen);
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  test('absent (an in-process caller): nothing is dropped', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'kindgi-pack-env-nofilter-'));
+    process.env.ACME_UNDECLARED_KEY = 'fake-not-a-key';
+    try {
+      const indexPath = await writePack(root, INDEX);
+      const started = await startPackService({
+        indexPath,
+        moduleRoot: root,
+        token: TOKEN,
+        port: 0,
+      });
+      expect(started.kind).toBe('ok');
+      expect(process.env.ACME_UNDECLARED_KEY).toBe('fake-not-a-key');
+      if (started.kind === 'ok') await started.value.stop(0);
+    } finally {
+      Reflect.deleteProperty(process.env, 'ACME_UNDECLARED_KEY');
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

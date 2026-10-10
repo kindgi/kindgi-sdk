@@ -43,8 +43,10 @@ import {
   signingNotConfigured,
 } from '../signed-export.js';
 import type { AppEnv } from '../types.js';
+import { refused } from './denied.js';
 import { clampLimit, decodeCursor, encodeCursor, isCursorTime } from './pagination.js';
 import { parseListScope } from './scope-params.js';
+import { parseTimeInput } from './time-input.js';
 
 const APPROVAL_STATUSES: ReadonlySet<ApprovalStatus> = new Set([
   'pending',
@@ -159,20 +161,15 @@ export function approvalsRouter(
   // A reviewer: a token that carries a role, or whose user the roster
   // names (a session or API key of a registered reviewer).
   r.use('*', async (c, next) => {
-    const requestId = c.get('requestId');
     const role = await callerReviewerRole(c, reviewerBinding);
     if (role === undefined) {
-      c.status(statusFor('permission-denied') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'permission-denied',
-            message:
-              "The caller isn't a reviewer: its token carries no reviewer role, and its user isn't registered as one (`kindgi reviewers register`). The approvals surface is reviewer-only.",
-          },
-          requestId,
-        ),
-      );
+      return refused(c, authorizer, {
+        action: c.req.method === 'GET' ? 'read' : 'admin',
+        resource: ref('tenant', c.get('tenantId') as unknown as string),
+        message:
+          "The caller isn't a reviewer: its token carries no reviewer role, and its user isn't registered as one (`kindgi reviewers register`). The approvals surface is reviewer-only.",
+        failing: 'actor',
+      });
     }
     await next();
     return;
@@ -228,24 +225,20 @@ export function approvalsRouter(
       // preserves the "reviewer never sees above their tier" guardrail
       // regardless of what the caller passes.
       if (REVIEWER_ROLE_RANK[requiredRoleFilter] > REVIEWER_ROLE_RANK[role]) {
-        c.status(statusFor('permission-denied') as never);
-        return c.json(
-          toWireError(
-            {
-              code: 'permission-denied',
-              message: `Role ${role} cannot query approvals scoped to ${requiredRoleFilter}.`,
-            },
-            requestId,
-          ),
-        );
+        return refused(c, authorizer, {
+          action: 'read',
+          resource: ref('tenant', c.get('tenantId') as unknown as string),
+          message: `Role ${role} cannot query approvals scoped to ${requiredRoleFilter}.`,
+          failing: 'actor',
+        });
       }
     }
 
     const createdAfterRaw = c.req.query('createdAfter');
     let createdAfterIso: string | undefined;
     if (createdAfterRaw !== undefined && createdAfterRaw.length > 0) {
-      const parsed = new Date(createdAfterRaw);
-      if (Number.isNaN(parsed.getTime())) {
+      const parsed = parseTimeInput(createdAfterRaw);
+      if (parsed === null) {
         c.status(statusFor('bad-input') as never);
         return c.json(
           toWireError(
@@ -284,7 +277,7 @@ export function approvalsRouter(
       const decoded = decodeCursor(rawCursor);
       if (decoded !== null && isCursorTime(decoded.createdAt)) {
         after = { createdAt: decoded.createdAt, id: decoded.id as unknown as ApprovalId };
-      } else if (decoded === null && Number.isFinite(Date.parse(rawCursor))) {
+      } else if (decoded === null && isCursorTime(rawCursor)) {
         cursor = rawCursor;
       } else {
         c.status(statusFor('bad-input') as never);
@@ -391,17 +384,13 @@ export function approvalsRouter(
     const approvalId = c.req.param('approvalId') as ApprovalId;
 
     if (userId === undefined) {
-      c.status(statusFor('permission-denied') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'permission-denied',
-            message:
-              'Token has a reviewer role but no user identity — cannot resolve reviewer for decision.',
-          },
-          requestId,
-        ),
-      );
+      return refused(c, authorizer, {
+        action: 'admin',
+        resource: ref('tenant', c.get('tenantId') as unknown as string),
+        message:
+          'Token has a reviewer role but no user identity — cannot resolve reviewer for decision.',
+        failing: 'actor',
+      });
     }
 
     let body: unknown;
@@ -463,16 +452,12 @@ export function approvalsRouter(
       userId: userId as UserId,
     });
     if (reviewerId === null) {
-      c.status(statusFor('permission-denied') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'permission-denied',
-            message: 'No reviewer row registered for this user under this tenant.',
-          },
-          requestId,
-        ),
-      );
+      return refused(c, authorizer, {
+        action: 'admin',
+        resource: ref('tenant', c.get('tenantId') as unknown as string),
+        message: 'No reviewer row registered for this user under this tenant.',
+        failing: 'actor',
+      });
     }
 
     const submitted = await hitlBinding.submitReview({

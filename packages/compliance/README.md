@@ -13,13 +13,14 @@ Evidence is a classification lens over the audit-event stream from [`@kindgi/aud
   - **`EvidenceKind`** — one of **`EVIDENCE_KINDS`** (the built-in kinds, e.g. `'authz-decision'`, `'run-outcome'`, `'secret-rotated'`, `'hitl-decision'`) or any other string. Consumers must tolerate unknown kinds.
   - **`EvidenceActor`** (with **`ActorKind`**), **`EvidenceSubject`**, **`EvidenceOutcome`**, **`EvidencePayload`** (always carries a numeric `version`), **`EvidenceSignature`** (Ed25519), **`ProvenanceRef`**.
 - **Generator**
-  - **`ComplianceEvidenceGenerator`** — `recordFromRun(options)`, `exportSigned(tenantId, filter, signingKeyId)`, `describe()`.
+  - **`ComplianceEvidenceGenerator`** — `recordFromRun(options)`, `describe()`. A signed export of the records is `@kindgi/api`'s `POST /v1/compliance/evidence/export`, which collects them and signs with the app's export signing key.
   - **`RecordFromRunOptions`** — `tenantId`, `projectId`, `runId`, `kind`, `runContext`, optional actor/subject/outcome/id/timestamp/`provenanceRef`, and `rawMessages` (embedded only when `allowRawMessages: true`).
   - **`RunEvidenceContext`** — `status`, timing, agent/flow ids, and lists of **`ModelCallSummary`**, **`ToolInvocationSummary`**, **`GuardrailResultSummary`**; plus caller-redacted `failureMessage` and `extra`.
   - **`EvidenceFilter`** (AND-composed; `evidenceKinds: []` matches nothing), **`EvidencePage`**, **`SignedEvidenceBundle`** (base64 canonical `bundle`, `signature`, PEM `publicKey`, `signingKeyId`, `canonicalization: 'sorted-key-json'`), **`EvidenceBundleBody`** (the decoded `bundle`).
 - **Provider seam** — **`ComplianceProvider`** (`emit`, `list`, `describe`) for adapters that forward evidence to an external system, with **`EmitEvidenceInput`**, **`ListEvidenceFilter`**, and **`EvidenceSigner`** (`(bytes, tenantId) => Promise<EvidenceSignature>`).
 - **Classifier**
-  - **`ComplianceClassifierFile`** — `{ version: 1, default, byKind }`, the file format.
+  - **`ComplianceClassifierSource`** — `{ version: 1, default, byKind }`, the file format: a kind's entry is its classification, or the name of another kind whose classification it takes (`"secret-rotated": "secret-set"`), resolved at load; a name that names another name, or no kind, is refused.
+  - **`ComplianceClassifierFile`** — the same, resolved: every kind with its own classification (what `LoadedClassifier.file` holds).
   - **`Classification`** — `retention` (`days`, `onDenyDays?`, `legalHold?`), `signed`, `exportable`.
   - **`LoadedClassifier`** — `file` plus `resolve(kind)`, which returns the per-kind entry or the default.
 - **`auditEventToEvidence(event)`** — pure transform from an `AuditEvent` to an `Evidence` record (unwraps the `{ v, doc }` payload envelope).
@@ -29,15 +30,11 @@ Evidence is a classification lens over the audit-event stream from [`@kindgi/aud
 ## Example
 
 ```ts
-import type {
-  ComplianceEvidenceGenerator,
-  EvidenceBundleBody,
-  RunEvidenceContext,
-} from '@kindgi/compliance';
+import type { ComplianceEvidenceGenerator, RunEvidenceContext } from '@kindgi/compliance';
 
-// tenantId, projectId, runId, signingKeyId, startedAt, endedAt, promptHash and
-// argsHash come from the finished run and the deployment's configuration.
-async function recordAndExport(generator: ComplianceEvidenceGenerator): Promise<void> {
+// tenantId, projectId, runId, startedAt, endedAt, promptHash and argsHash
+// come from the finished run.
+async function record(generator: ComplianceEvidenceGenerator): Promise<void> {
   // Redaction-safe run summary: hashes and counts, no prompt or argument text.
   const runContext: RunEvidenceContext = {
     status: 'completed',
@@ -58,19 +55,9 @@ async function recordAndExport(generator: ComplianceEvidenceGenerator): Promise<
     runContext,
   });
   if (recorded.kind === 'err') throw new Error(`${recorded.error.code}: ${recorded.error.message}`);
-
-  const exported = await generator.exportSigned(
-    tenantId,
-    { runId, evidenceKinds: ['run-outcome', 'authz-decision'] },
-    signingKeyId,
-  );
-  if (exported.kind === 'err') throw new Error(`${exported.error.code}: ${exported.error.message}`);
-
-  // `bundle` is base64 of the exact canonical JSON bytes that were signed.
-  const body = JSON.parse(
-    Buffer.from(exported.value.bundle, 'base64').toString('utf8'),
-  ) as EvidenceBundleBody;
-  console.log(body.recordCount, exported.value.signingKeyId, exported.value.algorithm);
+  // A signed export of these records: `POST /v1/compliance/evidence/export`
+  // with `{ filter: { runId, evidenceKind: 'run-outcome' } }`, on a runtime
+  // with an export signing key.
 }
 ```
 

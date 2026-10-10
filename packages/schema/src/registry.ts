@@ -12,6 +12,7 @@ import { Ajv2020 } from 'ajv/dist/2020.js';
 
 import type { Result } from '@kindgi/types';
 
+import { ALLOW_UNION_TYPES } from './dialect.js';
 import type { SchemaError } from './errors.js';
 
 // ajv-formats uses CJS `export = fn` style. In ESM with esModuleInterop, the
@@ -139,7 +140,7 @@ export function createSpecRegistry(schemas: readonly unknown[]): Result<SpecRegi
   const ajv = new Ajv2020({
     strict: true,
     allErrors: true,
-    allowUnionTypes: false,
+    allowUnionTypes: ALLOW_UNION_TYPES,
   });
   addFormats(ajv);
 
@@ -253,7 +254,7 @@ export function compileInlineSchema(schema: unknown): Result<CompiledInlineSchem
   const ajv = new Ajv2020({
     strict: true,
     allErrors: true,
-    allowUnionTypes: false,
+    allowUnionTypes: ALLOW_UNION_TYPES,
   });
   addFormats(ajv);
   // Annotations Kindgi reads off a schema, which validate nothing.
