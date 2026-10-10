@@ -80,10 +80,10 @@ export interface Approval {
 }
 
 /**
- * Why a run's end withdrew an approval: the run was cancelled, or it
- * failed (or was otherwise ended) while the approval waited.
+ * Why a run's end withdrew an approval: the run was cancelled, or it ended
+ * otherwise (it failed, say) while the approval waited.
  */
-export type ApprovalWithdrawnBecause = 'run-cancelled' | 'run-failed';
+export type ApprovalWithdrawnBecause = 'run-cancelled' | 'run-ended';
 
 export interface ReviewDecision {
   readonly id: string;

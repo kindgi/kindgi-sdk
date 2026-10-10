@@ -778,8 +778,16 @@ def test_a_persons_grants_and_tenant_admin() -> None:
 
 
 def test_named_models_keep_their_names() -> None:
-    # Inline shapes in a new schema once renamed `Team`/`Project` to `Team1`/`Project1`.
-    for name in ("Team", "Project", "Reviewer", "PersonGrants", "ServiceAccountGrantBody"):
+    # Inline shapes in a new schema once renamed `Team`/`Project` to `Team1`/`Project1`;
+    # a `$ref` to `RunStatus` beside its inline uses folds the `RunStatus` class away.
+    for name in (
+        "Team",
+        "Project",
+        "Reviewer",
+        "PersonGrants",
+        "ServiceAccountGrantBody",
+        "RunStatus",
+    ):
         assert hasattr(models, name), name
     for name in ("Team1", "Project1", "Reviewer1"):
         assert not hasattr(models, name), name

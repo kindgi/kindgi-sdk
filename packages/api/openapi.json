@@ -2873,16 +2873,18 @@
             "type": "string",
             "enum": [
               "run-cancelled",
-              "run-failed"
+              "run-ended"
             ],
             "description": "Why it was withdrawn, when its run's end withdrew it (a reviewer's withdrawal has its `decision` instead)."
           },
           "escalatedFrom": {
             "type": "string",
+            "format": "uuid",
             "description": "The approval this one was escalated from."
           },
           "escalatedTo": {
             "type": "string",
+            "format": "uuid",
             "description": "The approval this one was escalated to."
           }
         }
@@ -3032,6 +3034,7 @@
       "CompleteApprovalResult": {
         "type": "object",
         "additionalProperties": false,
+        "description": "A recorded decision, and what it did to the run waiting on the approval. `runStatus` is the run's status when the decision couldn't resolve its waitpoint because the run had already ended (e.g. `cancelled` after the decision was recorded); the decision stands.",
         "required": [
           "kind",
           "approval",
@@ -3062,7 +3065,14 @@
           },
           "runStatus": {
             "type": "string",
-            "description": "The run's status when the decision couldn't resolve its waitpoint because the run had already ended (e.g. `cancelled` after the decision was recorded). The decision stands."
+            "enum": [
+              "pending",
+              "running",
+              "suspended",
+              "completed",
+              "failed",
+              "cancelled"
+            ]
           },
           "resume": {
             "description": "How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone. The decision stands either way.",

@@ -1273,12 +1273,20 @@ export const ApprovalSchema: JsonSchema = {
     },
     withdrawnBecause: {
       type: 'string',
-      enum: ['run-cancelled', 'run-failed'],
+      enum: ['run-cancelled', 'run-ended'],
       description:
         "Why it was withdrawn, when its run's end withdrew it (a reviewer's withdrawal has its `decision` instead).",
     },
-    escalatedFrom: { type: 'string', description: 'The approval this one was escalated from.' },
-    escalatedTo: { type: 'string', description: 'The approval this one was escalated to.' },
+    escalatedFrom: {
+      type: 'string',
+      format: 'uuid',
+      description: 'The approval this one was escalated from.',
+    },
+    escalatedTo: {
+      type: 'string',
+      format: 'uuid',
+      description: 'The approval this one was escalated to.',
+    },
   },
 };
 
@@ -1551,6 +1559,8 @@ export const ExportAuditBundleResultSchema: JsonSchema = signedExportEnvelope({
 export const CompleteApprovalResultSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
+  description:
+    "A recorded decision, and what it did to the run waiting on the approval. `runStatus` is the run's status when the decision couldn't resolve its waitpoint because the run had already ended (e.g. `cancelled` after the decision was recorded); the decision stands.",
   required: ['kind', 'approval', 'decision', 'waitpointResolved'],
   properties: {
     kind: { type: 'string', enum: ['terminal', 'escalated'] },
@@ -1565,11 +1575,9 @@ export const CompleteApprovalResultSchema: JsonSchema = {
       description:
         "True when the approval had a `waitTokenId` and this call resolved the run's waitpoint: approve and reject complete it; withdraw cancels it, so the run ends (`failed`, `hitl-withdrawn`).",
     },
-    runStatus: {
-      type: 'string',
-      description:
-        "The run's status when the decision couldn't resolve its waitpoint because the run had already ended (e.g. `cancelled` after the decision was recorded). The decision stands.",
-    },
+    // As `Run.status` has it: the schema inline (a `$ref` to `RunStatus`
+    // folds the generated Python client's `RunStatus` class away).
+    runStatus: RunStatusSchema,
     resume: {
       description:
         "How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone. The decision stands either way.",

@@ -228,8 +228,9 @@ kindgi approvals complete <approval-id> --decision=withdraw --rationale="Asked b
 
 Cancelling a run withdraws its open approvals by itself: see
 [Cancel a run](../../runs/cancel-a-run/#approvals-of-a-cancelled-run).
-Those approvals show `withdrawnBecause: "run-cancelled"` (or `run-failed`,
-when a run ended otherwise while they waited) and no `decision`.
+Those approvals show `withdrawnBecause: "run-cancelled"` (or `run-ended`,
+when a run ended otherwise while they waited, e.g. it failed) and no
+`decision`.
 
 ### When nobody decides
 
