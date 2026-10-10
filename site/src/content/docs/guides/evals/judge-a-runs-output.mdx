@@ -375,7 +375,8 @@ a run does.
     queued runs with at least one live judgment, whether their item is
     closed as `judged` yet or still open. `judgments` counts verdicts, so
     several people judging one run make several judgments but one run here:
-    size a range by runs. A runtime before Kindgi 0.1.6 doesn't send it.
+    to see how much a share rests on, count runs, not judgments. A runtime
+    before Kindgi 0.1.6 doesn't send it.
   - **`skippedByCap`** counts the runs the rule matched and sampled but
     didn't queue because `maxOpen` were waiting, even when another rule
     queued them, so `added` + `skippedByCap` is every run it matched and
