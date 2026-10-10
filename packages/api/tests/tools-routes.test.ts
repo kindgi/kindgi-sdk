@@ -445,6 +445,38 @@ describe('API — tools register', () => {
     expect(body.error.details?.issues).toBeTruthy();
   });
 
+  test("a needsSpec schema that wouldn't compile → 400 validation-failed, naming where", async () => {
+    const { app } = makeApp();
+    const res = await app.request('/v1/tools', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        projectId: randomUUID(),
+        id: 'acme.sign',
+        description: 'Signs a receipt.',
+        version: '0.1.0',
+        input: { type: 'object' },
+        output: { type: 'object' },
+        needsSpec: { env: { RETRIES: { type: 'string', default: 3 } } },
+      }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      error: { code: string; message: string; details?: { issues?: unknown[] } };
+    };
+    expect(body.error).toMatchObject({
+      code: 'validation-failed',
+      message:
+        'Tool "acme.sign": needsSpec.env.RETRIES\'s default must be a string: env values are strings.',
+    });
+    expect(body.error.details?.issues).toEqual([
+      {
+        path: '/needsSpec/env/RETRIES/default',
+        message: 'must be a string: env values are strings',
+      },
+    ]);
+  });
+
   test('non-JSON body → 400 bad-input', async () => {
     const { app } = makeApp();
     const res = await app.request('/v1/tools', {

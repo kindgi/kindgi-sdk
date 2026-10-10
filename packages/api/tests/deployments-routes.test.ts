@@ -1321,6 +1321,50 @@ describe('POST /v1/deployments — manifest validation', () => {
     );
   });
 
+  test("a tool's needsSpec schema that wouldn't compile → 400, naming the tool and where", async () => {
+    const fixture = buildSignedDeploy({
+      index: {
+        v: 1,
+        artifactVersion: '20260920.1',
+        publishedAt: '2026-09-20T14:32:07.104Z',
+        tools: [
+          {
+            id: 'acme.sign',
+            description: 'Signs a receipt.',
+            version: '0.1.0',
+            input: { type: 'object' },
+            output: { type: 'object' },
+            modulePath: 'tools/sign.js',
+            needsSpec: { secrets: { SIGNING_KEY: { type: 'string', 'x-unknown': true } } },
+          },
+        ],
+        guardrails: [],
+        agents: [],
+        flows: [],
+      },
+    });
+    const { app } = makeApp({ fixture });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      error: { code: string; details?: { issues?: Array<Record<string, unknown>> } };
+    };
+    expect(body.error.code).toBe('deployment-validation-failed');
+    expect(body.error.details?.issues).toContainEqual(
+      expect.objectContaining({
+        primitive: 'tool',
+        index: 0,
+        id: 'acme.sign',
+        path: '/needsSpec/secrets/SIGNING_KEY',
+        message: expect.stringContaining('unknown keyword: "x-unknown"'),
+      }),
+    );
+  });
+
   test('guardrail manifest invalid → 400 deployment-validation-failed', async () => {
     const fixture = buildSignedDeploy({
       index: {
