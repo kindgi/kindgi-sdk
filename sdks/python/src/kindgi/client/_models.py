@@ -7607,7 +7607,7 @@ class JudgingResultGroup(BaseModel):
     erased: Annotated[int, Field(ge=0)]
     skipped_by_cap: Annotated[int, Field(alias="skippedByCap", ge=0)]
     """
-    Runs the rule matched and sampled but didn't queue, because `maxOpen` were waiting. Non-zero: the queued runs lean toward quiet times.
+    Runs the rule matched and sampled but didn't queue, because `maxOpen` were waiting. Non-zero: the queued runs lean toward quiet times. `added` + `skippedByCap` = every run the rule matched and sampled.
     """
     judgments: Annotated[int, Field(ge=0)]
     """

@@ -133,6 +133,7 @@ export interface JudgingResultGroup {
   /**
    * Runs the rule matched and sampled but didn't queue, because `maxOpen`
    * were waiting. Non-zero: the queued runs lean toward quiet times.
+   * `added` + `skippedByCap` = every run the rule matched and sampled.
    */
   readonly skippedByCap: number;
   /** Live judgments on the queued runs: each is one person's verdict on one item of a run's output. */

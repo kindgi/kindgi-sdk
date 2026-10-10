@@ -8028,7 +8028,7 @@ export const JudgingResultGroupSchema: JsonSchema = {
       type: 'integer',
       minimum: 0,
       description:
-        "Runs the rule matched and sampled but didn't queue, because `maxOpen` were waiting. Non-zero: the queued runs lean toward quiet times.",
+        "Runs the rule matched and sampled but didn't queue, because `maxOpen` were waiting. Non-zero: the queued runs lean toward quiet times. `added` + `skippedByCap` = every run the rule matched and sampled.",
     },
     judgments: {
       type: 'integer',
