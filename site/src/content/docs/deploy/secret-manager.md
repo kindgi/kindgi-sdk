@@ -23,7 +23,7 @@ KINDGI_SECRETS_MANAGER=azure    # or gcp, or vault
   Kindgi numbers them, whatever ids the secret manager gives its own
   versions, so `kindgi secrets` reads the same on every backend.
 - **Kindgi signs in as the server itself:** its managed identity, service
-  account or Vault token. Give that identity access to a store, a project or
+  account, Vault token or Kubernetes service account. Give that identity access to a store, a project or
   a mount used for Kindgi's secrets alone.
 - **`kindgi env init --secrets-backend=secret-manager --secrets-manager=<name>`**
   writes the settings for one.
@@ -110,6 +110,14 @@ KINDGI_SECRETS_VAULT_TOKEN_FILE=/var/run/kindgi/vault-token
   sink or a mounted secret. Kindgi reads it again every minute, and whenever
   Vault refuses the token, so a rotated token is picked up. It never reads
   `VAULT_TOKEN` or `~/.vault-token`.
+- **Or Kubernetes login,** for a runtime in a pod: it signs in to Vault's
+  Kubernetes auth method with the pod's own service account, as the role
+  `KINDGI_SECRETS_VAULT_K8S_ROLE` names. `KINDGI_SECRETS_VAULT_K8S_MOUNT`
+  names the auth method's mount (`kubernetes` by default), and
+  `KINDGI_SECRETS_VAULT_K8S_TOKEN_FILE` another token file (the pod's
+  service account token by default). Set the role or the token file, not
+  both: the runtime refuses both at startup, and refuses the mount or the
+  token file without the role.
 - **The policy** the token needs, on the mount (here `kindgi`):
 
   ```hcl
@@ -135,6 +143,13 @@ secrets:
 ```text
 Secrets manager probe OK (vault-kv-v2): 1.15.6 (15ms)
 Secrets: your own secret manager, Vault 127.0.0.1:…, mount kindgi/, token file … (Kindgi keeps names and version numbers)
+```
+
+With Kubernetes login, in a pod:
+
+```text
+Secrets manager probe OK (vault-kv-v2): 1.15.6 (69ms)
+  Secrets: your own secret manager, Vault vault.….svc:8200, mount kindgi/, Kubernetes login, role kindgi-runtime (Kindgi keeps names and version numbers)
 ```
 
 It doesn't start (exit code 2) with a plain-`http` address outside the
