@@ -740,6 +740,28 @@ describe('kindgi env init', () => {
     expect(written).toContain('# KINDGI_API_PORT=4000');
   });
 
+  test('non-interactive: --kms=azure writes the Key Vault key (required) and no GCP vars', async () => {
+    const fixtures = makeFixtures();
+    const outPath = join(packDir, '.env.example');
+    const out = await runCli(
+      baseInputs(fixtures, [
+        'env',
+        'init',
+        '--secrets-backend=postgres',
+        '--kms=azure',
+        `--out=${outPath}`,
+        '--non-interactive',
+      ]),
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    const written = fixtures.state.files.get(outPath);
+    expect(written).toContain(
+      'KINDGI_SECRETS_AZURE_KEY_ID=https://my-vault.vault.azure.net/keys/kindgi-secrets',
+    );
+    expect(written).toContain('# KINDGI_AZURE_CLIENT_ID=');
+    expect(written).not.toContain('KINDGI_SECRETS_GCP_PROJECT_ID');
+  });
+
   test('non-interactive: backend=none writes only core vars (no secrets group)', async () => {
     const fixtures = makeFixtures();
     const outPath = join(packDir, '.env.example');
