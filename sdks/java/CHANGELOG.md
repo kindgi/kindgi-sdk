@@ -13,6 +13,13 @@ heading into its version.
   of check names, so the warning says to name it `<pack id>.checks.<name>`.
   It's a warning only: the pack builds and indexes as before, and
   `kindgi build` and `kindgi dev` print it.
+
+## 0.1.5
+
+No JVM changes; the version moves with the npm packages.
+
+## 0.1.5-rc.0
+
 - `kindgi-pack`: **on SIGTERM, the service stops taking calls before it writes
   `draining`.** It wrote the record first, so for a moment a supervisor that
   read it and asked `/readyz` at once could still get 200. (#471)

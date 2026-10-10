@@ -31,7 +31,12 @@ export default {
 Put it on an agent by its id, as with any guardrail
 ([Put it on an agent](../write-a-guardrail/#put-it-on-an-agent)). With
 `halt`, an answer containing "guaranteed" stops the turn
-([A halted turn](../halt-or-record/#a-halted-turn)).
+([A halted turn](../halt-or-record/#a-halted-turn)). The failure gives the
+check's reason. For a `must-cite` guardrail on an answer without a citation:
+
+```text
+Error [guardrail-violation]: Turn blocked by guardrail 'acme.cite-or-halt': expected >= 1 citations, found 0
+```
 
 A Python, Java or Scala pack can't name a built-in yet: a guardrail there is
 always defined with its own check (Python's `@guardrail` decorates a check

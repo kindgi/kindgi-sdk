@@ -98,8 +98,11 @@ export interface PromptParameter {
  * end user's):
  *   - `same-conversation`: this conversation's facts.
  *   - `same-user`:         the facts of this run's end user (the
- *                          conversation's participant) and of the Kindgi
- *                          user it acts for; none when it has neither.
+ *                          conversation's participant) only. None in a
+ *                          run that names no end user (`participantId`);
+ *                          never facts keyed to the user a credential
+ *                          acts for, which may serve many people (the
+ *                          turn says so: `memory-needs-participant`).
  *   - `same-project`:      the run's project's facts; none in a run
  *                          without a project.
  *   - `tenant`:            any fact of the declared type the run may see.
@@ -118,8 +121,9 @@ export interface RetrievalIntent {
    * What it reads: `facts` (the default), or `conversations`: messages of
    * this agent's earlier conversations, quoted in the turn's `<memory>`
    * block as earlier conversations, never as turns. For conversations:
-   *   - `same-user` (the usual choice): this end user's (or user's) other
-   *     conversations;
+   *   - `same-user` (the usual choice): this end user's other
+   *     conversations; none in a run that names no end user
+   *     (`participantId`);
    *   - `same-conversation`: this conversation's messages older than the
    *     history window;
    *   - `same-segment`: conversations in the run's segment path (the same
@@ -166,9 +170,10 @@ export interface AgentMemoryPolicy {
 
 /**
  * Where an agent's remembered facts go, always within its run:
- *   - `same-user`:         the conversation's end user, else the user
- *                          the run acts for (a run with neither can't
- *                          remember);
+ *   - `same-user`:         the conversation's end user. A run that
+ *                          names none (`participantId`) isn't offered
+ *                          the tool: the user a credential acts for may
+ *                          serve many people;
  *   - `same-conversation`: this conversation;
  *   - `same-project`:      the run's project (a person approves each
  *                          one first);
