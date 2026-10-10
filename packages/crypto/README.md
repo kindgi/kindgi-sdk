@@ -123,7 +123,6 @@ const signed = await signer.sign(bytes); // the active key, or { keyId }
 
 - **Key ids are derived from the public key** (`exportSigningKey`), so the same key keeps its id.
 - **`listKeys()`** is every key a verifier should trust, active first.
-- **`exportSignerFromSigningKeyBinding`** adapts a `SigningKeyBinding`'s Ed25519 keys.
 - **Two algorithms, chosen per key:** `ed25519` (the default) and `ecdsa-p256-sha256`, for a KMS without Ed25519. An ECDSA signature is IEEE P1363 `r‖s`, 64 bytes. A KMS binding that gets DER back (Cloud KMS, AWS KMS) converts with `ecdsaDerToP1363`.
 - **Test vectors** for both are in `@kindgi/specs` (`test-vectors/signed-export/`).
 
