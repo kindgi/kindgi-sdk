@@ -61,8 +61,11 @@ export interface Authorizer {
   ) => Promise<T[]>;
   /**
    * The ids of every object of `type` the caller may `action`
-   * (`AuthzCheckBinding.listObjects`); `undefined` when the binding
-   * can't list, so the caller falls back to `filterByCan`.
+   * (`AuthzCheckBinding.listObjects`), within its API key's limits as
+   * `filterByCan` holds them: a key limited to a project lists no project
+   * but its own, and other types as a check decides them (it still reads
+   * the orgs its user reads); `undefined` when the binding can't list, so
+   * the caller falls back to `filterByCan`.
    */
   readonly listObjects?: (
     c: Context<AppEnv>,
@@ -199,7 +202,20 @@ export function createAuthorizer(binding: AuthzCheckBinding): Authorizer {
         typeof requestId === 'string' && requestId.length > 0
           ? { correlationId: requestId }
           : undefined;
-      return binding.listObjects(principal, action, type, ctx);
+      const ids = await binding.listObjects(principal, action, type, ctx);
+      // The key's own limits, as `filterByCan` holds them: the store lists
+      // what the user may do, and a key limited to a project lists no other
+      // project (other types as a check decides them).
+      const withinKey = await Promise.all(
+        ids.map(async (id) => {
+          const resource: ResourceRef = { type, id };
+          return (
+            keyCeilingDeny(c, action, resource) === undefined &&
+            (await inKeyProject(c, principal, resource))
+          );
+        }),
+      );
+      return ids.filter((_, i) => withinKey[i]);
     },
   };
 }
