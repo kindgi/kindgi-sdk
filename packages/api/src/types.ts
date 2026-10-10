@@ -89,6 +89,11 @@ export interface AppEnv {
      */
     principal?: Principal;
     /**
+     * Set when the app seals page cursors (`cursorSealer`): a list may then
+     * continue after a row it hid, since the cursor won't show it.
+     */
+    cursorsSealed?: boolean;
+    /**
      * Set when the request authenticated with a public run token
      * (`kgi_pt_…`): such a request may only read the runs in
      * `publicRunIds` and their descendants, on the progress routes.

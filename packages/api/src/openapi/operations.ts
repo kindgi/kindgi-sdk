@@ -126,7 +126,8 @@ const CursorQueryParam: ParameterSpec = {
   name: 'cursor',
   in: 'query',
   required: false,
-  description: 'Opaque cursor from a prior response. Absent → first page.',
+  description:
+    'Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page.',
   schema: { type: 'string' },
 };
 
