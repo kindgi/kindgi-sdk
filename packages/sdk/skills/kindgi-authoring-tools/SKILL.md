@@ -257,7 +257,18 @@ the agent-author to opt in.
 
 ## Testing a tool
 
-Put a tool's tests beside it, `tools/<tool>/index.test.ts`. Discovery skips `*.test.*` and `*.spec.*` files (`.ts`, `.js`, `.mjs`, `.cjs`), so the indexer never loads a test as a primitive: don't move tests elsewhere to keep them out. `invokeTool(tool, input, ctx)` from `@kindgi/sdk/define` calls the tool the way Kindgi does, schemas included, and returns a `Result`. `kindgi test` runs the pack's tests with vitest (`vitest run`; `--watch` keeps watching).
+Put a tool's tests beside it, `tools/<tool>/index.test.ts`. Discovery skips `*.test.*` and `*.spec.*` files (`.ts`, `.js`, `.mjs`, `.cjs`), so the indexer never loads a test as a primitive: don't move tests elsewhere to keep them out. `invokeTool(tool, input, ctx)` from `@kindgi/sdk/define` calls the tool the way Kindgi does, schemas included, and returns a `Result`. Its `ctx` needs a `tenantId` and an `abortSignal`; vitest doesn't typecheck, so a context missing them passes the test and fails `tsc`:
+
+```ts
+import { invokeTool } from '@kindgi/sdk/define';
+import type { TenantId } from '@kindgi/sdk/types';
+
+const ctx = { tenantId: 'test' as TenantId, abortSignal: new AbortController().signal };
+// add `env: { STORE_URL: '…' }` for a tool that reads a declared env value
+const result = await invokeTool(lookupOrder, { orderId: 'ord_1001' }, ctx);
+```
+
+`kindgi test` runs the pack's tests with vitest (`vitest run`; `--watch` keeps watching).
 
 ## Shared code
 
