@@ -1,16 +1,18 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { Hono } from 'hono';
+import { type Context, Hono } from 'hono';
 
 import type { Cursor, TenantId, Timestamp } from '@kindgi/types';
 
-import { type ResourceRef, ref } from '@kindgi/authz';
+import { type ResourceRef, denyPayload, ref } from '@kindgi/authz';
+import type { ProjectBinding } from '@kindgi/platform';
 import {
   COST_AGGREGATE_DEFAULT_LIMIT,
   COST_AGGREGATE_MAX_LIMIT,
   COST_GROUP_DIMENSIONS,
   type CostAggregateGroup,
+  type CostAggregateInput,
   type CostBinding,
   type CostGroupDimension,
   type CostRecord,
@@ -23,6 +25,7 @@ import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
 import { deniedBy } from './denied.js';
 import { clampLimit } from './pagination.js';
+import { projectIdsCallerMay } from './readable-projects.js';
 import { parseScopeParams, scopeResourceRef } from './scope-params.js';
 
 /**
@@ -45,10 +48,14 @@ import { parseScopeParams, scopeResourceRef } from './scope-params.js';
 export function costRouter(
   binding: CostBinding,
   /**
-   * With one (T243 A): a record needs `read` on its project (the tenant,
-   * for one with no project); an aggregate, on the scope it's asked for.
+   * With one: a record needs `read` on its project (the tenant, for one
+   * with no project); an aggregate, `read` on the scope it's asked for,
+   * and across projects (no scope, or an org) it counts only the projects
+   * the caller may read, unless the caller is a tenant admin.
    */
   authorizer?: Authorizer,
+  /** The tenant's projects, to check one by one when the authorizer can't list them. */
+  projects?: Pick<ProjectBinding, 'list'>,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   const recordRef = (tenantId: TenantId, rec: { readonly projectId?: unknown }): ResourceRef =>
@@ -278,6 +285,16 @@ export function costRouter(
     );
     if (refused !== undefined) return refused;
 
+    // Across projects, only what the caller may read counts (`aggregateReach`).
+    const reach = await aggregateReach(c, {
+      binding,
+      tenantId,
+      authorizer,
+      projects,
+      scope: scopeParsed.scope,
+    });
+    if (reach.kind === 'refused') return reach.response;
+
     const result = await binding.aggregate({
       tenantId,
       groupBy,
@@ -286,6 +303,7 @@ export function costRouter(
       ...(Object.keys(filter.value).length > 0 && { filter: filter.value }),
       ...(scopeParsed.scope !== undefined && { scope: scopeParsed.scope }),
       ...(scopeParsed.inherit !== undefined && { inherit: scopeParsed.inherit }),
+      ...(reach.kind === 'projects' && { readableProjectIds: reach.ids }),
       limit,
     });
 
@@ -313,6 +331,65 @@ export function costRouter(
 }
 
 // -------- helpers --------
+
+/**
+ * What an aggregate may count for this caller. Across projects (no scope,
+ * the tenant, or an org), `read` on the scope lets a member ask, not see
+ * every project's spend: only the projects they may read count, applied in
+ * the binding's query (`readableProjectIds`). A tenant admin's, a project
+ * scope's (already checked) and one without authorization count everything
+ * the scope holds. When the readable projects can't be worked out, or the
+ * binding can't apply them, the aggregate is refused rather than
+ * over-counted.
+ */
+async function aggregateReach(
+  c: Context<AppEnv>,
+  args: {
+    readonly binding: CostBinding;
+    readonly tenantId: TenantId;
+    readonly authorizer: Authorizer | undefined;
+    readonly projects: Pick<ProjectBinding, 'list'> | undefined;
+    readonly scope: CostAggregateInput['scope'] | undefined;
+  },
+): Promise<
+  | { readonly kind: 'all' }
+  | { readonly kind: 'projects'; readonly ids: readonly string[] }
+  | { readonly kind: 'refused'; readonly response: Response }
+> {
+  const { binding, tenantId, authorizer, projects, scope } = args;
+  if (authorizer === undefined || scope?.kind === 'project') return { kind: 'all' };
+  if (await authorizer.can(c, 'admin', ref('tenant', tenantId as unknown as string))) {
+    return { kind: 'all' };
+  }
+  const ids = await projectIdsCallerMay(c, authorizer, projects, 'read');
+  if (ids !== undefined && binding.aggregatesReadableProjects === true) {
+    return { kind: 'projects', ids };
+  }
+  const deny = denyPayload(
+    'read',
+    scope?.kind === 'org' ? 'org' : 'tenant',
+    scope?.kind === 'org' ? (scope.orgId as unknown as string) : (tenantId as unknown as string),
+    ids === undefined
+      ? "the projects you may read can't be listed here, so an aggregate across projects can't be limited to them; ask per project (scopeKind=project)"
+      : "this deployment's cost store can't limit an aggregate to the projects you may read; ask per project (scopeKind=project)",
+  );
+  c.status(403);
+  return {
+    kind: 'refused',
+    response: c.json(
+      toWireError(
+        {
+          code: deny.code,
+          message: `Permission denied: ${deny.reason}`,
+          action: deny.action,
+          resource: deny.resource,
+          reason: deny.reason,
+        },
+        c.get('requestId'),
+      ),
+    ),
+  };
+}
 
 function parseRecordFilter(
   query: Readonly<Record<string, string | undefined>>,
