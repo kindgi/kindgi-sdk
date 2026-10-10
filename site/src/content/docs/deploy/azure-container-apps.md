@@ -124,6 +124,12 @@ minutes 47 seconds. The database's admin password is write-only: Terraform
 sends a random one that nobody keeps, and it never reaches the state. You set
 the real one in step 3.
 
+The vault has purge protection on (`key_vault_purge_protection`, default
+`true`). Every secret the runtime stores is wrapped by the vault's key, so a
+deleted key, secret or vault stays recoverable for
+`key_vault_soft_delete_retention_days` (default 90), and nobody can purge it
+sooner, an owner included. Once on, purge protection can't be turned off.
+
 ### A new VNet, or yours
 
 - **A new VNet** (the default, `example.tfvars`): the module creates the VNet,
@@ -368,6 +374,16 @@ pnpm exec kindgi deploy --env dev --endpoint "$URL" --token "$KINDGI_API_TOKEN"
 
 The runtime read your pack's image from the registry with its own identity
 (`KINDGI_IMAGE_REGISTRY_AUTH=azure`) to check it before registering it.
+The module sets `KINDGI_IMAGE_REGISTRY_HOST` to the registry's login server.
+If you set it yourself, give the login server alone: `<name>.azurecr.io`, or
+`.azurecr.cn` / `.azurecr.us` in those clouds. The runtime exchanges its
+Entra token at `https://<host>/oauth2/exchange`, so the host decides where
+that token goes. Anything else, such as a scheme, a port or a path, stops the
+runtime at startup with exit code 2:
+
+```text
+KINDGI_IMAGE_REGISTRY_AUTH=azure signs in to an Azure Container Registry: KINDGI_IMAGE_REGISTRY_HOST must be its login server (<name>.azurecr.io, or .azurecr.cn / .azurecr.us in those clouds), with no scheme, port or path. Got "https://myregistry.azurecr.io".
+```
 
 ## 6. Check it
 
