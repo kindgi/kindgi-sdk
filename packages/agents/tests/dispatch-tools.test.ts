@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { defineTool } from '@kindgi/tools';
+import type { NodeContext } from '@kindgi/handler';
+import { defineTool, toolIdempotencyKey } from '@kindgi/tools';
 import type { AnyTool, ToolContext } from '@kindgi/tools';
 import type { RunId, TenantId, ToolId } from '@kindgi/types';
 import { describe, expect, test } from 'vitest';
@@ -20,6 +21,7 @@ async function contextSeen(
   input: Record<string, unknown>,
   args: Record<string, unknown> = { q: 'x' },
   records: Map<string, unknown> = new Map(),
+  step: Partial<NodeContext> = {},
 ): Promise<ToolContext | undefined> {
   let seen: ToolContext | undefined;
   const defined = defineTool<Record<string, unknown>, { ok: boolean }>({
@@ -86,7 +88,7 @@ async function contextSeen(
       provider: { id: 'p', model: 'm' },
       nextMessages: [],
     },
-    testNodeContext({ runId: 'run-42' as RunId }, records),
+    testNodeContext({ runId: 'run-42' as RunId, ...step }, records),
   );
   return seen;
 }
@@ -112,6 +114,39 @@ describe('dispatch-tools — the context a tool receives', () => {
     const seen = await contextSeen({ projectId: 'project-1' });
     expect(seen?.projectId).toBe('project-1');
     expect(seen).not.toHaveProperty('orgId');
+  });
+});
+
+describe("dispatch-tools — a call's idempotency key", () => {
+  const ITERATION_2 = 'agent-loop#2/dispatch-tools';
+
+  test("made from the run, the step's scope, the tool and the model's call id", async () => {
+    const seen = await contextSeen({ projectId: 'project-1' }, { q: 'x' }, new Map(), {
+      stepScope: ITERATION_2,
+    });
+    expect(seen?.idempotencyKey).toBe(
+      toolIdempotencyKey({
+        runId: 'run-42',
+        stepScope: ITERATION_2,
+        toolId: 'pack.probe',
+        callId: 'call-7',
+      }),
+    );
+  });
+
+  test('the same when the step runs again; another loop iteration with the same call id gets another', async () => {
+    const at = (stepScope: string) =>
+      contextSeen({ projectId: 'project-1' }, { q: 'x' }, new Map(), { stepScope });
+    const first = await at(ITERATION_2);
+    const again = await at(ITERATION_2);
+    const next = await at('agent-loop#3/dispatch-tools');
+    expect(again?.idempotencyKey).toBe(first?.idempotencyKey);
+    expect(next?.idempotencyKey).not.toBe(first?.idempotencyKey);
+  });
+
+  test("a host that doesn't name its steps: no key", async () => {
+    const seen = await contextSeen({ projectId: 'project-1' });
+    expect(seen).not.toHaveProperty('idempotencyKey');
   });
 });
 

@@ -1057,6 +1057,8 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
         const ctx = {
           ...CTX,
           requestId: 'req-1',
+          // Pack protocol 2.6.0: the call's idempotency key, as the runtime sends it.
+          idempotencyKey: '0d6f4c1a-9a43-5b1e-8f1d-2b7e6c3d9a10',
           projectId: 'project-1',
           orgId: 'org-1',
           env: { REGION: 'eu' },
@@ -1077,6 +1079,13 @@ export function describePackServiceConformance(target: PackServiceTarget): void 
         );
         expect(answer.output).toMatchObject({ projectId: 'project-1' });
         expect(answer.output).not.toHaveProperty('orgId');
+      });
+
+      test('a call from a runtime that sends no idempotency key: the handler gets none', async () => {
+        const answer = response(
+          await invoke(service, toolCall('conformance.context', {}, { ctx: CTX })),
+        );
+        expect(answer.output).not.toHaveProperty('idempotencyKey');
       });
 
       test("pack code doesn't see the service token", async () => {
@@ -1277,11 +1286,13 @@ export function describeCallContextCompatibility(target: PackServiceTarget): voi
       if (workDir !== '') await rm(workDir, { recursive: true, force: true });
     });
 
-    test('a tool call whose context has the project and org: answered', async () => {
+    test('a tool call whose context has the project, the org and an idempotency key: answered', async () => {
       if (service === undefined) throw new Error('the service did not start');
+      // The idempotency key is pack protocol 2.6.0: an older service ignores it.
+      const ctx = { ...newer, idempotencyKey: '0d6f4c1a-9a43-5b1e-8f1d-2b7e6c3d9a10' };
       const answer = await invoke(
         service,
-        toolCall('conformance.echo', { message: 'hi' }, { ctx: newer }),
+        toolCall('conformance.echo', { message: 'hi' }, { ctx }),
       );
       expect(answer.status).toBe(200);
       expectValid(spec.response, answer.json);
