@@ -55,7 +55,7 @@ were checked. They are:
 | --- | --- | --- |
 | `anthropic` | Claude on the Anthropic API | `ANTHROPIC_API_KEY` |
 | `azure-openai` | GPT on your Azure OpenAI deployments (`--resource-name=<resource> --deployments=<model=deployment,…>`); to sign in as the runtime's Entra identity instead, register with a spec | `AZURE_OPENAI_API_KEY` |
-| `bedrock` | Claude, Nova and GPT on Amazon Bedrock, as the runtime's AWS identity (`--region=<a US region>`; the runtime needs `KINDGI_AWS_IDENTITY`) | none |
+| `bedrock` | Nova, Claude and GPT on Amazon Bedrock, as the runtime's AWS identity (`--region=<a US region>`; the runtime needs `KINDGI_AWS_IDENTITY`; Claude and GPT need your account's access to them) | none |
 | `gemini-api` | Gemini on the Gemini Developer API, with an API key from Google AI Studio | `GEMINI_API_KEY` |
 | `gemini` | Gemini on Vertex AI, with Google Application Default Credentials (`--project=<gcp-project>`; in `kindgi dev`, set `KINDGI_DEV_GOOGLE_CREDENTIALS=adc`) | none |
 | `groq` | Open-weight models on Groq's fast inference | `GROQ_API_KEY` |
@@ -67,27 +67,30 @@ prices. `pricesCheckedAt` is when the prices were last compared with the
 vendor's. `--max-output-tokens=<n>` registers the models with another output
 limit.
 
-### Claude on Amazon Bedrock
+### Claude and GPT on Amazon Bedrock
 
 The `bedrock` preset's default model is Amazon Nova Pro
-(`us.amazon.nova-pro-v1:0`), Amazon's own. Its Claude models are one setting
-away:
+(`us.amazon.nova-pro-v1:0`), Amazon's own. Its Claude and GPT models are one
+setting away:
 
 ```sh
 kindgi providers register --preset=bedrock --region=us-east-2 \
   --models=us.anthropic.claude-haiku-4-5-20251001-v1:0
 ```
 
-- **Claude Haiku 4.5** (`us.anthropic.claude-haiku-4-5-20251001-v1:0`):
-  checked live on Bedrock with tool calls, and with a turn paused and resumed
-  with its reasoning carried.
+- **Claude Haiku 4.5** (`us.anthropic.claude-haiku-4-5-20251001-v1:0`): works
+  with tool calls, and with a turn paused and resumed with its reasoning
+  carried.
 - **Claude Sonnet 5.5** (`us.anthropic.claude-sonnet-5-5`): once your AWS
   account has access to Anthropic's 5.5 models.
+- **GPT-6.1 Sol and GPT-6 Luna** (`us.openai.gpt-6.1-sol`,
+  `us.openai.gpt-6-luna`): once your AWS account has access to OpenAI's models
+  on Bedrock.
 
-Claude on Bedrock needs your AWS account's access to Anthropic's models. A new
-account may be asked for Anthropic's one-time use-case form in the Bedrock
-console, or answered that the model "is not available for this account" and
-to contact AWS, which takes a support case. AWS's guide:
+Claude and GPT on Bedrock need your AWS account's access to their vendor's
+models. A new account may be asked for Anthropic's one-time use-case form in
+the Bedrock console, or answered that the model "is not available for this
+account" and to contact AWS, which takes a support case. AWS's guide:
 [Request access to models](https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html).
 
 ## A provider spec
