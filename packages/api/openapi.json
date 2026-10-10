@@ -18543,6 +18543,65 @@
             },
             "required": false,
             "description": "Comma-separated extras per run. `output` adds each run's output."
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Only runs in these statuses: one, or several comma-separated, e.g. `failed,cancelled` or `pending,running,suspended`."
+          },
+          {
+            "name": "createdAfter",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "description": "Only runs created strictly after this time."
+          },
+          {
+            "name": "createdBefore",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "description": "Only runs created strictly before this time."
+          },
+          {
+            "name": "agentVersion",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "With `agentId`: only the turns that ran this version. Turns from before versions were recorded never match."
+          },
+          {
+            "name": "flowId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Only runs of this flow. An agent's turns run `agent.turn`; use `agentId` for an agent's."
+          },
+          {
+            "name": "flowVersion",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "With `flowId`: only runs of this version."
           }
         ],
         "security": [

@@ -234,6 +234,18 @@ export interface ListRunsFilter {
   readonly evalRunId?: string;
   /** Only the runs this trigger started. */
   readonly triggerId?: string;
+  /** Only runs in this status, or in any of these (e.g. `['failed', 'cancelled']`). */
+  readonly status?: RunStatus | readonly RunStatus[];
+  /** Only runs created strictly after this time. */
+  readonly createdAfter?: Timestamp | string;
+  /** Only runs created strictly before this time. */
+  readonly createdBefore?: Timestamp | string;
+  /** With `agentId`: only the turns that ran this version. */
+  readonly agentVersion?: string;
+  /** Only runs of this flow (an agent's turns run `agent.turn`; use `agentId` for an agent's). */
+  readonly flowId?: FlowId | string;
+  /** With `flowId`: only runs of this version. */
+  readonly flowVersion?: string;
   /** Include each run's `output` (omitted from lists by default). */
   readonly includeOutput?: boolean;
 }
@@ -573,6 +585,18 @@ export function makeRunsClient(transport: Transport): RunsClient {
           ...(filter?.replays !== undefined && { replays: filter.replays }),
           ...(filter?.evalRunId !== undefined && { evalRunId: filter.evalRunId }),
           ...(filter?.triggerId !== undefined && { triggerId: filter.triggerId }),
+          ...(filter?.status !== undefined && {
+            status: (typeof filter.status === 'string' ? [filter.status] : filter.status).join(','),
+          }),
+          ...(filter?.createdAfter !== undefined && {
+            createdAfter: filter.createdAfter as unknown as string,
+          }),
+          ...(filter?.createdBefore !== undefined && {
+            createdBefore: filter.createdBefore as unknown as string,
+          }),
+          ...(filter?.agentVersion !== undefined && { agentVersion: filter.agentVersion }),
+          ...(filter?.flowId !== undefined && { flowId: filter.flowId as string }),
+          ...(filter?.flowVersion !== undefined && { flowVersion: filter.flowVersion }),
           ...(filter?.includeOutput === true && { include: 'output' }),
         },
       });

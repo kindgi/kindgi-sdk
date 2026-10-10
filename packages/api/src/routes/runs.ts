@@ -4,7 +4,7 @@
 import { Hono } from 'hono';
 
 import type { AgentId } from '@kindgi/agents';
-import type { KernelRunRecord, ListRunsInput, RunBinding } from '@kindgi/runtime';
+import type { KernelRunRecord, ListRunsInput, RunBinding, RunStatus } from '@kindgi/runtime';
 import type {
   FlowId,
   ListScope,
@@ -13,6 +13,7 @@ import type {
   ScopeSegment,
   Semver,
   TenantId,
+  Timestamp,
   TriggerId,
 } from '@kindgi/types';
 
@@ -837,6 +838,12 @@ function listRunsInput(input: {
     replays: filter.replays,
     ...(filter.evalRunId !== undefined && { evalRunId: filter.evalRunId }),
     ...(filter.triggerId !== undefined && { triggerId: filter.triggerId }),
+    ...(filter.statuses !== undefined && { statuses: filter.statuses }),
+    ...(filter.createdAfter !== undefined && { createdAfter: filter.createdAfter }),
+    ...(filter.createdBefore !== undefined && { createdBefore: filter.createdBefore }),
+    ...(filter.agentVersion !== undefined && { agentVersion: filter.agentVersion }),
+    ...(filter.flowId !== undefined && { flowId: filter.flowId }),
+    ...(filter.flowVersion !== undefined && { flowVersion: filter.flowVersion }),
   };
 }
 
@@ -847,14 +854,117 @@ interface RunListFilter {
   readonly replays: 'exclude' | 'include' | 'only';
   readonly evalRunId?: string;
   readonly triggerId?: TriggerId;
+  readonly statuses?: readonly RunStatus[];
+  readonly createdAfter?: Timestamp;
+  readonly createdBefore?: Timestamp;
+  readonly agentVersion?: string;
+  readonly flowId?: string;
+  readonly flowVersion?: string;
   readonly includeOutput: boolean;
+}
+
+/** Every run status: a `Record` over the type, so a new status fails the build here. */
+const RUN_STATUSES: Readonly<Record<RunStatus, true>> = {
+  pending: true,
+  running: true,
+  suspended: true,
+  completed: true,
+  failed: true,
+  cancelled: true,
+};
+
+type Parsed<T> = { kind: 'ok'; value: T } | { kind: 'err'; message: string };
+
+/** `?status=`: one status or a comma list of them, de-duplicated. */
+function parseStatuses(raw: string | undefined): Parsed<RunStatus[] | undefined> {
+  if (raw === undefined) return { kind: 'ok', value: undefined };
+  const given = raw.split(',').map((s) => s.trim());
+  const unknown = given.filter((s) => !Object.hasOwn(RUN_STATUSES, s));
+  if (unknown.length > 0) {
+    const named = unknown.join(', ') || '(empty)';
+    return {
+      kind: 'err',
+      message: `Unknown \`status\` value(s): ${named}. Expected one or more of: ${Object.keys(RUN_STATUSES).join(', ')}`,
+    };
+  }
+  return { kind: 'ok', value: [...new Set(given as RunStatus[])] };
+}
+
+/** `?createdAfter=` / `?createdBefore=`: strict bounds, as ISO times, after before before. */
+function parseCreatedBounds(
+  createdAfter: string | undefined,
+  createdBefore: string | undefined,
+): Parsed<{ readonly createdAfter?: Timestamp; readonly createdBefore?: Timestamp }> {
+  const iso = (raw: string | undefined) =>
+    raw === undefined || Number.isNaN(Date.parse(raw))
+      ? undefined
+      : (new Date(Date.parse(raw)).toISOString() as Timestamp);
+  const after = iso(createdAfter);
+  const before = iso(createdBefore);
+  if (createdAfter !== undefined && after === undefined) {
+    return { kind: 'err', message: '`createdAfter` must be a date-time' };
+  }
+  if (createdBefore !== undefined && before === undefined) {
+    return { kind: 'err', message: '`createdBefore` must be a date-time' };
+  }
+  if (after !== undefined && before !== undefined && after >= before) {
+    return { kind: 'err', message: '`createdAfter` must be earlier than `createdBefore`' };
+  }
+  return {
+    kind: 'ok',
+    value: {
+      ...(after !== undefined && { createdAfter: after }),
+      ...(before !== undefined && { createdBefore: before }),
+    },
+  };
+}
+
+/** The narrowing filters: `status`, the creation bounds, the agent's version, and the flow with its version. */
+function parseRunNarrowing(
+  query: Readonly<Record<string, string>>,
+): Parsed<
+  Pick<
+    RunListFilter,
+    'statuses' | 'createdAfter' | 'createdBefore' | 'agentVersion' | 'flowId' | 'flowVersion'
+  >
+> {
+  const { agentId, agentVersion, flowId, flowVersion } = query;
+  const statuses = parseStatuses(query.status);
+  if (statuses.kind === 'err') return statuses;
+  const bounds = parseCreatedBounds(query.createdAfter, query.createdBefore);
+  if (bounds.kind === 'err') return bounds;
+  const empty = (
+    [
+      ['agentVersion', agentVersion],
+      ['flowId', flowId],
+      ['flowVersion', flowVersion],
+    ] as const
+  ).find(([, value]) => value !== undefined && value.trim() === '');
+  if (empty !== undefined) return { kind: 'err', message: `\`${empty[0]}\` must not be empty` };
+  if (agentVersion !== undefined && agentId === undefined) {
+    return { kind: 'err', message: '`agentVersion` needs `agentId`' };
+  }
+  if (flowVersion !== undefined && flowId === undefined) {
+    return { kind: 'err', message: '`flowVersion` needs `flowId`' };
+  }
+  return {
+    kind: 'ok',
+    value: {
+      ...(statuses.value !== undefined && { statuses: statuses.value }),
+      ...bounds.value,
+      ...(agentVersion !== undefined && { agentVersion }),
+      ...(flowId !== undefined && { flowId }),
+      ...(flowVersion !== undefined && { flowVersion }),
+    },
+  };
 }
 
 /**
  * `?parentRunId=` (children of a run), `?topLevel=true`, `?agentId=` (an
  * agent's turns), `?replays=exclude|include|only` (default `exclude`),
  * `?evalRunId=` (one eval run's replays; implies they are included),
- * `?triggerId=` (the runs a trigger started), `?include=output`.
+ * `?triggerId=` (the runs a trigger started), `?include=output`, and the
+ * narrowing in `parseRunNarrowing`.
  */
 function parseRunListFilter(
   query: Readonly<Record<string, string>>,
@@ -895,9 +1005,12 @@ function parseRunListFilter(
   if (unknown.length > 0) {
     return { kind: 'err', message: `Unknown \`include\` value(s): ${unknown.join(', ')}` };
   }
+  const narrowing = parseRunNarrowing(query);
+  if (narrowing.kind === 'err') return narrowing;
   return {
     kind: 'ok',
     value: {
+      ...narrowing.value,
       ...(parentRunId !== undefined && { parentRunId: parentRunId as RunId }),
       topLevelOnly,
       ...(agentId !== undefined && { agentId }),

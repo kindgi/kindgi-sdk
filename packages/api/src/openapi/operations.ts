@@ -198,6 +198,57 @@ const RunTriggerIdQueryParam: ParameterSpec = {
   schema: { type: 'string', format: 'uuid' },
 };
 
+const RunStatusQueryParam: ParameterSpec = {
+  name: 'status',
+  in: 'query',
+  required: false,
+  description:
+    'Only runs in these statuses: one, or several comma-separated, e.g. `failed,cancelled` or `pending,running,suspended`.',
+  schema: { type: 'string' },
+};
+
+const RunCreatedAfterQueryParam: ParameterSpec = {
+  name: 'createdAfter',
+  in: 'query',
+  required: false,
+  description: 'Only runs created strictly after this time.',
+  schema: { type: 'string', format: 'date-time' },
+};
+
+const RunCreatedBeforeQueryParam: ParameterSpec = {
+  name: 'createdBefore',
+  in: 'query',
+  required: false,
+  description: 'Only runs created strictly before this time.',
+  schema: { type: 'string', format: 'date-time' },
+};
+
+const RunAgentVersionQueryParam: ParameterSpec = {
+  name: 'agentVersion',
+  in: 'query',
+  required: false,
+  description:
+    'With `agentId`: only the turns that ran this version. Turns from before versions were recorded never match.',
+  schema: { type: 'string', minLength: 1 },
+};
+
+const RunFlowIdQueryParam: ParameterSpec = {
+  name: 'flowId',
+  in: 'query',
+  required: false,
+  description:
+    "Only runs of this flow. An agent's turns run `agent.turn`; use `agentId` for an agent's.",
+  schema: { type: 'string', minLength: 1 },
+};
+
+const RunFlowVersionQueryParam: ParameterSpec = {
+  name: 'flowVersion',
+  in: 'query',
+  required: false,
+  description: 'With `flowId`: only runs of this version.',
+  schema: { type: 'string', minLength: 1 },
+};
+
 const LiveProjectQueryParam: ParameterSpec = {
   name: 'projectId',
   in: 'query',
@@ -1328,6 +1379,12 @@ export const OPERATIONS: readonly OperationSpec[] = [
       RunEvalRunIdQueryParam,
       RunTriggerIdQueryParam,
       RunIncludeQueryParam,
+      RunStatusQueryParam,
+      RunCreatedAfterQueryParam,
+      RunCreatedBeforeQueryParam,
+      RunAgentVersionQueryParam,
+      RunFlowIdQueryParam,
+      RunFlowVersionQueryParam,
     ],
     responses: {
       '200': { description: 'Page of runs.', schema: ref('RunCollectionPage') },
