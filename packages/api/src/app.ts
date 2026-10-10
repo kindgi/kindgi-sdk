@@ -46,6 +46,7 @@ import type { IdentityDirectoryBinding } from './identity-directory-binding.js';
 import type { IdentityProviderBinding } from './identity-provider-binding.js';
 import type { ImageRegistryBinding } from './image-registry-binding.js';
 import type { ImprovementPassBinding } from './improvement-pass-binding.js';
+import type { JudgingQueueBinding } from './judging-queue-binding.js';
 import type { JudgmentRegistryBinding } from './judgment-binding.js';
 import type { AgentReleaseBindings } from './live-version-binding.js';
 import type { MCPClientProbeBinding, MCPEndpointRegistryBinding } from './mcp-endpoint-binding.js';
@@ -112,6 +113,7 @@ import { guardrailsRouter } from './routes/guardrails.js';
 import { identityRouter } from './routes/identity.js';
 import { improvementPassesRouter, mountImproveRoute } from './routes/improvement-passes.js';
 import { judgedSuitesRouter } from './routes/judged-suites.js';
+import { judgingRouter } from './routes/judging.js';
 import { judgeClassesRouter, judgmentsRouter } from './routes/judgments.js';
 import { mcpRouter } from './routes/mcp.js';
 import { memoryErasuresRouter } from './routes/memory-erasures.js';
@@ -696,6 +698,13 @@ export interface CreateAppInput {
    * Caller-plugged: the API package doesn't own their storage.
    */
   readonly judgmentRegistry?: JudgmentRegistryBinding;
+  /**
+   * Optional. A project's judging rules and the queue they fill, under
+   * `/v1/projects/:projectId/judging-rules` and `…/judging-queue`: which
+   * runs need a person's judgment. Without it, those routes aren't
+   * mounted.
+   */
+  readonly judgingQueue?: JudgingQueueBinding;
   /**
    * Optional. With `evalSuiteRegistry` and `judgmentRegistry`, mounts test
    * sets built from judgments: `POST /v1/eval-suites/:suiteId/versions/from-judgments`
@@ -1432,6 +1441,17 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ),
     );
     v1.route('/judge-classes', judgeClassesRouter(input.judgmentRegistry, authorizer));
+  }
+  if (input.judgingQueue !== undefined) {
+    v1.route(
+      '/projects',
+      judgingRouter(input.judgingQueue, {
+        ...(authorizer !== undefined && { authorizer }),
+        ...(input.judgmentRegistry !== undefined && { judgments: input.judgmentRegistry }),
+        ...(input.reviewerBinding !== undefined && { reviewers: input.reviewerBinding }),
+        ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
+      }),
+    );
   }
   if (
     input.evalSuiteRegistry !== undefined &&

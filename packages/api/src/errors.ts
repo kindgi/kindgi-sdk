@@ -206,6 +206,12 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // Judgments (yes/no on a run's output items) and judge classes.
   'judgment-not-found': 404,
   'judge-class-not-found': 404,
+  /** A judging rule that isn't in the project (`/v1/projects/:projectId/judging-rules/:ruleId`). */
+  'judging-rule-not-found': 404,
+  /** A run that isn't in the project's judging queue. */
+  'judging-item-not-found': 404,
+  /** Dismissing a queued run that isn't open, or reopening one that wasn't dismissed. */
+  'judging-item-not-open': 409,
   'judge-class-name-taken': 409,
   'judge-class-not-applicable': 400,
   // The judge class is restricted (`assertableBy`), and the caller isn't one who may assert it.

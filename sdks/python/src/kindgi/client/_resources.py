@@ -675,6 +675,75 @@ OPERATIONS: dict[str, Operation] = {
     "projects.delete": Operation(
         "projects.delete", "DELETE", "/v1/projects/{projectId}", "empty", True
     ),
+    "projects.judgingRules.list": Operation(
+        "projects.judgingRules.list", "GET", "/v1/projects/{projectId}/judging-rules", "json", False
+    ),
+    "projects.judgingRules.create": Operation(
+        "projects.judgingRules.create",
+        "POST",
+        "/v1/projects/{projectId}/judging-rules",
+        "json",
+        True,
+    ),
+    "projects.judgingRules.preview": Operation(
+        "projects.judgingRules.preview",
+        "GET",
+        "/v1/projects/{projectId}/judging-rules/preview",
+        "json",
+        False,
+    ),
+    "projects.judgingRules.get": Operation(
+        "projects.judgingRules.get",
+        "GET",
+        "/v1/projects/{projectId}/judging-rules/{ruleId}",
+        "json",
+        False,
+    ),
+    "projects.judgingRules.update": Operation(
+        "projects.judgingRules.update",
+        "PATCH",
+        "/v1/projects/{projectId}/judging-rules/{ruleId}",
+        "json",
+        False,
+    ),
+    "projects.judgingRules.unregister": Operation(
+        "projects.judgingRules.unregister",
+        "POST",
+        "/v1/projects/{projectId}/judging-rules/{ruleId}/unregister",
+        "json",
+        False,
+    ),
+    "projects.judgingRules.versions": Operation(
+        "projects.judgingRules.versions",
+        "GET",
+        "/v1/projects/{projectId}/judging-rules/{ruleId}/versions",
+        "json",
+        False,
+    ),
+    "projects.judgingRules.results": Operation(
+        "projects.judgingRules.results",
+        "GET",
+        "/v1/projects/{projectId}/judging-rules/{ruleId}/results",
+        "json",
+        False,
+    ),
+    "projects.judgingQueue.list": Operation(
+        "projects.judgingQueue.list", "GET", "/v1/projects/{projectId}/judging-queue", "json", False
+    ),
+    "projects.judgingQueue.dismiss": Operation(
+        "projects.judgingQueue.dismiss",
+        "POST",
+        "/v1/projects/{projectId}/judging-queue/{runId}/dismiss",
+        "json",
+        False,
+    ),
+    "projects.judgingQueue.reopen": Operation(
+        "projects.judgingQueue.reopen",
+        "POST",
+        "/v1/projects/{projectId}/judging-queue/{runId}/reopen",
+        "json",
+        False,
+    ),
     "projects.memberships.list": Operation(
         "projects.memberships.list", "GET", "/v1/projects/{projectId}/memberships", "json", False
     ),
@@ -6263,6 +6332,283 @@ class TeamsResource:
         )
 
 
+class ProjectsJudgingRulesResource:
+    """`client.projects.judging_rules` — the `projects.judgingRules` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        project_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.JudgingRulePage:
+        """List a project's judging rules. `GET /v1/projects/{projectId}/judging-rules`
+
+        The live rules (their latest versions), oldest first. A rule says which of the project's runs to queue for a person's judgment when they end. Needs `read` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.judgingRules.list"],
+            path={"projectId": project_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.JudgingRulePage,
+            timeout=timeout,
+        )
+
+    def create(
+        self,
+        project_id: str | UUID,
+        body: _models.JudgingRuleSpec | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JudgingRule:
+        """Create a judging rule. `POST /v1/projects/{projectId}/judging-rules`
+
+        Version 1 of a rule. From then on, a top-level run of the project that matches `when` as it ends (and falls in `sample`, while the rule has fewer than `maxOpen` open items) is queued for a person's judgment; replays never are. A rule only lists runs: it never starts a model. Needs `write` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.judgingRules.create"],
+            path={"projectId": project_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.JudgingRuleSpec, body, fields),
+            response=_models.JudgingRule,
+            timeout=timeout,
+        )
+
+    def preview(
+        self,
+        project_id: str | UUID,
+        /,
+        *,
+        agent_ids: str | None = None,
+        flow_ids: str | None = None,
+        versions: str | None = None,
+        status: str | None = None,
+        include_dry_runs: bool | None = None,
+        sample: float | None = None,
+        last: int | None = None,
+        rule_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.JudgingRulePreview:
+        """What a rule would have queued. `GET /v1/projects/{projectId}/judging-rules/preview`
+
+        Among the project's last `last` top-level runs (not replays), how many a rule with these fields (and its `sample`) would have queued. The rule editor's "would have added N of the last 100". Lists are comma-separated. Needs `read` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.judgingRules.preview"],
+            path={"projectId": project_id},
+            query={
+                "agentIds": agent_ids,
+                "flowIds": flow_ids,
+                "versions": versions,
+                "status": status,
+                "includeDryRuns": include_dry_runs,
+                "sample": sample,
+                "last": last,
+                "ruleId": rule_id,
+            },
+            headers={},
+            response=_models.JudgingRulePreview,
+            timeout=timeout,
+        )
+
+    def get(
+        self, project_id: str | UUID, rule_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.JudgingRule:
+        """Fetch a judging rule. `GET /v1/projects/{projectId}/judging-rules/{ruleId}`
+
+        Its latest version. Needs `read` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.judgingRules.get"],
+            path={"projectId": project_id, "ruleId": rule_id},
+            query={},
+            headers={},
+            response=_models.JudgingRule,
+            timeout=timeout,
+        )
+
+    def update(
+        self,
+        project_id: str | UUID,
+        rule_id: str | UUID,
+        body: _models.JudgingRulePatch | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JudgingRule:
+        """Change a judging rule. `PATCH /v1/projects/{projectId}/judging-rules/{ruleId}`
+
+        A new version with these fields changed (`when` is replaced whole). Earlier versions are kept: `…/versions` shows who changed what, when. Needs `write` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.judgingRules.update"],
+            path={"projectId": project_id, "ruleId": rule_id},
+            query={},
+            headers={},
+            body=_body(_models.JudgingRulePatch, body, fields),
+            response=_models.JudgingRule,
+            timeout=timeout,
+        )
+
+    def unregister(
+        self, project_id: str | UUID, rule_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.JudgingRuleUnregisterResult:
+        """Stop a judging rule. `POST /v1/projects/{projectId}/judging-rules/{ruleId}/unregister`
+
+        It queues nothing more; its versions and the items it queued stay. `unregistered: false` when it was already stopped. Needs `write` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.judgingRules.unregister"],
+            path={"projectId": project_id, "ruleId": rule_id},
+            query={},
+            headers={},
+            response=_models.JudgingRuleUnregisterResult,
+            timeout=timeout,
+        )
+
+    def versions(
+        self,
+        project_id: str | UUID,
+        rule_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.JudgingRulePage:
+        """A judging rule's versions. `GET /v1/projects/{projectId}/judging-rules/{ruleId}/versions`
+
+        Every version, newest first: who wrote it, when, and what it said. Needs `read` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.judgingRules.versions"],
+            path={"projectId": project_id, "ruleId": rule_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.JudgingRulePage,
+            timeout=timeout,
+        )
+
+    def results(
+        self,
+        project_id: str | UUID,
+        rule_id: str | UUID,
+        /,
+        *,
+        since: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.JudgingRuleResults:
+        """A judging rule's results. `GET /v1/projects/{projectId}/judging-rules/{ruleId}/results`
+
+        By the rule's version and the agent's: the runs it queued (open, judged, dismissed, erased), the ones its `maxOpen` skipped, and the live judgments on them, with their class-weighted `yes` share and a count by class. Never pooled with another rule's, or across a rule's versions: each is a sample of its own `when`. Needs `read` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.judgingRules.results"],
+            path={"projectId": project_id, "ruleId": rule_id},
+            query={"since": since},
+            headers={},
+            response=_models.JudgingRuleResults,
+            timeout=timeout,
+        )
+
+
+class ProjectsJudgingQueueResource:
+    """`client.projects.judging_queue` — the `projects.judgingQueue` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        project_id: str | UUID,
+        /,
+        *,
+        state: Literal["open", "judged", "dismissed", "erased"] | None = None,
+        agent_id: str | UUID | None = None,
+        rule_id: str | UUID | None = None,
+        judge_class_id: str | UUID | None = None,
+        for_me: bool | None = None,
+        added_after: str | None = None,
+        closed_after: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.JudgingQueuePage:
+        """The project's judging queue. `GET /v1/projects/{projectId}/judging-queue`
+
+        Queued runs, oldest first: never a run's content, only what it was, which rules queued it, whose judgment they want and the judgments so far, and what the caller may do with it (`can`). An item closes as `judged` once every rule that queued it has the judgment it wants. `forMe=true`: the items any judgment closes, or that want a class the caller may assert. `limit=0` answers only the `total`. Needs `read` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.judgingQueue.list"],
+            path={"projectId": project_id},
+            query={
+                "state": state,
+                "agentId": agent_id,
+                "ruleId": rule_id,
+                "judgeClassId": judge_class_id,
+                "forMe": for_me,
+                "addedAfter": added_after,
+                "closedAfter": closed_after,
+                "limit": limit,
+                "cursor": cursor,
+            },
+            headers={},
+            response=_models.JudgingQueuePage,
+            timeout=timeout,
+        )
+
+    def dismiss(
+        self,
+        project_id: str | UUID,
+        run_id: str | UUID,
+        body: _models.JudgingDismissBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JudgingQueueItem:
+        """Dismiss a queued run. `POST /v1/projects/{projectId}/judging-queue/{runId}/dismiss`
+
+        Not worth judging: it leaves the open queue, with who dismissed it and why. `reopen` undoes it. Needs `write` on the project, as judging the run does.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.judgingQueue.dismiss"],
+            path={"projectId": project_id, "runId": run_id},
+            query={},
+            headers={},
+            body=_body(_models.JudgingDismissBody, body, fields),
+            response=_models.JudgingQueueItem,
+            timeout=timeout,
+        )
+
+    def reopen(
+        self, project_id: str | UUID, run_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.JudgingQueueItem:
+        """Reopen a dismissed run. `POST /v1/projects/{projectId}/judging-queue/{runId}/reopen`
+
+        Back in the open queue. Only a dismissed item reopens: a judged one was closed by its judgments. Needs `write` on the project.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.judgingQueue.reopen"],
+            path={"projectId": project_id, "runId": run_id},
+            query={},
+            headers={},
+            response=_models.JudgingQueueItem,
+            timeout=timeout,
+        )
+
+
 class ProjectsMembershipsResource:
     """`client.projects.memberships` — the `projects.memberships` operations."""
 
@@ -6360,6 +6706,8 @@ class ProjectsResource:
 
     def __init__(self, client: SyncClientBase) -> None:
         self._client = client
+        self.judging_rules = ProjectsJudgingRulesResource(client)
+        self.judging_queue = ProjectsJudgingQueueResource(client)
         self.memberships = ProjectsMembershipsResource(client)
 
     def get_default(self, /, *, timeout: float | None = None) -> _models.Project:
@@ -12794,6 +13142,283 @@ class AsyncTeamsResource:
         )
 
 
+class AsyncProjectsJudgingRulesResource:
+    """`client.projects.judging_rules` — the `projects.judgingRules` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        project_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.JudgingRulePage:
+        """List a project's judging rules. `GET /v1/projects/{projectId}/judging-rules`
+
+        The live rules (their latest versions), oldest first. A rule says which of the project's runs to queue for a person's judgment when they end. Needs `read` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.judgingRules.list"],
+            path={"projectId": project_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.JudgingRulePage,
+            timeout=timeout,
+        )
+
+    async def create(
+        self,
+        project_id: str | UUID,
+        body: _models.JudgingRuleSpec | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JudgingRule:
+        """Create a judging rule. `POST /v1/projects/{projectId}/judging-rules`
+
+        Version 1 of a rule. From then on, a top-level run of the project that matches `when` as it ends (and falls in `sample`, while the rule has fewer than `maxOpen` open items) is queued for a person's judgment; replays never are. A rule only lists runs: it never starts a model. Needs `write` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.judgingRules.create"],
+            path={"projectId": project_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.JudgingRuleSpec, body, fields),
+            response=_models.JudgingRule,
+            timeout=timeout,
+        )
+
+    async def preview(
+        self,
+        project_id: str | UUID,
+        /,
+        *,
+        agent_ids: str | None = None,
+        flow_ids: str | None = None,
+        versions: str | None = None,
+        status: str | None = None,
+        include_dry_runs: bool | None = None,
+        sample: float | None = None,
+        last: int | None = None,
+        rule_id: str | UUID | None = None,
+        timeout: float | None = None,
+    ) -> _models.JudgingRulePreview:
+        """What a rule would have queued. `GET /v1/projects/{projectId}/judging-rules/preview`
+
+        Among the project's last `last` top-level runs (not replays), how many a rule with these fields (and its `sample`) would have queued. The rule editor's "would have added N of the last 100". Lists are comma-separated. Needs `read` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.judgingRules.preview"],
+            path={"projectId": project_id},
+            query={
+                "agentIds": agent_ids,
+                "flowIds": flow_ids,
+                "versions": versions,
+                "status": status,
+                "includeDryRuns": include_dry_runs,
+                "sample": sample,
+                "last": last,
+                "ruleId": rule_id,
+            },
+            headers={},
+            response=_models.JudgingRulePreview,
+            timeout=timeout,
+        )
+
+    async def get(
+        self, project_id: str | UUID, rule_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.JudgingRule:
+        """Fetch a judging rule. `GET /v1/projects/{projectId}/judging-rules/{ruleId}`
+
+        Its latest version. Needs `read` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.judgingRules.get"],
+            path={"projectId": project_id, "ruleId": rule_id},
+            query={},
+            headers={},
+            response=_models.JudgingRule,
+            timeout=timeout,
+        )
+
+    async def update(
+        self,
+        project_id: str | UUID,
+        rule_id: str | UUID,
+        body: _models.JudgingRulePatch | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JudgingRule:
+        """Change a judging rule. `PATCH /v1/projects/{projectId}/judging-rules/{ruleId}`
+
+        A new version with these fields changed (`when` is replaced whole). Earlier versions are kept: `…/versions` shows who changed what, when. Needs `write` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.judgingRules.update"],
+            path={"projectId": project_id, "ruleId": rule_id},
+            query={},
+            headers={},
+            body=_body(_models.JudgingRulePatch, body, fields),
+            response=_models.JudgingRule,
+            timeout=timeout,
+        )
+
+    async def unregister(
+        self, project_id: str | UUID, rule_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.JudgingRuleUnregisterResult:
+        """Stop a judging rule. `POST /v1/projects/{projectId}/judging-rules/{ruleId}/unregister`
+
+        It queues nothing more; its versions and the items it queued stay. `unregistered: false` when it was already stopped. Needs `write` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.judgingRules.unregister"],
+            path={"projectId": project_id, "ruleId": rule_id},
+            query={},
+            headers={},
+            response=_models.JudgingRuleUnregisterResult,
+            timeout=timeout,
+        )
+
+    async def versions(
+        self,
+        project_id: str | UUID,
+        rule_id: str | UUID,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.JudgingRulePage:
+        """A judging rule's versions. `GET /v1/projects/{projectId}/judging-rules/{ruleId}/versions`
+
+        Every version, newest first: who wrote it, when, and what it said. Needs `read` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.judgingRules.versions"],
+            path={"projectId": project_id, "ruleId": rule_id},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.JudgingRulePage,
+            timeout=timeout,
+        )
+
+    async def results(
+        self,
+        project_id: str | UUID,
+        rule_id: str | UUID,
+        /,
+        *,
+        since: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.JudgingRuleResults:
+        """A judging rule's results. `GET /v1/projects/{projectId}/judging-rules/{ruleId}/results`
+
+        By the rule's version and the agent's: the runs it queued (open, judged, dismissed, erased), the ones its `maxOpen` skipped, and the live judgments on them, with their class-weighted `yes` share and a count by class. Never pooled with another rule's, or across a rule's versions: each is a sample of its own `when`. Needs `read` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.judgingRules.results"],
+            path={"projectId": project_id, "ruleId": rule_id},
+            query={"since": since},
+            headers={},
+            response=_models.JudgingRuleResults,
+            timeout=timeout,
+        )
+
+
+class AsyncProjectsJudgingQueueResource:
+    """`client.projects.judging_queue` — the `projects.judgingQueue` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        project_id: str | UUID,
+        /,
+        *,
+        state: Literal["open", "judged", "dismissed", "erased"] | None = None,
+        agent_id: str | UUID | None = None,
+        rule_id: str | UUID | None = None,
+        judge_class_id: str | UUID | None = None,
+        for_me: bool | None = None,
+        added_after: str | None = None,
+        closed_after: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.JudgingQueuePage:
+        """The project's judging queue. `GET /v1/projects/{projectId}/judging-queue`
+
+        Queued runs, oldest first: never a run's content, only what it was, which rules queued it, whose judgment they want and the judgments so far, and what the caller may do with it (`can`). An item closes as `judged` once every rule that queued it has the judgment it wants. `forMe=true`: the items any judgment closes, or that want a class the caller may assert. `limit=0` answers only the `total`. Needs `read` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.judgingQueue.list"],
+            path={"projectId": project_id},
+            query={
+                "state": state,
+                "agentId": agent_id,
+                "ruleId": rule_id,
+                "judgeClassId": judge_class_id,
+                "forMe": for_me,
+                "addedAfter": added_after,
+                "closedAfter": closed_after,
+                "limit": limit,
+                "cursor": cursor,
+            },
+            headers={},
+            response=_models.JudgingQueuePage,
+            timeout=timeout,
+        )
+
+    async def dismiss(
+        self,
+        project_id: str | UUID,
+        run_id: str | UUID,
+        body: _models.JudgingDismissBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.JudgingQueueItem:
+        """Dismiss a queued run. `POST /v1/projects/{projectId}/judging-queue/{runId}/dismiss`
+
+        Not worth judging: it leaves the open queue, with who dismissed it and why. `reopen` undoes it. Needs `write` on the project, as judging the run does.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.judgingQueue.dismiss"],
+            path={"projectId": project_id, "runId": run_id},
+            query={},
+            headers={},
+            body=_body(_models.JudgingDismissBody, body, fields),
+            response=_models.JudgingQueueItem,
+            timeout=timeout,
+        )
+
+    async def reopen(
+        self, project_id: str | UUID, run_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.JudgingQueueItem:
+        """Reopen a dismissed run. `POST /v1/projects/{projectId}/judging-queue/{runId}/reopen`
+
+        Back in the open queue. Only a dismissed item reopens: a judged one was closed by its judgments. Needs `write` on the project.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.judgingQueue.reopen"],
+            path={"projectId": project_id, "runId": run_id},
+            query={},
+            headers={},
+            response=_models.JudgingQueueItem,
+            timeout=timeout,
+        )
+
+
 class AsyncProjectsMembershipsResource:
     """`client.projects.memberships` — the `projects.memberships` operations."""
 
@@ -12891,6 +13516,8 @@ class AsyncProjectsResource:
 
     def __init__(self, client: AsyncClientBase) -> None:
         self._client = client
+        self.judging_rules = AsyncProjectsJudgingRulesResource(client)
+        self.judging_queue = AsyncProjectsJudgingQueueResource(client)
         self.memberships = AsyncProjectsMembershipsResource(client)
 
     async def get_default(self, /, *, timeout: float | None = None) -> _models.Project:

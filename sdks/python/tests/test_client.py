@@ -917,12 +917,13 @@ def test_named_models_keep_their_names() -> None:
         "Project",
         "Reviewer",
         "Tenant",
+        "FlowId",
         "PersonGrants",
         "ServiceAccountGrantBody",
         "RunStatus",
     ):
         assert hasattr(models, name), name
-    for name in ("Team1", "Project1", "Reviewer1", "Tenant1"):
+    for name in ("Team1", "Project1", "Reviewer1", "Tenant1", "FlowId1"):
         assert not hasattr(models, name), name
 
 
@@ -1065,3 +1066,60 @@ def test_a_model_s_uuid_id_passes_back_as_text_in_a_path_and_a_query() -> None:
     api.approvals.list(wait_token_id=[run_id, "wt-2"])
     assert seen[0].url.path == f"/v1/runs/{run_id}"
     assert seen[1].url.params.get_list("waitTokenId") == [str(run_id), "wt-2"]
+
+
+def test_a_judging_rule_takes_its_when_in_python_or_wire_case() -> None:
+    # The guide's example passes `when` with snake_case keys; wire case works too.
+    project = "d4910d76-7355-4022-8f3c-514361cfa986"
+    rule = {
+        "ruleId": "6f1d9a0e-2b8c-4f4e-9d61-0c2a7e5b3f10",
+        "projectId": project,
+        "version": 1,
+        "name": "Live refund runs",
+        "when": {"agentIds": ["acme.refunds"], "versions": ["live"]},
+        "sample": 0.05,
+        "maxOpen": 20,
+        "enabled": True,
+        "createdAt": "2026-10-10T09:00:00.000Z",
+    }
+    api, seen = client(lambda r: httpx.Response(201, json=rule))
+    made = api.projects.judging_rules.create(
+        project,
+        name="Live refund runs",
+        when={"agent_ids": ["acme.refunds"], "versions": ["live"]},
+        sample=0.05,
+        max_open=20,
+    )
+    api.projects.judging_rules.create(
+        project,
+        {
+            "name": "Live refund runs",
+            "when": {"agentIds": ["acme.refunds"], "versions": ["live"]},
+            "sample": 0.05,
+            "maxOpen": 20,
+        },
+    )
+    assert made.rule_id == rule["ruleId"] and made.when.agent_ids == ["acme.refunds"]
+    sent = [json.loads(r.content) for r in seen]
+    assert sent[0] == sent[1] == {k: rule[k] for k in ("name", "when", "sample", "maxOpen")}
+    assert seen[0].url == f"http://kindgi.test/v1/projects/{project}/judging-rules"
+
+
+def test_a_judging_rule_change_sends_null_to_remove_the_cap() -> None:
+    project, rule_id = (
+        "d4910d76-7355-4022-8f3c-514361cfa986",
+        "6f1d9a0e-2b8c-4f4e-9d61-0c2a7e5b3f10",
+    )
+    rule = {
+        "ruleId": rule_id,
+        "projectId": project,
+        "version": 2,
+        "name": "Live refund runs",
+        "when": {},
+        "sample": 0.05,
+        "enabled": True,
+        "createdAt": "2026-10-10T09:00:00.000Z",
+    }
+    api, seen = client(lambda r: httpx.Response(200, json=rule))
+    api.projects.judging_rules.update(project, rule_id, max_open=None, sample=0.05)
+    assert json.loads(seen[0].content) == {"maxOpen": None, "sample": 0.05}

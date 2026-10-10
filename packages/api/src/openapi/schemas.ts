@@ -8167,6 +8167,337 @@ export const MyPermissionsSchema: JsonSchema = {
   },
 };
 
+// ---------- judging rules and queue ----------
+
+export const JudgingRunStatusSchema: JsonSchema = {
+  type: 'string',
+  enum: ['completed', 'failed', 'cancelled'],
+  description: 'How a run ended.',
+};
+
+export const JudgingQueueStateSchema: JsonSchema = {
+  type: 'string',
+  enum: ['open', 'judged', 'dismissed', 'erased'],
+  description:
+    "Where a queued run stands. `judged`: every rule that queued it has the judgment it wants. `erased`: the run's content is gone (erased, or the run purged); the item shows nothing of it.",
+};
+
+export const JudgingRuleWhenSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "Which of a project's runs a rule matches as they end. Every field narrows; absent fields don't. `agentIds` or `flowIds`, not both. Top-level runs only (an agent's own runs, not its turns as a flow's step); replays never match.",
+  properties: {
+    agentIds: { type: 'array', minItems: 1, maxItems: 50, items: { type: 'string' } },
+    flowIds: { type: 'array', minItems: 1, maxItems: 50, items: { type: 'string' } },
+    versions: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 50,
+      items: { type: 'string' },
+      description:
+        "These versions exactly, or `live`: runs that got the agent's live version, not one the caller named. Runs from before the runtime recorded how their version was chosen never match `live`.",
+    },
+    status: {
+      type: 'array',
+      minItems: 1,
+      items: { $ref: '#/components/schemas/JudgingRunStatus' },
+      description:
+        'How the run ended. Only `completed` today: a judgment needs a completed run, so `failed` and `cancelled` are refused (400). Absent: `completed`.',
+    },
+    includeDryRuns: { type: 'boolean', description: 'Dry runs are left out unless `true`.' },
+  },
+};
+
+const JUDGING_RULE_FIELDS: Record<string, JsonSchema> = {
+  name: { type: 'string', minLength: 1, maxLength: 200 },
+  when: { $ref: '#/components/schemas/JudgingRuleWhen' },
+  sample: {
+    type: 'number',
+    exclusiveMinimum: 0,
+    maximum: 1,
+    description:
+      "The share of matching runs queued, decided by the run and rule ids: the same every time and across the rule's versions, so raising it keeps the runs it took before. Default 1.",
+  },
+  maxOpen: {
+    type: 'integer',
+    minimum: 1,
+    maximum: 10000,
+    description: 'Queue nothing while this rule has this many open items. Absent: no cap.',
+  },
+  judgeClassId: {
+    type: 'string',
+    description: 'Whose judgment it wants: one of this class closes it. Absent: any judgment does.',
+  },
+  enabled: { type: 'boolean', description: 'Default `true`.' },
+};
+
+export const JudgingRuleSpecSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['name', 'when'],
+  description: 'A judging rule as written. It only lists runs: nothing here starts a model.',
+  properties: JUDGING_RULE_FIELDS,
+};
+
+export const JudgingRulePatchSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: 'The fields to change; `when` is replaced whole.',
+  properties: {
+    ...JUDGING_RULE_FIELDS,
+    maxOpen: {
+      type: ['integer', 'null'],
+      minimum: 1,
+      maximum: 10000,
+      description:
+        'Queue nothing while this rule has this many open items. `null` removes the cap.',
+    },
+    judgeClassId: {
+      type: ['string', 'null'],
+      description:
+        'Whose judgment it wants: one of this class closes it. `null`: any judgment does.',
+    },
+  },
+};
+
+export const JudgingRuleSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['ruleId', 'projectId', 'version', 'name', 'when', 'sample', 'enabled', 'createdAt'],
+  description: 'One version of a judging rule; the latest live one applies.',
+  properties: {
+    ruleId: { type: 'string' },
+    projectId: { type: 'string' },
+    version: { type: 'integer', minimum: 1 },
+    ...JUDGING_RULE_FIELDS,
+    sample: { type: 'number', exclusiveMinimum: 0, maximum: 1 },
+    enabled: { type: 'boolean' },
+    createdBy: { type: 'string', description: 'Who wrote this version.' },
+    createdAt: { type: 'string', format: 'date-time' },
+    unregisteredAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const JudgingRulePageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/JudgingRule' } },
+    hasMore: { type: 'boolean' },
+    nextCursor: { type: 'string' },
+  },
+};
+
+export const JudgingRuleUnregisterResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['ruleId', 'unregistered'],
+  properties: { ruleId: { type: 'string' }, unregistered: { type: 'boolean' } },
+};
+
+export const JudgingClassCountSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['judgeClassId', 'count'],
+  properties: {
+    judgeClassId: { type: ['string', 'null'], description: '`null`: unclassified.' },
+    count: { type: 'integer', minimum: 0 },
+  },
+};
+
+export const JudgingProgressSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['total', 'byClass'],
+  description: 'The live judgments on the run so far, by class.',
+  properties: {
+    total: { type: 'integer', minimum: 0 },
+    byClass: { type: 'array', items: { $ref: '#/components/schemas/JudgingClassCount' } },
+  },
+};
+
+export const JudgingItemCanSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['dismiss', 'reopen'],
+  description:
+    'What the caller may do with the item, by the check the routes make (`write` on the project, as judging the run needs).',
+  properties: { dismiss: { type: 'boolean' }, reopen: { type: 'boolean' } },
+};
+
+export const JudgingItemRuleSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['ruleId', 'version'],
+  properties: { ruleId: { type: 'string' }, version: { type: 'integer', minimum: 1 } },
+};
+
+export const JudgingQueueItemSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'runId',
+    'projectId',
+    'flowId',
+    'runStatus',
+    'completedAt',
+    'rules',
+    'wantedClassIds',
+    'anyJudgment',
+    'progress',
+    'addedAt',
+    'state',
+    'can',
+  ],
+  description: 'A queued run: never its content, only what it was and where it stands.',
+  properties: {
+    runId: { type: 'string' },
+    projectId: { type: 'string' },
+    agentId: { type: 'string' },
+    agentVersion: { type: 'string' },
+    flowId: { type: 'string' },
+    runStatus: { $ref: '#/components/schemas/JudgingRunStatus' },
+    completedAt: { type: 'string', format: 'date-time' },
+    rules: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/JudgingItemRule' },
+      description: 'The rules that queued it, each at the version that did.',
+    },
+    wantedClassIds: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'The judge classes its rules want.',
+    },
+    anyJudgment: { type: 'boolean', description: 'One of its rules wants any judgment.' },
+    progress: { $ref: '#/components/schemas/JudgingProgress' },
+    addedAt: { type: 'string', format: 'date-time' },
+    state: { $ref: '#/components/schemas/JudgingQueueState' },
+    closedAt: { type: 'string', format: 'date-time' },
+    closedBy: { type: 'string', description: 'Who dismissed or reopened it last.' },
+    reason: { type: 'string', description: 'Why it was dismissed, when they said.' },
+    can: { $ref: '#/components/schemas/JudgingItemCan' },
+  },
+};
+
+export const JudgingQueuePageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore', 'total'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/JudgingQueueItem' } },
+    hasMore: { type: 'boolean' },
+    nextCursor: { type: 'string' },
+    total: {
+      type: 'integer',
+      minimum: 0,
+      description: 'Every item the filters match, across pages.',
+    },
+  },
+};
+
+export const JudgingDismissBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  properties: { reason: { type: 'string', maxLength: 500 } },
+};
+
+export const JudgingClassResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['judgeClassId', 'judgments', 'yes'],
+  properties: {
+    judgeClassId: { type: ['string', 'null'], description: '`null`: unclassified.' },
+    judgments: { type: 'integer', minimum: 0 },
+    yes: { type: 'integer', minimum: 0 },
+  },
+};
+
+export const JudgingResultGroupSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: [
+    'ruleVersion',
+    'agentVersion',
+    'added',
+    'open',
+    'judged',
+    'dismissed',
+    'erased',
+    'skippedByCap',
+    'judgments',
+    'yesShare',
+    'byClass',
+  ],
+  description:
+    "One rule version's runs of one agent version. `added` = `open` + `judged` + `dismissed` + `erased`.",
+  properties: {
+    ruleVersion: { type: 'integer', minimum: 1 },
+    agentVersion: {
+      type: ['string', 'null'],
+      description: '`null`: a flow run, or one from before versions were recorded.',
+    },
+    added: { type: 'integer', minimum: 0 },
+    open: { type: 'integer', minimum: 0 },
+    judged: { type: 'integer', minimum: 0 },
+    dismissed: { type: 'integer', minimum: 0 },
+    erased: { type: 'integer', minimum: 0 },
+    skippedByCap: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        "Runs the rule matched and sampled but didn't queue, because `maxOpen` were waiting, even when another rule queued them. Non-zero: the queued runs lean toward quiet times. `added` + `skippedByCap` = every run the rule matched and sampled.",
+    },
+    judgments: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        "Live judgments on the queued runs: each is one person's verdict on one item of a run's output.",
+    },
+    yesShare: {
+      type: ['number', 'null'],
+      description:
+        'The `yes` share of those judgments, each weighted by its class (unclassified: 1). `null` with none.',
+    },
+    byClass: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/JudgingClassResult' },
+      description: 'The same judgments by class, unweighted.',
+    },
+  },
+};
+
+export const JudgingRuleResultsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['ruleId', 'groups'],
+  properties: {
+    ruleId: { type: 'string' },
+    since: { type: 'string', format: 'date-time' },
+    groups: {
+      type: 'array',
+      items: { $ref: '#/components/schemas/JudgingResultGroup' },
+      description:
+        "By the rule's version and the agent's, newest rule version first: two versions of a rule are two sampling designs, never pooled.",
+    },
+  },
+};
+
+export const JudgingRulePreviewSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['considered', 'matched'],
+  properties: {
+    considered: { type: 'integer', minimum: 0, description: 'The recent runs looked at.' },
+    matched: {
+      type: 'integer',
+      minimum: 0,
+      description: "Those the rule would have queued, with its `sample` (`maxOpen` isn't applied).",
+    },
+  },
+};
+
 export const PersonProjectRoleSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -10925,6 +11256,25 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['PersonTeamRole', PersonTeamRoleSchema],
   ['PersonReviewerRole', PersonReviewerRoleSchema],
   ['PersonGrantBody', PersonGrantBodySchema],
+  ['JudgingRunStatus', JudgingRunStatusSchema],
+  ['JudgingQueueState', JudgingQueueStateSchema],
+  ['JudgingRuleWhen', JudgingRuleWhenSchema],
+  ['JudgingRuleSpec', JudgingRuleSpecSchema],
+  ['JudgingRulePatch', JudgingRulePatchSchema],
+  ['JudgingRule', JudgingRuleSchema],
+  ['JudgingRulePage', JudgingRulePageSchema],
+  ['JudgingRuleUnregisterResult', JudgingRuleUnregisterResultSchema],
+  ['JudgingClassCount', JudgingClassCountSchema],
+  ['JudgingProgress', JudgingProgressSchema],
+  ['JudgingItemCan', JudgingItemCanSchema],
+  ['JudgingItemRule', JudgingItemRuleSchema],
+  ['JudgingQueueItem', JudgingQueueItemSchema],
+  ['JudgingQueuePage', JudgingQueuePageSchema],
+  ['JudgingDismissBody', JudgingDismissBodySchema],
+  ['JudgingClassResult', JudgingClassResultSchema],
+  ['JudgingResultGroup', JudgingResultGroupSchema],
+  ['JudgingRuleResults', JudgingRuleResultsSchema],
+  ['JudgingRulePreview', JudgingRulePreviewSchema],
   ['AccessRole', AccessRoleSchema],
   ['AccessPathDirect', AccessPathDirectSchema],
   ['AccessPathTeam', AccessPathTeamSchema],

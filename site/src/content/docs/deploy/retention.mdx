@@ -29,7 +29,7 @@ each one by the name in the second column.
 | `secret` | Deleted secrets | revoked secrets |
 | `run` | Deleted runs | **finished runs**, counted from when they finished |
 | `policy` | Retired policy versions | unregistered policy versions |
-| `judgment` | Removed judgments | removed judgments |
+| `judgment` | Removed judgments | removed judgments, and the judging queue's history: closed items and skipped runs |
 | `judge_class` | Retired judge classes | retired judge classes |
 | `org` | Deleted orgs | deleted orgs, once their environments' and MCP endpoints' records are purged |
 | `provider` | Removed model providers | unregistered model providers |
@@ -48,6 +48,20 @@ Runs aren't deleted first: a policy on `run`, or a `*` policy, purges every
 finished run once its grace has passed since the run finished. To keep runs
 while purging the rest, give `run` a policy of its own.
 :::
+
+### What outlives a run
+
+A purged run takes its journal, provenance and snapshot with it. These stay,
+under their own setting:
+
+- **Judgments,** with the copy of the run's input and output each judged
+  run keeps. A judgment that isn't removed stays for good; a removed one
+  goes under `judgment`.
+- **The judging queue's history:** items that closed (judged, dismissed,
+  or `erased`) and runs a rule skipped at its cap. They hold ids, versions,
+  statuses and times only. They go under `judgment`, counted from when they
+  closed or were skipped. A purged run's waiting item closes as `erased`.
+- **Model-call costs,** which are billing history and stay.
 
 ## Set a policy
 
