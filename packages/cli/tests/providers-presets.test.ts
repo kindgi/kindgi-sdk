@@ -354,6 +354,7 @@ describe('kindgi providers presets', () => {
         needs: ['--region'],
         models: [
           'us.anthropic.claude-sonnet-5-5',
+          'us.anthropic.claude-haiku-4-5-20251001-v1:0',
           'us.amazon.nova-pro-v1:0',
           'us.openai.gpt-6.1-sol',
           'us.openai.gpt-6-luna',
@@ -385,7 +386,7 @@ describe('a preset names its default model', () => {
     expect(defaults).toEqual({
       anthropic: 'claude-sonnet-5-5',
       'azure-openai': 'gpt-6.1-sol',
-      bedrock: 'us.anthropic.claude-sonnet-5-5',
+      bedrock: 'us.amazon.nova-pro-v1:0',
       'gemini-api': 'gemini-3.8-flash',
       gemini: 'gemini-3.8-flash',
       groq: 'openai/gpt-oss-120b',

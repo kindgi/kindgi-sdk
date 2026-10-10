@@ -12,7 +12,7 @@
   "pricesCheckedAt": "2026-10-09",
   "metadata": {
     "id": "bedrock",
-    "defaultModel": "us.anthropic.claude-sonnet-5-5",
+    "defaultModel": "us.amazon.nova-pro-v1:0",
     "description": "Amazon Bedrock",
     "models": [
       {
@@ -29,6 +29,19 @@
           "promptCacheCreationMultiplier": 1.25
         },
         "description": "Balanced performance and cost."
+      },
+      {
+        "name": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        "contextWindow": 200000,
+        "maxOutputTokens": 8192,
+        "features": ["tool-use", "parallel-tool-use"],
+        "cost": {
+          "promptUsdPer1kTokens": 0.0011,
+          "completionUsdPer1kTokens": 0.0055,
+          "cachedPromptMultiplier": 0.1,
+          "promptCacheCreationMultiplier": 1.25
+        },
+        "description": "Claude's fast, inexpensive model."
       },
       {
         "name": "us.amazon.nova-pro-v1:0",

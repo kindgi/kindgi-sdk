@@ -425,9 +425,11 @@ describe('the vendors’ prices (checked 2026-10-09)', () => {
     // Sonnet 5.5 has no long-context tier: Anthropic bills its whole 1M window at the standard
     // rates (its pricing page, "Long context pricing"), and Bedrock's US profiles are those rates
     // plus the 10% regional premium. GPT-6's cache writes are 1.25x input, as OpenAI lists them.
-    // Each was read on 2026-10-09.
+    // Each was read on 2026-10-09; Haiku 4.5's on 2026-10-10 (its US profile is "Regional":
+    // Anthropic's list price plus 10%, cache reads 0.1x and writes 1.25x).
     expect(pricesOf(bedrock)).toEqual({
       'us.anthropic.claude-sonnet-5-5': [2.2, 0.11, 2.75, 11],
+      'us.anthropic.claude-haiku-4-5-20251001-v1:0': [1.1, 0.11, 1.375, 5.5],
       'us.amazon.nova-pro-v1:0': [0.8, 0.2, 0, 3.2],
       'us.openai.gpt-6.1-sol': [2.2, 0.11, 2.75, 11, 272000, 4.4, 16.5],
       'us.openai.gpt-6-luna': [0.11, 0.011, 0.1375, 0.55, 272000, 0.22, 0.825],

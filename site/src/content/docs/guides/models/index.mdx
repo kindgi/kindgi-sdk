@@ -67,6 +67,29 @@ prices. `pricesCheckedAt` is when the prices were last compared with the
 vendor's. `--max-output-tokens=<n>` registers the models with another output
 limit.
 
+### Claude on Amazon Bedrock
+
+The `bedrock` preset's default model is Amazon Nova Pro
+(`us.amazon.nova-pro-v1:0`), Amazon's own. Its Claude models are one setting
+away:
+
+```sh
+kindgi providers register --preset=bedrock --region=us-east-2 \
+  --models=us.anthropic.claude-haiku-4-5-20251001-v1:0
+```
+
+- **Claude Haiku 4.5** (`us.anthropic.claude-haiku-4-5-20251001-v1:0`):
+  checked live on Bedrock with tool calls, and with a turn paused and resumed
+  with its reasoning carried.
+- **Claude Sonnet 5.5** (`us.anthropic.claude-sonnet-5-5`): once your AWS
+  account has access to Anthropic's 5.5 models.
+
+Claude on Bedrock needs your AWS account's access to Anthropic's models. A new
+account may be asked for Anthropic's one-time use-case form in the Bedrock
+console, or answered that the model "is not available for this account" and
+to contact AWS, which takes a support case. AWS's guide:
+[Request access to models](https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html).
+
 ## A provider spec
 
 Anything that isn't a preset registers from a spec: a JSON file you pass with
