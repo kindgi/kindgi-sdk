@@ -124,7 +124,7 @@ function makeInMemorySessionStore(): {
   const sessions = new Map<string, Session>(); // key: `${tenantId}:${sessionId}` OR just sessionId for MULTI_TENANT_LOOKUP
 
   const binding: SessionStoreBinding = {
-    async create({ tenantId, userId, providerId, accessToken, expiresAt, scopes }) {
+    async create({ tenantId, userId, providerId, expiresAt, scopes }) {
       const id = `ses-${sessions.size}` as SessionId;
       const created = new Date().toISOString() as unknown as Timestamp;
       const session: Session = {
@@ -132,7 +132,6 @@ function makeInMemorySessionStore(): {
         tenantId,
         userId,
         providerId,
-        ...(accessToken !== undefined && { accessToken }),
         expiresAt,
         scopes,
         createdAt: created,
@@ -330,7 +329,6 @@ describe('API — identity list sessions', () => {
         tenantId: tenantA,
         userId: 'u-a' as UserId,
         providerId: 'google',
-        accessToken: 'atk',
         expiresAt: '2027-01-01T00:00:00.000Z' as Timestamp,
         scopes: ['openid'],
         createdAt: '2026-01-01T00:00:00.000Z' as Timestamp,
@@ -340,7 +338,6 @@ describe('API — identity list sessions', () => {
         tenantId: tenantA,
         userId: 'u-a' as UserId,
         providerId: 'google',
-        accessToken: 'atk-revoked',
         expiresAt: '2027-01-01T00:00:00.000Z' as Timestamp,
         scopes: ['openid'],
         createdAt: '2026-01-02T00:00:00.000Z' as Timestamp,
@@ -383,7 +380,6 @@ describe('API — identity revoke sessions', () => {
         tenantId: tenantA,
         userId: 'u-a' as UserId,
         providerId: 'google',
-        accessToken: 'atk',
         expiresAt: '2027-01-01T00:00:00.000Z' as Timestamp,
         scopes: [],
         createdAt: '2026-01-01T00:00:00.000Z' as Timestamp,
@@ -393,7 +389,6 @@ describe('API — identity revoke sessions', () => {
         tenantId: tenantA,
         userId: 'u-a' as UserId,
         providerId: 'google',
-        accessToken: 'atk-2',
         expiresAt: '2027-01-01T00:00:00.000Z' as Timestamp,
         scopes: [],
         createdAt: '2026-01-02T00:00:00.000Z' as Timestamp,
@@ -414,7 +409,6 @@ describe('API — identity revoke sessions', () => {
         tenantId: tenantA,
         userId: 'u-a' as UserId,
         providerId: 'google',
-        accessToken: 'atk',
         expiresAt: '2027-01-01T00:00:00.000Z' as Timestamp,
         scopes: [],
         createdAt: '2026-01-01T00:00:00.000Z' as Timestamp,
@@ -475,7 +469,6 @@ describe('API — identity whoami', () => {
       tenantId: tenantA,
       userId: SESSION_USER,
       providerId: 'google',
-      accessToken: 'atk',
       expiresAt: '2027-06-01T00:00:00.000Z' as Timestamp,
       scopes: ['openid', 'email'],
       createdAt: '2026-01-01T00:00:00.000Z' as Timestamp,
