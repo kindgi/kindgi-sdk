@@ -1,5 +1,63 @@
 # @kindgi/policy-contract
 
+## 0.1.5
+
+### Patch Changes
+
+- 0919fe6: API keys act for a person or a service account, with that principal's grants. All of it is optional for a runtime: what it doesn't wire, it doesn't mount.
+  - **Whom a key acts for:**
+    - `POST /v1/tokens` takes `for` (`{kind: 'user' | 'service-account', id}`), the caller by default.
+    - Only a tenant admin mints for someone else, or mints an `admin` key. A key's record and `GET /v1/identity/whoami` carry `principal`; whoami also gives a key's `tokenId`, `role` and `projectId`.
+    - Anyone may list, read and revoke their own keys. A tenant admin sees every key, and `?principal=user:<id>` filters to one principal's. Someone else's key reads as `404`.
+    - A token that names no principal works as before: tenant admins only, and the key is a service account of its own.
+  - **A key's `role` is a ceiling.** A `member` key takes no `admin` action, even for an admin. The authorizer applies a key's limits in `filterByCan` too, so a list never shows what the key can't reach.
+  - **A key's `projectId` is a limit:**
+    - A request naming another project, in the path (`/projects/<id>`), the query (`projectId`, or `scopeKind=project&scopeId`) or a write body (`projectId`, `scope.projectId`), is `403 key-project-mismatch`.
+    - Such a key takes no `admin` action on the tenant, an org or a team, and mints only keys limited to the same project.
+    - It reaches only its project's resources (an agent, a run, a secret, …): the authorizer asks the authorization store with the new optional `AuthzCheckBinding.inProject` from `@kindgi/authz`. A store without it limits the key to the project itself.
+  - **Refusals:**
+    - `404 principal-not-found`: `for` names nobody.
+    - `403 role-exceeds-principal`: an `admin` key for a principal who isn't a tenant admin.
+  - **Service accounts** (`/v1/service-accounts`, tenant admins, with a `ServiceAccountBinding`):
+    - Create one with its first grants (tenant admin, tenant member, or a role on a project); list, get, `grant`, `ungrant`, and `unregister` (a tombstone: its grants go and its keys stop working).
+    - A service account isn't a tenant member unless it's granted `{kind: 'tenant-member'}`, which lets it read the tenant's settings (providers, policies, adapters, signing keys, deployments). Give it only what its job needs.
+    - Errors: `404 service-account-not-found`, `409 service-account-name-taken` and `409 service-account-unregistered`.
+  - **Revoking sessions:** `POST /v1/identity/users/{userId}/revoke-sessions` now needs a tenant admin, unless the caller revokes their own sessions (`403 permission-denied`). Any caller could revoke anyone's before.
+  - **Add a person:** `POST /v1/identity/users` (`{displayName, primaryEmail?}`), tenant admins only. It is mounted when the identity directory implements the new optional `createUser`. The person becomes a tenant member: they can read the tenant's settings, not its projects, until they're given a role. An email another person already has is `409 identity-user-email-taken`.
+  - **TypeScript client:**
+    - `tokens.create({ for })`, `tokens.list({ principal })`, the new `serviceAccounts` resource, and `users.create` (it used to throw `not-yet-wired`).
+    - The new error codes are classified.
+  - **Python client:** `tokens.mint(for_=…)`, `service_accounts.*` and `identity.users.create`.
+  - **Evidence kinds:** `api-key-minted`, `api-key-revoked`, `service-account-created`, `service-account-granted`, `service-account-ungranted`, `service-account-unregistered` and `person-added` join `EVIDENCE_KINDS` and the evidence schema. A key's secret is never in one. The stores learn who acted: `TokenRevokeInput.revokedBy`, and `by` on a service account's grant, ungrant and unregister.
+  - **Retention domains `api_key` and `service_account`:** a retention policy can purge revoked and expired keys, and unregistered service accounts, after its grace.
+- 490d083: Artifacts belong to a project, and the capability catalog says what each feature means and which of your models have it.
+  - **Artifacts (`/v1/artifacts`):**
+    - Every artifact belongs to a project: its owner run's, else the upload's new `projectId`, else the tenant's default project. `BlobMeta` carries `projectId` and `createdBy`, and `BlobPutInput` takes them (both optional).
+    - With authorization on, listing and downloading need `read` on that project, and uploading and deleting need `write`.
+      - An artifact the caller can't read is `404`, as if absent.
+      - A list shows only what the caller can read. `?projectId=` narrows it.
+    - An upload naming an owner run that doesn't exist is `404 run-not-found`. A `projectId` that isn't the owner run's project is `400`.
+    - The runtime caps an upload: `413 artifact-too-large`, with `details.maxBytes`. `CreateAppInput.artifactMaxBytes` sets it (default 100 MB).
+  - **Retention domain `artifact`:** a retention policy can purge deleted artifacts after its grace.
+  - **Capabilities:**
+    - `FEATURE_DESCRIPTIONS` (`@kindgi/capabilities`) says in a line what each of the 13 features means.
+    - A `CapabilityDescriptor` may carry `providers: [{providerId, models}]`, the tenant's providers with a model that has the feature (optional in the spec).
+  - **TypeScript client:**
+    - `artifacts.upload` (multipart), `download` (streamed bytes) and `head`; `list` takes `projectId`.
+    - `put` and `get` (content-addressed `BlobRef`s) have no API route: they throw, pointing to `upload` and `download`.
+    - `artifact-too-large` is an invalid request.
+  - **Python client:** the new fields; a 413 is an `InvalidRequestError`.
+  - **Runtime settings (`@kindgi/env-schema`):**
+    - `KINDGI_ARTIFACTS` is `local:<absolute dir>` or `gcs:<bucket>[/<prefix>]`; it turns on `/v1/artifacts`.
+    - `KINDGI_ARTIFACT_MAX_BYTES` sets the upload cap.
+    - `kindgi dev` sets artifacts to the pack's `.kindgi/dev/artifacts`, which is gitignored.
+  - **CLI:**
+    - `kindgi artifacts list|get|upload|download|delete` and `kindgi capabilities list|get` work; before, they were hidden.
+    - `artifacts head` is folded into `get`.
+- b67c599: Two retention domains: `memory` and `conversation`. A `memory` policy purges, past its grace, every revision of a fact whose life ended (deleted, or its current revision past its expiry); a fact under legal hold is never purged. A `conversation` policy purges unregistered conversations with their messages and recall index. Both hold people's words, so their retention is opt-in: a `*` policy doesn't reach them, only a policy naming them does.
+- Updated dependencies [eff6249]
+  - @kindgi/types@0.1.5
+
 ## 0.1.5-rc.0
 
 ### Patch Changes

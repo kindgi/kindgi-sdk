@@ -11,7 +11,9 @@
  *   another run holds, or a wait this runtime can't attribute;
  * - nothing: the run is running or finished.
  *
- * Read from the run's status, its journal's open waits (`wait.suspended`
+ * A runtime from 0.1.6 on answers it with the run: `GET /v1/runs/{runId}`'s
+ * `waitingFor` on a suspended run, used as it is. Before that, it's read
+ * here from the run's status, its journal's open waits (`wait.suspended`
  * with no `wait.resumed` / `wait.cancelled` after it), and the approvals
  * linked to those waits (`GET /v1/approvals?waitTokenId=`). Each answer
  * has its own exit code; a later "hold" feature takes 5.
@@ -39,7 +41,10 @@ export interface WaitingApproval {
   readonly title?: string;
   readonly requiredRole: string;
   readonly status: string;
-  readonly waitTokenId: string;
+  /** The wait it's linked to (read here; not on `waitingFor`). */
+  readonly waitTokenId?: string;
+  /** For a tool call held for review: which tool and call (from `waitingFor`). */
+  readonly tool?: { readonly id: string; readonly version: string; readonly callId: string };
 }
 
 export type RuntimeWait =
@@ -90,9 +95,26 @@ export type RunWaitAnswer =
       readonly approvalsUnavailable?: string;
     };
 
+/** `GET /v1/runs/{runId}`'s `waitingFor` (a runtime from 0.1.6 on). */
+export interface RunWaitingForWire {
+  readonly approvals: readonly {
+    readonly approvalId: string;
+    readonly status: string;
+    readonly requiredRole: string;
+    readonly title?: string;
+    readonly tool?: { readonly id: string; readonly version: string; readonly callId: string };
+  }[];
+  /** The same shapes as `RuntimeWait`. */
+  readonly other: readonly unknown[];
+}
+
 /** What the answer reads; the CLI passes the client's calls. */
 export interface RunWaitPort {
-  readonly getRun: (runId: string) => Promise<{ readonly id: string; readonly status: string }>;
+  readonly getRun: (runId: string) => Promise<{
+    readonly id: string;
+    readonly status: string;
+    readonly waitingFor?: RunWaitingForWire;
+  }>;
   readonly journalPage: (
     runId: string,
     since: number | undefined,
@@ -115,6 +137,9 @@ export async function runWaitAnswer(port: RunWaitPort, runId: string): Promise<R
   const status = run.status;
   if (FINISHED.has(status)) return { kind: 'not-waiting', runId, status };
   if (status === 'pending') return { kind: 'runtime', runId, status, waits: [{ what: 'queued' }] };
+  if (status === 'suspended' && run.waitingFor !== undefined) {
+    return fromWaitingFor(runId, status, run.waitingFor);
+  }
 
   const journal = await readJournal(port, runId);
   if (status !== 'suspended') {
@@ -125,6 +150,20 @@ export async function runWaitAnswer(port: RunWaitPort, runId: string): Promise<R
   }
 
   return await suspendedAnswer(port, runId, status, openWaits(journal));
+}
+
+/** The runtime's own answer (`waitingFor`), in the same terms. */
+function fromWaitingFor(runId: string, status: string, waiting: RunWaitingForWire): RunWaitAnswer {
+  const other = waiting.other as readonly RuntimeWait[];
+  if (waiting.approvals.length === 0) return { kind: 'runtime', runId, status, waits: other };
+  const approvals: WaitingApproval[] = waiting.approvals.map((a) => ({
+    id: a.approvalId,
+    ...(a.title !== undefined && { title: a.title }),
+    requiredRole: a.requiredRole,
+    status: a.status,
+    ...(a.tool !== undefined && { tool: a.tool }),
+  }));
+  return { kind: 'approval', runId, status, approvals, alsoWaitsOn: other };
 }
 
 /** A suspended run: what each of its open waits is for. */
@@ -152,7 +191,9 @@ async function suspendedAnswer(
   try {
     // Kept only when linked to one of these waits: a runtime that ignores
     // the filter answers other approvals too.
-    linked = (await port.approvalsFor(tokens)).filter((a) => tokens.includes(a.waitTokenId));
+    linked = (await port.approvalsFor(tokens)).filter(
+      (a) => a.waitTokenId !== undefined && tokens.includes(a.waitTokenId),
+    );
   } catch (err) {
     approvalsUnavailable = err instanceof Error ? err.message : String(err);
   }
@@ -206,7 +247,7 @@ export function runWaitText(answer: RunWaitAnswer): string {
   if (answer.kind === 'approval') {
     const lines = answer.approvals.map(
       (a) =>
-        `Run ${runId} waits for approval ${a.id}${a.title !== undefined ? ` ("${a.title}")` : ''}, for a ${a.requiredRole} reviewer or above. It continues once the approval is decided: kindgi approvals complete ${a.id} --decision=approve (or --decision=reject).`,
+        `Run ${runId} waits for approval ${a.id}${a.title !== undefined ? ` ("${a.title}")` : ''}${a.tool !== undefined ? `, holding call ${a.tool.callId} to ${a.tool.id}@${a.tool.version}` : ''}, for a ${a.requiredRole} reviewer or above. It continues once the approval is decided: kindgi approvals complete ${a.id} --decision=approve (or --decision=reject).`,
     );
     return `${[...lines, ...answer.alsoWaitsOn.map((w) => runtimeWaitText(runId, w))].join('\n')}\n`;
   }

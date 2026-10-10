@@ -5,7 +5,12 @@ import type { ValidateFunction } from 'ajv';
 import * as addFormatsModule from 'ajv-formats';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 
-import { isZodSchema, loadZodConverterSync, toJSONSchemaSync } from '@kindgi/schema';
+import {
+  ALLOW_UNION_TYPES,
+  isZodSchema,
+  loadZodConverterSync,
+  toJSONSchemaSync,
+} from '@kindgi/schema';
 import type { AnySchema, ZodLikeSchema } from '@kindgi/schema';
 
 import type { InvalidCheckDefinitionError } from './errors.js';
@@ -270,7 +275,7 @@ function compileValidator(
   const ajv = new Ajv2020({
     strict: true,
     allErrors: true,
-    allowUnionTypes: false,
+    allowUnionTypes: ALLOW_UNION_TYPES,
     ...(options.useDefaults === true && { useDefaults: true }),
   });
   addFormats(ajv);

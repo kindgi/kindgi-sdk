@@ -4,9 +4,18 @@
 import type { Context } from 'hono';
 import { Hono } from 'hono';
 
+import {
+  OBJECT_ACTIONS,
+  OBJECT_TYPES,
+  type ObjectType,
+  type ProjectRole,
+  REVIEWER_ROLE_RANK,
+  type ReviewerRole,
+} from '@kindgi/authz';
 import type { Cursor, SessionId, TenantId, UserId } from '@kindgi/types';
 
 import { callerPrincipal, callerRef, isTenantAdmin, principalToWire } from '../caller.js';
+import type { EnvBinding } from '../env-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type {
   IdentityDirectoryBinding,
@@ -14,6 +23,7 @@ import type {
   UserRecord,
 } from '../identity-directory-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import type { MyAccess, MyAccessBinding, RoleCapabilities } from '../my-access-binding.js';
 import type {
   PersonGrant,
   PersonGrantError,
@@ -25,6 +35,7 @@ import { callerReviewerRole } from '../reviewer-role.js';
 import type { SessionStoreBinding } from '../session-store-binding.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
+import { resolveTenantConfigEnvName } from './tenant.js';
 
 /**
  * Identity routes — the canonical caller-identity surface.
@@ -35,6 +46,7 @@ import { clampLimit } from './pagination.js';
  *
  * Six routes:
  *   - `GET  /v1/identity/whoami`                        (self — always mounted)
+ *   - `GET  /v1/identity/me/permissions`                (self: what the caller may do — always mounted)
  *   - `GET  /v1/identity/users`                         (cursor-paginated list; tenant admins)
  *   - `POST /v1/identity/users`                         (add a person; admin, when the directory can)
  *   - `GET  /v1/identity/users/:userId`                 (get; a tenant admin, or your own)
@@ -78,10 +90,31 @@ export interface IdentityRouterOptions {
    * taken. Without it, those routes answer `501 person-grants-unsupported`.
    */
   readonly personGrants?: PersonGrantsBinding;
+  /**
+   * Optional. What the caller holds (`GET /me/permissions`): its projects
+   * with their roles, its orgs and teams, what each project role allows.
+   * Without it, that route answers `501 permissions-unsupported`, and a
+   * client falls back to whoami's `tenantAdmin` and `reviewerRole`.
+   */
+  readonly myAccess?: MyAccessBinding;
+  /**
+   * Optional. The env binding the tenant config's `config` entries live
+   * in: `GET /me/permissions` reads the console's read-only line from it
+   * (`console.readOnlyNotice`).
+   */
+  readonly tenantConfig?: EnvBinding;
 }
 
 export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv> {
-  const { directory, sessionStore, reviewerBinding, authorizer, personGrants } = options;
+  const {
+    directory,
+    sessionStore,
+    reviewerBinding,
+    authorizer,
+    personGrants,
+    myAccess,
+    tenantConfig,
+  } = options;
   const r = new Hono<AppEnv>();
 
   // ---------- GET / whoami ----------
@@ -113,6 +146,10 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
       );
     }
     if (reviewerRole !== undefined) body.reviewerRole = reviewerRole;
+    // The caller as an approval names a person: `requestedBy` and a
+    // decision's `decidedBy` use the same string.
+    const actor = callerRef(c);
+    if (actor !== undefined) body.actor = actor;
     Object.assign(body, keyFacts(c));
 
     if (userId !== undefined) {
@@ -130,8 +167,11 @@ export function identityRouter(options: IdentityRouterOptions = {}): Hono<AppEnv
     return c.json(body);
   });
 
+  mountMyPermissions(r, { myAccess, reviewerBinding, authorizer, tenantConfig });
+
   if (directory === undefined) {
-    // Deployments without a directory binding get whoami only.
+    // Deployments without a directory binding get whoami and
+    // `me/permissions` only.
     // `/users/*` routes fall through to the app-level 404.
     return r;
   }
@@ -435,6 +475,235 @@ function mountPersonGrants(
       return c.json(serializePersonGrants(result.value));
     });
   }
+}
+
+/** Project roles from the highest: `capabilities` is answered in this order. */
+const PROJECT_ROLES_BY_RANK: readonly ProjectRole[] = ['owner', 'admin', 'editor', 'viewer'];
+
+/** What a project role reaches: the project and the objects in it, in `OBJECT_TYPES` order. */
+const PROJECT_SCOPED_TYPES: readonly ObjectType[] = OBJECT_TYPES.filter(
+  (t) => t !== 'tenant' && t !== 'org' && t !== 'team' && t !== 'user',
+);
+
+/** Reviewer roles from the lowest rank. */
+const REVIEWER_ROLES_BY_RANK: readonly ReviewerRole[] = (
+  Object.keys(REVIEWER_ROLE_RANK) as ReviewerRole[]
+).sort((a, b) => REVIEWER_ROLE_RANK[a] - REVIEWER_ROLE_RANK[b]);
+
+/**
+ * `GET /me/permissions`: what the caller may do, so a client hides what it
+ * can't instead of offering it and answering 403. The binding says what the
+ * caller's principal holds; this applies what the caller's API key rules
+ * out on top (`keyCeilingDeny`), and adds what whoami and the approvals
+ * routes decide (tenant admin, the reviewer role and whether it can
+ * decide, the token's capabilities). The server still checks every call.
+ */
+function mountMyPermissions(
+  r: Hono<AppEnv>,
+  options: {
+    readonly myAccess: MyAccessBinding | undefined;
+    readonly reviewerBinding: ReviewerBinding | undefined;
+    readonly authorizer: Authorizer | undefined;
+    readonly tenantConfig: EnvBinding | undefined;
+  },
+): void {
+  const { myAccess, reviewerBinding, authorizer, tenantConfig } = options;
+  r.get('/me/permissions', async (c) => {
+    if (myAccess === undefined) {
+      c.status(statusFor('permissions-unsupported') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'permissions-unsupported',
+            message:
+              "This runtime doesn't say what a caller may do: it runs without an authorization store. Read whoami's `tenantAdmin` and `reviewerRole` instead.",
+          },
+          c.get('requestId'),
+        ),
+      );
+    }
+    const tenantId = c.get('tenantId') as TenantId;
+    const principal = callerPrincipal(c);
+    let tenantAdmin: boolean;
+    let access: MyAccess | undefined;
+    let reviewer: Record<string, unknown> | undefined;
+    try {
+      tenantAdmin = await isTenantAdmin(c, authorizer);
+      access = principal === undefined ? undefined : await myAccess.read({ tenantId, principal });
+      reviewer = await reviewerFacts(c, reviewerBinding);
+    } catch (cause) {
+      c.get('log').warn(
+        `me/permissions: the authorization store couldn't be read: ${cause instanceof Error ? cause.message : String(cause)}`,
+      );
+      c.status(statusFor('authz-backend-unavailable') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'authz-backend-unavailable',
+            message: "The caller's permissions couldn't be read: try again.",
+          },
+          c.get('requestId'),
+        ),
+      );
+    }
+
+    // A key limited to a project acts on no other, and administers no
+    // org or team (`keyCeilingDeny`).
+    const keyProject = c.get('tokenProjectId') as string | undefined;
+    const projects = (access?.projects ?? [])
+      .filter((p) => keyProject === undefined || p.projectId === keyProject)
+      .map((p) => ({
+        projectId: p.projectId,
+        name: p.name,
+        role: p.role,
+        via: p.via.map(serializeAccessPath),
+      }));
+    const ceiling = <R extends string>(role: R): R | 'member' =>
+      keyProject !== undefined && role === 'admin' ? 'member' : role;
+    const orgs = (access?.orgs ?? []).map((o) => ({
+      orgId: o.orgId,
+      name: o.name,
+      role: ceiling(o.role),
+    }));
+    const teams = (access?.teams ?? []).map((t) => ({
+      teamId: t.teamId,
+      name: t.name,
+      role: ceiling(t.role),
+    }));
+    const tokenId = c.get('tokenId') as string | undefined;
+    const tokenRole = c.get('tokenRole');
+    const readOnlyNotice = await consoleReadOnlyNotice(c, tenantConfig);
+
+    return c.json({
+      tenantId,
+      tenant: {
+        admin: tenantAdmin,
+        ...(access?.tenantMember !== undefined && { member: access.tenantMember }),
+      },
+      ...(reviewer !== undefined && { reviewer }),
+      ...(tokenId !== undefined && {
+        key: {
+          tokenId,
+          ...(tokenRole !== undefined && { role: tokenRole }),
+          ...(keyProject !== undefined && { projectId: keyProject }),
+        },
+      }),
+      tokenCapabilities: [...(c.get('capabilities') ?? [])].sort(),
+      projects: projects.sort(byName((p) => p.projectId)),
+      orgs: orgs.sort(byName((o) => o.orgId)),
+      teams: teams.sort(byName((t) => t.teamId)),
+      capabilities: normalizeCapabilities(access?.capabilities ?? {}),
+      ...(readOnlyNotice !== undefined && { readOnlyNotice }),
+    });
+  });
+}
+
+/** The tenant config key a tenant admin sets the console's read-only line with. */
+export const READ_ONLY_NOTICE_KEY = 'console.readOnlyNotice';
+
+/** The longest read-only line served: longer is cut there, with an ellipsis. */
+export const READ_ONLY_NOTICE_MAX_LENGTH = 280;
+
+/**
+ * The line a console shows a caller who may only view a project, as a
+ * tenant admin set it (`PATCH /v1/tenant/config`, `kind: 'config'`, key
+ * `console.readOnlyNotice`): plain text on one line, at most
+ * `READ_ONLY_NOTICE_MAX_LENGTH` characters. `undefined` when none is set,
+ * or the config can't be read (the permissions still answer).
+ */
+async function consoleReadOnlyNotice(
+  c: Context<AppEnv>,
+  tenantConfig: EnvBinding | undefined,
+): Promise<string | undefined> {
+  if (tenantConfig === undefined) return undefined;
+  try {
+    const entry = await tenantConfig.get({
+      scope: { kind: 'tenant', tenantId: c.get('tenantId') as TenantId },
+      envName: resolveTenantConfigEnvName(),
+      name: READ_ONLY_NOTICE_KEY,
+    });
+    const text = entry?.value.replace(/\s+/g, ' ').trim() ?? '';
+    if (text === '') return undefined;
+    // By code point, so a cut never splits a surrogate pair (an emoji).
+    const chars = Array.from(text);
+    return chars.length <= READ_ONLY_NOTICE_MAX_LENGTH
+      ? text
+      : `${chars.slice(0, READ_ONLY_NOTICE_MAX_LENGTH - 1).join('')}…`;
+  } catch (cause) {
+    c.get('log').warn(
+      `me/permissions: the console's read-only line couldn't be read, so it's left out: ${cause instanceof Error ? cause.message : String(cause)}`,
+    );
+    return undefined;
+  }
+}
+
+/**
+ * The caller's reviewer role, the roles it decides (its rank and below,
+ * lowest first), and whether it can decide at all: the approvals routes
+ * also need its user and its roster row. `undefined` when it isn't a
+ * reviewer.
+ */
+async function reviewerFacts(
+  c: Context<AppEnv>,
+  reviewerBinding: ReviewerBinding | undefined,
+): Promise<Record<string, unknown> | undefined> {
+  const role = await callerReviewerRole(c, reviewerBinding);
+  if (role === undefined) return undefined;
+  const userId = c.get('userId') as UserId | undefined;
+  // Its roster row: an approval names its assignee by this id (`assignedTo`).
+  const id =
+    userId !== undefined && reviewerBinding !== undefined
+      ? await reviewerBinding.resolveReviewer({ tenantId: c.get('tenantId') as TenantId, userId })
+      : null;
+  return {
+    role,
+    ...(id !== null && { id: id as unknown as string }),
+    decides: REVIEWER_ROLES_BY_RANK.filter(
+      (r) => REVIEWER_ROLE_RANK[r] <= REVIEWER_ROLE_RANK[role],
+    ),
+    canDecide: id !== null,
+  };
+}
+
+/** Every role and project-scoped type, in a fixed order, with the actions the model allows. */
+function normalizeCapabilities(raw: RoleCapabilities): Record<string, Record<string, string[]>> {
+  const out: Record<string, Record<string, string[]>> = {};
+  for (const role of PROJECT_ROLES_BY_RANK) {
+    const byType: Record<string, string[]> = {};
+    for (const type of PROJECT_SCOPED_TYPES) {
+      const allowed = raw[role]?.[type] ?? [];
+      byType[type] = OBJECT_ACTIONS[type].filter((a) => allowed.includes(a));
+    }
+    out[role] = byType;
+  }
+  return out;
+}
+
+function serializeAccessPath(
+  p: MyAccess['projects'][number]['via'][number],
+): Record<string, unknown> {
+  switch (p.kind) {
+    case 'direct':
+      return { kind: 'direct', role: p.role, ...(p.since !== undefined && { since: p.since }) };
+    case 'team':
+      return {
+        kind: 'team',
+        teamId: p.teamId,
+        teamName: p.teamName,
+        role: p.role,
+        ...(p.since !== undefined && { since: p.since }),
+      };
+    case 'org-admin':
+      return { kind: 'org-admin', orgId: p.orgId, orgName: p.orgName };
+    case 'tenant-admin':
+      return { kind: 'tenant-admin' };
+  }
+}
+
+/** By name, then id: the same order on every answer. */
+function byName<T extends { readonly name: string }>(id: (x: T) => string) {
+  return (a: T, b: T): number =>
+    a.name < b.name ? -1 : a.name > b.name ? 1 : id(a) < id(b) ? -1 : id(a) > id(b) ? 1 : 0;
 }
 
 function notFound(c: Context<AppEnv>, userId: string) {

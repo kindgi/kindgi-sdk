@@ -6,6 +6,12 @@
  * guardrail check (`runCheck`), in process.
  */
 
+import { execFileSync } from 'node:child_process';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
 import { describe, expect, test } from 'vitest';
 import * as z from 'zod';
 
@@ -54,6 +60,32 @@ describe('runHandler — happy path', () => {
     if (outcome.kind === 'ok') {
       expect(outcome.value).toEqual({ echoed: 'hello' });
     }
+  });
+
+  test('a union of types in the schemas (type: [...], as Zod writes a union of scalars)', async () => {
+    const scalar = {
+      type: 'object',
+      properties: { value: { type: ['string', 'number', 'boolean', 'null'] } },
+      required: ['value'],
+      additionalProperties: false,
+    };
+    const union = tool({ inputSchema: scalar, outputSchema: scalar });
+    for (const value of ['a', 1, true, null]) {
+      const outcome = await runHandler({
+        tool: union,
+        input: { value },
+        ctx: ctx(),
+        importHandler: wrap((input) => input),
+      });
+      expect(outcome, String(value)).toEqual({ kind: 'ok', value: { value } });
+    }
+    const bad = await runHandler({
+      tool: union,
+      input: { value: [1] },
+      ctx: ctx(),
+      importHandler: wrap((input) => input),
+    });
+    expect(bad.kind === 'err' && bad.error.code).toBe('input-validation-failed');
   });
 
   test('awaits a Promise-returning handler', async () => {
@@ -432,5 +464,58 @@ describe('runCheck', () => {
       );
       expect(ran).toBe(false);
     });
+  });
+});
+
+describe('the default importers take an absolute path as its file URL', () => {
+  // A `#` in a path is a URL fragment to a bare `import()`; Windows' `C:\\…` isn't
+  // a URL at all. Both load once the path is a `file:` URL, as the pack service's
+  // own importer does. Run in Node itself: vitest's loader handles `import()` its
+  // own way (and doesn't decode a `file:` URL's escapes), so this needs the build.
+  function inNode(script: string): unknown {
+    const out = execFileSync(process.execPath, ['--input-type=module', '-e', script], {
+      cwd: fileURLToPath(new URL('..', import.meta.url)),
+      encoding: 'utf8',
+    });
+    return JSON.parse(out);
+  }
+
+  test('a handler and a check in a directory with `#` and a space in its name', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'kindgi pack #1-'));
+    try {
+      const handlerPath = join(dir, 'echo.mjs');
+      await writeFile(handlerPath, 'export default (input) => ({ echoed: input.message });\n');
+      const checkPath = join(dir, 'check.mjs');
+      await writeFile(checkPath, 'export const evaluate = () => ({ passed: true });\n');
+      const answers = inNode(`
+        import { runCheck, runHandler } from '@kindgi/handler-runtime';
+        const tool = { id: 'test.echo', modulePath: ${JSON.stringify(handlerPath)}, inputSchema: { type: 'object' }, outputSchema: { type: 'object' } };
+        const handled = await runHandler({ tool, input: { message: 'hi' }, ctx: { tenantId: 't', runId: 'r', env: {}, secrets: {}, config: {} } });
+        const checked = await runCheck({ check: { id: 'test.check', modulePath: ${JSON.stringify(checkPath)} }, config: {}, trace: {} });
+        process.stdout.write(JSON.stringify([handled, checked]));
+      `);
+      expect(answers).toEqual([
+        { kind: 'ok', value: { echoed: 'hi' } },
+        { kind: 'ok', value: { passed: true } },
+      ]);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  test('a URL is imported as given', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'kindgi-url-'));
+    try {
+      const handlerPath = join(dir, 'echo.mjs');
+      await writeFile(handlerPath, 'export default (input) => ({ echoed: input.message });\n');
+      const answer = inNode(`
+        import { runHandler } from '@kindgi/handler-runtime';
+        const tool = { id: 'test.echo', modulePath: ${JSON.stringify(pathToFileURL(handlerPath).href)}, inputSchema: { type: 'object' }, outputSchema: { type: 'object' } };
+        process.stdout.write(JSON.stringify(await runHandler({ tool, input: { message: 'hi' }, ctx: { tenantId: 't', runId: 'r', env: {}, secrets: {}, config: {} } })));
+      `);
+      expect(answer).toEqual({ kind: 'ok', value: { echoed: 'hi' } });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
