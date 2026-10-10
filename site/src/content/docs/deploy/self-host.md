@@ -157,6 +157,11 @@ Its log says it's listening:
 {"time":"2026-10-08T19:38:48.568Z","level":"info","severity":"INFO","subsystem":"pack","message":"Listening on port 8080","port":8080,"packId":"acme-pack","artifactVersion":"20261008.193828","event":"listening","kind":"listening"}
 ```
 
+`pack.env` holds the token and the variables your pack declares. The
+service drops any other variable before your code loads, and its log names
+each one (`env-dropped`), never its value
+([Declare the environment your code reads](../../guides/secrets/pack-env/#in-a-deployment)).
+
 ## 5. Configure and start the runtime
 
 Make an API token. Your CLI and apps send it as their bearer:

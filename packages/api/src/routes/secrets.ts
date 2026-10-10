@@ -18,7 +18,8 @@ import type {
   SecretVersionRecord,
 } from '../secrets-binding.js';
 import type { AppEnv } from '../types.js';
-import { hasCapability, requireEnvName, requireScope, scopesEqual } from './env.js';
+import { capabilityRefusal } from './denied.js';
+import { requireEnvName, requireScope, scopesEqual } from './env.js';
 import { clampLimit } from './pagination.js';
 import { queryScopeResourceRef, scopeResourceRef } from './scope-params.js';
 import { auditWrite } from './write-audit.js';
@@ -307,19 +308,8 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
 
-    if (!hasCapability(c, 'secrets:write')) {
-      c.status(statusFor('permission-denied') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'permission-denied',
-            message:
-              'Bearer token is missing the `secrets:write` capability required for this route.',
-          },
-          requestId,
-        ),
-      );
-    }
+    const missing = capabilityRefusal(c, authorizer, 'secrets:write');
+    if (missing !== undefined) return missing;
 
     let body: unknown;
     try {
@@ -503,19 +493,8 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
     const tenantId = c.get('tenantId') as TenantId;
     const name = c.req.param('name');
 
-    if (!hasCapability(c, 'secrets:rotate')) {
-      c.status(statusFor('permission-denied') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'permission-denied',
-            message:
-              'Bearer token is missing the `secrets:rotate` capability required for this route.',
-          },
-          requestId,
-        ),
-      );
-    }
+    const missing = capabilityRefusal(c, authorizer, 'secrets:rotate');
+    if (missing !== undefined) return missing;
 
     let body: unknown = {};
     const raw = await c.req.text();
@@ -826,18 +805,8 @@ export function secretsRouter(options: SecretsRouterOptions): Hono<AppEnv> {
     const hardFlag = c.req.query('hard') === 'true';
 
     const requiredCap = hardFlag ? 'secrets:revoke:hard' : 'secrets:revoke';
-    if (!hasCapability(c, requiredCap)) {
-      c.status(statusFor('permission-denied') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'permission-denied',
-            message: `Bearer token is missing the \`${requiredCap}\` capability required for this route.`,
-          },
-          requestId,
-        ),
-      );
-    }
+    const missing = capabilityRefusal(c, authorizer, requiredCap);
+    if (missing !== undefined) return missing;
 
     const envNameResult = requireEnvName(c.req.query('envName'));
     if (envNameResult.kind === 'err') {

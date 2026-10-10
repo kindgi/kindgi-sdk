@@ -294,6 +294,29 @@ When it starts, the runtime brings the database up to date: it applies the migra
 
 Migrations only go forward, and an older runtime isn't guaranteed to work on a database a newer one migrated. To go back, [restore the backup](#restore-into-a-fresh-database) you took before the upgrade, and run the older version on it.
 
+### From 0.1.5 to 0.1.6
+
+What's different once you rebuild your pack with 0.1.6:
+
+- **Variables your pack doesn't declare no longer reach it.** Before your
+  pack's code loads, its service drops every variable the pack doesn't
+  declare (`env` in `kindgi.config`, `[tool.kindgi.env]` in
+  `pyproject.toml`, `env` in `kindgi.config.json`), except Kindgi's own
+  (`KINDGI_*`) and the platform's. A key left in `pack.env` for something
+  else no longer reaches your tools. After the upgrade, look in the pack
+  service's log for a `WARN` line with `"event":"env-dropped"`. It names each
+  variable the service dropped, never its value:
+
+  ```json
+  {"time":"2026-10-10T07:01:47.789Z","level":"warn","severity":"WARNING","subsystem":"pack","message":"Dropped 2 variables the pack doesn't declare: ACME_UNDECLARED_KEY, AWS_SECRET_ACCESS_KEY (declare them in the pack's env, or set KINDGI_PACK_ENV_FILTER=off)","event":"env-dropped","kind":"env-dropped","names":["ACME_UNDECLARED_KEY","AWS_SECRET_ACCESS_KEY"]}
+  ```
+
+  If your code reads one of them, declare it
+  ([Declare the environment your code reads](../../guides/secrets/pack-env/)).
+  To keep the old behaviour meanwhile, set `KINDGI_PACK_ENV_FILTER=off` on
+  the pack service. A Python pack's image always names `GPG_KEY`: its base
+  image sets it, and nothing reads it.
+
 ### From 0.1.4 to 0.1.5
 
 The database migrates when 0.1.5 starts. What to check before you upgrade,

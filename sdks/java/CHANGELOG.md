@@ -7,6 +7,20 @@ heading into its version.
 
 ## Unreleased
 
+- `kindgi-pack`, `kindgi-pack-scala`: **only the names a pack declares reach
+  its code.** The launcher (`kindgi-pack-java`) drops every variable the pack
+  doesn't declare before the JVM starts, keeping `KINDGI_*`, the platform's,
+  and the names in `KINDGI_PACK_ENV_DECLARED`, which `kindgi build` sets in
+  the image. The service logs the dropped names (`env-dropped`), never their
+  values, and won't start while an undeclared variable still reaches it.
+  `KINDGI_PACK_ENV_FILTER=off` keeps every variable.
+- `kindgi-pack`, `kindgi-pack-scala`: **the indexer warns when a guardrail's
+  check id doesn't start with the pack's id** (`<pack id>.`; the check id is
+  `checkId`, or the guardrail's own id). Packs in one tenant share one space
+  of check names, so the warning says to name it `<pack id>.checks.<name>`.
+  It's a warning only: the pack builds and indexes as before, and
+  `kindgi build` and `kindgi dev` print it.
+
 ## 0.1.5
 
 No JVM changes; the version moves with the npm packages.
