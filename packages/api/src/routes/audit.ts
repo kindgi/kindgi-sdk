@@ -81,7 +81,7 @@ interface WireSignInEvent {
   readonly timestamp: string;
   readonly kind: SignInEventKind;
   readonly outcome: string;
-  /** The person: the actor (`user:<id>`), or the person a link was for. */
+  /** The person the event is about: its subject, else its actor, else the person a link was for. */
   readonly userId?: string;
   /** How: `api-token`, `email-link`, `google`, `microsoft`, `github`, or a workspace provider's id. */
   readonly method?: string;
@@ -89,6 +89,8 @@ interface WireSignInEvent {
   /** Why a sign-in was refused, or which limit held. */
   readonly reason?: string;
   readonly sessionId?: string;
+  /** Who acted, when it isn't `userId`: the admin who ended this person's sessions. */
+  readonly byUserId?: string;
 }
 
 export function auditRouter(binding: AuditEventBinding, authorizer?: Authorizer): Hono<AppEnv> {
@@ -265,8 +267,14 @@ export function auditRouter(binding: AuditEventBinding, authorizer?: Authorizer)
       tenantId,
       filter: {
         ...(kind !== undefined ? { kind } : { kinds: SIGN_IN_EVENT_KINDS }),
-        // A person's own sign-ins and sign-outs: the events they're the actor of.
-        ...(userId !== undefined && userId.length > 0 && { actor: `user:${userId}` }),
+        // A person's history: the events about them (their sign-ins and
+        // sign-outs, and their sessions an admin ended), with a binding that
+        // filters by subject; else, as before, the events they're the actor of.
+        ...(userId !== undefined &&
+          userId.length > 0 &&
+          (binding.filtersBySubject === true
+            ? { subject: `user:${userId}` }
+            : { actor: `user:${userId}` })),
         ...(from !== undefined && from.length > 0 && { from }),
         ...(to !== undefined && to.length > 0 && { to }),
       },
@@ -303,12 +311,18 @@ function signInToWire(event: AuditEvent): WireSignInEvent {
   const doc = extractDoc(event.payload) ?? {};
   const str = (value: unknown) => (typeof value === 'string' && value !== '' ? value : undefined);
   // `user:system` is an anonymous request (a refusal, a link anyone may ask
-  // for): the person, if any, is the one the event is about (`personId`).
-  const actor =
-    event.actor.startsWith('user:') && event.actor !== 'user:system'
-      ? event.actor.slice(5)
+  // for): the person, if any, is the one the event is about (`subject`, or
+  // `personId` from before it). An admin who ended someone's sessions is
+  // the actor, and that person the subject.
+  const userOf = (principal: string | undefined) =>
+    principal?.startsWith('user:') === true && principal !== 'user:system'
+      ? principal.slice(5)
       : undefined;
-  const userId = actor ?? str(doc.personId);
+  const actor = userOf(event.actor);
+  const subject = userOf(event.subject);
+  const userId = subject ?? actor ?? str(doc.personId);
+  const byUserId =
+    subject !== undefined && actor !== undefined && actor !== subject ? actor : undefined;
   const method = str(doc.method) ?? str(doc.providerId);
   const clientAddress = str(doc.clientAddress);
   const reason = str(doc.reason) ?? str(doc.limit);
@@ -323,6 +337,7 @@ function signInToWire(event: AuditEvent): WireSignInEvent {
     ...(clientAddress !== undefined && { clientAddress }),
     ...(reason !== undefined && { reason }),
     ...(sessionId !== undefined && { sessionId }),
+    ...(byUserId !== undefined && { byUserId }),
   };
 }
 
