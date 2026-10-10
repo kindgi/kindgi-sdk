@@ -89,6 +89,7 @@ describe('fromWire — conflicts', () => {
     'service-account-name-taken',
     'service-account-unregistered',
     'identity-user-email-taken',
+    'provider-key-in-use',
   ])('a %s is a conflict, its code the reason', (code) => {
     expect(fromWire({ code, message: 'taken' })).toEqual({
       code: 'conflict',
@@ -131,6 +132,23 @@ describe('fromWire — live versions', () => {
     expect(
       fromWire({ code: 'provider-config-invalid', message: 'm', details: { issues } }, 422),
     ).toMatchObject({ code: 'invalid-request', serverCode: 'provider-config-invalid', issues });
+  });
+
+  it('a provider-key-refused is an invalid request, naming the secret and its provider', () => {
+    expect(
+      fromWire(
+        {
+          code: 'provider-key-refused',
+          message: 'm',
+          details: { secret: 'ANTHROPIC_API_KEY', providerId: 'anthropic' },
+        },
+        400,
+      ),
+    ).toMatchObject({
+      code: 'invalid-request',
+      serverCode: 'provider-key-refused',
+      fields: { secret: 'ANTHROPIC_API_KEY', providerId: 'anthropic' },
+    });
   });
 
   it('a scope-invalid is an invalid request', () => {
