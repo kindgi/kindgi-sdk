@@ -30,7 +30,12 @@ import * as addFormatsModule from 'ajv-formats';
 import { Ajv2020 } from 'ajv/dist/2020.js';
 
 import type { Logger } from '@kindgi/log';
-import { type ZodLikeSchema, isZodSchema, parseWithSchema } from '@kindgi/schema';
+import {
+  ALLOW_UNION_TYPES,
+  type ZodLikeSchema,
+  isZodSchema,
+  parseWithSchema,
+} from '@kindgi/schema';
 import type { Result } from '@kindgi/types';
 
 /**
@@ -181,7 +186,7 @@ export function compileSchema(
   const ajv = new Ajv2020({
     strict: true,
     allErrors: true,
-    allowUnionTypes: false,
+    allowUnionTypes: ALLOW_UNION_TYPES,
     ...(side === 'input' && { useDefaults: true }),
   });
   addFormats(ajv);

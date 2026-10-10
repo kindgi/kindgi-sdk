@@ -2,11 +2,12 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { TupleEnqueueHook } from '@kindgi/authz';
-import type { Guardrail } from '@kindgi/guardrails';
+import type { CodeArtifactRef, Guardrail } from '@kindgi/guardrails';
 import type { Scope } from '@kindgi/platform';
 import type { Cursor, GuardrailId, ProjectId, TenantId } from '@kindgi/types';
 
 import type { RegistryReadOnly } from './registry-read-only.js';
+import type { RegistryRefreshOutcome } from './tool-binding.js';
 
 /**
  * Caller-plugged surface for the guardrail catalog. Same shape as
@@ -62,6 +63,35 @@ export interface GuardrailRegistryBinding {
    * route flips the latter to `404`.
    */
   unregister(input: GuardrailUnregisterInput): Promise<GuardrailUnregisterOutcome>;
+  /**
+   * Optional. Give a guardrail what a new deploy of the same pack derived
+   * for it: where its check's code is now (`codeArtifactRef`) and that
+   * check's config schema (`configSchema`). What its author declares
+   * doesn't change: a deploy keeps a guardrail only when that's equal.
+   * Without it, a kept guardrail keeps what its first deploy derived (the
+   * pointer is metadata, as pack code runs by check name; the config
+   * schema is what a config is checked against).
+   */
+  refreshDeployedFields?(input: GuardrailRefreshInput): Promise<RegistryRefreshOutcome>;
+}
+
+export interface GuardrailRefreshInput {
+  readonly tenantId: TenantId;
+  readonly guardrailId: GuardrailId;
+  /** Where the check's code is now; `null` for none. */
+  readonly codeArtifactRef: CodeArtifactRef | null;
+  /** The check's config schema now; `null` for none. */
+  readonly configSchema: Readonly<Record<string, unknown>> | null;
+  /**
+   * Compare-and-set: refresh only while the guardrail still holds these
+   * (`null`: none), else answer `{ refreshed: false }` and change nothing.
+   * A deploy's rollback passes what it wrote, so it never undoes a refresh
+   * another deploy made since.
+   */
+  readonly expected?: {
+    readonly codeArtifactRef: CodeArtifactRef | null;
+    readonly configSchema: Readonly<Record<string, unknown>> | null;
+  };
 }
 
 export interface GuardrailListInput {

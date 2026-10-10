@@ -3,6 +3,7 @@
 
 import { Hono } from 'hono';
 
+import type { AuditEventBinding } from '@kindgi/audit-events';
 import { tuplesForCreate } from '@kindgi/authz';
 import type { Scope } from '@kindgi/platform';
 import type { Cursor, EnvName, TenantId } from '@kindgi/types';
@@ -12,8 +13,10 @@ import type { EnvBinding, EnvRecord, EnvSetOutcome } from '../env-binding.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
+import { capabilityRefusal } from './denied.js';
 import { clampLimit } from './pagination.js';
 import { parseScopeParams, queryScopeResourceRef } from './scope-params.js';
+import { auditWrite } from './write-audit.js';
 
 /**
  * `/v1/env/*` — HTTP surface for `EnvBinding`. Four endpoints, one
@@ -31,7 +34,16 @@ import { parseScopeParams, queryScopeResourceRef } from './scope-params.js';
  * read path. Capability gate: `env:write` for PUT + DELETE; unset →
  * 403 `permission-denied` (fail-closed).
  */
-export function envRouter(envBinding: EnvBinding, authorizer?: Authorizer): Hono<AppEnv> {
+/**
+ * `auditEvents`: where each write is recorded (`env-set`, `env-deleted`): the
+ * caller, the scope, the request and the backend's answer, never a value.
+ * Absent: none.
+ */
+export function envRouter(
+  envBinding: EnvBinding,
+  authorizer?: Authorizer,
+  auditEvents?: AuditEventBinding,
+): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
   // Authorization PEP — scope-anchored. Env reads are STRICT (scope admins
@@ -134,18 +146,8 @@ export function envRouter(envBinding: EnvBinding, authorizer?: Authorizer): Hono
     const tenantId = c.get('tenantId') as TenantId;
     const name = c.req.param('name');
 
-    if (!hasCapability(c, 'env:write')) {
-      c.status(statusFor('permission-denied') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'permission-denied',
-            message: 'Bearer token is missing the `env:write` capability required for this route.',
-          },
-          requestId,
-        ),
-      );
-    }
+    const missing = capabilityRefusal(c, authorizer, 'env:write');
+    if (missing !== undefined) return missing;
 
     let body: unknown;
     try {
@@ -260,9 +262,25 @@ export function envRouter(envBinding: EnvBinding, authorizer?: Authorizer): Hono
         tuplesForCreate({ kind: 'env', id: envRowId, tenantId, scope: setScope }),
     });
 
+    const setAudit = {
+      kind: 'env-set',
+      scope: setScope,
+      envName: envNameResult.envName,
+      name,
+    } as const;
     if (outcome.kind === 'ok') {
+      await auditWrite(c, auditEvents, {
+        ...setAudit,
+        outcome: 'succeeded',
+        version: outcome.record.revision,
+      });
       return c.json(serializeEnvRecord(outcome.record));
     }
+    await auditWrite(c, auditEvents, {
+      ...setAudit,
+      outcome: 'failed',
+      errorCode: outcome.kind === 'revision-conflict' ? 'env-write-conflict' : outcome.code,
+    });
     if (outcome.kind === 'revision-conflict') {
       c.status(statusFor('env-write-conflict') as never);
       return c.json(
@@ -286,18 +304,8 @@ export function envRouter(envBinding: EnvBinding, authorizer?: Authorizer): Hono
     const tenantId = c.get('tenantId') as TenantId;
     const name = c.req.param('name');
 
-    if (!hasCapability(c, 'env:write')) {
-      c.status(statusFor('permission-denied') as never);
-      return c.json(
-        toWireError(
-          {
-            code: 'permission-denied',
-            message: 'Bearer token is missing the `env:write` capability required for this route.',
-          },
-          requestId,
-        ),
-      );
-    }
+    const missing = capabilityRefusal(c, authorizer, 'env:write');
+    if (missing !== undefined) return missing;
 
     const envNameResult = requireEnvName(c.req.query('envName'));
     if (envNameResult.kind === 'err') {
@@ -320,6 +328,16 @@ export function envRouter(envBinding: EnvBinding, authorizer?: Authorizer): Hono
       envName: envNameResult.envName,
       name,
     });
+    // Only a delete that removed something is recorded.
+    if (outcome.deleted) {
+      await auditWrite(c, auditEvents, {
+        kind: 'env-deleted',
+        scope: scopeResult.scope,
+        envName: envNameResult.envName,
+        name,
+        outcome: 'succeeded',
+      });
+    }
     return c.json({ deleted: outcome.deleted });
   });
 
@@ -404,16 +422,6 @@ export function scopesEqual(a: unknown, b: Scope): boolean {
     return ao.projectId === (b.projectId as unknown as string);
   }
   return true;
-}
-
-/** Capability presence check — fail-closed if `capabilities` is absent. */
-export function hasCapability(
-  c: { get: (k: 'capabilities') => readonly string[] | undefined },
-  cap: string,
-): boolean {
-  const caps = c.get('capabilities');
-  if (caps === undefined) return false;
-  return caps.includes(cap);
 }
 
 function serializeEnvRecord(rec: EnvRecord): Record<string, unknown> {

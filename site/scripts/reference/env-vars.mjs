@@ -13,15 +13,24 @@
 import { ENV_GROUPS, KINDGI_ENV_SCHEMA } from '@kindgi/env-schema';
 
 const BACKENDS = ['none', 'postgres', 'dotenv', 'secret-manager'];
-const KMS = ['gcp', 'aws', 'libsodium', 'vault'];
+const KMS = ['gcp', 'azure', 'aws', 'libsodium', 'vault'];
+const MANAGERS = ['azure', 'gcp', 'aws', 'vault'];
 
-/** Every server target: each backend × KMS × pack transport (and the unset forms). */
+/** Every server target: each backend × KMS × secret manager × pack transport (and the unset forms). */
 function serverTargets() {
   const targets = [];
   for (const secretsBackend of [undefined, ...BACKENDS]) {
     for (const secretsBackendKms of [undefined, ...KMS]) {
-      for (const packTransport of [undefined, 'http']) {
-        targets.push({ component: 'server', secretsBackend, secretsBackendKms, packTransport });
+      for (const secretsManager of [undefined, ...MANAGERS]) {
+        for (const packTransport of [undefined, 'http']) {
+          targets.push({
+            component: 'server',
+            secretsBackend,
+            secretsBackendKms,
+            secretsManager,
+            packTransport,
+          });
+        }
       }
     }
   }
@@ -54,6 +63,10 @@ function conditions(matching) {
   const kms = [...values('secretsBackendKms')];
   if (kms.length < KMS.length + 1) {
     words.push(`\`KINDGI_SECRETS_BACKEND_KMS=${kms.filter(Boolean).join('` or `')}\``);
+  }
+  const managers = [...values('secretsManager')];
+  if (managers.length < MANAGERS.length + 1) {
+    words.push(`\`KINDGI_SECRETS_MANAGER=${managers.filter(Boolean).join('` or `')}\``);
   }
   const transport = [...values('packTransport')];
   if (transport.length === 1 && transport[0] === 'http') {

@@ -334,6 +334,77 @@ kindgi runs start --flow=my-pack.check-order --input='{"orderId":"ord_9999"}'
 What the handler returns is checked against the output schema too; a return
 value that doesn't fit fails with `output-validation-failed`.
 
+## Make a side effect happen once
+
+A run's step can run more than once: resumed after an approval, retried after
+a failure, or run again when the runtime restarted while it ran. A tool that
+changes something (a refund, an email, a payment) would then do it twice.
+
+`ctx.idempotencyKey` is the same every time the same call runs, and
+different for every other call. Pass it to the system you write to, which
+keeps the first request and answers a repeat with it:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// in tools/issue-refund/index.ts, in the handler
+const res = await fetch('https://payments.acme.example/refunds', {
+  method: 'POST',
+  headers: {
+    'content-type': 'application/json',
+    ...(ctx.idempotencyKey !== undefined && { 'idempotency-key': ctx.idempotencyKey }),
+  },
+  body: JSON.stringify({ orderId: input.orderId, amount: input.amount }),
+});
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# in tools/issue_refund.py, in the handler
+headers = {"Idempotency-Key": ctx.idempotency_key} if ctx.idempotency_key else {}
+res = httpx.post(
+    "https://payments.acme.example/refunds",
+    json={"orderId": ref.order_id, "amount": ref.amount},
+    headers=headers,
+)
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// in src/main/java/acme/tools/IssueRefund.java, in the handler
+HttpRequest.Builder request = HttpRequest.newBuilder(URI.create("https://payments.acme.example/refunds"))
+    .POST(HttpRequest.BodyPublishers.ofString(body));
+if (ctx.idempotencyKey() != null) {
+  request.header("Idempotency-Key", ctx.idempotencyKey());
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// in src/main/scala/acme/tools/IssueRefund.scala, in the handler
+val request = HttpRequest.newBuilder(URI.create("https://payments.acme.example/refunds"))
+  .POST(HttpRequest.BodyPublishers.ofString(body))
+Option(ctx.idempotencyKey).foreach(key => request.header("Idempotency-Key", key))
+```
+
+</TabItem>
+</Tabs>
+
+When the system has no such key, keep it with what you wrote (in a column
+that must be unique) and look for it before you write. The key is a UUID.
+
+- **`requestId` won't do.** A model's call id is only unique within one of
+  its answers: two turns of a loop can share one.
+- **It can be absent:** outside a run (a unit test passes its own), and with
+  a runtime from before 0.1.6. The call can't be deduped on it then.
+
 ## Check the run's org
 
 When your app keeps several customers' data, give each customer its own Kindgi
