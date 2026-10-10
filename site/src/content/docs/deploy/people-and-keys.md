@@ -105,6 +105,46 @@ Taking tenant admin away is refused in two cases:
   tenant admin again at every start. Unset `KINDGI_SEED_USER_ID` and restart
   the runtime first.
 
+## What you may do
+
+`GET /v1/identity/me/permissions` answers what you, the caller, may do, with
+your API key's limits applied. Unlike `grants`, it counts every way you hold
+a role.
+
+- **`tenant`:** `{admin, member}`.
+- **`reviewer`:** when you're a reviewer, your role, your reviewer `id` (an
+  approval assigned to you names it in `assignedTo`; absent without a roster
+  row, or from a runtime before 0.1.6), the approvals' roles you may decide
+  (your rank and below), and whether you can decide at all.
+- **`key`:** when you call with an API key, its role and the project it's
+  limited to.
+- **`tokenCapabilities`:** what your token itself carries for secret, env and
+  signing-key writes. A sign-in session carries none; an API key carries
+  those it was minted with (none by default).
+- **`projects`:** each project you may read, with your highest role in it and
+  every way you hold one (`via`):
+  - `direct`, or through a `team`, with `since` when the runtime keeps it;
+  - `org-admin`, as an admin of the org it sits in;
+  - `tenant-admin`.
+- **`orgs` and `teams`:** your own, with your role in each.
+- **`capabilities`:** what each project role allows on the project and on
+  each kind of object in it, read from the runtime's authorization model.
+  Your project role's entry is what you may do there.
+- **`readOnlyNotice`:** the line the console shows someone who may only
+  view a project, when a tenant admin set one. It's in the tenant config,
+  `kind: 'config'`, key `console.readOnlyNotice`, plain text on one line, at
+  most 280 characters.
+
+A key limited to a project sees that project alone. A `member` key is never
+a tenant admin. You only see what you may read: no project you can't read,
+no one else's role.
+
+The console hides actions by it. The server still checks every call.
+
+On a runtime without an authorization store it answers
+`501 permissions-unsupported`. In the clients it's
+`client.identity.me.permissions()` (TypeScript and Python).
+
 ## API keys
 
 Everyone can make their own keys:

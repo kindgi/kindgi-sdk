@@ -63,6 +63,7 @@
  * per-route parsers in `routes/*.ts` validate ad hoc.
  */
 
+import { OBJECT_ACTIONS, OBJECT_TYPES } from '@kindgi/authz';
 import { EVIDENCE_KINDS } from '@kindgi/compliance';
 import {
   MAX_TOOL_ERROR_RETRIES,
@@ -176,7 +177,7 @@ export const RunTriggerSchema: JsonSchema = {
   additionalProperties: false,
   required: ['triggerId', 'kind', 'fireId'],
   description:
-    'Set on a run a trigger started (a schedule, an event trigger or an inbound webhook): the trigger and the fire that started it. Absent on other runs.',
+    "Set on a run a trigger started: the trigger and the fire that started it. Absent on other runs. The runtime fires schedules only; `event` and `webhook` are kept for event triggers and inbound webhooks, which aren't served yet.",
   properties: {
     triggerId: { type: 'string', format: 'uuid' },
     kind: { type: 'string', enum: ['schedule', 'event', 'webhook'] },
@@ -622,6 +623,76 @@ export const RunFailureSchema: JsonSchema = {
   },
 };
 
+export const RunWaitingApprovalSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['approvalId', 'status', 'requiredRole', 'createdAt', 'subjectKind'],
+  description:
+    "An approval the run waits for, as a run reader sees it: its identity and state. Its subject's details, description, context and decision stay on `GET /v1/approvals/{approvalId}`, behind the reviewer gate.",
+  properties: {
+    approvalId: { type: 'string', format: 'uuid' },
+    status: {
+      type: 'string',
+      description: 'Still to be decided: `pending`, `assigned`, `in_review` or `escalated`.',
+    },
+    requiredRole: {
+      type: 'string',
+      description: 'The reviewer role that may decide it, or above.',
+    },
+    title: { type: 'string' },
+    createdAt: { type: 'string', format: 'date-time' },
+    expiresAt: { type: 'string', format: 'date-time' },
+    subjectKind: {
+      type: 'string',
+      description: 'What waits: e.g. `tool-call:pending` (a tool call held for review).',
+    },
+    tool: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['id', 'version', 'callId'],
+      description:
+        "For a tool call held for review: which tool and which call. Never the call's arguments.",
+      properties: {
+        id: { type: 'string', description: 'The tool id.' },
+        version: { type: 'string' },
+        callId: { type: 'string', description: "The model's id for the call." },
+      },
+    },
+  },
+};
+
+export const RunWaitingForSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['approvals', 'other'],
+  description:
+    "Set on a suspended run by `GET /v1/runs/{runId}` (not the list): what it waits for, its journal's open waits. `approvals`: those still to be decided, linked to the waits. `other`: the rest. Absent from a runtime before Kindgi 0.1.6, or when the journal can't be read; `kindgi runs resume` then works it out itself.",
+  properties: {
+    approvals: { type: 'array', items: { $ref: '#/components/schemas/RunWaitingApproval' } },
+    other: {
+      type: 'array',
+      items: {
+        type: 'object',
+        required: ['what'],
+        description:
+          '`child-run` (`childRunId`, `childStatus`, `timesOutAt`): a child run must finish. `decided-approval` (`approvalId`, `approvalStatus`): decided, the runtime continues. `unattributed` (`tokenId`, `timesOutAt`): a wait no approval is linked to. `no-open-wait`: the journal shows none; the runtime picks the run up again.',
+        properties: {
+          what: {
+            type: 'string',
+            enum: ['child-run', 'decided-approval', 'unattributed', 'no-open-wait'],
+          },
+          childRunId: { type: 'string', format: 'uuid' },
+          childStatus: { type: 'string' },
+          approvalId: { type: 'string', format: 'uuid' },
+          approvalStatus: { type: 'string' },
+          tokenId: { type: 'string' },
+          timesOutAt: { type: 'string', format: 'date-time' },
+        },
+      },
+    },
+  },
+};
+
 export const RunSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -673,6 +744,7 @@ export const RunSchema: JsonSchema = {
       description: 'Set on a child run: the node in the parent run that started it.',
     },
     agent: { $ref: '#/components/schemas/RunAgent' },
+    waitingFor: { $ref: '#/components/schemas/RunWaitingFor' },
     trigger: { $ref: '#/components/schemas/RunTrigger' },
     replayOf: {
       type: 'string',
@@ -1258,8 +1330,34 @@ export const ApprovalSchema: JsonSchema = {
     expiresAt: { type: 'string', format: 'date-time' },
     decision: {
       description:
-        "The reviewer's decision, once one is recorded. Absent while the approval is open, and when it ended without one (it expired, or a timeout escalated it).",
+        "The reviewer's decision, once one is recorded. Absent while the approval is open, and when it ended without one (it expired, a timeout escalated it, or its run's end withdrew it).",
       $ref: '#/components/schemas/ApprovalDecisionRecord',
+    },
+    requestedBy: {
+      type: 'string',
+      description:
+        'Who asked for it, when recorded: `user:<id>`, `service_account:<id>` or `system:<what>`.',
+    },
+    separateApprover: {
+      type: 'boolean',
+      description:
+        'Whether the person who asked may not approve it (four eyes). A runtime that knows it always sends it, `false` included.',
+    },
+    withdrawnBecause: {
+      type: 'string',
+      enum: ['run-cancelled', 'run-ended'],
+      description:
+        "Why it was withdrawn, when its run's end withdrew it (a reviewer's withdrawal has its `decision` instead).",
+    },
+    escalatedFrom: {
+      type: 'string',
+      format: 'uuid',
+      description: 'The approval this one was escalated from.',
+    },
+    escalatedTo: {
+      type: 'string',
+      format: 'uuid',
+      description: 'The approval this one was escalated to.',
     },
   },
 };
@@ -1305,8 +1403,7 @@ export const ApprovalCollectionPageSchema: JsonSchema = {
     data: { type: 'array', items: { $ref: '#/components/schemas/Approval' } },
     nextCursor: {
       type: 'string',
-      description:
-        'Opaque cursor for the next page. ISO timestamp of the tail row internally; treat as opaque on the client.',
+      description: 'Opaque cursor for the next page; treat as opaque on the client.',
     },
     hasMore: { type: 'boolean' },
   },
@@ -1533,6 +1630,8 @@ export const ExportAuditBundleResultSchema: JsonSchema = signedExportEnvelope({
 export const CompleteApprovalResultSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
+  description:
+    "A recorded decision, and what it did to the run waiting on the approval. `runStatus` is the run's status when the decision couldn't resolve its waitpoint because the run had already ended (e.g. `cancelled` after the decision was recorded); the decision stands.",
   required: ['kind', 'approval', 'decision', 'waitpointResolved'],
   properties: {
     kind: { type: 'string', enum: ['terminal', 'escalated'] },
@@ -1545,8 +1644,11 @@ export const CompleteApprovalResultSchema: JsonSchema = {
     waitpointResolved: {
       type: 'boolean',
       description:
-        'True when the approval had a `waitTokenId` + terminal accept/reject and the run waitpoint was completed as part of this call.',
+        "True when the approval had a `waitTokenId` and this call resolved the run's waitpoint: approve and reject complete it; withdraw cancels it, so the run ends (`failed`, `hitl-withdrawn`).",
     },
+    // As `Run.status` has it: the schema inline (a `$ref` to `RunStatus`
+    // folds the generated Python client's `RunStatus` class away).
+    runStatus: RunStatusSchema,
     resume: {
       description:
         "How the run went on, when this call resumed it (the runtime resumes inline): `ok`, or `failed` with the run's error, e.g. `tool-version-unresolvable` when a tool version the turn started with is gone. The decision stands either way.",
@@ -1814,7 +1916,7 @@ export const AgentSchema: JsonSchema = {
       type: 'string',
       minLength: 1,
       description:
-        'Soft hint at the model level (`ModelInfo.name`, e.g. `claude-sonnet-4-6`). Combined with `preferredProvider`: both set → promote the exact tuple; only `preferredModel` → promote any provider exposing that model; only `preferredProvider` → promote every model of that provider.',
+        'Soft hint at the model level (`ModelInfo.name`, e.g. `claude-sonnet-5-5`). Combined with `preferredProvider`: both set → promote the exact tuple; only `preferredModel` → promote any provider exposing that model; only `preferredProvider` → promote every model of that provider.',
     },
     conversationPolicy: { $ref: '#/components/schemas/ConversationPolicy' },
     budget: { $ref: '#/components/schemas/TurnBudget' },
@@ -2930,7 +3032,7 @@ export const ObservationCollectionPageSchema: JsonSchema = {
     data: { type: 'array', items: { $ref: '#/components/schemas/Observation' } },
     nextCursor: {
       type: 'string',
-      description: 'Opaque ISO-timestamp cursor. Treat as opaque on the client.',
+      description: 'Opaque cursor for the next page; treat as opaque on the client.',
     },
     hasMore: { type: 'boolean' },
   },
@@ -3260,6 +3362,11 @@ export const JudgedRunContextSchema: JsonSchema = {
       additionalProperties: { type: 'object', additionalProperties: { type: 'string' } },
       description:
         "The env values each tool's calls were sent (`needsSpec.env`), by tool id: its first call's, as the run recorded them. A replay sends them to a read-only tool it runs live, so the tool reads the config the run saw, not today's. Absent for a run from before env was recorded.",
+    },
+    replayOf: {
+      type: 'string',
+      description:
+        "When the judged run is a comparison's replay: the run it re-ran, stamped at its first judgment. A test set built from judgments leaves replays out.",
     },
   },
 };
@@ -5110,7 +5217,7 @@ export const ModelInfoSchema: JsonSchema = {
     name: {
       type: 'string',
       minLength: 1,
-      description: 'Vendor-facing model id passed to the SDK (e.g. `claude-sonnet-4-6`).',
+      description: 'Vendor-facing model id passed to the SDK (e.g. `claude-sonnet-5-5`).',
     },
     contextWindow: {
       type: 'integer',
@@ -6676,6 +6783,11 @@ export const EvalComparisonSchema: JsonSchema = {
     },
     overrides: { $ref: '#/components/schemas/EvalOverrides' },
     sample: { $ref: '#/components/schemas/EvalSample' },
+    rescoreOf: {
+      type: 'string',
+      description:
+        "Rescore that comparison eval run instead of replaying: its replays' outputs are scored again, with the judgments recorded on them since (a changed answer judged on the replay itself). Nothing runs, and the run rescored stays as it was. Set by `POST /v1/eval-runs/{runId}/rescore`.",
+    },
   },
 };
 
@@ -6715,6 +6827,12 @@ export const ComparisonMetricSchema: JsonSchema = {
     spread: {
       type: 'number',
       description: "With more than one repetition: the candidate's max − min across them.",
+    },
+    freshWeight: {
+      type: 'number',
+      minimum: 0,
+      description:
+        "Of `weight`, the part judged on the candidate's replays themselves (a rescore, after people judged a changed answer there). Absent when none. Not on `weightedPrecisionAtK`.",
     },
   },
 };
@@ -6860,6 +6978,16 @@ export const JudgedComparisonSummarySchema: JsonSchema = {
       description:
         "Cases an erasure cleared (a person's words were erased): left out of the run and the metrics. Absent: none.",
     },
+    rescoreOf: {
+      type: 'string',
+      description: 'A rescore: the comparison eval run whose replays it scored again.',
+    },
+    notRescored: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "A rescore: cases whose replays couldn't be read again (a retention purge, say), kept at their earlier scores. Absent: none.",
+    },
     stopped: {
       type: 'integer',
       minimum: 0,
@@ -6930,6 +7058,18 @@ const outputScore = {
       required: ['yesWeight', 'totalWeight'],
       properties: { yesWeight: { type: 'number' }, totalWeight: { type: 'number' } },
     },
+    fresh: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['yesWeight', 'totalWeight', 'items'],
+      description:
+        'The part of these sums judged on this output itself (a replay judged after it ran). Absent when none was.',
+      properties: {
+        yesWeight: { type: 'number' },
+        totalWeight: { type: 'number' },
+        items: { type: 'integer', minimum: 1 },
+      },
+    },
   },
 } as const;
 
@@ -6995,6 +7135,14 @@ export const ComparisonCaseResultSchema: JsonSchema = {
               key: { type: 'string' },
               pointer: { type: 'string' },
               rank: { type: 'integer' },
+              judged: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['yesWeight', 'totalWeight'],
+                description:
+                  'What people said about this item on the replay itself, once they judged it there.',
+                properties: { yesWeight: { type: 'number' }, totalWeight: { type: 'number' } },
+              },
             },
           },
         },
@@ -7034,6 +7182,25 @@ export const ComparisonCaseResultSchema: JsonSchema = {
       required: ['toolId', 'arguments'],
       description: 'Set when the replay stopped at a refused write: what it would have done.',
       properties: { toolId: { type: 'string' }, arguments: {}, reason: { type: 'string' } },
+    },
+    rescored: {
+      type: 'boolean',
+      enum: [false],
+      description:
+        "Set in a rescore when this case's replays can't be read again: its scores are the run rescored's.",
+    },
+  },
+};
+
+export const RescoreEvalRunBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: 'Body of `POST /v1/eval-runs/{runId}/rescore`: optional.',
+  properties: {
+    projectId: {
+      type: 'string',
+      description:
+        "The run's project, needed only from a runtime that doesn't record it on the run.",
     },
   },
 };
@@ -7140,9 +7307,9 @@ export const StartEvalRunResultSchema: JsonSchema = {
 
 export const IdentityProviderKindSchema: JsonSchema = {
   type: 'string',
-  enum: ['oauth2', 'oidc', 'saml'],
+  enum: ['oidc', 'saml'],
   description:
-    "`oidc`: an OpenID Connect identity provider people sign in with (Okta, Entra ID, Google, Keycloak…); its endpoints come from its discovery document. `saml`: a SAML 2.0 identity provider people sign in with. `oauth2`: a plain OAuth 2.0 provider that isn't OpenID Connect (e.g. GitHub), with its endpoints given; pick `oidc` for any provider that speaks OpenID Connect.",
+    '`oidc`: an OpenID Connect identity provider people sign in with (Okta, Entra ID, Google, Keycloak…); its endpoints come from its discovery document. `saml`: a SAML 2.0 identity provider people sign in with.',
 };
 
 export const ClaimMappingScopesSpecSchema: JsonSchema = {
@@ -7200,16 +7367,9 @@ const CLIENT_SECRET_REF = {
   description: 'Opaque reference resolved server-side. Never a plaintext secret.',
 } as const;
 
-const ALLOWED_REDIRECT_URIS = {
-  type: 'array',
-  items: { type: 'string', minLength: 1 },
-  description:
-    'OAuth 2.1 BCP redirect-URI allowlist. Exact-string match required at /v1/auth/login. Absent/empty means no redirect-URI allowlist check (pass-through).',
-} as const;
-
 export const IdentityProviderSignInSchema: JsonSchema = {
   description:
-    'What to give the identity provider so it can send people back: set by the deployment on what it returns, ignored on registration. OIDC / OAuth 2.0: `redirectUri`. SAML: `spEntityId`, `acsUrl`, `spMetadataUrl`.',
+    'What to give the identity provider so it can send people back: set by the deployment on what it returns, ignored on registration. OIDC: `redirectUri`. SAML: `spEntityId`, `acsUrl`, `spMetadataUrl`.',
   oneOf: [
     {
       type: 'object',
@@ -7251,7 +7411,6 @@ export const OidcIdentityProviderConfigSchema: JsonSchema = {
     tokenEndpoint: { type: 'string', format: 'uri' },
     userinfoEndpoint: { type: 'string', format: 'uri' },
     jwksEndpoint: { type: 'string', format: 'uri' },
-    allowedRedirectUris: ALLOWED_REDIRECT_URIS,
     claimMapping: { $ref: '#/components/schemas/ClaimMappingSpec' },
   },
 };
@@ -7306,48 +7465,18 @@ export const SamlIdentityProviderConfigSchema: JsonSchema = {
   },
 };
 
-export const OAuth2IdentityProviderConfigSchema: JsonSchema = {
-  description:
-    "A plain OAuth 2.0 provider that isn't OpenID Connect (e.g. GitHub), run by this API's own OAuth flow (`/v1/auth/login` + callback). For a provider that speaks OpenID Connect, use `oidc`.",
-  type: 'object',
-  additionalProperties: false,
-  required: [
-    'providerId',
-    'kind',
-    'clientId',
-    'clientSecretRef',
-    'authorizationEndpoint',
-    'tokenEndpoint',
-    'scopes',
-  ],
-  properties: {
-    ...IDENTITY_PROVIDER_BASE_PROPERTIES,
-    kind: { type: 'string', const: 'oauth2' },
-    clientId: { type: 'string', minLength: 1 },
-    clientSecretRef: CLIENT_SECRET_REF,
-    authorizationEndpoint: { type: 'string', format: 'uri' },
-    tokenEndpoint: { type: 'string', format: 'uri' },
-    userinfoEndpoint: { type: 'string', format: 'uri' },
-    scopes: { type: 'array', items: { type: 'string' } },
-    allowedRedirectUris: ALLOWED_REDIRECT_URIS,
-    claimMapping: { $ref: '#/components/schemas/ClaimMappingSpec' },
-  },
-};
-
 export const IdentityProviderConfigSchema: JsonSchema = {
   description:
     'An identity provider registered on a tenant, one shape per `kind` (narrow on `kind` before reading kind-specific fields). Secrets are always REFERENCES resolved server-side (`clientSecretRef`, `spSigningKeyRef`, `spDecryptionKeyRef`); a plaintext secret never crosses the wire, and a `clientSecret` field is refused.',
   oneOf: [
     { $ref: '#/components/schemas/OidcIdentityProviderConfig' },
     { $ref: '#/components/schemas/SamlIdentityProviderConfig' },
-    { $ref: '#/components/schemas/OAuth2IdentityProviderConfig' },
   ],
   discriminator: {
     propertyName: 'kind',
     mapping: {
       oidc: '#/components/schemas/OidcIdentityProviderConfig',
       saml: '#/components/schemas/SamlIdentityProviderConfig',
-      oauth2: '#/components/schemas/OAuth2IdentityProviderConfig',
     },
   },
 };
@@ -7358,18 +7487,16 @@ export const IdentityProviderConfigSchema: JsonSchema = {
 // `ServiceAccountGrantBody`).
 export const RegisterIdentityProviderBodySchema: JsonSchema = {
   description:
-    'The identity provider to register, one shape per `kind`: `oidc`, `saml` or `oauth2`. Secrets by reference only (`clientSecretRef`, `spSigningKeyRef`, `spDecryptionKeyRef`); a `clientSecret` field is refused.',
+    'The identity provider to register, one shape per `kind`: `oidc` or `saml`. Secrets by reference only (`clientSecretRef`, `spSigningKeyRef`, `spDecryptionKeyRef`); a `clientSecret` field is refused.',
   oneOf: [
     { $ref: '#/components/schemas/OidcIdentityProviderConfig' },
     { $ref: '#/components/schemas/SamlIdentityProviderConfig' },
-    { $ref: '#/components/schemas/OAuth2IdentityProviderConfig' },
   ],
   discriminator: {
     propertyName: 'kind',
     mapping: {
       oidc: '#/components/schemas/OidcIdentityProviderConfig',
       saml: '#/components/schemas/SamlIdentityProviderConfig',
-      oauth2: '#/components/schemas/OAuth2IdentityProviderConfig',
     },
   },
 };
@@ -7381,14 +7508,12 @@ export const GetIdentityProviderResultSchema: JsonSchema = {
   oneOf: [
     { $ref: '#/components/schemas/OidcIdentityProviderConfig' },
     { $ref: '#/components/schemas/SamlIdentityProviderConfig' },
-    { $ref: '#/components/schemas/OAuth2IdentityProviderConfig' },
   ],
   discriminator: {
     propertyName: 'kind',
     mapping: {
       oidc: '#/components/schemas/OidcIdentityProviderConfig',
       saml: '#/components/schemas/SamlIdentityProviderConfig',
-      oauth2: '#/components/schemas/OAuth2IdentityProviderConfig',
     },
   },
 };
@@ -7402,6 +7527,12 @@ export const IdentityProviderCollectionPageSchema: JsonSchema = {
     hasMore: {
       type: 'boolean',
       description: 'Always `false`: the list comes whole. Absent from older servers.',
+    },
+    changes: {
+      type: 'string',
+      enum: ['tenant', 'operator'],
+      description:
+        "Who may add, change and remove the providers here: `tenant`, its admins; `operator`, only the deployment's own token, because the operator manages sign-in (`KINDGI_AUTH_TENANT_PROVIDERS=off`). The providers there sign people in either way. Absent from older servers: read it as `tenant`.",
     },
   },
 };
@@ -7448,6 +7579,12 @@ export const SignInOptionsSchema: JsonSchema = {
           type: 'boolean',
           description: 'Sign-in to the console with an API token (`POST /v1/auth/token-sign-in`).',
         },
+        sessionCookie: {
+          type: 'string',
+          enum: ['secure', 'plain'],
+          description:
+            "The browser session cookie's kind: `secure` (`Secure` and `__Host-`, kept by browsers only over https, and by some on http://localhost), or `plain` (development on a loopback address only, so every browser keeps it there). A sign-in page can check the browser keeps that kind before offering sign-in. Absent from older servers, and where there are no browser sessions: treat as `secure`.",
+        },
         emailLink: {
           type: 'object',
           additionalProperties: false,
@@ -7459,6 +7596,48 @@ export const SignInOptionsSchema: JsonSchema = {
         },
       },
     },
+  },
+};
+
+export const SignInEventSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'timestamp', 'kind', 'outcome'],
+  description:
+    'One sign-in audit event, flattened: who signed in or out, how, from where, and what was refused.',
+  properties: {
+    id: { type: 'string' },
+    timestamp: { type: 'string', format: 'date-time' },
+    kind: {
+      type: 'string',
+      enum: [
+        'signed-in',
+        'signed-out',
+        'sign-in-refused',
+        'sign-in-link-sent',
+        'sign-in-link-capped',
+        'sessions-revoked',
+        'sessions-ended',
+      ],
+      description:
+        '`signed-in` / `signed-out`; `sign-in-refused` (with `reason`); `sign-in-link-sent` / `sign-in-link-capped` (an emailed link, for `userId`; `reason` is the limit that held); `sessions-revoked` ("sign out everywhere", or removing a person); `sessions-ended` (a changed boot token).',
+    },
+    outcome: { type: 'string', description: '`succeeded` or `denied`.' },
+    userId: {
+      type: 'string',
+      description: 'The person: who signed in or out, or whom a link was for. Absent on a refusal.',
+    },
+    method: {
+      type: 'string',
+      description:
+        "How: `api-token`, `email-link`, `google`, `microsoft`, `github`, or a workspace identity provider's id.",
+    },
+    clientAddress: {
+      type: 'string',
+      description: "The client's address, as the runtime trusts it.",
+    },
+    reason: { type: 'string', description: 'Why a sign-in was refused, or which limit held.' },
+    sessionId: { type: 'string' },
   },
 };
 
@@ -7528,7 +7707,6 @@ export const UpdateIdentityProviderBodySchema: JsonSchema = {
     tokenEndpoint: NULLABLE_URI,
     userinfoEndpoint: NULLABLE_URI,
     jwksEndpoint: NULLABLE_URI,
-    allowedRedirectUris: NULLABLE_STRINGS,
     claimMapping: {
       oneOf: [{ $ref: '#/components/schemas/ClaimMappingSpec' }, { type: 'null' }],
     },
@@ -7586,44 +7764,7 @@ export const IdentityProviderSignInUrlsSchema: JsonSchema = {
   },
 };
 
-export const LoginBodySchema: JsonSchema = {
-  description:
-    'Optional body for `POST /v1/auth/login/:providerId`. `redirectUri` overrides `metadata.defaultRedirectUri` on the provider config; at least one MUST be supplied.',
-  type: 'object',
-  additionalProperties: false,
-  properties: {
-    redirectUri: { type: 'string', format: 'uri' },
-  },
-};
-
-export const AuthorizationResponseSchema: JsonSchema = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['authorizationUrl', 'state', 'codeChallenge', 'codeChallengeMethod'],
-  properties: {
-    authorizationUrl: {
-      type: 'string',
-      format: 'uri',
-      description:
-        'URL the caller redirects the user-agent to. Includes `client_id`, `redirect_uri`, `scope`, `state`, `code_challenge`, `code_challenge_method=S256`.',
-    },
-    state: { type: 'string', minLength: 1 },
-    codeChallenge: { type: 'string', minLength: 1 },
-    codeChallengeMethod: { type: 'string', enum: ['S256'] },
-  },
-};
-
-export const CallbackBodySchema: JsonSchema = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['code', 'state'],
-  properties: {
-    code: { type: 'string', minLength: 1 },
-    state: { type: 'string', minLength: 1 },
-  },
-};
-
-export const CallbackResultSchema: JsonSchema = {
+export const RefreshResultSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
   required: ['sessionToken', 'sessionId', 'expiresAt'],
@@ -7637,8 +7778,6 @@ export const CallbackResultSchema: JsonSchema = {
     expiresAt: { type: 'string', format: 'date-time' },
   },
 };
-
-export const RefreshResultSchema: JsonSchema = CallbackResultSchema;
 
 export const LogoutResultSchema: JsonSchema = {
   type: 'object',
@@ -7658,6 +7797,11 @@ export const WhoamiResultSchema: JsonSchema = {
   required: ['tenantId', 'scopes'],
   properties: {
     tenantId: { type: 'string', format: 'uuid' },
+    actor: {
+      type: 'string',
+      description:
+        "The caller as approvals name a person: `user:<id>` or `service_account:<id>`, the same string as an approval's `requestedBy` and a decision's `decidedBy`.",
+    },
     userId: { type: 'string' },
     sessionId: { type: 'string' },
     providerId: { type: 'string' },
@@ -7759,6 +7903,267 @@ export const PersonGrantsSchema: JsonSchema = {
       items: { $ref: '#/components/schemas/PersonTeamRole' },
     },
     reviewer: { $ref: '#/components/schemas/PersonReviewerRole' },
+  },
+};
+
+/** A project role as the authorization model holds it, highest first. */
+export const AccessRoleSchema: JsonSchema = {
+  type: 'string',
+  enum: ['owner', 'admin', 'editor', 'viewer'],
+  description:
+    'A project role, as the authorization model holds it: `owner` > `admin` > `editor` > `viewer` (a membership stored as `member` is `viewer`).',
+};
+
+export const AccessPathDirectSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'role'],
+  properties: {
+    kind: { type: 'string', enum: ['direct'] },
+    role: { $ref: '#/components/schemas/AccessRole' },
+    since: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When the membership was added, when the runtime keeps it.',
+    },
+  },
+};
+
+export const AccessPathTeamSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'teamId', 'teamName', 'role'],
+  properties: {
+    kind: { type: 'string', enum: ['team'] },
+    teamId: { type: 'string' },
+    teamName: { type: 'string' },
+    role: {
+      $ref: '#/components/schemas/AccessRole',
+      description: 'The role the team holds on the project.',
+    },
+    since: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When the caller joined the team, when the runtime keeps it.',
+    },
+  },
+};
+
+export const AccessPathOrgAdminSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind', 'orgId', 'orgName'],
+  description: 'An admin of the org the project sits in: admin on the project.',
+  properties: {
+    kind: { type: 'string', enum: ['org-admin'] },
+    orgId: { type: 'string' },
+    orgName: { type: 'string' },
+  },
+};
+
+export const AccessPathTenantAdminSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['kind'],
+  description: 'A tenant admin: admin on every project.',
+  properties: { kind: { type: 'string', enum: ['tenant-admin'] } },
+};
+
+export const AccessPathSchema: JsonSchema = {
+  description:
+    'One way the caller holds a role on a project: a membership of its own, a team it is in, an org it administers, or tenant admin.',
+  oneOf: [
+    { $ref: '#/components/schemas/AccessPathDirect' },
+    { $ref: '#/components/schemas/AccessPathTeam' },
+    { $ref: '#/components/schemas/AccessPathOrgAdmin' },
+    { $ref: '#/components/schemas/AccessPathTenantAdmin' },
+  ],
+  discriminator: { propertyName: 'kind' },
+};
+
+export const MyProjectAccessSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['projectId', 'name', 'role', 'via'],
+  properties: {
+    projectId: { type: 'string' },
+    name: { type: 'string' },
+    role: {
+      $ref: '#/components/schemas/AccessRole',
+      description: 'The highest role the caller holds on the project, whichever way.',
+    },
+    via: {
+      type: 'array',
+      description: 'Every way the caller holds a role on it (for "My access").',
+      items: { $ref: '#/components/schemas/AccessPath' },
+    },
+  },
+};
+
+export const MyOrgAccessSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['orgId', 'name', 'role'],
+  properties: {
+    orgId: { type: 'string' },
+    name: { type: 'string' },
+    role: { type: 'string', enum: ['admin', 'member'] },
+  },
+};
+
+export const MyTeamAccessSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['teamId', 'name', 'role'],
+  properties: {
+    teamId: { type: 'string' },
+    name: { type: 'string' },
+    role: { $ref: '#/components/schemas/TeamRole' },
+  },
+};
+
+export const MyReviewerAccessSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['role', 'decides', 'canDecide'],
+  properties: {
+    role: { $ref: '#/components/schemas/ReviewerRole' },
+    id: {
+      type: 'string',
+      description:
+        "The caller's reviewer id, its row on the roster: an approval assigned to the caller names it in `assignedTo`. Absent without a roster row (then `canDecide` is false), and from a runtime before 0.1.6.",
+    },
+    decides: {
+      type: 'array',
+      description:
+        "The approvals' required roles the caller may decide: its own rank and below, lowest first.",
+      items: { $ref: '#/components/schemas/ReviewerRole' },
+    },
+    canDecide: {
+      type: 'boolean',
+      description:
+        'Whether the caller can decide at all: deciding also needs its user and its row on the reviewer roster. False for a token that carries a reviewer role without them.',
+    },
+  },
+};
+
+/** What a project role allows, by object type, in `OBJECT_TYPES` order with each type's actions. */
+const PROJECT_SCOPED_TYPES = OBJECT_TYPES.filter(
+  (t) => t !== 'tenant' && t !== 'org' && t !== 'team' && t !== 'user',
+);
+
+export const RoleActionsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    'What a project role allows on the project and on every object of each type in it, by object type.',
+  required: [...PROJECT_SCOPED_TYPES],
+  properties: Object.fromEntries(
+    PROJECT_SCOPED_TYPES.map((t) => [
+      t,
+      { type: 'array', items: { type: 'string', enum: [...OBJECT_ACTIONS[t]] } },
+    ]),
+  ),
+};
+
+export const RoleCapabilitiesSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "What each project role allows, worked out by the runtime from its authorization model. A client decides an action as `capabilities[project.role][type]` holding it; the server still checks every call. An object can grant more on itself (an agent's own editor), never less, so this is what the caller may do at the least.",
+  required: ['owner', 'admin', 'editor', 'viewer'],
+  properties: {
+    owner: { $ref: '#/components/schemas/RoleActions' },
+    admin: { $ref: '#/components/schemas/RoleActions' },
+    editor: { $ref: '#/components/schemas/RoleActions' },
+    viewer: { $ref: '#/components/schemas/RoleActions' },
+  },
+};
+
+export const MyTenantAccessSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['admin'],
+  properties: {
+    admin: {
+      type: 'boolean',
+      description:
+        "Tenant admin, decided as the admin routes decide it (a `member` key's never is).",
+    },
+    member: {
+      type: 'boolean',
+      description:
+        "Tenant member: reads the tenant's settings. Absent when the runtime doesn't report it.",
+    },
+  },
+};
+
+export const MyKeyLimitsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['tokenId'],
+  description: "The caller's API key, when it is one, and what it limits.",
+  properties: {
+    tokenId: { type: 'string' },
+    role: { ...ApiTokenRoleSchema },
+    projectId: {
+      type: 'string',
+      description:
+        'The project the key is limited to: `projects` holds it alone, and no org or team is administered through it.',
+    },
+  },
+};
+
+export const MyPermissionsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "What the caller may do, with its API key's limits applied: tenant admin and member, its reviewer role, its key's limits and capabilities, the projects it may read with its role in each and how it holds it, its orgs and teams, and what each project role allows. Only what the caller may see: nothing names a project it can't read, or anyone else's role.",
+  required: [
+    'tenantId',
+    'tenant',
+    'tokenCapabilities',
+    'projects',
+    'orgs',
+    'teams',
+    'capabilities',
+  ],
+  properties: {
+    tenantId: { type: 'string', format: 'uuid' },
+    tenant: { $ref: '#/components/schemas/MyTenantAccess' },
+    reviewer: {
+      $ref: '#/components/schemas/MyReviewerAccess',
+      description: 'Present when the caller is a reviewer.',
+    },
+    key: { $ref: '#/components/schemas/MyKeyLimits' },
+    tokenCapabilities: {
+      type: 'array',
+      items: { type: 'string' },
+      description:
+        "The framework capabilities the caller's token carries (`env:write`, `secrets:write`, `secrets:rotate`, …), which secret, env and signing-key writes require on top of admin at their scope. A sign-in session carries none; an API key carries those it was minted with (`POST /v1/tokens`, none by default).",
+    },
+    projects: {
+      type: 'array',
+      description: 'The projects the caller may read, by name.',
+      items: { $ref: '#/components/schemas/MyProjectAccess' },
+    },
+    orgs: {
+      type: 'array',
+      description: 'The orgs the caller is a member or admin of, by name.',
+      items: { $ref: '#/components/schemas/MyOrgAccess' },
+    },
+    teams: {
+      type: 'array',
+      description: 'The teams the caller is a member or admin of, by name.',
+      items: { $ref: '#/components/schemas/MyTeamAccess' },
+    },
+    capabilities: { $ref: '#/components/schemas/RoleCapabilities' },
+    readOnlyNotice: {
+      type: 'string',
+      maxLength: 280,
+      description:
+        "The line a console shows a caller who may only view a project, as a tenant admin set it in the tenant config (`kind: 'config'`, key `console.readOnlyNotice`). Plain text on one line, at most 280 characters. Absent when none is set: the console shows its own.",
+    },
   },
 };
 
@@ -9909,7 +10314,7 @@ export const WebhookTriggerUnregisterResultSchema: JsonSchema = {
 
 export const WebhookEventTypeSchema: JsonSchema = {
   type: 'string',
-  enum: ['run.finished', 'improvement-pass.finished'],
+  enum: ['run.finished', 'improvement-pass.finished', 'approval.requested'],
   description: 'An event type an endpoint can subscribe to.',
 };
 
@@ -10093,6 +10498,11 @@ export const FinishedRunSchema: JsonSchema = {
     createdAt: { type: 'string', format: 'date-time' },
     completedAt: { type: 'string', format: 'date-time' },
     usage: { $ref: '#/components/schemas/RunTreeUsage' },
+    agent: {
+      $ref: '#/components/schemas/RunAgent',
+      description:
+        "On an agent's run: the agent, the version that ran and the conversation, as `GET /v1/runs/{runId}` shows them (an agent run's `flowId` is `agent.turn`). Absent on a flow's run, and from a runtime before Kindgi 0.1.6.",
+    },
   },
 };
 
@@ -10143,6 +10553,54 @@ export const ImprovementPassFinishedEventSchema: JsonSchema = {
   },
 };
 
+export const RequestedApprovalSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['approvalId', 'requiredRole', 'createdAt'],
+  description:
+    'The approval an `approval.requested` event names. What it is about stays behind sign-in: no `context`, no tool call or run input.',
+  properties: {
+    approvalId: { type: 'string' },
+    projectId: { type: 'string' },
+    requiredRole: {
+      $ref: '#/components/schemas/ReviewerRole',
+      description: 'The least reviewer role that may decide it.',
+    },
+    title: { type: 'string' },
+    assignedTo: { type: 'string', description: 'The one reviewer it is assigned to, when it is.' },
+    createdAt: { type: 'string', format: 'date-time' },
+    expiresAt: { type: 'string', format: 'date-time' },
+    url: {
+      type: 'string',
+      description: 'Its page in the console, when the runtime knows its public address.',
+    },
+  },
+};
+
+export const ApprovalRequestedEventDataSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['approval'],
+  properties: { approval: { $ref: '#/components/schemas/RequestedApproval' } },
+};
+
+export const ApprovalRequestedEventSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['id', 'type', 'createdAt', 'data'],
+  description:
+    "An approval was asked for: a reviewer's decision is waiting. Sent once per approval (an escalation is a new approval). `projectId` in the endpoint's filter narrows it to the approval's project.",
+  properties: {
+    id: {
+      type: 'string',
+      description: 'Event id, also sent as the `webhook-id` header; the same on every retry.',
+    },
+    type: { type: 'string', const: 'approval.requested' },
+    createdAt: { type: 'string', format: 'date-time' },
+    data: { $ref: '#/components/schemas/ApprovalRequestedEventData' },
+  },
+};
+
 export const WebhookTestEventSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -10165,6 +10623,7 @@ export const WebhookEventSchema: JsonSchema = {
   oneOf: [
     { $ref: '#/components/schemas/RunFinishedEvent' },
     { $ref: '#/components/schemas/ImprovementPassFinishedEvent' },
+    { $ref: '#/components/schemas/ApprovalRequestedEvent' },
     { $ref: '#/components/schemas/WebhookTestEvent' },
   ],
   discriminator: {
@@ -10172,6 +10631,7 @@ export const WebhookEventSchema: JsonSchema = {
     mapping: {
       'run.finished': '#/components/schemas/RunFinishedEvent',
       'improvement-pass.finished': '#/components/schemas/ImprovementPassFinishedEvent',
+      'approval.requested': '#/components/schemas/ApprovalRequestedEvent',
       'webhook.test': '#/components/schemas/WebhookTestEvent',
     },
   },
@@ -10270,6 +10730,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['HealthResult', HealthResultSchema],
   ['RunStatus', RunStatusSchema],
   ['RunAgent', RunAgentSchema],
+  ['RunWaitingFor', RunWaitingForSchema],
+  ['RunWaitingApproval', RunWaitingApprovalSchema],
   ['RunTrigger', RunTriggerSchema],
   ['ScopeSegment', ScopeSegmentSchema],
   ['LiveScopeTenant', LiveScopeTenantSchema],
@@ -10593,6 +11055,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['EvalRun', EvalRunSchema],
   ['EvalRunCollectionPage', EvalRunCollectionPageSchema],
   ['StartEvalRunBody', StartEvalRunBodySchema],
+  ['RescoreEvalRunBody', RescoreEvalRunBodySchema],
   ['StartEvalRunResult', StartEvalRunResultSchema],
   ['IdentityProviderKind', IdentityProviderKindSchema],
   ['ClaimMappingScopesSpec', ClaimMappingScopesSpecSchema],
@@ -10600,7 +11063,6 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['IdentityProviderSignIn', IdentityProviderSignInSchema],
   ['OidcIdentityProviderConfig', OidcIdentityProviderConfigSchema],
   ['SamlIdentityProviderConfig', SamlIdentityProviderConfigSchema],
-  ['OAuth2IdentityProviderConfig', OAuth2IdentityProviderConfigSchema],
   ['IdentityProviderConfig', IdentityProviderConfigSchema],
   ['RegisterIdentityProviderBody', RegisterIdentityProviderBodySchema],
   ['GetIdentityProviderResult', GetIdentityProviderResultSchema],
@@ -10608,15 +11070,12 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['SignInOption', SignInOptionSchema],
   ['SignInOptions', SignInOptionsSchema],
   ['TokenSignInResult', TokenSignInResultSchema],
+  ['SignInEvent', SignInEventSchema],
   ['RegisterIdentityProviderResult', RegisterIdentityProviderResultSchema],
   ['UnregisterIdentityProviderResult', UnregisterIdentityProviderResultSchema],
   ['UpdateIdentityProviderBody', UpdateIdentityProviderBodySchema],
   ['UpdateIdentityProviderResult', UpdateIdentityProviderResultSchema],
   ['IdentityProviderSignInUrls', IdentityProviderSignInUrlsSchema],
-  ['LoginBody', LoginBodySchema],
-  ['AuthorizationResponse', AuthorizationResponseSchema],
-  ['CallbackBody', CallbackBodySchema],
-  ['CallbackResult', CallbackResultSchema],
   ['RefreshResult', RefreshResultSchema],
   ['LogoutResult', LogoutResultSchema],
   ['WhoamiResult', WhoamiResultSchema],
@@ -10628,6 +11087,21 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['PersonTeamRole', PersonTeamRoleSchema],
   ['PersonReviewerRole', PersonReviewerRoleSchema],
   ['PersonGrantBody', PersonGrantBodySchema],
+  ['AccessRole', AccessRoleSchema],
+  ['AccessPathDirect', AccessPathDirectSchema],
+  ['AccessPathTeam', AccessPathTeamSchema],
+  ['AccessPathOrgAdmin', AccessPathOrgAdminSchema],
+  ['AccessPathTenantAdmin', AccessPathTenantAdminSchema],
+  ['AccessPath', AccessPathSchema],
+  ['MyProjectAccess', MyProjectAccessSchema],
+  ['MyOrgAccess', MyOrgAccessSchema],
+  ['MyTeamAccess', MyTeamAccessSchema],
+  ['MyReviewerAccess', MyReviewerAccessSchema],
+  ['RoleActions', RoleActionsSchema],
+  ['RoleCapabilities', RoleCapabilitiesSchema],
+  ['MyTenantAccess', MyTenantAccessSchema],
+  ['MyKeyLimits', MyKeyLimitsSchema],
+  ['MyPermissions', MyPermissionsSchema],
   ['UserCollectionPage', UserCollectionPageSchema],
   ['IdentitySessionSummary', IdentitySessionSummarySchema],
   ['IdentitySessionCollectionPage', IdentitySessionCollectionPageSchema],
@@ -10759,6 +11233,9 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['FinishedRun', FinishedRunSchema],
   ['RunFinishedEvent', RunFinishedEventSchema],
   ['ImprovementPassFinishedEvent', ImprovementPassFinishedEventSchema],
+  ['RequestedApproval', RequestedApprovalSchema],
+  ['ApprovalRequestedEventData', ApprovalRequestedEventDataSchema],
+  ['ApprovalRequestedEvent', ApprovalRequestedEventSchema],
   ['ImproveScheduleTarget', ImproveScheduleTargetSchema],
   ['ImproveScheduleInput', ImproveScheduleInputSchema],
   ['WebhookTestEvent', WebhookTestEventSchema],

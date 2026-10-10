@@ -10,6 +10,7 @@ import {
   type Judgment,
   type JudgmentRegistryBinding,
   type JudgmentWithCopies,
+  isReplayCopy,
   segmentsStartWith,
 } from '../../src/index.js';
 
@@ -183,7 +184,9 @@ export function inMemoryJudgments(): JudgmentRegistryBinding {
             (input.until === undefined || run.capturedAt < input.until) &&
             // A run judged before segments were captured is in no segment.
             (input.segments === undefined ||
-              (run.segments !== undefined && segmentsStartWith(run.segments, input.segments)))
+              (run.segments !== undefined && segmentsStartWith(run.segments, input.segments))) &&
+            // A comparison's replay is never a test set's case.
+            !isReplayCopy(run)
           );
         })
         .map((run) => ({
