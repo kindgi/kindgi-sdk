@@ -20,6 +20,12 @@ import type {
   Project as ProjectWire,
 } from '../generated/api.js';
 import type { Transport } from '../transport.js';
+import {
+  type JudgingQueueClient,
+  type JudgingRulesClient,
+  makeJudgingQueueClient,
+  makeJudgingRulesClient,
+} from './judging.js';
 
 export type ProjectShape = ProjectWire;
 export type ProjectRecordShape = ProjectShape;
@@ -62,6 +68,10 @@ export interface ProjectsClient {
   /** @wire DELETE /v1/projects/:projectId */
   delete(projectId: string): Promise<void>;
   readonly memberships: ProjectMembershipsClient;
+  /** Which of the project's runs to queue for a person's judgment. */
+  readonly judgingRules: JudgingRulesClient;
+  /** The runs queued for a person's judgment. */
+  readonly judgingQueue: JudgingQueueClient;
 }
 
 export interface ProjectMembershipsClient {
@@ -142,6 +152,8 @@ export function makeProjectsClient(transport: Transport): ProjectsClient {
         discardResponse: true,
       });
     },
+    judgingRules: makeJudgingRulesClient(transport),
+    judgingQueue: makeJudgingQueueClient(transport),
     memberships: {
       async list(projectId, filter) {
         return transport.request<ProjectMembershipPage>({

@@ -7315,6 +7315,307 @@ class PersonGrantBody(BaseModel):
     kind: Literal["tenant-admin"]
 
 
+class JudgingRuleWhen(BaseModel):
+    """
+    Which of a project's runs a rule matches as they end. Every field narrows; absent fields don't. Top-level runs only (an agent's own runs, not its turns as a flow's step); replays never match.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    agent_ids: Annotated[list[str] | None, Field(alias="agentIds", max_length=50, min_length=1)] = (
+        None
+    )
+    flow_ids: Annotated[list[str] | None, Field(alias="flowIds", max_length=50, min_length=1)] = (
+        None
+    )
+    versions: Annotated[list[str] | None, Field(max_length=50, min_length=1)] = None
+    """
+    These versions exactly, or `live`: the agent ran its live version.
+    """
+    status: Annotated[
+        list[Literal["completed", "failed", "cancelled"]] | None, Field(min_length=1)
+    ] = None
+    """
+    How the run ended. Absent: `completed` and `failed`.
+    """
+    include_dry_runs: Annotated[bool | None, Field(alias="includeDryRuns")] = None
+    """
+    Dry runs are left out unless `true`.
+    """
+
+
+class JudgingRuleSpec(BaseModel):
+    """
+    A judging rule as written. It only lists runs: nothing here starts a model.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    name: Annotated[str, Field(max_length=200, min_length=1)]
+    when: JudgingRuleWhen
+    sample: Annotated[float | None, Field(gt=0.0, le=1.0)] = None
+    """
+    The share of matching runs queued, decided by the run and rule ids (the same every time). Default 1.
+    """
+    max_open: Annotated[int | None, Field(alias="maxOpen", ge=1, le=10000)] = None
+    """
+    Queue nothing while this rule has this many open items. Absent: no cap.
+    """
+    judge_class_id: Annotated[str | None, Field(alias="judgeClassId")] = None
+    """
+    Whose judgment it wants: one of this class closes it. Absent: any judgment does.
+    """
+    enabled: bool | None = None
+    """
+    Default `true`.
+    """
+
+
+class JudgingRulePatch(BaseModel):
+    """
+    The fields to change; `when` is replaced whole.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    name: Annotated[str | None, Field(max_length=200, min_length=1)] = None
+    when: JudgingRuleWhen | None = None
+    sample: Annotated[float | None, Field(gt=0.0, le=1.0)] = None
+    """
+    The share of matching runs queued, decided by the run and rule ids (the same every time). Default 1.
+    """
+    max_open: Annotated[int | None, Field(alias="maxOpen", ge=1, le=10000)] = None
+    """
+    Queue nothing while this rule has this many open items. Absent: no cap.
+    """
+    judge_class_id: Annotated[str | None, Field(alias="judgeClassId")] = None
+    """
+    Whose judgment it wants: one of this class closes it. Absent: any judgment does.
+    """
+    enabled: bool | None = None
+    """
+    Default `true`.
+    """
+
+
+class JudgingRule(BaseModel):
+    """
+    One version of a judging rule; the latest live one applies.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    rule_id: Annotated[str, Field(alias="ruleId")]
+    project_id: Annotated[str, Field(alias="projectId")]
+    version: Annotated[int, Field(ge=1)]
+    name: Annotated[str, Field(max_length=200, min_length=1)]
+    when: JudgingRuleWhen
+    sample: Annotated[float, Field(gt=0.0, le=1.0)]
+    max_open: Annotated[int | None, Field(alias="maxOpen", ge=1, le=10000)] = None
+    """
+    Queue nothing while this rule has this many open items. Absent: no cap.
+    """
+    judge_class_id: Annotated[str | None, Field(alias="judgeClassId")] = None
+    """
+    Whose judgment it wants: one of this class closes it. Absent: any judgment does.
+    """
+    enabled: bool
+    created_by: Annotated[str | None, Field(alias="createdBy")] = None
+    """
+    Who wrote this version.
+    """
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    unregistered_at: Annotated[AwareDatetime | None, Field(alias="unregisteredAt")] = None
+
+
+class JudgingRulePage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[JudgingRule]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class JudgingRuleUnregisterResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    rule_id: Annotated[str, Field(alias="ruleId")]
+    unregistered: bool
+
+
+class JudgingClassCount(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    judge_class_id: Annotated[str | None, Field(alias="judgeClassId")]
+    """
+    `null`: unclassified.
+    """
+    count: Annotated[int, Field(ge=0)]
+
+
+class JudgingProgress(BaseModel):
+    """
+    The live judgments on the run so far, by class.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    total: Annotated[int, Field(ge=0)]
+    by_class: Annotated[list[JudgingClassCount], Field(alias="byClass")]
+
+
+class JudgingItemCan(BaseModel):
+    """
+    What the caller may do with the item, by the check the routes make (`write` on the project, as judging the run needs).
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    dismiss: bool
+    reopen: bool
+
+
+class JudgingQueueItem(BaseModel):
+    """
+    A queued run: never its content, only what it was and where it stands.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    run_id: Annotated[str, Field(alias="runId")]
+    project_id: Annotated[str, Field(alias="projectId")]
+    agent_id: Annotated[str | None, Field(alias="agentId")] = None
+    agent_version: Annotated[str | None, Field(alias="agentVersion")] = None
+    flow_id: Annotated[str, Field(alias="flowId")]
+    run_status: Annotated[Literal["completed", "failed", "cancelled"], Field(alias="runStatus")]
+    """
+    How a run ended.
+    """
+    completed_at: Annotated[AwareDatetime, Field(alias="completedAt")]
+    rule_ids: Annotated[list[str], Field(alias="ruleIds")]
+    """
+    The rules that queued it.
+    """
+    wanted_class_ids: Annotated[list[str], Field(alias="wantedClassIds")]
+    """
+    The judge classes its rules want.
+    """
+    any_judgment: Annotated[bool, Field(alias="anyJudgment")]
+    """
+    One of its rules wants any judgment.
+    """
+    progress: JudgingProgress
+    added_at: Annotated[AwareDatetime, Field(alias="addedAt")]
+    state: Literal["open", "judged", "dismissed", "erased"]
+    """
+    Where a queued run stands. `judged`: every rule that queued it has the judgment it wants. `erased`: the run's content was erased; the item shows nothing of it.
+    """
+    closed_at: Annotated[AwareDatetime | None, Field(alias="closedAt")] = None
+    closed_by: Annotated[str | None, Field(alias="closedBy")] = None
+    """
+    Who dismissed or reopened it last.
+    """
+    reason: str | None = None
+    """
+    Why it was dismissed, when they said.
+    """
+    can: JudgingItemCan
+
+
+class JudgingQueuePage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[JudgingQueueItem]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    total: Annotated[int, Field(ge=0)]
+    """
+    Every item the filters match, across pages.
+    """
+
+
+class JudgingDismissBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    reason: Annotated[str | None, Field(max_length=500)] = None
+
+
+class JudgingVersionResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    agent_version: Annotated[str | None, Field(alias="agentVersion")]
+    """
+    `null`: a flow run, or one from before versions were recorded.
+    """
+    added: Annotated[int, Field(ge=0)]
+    judged: Annotated[int, Field(ge=0)]
+    dismissed: Annotated[int, Field(ge=0)]
+    open: Annotated[int, Field(ge=0)]
+    judgments: Annotated[int, Field(ge=0)]
+    """
+    Live judgments on those runs.
+    """
+    yes_share: Annotated[float | None, Field(alias="yesShare")]
+    """
+    Their `yes` share, each weighted by its class (unclassified: 1). `null` with none.
+    """
+
+
+class JudgingRuleResults(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    rule_id: Annotated[str, Field(alias="ruleId")]
+    since: AwareDatetime | None = None
+    versions: list[JudgingVersionResult]
+
+
+class JudgingRulePreview(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    considered: Annotated[int, Field(ge=0)]
+    """
+    The recent runs looked at.
+    """
+    matched: Annotated[int, Field(ge=0)]
+    """
+    Those the rule would have queued.
+    """
+    failed: Annotated[int, Field(ge=0)]
+    """
+    Of the matched, those that failed.
+    """
+
+
 class UserCollectionPage(BaseModel):
     model_config = ConfigDict(
         extra="allow",

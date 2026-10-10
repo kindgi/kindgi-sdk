@@ -173,3 +173,121 @@ restriction. A test set counts restricted judgments apart, and a comparison
 can count only them: see
 [Compare a version on a test set](../compare-an-agent-version/#count-only-restricted-judges).
 
+
+## Queue the runs to judge
+
+Rather than have your experts pick runs one at a time, give the project
+**judging rules**: which of its runs need a person's judgment. As a run of
+the project ends, each rule checks it, and a run that any rule matches joins
+the project's **judging queue**, once.
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// judging-rule.ts
+import { createClient } from '@kindgi/sdk/client';
+
+const kindgi = createClient();
+const project = await kindgi.projects.getDefault();
+
+const rule = await kindgi.projects.judgingRules.create(project.id, {
+  name: 'Failed refund runs',
+  when: { agentIds: ['acme.refunds'], versions: ['live'], status: ['failed'] },
+  sample: 0.5, // half of them
+  maxOpen: 20, // at most 20 waiting at once
+});
+console.log(rule.ruleId, rule.version);
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# judging_rule.py
+from kindgi.client import Kindgi
+
+kindgi = Kindgi()
+project = kindgi.projects.get_default()
+
+rule = kindgi.projects.judging_rules.create(
+    project.id,
+    name="Failed refund runs",
+    when={"agent_ids": ["acme.refunds"], "versions": ["live"], "status": ["failed"]},
+    sample=0.5,  # half of them
+    max_open=20,  # at most 20 waiting at once
+)
+print(rule.rule_id, rule.version)
+```
+
+</TabItem>
+</Tabs>
+
+What a rule matches (`when`, each field narrowing it):
+
+- **`agentIds`** or **`flowIds`**: runs of these agents or flows. A rule
+  naming an agent matches the agent's own runs, not its turns as a step of a
+  flow.
+- **`versions`**: these versions exactly, or `live` for runs that took the
+  agent's live version because it was live, so the rule doesn't go stale at
+  each release.
+- **`status`**: how the run ended, `completed`, `failed` or `cancelled`.
+  Without it, `completed` and `failed`.
+- **`includeDryRuns`**: dry runs are left out unless this is `true`. A
+  comparison's runs on a test set are never queued.
+
+And how much of it to queue:
+
+- **`sample`**: the share of matching runs, `0.05` for 5%. The same run and
+  rule always give the same answer.
+- **`maxOpen`**: the rule adds nothing while this many of its runs wait, and
+  starts again as they're judged.
+- **`judgeClassId`**: whose judgment the rule wants, a
+  [judge class](#weight-judges-by-class). Without it, any judgment does.
+
+A rule applies to runs that end after it's made. To try one before you make
+it, `judgingRules.preview` takes the same fields and answers how many of the
+project's last 100 runs (`last`, up to 500) it would have queued, and how
+many of those failed.
+
+A rule only lists runs: it never runs a model or spends anything.
+
+### Work through the queue
+
+`judgingQueue.list` gives the queue, oldest first:
+
+```ts
+const waiting = await kindgi.projects.judgingQueue.list(project.id, { forMe: true });
+```
+
+- **Each item** is a run: its agent or flow and version, how it ended, the
+  rules that queued it, the judge classes they want, and the judgments on
+  it so far, by class. It carries none of the run's content: open the run to
+  judge it.
+- **`forMe: true`** keeps the items you can close: those that want a class
+  you may judge as, or any judgment.
+- **An item closes** as `judged` once each rule that queued it has the
+  judgment it wants: one of its class, or any judgment for a rule without a
+  class.
+- **`judgingQueue.dismiss`**, with an optional reason, takes a run not worth
+  judging out of the queue, and `judgingQueue.reopen` puts it back. Each
+  item's `can` says whether you may.
+- **Counts:** `limit: 0` answers only the `total`. With `state`,
+  `addedAfter` and `closedAfter`, it gives "N waiting, M judged this week".
+- **An erased run's** item shows `erased` and nothing of the run.
+
+Reading the rules and the queue takes read access to the project. Changing
+a rule, and dismissing or reopening an item, take write access, as judging
+a run does.
+
+### Change a rule, and read its results
+
+- **`judgingRules.update`** writes a new version of the rule, and
+  `judgingRules.versions` lists them all, newest first, with who wrote each
+  and when.
+- **`judgingRules.unregister`** stops a rule. It queues nothing more; its
+  versions and the runs it queued stay.
+- **`judgingRules.results`** gives, for each agent version, the runs the rule
+  queued, judged, dismissed and still waiting, and the weighted `yes` share
+  of their judgments. Each rule is a sample of its own `when`, so its results
+  are never added to another rule's.

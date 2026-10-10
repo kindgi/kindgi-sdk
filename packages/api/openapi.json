@@ -164,6 +164,10 @@
       "description": "Multi-tenant hierarchy — Project CRUD (list, create, get, patch, delete) + `/projects/default` shortcut + `ProjectMembership` sub-resource (list, add, updateRole, remove). Primary content scope: every content resource belongs to exactly one project. The Default project (`isDefault: true`) is auto-created per tenant at inception — exactly one per tenant, enforced at the storage layer."
     },
     {
+      "name": "judging",
+      "description": "A project's judging rules (which runs to queue for a person's judgment when they end) and the queue they fill. Rules only list runs; nothing here starts a model."
+    },
+    {
       "name": "tenant",
       "description": "Sovereignty boundary readback + tenant-scoped config (get tenant; list + upsert entries routed to the env / secrets bindings). There is no `/v1/tenants` collection — the caller's tenant is implicit from the bearer token. `PATCH /config` routes writes to `SecretBinding` when `sensitive: true` OR `kind: \"secret\"`; else to `EnvBinding`. `GET /config` merges both bindings at tenant scope; secret values are ALWAYS redacted here. The `/config` sub-routes mount when at least one of `envBinding` / `secretsBinding` is wired. Prefer `/v1/env/*` + `/v1/secrets/*` for new callers."
     },
@@ -329,6 +333,9 @@
           "eval-run-not-found": 404,
           "judgment-not-found": 404,
           "judge-class-not-found": 404,
+          "judging-rule-not-found": 404,
+          "judging-item-not-found": 404,
+          "judging-item-not-open": 409,
           "judge-class-name-taken": 409,
           "judge-class-not-applicable": 400,
           "judge-class-not-allowed": 403,
@@ -14098,6 +14105,528 @@
             "enum": [
               "tenant-admin"
             ]
+          }
+        }
+      },
+      "JudgingRunStatus": {
+        "type": "string",
+        "enum": [
+          "completed",
+          "failed",
+          "cancelled"
+        ],
+        "description": "How a run ended."
+      },
+      "JudgingQueueState": {
+        "type": "string",
+        "enum": [
+          "open",
+          "judged",
+          "dismissed",
+          "erased"
+        ],
+        "description": "Where a queued run stands. `judged`: every rule that queued it has the judgment it wants. `erased`: the run's content was erased; the item shows nothing of it."
+      },
+      "JudgingRuleWhen": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Which of a project's runs a rule matches as they end. Every field narrows; absent fields don't. Top-level runs only (an agent's own runs, not its turns as a flow's step); replays never match.",
+        "properties": {
+          "agentIds": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 50,
+            "items": {
+              "type": "string"
+            }
+          },
+          "flowIds": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 50,
+            "items": {
+              "type": "string"
+            }
+          },
+          "versions": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 50,
+            "items": {
+              "type": "string"
+            },
+            "description": "These versions exactly, or `live`: the agent ran its live version."
+          },
+          "status": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "$ref": "#/components/schemas/JudgingRunStatus"
+            },
+            "description": "How the run ended. Absent: `completed` and `failed`."
+          },
+          "includeDryRuns": {
+            "type": "boolean",
+            "description": "Dry runs are left out unless `true`."
+          }
+        }
+      },
+      "JudgingRuleSpec": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "when"
+        ],
+        "description": "A judging rule as written. It only lists runs: nothing here starts a model.",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "when": {
+            "$ref": "#/components/schemas/JudgingRuleWhen"
+          },
+          "sample": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 1,
+            "description": "The share of matching runs queued, decided by the run and rule ids (the same every time). Default 1."
+          },
+          "maxOpen": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000,
+            "description": "Queue nothing while this rule has this many open items. Absent: no cap."
+          },
+          "judgeClassId": {
+            "type": "string",
+            "description": "Whose judgment it wants: one of this class closes it. Absent: any judgment does."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Default `true`."
+          }
+        }
+      },
+      "JudgingRulePatch": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "The fields to change; `when` is replaced whole.",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "when": {
+            "$ref": "#/components/schemas/JudgingRuleWhen"
+          },
+          "sample": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 1,
+            "description": "The share of matching runs queued, decided by the run and rule ids (the same every time). Default 1."
+          },
+          "maxOpen": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000,
+            "description": "Queue nothing while this rule has this many open items. Absent: no cap."
+          },
+          "judgeClassId": {
+            "type": "string",
+            "description": "Whose judgment it wants: one of this class closes it. Absent: any judgment does."
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Default `true`."
+          }
+        }
+      },
+      "JudgingRule": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ruleId",
+          "projectId",
+          "version",
+          "name",
+          "when",
+          "sample",
+          "enabled",
+          "createdAt"
+        ],
+        "description": "One version of a judging rule; the latest live one applies.",
+        "properties": {
+          "ruleId": {
+            "type": "string"
+          },
+          "projectId": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "when": {
+            "$ref": "#/components/schemas/JudgingRuleWhen"
+          },
+          "sample": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "maximum": 1
+          },
+          "maxOpen": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000,
+            "description": "Queue nothing while this rule has this many open items. Absent: no cap."
+          },
+          "judgeClassId": {
+            "type": "string",
+            "description": "Whose judgment it wants: one of this class closes it. Absent: any judgment does."
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "createdBy": {
+            "type": "string",
+            "description": "Who wrote this version."
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "unregisteredAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "JudgingRulePage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "hasMore"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JudgingRule"
+            }
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "nextCursor": {
+            "type": "string"
+          }
+        }
+      },
+      "JudgingRuleUnregisterResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ruleId",
+          "unregistered"
+        ],
+        "properties": {
+          "ruleId": {
+            "type": "string"
+          },
+          "unregistered": {
+            "type": "boolean"
+          }
+        }
+      },
+      "JudgingClassCount": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "judgeClassId",
+          "count"
+        ],
+        "properties": {
+          "judgeClassId": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`null`: unclassified."
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "JudgingProgress": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "total",
+          "byClass"
+        ],
+        "description": "The live judgments on the run so far, by class.",
+        "properties": {
+          "total": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "byClass": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JudgingClassCount"
+            }
+          }
+        }
+      },
+      "JudgingItemCan": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "dismiss",
+          "reopen"
+        ],
+        "description": "What the caller may do with the item, by the check the routes make (`write` on the project, as judging the run needs).",
+        "properties": {
+          "dismiss": {
+            "type": "boolean"
+          },
+          "reopen": {
+            "type": "boolean"
+          }
+        }
+      },
+      "JudgingQueueItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "runId",
+          "projectId",
+          "flowId",
+          "runStatus",
+          "completedAt",
+          "ruleIds",
+          "wantedClassIds",
+          "anyJudgment",
+          "progress",
+          "addedAt",
+          "state",
+          "can"
+        ],
+        "description": "A queued run: never its content, only what it was and where it stands.",
+        "properties": {
+          "runId": {
+            "type": "string"
+          },
+          "projectId": {
+            "type": "string"
+          },
+          "agentId": {
+            "type": "string"
+          },
+          "agentVersion": {
+            "type": "string"
+          },
+          "flowId": {
+            "type": "string"
+          },
+          "runStatus": {
+            "$ref": "#/components/schemas/JudgingRunStatus"
+          },
+          "completedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "ruleIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The rules that queued it."
+          },
+          "wantedClassIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The judge classes its rules want."
+          },
+          "anyJudgment": {
+            "type": "boolean",
+            "description": "One of its rules wants any judgment."
+          },
+          "progress": {
+            "$ref": "#/components/schemas/JudgingProgress"
+          },
+          "addedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "state": {
+            "$ref": "#/components/schemas/JudgingQueueState"
+          },
+          "closedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "closedBy": {
+            "type": "string",
+            "description": "Who dismissed or reopened it last."
+          },
+          "reason": {
+            "type": "string",
+            "description": "Why it was dismissed, when they said."
+          },
+          "can": {
+            "$ref": "#/components/schemas/JudgingItemCan"
+          }
+        }
+      },
+      "JudgingQueuePage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "hasMore",
+          "total"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JudgingQueueItem"
+            }
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "nextCursor": {
+            "type": "string"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Every item the filters match, across pages."
+          }
+        }
+      },
+      "JudgingDismissBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "type": "string",
+            "maxLength": 500
+          }
+        }
+      },
+      "JudgingVersionResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "agentVersion",
+          "added",
+          "judged",
+          "dismissed",
+          "open",
+          "judgments",
+          "yesShare"
+        ],
+        "properties": {
+          "agentVersion": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "`null`: a flow run, or one from before versions were recorded."
+          },
+          "added": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "judged": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "dismissed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "open": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "judgments": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Live judgments on those runs."
+          },
+          "yesShare": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "description": "Their `yes` share, each weighted by its class (unclassified: 1). `null` with none."
+          }
+        }
+      },
+      "JudgingRuleResults": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ruleId",
+          "versions"
+        ],
+        "properties": {
+          "ruleId": {
+            "type": "string"
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "versions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/JudgingVersionResult"
+            }
+          }
+        }
+      },
+      "JudgingRulePreview": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "considered",
+          "matched",
+          "failed"
+        ],
+        "properties": {
+          "considered": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "The recent runs looked at."
+          },
+          "matched": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Those the rule would have queued."
+          },
+          "failed": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Of the matched, those that failed."
           }
         }
       },
@@ -39263,6 +39792,1109 @@
             },
             "required": false,
             "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{projectId}/judging-rules": {
+      "get": {
+        "operationId": "projects.judgingRules.list",
+        "summary": "List a project's judging rules",
+        "tags": [
+          "judging"
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of rules.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JudgingRulePage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No project with that id (`project-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "The live rules (their latest versions), oldest first. A rule says which of the project's runs to queue for a person's judgment when they end. Needs `read` on the project.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "ProjectId — opaque branded string."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "description": "1..100. Default 25."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Opaque cursor from a prior response. Absent → first page."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "operationId": "projects.judgingRules.create",
+        "summary": "Create a judging rule",
+        "tags": [
+          "judging"
+        ],
+        "responses": {
+          "201": {
+            "description": "The rule, version 1.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JudgingRule"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No project with that id (`project-not-found`), or no live judge class `judgeClassId` (`judge-class-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Version 1 of a rule. From then on, a top-level run of the project that matches `when` as it ends (and falls in `sample`, while the rule has fewer than `maxOpen` open items) is queued for a person's judgment; replays never are. A rule only lists runs: it never starts a model. Needs `write` on the project.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "ProjectId — opaque branded string."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JudgingRuleSpec"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{projectId}/judging-rules/preview": {
+      "get": {
+        "operationId": "projects.judgingRules.preview",
+        "summary": "What a rule would have queued",
+        "tags": [
+          "judging"
+        ],
+        "responses": {
+          "200": {
+            "description": "The preview.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JudgingRulePreview"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A malformed field (`bad-input`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No project with that id (`project-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Among the project's last `last` top-level runs (not replays), how many a rule with these fields (and its `sample`) would have queued, and how many of those failed. The rule editor's \"would have added N of the last 100\". Lists are comma-separated. Needs `read` on the project.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "ProjectId — opaque branded string."
+          },
+          {
+            "name": "agentIds",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Comma-separated."
+          },
+          {
+            "name": "flowIds",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Comma-separated."
+          },
+          {
+            "name": "versions",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Comma-separated; `live` for the live version."
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Comma-separated: completed, failed, cancelled."
+          },
+          {
+            "name": "includeDryRuns",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            },
+            "required": false,
+            "description": "`true` to count dry runs."
+          },
+          {
+            "name": "sample",
+            "in": "query",
+            "schema": {
+              "type": "number"
+            },
+            "required": false,
+            "description": "0 < sample ≤ 1. Default 1."
+          },
+          {
+            "name": "last",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500
+            },
+            "required": false,
+            "description": "How many recent runs to look at, 1 to 500. Default 100."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{projectId}/judging-rules/{ruleId}": {
+      "get": {
+        "operationId": "projects.judgingRules.get",
+        "summary": "Fetch a judging rule",
+        "tags": [
+          "judging"
+        ],
+        "responses": {
+          "200": {
+            "description": "The rule.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JudgingRule"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such rule in the project (`judging-rule-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Its latest version. Needs `read` on the project.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "ProjectId — opaque branded string."
+          },
+          {
+            "name": "ruleId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "projects.judgingRules.update",
+        "summary": "Change a judging rule",
+        "tags": [
+          "judging"
+        ],
+        "responses": {
+          "200": {
+            "description": "The new version.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JudgingRule"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such rule (`judging-rule-not-found`), or no live judge class `judgeClassId` (`judge-class-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "A new version with these fields changed (`when` is replaced whole). Earlier versions are kept: `…/versions` shows who changed what, when. Needs `write` on the project.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "ProjectId — opaque branded string."
+          },
+          {
+            "name": "ruleId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JudgingRulePatch"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{projectId}/judging-rules/{ruleId}/unregister": {
+      "post": {
+        "operationId": "projects.judgingRules.unregister",
+        "summary": "Stop a judging rule",
+        "tags": [
+          "judging"
+        ],
+        "responses": {
+          "200": {
+            "description": "Whether it was stopped now.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JudgingRuleUnregisterResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such rule (`judging-rule-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "It queues nothing more; its versions and the items it queued stay. `unregistered: false` when it was already stopped. Needs `write` on the project.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "ProjectId — opaque branded string."
+          },
+          {
+            "name": "ruleId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{projectId}/judging-rules/{ruleId}/versions": {
+      "get": {
+        "operationId": "projects.judgingRules.versions",
+        "summary": "A judging rule's versions",
+        "tags": [
+          "judging"
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of versions.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JudgingRulePage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such rule (`judging-rule-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Every version, newest first: who wrote it, when, and what it said. Needs `read` on the project.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "ProjectId — opaque branded string."
+          },
+          {
+            "name": "ruleId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "description": "1..100. Default 25."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Opaque cursor from a prior response. Absent → first page."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{projectId}/judging-rules/{ruleId}/results": {
+      "get": {
+        "operationId": "projects.judgingRules.results",
+        "summary": "A judging rule's results",
+        "tags": [
+          "judging"
+        ],
+        "responses": {
+          "200": {
+            "description": "The results.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JudgingRuleResults"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such rule (`judging-rule-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Per agent version: the runs it queued, judged, dismissed and still open, and the class-weighted `yes` share of the live judgments on them. Never pooled with another rule's: each rule is a sample of its own `when`. Needs `read` on the project.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "ProjectId — opaque branded string."
+          },
+          {
+            "name": "ruleId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          },
+          {
+            "name": "since",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "description": "Only runs queued from this time on."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{projectId}/judging-queue": {
+      "get": {
+        "operationId": "projects.judgingQueue.list",
+        "summary": "The project's judging queue",
+        "tags": [
+          "judging"
+        ],
+        "responses": {
+          "200": {
+            "description": "A page of queued runs.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JudgingQueuePage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A malformed filter (`bad-input`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No project with that id (`project-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Queued runs, oldest first: never a run's content, only what it was, which rules queued it, whose judgment they want and the judgments so far, and what the caller may do with it (`can`). An item closes as `judged` once every rule that queued it has the judgment it wants. `forMe=true`: the items any judgment closes, or that want a class the caller may assert. `limit=0` answers only the `total`. Needs `read` on the project.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "ProjectId — opaque branded string."
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/JudgingQueueState"
+            },
+            "required": false,
+            "description": "open, judged, dismissed or erased."
+          },
+          {
+            "name": "agentId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Only this agent."
+          },
+          {
+            "name": "ruleId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Only items this rule queued."
+          },
+          {
+            "name": "judgeClassId",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Only items that want this class."
+          },
+          {
+            "name": "forMe",
+            "in": "query",
+            "schema": {
+              "type": "boolean"
+            },
+            "required": false,
+            "description": "`true`: what the caller is asked to judge."
+          },
+          {
+            "name": "addedAfter",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "description": "Queued from this time on."
+          },
+          {
+            "name": "closedAfter",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "required": false,
+            "description": "Closed from this time on."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "description": "Page size; `0` for the `total` alone."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Opaque cursor from a prior response. Absent → first page."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{projectId}/judging-queue/{runId}/dismiss": {
+      "post": {
+        "operationId": "projects.judgingQueue.dismiss",
+        "summary": "Dismiss a queued run",
+        "tags": [
+          "judging"
+        ],
+        "responses": {
+          "200": {
+            "description": "The item, dismissed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JudgingQueueItem"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The run isn't in the project's queue (`judging-item-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The item isn't open (`judging-item-not-open`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Not worth judging: it leaves the open queue, with who dismissed it and why. `reopen` undoes it. Needs `write` on the project, as judging the run does.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "ProjectId — opaque branded string."
+          },
+          {
+            "name": "runId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
+          }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JudgingDismissBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/projects/{projectId}/judging-queue/{runId}/reopen": {
+      "post": {
+        "operationId": "projects.judgingQueue.reopen",
+        "summary": "Reopen a dismissed run",
+        "tags": [
+          "judging"
+        ],
+        "responses": {
+          "200": {
+            "description": "The item, open again.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JudgingQueueItem"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The run isn't in the project's queue (`judging-item-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The item wasn't dismissed (`judging-item-not-open`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Back in the open queue. Only a dismissed item reopens: a judged one was closed by its judgments. Needs `write` on the project.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "ProjectId — opaque branded string."
+          },
+          {
+            "name": "runId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true
           }
         ],
         "security": [

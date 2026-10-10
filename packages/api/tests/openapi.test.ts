@@ -42,6 +42,7 @@ import type {
   IdentityDirectoryBinding,
   IdentityProviderBinding,
   ImageRegistryBinding,
+  JudgingQueueBinding,
   JudgmentRegistryBinding,
   MCPEndpointRegistryBinding,
   MemoryBinding,
@@ -347,6 +348,32 @@ const noopJudgmentRegistry: JudgmentRegistryBinding = {
   unregister: async () => ({ unregistered: false }),
 };
 
+const noopJudgingQueue: JudgingQueueBinding = {
+  createRule: async () => ({
+    kind: 'err',
+    error: { code: 'judging-rule-not-found', message: 'noop' },
+  }),
+  updateRule: async () => ({
+    kind: 'err',
+    error: { code: 'judging-rule-not-found', message: 'noop' },
+  }),
+  unregisterRule: async () => ({ unregistered: false }),
+  getRule: async () => null,
+  listRules: async () => ({ data: [], hasMore: false }),
+  ruleVersions: async () => ({ data: [], hasMore: false }),
+  listQueue: async () => ({ data: [], hasMore: false, total: 0 }),
+  dismiss: async () => ({
+    kind: 'err',
+    error: { code: 'judging-item-not-found', message: 'noop' },
+  }),
+  reopen: async () => ({ kind: 'err', error: { code: 'judging-item-not-found', message: 'noop' } }),
+  results: async () => ({
+    kind: 'err',
+    error: { code: 'judging-rule-not-found', message: 'noop' },
+  }),
+  preview: async () => ({ considered: 0, matched: 0, failed: 0 }),
+};
+
 const noopEvalRunBinding: EvalRunBinding = {
   start: async () => ({ kind: 'suite-not-found', suiteId: 'noop' }),
   get: async () => null,
@@ -609,6 +636,7 @@ function collectMountedRoutes(): HonoRouteRecord[] {
     blockRegistry: noopBlockRegistry,
     evalRunBinding: noopEvalRunBinding,
     judgmentRegistry: noopJudgmentRegistry,
+    judgingQueue: noopJudgingQueue,
     evalCaseStore: noopEvalCaseStore,
     sessionStore: noopSessionStore,
     session: { cookie: { allowedOrigins: ['https://console.example.com'] }, tokenSignIn: true },

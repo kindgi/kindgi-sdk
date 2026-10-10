@@ -134,6 +134,22 @@ export type {
   ServiceAccountRef,
 } from './service-account-binding.js';
 export type {
+  JudgingError,
+  JudgingErrorCode,
+  JudgingQueueBinding,
+  JudgingQueueItem,
+  JudgingQueueListInput,
+  JudgingQueuePage,
+  JudgingQueueState,
+  JudgingRule,
+  JudgingRulePage,
+  JudgingRulePreview,
+  JudgingRuleResults,
+  JudgingRuleSpec,
+  JudgingRuleWhen,
+  JudgingRunStatus,
+} from './judging-queue-binding.js';
+export type {
   PersonGrant,
   PersonGrantChange,
   PersonGrantError,
