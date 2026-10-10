@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import { Hono } from 'hono';
+import { routePath } from 'hono/route';
 
 import { type Principal, ref, tuplesForCreate } from '@kindgi/authz';
 import type { Cursor, ProjectId, TenantId, UserId } from '@kindgi/types';
@@ -77,11 +78,12 @@ export function evalSuitesRouter(
     });
     r.use('/:suiteId/*', async (c, next) => {
       const suiteId = c.req.param('suiteId') ?? '';
-      // Starting a run doesn't change the suite: it needs `read` on it, and
-      // the start route checks `write` on the project and `execute` on the
-      // agent or flow it runs, so a project editor can run the test set.
-      const startsRun = c.req.method === 'POST' && c.req.path.endsWith(`/${suiteId}/runs`);
-      const action = c.req.method === 'GET' || startsRun ? 'read' : 'admin';
+      // Starting a run (`POST /:suiteId/runs`, exactly) doesn't change the
+      // suite, and the start route checks it all itself: `execute` on the
+      // suite, `write` on the project and `execute` on the agent or flow.
+      const under = c.req.path.split('/').slice(routePath(c).split('/').length - 1);
+      if (c.req.method === 'POST' && under.length === 1 && under[0] === 'runs') return next();
+      const action = c.req.method === 'GET' ? 'read' : 'admin';
       // A test set built from judgments under a suite id never registered
       // (no head row) has no suite to check yet: the build checks `admin`
       // on the project it names, the project the new suite belongs to. A

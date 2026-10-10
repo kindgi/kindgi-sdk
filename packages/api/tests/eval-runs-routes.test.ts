@@ -292,21 +292,26 @@ const accuracySpec: Readonly<Record<string, unknown>> = {
 };
 
 describe('API — eval-runs start: who may start one', () => {
-  // An editor of the project (write on it, execute on the agent, read on
-  // the suite) runs the test set: the improve loop's step. Starting a run
+  // An editor of the project (write on it, execute on the agent and on the
+  // suite) runs the test set: the improve loop's step. Starting a run
   // doesn't change the suite, so it doesn't need admin on it.
   const editor = (suiteId: string) => [
     `read eval_suite:${suiteId}`,
+    `execute eval_suite:${suiteId}`,
     `read project:${TEST_PROJECT_ID}`,
     `write project:${TEST_PROJECT_ID}`,
     'execute agent:acme.drafting',
   ];
-  const start = (app: ReturnType<typeof createApp>, suiteId: string) =>
+  const start = (
+    app: ReturnType<typeof createApp>,
+    suiteId: string,
+    projectId: string = TEST_PROJECT_ID,
+  ) =>
     app.request(`/v1/eval-suites/${suiteId}/runs`, {
       method: 'POST',
       headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
       body: JSON.stringify({
-        projectId: TEST_PROJECT_ID,
+        projectId,
         agentRef: { agentId: 'acme.drafting', version: '1.0.0' },
       }),
     });
@@ -319,7 +324,7 @@ describe('API — eval-runs start: who may start one', () => {
   });
 
   test("without execute on the agent: 403, the route's own check", async () => {
-    const grants = editor('acme.no-exec').filter((g) => !g.startsWith('execute'));
+    const grants = editor('acme.no-exec').filter((g) => !g.startsWith('execute agent'));
     const { app, registry } = makeApp({ grants });
     await seedSuite(registry, { id: 'acme.no-exec', kind: 'accuracy', spec: accuracySpec });
     const res = await start(app, 'acme.no-exec');
@@ -333,16 +338,37 @@ describe('API — eval-runs start: who may start one', () => {
     await seedSuite(registry, { id: 'acme.viewer', kind: 'accuracy', spec: accuracySpec });
     const res = await start(app, 'acme.viewer');
     expect(res.status).toBe(403);
-    expect(await res.text()).toContain(`project:${TEST_PROJECT_ID}`);
+    expect(await res.text()).toContain('eval_suite:acme.viewer');
   });
 
-  test("without read on the suite: 403, the suite's check still applies", async () => {
-    const grants = editor('acme.no-read').filter((g) => !g.startsWith('read eval_suite'));
+  test("a suite's viewer who edits another project can't run it into that one: 403", async () => {
+    // Read on the suite (a viewer of its project), write on project B and
+    // execute on the agent: the run would land in B, so it needs `execute`
+    // on the suite itself.
+    const other = randomUUID();
+    const grants = [
+      'read eval_suite:acme.cross',
+      `read project:${TEST_PROJECT_ID}`,
+      `read project:${other}`,
+      `write project:${other}`,
+      'execute agent:acme.drafting',
+    ];
     const { app, registry } = makeApp({ grants });
-    await seedSuite(registry, { id: 'acme.no-read', kind: 'accuracy', spec: accuracySpec });
-    const res = await start(app, 'acme.no-read');
+    await seedSuite(registry, { id: 'acme.cross', kind: 'accuracy', spec: accuracySpec });
+    const res = await start(app, 'acme.cross', other);
     expect(res.status).toBe(403);
-    expect(await res.text()).toContain('eval_suite:acme.no-read');
+    expect(await res.text()).toContain('eval_suite:acme.cross');
+  });
+
+  test('only `POST /:suiteId/runs` itself skips the suite admin check', async () => {
+    const { app, registry } = makeApp({ grants: editor('acme.deeper') });
+    await seedSuite(registry, { id: 'acme.deeper', kind: 'accuracy', spec: accuracySpec });
+    const res = await app.request('/v1/eval-suites/acme.deeper/versions/acme.deeper/runs', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(res.status).toBe(403);
+    expect(await res.text()).toContain('"action":"admin"');
   });
 
   test('changing the suite still needs admin on it: an editor unregistering a version gets 403', async () => {
