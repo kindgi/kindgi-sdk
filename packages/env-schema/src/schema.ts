@@ -805,7 +805,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_SECRETS_MANAGER',
     description:
-      "Which secret manager the `secret-manager` backend keeps secrets in: `azure` (Azure Key Vault, see `KINDGI_SECRETS_AZURE_VAULT_URL`), `gcp` (Google Secret Manager, in the project `KINDGI_SECRETS_GCP_PROJECT_ID` names; the server's service account needs roles/secretmanager.admin there) `vault` (HashiCorp Vault or OpenBao, see `KINDGI_SECRETS_VAULT_ADDR`) or `aws` (AWS Secrets Manager, in the region `KINDGI_SECRETS_AWS_REGION` names, signed in as the server's AWS identity, `KINDGI_AWS_IDENTITY`). Kindgi reads and writes them with the server's own identity and keeps only their names and version numbers in its database.",
+      "Which secret manager the `secret-manager` backend keeps secrets in: `azure` (Azure Key Vault, see `KINDGI_SECRETS_AZURE_VAULT_URL`), `gcp` (Google Secret Manager, in the project `KINDGI_SECRETS_GCP_PROJECT_ID` names; the server's service account needs roles/secretmanager.admin there), `vault` (HashiCorp Vault or OpenBao, see `KINDGI_SECRETS_VAULT_ADDR`) or `aws` (AWS Secrets Manager, used from runtime 0.1.7: in the region `KINDGI_SECRETS_AWS_REGION` names, signed in as the server's AWS identity, `KINDGI_AWS_IDENTITY`; runtime 0.1.6 refuses it at startup). Kindgi reads and writes them with the server's own identity and keeps only their names and version numbers in its database.",
     example: 'azure',
     required: true,
     appliesTo: appliesToSecretManagerBackend,
@@ -1034,7 +1034,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_SECRETS_AWS_REGION',
     description:
-      "The AWS region whose Secrets Manager holds the secrets set through Kindgi's API (`secret-manager` backend, manager `aws`). The server signs in as its AWS identity (`KINDGI_AWS_IDENTITY`), never with `AWS_*` keys or the SDK's default chain. That identity needs, on `arn:aws:secretsmanager:<region>:<account>:secret:kindgi/*` only: `secretsmanager:CreateSecret`, `TagResource`, `PutSecretValue`, `GetSecretValue`, `DescribeSecret` and `DeleteSecret`. Secrets are named `kindgi/<hash>`, with the scope in their tags.",
+      "Used from runtime 0.1.7 (0.1.6 refuses `KINDGI_SECRETS_MANAGER=aws` at startup). The AWS region whose Secrets Manager holds the secrets set through Kindgi's API (`secret-manager` backend, manager `aws`). The server signs in as its AWS identity (`KINDGI_AWS_IDENTITY`), never with `AWS_*` keys or the SDK's default chain. That identity needs, on `arn:aws:secretsmanager:<region>:<account>:secret:kindgi/*` only: `secretsmanager:CreateSecret`, `TagResource`, `PutSecretValue`, `GetSecretValue`, `DescribeSecret` and `DeleteSecret`. Secrets are named `kindgi/<hash>`, with the scope in their tags.",
     example: 'ca-central-1',
     required: true,
     appliesTo: appliesToSecretManager('aws'),
@@ -1043,7 +1043,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_SECRETS_AWS_KMS_KEY_ID',
     description:
-      "The KMS key AWS Secrets Manager encrypts Kindgi's secrets with (`secret-manager` backend, manager `aws`): a key ARN, key id or `alias/…`. The server's AWS identity then needs `kms:GenerateDataKey` and `kms:Decrypt` on it. Unset: AWS's own `aws/secretsmanager` key.",
+      "Used from runtime 0.1.7 (0.1.6 refuses `KINDGI_SECRETS_MANAGER=aws` at startup). The KMS key AWS Secrets Manager encrypts Kindgi's secrets with (`secret-manager` backend, manager `aws`): a key ARN, key id or `alias/…`. The server's AWS identity then needs `kms:GenerateDataKey` and `kms:Decrypt` on it. Unset: AWS's own `aws/secretsmanager` key.",
     example: 'alias/kindgi-secrets',
     required: false,
     appliesTo: appliesToSecretManager('aws'),
