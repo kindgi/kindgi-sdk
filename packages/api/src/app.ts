@@ -52,10 +52,10 @@ import type { MCPClientProbeBinding, MCPEndpointRegistryBinding } from './mcp-en
 import type { MemoryBinding } from './memory-binding.js';
 import type { MemoryErasureBinding } from './memory-erasure-binding.js';
 import {
-  SESSION_COOKIE_NAME,
   type SessionCookieOptions,
   type TokenResolver,
   bearerAuthMiddleware,
+  sessionCookieOf,
 } from './middleware/auth.js';
 import { type Authorizer, createAuthorizer } from './middleware/authorize.js';
 import { mapThrownError } from './middleware/error-mapper.js';
@@ -1605,11 +1605,19 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // way in at all: the case an operator most needs to hear about.
   const cookieSessions = input.sessionStore !== undefined && input.session?.cookie !== undefined;
   const tokenSignIn = cookieSessions && input.session?.tokenSignIn === true;
+  const sessionCookie = sessionCookieOf(input.session?.cookie);
+  // A browser refuses `__Host-` / `__Secure-` cookies that aren't `Secure`.
+  if (!sessionCookie.secure && /^__(Host|Secure)-/.test(sessionCookie.name)) {
+    throw new Error(
+      `createApp: session.cookie.secure is false, so its name can't start with __Host- or __Secure- (got ${sessionCookie.name}); leave name unset for ${'`kindgi_session`'}.`,
+    );
+  }
   app.route(
     '/v1/auth/sign-in-options',
     signInOptionsRouter({
       ...(input.identityProvider !== undefined && { identityProvider: input.identityProvider }),
       tokenSignIn,
+      ...(cookieSessions && { sessionCookie: sessionCookie.secure ? 'secure' : 'plain' }),
       ...(input.signInOptionsRateLimit !== undefined && {
         rateLimit: input.signInOptionsRateLimit,
       }),
@@ -1635,7 +1643,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
             enabled: true,
             sessionStore: input.sessionStore,
             ttlMs: input.session.ttl ?? DEFAULT_TOKEN_SIGN_IN_TTL_MS,
-            cookieName: input.session.cookie.name ?? SESSION_COOKIE_NAME,
+            cookieName: sessionCookieOf(input.session.cookie).name,
+            cookieSecure: sessionCookieOf(input.session.cookie).secure,
             ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
           }
         : { enabled: false },

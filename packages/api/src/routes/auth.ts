@@ -895,7 +895,8 @@ export function logoutHandler(
     const cookieName = c.get('sessionCookieName');
     if (cookieName !== undefined) {
       // A browser session: the cookie goes with it.
-      c.header('Set-Cookie', `${cookieName}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`);
+      const secure = c.get('sessionCookieSecure') === false ? '' : ' Secure;';
+      c.header('Set-Cookie', `${cookieName}=; Path=/; Max-Age=0; HttpOnly;${secure} SameSite=Lax`);
     }
     return c.json({ sessionId, revoked: outcome.revoked });
   };
