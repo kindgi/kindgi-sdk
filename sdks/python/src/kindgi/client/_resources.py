@@ -7565,16 +7565,17 @@ class SchedulesResource:
         limit: int | None = None,
         cursor: str | None = None,
         status: Literal["active", "paused"] | None = None,
+        project_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.ScheduleCollectionPage:
         """List cron schedules. `GET /v1/schedules`
 
-        Cursor-paginated. Tombstoned rows excluded. Optional `?status=active|paused` filter.
+        Cursor-paginated. Tombstoned rows excluded. Optional `?status=active|paused` and `?projectId=` (one project's schedules) filters. Each schedule's `owner.displayName` is the owner's name now (the person's or the service account's), when it can be read.
         """
         return self._client._request(
             _OPERATIONS["schedules.list"],
             path={},
-            query={"limit": limit, "cursor": cursor, "status": status},
+            query={"limit": limit, "cursor": cursor, "status": status, "projectId": project_id},
             headers={},
             response=_models.ScheduleCollectionPage,
             timeout=timeout,
@@ -14636,16 +14637,17 @@ class AsyncSchedulesResource:
         limit: int | None = None,
         cursor: str | None = None,
         status: Literal["active", "paused"] | None = None,
+        project_id: str | UUID | None = None,
         timeout: float | None = None,
     ) -> _models.ScheduleCollectionPage:
         """List cron schedules. `GET /v1/schedules`
 
-        Cursor-paginated. Tombstoned rows excluded. Optional `?status=active|paused` filter.
+        Cursor-paginated. Tombstoned rows excluded. Optional `?status=active|paused` and `?projectId=` (one project's schedules) filters. Each schedule's `owner.displayName` is the owner's name now (the person's or the service account's), when it can be read.
         """
         return await self._client._request(
             _OPERATIONS["schedules.list"],
             path={},
-            query={"limit": limit, "cursor": cursor, "status": status},
+            query={"limit": limit, "cursor": cursor, "status": status, "projectId": project_id},
             headers={},
             response=_models.ScheduleCollectionPage,
             timeout=timeout,

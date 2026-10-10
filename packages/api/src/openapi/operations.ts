@@ -1309,6 +1309,15 @@ const JudgeClassScopeKindQueryParam: ParameterSpec = judgmentQuery(
   { type: 'string', enum: ['tenant', 'project', 'agent'] },
 );
 
+const ScheduleProjectIdQueryParam: ParameterSpec = {
+  name: 'projectId',
+  in: 'query',
+  required: false,
+  description:
+    "Only this project's schedules. A runtime before Kindgi 0.1.6 ignores it and lists every project's.",
+  schema: { type: 'string', format: 'uuid' },
+};
+
 const JudgeClassProjectIdQueryParam: ParameterSpec = judgmentQuery(
   'projectId',
   'Project of the scope, for `scopeKind=project|agent`.',
@@ -7978,10 +7987,15 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'schedules.list',
     summary: 'List cron schedules',
     description:
-      'Cursor-paginated. Tombstoned rows excluded. Optional `?status=active|paused` filter.',
+      "Cursor-paginated. Tombstoned rows excluded. Optional `?status=active|paused` and `?projectId=` (one project's schedules) filters. Each schedule's `owner.displayName` is the owner's name now (the person's or the service account's), when it can be read.",
     tags: ['schedules'],
     security: 'bearer',
-    parameters: [LimitQueryParam, CursorQueryParam, TriggerStatusFilterQueryParam],
+    parameters: [
+      LimitQueryParam,
+      CursorQueryParam,
+      TriggerStatusFilterQueryParam,
+      ScheduleProjectIdQueryParam,
+    ],
     responses: {
       '200': { description: 'Page of schedules.', schema: ref('ScheduleCollectionPage') },
       ...CommonAuthErrors,

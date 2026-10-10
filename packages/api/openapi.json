@@ -17615,6 +17615,10 @@
           },
           "id": {
             "type": "string"
+          },
+          "displayName": {
+            "type": "string",
+            "description": "The owner's name at the time of the response: the person's display name, or the service account's name. Absent when it can't be read (no directory, a removed account) and from a runtime before Kindgi 0.1.6: show the id then."
           }
         }
       },
@@ -42236,7 +42240,7 @@
             }
           }
         },
-        "description": "Cursor-paginated. Tombstoned rows excluded. Optional `?status=active|paused` filter.",
+        "description": "Cursor-paginated. Tombstoned rows excluded. Optional `?status=active|paused` and `?projectId=` (one project's schedules) filters. Each schedule's `owner.displayName` is the owner's name now (the person's or the service account's), when it can be read.",
         "parameters": [
           {
             "name": "limit",
@@ -42267,6 +42271,16 @@
             },
             "required": false,
             "description": "Filter to triggers at a specific status. Values: `active | paused`."
+          },
+          {
+            "name": "projectId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": false,
+            "description": "Only this project's schedules. A runtime before Kindgi 0.1.6 ignores it and lists every project's."
           }
         ],
         "security": [
