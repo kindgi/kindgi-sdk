@@ -63,7 +63,11 @@ commit.
   tab take the accent.
 - **Type** is IBM Plex Sans for everything you read and IBM Plex Mono for code,
   self-hosted (SIL Open Font License). Headings and the wordmark are set at
-  `narrow` (85% width).
+  `narrow` (85% width), which needs the variable Plex Sans with its width axis;
+  the static fonts have no narrow width. `font` names both ways to load it:
+  fontsource's `IBM Plex Sans Variable` (`@fontsource-variable/ibm-plex-sans`),
+  or your own `@font-face` that names the variable file `IBM Plex Sans` with
+  `font-stretch: 85% 100%`.
 - **Shape** is square (`radius`). Only form fields are slightly rounded
   (`radius-field`, 3px). Rows default to `row` (38px); a long list may offer
   `row-compact`.
