@@ -1116,6 +1116,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       runBinding,
       {
         ...(input.eventBus !== undefined && { eventBus: input.eventBus }),
+        ...(input.hitlBinding !== undefined && { hitl: input.hitlBinding }),
         ...(input.agentRegistry !== undefined &&
           input.flowRegistry !== undefined && {
             targetExists: async (tenantId, target) =>
