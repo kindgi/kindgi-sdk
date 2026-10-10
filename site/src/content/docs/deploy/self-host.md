@@ -37,7 +37,7 @@ You get its pull credentials, a robot name and a token, and log in once with
 
 ```sh
 docker login quay.io
-docker pull quay.io/kindgi/runtime:0.1.5
+docker pull quay.io/kindgi/runtime:0.1.5.1
 ```
 
 ## 2. Start Postgres and a registry
@@ -210,7 +210,7 @@ Start the runtime:
 docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
   --add-host registry.localhost:host-gateway \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
-  quay.io/kindgi/runtime:0.1.5
+  quay.io/kindgi/runtime:0.1.5.1
 ```
 
 `--restart unless-stopped` brings the runtime back by itself after a crash,

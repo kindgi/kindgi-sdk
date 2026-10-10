@@ -360,6 +360,11 @@ export function providersRouter(
       adapterId: entry.adapterId,
       checked: problems !== undefined,
       issues: problems ?? [],
+      // Where its key resolves from, by name only (never a value), so
+      // `kindgi dev` can keep a provider's key out of the pack's environment.
+      ...(entry.secretRef !== undefined && {
+        secretRef: { envName: entry.secretRef.envName, name: entry.secretRef.name },
+      }),
     });
   });
 

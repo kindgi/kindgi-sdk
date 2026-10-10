@@ -91,6 +91,8 @@ const TAG_DESCRIPTIONS: Readonly<Record<string, string>> = {
     "Data blocks: versioned prompts and settings an agent version pins when it's published (list, get, versions, publish, unregister, reinstate). A version never changes, nor does a block's kind; a settings block's values satisfy its schema and the latest version's. A block belongs to one project and is authorized through it: `read` on the project to read, `write` to publish, unregister or reinstate. Caller-plugged via `BlockRegistryBinding`.",
   judgments:
     "Judgments: yes or no, with an optional reason, about one item of a finished run's output, optionally recorded under a judge class (list, get, create, unregister). Each judgment keeps copies of what was judged (the run's input and output, and the item) so they outlive the run's own retention. Who judged comes from the authenticated caller, never the body; an app judging for one of its users passes that user's opaque id as `participantId`. One live judgment per run, item key, caller and participant: judging again supersedes the earlier one, which stays as history. Caller-plugged via `JudgmentRegistryBinding`.",
+  judging:
+    "A project's judging rules (which runs to queue for a person's judgment when they end) and the queue they fill. Rules only list runs; nothing here starts a model.",
   'judge-classes':
     'Judge classes (list, get, create, update, unregister): the deployment\'s named kinds of judge ("expert", "user", ...), each with a weight, scoped to the tenant, a project, or an agent in a project. A judgment may name a class; an unclassified judgment counts with weight 1. Caller-plugged via `JudgmentRegistryBinding`.',
   'eval-runs':

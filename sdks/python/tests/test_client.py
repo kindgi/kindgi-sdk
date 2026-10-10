@@ -853,6 +853,88 @@ def test_a_persons_grants_and_tenant_admin() -> None:
     assert json.loads(seen[1].content) == {"kind": "tenant-admin"}
 
 
+def test_the_people_list_with_their_grants() -> None:
+    person = {
+        "userId": "u-1",
+        "tenantId": "8f14e45f-ceea-467a-9575-36c1f8d1e0a3",
+        "createdAt": "2026-10-10T00:00:00Z",
+    }
+    grants = {"userId": "u-1", "tenantAdmin": False, "projects": [], "teams": []}
+    page = {"data": [{**person, "grants": grants}, person], "hasMore": False}
+    api, seen = client(lambda r: httpx.Response(200, json=page))
+    listed = api.identity.users.list(include="grants")
+    assert seen[0].url.params["include"] == "grants"
+    first, second = listed.data
+    assert isinstance(first.grants, models.PersonGrants) and first.grants.tenant_admin is False
+    assert second.grants is None
+
+
+def test_team_grants() -> None:
+    grant = {
+        "teamId": "t-1",
+        "projectId": "p-1",
+        "role": "editor",
+        "teamName": "Crew",
+        "projectName": "Acme",
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, json={"data": [grant], "hasMore": False})
+        if request.method == "POST":
+            return httpx.Response(201, json=grant)
+        return httpx.Response(204)
+
+    api, seen = client(handler)
+    page = api.projects.team_grants.list("p-1")
+    assert isinstance(page.data[0], models.TeamProjectGrant) and page.data[0].team_name == "Crew"
+    added = api.projects.team_grants.add("p-1", team_id="t-1", role="editor")
+    assert added.role == "editor"
+    api.projects.team_grants.update_role("p-1", "t-1", role="admin")
+    api.projects.team_grants.remove("p-1", "t-1")
+    api.teams.project_grants.list("t-1")
+    assert [(r.method, r.url.path) for r in seen] == [
+        ("GET", "/v1/projects/p-1/team-grants"),
+        ("POST", "/v1/projects/p-1/team-grants"),
+        ("PATCH", "/v1/projects/p-1/team-grants/t-1"),
+        ("DELETE", "/v1/projects/p-1/team-grants/t-1"),
+        ("GET", "/v1/teams/t-1/project-grants"),
+    ]
+    assert json.loads(seen[1].content) == {"teamId": "t-1", "role": "editor"}
+    assert json.loads(seen[2].content) == {"role": "admin"}
+
+
+def test_project_access() -> None:
+    page = {
+        "data": [
+            {
+                "principal": {"kind": "user", "id": "u-1"},
+                "displayName": "Ada",
+                "role": "admin",
+                "via": [
+                    {"kind": "tenant-admin"},
+                    {"kind": "direct", "role": "editor", "joinedAt": "2026-10-01T00:00:00Z"},
+                    {"kind": "team", "teamId": "t-1", "teamName": "Crew", "role": "viewer"},
+                    {"kind": "org-admin", "orgId": "o-1"},
+                ],
+            }
+        ],
+        "hasMore": False,
+    }
+    api, seen = client(lambda r: httpx.Response(200, json=page))
+    listed = api.projects.access.list("p-1", limit=100)
+    assert seen[0].url.path == "/v1/projects/p-1/access"
+    assert seen[0].url.params["limit"] == "100"
+    entry = listed.data[0]
+    assert isinstance(entry, models.ProjectAccess) and entry.role == "admin"
+    assert [type(v) for v in entry.via] == [
+        models.ProjectAccessTenantAdmin,
+        models.ProjectAccessDirect,
+        models.ProjectAccessTeam,
+        models.ProjectAccessOrgAdmin,
+    ]
+
+
 def test_my_permissions() -> None:
     answer = {
         "tenantId": RUN["tenantId"],
@@ -917,12 +999,13 @@ def test_named_models_keep_their_names() -> None:
         "Project",
         "Reviewer",
         "Tenant",
+        "FlowId",
         "PersonGrants",
         "ServiceAccountGrantBody",
         "RunStatus",
     ):
         assert hasattr(models, name), name
-    for name in ("Team1", "Project1", "Reviewer1", "Tenant1"):
+    for name in ("Team1", "Project1", "Reviewer1", "Tenant1", "FlowId1"):
         assert not hasattr(models, name), name
 
 
@@ -1065,3 +1148,74 @@ def test_a_model_s_uuid_id_passes_back_as_text_in_a_path_and_a_query() -> None:
     api.approvals.list(wait_token_id=[run_id, "wt-2"])
     assert seen[0].url.path == f"/v1/runs/{run_id}"
     assert seen[1].url.params.get_list("waitTokenId") == [str(run_id), "wt-2"]
+
+
+def test_a_judging_rule_takes_its_when_in_python_or_wire_case() -> None:
+    # The guide's example passes `when` with snake_case keys; wire case works too.
+    project = "d4910d76-7355-4022-8f3c-514361cfa986"
+    rule = {
+        "ruleId": "6f1d9a0e-2b8c-4f4e-9d61-0c2a7e5b3f10",
+        "projectId": project,
+        "version": 1,
+        "name": "Live refund runs",
+        "when": {"agentIds": ["acme.refunds"], "versions": ["live"]},
+        "sample": 0.05,
+        "maxOpen": 20,
+        "enabled": True,
+        "createdAt": "2026-10-10T09:00:00.000Z",
+    }
+    api, seen = client(lambda r: httpx.Response(201, json=rule))
+    made = api.projects.judging_rules.create(
+        project,
+        name="Live refund runs",
+        when={"agent_ids": ["acme.refunds"], "versions": ["live"]},
+        sample=0.05,
+        max_open=20,
+    )
+    api.projects.judging_rules.create(
+        project,
+        {
+            "name": "Live refund runs",
+            "when": {"agentIds": ["acme.refunds"], "versions": ["live"]},
+            "sample": 0.05,
+            "maxOpen": 20,
+        },
+    )
+    assert made.rule_id == rule["ruleId"] and made.when.agent_ids == ["acme.refunds"]
+    sent = [json.loads(r.content) for r in seen]
+    assert sent[0] == sent[1] == {k: rule[k] for k in ("name", "when", "sample", "maxOpen")}
+    assert seen[0].url == f"http://kindgi.test/v1/projects/{project}/judging-rules"
+
+
+def test_a_judging_rule_change_sends_null_to_remove_the_cap() -> None:
+    project, rule_id = (
+        "d4910d76-7355-4022-8f3c-514361cfa986",
+        "6f1d9a0e-2b8c-4f4e-9d61-0c2a7e5b3f10",
+    )
+    rule = {
+        "ruleId": rule_id,
+        "projectId": project,
+        "version": 2,
+        "name": "Live refund runs",
+        "when": {},
+        "sample": 0.05,
+        "enabled": True,
+        "createdAt": "2026-10-10T09:00:00.000Z",
+    }
+    api, seen = client(lambda r: httpx.Response(200, json=rule))
+    api.projects.judging_rules.update(project, rule_id, max_open=None, sample=0.05)
+    assert json.loads(seen[0].content) == {"maxOpen": None, "sample": 0.05}
+
+
+def test_a_reviewer_inbox_in_one_read() -> None:
+    page = {"data": [], "hasMore": False, "order": "asc"}
+    api, seen = client(lambda r: httpx.Response(200, json=page))
+    listed = api.approvals.list(
+        status=["pending", "assigned", "in_review"], assigned_to="me", order="asc"
+    )
+    assert seen[0].url.params.get_list("status") == ["pending", "assigned", "in_review"]
+    assert (seen[0].url.params.get("assignedTo"), seen[0].url.params.get("order")) == ("me", "asc")
+    assert listed.order == "asc"
+    # One status, as before.
+    api.approvals.list(status="pending")
+    assert seen[1].url.params.get_list("status") == ["pending"]

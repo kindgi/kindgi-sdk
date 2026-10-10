@@ -86,6 +86,13 @@ export interface SecretBinding {
    * destroy for GDPR right-to-erasure. Emits a `secret-revoked` event.
    */
   revoke(input: SecretRevokeInput): Promise<Result<SecretRevokeOutcome, SecretError>>;
+
+  /**
+   * `true` for a binding that keeps secrets in the pack's env files
+   * (`kindgi dev`): its `set` honors `appEnvFile`. Any other binding
+   * leaves it unset, and `POST /v1/secrets` refuses `appEnvFile`.
+   */
+  readonly writesAppEnvFiles?: boolean;
 }
 
 // -------------------- record types --------------------
@@ -199,6 +206,12 @@ export interface SecretSetInput {
   readonly tags?: Readonly<Record<string, string>>;
   readonly rotationDueAt?: string;
   readonly ifVersion?: number;
+  /**
+   * Only for a binding with `writesAppEnvFiles` (`kindgi dev`'s env files):
+   * write the app's own env file instead of Kindgi's secrets file, for a
+   * value the app reads too (a webhook signing secret).
+   */
+  readonly appEnvFile?: boolean;
   /**
    * The request's `Idempotency-Key`, when it had one. A binding that
    * writes to an external store in a second step (the secret-manager

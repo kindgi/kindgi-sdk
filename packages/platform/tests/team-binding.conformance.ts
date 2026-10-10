@@ -7,8 +7,9 @@
  * Cases covered:
  * - CRUD happy paths for both team + membership shapes.
  * - Team creation with + without `orgId` (nullable FK).
- * - Membership `add` idempotency — adding an existing member does not
- *   silently mutate a stored differing role (mutation goes through
+ * - Membership `add` idempotency — re-adding an existing member with
+ *   their role is `ok`; with another role it's `membership-exists`,
+ *   naming the role they hold, which is kept (mutation goes through
  *   `updateRole`).
  * - `listForUser` returns memberships across teams within a tenant.
  * - Cross-tenant isolation on every reachable read.
@@ -149,15 +150,19 @@ export function runTeamBindingConformance(
   });
 
   describe(`${label} — membership idempotency`, () => {
-    it('add on existing membership is a no-op (does NOT overwrite role)', async () => {
+    it('add on an existing membership keeps its role: `ok` for that role, `membership-exists` for another', async () => {
       const { teams, memberships } = makeBinding();
       const id = await createTeam(teams, T1, { name: 'X', slug: 'x' });
       expect(await memberships.add(T1, { teamId: id, userId: U1, role: 'admin' })).toEqual({
         kind: 'ok',
       });
-      // Re-add with a different role — should be a no-op, not a mutation.
-      expect(await memberships.add(T1, { teamId: id, userId: U1, role: 'member' })).toEqual({
+      expect(await memberships.add(T1, { teamId: id, userId: U1, role: 'admin' })).toEqual({
         kind: 'ok',
+      });
+      // Re-add with a different role: refused, naming the role held, not a mutation.
+      expect(await memberships.add(T1, { teamId: id, userId: U1, role: 'member' })).toEqual({
+        kind: 'membership-exists',
+        role: 'admin',
       });
       const page = await memberships.list(T1, id, {});
       expect(page.items).toHaveLength(1);

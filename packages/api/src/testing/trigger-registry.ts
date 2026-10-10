@@ -155,7 +155,9 @@ export function createInMemoryTriggerRegistry(
             r.tenantId === input.tenantId &&
             r.unregistered !== true &&
             (input.kind === undefined || r.kind === input.kind) &&
-            (input.status === undefined || r.status === input.status),
+            (input.status === undefined || r.status === input.status) &&
+            (input.projectId === undefined ||
+              (r.kind === 'cron' && r.projectId === input.projectId)),
         )
         .map(strip);
       const start = input.cursor === undefined ? 0 : Number(input.cursor);

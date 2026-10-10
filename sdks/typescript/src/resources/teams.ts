@@ -20,6 +20,7 @@ import type {
   Team as TeamWire,
 } from '../generated/api.js';
 import type { Transport } from '../transport.js';
+import type { ListTeamGrantsFilter, TeamProjectGrantPage } from './projects.js';
 
 export type TeamShape = TeamWire;
 export type TeamRecordShape = TeamShape;
@@ -57,9 +58,19 @@ export interface TeamsClient {
     input: UpdateTeamInput,
     options?: { readonly idempotencyKey?: string },
   ): Promise<TeamShape>;
-  /** @wire DELETE /v1/teams/:teamId */
+  /**
+   * With authorization on, the team's members' roles and its project
+   * grants go with it.
+   *
+   * @wire DELETE /v1/teams/:teamId
+   */
   delete(teamId: string): Promise<void>;
   readonly memberships: TeamMembershipsClient;
+  /** The projects a team holds a role on: for the team's admins (and tenant admins). */
+  readonly projectGrants: {
+    /** @wire GET /v1/teams/:teamId/project-grants */
+    list(teamId: string, filter?: ListTeamGrantsFilter): Promise<TeamProjectGrantPage>;
+  };
 }
 
 export interface TeamMembershipsClient {
@@ -162,6 +173,18 @@ export function makeTeamsClient(transport: Transport): TeamsClient {
           path: `/v1/teams/${seg(teamId)}/memberships/${seg(userId)}`,
           discardResponse: true,
           ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
+        });
+      },
+    },
+    projectGrants: {
+      async list(teamId, filter) {
+        return transport.request<TeamProjectGrantPage>({
+          method: 'GET',
+          path: `/v1/teams/${seg(teamId)}/project-grants`,
+          query: {
+            ...(filter?.limit !== undefined && { limit: filter.limit }),
+            ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
+          },
         });
       },
     },

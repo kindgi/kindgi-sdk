@@ -9,7 +9,7 @@ Sign-in with "acme-saml" (SAML). Send this to whoever runs your identity provide
 
   Send back: the identity provider's metadata XML.
 
-Step by step: https://docs.kindgi.com/guides/sso/saml/
+Step by step: https://docs.kindgi.com/v0.1/guides/sso/saml/
 
 Then register it:
   kindgi sso providers finish acme-saml --kind=saml --idp-metadata=@<metadata.xml> --domains=<your-domain>

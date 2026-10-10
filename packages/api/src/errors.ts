@@ -206,6 +206,12 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // Judgments (yes/no on a run's output items) and judge classes.
   'judgment-not-found': 404,
   'judge-class-not-found': 404,
+  /** A judging rule that isn't in the project (`/v1/projects/:projectId/judging-rules/:ruleId`). */
+  'judging-rule-not-found': 404,
+  /** A run that isn't in the project's judging queue. */
+  'judging-item-not-found': 404,
+  /** Dismissing a queued run that isn't open, or reopening one that wasn't dismissed. */
+  'judging-item-not-open': 409,
   'judge-class-name-taken': 409,
   'judge-class-not-applicable': 400,
   // The judge class is restricted (`assertableBy`), and the caller isn't one who may assert it.
@@ -262,11 +268,14 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'item-not-found': 400,
   // The judgment binding can't list judged runs, so no test sets from judgments.
   'test-sets-not-supported': 501,
+  'run-failures-not-supported': 501,
   'memory-operation-unsupported': 501,
   // The conversation binding can't unregister (a runtime built before it).
   'conversation-unregister-unsupported': 501,
   // Authorization is enforced, but a membership change can't be kept in step with it.
   'authz-membership-unsupported': 501,
+  // The guardrail registry keeps no outcome ledger.
+  'guardrail-outcomes-not-supported': 501,
   'eval-run-already-terminal': 409,
   'dispatcher-not-registered': 422,
   'dispatcher-input-invalid': 400,
@@ -327,6 +336,13 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'project-not-found': 404,
   'team-membership-not-found': 404,
   'project-membership-not-found': 404,
+  // Re-adding a member with another role: the role they hold is kept.
+  'membership-exists': 409,
+  // A team's role on a project.
+  'team-grant-not-found': 404,
+  'team-grant-exists': 409,
+  // Who has access to a project: a runtime without an authorization store can't say.
+  'project-access-unsupported': 501,
   // A model provider's key is used by its provider only: named by a tool or
   // an endpoint (400), or registered for a provider while one uses it (409).
   'provider-key-refused': 400,

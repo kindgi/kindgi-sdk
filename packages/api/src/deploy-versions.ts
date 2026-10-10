@@ -12,6 +12,10 @@ export interface PinnedDefinition {
   readonly pins?: PinSet;
   readonly pinsDigest?: string;
   readonly derivedFrom?: VersionDerivation;
+  /** Set by the registry on a version it reads: where it's stored, not what it is. */
+  readonly projectId?: string;
+  /** Set by the registry on an unregistered version it reads. */
+  readonly unregisteredAt?: string;
 }
 
 /**
@@ -147,8 +151,19 @@ async function registerNextFree<T extends PinnedDefinition>(
   );
 }
 
-/** A definition: everything but its version and what the runtime sets. */
+/**
+ * A definition: everything but its version and what the runtime sets
+ * (pins, where a version came from, and where the registry keeps it).
+ */
 export function definitionKey(definition: PinnedDefinition): string {
-  const { version: _v, pins: _p, pinsDigest: _d, derivedFrom: _f, ...rest } = definition;
+  const {
+    version: _v,
+    pins: _p,
+    pinsDigest: _d,
+    derivedFrom: _f,
+    projectId: _project,
+    unregisteredAt: _u,
+    ...rest
+  } = definition;
   return canonicalize(rest);
 }
