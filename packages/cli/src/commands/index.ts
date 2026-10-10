@@ -48,6 +48,7 @@ import { toolsCommand } from './tools.js';
 import type { Command } from './types.js';
 import { upgradeCommand } from './upgrade.js';
 import { versionCommand } from './version.js';
+import { webhooksCommand } from './webhooks.js';
 
 export const ROOT_COMMANDS: readonly Command[] = [
   authCommand,
@@ -77,6 +78,7 @@ export const ROOT_COMMANDS: readonly Command[] = [
   artifactsCommand,
   flowsCommand,
   schedulesCommand,
+  webhooksCommand,
   approvalsCommand,
   reviewersCommand,
   observationsCommand,

@@ -99,6 +99,11 @@ describe('SDK ↔ generated wire coverage — every endpoint has a resource wrap
         // not part of the SDK's caller-facing ergonomics.
         '/v1/adapters/{adapterId}/prepare':
           'adapters.prepare — deployment-side warmup SSE; not caller-facing',
+
+        // The inbound receiver: a webhook trigger's sender (WooCommerce,
+        // Drupal, GitHub…) posts to it, signed with the trigger's secret.
+        '/v1/hooks/{tenantId}/{webhookId}':
+          "hooks.receive — a signed sender's path (the trigger's receiveUrl), not this client's",
       };
       if (raw in SKIP) continue;
       if (!wrapped.has(normalize(raw))) missing.push(raw);

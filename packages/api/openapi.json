@@ -184,6 +184,9 @@
       "description": "Run an agent or a flow on a schedule: a cron expression in a timezone. Each occurrence is one fire, which starts one run as the schedule's owner (re-checked at every fire), through the same path as `POST /v1/runs`; a run a schedule started names it (`Run.trigger`). After a gap, `catchUp` runs once for the latest missed occurrence (or skips them), never once per missed one; `overlap` skips an occurrence while the previous run is still going. `GET …/fires` is the schedule's history; `run-now` fires it outside the schedule. Mounted when the deployment fires schedules."
     },
     {
+      "name": "webhooks"
+    },
+    {
       "name": "webhook-endpoints",
       "description": "Outbound webhooks: endpoints the platform sends signed events to (`run.finished` when a top-level run completes, fails or is cancelled), their delivery log, redelivery and a test event. Signed in the Standard Webhooks format with a secret the endpoint references by name (`secretRef`); delivered at least once, so receivers deduplicate on `webhook-id`. Event bodies are under `webhooks`. Not to be confused with `/v1/webhooks`, which are inbound triggers. Caller-plugged via `WebhookEndpointBinding`."
     }
@@ -454,10 +457,10 @@
           "trigger-update-failed": 500,
           "trigger-lifecycle-failed": 500,
           "trigger-operation-unsupported": 501,
-          "webhook-signature-invalid": 401,
-          "webhook-inactive": 410,
-          "webhook-secret-missing": 500,
-          "webhook-flow-not-found": 502,
+          "webhook-refused": 401,
+          "webhook-gone": 410,
+          "webhook-body-too-large": 413,
+          "webhook-body-not-json": 400,
           "webhook-endpoint-not-found": 404,
           "webhook-delivery-not-found": 404,
           "webhook-url-refused": 400,
@@ -19231,6 +19234,449 @@
           }
         }
       },
+      "WebhookSignature": {
+        "description": "How a webhook trigger's sender signs. `hmac-sha256`: an HMAC-SHA256 of the raw body under the secret's UTF-8 bytes, in `header`, `hex` or `base64`, after an optional `prefix` (GitHub and Drupal's Webhooks module: `X-Hub-Signature-256`, hex, `sha256=`; WooCommerce: `X-WC-Webhook-Signature`, base64; Shopify: `X-Shopify-Hmac-Sha256`, base64). No timestamp is signed, so only the trigger's dedupe catches a replay. `standard-webhooks`: the Standard Webhooks format (`webhook-id`, `webhook-timestamp`, `webhook-signature: v1,<base64>` over `{id}.{timestamp}.{body}`, a `whsec_` secret), refused past `toleranceSeconds` (default 300) from the receiver's clock; it dedupes on its `webhook-id`.",
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "encoding",
+              "header"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "hmac-sha256"
+                ]
+              },
+              "encoding": {
+                "type": "string",
+                "enum": [
+                  "hex",
+                  "base64"
+                ]
+              },
+              "header": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100,
+                "description": "The header that carries the signature (matched case-insensitively)."
+              },
+              "prefix": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 32,
+                "description": "Stripped from the header's value before decoding (e.g. `sha256=`)."
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "standard-webhooks"
+                ]
+              },
+              "toleranceSeconds": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 3600
+              }
+            }
+          }
+        ]
+      },
+      "WebhookTriggerRecord": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "A webhook trigger: a signed request to its `receiveUrl` starts a run of its flow, as its owner. The signing secret is never on it, only its name.",
+        "required": [
+          "triggerId",
+          "webhookId",
+          "flowId",
+          "flowVersion",
+          "projectId",
+          "owner",
+          "hmacSecretName",
+          "signature",
+          "bodyLimitBytes",
+          "rateLimitPerMinute",
+          "label",
+          "status",
+          "lastFiredAt",
+          "createdAt",
+          "updatedAt"
+        ],
+        "properties": {
+          "triggerId": {
+            "type": "string"
+          },
+          "webhookId": {
+            "type": "string",
+            "description": "The routable id in the receive URL. Route-minted (a random UUID); unique per tenant. Not a secret: the signature is what a request is checked by."
+          },
+          "receiveUrl": {
+            "type": "string",
+            "format": "uri",
+            "description": "Where the sender posts: `{public URL}/v1/hooks/{tenantId}/{webhookId}`. Absent when the deployment has no public URL configured (`KINDGI_PUBLIC_URL`); it's never taken from a request's `Host`."
+          },
+          "flowId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "flowVersion": {
+            "type": "string",
+            "minLength": 1
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The trigger's project: its runs are this project's."
+          },
+          "owner": {
+            "$ref": "#/components/schemas/TriggerOwner",
+            "description": "Who its runs act as: whoever registered it, until an admin takes it over (`POST …/owner`). Checked again at every delivery."
+          },
+          "input": {
+            "description": "The flow's input on every delivery, in place of the event. Absent: the event (the body, parsed as JSON for a JSON content type, else its text)."
+          },
+          "hmacSecretName": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The signing secret, by name (written with `POST /v1/secrets`). Read in the env the deployment serves."
+          },
+          "signature": {
+            "$ref": "#/components/schemas/WebhookSignature"
+          },
+          "deliveryIdHeader": {
+            "type": "string",
+            "description": "The header whose value, with the body, is a delivery's dedupe key (WooCommerce: `X-WC-Webhook-Delivery-ID`, which is per second, not per event, so the body counts too). Absent: deliveries aren't deduped (`standard-webhooks` dedupes on its own `webhook-id`)."
+          },
+          "bodyLimitBytes": {
+            "type": "integer",
+            "minimum": 1024,
+            "maximum": 1048576,
+            "description": "The largest body it takes (default 262144)."
+          },
+          "rateLimitPerMinute": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 6000,
+            "description": "Accepted deliveries a minute (default 600); past it, `429`."
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/TriggerStatus"
+          },
+          "statusReason": {
+            "type": "string",
+            "description": "Why the runtime paused it (repeated refused or failed starts; a sender's failed proofs never count), when it did."
+          },
+          "suppressedRefusals": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "since",
+              "count"
+            ],
+            "description": "Refusals and skipped deliveries this minute past the 20 recorded in its history, which only counted.",
+            "properties": {
+              "since": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "count": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          },
+          "lastFiredAt": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "WebhookFire": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "One delivery to a webhook trigger and what came of it. A fire keeps the delivery's event only until its run starts; then only the run has it.",
+        "required": [
+          "fireId",
+          "triggerId",
+          "firedAt",
+          "outcome"
+        ],
+        "properties": {
+          "fireId": {
+            "type": "string"
+          },
+          "triggerId": {
+            "type": "string"
+          },
+          "firedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "started",
+              "skipped",
+              "refused",
+              "failed"
+            ],
+            "description": "`pending` while its run starts. `skipped`: the trigger was paused, so the event was dropped. `refused`: `detail` says why. `failed`: the run couldn't start."
+          },
+          "runId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The run it started."
+          },
+          "detail": {
+            "type": "string",
+            "description": "Why it was refused, skipped or failed: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `paused`, `rate-limited`, `body-too-large`, `body-not-json`, or the owner's lost access."
+          },
+          "duplicates": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Later deliveries with the same dedupe key, which started nothing."
+          },
+          "lastDuplicateAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "WebhookFirePage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "hasMore"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WebhookFire"
+            }
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "nextCursor": {
+            "type": "string"
+          }
+        }
+      },
+      "WebhookReceipt": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "What the receiver did with a delivery.",
+        "properties": {
+          "fireId": {
+            "type": "string",
+            "description": "The fire recorded (or, with `duplicate`, the earlier one)."
+          },
+          "duplicate": {
+            "type": "boolean",
+            "description": "An earlier fire holds this delivery's dedupe key: nothing new started."
+          },
+          "skipped": {
+            "type": "string",
+            "enum": [
+              "paused"
+            ],
+            "description": "The trigger is paused: no run started, and the event was dropped."
+          },
+          "received": {
+            "type": "string",
+            "enum": [
+              "ping"
+            ],
+            "description": "A WooCommerce save-time ping: answered, nothing started."
+          }
+        }
+      },
+      "WebhookTriggerCollectionPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data",
+          "hasMore"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WebhookTriggerRecord"
+            }
+          },
+          "nextCursor": {
+            "type": "string"
+          },
+          "hasMore": {
+            "type": "boolean"
+          }
+        }
+      },
+      "RegisterWebhookTriggerBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "flowId",
+          "flowVersion",
+          "hmacSecretName"
+        ],
+        "properties": {
+          "flowId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "flowVersion": {
+            "type": "string",
+            "minLength": 1
+          },
+          "projectId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The trigger's project; absent: the tenant's Default project."
+          },
+          "config": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "input": {}
+            }
+          },
+          "hmacSecretName": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The signing secret, by name: written first with `POST /v1/secrets`. Never a model provider's key. For WooCommerce, use letters and digits only (it HTML-decodes the secret before signing)."
+          },
+          "signature": {
+            "$ref": "#/components/schemas/WebhookSignature"
+          },
+          "deliveryIdHeader": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "description": "The header whose value, with the body, dedupes deliveries. Not with `standard-webhooks`, which dedupes on its `webhook-id`."
+          },
+          "bodyLimitBytes": {
+            "type": "integer",
+            "minimum": 1024,
+            "maximum": 1048576
+          },
+          "rateLimitPerMinute": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 6000
+          },
+          "label": {
+            "type": "string"
+          }
+        }
+      },
+      "PatchWebhookTriggerBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "config": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "input": {}
+            }
+          },
+          "label": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "flowVersion": {
+            "type": "string",
+            "minLength": 1
+          },
+          "hmacSecretName": {
+            "type": "string",
+            "minLength": 1
+          },
+          "signature": {
+            "$ref": "#/components/schemas/WebhookSignature"
+          },
+          "deliveryIdHeader": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "maxLength": 100,
+            "description": "`null` stops deduping."
+          },
+          "bodyLimitBytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1024,
+            "maximum": 1048576,
+            "description": "`null`: the default."
+          },
+          "rateLimitPerMinute": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1,
+            "maximum": 6000,
+            "description": "`null`: the default."
+          }
+        }
+      },
+      "WebhookTriggerUnregisterResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "triggerId",
+          "unregistered"
+        ],
+        "properties": {
+          "triggerId": {
+            "type": "string"
+          },
+          "unregistered": {
+            "type": "boolean"
+          }
+        }
+      },
       "WebhookEventType": {
         "type": "string",
         "enum": [
@@ -31580,7 +32026,7 @@
             }
           },
           "409": {
-            "description": "Provider already registered at that id. Or `provider-key-in-use`: `secret_ref` names a secret that a tool (its current version), an MCP endpoint or a webhook endpoint uses; `details.usedBy` lists each (`kind`, `id`, a tool's `version`). Store the provider's key under its own name. Nothing is stored.",
+            "description": "Provider already registered at that id. Or `provider-key-in-use`: `secret_ref` names a secret that a tool (its current version), an MCP endpoint, a webhook endpoint or a webhook trigger uses; `details.usedBy` lists each (`kind`, `id`, a tool's `version`). Store the provider's key under its own name. Nothing is stored.",
             "content": {
               "application/json": {
                 "schema": {
@@ -46430,6 +46876,939 @@
             "bearerAuth": []
           }
         ]
+      }
+    },
+    "/v1/webhooks": {
+      "post": {
+        "operationId": "webhooks.register",
+        "summary": "Register a webhook trigger",
+        "tags": [
+          "webhooks"
+        ],
+        "responses": {
+          "201": {
+            "description": "Webhook registered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookTriggerRecord"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A body that fails validation (`bad-input`), or `provider-key-refused`: `hmacSecretName` is a model provider's key.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Route-minted webhookId collided (astronomically rare).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`). `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the tenant's Default project. Needs `write` on the project and `execute` on the flow.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterWebhookTriggerBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "get": {
+        "operationId": "webhooks.list",
+        "summary": "List webhook triggers",
+        "tags": [
+          "webhooks"
+        ],
+        "responses": {
+          "200": {
+            "description": "Page of webhook triggers.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookTriggerCollectionPage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "The tenant's webhook triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it).",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "description": "1..100. Default 25."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "$ref": "#/components/schemas/TriggerStatus"
+            },
+            "required": false,
+            "description": "Filter to triggers at a specific status. Values: `active | paused`."
+          },
+          {
+            "name": "projectId",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": false,
+            "description": "Only this project's webhook triggers."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/webhooks/{triggerId}": {
+      "get": {
+        "operationId": "webhooks.get",
+        "summary": "Fetch a webhook trigger",
+        "tags": [
+          "webhooks"
+        ],
+        "responses": {
+          "200": {
+            "description": "Webhook record.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookTriggerRecord"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No webhook trigger with that id, or the row was tombstoned.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "triggerId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "TriggerId — the trigger id (a UUID)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "patch": {
+        "operationId": "webhooks.update",
+        "summary": "Update a webhook trigger",
+        "tags": [
+          "webhooks"
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated webhook trigger.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookTriggerRecord"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No webhook trigger with that id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Changes the flow version (which needs `execute` on the flow), the input, the label, which secret signs (`hmacSecretName`, never a model provider's key), the signature scheme, the delivery-id header, the body cap or the rate (`null` clears the last three). The flow itself stays: register another trigger for another flow. Rotating the secret's value goes through `POST /v1/secrets/{name}/rotate`.",
+        "parameters": [
+          {
+            "name": "triggerId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "TriggerId — the trigger id (a UUID)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchWebhookTriggerBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/webhooks/{triggerId}/pause": {
+      "post": {
+        "operationId": "webhooks.pause",
+        "summary": "Pause a webhook trigger",
+        "tags": [
+          "webhooks"
+        ],
+        "responses": {
+          "200": {
+            "description": "Paused webhook.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookTriggerRecord"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No webhook trigger with that id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "While paused, a signed delivery is answered `202` and recorded as a `skipped` fire, and no run starts: **its event is dropped**. Senders such as WooCommerce never resend, so resuming doesn't bring those events back.",
+        "parameters": [
+          {
+            "name": "triggerId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "TriggerId — the trigger id (a UUID)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/webhooks/{triggerId}/resume": {
+      "post": {
+        "operationId": "webhooks.resume",
+        "summary": "Resume a webhook trigger",
+        "tags": [
+          "webhooks"
+        ],
+        "responses": {
+          "200": {
+            "description": "Resumed webhook.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookTriggerRecord"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No webhook trigger with that id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "triggerId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "TriggerId — the trigger id (a UUID)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/webhooks/{triggerId}/unregister": {
+      "post": {
+        "operationId": "webhooks.unregister",
+        "summary": "Soft-delete a webhook trigger (tombstone)",
+        "tags": [
+          "webhooks"
+        ],
+        "responses": {
+          "200": {
+            "description": "Tombstone outcome.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookTriggerUnregisterResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "triggerId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "TriggerId — the trigger id (a UUID)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/webhooks/{triggerId}/fires": {
+      "get": {
+        "operationId": "webhooks.fires",
+        "summary": "A webhook trigger's deliveries",
+        "tags": [
+          "webhooks"
+        ],
+        "responses": {
+          "200": {
+            "description": "Page of deliveries.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookFirePage"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No webhook trigger with that id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`trigger-operation-unsupported`: this deployment keeps no delivery history.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Newest first: each delivery the trigger received and what came of it: the run it started (`started`, or `pending` while it starts), or why it was `skipped` (paused) or `refused` (`detail`: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `rate-limited`, `body-too-large`, `body-not-json`, or the owner's lost access). A delivery that repeated an earlier one's dedupe key counts on that one (`duplicates`). A fire keeps the event only until its run starts. Refusals and skipped deliveries past 20 a minute only count (the trigger's `suppressedRefusals`).",
+        "parameters": [
+          {
+            "name": "triggerId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "TriggerId — the trigger id (a UUID)."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 25
+            },
+            "required": false,
+            "description": "1..100. Default 25."
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false,
+            "description": "Where the previous page ended: its `nextCursor`, as it came. A runtime that seals cursors takes one only for the same list, filters and caller, within a day; otherwise `400 bad-input`, and the list starts again without it. Absent → first page."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/webhooks/{triggerId}/owner": {
+      "post": {
+        "operationId": "webhooks.takeOwnership",
+        "summary": "Take over a webhook trigger",
+        "tags": [
+          "webhooks"
+        ],
+        "responses": {
+          "200": {
+            "description": "The trigger, with its new owner.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookTriggerRecord"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No webhook trigger with that id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "`trigger-operation-unsupported`: this deployment can't change a trigger's owner.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project and `execute` on its flow. For a trigger whose owner left or lost access.",
+        "parameters": [
+          {
+            "name": "triggerId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "TriggerId — the trigger id (a UUID)."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/hooks/{tenantId}/{webhookId}": {
+      "post": {
+        "operationId": "hooks.receive",
+        "summary": "Receive a webhook delivery",
+        "tags": [
+          "webhooks"
+        ],
+        "responses": {
+          "200": {
+            "description": "A delivery whose dedupe key an earlier fire holds (`duplicate: true`, that fire's id): nothing new started. Or a WooCommerce ping (`received: ping`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookReceipt"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Taken: a fire recorded, its run starting as the owner (`fireId`). Or, on a paused trigger, a `skipped` fire and no run (`skipped: paused`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookReceipt"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "`webhook-body-not-json`: a JSON content type whose body does not parse.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "`webhook-refused`: the request doesn't prove its sender (the same answer whatever the reason).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "`webhook-gone`: the trigger was unregistered.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "`webhook-body-too-large`: past the trigger's `bodyLimitBytes` (or 1 MiB, before any lookup).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "`rate-limit-exceeded`: past the trigger's `rateLimitPerMinute`, or too many refused requests from this client; `Retry-After` says when.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "The receive URL a webhook trigger's sender posts to: no sign-in, and a bearer token, if sent, is never read. The request's signature, made with the trigger's secret in its `signature` scheme over the raw body, is what lets it start the trigger's flow as the trigger's owner. Every request that doesn't prove its sender (an unknown tenant or id, a missing, wrong or stale signature, a secret that can't be read) is `401 webhook-refused`, with the reason only in the trigger's history and the access audit; the URL isn't a secret, the signature is. A WooCommerce save-time ping (unsigned `webhook_id=<n>`) is answered `200` and starts nothing. The event the flow gets is the body, parsed as JSON for a JSON content type, else its text: data from outside, never instructions. A run's start isn't waited for.",
+        "x-kindgi-sender-only": true,
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The trigger's tenant."
+          },
+          {
+            "name": "webhookId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The trigger's routable id (`webhookId`)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "description": "Any bytes, signed as the trigger says; at most the trigger's `bodyLimitBytes`.",
+          "content": {
+            "*/*": {
+              "schema": {
+                "type": "string",
+                "format": "binary"
+              }
+            }
+          }
+        },
+        "security": []
       }
     },
     "/v1/webhook-endpoints": {

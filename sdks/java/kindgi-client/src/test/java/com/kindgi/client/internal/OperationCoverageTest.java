@@ -32,7 +32,7 @@ class OperationCoverageTest {
     return Json.mapper().readValue(OPENAPI.toFile(), Map.class);
   }
 
-  /** operationId → {method, path}. */
+  /** operationId → {method, path, "sender-only" when an outside sender's path}. */
   @SuppressWarnings("unchecked")
   private static Map<String, String[]> operations() {
     Map<String, String[]> out = new java.util.LinkedHashMap<>();
@@ -40,7 +40,14 @@ class OperationCoverageTest {
     for (Map.Entry<String, Object> p : paths.entrySet()) {
       for (Map.Entry<String, Object> m : ((Map<String, Object>) p.getValue()).entrySet()) {
         if (m.getValue() instanceof Map && ((Map<String, Object>) m.getValue()).containsKey("operationId")) {
-          out.put((String) ((Map<String, Object>) m.getValue()).get("operationId"), new String[] {m.getKey().toUpperCase(Locale.ROOT), p.getKey()});
+          Map<String, Object> op = (Map<String, Object>) m.getValue();
+          out.put(
+              (String) op.get("operationId"),
+              new String[] {
+                m.getKey().toUpperCase(Locale.ROOT),
+                p.getKey(),
+                Boolean.TRUE.equals(op.get("x-kindgi-sender-only")) ? "sender-only" : ""
+              });
         }
       }
     }
@@ -53,7 +60,10 @@ class OperationCoverageTest {
     List<String> missing = new ArrayList<>();
     for (Map.Entry<String, String[]> e : ops.entrySet()) {
       if (Operations.WITHOUT_METHOD.contains(e.getKey())) {
-        assertThat(e.getValue()[0]).as(e.getKey()).isEqualTo("HEAD");
+        // Without a method: a HEAD, or an outside sender's path (the inbound webhook receiver).
+        if (!e.getValue()[2].equals("sender-only")) {
+          assertThat(e.getValue()[0]).as(e.getKey()).isEqualTo("HEAD");
+        }
         continue;
       }
       Operation op = Operations.ALL.get(e.getKey());

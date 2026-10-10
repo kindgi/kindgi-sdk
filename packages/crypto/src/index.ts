@@ -38,6 +38,13 @@ export type {
   WebhookRequestHeaders,
 } from './webhook.js';
 
+export { inboundSigningKey, verifyInboundSignature } from './inbound-signature.js';
+export type {
+  VerifyInboundSignatureFailure,
+  VerifyInboundSignatureInput,
+  VerifyInboundSignatureResult,
+} from './inbound-signature.js';
+
 export { createInMemorySigningKeyBinding } from './binding.js';
 
 export {

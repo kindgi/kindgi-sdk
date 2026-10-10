@@ -9965,6 +9965,288 @@ class ScheduleUnregisterResult(BaseModel):
     """
 
 
+class WebhookSignature1(BaseModel):
+    """
+    How a webhook trigger's sender signs. `hmac-sha256`: an HMAC-SHA256 of the raw body under the secret's UTF-8 bytes, in `header`, `hex` or `base64`, after an optional `prefix` (GitHub and Drupal's Webhooks module: `X-Hub-Signature-256`, hex, `sha256=`; WooCommerce: `X-WC-Webhook-Signature`, base64; Shopify: `X-Shopify-Hmac-Sha256`, base64). No timestamp is signed, so only the trigger's dedupe catches a replay. `standard-webhooks`: the Standard Webhooks format (`webhook-id`, `webhook-timestamp`, `webhook-signature: v1,<base64>` over `{id}.{timestamp}.{body}`, a `whsec_` secret), refused past `toleranceSeconds` (default 300) from the receiver's clock; it dedupes on its `webhook-id`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["hmac-sha256"]
+    encoding: Literal["hex", "base64"]
+    header: Annotated[str, Field(max_length=100, min_length=1)]
+    """
+    The header that carries the signature (matched case-insensitively).
+    """
+    prefix: Annotated[str | None, Field(max_length=32, min_length=1)] = None
+    """
+    Stripped from the header's value before decoding (e.g. `sha256=`).
+    """
+
+
+class WebhookSignature2(BaseModel):
+    """
+    How a webhook trigger's sender signs. `hmac-sha256`: an HMAC-SHA256 of the raw body under the secret's UTF-8 bytes, in `header`, `hex` or `base64`, after an optional `prefix` (GitHub and Drupal's Webhooks module: `X-Hub-Signature-256`, hex, `sha256=`; WooCommerce: `X-WC-Webhook-Signature`, base64; Shopify: `X-Shopify-Hmac-Sha256`, base64). No timestamp is signed, so only the trigger's dedupe catches a replay. `standard-webhooks`: the Standard Webhooks format (`webhook-id`, `webhook-timestamp`, `webhook-signature: v1,<base64>` over `{id}.{timestamp}.{body}`, a `whsec_` secret), refused past `toleranceSeconds` (default 300) from the receiver's clock; it dedupes on its `webhook-id`.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    kind: Literal["standard-webhooks"]
+    tolerance_seconds: Annotated[int | None, Field(alias="toleranceSeconds", ge=1, le=3600)] = None
+
+
+class SuppressedRefusals(BaseModel):
+    """
+    Refusals and skipped deliveries this minute past the 20 recorded in its history, which only counted.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    since: AwareDatetime
+    count: Annotated[int, Field(ge=1)]
+
+
+class WebhookTriggerRecord(BaseModel):
+    """
+    A webhook trigger: a signed request to its `receiveUrl` starts a run of its flow, as its owner. The signing secret is never on it, only its name.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    trigger_id: Annotated[str, Field(alias="triggerId")]
+    webhook_id: Annotated[str, Field(alias="webhookId")]
+    """
+    The routable id in the receive URL. Route-minted (a random UUID); unique per tenant. Not a secret: the signature is what a request is checked by.
+    """
+    receive_url: Annotated[AnyUrl | None, Field(alias="receiveUrl")] = None
+    """
+    Where the sender posts: `{public URL}/v1/hooks/{tenantId}/{webhookId}`. Absent when the deployment has no public URL configured (`KINDGI_PUBLIC_URL`); it's never taken from a request's `Host`.
+    """
+    flow_id: Annotated[str, Field(alias="flowId", min_length=1)]
+    flow_version: Annotated[str, Field(alias="flowVersion", min_length=1)]
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    """
+    The trigger's project: its runs are this project's.
+    """
+    owner: TriggerOwner
+    """
+    Who its runs act as: whoever registered it, until an admin takes it over (`POST …/owner`). Checked again at every delivery.
+    """
+    input: Any | None = None
+    """
+    The flow's input on every delivery, in place of the event. Absent: the event (the body, parsed as JSON for a JSON content type, else its text).
+    """
+    hmac_secret_name: Annotated[str, Field(alias="hmacSecretName", min_length=1)]
+    """
+    The signing secret, by name (written with `POST /v1/secrets`). Read in the env the deployment serves.
+    """
+    signature: WebhookSignature1 | WebhookSignature2
+    """
+    How a webhook trigger's sender signs. `hmac-sha256`: an HMAC-SHA256 of the raw body under the secret's UTF-8 bytes, in `header`, `hex` or `base64`, after an optional `prefix` (GitHub and Drupal's Webhooks module: `X-Hub-Signature-256`, hex, `sha256=`; WooCommerce: `X-WC-Webhook-Signature`, base64; Shopify: `X-Shopify-Hmac-Sha256`, base64). No timestamp is signed, so only the trigger's dedupe catches a replay. `standard-webhooks`: the Standard Webhooks format (`webhook-id`, `webhook-timestamp`, `webhook-signature: v1,<base64>` over `{id}.{timestamp}.{body}`, a `whsec_` secret), refused past `toleranceSeconds` (default 300) from the receiver's clock; it dedupes on its `webhook-id`.
+    """
+    delivery_id_header: Annotated[str | None, Field(alias="deliveryIdHeader")] = None
+    """
+    The header whose value, with the body, is a delivery's dedupe key (WooCommerce: `X-WC-Webhook-Delivery-ID`, which is per second, not per event, so the body counts too). Absent: deliveries aren't deduped (`standard-webhooks` dedupes on its own `webhook-id`).
+    """
+    body_limit_bytes: Annotated[int, Field(alias="bodyLimitBytes", ge=1024, le=1048576)]
+    """
+    The largest body it takes (default 262144).
+    """
+    rate_limit_per_minute: Annotated[int, Field(alias="rateLimitPerMinute", ge=1, le=6000)]
+    """
+    Accepted deliveries a minute (default 600); past it, `429`.
+    """
+    label: str | None
+    status: Literal["active", "paused"]
+    """
+    Lifecycle status. Only `active` triggers fire. Tombstoned rows are excluded from every read path.
+    """
+    status_reason: Annotated[str | None, Field(alias="statusReason")] = None
+    """
+    Why the runtime paused it (repeated refused or failed starts; a sender's failed proofs never count), when it did.
+    """
+    suppressed_refusals: Annotated[SuppressedRefusals | None, Field(alias="suppressedRefusals")] = (
+        None
+    )
+    """
+    Refusals and skipped deliveries this minute past the 20 recorded in its history, which only counted.
+    """
+    last_fired_at: Annotated[AwareDatetime | None, Field(alias="lastFiredAt")]
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+
+
+class WebhookFire(BaseModel):
+    """
+    One delivery to a webhook trigger and what came of it. A fire keeps the delivery's event only until its run starts; then only the run has it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    fire_id: Annotated[str, Field(alias="fireId")]
+    trigger_id: Annotated[str, Field(alias="triggerId")]
+    fired_at: Annotated[AwareDatetime, Field(alias="firedAt")]
+    outcome: Literal["pending", "started", "skipped", "refused", "failed"]
+    """
+    `pending` while its run starts. `skipped`: the trigger was paused, so the event was dropped. `refused`: `detail` says why. `failed`: the run couldn't start.
+    """
+    run_id: Annotated[UUID | None, Field(alias="runId")] = None
+    """
+    The run it started.
+    """
+    detail: str | None = None
+    """
+    Why it was refused, skipped or failed: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `paused`, `rate-limited`, `body-too-large`, `body-not-json`, or the owner's lost access.
+    """
+    duplicates: Annotated[int | None, Field(ge=1)] = None
+    """
+    Later deliveries with the same dedupe key, which started nothing.
+    """
+    last_duplicate_at: Annotated[AwareDatetime | None, Field(alias="lastDuplicateAt")] = None
+
+
+class WebhookFirePage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[WebhookFire]
+    has_more: Annotated[bool, Field(alias="hasMore")]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class WebhookReceipt(BaseModel):
+    """
+    What the receiver did with a delivery.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    fire_id: Annotated[str | None, Field(alias="fireId")] = None
+    """
+    The fire recorded (or, with `duplicate`, the earlier one).
+    """
+    duplicate: bool | None = None
+    """
+    An earlier fire holds this delivery's dedupe key: nothing new started.
+    """
+    skipped: Literal["paused"] | None = None
+    """
+    The trigger is paused: no run started, and the event was dropped.
+    """
+    received: Literal["ping"] | None = None
+    """
+    A WooCommerce save-time ping: answered, nothing started.
+    """
+
+
+class WebhookTriggerCollectionPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[WebhookTriggerRecord]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class Config8(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    input: Any | None = None
+
+
+class RegisterWebhookTriggerBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    flow_id: Annotated[str, Field(alias="flowId", min_length=1)]
+    flow_version: Annotated[str, Field(alias="flowVersion", min_length=1)]
+    project_id: Annotated[UUID | None, Field(alias="projectId")] = None
+    """
+    The trigger's project; absent: the tenant's Default project.
+    """
+    config: Config8 | None = None
+    hmac_secret_name: Annotated[str, Field(alias="hmacSecretName", min_length=1)]
+    """
+    The signing secret, by name: written first with `POST /v1/secrets`. Never a model provider's key. For WooCommerce, use letters and digits only (it HTML-decodes the secret before signing).
+    """
+    signature: WebhookSignature1 | WebhookSignature2 | None = None
+    """
+    How a webhook trigger's sender signs. `hmac-sha256`: an HMAC-SHA256 of the raw body under the secret's UTF-8 bytes, in `header`, `hex` or `base64`, after an optional `prefix` (GitHub and Drupal's Webhooks module: `X-Hub-Signature-256`, hex, `sha256=`; WooCommerce: `X-WC-Webhook-Signature`, base64; Shopify: `X-Shopify-Hmac-Sha256`, base64). No timestamp is signed, so only the trigger's dedupe catches a replay. `standard-webhooks`: the Standard Webhooks format (`webhook-id`, `webhook-timestamp`, `webhook-signature: v1,<base64>` over `{id}.{timestamp}.{body}`, a `whsec_` secret), refused past `toleranceSeconds` (default 300) from the receiver's clock; it dedupes on its `webhook-id`.
+    """
+    delivery_id_header: Annotated[
+        str | None, Field(alias="deliveryIdHeader", max_length=100, min_length=1)
+    ] = None
+    """
+    The header whose value, with the body, dedupes deliveries. Not with `standard-webhooks`, which dedupes on its `webhook-id`.
+    """
+    body_limit_bytes: Annotated[int | None, Field(alias="bodyLimitBytes", ge=1024, le=1048576)] = (
+        None
+    )
+    rate_limit_per_minute: Annotated[
+        int | None, Field(alias="rateLimitPerMinute", ge=1, le=6000)
+    ] = None
+    label: str | None = None
+
+
+class PatchWebhookTriggerBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    config: Config8 | None = None
+    label: str | None = None
+    flow_version: Annotated[str | None, Field(alias="flowVersion", min_length=1)] = None
+    hmac_secret_name: Annotated[str | None, Field(alias="hmacSecretName", min_length=1)] = None
+    signature: WebhookSignature1 | WebhookSignature2 | None = None
+    """
+    How a webhook trigger's sender signs. `hmac-sha256`: an HMAC-SHA256 of the raw body under the secret's UTF-8 bytes, in `header`, `hex` or `base64`, after an optional `prefix` (GitHub and Drupal's Webhooks module: `X-Hub-Signature-256`, hex, `sha256=`; WooCommerce: `X-WC-Webhook-Signature`, base64; Shopify: `X-Shopify-Hmac-Sha256`, base64). No timestamp is signed, so only the trigger's dedupe catches a replay. `standard-webhooks`: the Standard Webhooks format (`webhook-id`, `webhook-timestamp`, `webhook-signature: v1,<base64>` over `{id}.{timestamp}.{body}`, a `whsec_` secret), refused past `toleranceSeconds` (default 300) from the receiver's clock; it dedupes on its `webhook-id`.
+    """
+    delivery_id_header: Annotated[str | None, Field(alias="deliveryIdHeader", max_length=100)] = (
+        None
+    )
+    """
+    `null` stops deduping.
+    """
+    body_limit_bytes: Annotated[int | None, Field(alias="bodyLimitBytes", ge=1024, le=1048576)] = (
+        None
+    )
+    """
+    `null`: the default.
+    """
+    rate_limit_per_minute: Annotated[
+        int | None, Field(alias="rateLimitPerMinute", ge=1, le=6000)
+    ] = None
+    """
+    `null`: the default.
+    """
+
+
+class WebhookTriggerUnregisterResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    trigger_id: Annotated[str, Field(alias="triggerId")]
+    unregistered: bool
+
+
 class FlowId(RootModel[str]):
     root: Annotated[str, Field(max_length=200, min_length=1)]
 

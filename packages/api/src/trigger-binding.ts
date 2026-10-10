@@ -15,6 +15,8 @@
 export type {
   CronTriggerRecord,
   EventTriggerRecord,
+  FireWebhookInput,
+  FoundWebhookTrigger,
   GetTriggerInput,
   ListTriggerFiresInput,
   ListTriggersInput,
@@ -40,6 +42,16 @@ export type {
   UpdateTriggerError,
   UpdateTriggerInput,
   UpdateWebhookTriggerInput,
+  WebhookFire,
+  WebhookRefusalInput,
+  WebhookRefusalReason,
   WebhookTriggerRecord,
 } from '@kindgi/runtime';
-export { SCHEDULE_DEFAULTS, TRIGGER_KINDS } from '@kindgi/runtime';
+export {
+  DEFAULT_WEBHOOK_SIGNATURE,
+  SCHEDULE_DEFAULTS,
+  TRIGGER_KINDS,
+  WEBHOOK_BODY_LIMITS,
+  WEBHOOK_RATE_LIMITS,
+  WEBHOOK_REFUSALS_RECORDED_PER_MINUTE,
+} from '@kindgi/runtime';

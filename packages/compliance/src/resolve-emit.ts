@@ -37,7 +37,7 @@ export interface ResolveContext {
   readonly runId?: string;
   readonly deploymentId?: string;
   readonly nodeId?: string;
-  readonly caller: 'dispatch' | 'deploy-sync' | 'admin-cli' | 'boot-bridge';
+  readonly caller: 'dispatch' | 'deploy-sync' | 'admin-cli' | 'boot-bridge' | 'webhook-receiver';
 }
 
 /** Input to `emitResolveEvent`. */

@@ -9,6 +9,7 @@ export type * from './refs.js';
 export type * from './result.js';
 export type * from './temporal.js';
 export type * from './version.js';
+export type * from './webhook.js';
 
 // Runtime factories on branded IDs (validated construction). Kept as a
 // separate value re-export so the `export type *` barrels above stay

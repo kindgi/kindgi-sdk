@@ -11,6 +11,10 @@ Kindgi signs each request with a secret that your receiver knows too. The
 secret lives with your other secrets, and the endpoint refers to it by name:
 Kindgi never stores it with the endpoint.
 
+This page is about Kindgi **sending** your app webhooks. To have a webhook from
+another system start a run, see [Start runs from WooCommerce, Drupal or any
+signed webhook](../start-runs-from-webhooks/).
+
 ## 1. Store a signing secret
 
 A signing secret is `whsec_` and the base64 of at least 24 random bytes.

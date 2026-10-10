@@ -267,8 +267,9 @@ export function providersRouter(
       );
     }
 
-    // A model provider's key is used by its provider only: a key a tool or
-    // an endpoint already uses would be taken from it, so say so now.
+    // A model provider's key is used by its provider only: a key a tool, an
+    // endpoint or a webhook trigger already uses would be taken from it, so
+    // say so now.
     const keyName = secretRefResult.value?.name;
     const usedBy =
       keyName === undefined || options.secretUsers === undefined

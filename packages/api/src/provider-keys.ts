@@ -8,11 +8,12 @@ import type { MCPEndpointRegistryBinding } from './mcp-endpoint-binding.js';
 import type { ProviderRegistryBinding } from './provider-binding.js';
 import type { SecretBinding } from './secrets-binding.js';
 import type { ToolRegistryBinding } from './tool-binding.js';
+import type { TriggerRegistryBinding } from './trigger-binding.js';
 import type { WebhookEndpointBinding } from './webhook-endpoint-binding.js';
 
 /**
  * A model provider's key is used by its provider only: no tool, MCP
- * endpoint or webhook endpoint may name a secret that a provider
+ * endpoint, webhook endpoint or webhook trigger may name a secret that a provider
  * registration of the tenant references (by name, whatever its env). The
  * runtime refuses to hand one out; these checks refuse it earlier, where
  * the name is written, with the same words.
@@ -36,7 +37,7 @@ export function providerKeysOf(registry: ProviderRegistryBinding | undefined): P
 }
 
 /** What may name a secret, in the words a refusal uses. */
-export type SecretUser = 'a tool' | 'an MCP endpoint' | 'a webhook endpoint';
+export type SecretUser = 'a tool' | 'an MCP endpoint' | 'a webhook endpoint' | 'a webhook trigger';
 
 /** Why `name` can't be used by `user`: it's model provider `providerId`'s key. */
 export function providerKeyRefusal(
@@ -57,9 +58,9 @@ export function providerKeyRefusal(
   };
 }
 
-/** Something that uses a secret by name: a tool (its current version), or an endpoint. */
+/** Something that uses a secret by name: a tool (its current version), an endpoint, or a webhook trigger. */
 export interface SecretUse {
-  readonly kind: 'tool' | 'mcp-endpoint' | 'webhook-endpoint';
+  readonly kind: 'tool' | 'mcp-endpoint' | 'webhook-endpoint' | 'webhook-trigger';
   readonly id: string;
   readonly version?: string;
 }
@@ -69,6 +70,8 @@ export interface SecretUsersDeps {
   readonly tools?: ToolRegistryBinding;
   readonly mcpEndpoints?: MCPEndpointRegistryBinding;
   readonly webhookEndpoints?: WebhookEndpointBinding;
+  /** Webhook triggers, by the secret they verify deliveries with (`hmacSecretName`). */
+  readonly triggers?: TriggerRegistryBinding;
 }
 
 /** A page's worth, and how many pages at most: past that, the call-time refusal still holds. */
@@ -92,8 +95,8 @@ async function* pages<T>(
 
 /**
  * Everything registered in the tenant that uses the secret `name`: each
- * tool whose current version declares or sends it, and each MCP or
- * webhook endpoint that names it. (A tool's older version an agent still
+ * tool whose current version declares or sends it, each MCP or webhook
+ * endpoint that names it, and each webhook trigger that verifies with it. (A tool's older version an agent still
  * pins is refused at call time, and the runtime's boot warning names it.)
  */
 export async function usersOfSecret(
@@ -127,6 +130,21 @@ export async function usersOfSecret(
     )) {
       if (e.secretRef.name === name) {
         out.push({ kind: 'webhook-endpoint', id: e.endpointId as unknown as string });
+      }
+    }
+  }
+  if (deps.triggers !== undefined) {
+    const triggers = deps.triggers;
+    for await (const t of pages((cursor) =>
+      triggers.list({
+        tenantId,
+        kind: 'webhook',
+        limit: PAGE,
+        ...(cursor !== undefined && { cursor }),
+      }),
+    )) {
+      if (t.kind === 'webhook' && t.hmacSecretName === name) {
+        out.push({ kind: 'webhook-trigger', id: t.triggerId as unknown as string });
       }
     }
   }
