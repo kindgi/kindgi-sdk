@@ -27,8 +27,15 @@ defined( 'ABSPATH' ) || exit;
  *
  * A statement that doesn't get through waits, and wp-cron tries it again,
  * less often each time, never giving up; the settings page lists what's
- * waiting. Once a day each person is checked against WordPress, for what
- * no hook saw: a role changed in the database, a user deleted by hand.
+ * waiting. Kindgi finishes a removal it's told about again, so a retry
+ * after a failure there completes it. Once a day each person is checked
+ * against WordPress, for what no hook saw: a role changed in the database,
+ * a user deleted by hand.
+ *
+ * The list is one option, read and written whole. Two requests at once (a
+ * wp-cron run and an administrator's change) can lose one's mark that a
+ * statement waits; the daily check finds that change again, so it reaches
+ * Kindgi within a day.
  */
 final class Kindgi_People {
 
