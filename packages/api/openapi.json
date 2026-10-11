@@ -10597,6 +10597,10 @@
           "secretRef": {
             "$ref": "#/components/schemas/MCPEndpointSecretRef"
           },
+          "auth": {
+            "$ref": "#/components/schemas/MCPEndpointAuth",
+            "description": "How the endpoint signs in when it isn't a plain bearer: `basic` or `oauth2-client-credentials`. Not with `secretRef` (`invalid-mcp-endpoint`, reason `auth-with-secret-ref`), not on a `stdio` endpoint (reason `auth-on-stdio`), and not with an `Authorization` header in `config.headers` (reason `auth-with-authorization-header`). An older runtime refuses the field as unknown."
+          },
           "instructions": {
             "type": "string",
             "description": "Optional pass-through to the MCP client `serverInfo.instructions`."
@@ -10619,7 +10623,7 @@
           "envName",
           "name"
         ],
-        "description": "The secret an MCP endpoint authenticates with: a name in the deployment's secrets store, resolved at the endpoint's tenant scope when the runtime connects (the shape webhooks and providers use). It is sent as the endpoint's bearer. The endpoint keeps only this reference.",
+        "description": "The secret an MCP endpoint authenticates with: a name in the deployment's secrets store, resolved at the endpoint's tenant scope by the runtime (the shape webhooks and providers use). As the endpoint's own `secretRef`, it is sent as its bearer; inside `auth`, it is the scheme's password or client secret. The endpoint keeps only this reference.",
         "properties": {
           "envName": {
             "type": "string",
@@ -10629,6 +10633,95 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 256
+          }
+        }
+      },
+      "MCPEndpointAuth": {
+        "description": "How an MCP endpoint signs in when it isn't a plain bearer. Each scheme names its secret by reference; the runtime resolves it, and no value is stored or answered.",
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/MCPBasicAuth"
+          },
+          {
+            "$ref": "#/components/schemas/MCPOAuth2ClientCredentialsAuth"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "scheme"
+        }
+      },
+      "MCPBasicAuth": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scheme",
+          "username",
+          "secretRef"
+        ],
+        "description": "HTTP Basic: the runtime sends `Authorization: Basic base64(<username>:<secret>)`, with the secret `secretRef` names (a WordPress Application Password, for one).",
+        "properties": {
+          "scheme": {
+            "const": "basic"
+          },
+          "username": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": "^[^:]+$",
+            "description": "The user name. Not a secret, and without `:`."
+          },
+          "secretRef": {
+            "$ref": "#/components/schemas/MCPEndpointSecretRef"
+          }
+        }
+      },
+      "MCPOAuth2ClientCredentialsAuth": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scheme",
+          "tokenUrl",
+          "clientId",
+          "secretRef"
+        ],
+        "description": "OAuth 2 client credentials: the runtime asks `tokenUrl` for an access token (`grant_type=client_credentials`) as `clientId`, with the client secret `secretRef` names, sends it as the endpoint's bearer, and asks for a new one before it expires (Drupal's Simple OAuth, for one). The token is never stored.",
+        "properties": {
+          "scheme": {
+            "const": "oauth2-client-credentials"
+          },
+          "tokenUrl": {
+            "type": "string",
+            "format": "uri",
+            "maxLength": 2048,
+            "description": "The token endpoint: https, or http to a loopback host (`localhost`, `127.0.0.1`, `[::1]`)."
+          },
+          "clientId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 512
+          },
+          "secretRef": {
+            "$ref": "#/components/schemas/MCPEndpointSecretRef"
+          },
+          "scope": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024,
+            "description": "The scopes to ask for, space-separated, sent as-is. Absent: none asked for."
+          },
+          "audience": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024,
+            "description": "An `audience` parameter, for identity providers that need one. Absent: none sent."
+          },
+          "clientAuth": {
+            "type": "string",
+            "enum": [
+              "client_secret_basic",
+              "client_secret_post"
+            ],
+            "description": "How the client authenticates to the token endpoint (RFC 6749 §2.3.1): `client_secret_basic` (an `Authorization: Basic` header, the default) or `client_secret_post` (`client_id` and `client_secret` in the form)."
           }
         }
       },
@@ -10764,6 +10857,10 @@
           },
           "secretRef": {
             "$ref": "#/components/schemas/MCPEndpointSecretRef"
+          },
+          "auth": {
+            "$ref": "#/components/schemas/MCPEndpointAuth",
+            "description": "How the endpoint signs in when it isn't a plain bearer: `basic` or `oauth2-client-credentials`. Not with `secretRef` (`invalid-mcp-endpoint`, reason `auth-with-secret-ref`), not on a `stdio` endpoint (reason `auth-on-stdio`), and not with an `Authorization` header in `config.headers` (reason `auth-with-authorization-header`). An older runtime refuses the field as unknown."
           },
           "instructions": {
             "type": "string",

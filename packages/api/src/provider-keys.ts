@@ -4,7 +4,7 @@
 import { toolSecretNames } from '@kindgi/tools';
 import type { Cursor, TenantId } from '@kindgi/types';
 
-import type { MCPEndpointRegistryBinding } from './mcp-endpoint-binding.js';
+import { type MCPEndpointRegistryBinding, mcpEndpointSecretNames } from './mcp-endpoint-binding.js';
 import type { ProviderRegistryBinding } from './provider-binding.js';
 import type { SecretBinding } from './secrets-binding.js';
 import type { ToolRegistryBinding } from './tool-binding.js';
@@ -117,7 +117,9 @@ export async function usersOfSecret(
     for await (const e of pages((cursor) =>
       mcp.list({ tenantId, limit: PAGE, ...(cursor !== undefined && { cursor }) }),
     )) {
-      if (e.secretRef?.name === name) out.push({ kind: 'mcp-endpoint', id: e.endpointId });
+      if (mcpEndpointSecretNames(e).includes(name)) {
+        out.push({ kind: 'mcp-endpoint', id: e.endpointId });
+      }
     }
   }
   if (deps.webhookEndpoints !== undefined) {
