@@ -43,6 +43,9 @@ turn (`GET /v1/runs/{runId}`, `runs.get` in the clients):
   `capability-routing-failed` or `budget-exceeded`; `run-failed` when it has
   none.
 - **`message`:** what happened.
+- **`reason`:** the error's own reason, when it gives one: for a turn whose
+  approval was cancelled (`hitl-cancelled`), `timeout` when nobody decided in
+  time.
 - **`cause`:** what the error came from, when it says. A turn that no model
   could serve, because the agent needs a feature no registered model has:
 
