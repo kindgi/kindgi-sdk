@@ -519,9 +519,29 @@ describe('a closing or suspended tenant is frozen, whatever way it comes in', ()
         ['POST', '/v1/retention/sweep/conversations'],
         ['POST', `/v1/provenance/${randomUUID()}/export`],
         ['POST', '/v1/auth/logout'],
+        ['POST', '/v1/auth/refresh'],
+        ['POST', '/v1/auth/token-sign-in'],
+        ['POST', `/v1/auth/providers/${randomUUID()}/unregister`],
       ] as const) {
         const res = await send(method, path);
         expect(await codeOf(res), `${method} ${path}`).not.toMatch(/^tenant-(closing|suspended)$/);
+      }
+    },
+  );
+
+  test.each(['closing', 'suspended'] as const)(
+    '%s: registering or changing a sign-in provider is a write, and so is any non-POST write to an allowed path',
+    async (state) => {
+      const send = tenantApp(state);
+      for (const [method, path] of [
+        ['POST', '/v1/auth/providers'],
+        ['PATCH', `/v1/auth/providers/${randomUUID()}`],
+        ['PUT', '/v1/memory/erasures'],
+        ['PATCH', `/v1/agents/${randomUUID()}/unregister`],
+      ] as const) {
+        const res = await send(method, path);
+        expect(res.status, `${method} ${path}`).toBe(409);
+        expect(await codeOf(res), `${method} ${path}`).toBe(`tenant-${state}`);
       }
     },
   );

@@ -20,11 +20,12 @@ const ALWAYS: ReadonlySet<string> = new Set(['GET', 'HEAD', 'DELETE']);
  * `POST`s a frozen tenant may still make: reads that are posts, its signed
  * exports, signing in and out, and every way this API deletes, erases and
  * revokes (unregistering is its soft delete). Nothing here creates or
- * changes what the tenant runs.
+ * changes what the tenant runs. Matched for `POST` only: any other write to
+ * these paths is refused.
  */
 const ALLOWED_POSTS: readonly RegExp[] = [
-  // signing in and out
-  /^\/v1\/auth\//,
+  // signing in and out; registering or changing a provider is a write
+  /^\/v1\/auth\/(?:token-sign-in|refresh|logout)$/,
   // reads that are posts
   /^\/v1\/memory\/retrieve$/,
   // the signed exports a closing tenant takes away with it
@@ -78,7 +79,11 @@ export function tenantStateGate(
     if (states === undefined || c.get('systemPrincipal') !== undefined) return next();
     const tenantId = c.get('tenantId');
     if (tenantId === undefined) return next();
-    if (ALWAYS.has(c.req.method) || ALLOWED_POSTS.some((re) => re.test(c.req.path))) {
+    const method = c.req.method;
+    if (
+      ALWAYS.has(method) ||
+      (method === 'POST' && ALLOWED_POSTS.some((re) => re.test(c.req.path)))
+    ) {
       return next();
     }
     let state: string | undefined;

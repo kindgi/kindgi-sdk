@@ -31,7 +31,7 @@ The TypeScript client's `systemTenants` and `systemKeys.whoami`, and the Python 
 - **`PUT …/projects/{projectId}/suspended`** (`system:suspend`) suspends or restores one project.
 - **A closing or suspended tenant is frozen**, however it signs in: a key, a session or SigV4 (`createApp({ tenantStates })`, required with `tenancy: 'multi'`).
   - **What still works:** reading, its signed exports, signing in and out, deleting, erasure in every state before purge (`POST /v1/memory/erasures`, `…/replay`, `…/{erasureId}/resume`, and the retention sweeps), unregistering, and revoking keys and sessions.
-  - **Anything else** is `409 tenant-closing` or `409 tenant-suspended`.
+  - **Anything else** is `409 tenant-closing` or `409 tenant-suspended`, registering or changing a sign-in provider included.
   - **If the state can't be read,** a write gets `503 tenant-state-unavailable`, failing closed.
   - `GET /v1/tenant` carries `state`.
 - **On a runtime serving many tenants only, `POST /v1/deployments`** refuses an image outside the tenant's repository (`409 image-not-allowed`), before any registry read, and refuses a tenant without one (`409 image-prefix-unset`). A runtime serving one tenant never checks.
