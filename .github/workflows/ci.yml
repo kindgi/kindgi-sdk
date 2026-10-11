@@ -270,22 +270,14 @@ jobs:
           unzip -p dist/*.whl '*.dist-info/METADATA' | grep -qx 'Metadata-Version: 2.3'
 
   wordpress:
-    name: WordPress plugin (PHP ${{ matrix.php }}, ${{ matrix.sodium }})
+    name: WordPress plugin (PHP ${{ matrix.php }})
     runs-on: ubuntu-latest
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     strategy:
       fail-fast: false
       matrix:
-        include:
-          # The plugin's floor (its header's `Requires PHP`), and a current PHP.
-          - php: "7.4"
-            sodium: ext-sodium
-          - php: "8.3"
-            sodium: ext-sodium
-          # Some hosts have no ext/sodium; WordPress then loads its bundled
-          # sodium_compat, and the plugin signs and seals through it.
-          - php: "8.3"
-            sodium: sodium_compat
+        # The plugin's floor (its header's `Requires PHP`), and a current PHP.
+        php: ["7.4", "8.3"]
     defaults:
       run:
         working-directory: integrations/wordpress/kindgi
@@ -294,19 +286,34 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
-          extensions: ${{ matrix.sodium == 'ext-sodium' && 'sodium, mbstring' || ':sodium, mbstring' }}
-          tools: ${{ matrix.sodium == 'sodium_compat' && 'composer' || 'none' }}
-      - name: sodium_compat, as WordPress bundles it
-        if: matrix.sodium == 'sodium_compat'
-        run: |
-          composer require --no-interaction --working-dir="$RUNNER_TEMP/compat" paragonie/sodium_compat:^1.21
-          echo "KINDGI_SODIUM_COMPAT=$RUNNER_TEMP/compat/vendor/autoload.php" >> "$GITHUB_ENV"
+          extensions: sodium, mbstring
+          tools: none
       - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
+          # Only `node --test` runs here: no pnpm, so no package-manager cache.
+          package-manager-cache: false
       - name: PHP syntax
         run: find . -name '*.php' -print0 | xargs -0 -n1 php -l
       - name: The plugin's tests
         run: php tests/run.php
       - name: A statement the plugin signs verifies as Kindgi checks it
         run: node --test tests/statement.test.mjs
+
+  wordpress-sodium-compat:
+    name: WordPress plugin (sodium_compat)
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    # Some hosts have no ext/sodium; WordPress then loads the sodium_compat it
+    # bundles. WordPress's own image loads ext/sodium as a shared extension,
+    # so `php -n` runs without it, on that bundled sodium_compat.
+    container: wordpress:php8.3
+    defaults:
+      run:
+        working-directory: integrations/wordpress/kindgi
+    steps:
+      - uses: actions/checkout@v5
+      - name: The plugin's tests, without ext/sodium
+        env:
+          KINDGI_SODIUM_COMPAT: /usr/src/wordpress/wp-includes/sodium_compat/autoload.php
+        run: php -n tests/run.php
