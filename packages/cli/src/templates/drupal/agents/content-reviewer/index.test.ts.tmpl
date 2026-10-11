@@ -7,6 +7,7 @@
 import { Liquid } from 'liquidjs';
 import { describe, expect, test } from 'vitest';
 
+import { drupalTool } from '../../lib/drupal.js';
 import reviewer from './index.js';
 
 /** The checked event's fields that no editor writes (`check-content-event`). */
@@ -30,7 +31,7 @@ describe('{{PACK_ID}}.content-reviewer', () => {
     if (typeof instructions !== 'string') throw new Error('expected inline instructions');
     const line = instructions.split('\n').find((l) => l.startsWith('First read the article as it is now'));
     expect(line).toBeDefined();
-    expect(line).toContain('drupal.tool_api__load_content');
-    expect(line).toContain('drupal.tool_api__get_fields');
+    expect(line).toContain(drupalTool('load_content'));
+    expect(line).toContain(drupalTool('get_fields'));
   });
 });
