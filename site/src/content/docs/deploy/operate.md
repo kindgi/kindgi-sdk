@@ -337,8 +337,6 @@ The database migrates when 0.1.6 starts.
 
 #### Security fixes in 0.1.6
 
-<!-- Each line confirmed against its PR at the cut; a line whose train misses waits. #383 and T660: train D. T662: the release pin, or rc.1 if late. -->
-
 - **A guardrail could run another tenant's check.** On a runtime serving
   several tenants, a guardrail naming a pack check its own tenant had never
   deployed could run another tenant's check of that id, if that tenant had
@@ -370,6 +368,20 @@ The database migrates when 0.1.6 starts.
   recorded: rotate a secret or key that was ever stored with a line break
   anywhere but at its very end (a bearer secret that started with one
   counts). One with only a trailing line break was never affected.
+- **The Python SDK held your app on old releases of cryptography.** Its
+  `verify` extra (`pip install 'kindgi[verify]'`) capped `cryptography` below
+  47. So an app that installed it couldn't take the fix for the OpenSSL
+  inside cryptography's wheels
+  ([GHSA-537c-gmf6-5ccf](https://github.com/advisories/GHSA-537c-gmf6-5ccf),
+  fixed in 48.0.1), nor those for
+  [CVE-2026-69247](https://github.com/advisories/GHSA-g6cj-pr64-35w5),
+  [CVE-2026-69248](https://github.com/advisories/GHSA-m2h6-j472-rp4c) and
+  [CVE-2026-69249](https://github.com/advisories/GHSA-jwv3-5hgf-82ww)
+  (fixed in 49.0.0 and 50.0.0). The extra in 0.1.6 requires cryptography
+  50.0.0 or later and sets no upper limit, so your app can upgrade it freely.
+  The SDK's verifier only checks signatures with a public key. It doesn't
+  call the PKCS#7 decryption or X.509 certificate verification those three
+  CVEs are in, but the rest of your app shares the cryptography you install.
 
 #### What to check, and what's different
 
