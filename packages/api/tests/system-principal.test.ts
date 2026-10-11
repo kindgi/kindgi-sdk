@@ -200,7 +200,11 @@ function makeApp(tenancy: 'single' | 'multi' = 'multi') {
     method: string,
     path: string,
     body?: unknown,
-  ): Promise<{ status: number; body: Record<string, unknown> }> => {
+  ): Promise<{
+    status: number;
+    headers: Record<string, string>;
+    body: Record<string, unknown>;
+  }> => {
     const res = await app.request(path, {
       method,
       headers: {
@@ -212,6 +216,7 @@ function makeApp(tenancy: 'single' | 'multi' = 'multi') {
     const text = await res.text();
     return {
       status: res.status,
+      headers: Object.fromEntries(res.headers.entries()),
       body: text === '' ? {} : (JSON.parse(text) as Record<string, unknown>),
     };
   };
@@ -765,6 +770,7 @@ describe('a state-changing system request is on record before it acts', () => {
     const r = await call(MULTI_BOOT, 'POST', '/v1/system/keys', { scopes: ['system:license'] });
     expect(r.status).toBe(503);
     expect(code(r)).toBe('access-record-unavailable');
+    expect(r.headers['retry-after']).toBe('5');
     expect(system.keys.size).toBe(0);
     // A read doesn't wait on it.
     failing.begin = false;

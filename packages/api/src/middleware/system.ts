@@ -65,6 +65,9 @@ export interface SystemAccessAuditBinding {
 
 const STATE_CHANGING: ReadonlySet<string> = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
+/** Seconds a refused state-changing request waits before trying again. */
+const ACCESS_RECORD_RETRY_AFTER_S = 5;
+
 const SYSTEM_PREFIX = '/v1/system/';
 
 function isSystemPath(path: string): boolean {
@@ -158,6 +161,8 @@ export function systemPrincipalFence(
             method: c.req.method,
             path: c.req.path,
           });
+          // As the API's other 503s do: the caller's retry backs off.
+          c.header('Retry-After', String(ACCESS_RECORD_RETRY_AFTER_S));
           return answer(
             c,
             'access-record-unavailable',
