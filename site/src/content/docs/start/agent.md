@@ -75,12 +75,12 @@ running and no model key yet:
 ```json
 {
   "ok": false,
-  "cliVersion": "0.1.5",
+  "cliVersion": "0.1.6",
   "project": {
     "dir": "…/my-agents",
     "language": "node"
   },
-  "consoleUrl": "http://127.0.0.1:4000/console/",
+  "consoleUrl": "http://127.0.0.1:…/console/",
   "checks": [
     {
       "id": "node",
@@ -97,7 +97,7 @@ running and no model key yet:
     {
       "id": "runtime",
       "status": "pass",
-      "message": "The runtime answers at http://127.0.0.1:4000; its console is at http://127.0.0.1:4000/console/."
+      "message": "The runtime answers at http://127.0.0.1:…; its console is at http://127.0.0.1:…/console/."
     },
     {
       "id": "provider",
