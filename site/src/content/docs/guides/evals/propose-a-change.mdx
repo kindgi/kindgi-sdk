@@ -254,6 +254,31 @@ metric's `freshWeight` is the weight of those judgments, and per case,
 - **In the clients:** `proposals.rescore(proposalId)` and
   `evalRuns.rescore(runId)` (`eval_runs.rescore(run_id)` in Python).
 
+#### In the console
+
+The comparison's page says what it couldn't count: "3 new answers this
+comparison couldn't count", and "Judge each one below, then rescore: a new
+comparison scores the same replays again, counting your judgments. Nothing
+runs again, and this comparison stays as it is." Each new answer has its own
+card, "New, so no judgment in the test set covers it: judge it here, then
+rescore.", with **Yes** and **No**. **Rescore** beside the note counts what you
+judged ("3 judged so far.").
+
+![The comparison of acme.desk 1.0.1 on the recorded runs: "3 new answers this comparison couldn't count", Rescore with "3 judged so far.", and the first case, "When does A-1044 ship?", its new answer judged Yes 1 · No 0.](../../../../assets/evals/rescore-comparison-judged.png)
+
+The proposal's page, while nothing could be scored, says "None of the
+candidate's answers could be scored: they changed, and nobody has judged the
+new ones yet. Judge them on the comparison, then rescore.", with a link to the
+comparison. Its **Rescore** asks first: "After people judge the comparison's
+new answers, a rescore counts them: it scores the same answers on
+acme.desk-checks again. Nothing runs again, and the earlier comparison stays as
+it is. The proposal's status follows the rescore." After it, the evaluation
+reads "Judged yes share: 100% with the change, 100% for the recorded answers
+(±0 points) on 3 cases.", and the proposal stays **Not better on the test
+set**.
+
+![The proposal "Change acme.desk-prompt" after the rescore: Not better on the test set; the change from "Answer briefly." to "Answer warmly."; and its evaluation, "Judged yes share: 100% with the change, 100% for the recorded answers (±0 points) on 3 cases."](../../../../assets/evals/rescore-proposal-after.png)
+
 ## Request it
 
 ```sh
