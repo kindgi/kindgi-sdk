@@ -113,10 +113,12 @@ terminal, say), `kindgi dev` exits with code 3 and prints where it is
 and don't stop theirs.
 
 Give the person the console's address as the banner prints it (its
-`Console` line). Never build a console URL by hand: an approval's own link
-is `/console/approvals/<approval id>`, which finds its tenant and project by
+`Console` line). Never guess a console URL: an approval's own link is
+`/console/approvals/<approval id>`, which finds its tenant and project by
 itself, and every other page's address starts with the tenant and the
-project, `/console/tenants/<tenant slug>/projects/<project id>/…`.
+project, `/console/tenants/<tenant>/projects/<project id>/…`, both taken
+from the CLI's answers (`kindgi auth whoami`'s `identity.tenantId`,
+`kindgi projects get-default`'s `id`), never made up.
 
 Until a model provider is registered, agents answer with `dev-echo`, a
 stand-in that calls the agent's first tool with `{"message": <userMessage>}`
