@@ -82,8 +82,9 @@ From the moment an erasure starts:
 
 A turn of theirs that's already running or waiting isn't refused. In the
 `settle` phase, the erasure cancels their waiting turns (the run's history
-says `erased`) and waits for one that's executing, before it clears
-anything. Here it's waiting for a turn that's still executing:
+says `erased`), which withdraws the approvals those turns waited on
+(`withdrawnBecause: run-cancelled`), and waits for one that's executing,
+before it clears anything. Here it's waiting for a turn that's still executing:
 
 ```text
 {
@@ -182,6 +183,10 @@ Once it completes, new turns for the person start again.
   snapshots and waitpoints, and what it left in provenance. The run itself
   stays, with `contentErasedAt`. Judging such a run is refused,
   `410 run-erased`.
+- **The reasons in its ratings:** a judgment of such a run keeps its
+  verdict, who judged and when, and loses its reason and the judged item's
+  value. A judging-queue item still waiting for it closes as `erased`, and a
+  dismissal's reason is cleared.
 - **What else held their words:** approvals' text (a tool call's arguments,
   a reviewer's rationale; the title, status and who decided stay), audit
   events' text, monitoring observations, a webhook delivery's error message,
