@@ -74,6 +74,7 @@ import { requestIdMiddleware } from './middleware/request-id.js';
 import { requestLogMiddleware } from './middleware/request-log.js';
 import { sealedCursors } from './middleware/sealed-cursors.js';
 import { sigv4Middleware } from './middleware/sigv4.js';
+import { type SystemAccessAuditBinding, systemPrincipalFence } from './middleware/system.js';
 import type { MyAccessBinding } from './my-access-binding.js';
 import { type GenerateOptions, generateOpenApiDocument } from './openapi/generate.js';
 import type { PersonGrantsBinding } from './person-grants-binding.js';
@@ -141,6 +142,7 @@ import { secretsRouter } from './routes/secrets.js';
 import { serviceAccountsRouter } from './routes/service-accounts.js';
 import { type SignInOptionsRateLimit, signInOptionsRouter } from './routes/sign-in-options.js';
 import { signingKeysRouter } from './routes/signing-keys.js';
+import { type SystemKeysBinding, systemKeysRouter } from './routes/system-keys.js';
 import { projectTeamGrantsRouter, teamProjectGrantsRouter } from './routes/team-grants.js';
 import { teamsRouter } from './routes/teams.js';
 import { tenantRouter } from './routes/tenant.js';
@@ -510,6 +512,24 @@ export interface CreateAppInput {
    * route isn't mounted (404), as on a deployment that doesn't report it.
    */
   readonly license?: LicenseStatusBinding;
+  /**
+   * Optional. How many tenants the runtime serves (default `single`). With
+   * `multi`, a tenant's key is never minted holding `kindgi:system`: the
+   * operator acts through system keys, which act in no tenant.
+   */
+  readonly tenancy?: 'single' | 'multi';
+  /**
+   * Optional. The operator's system keys (`kgi_sy_…`), outside every
+   * tenant: `/v1/system/keys`, for the full system capability only.
+   * Without it the routes aren't mounted (404).
+   */
+  readonly systemKeys?: SystemKeysBinding;
+  /**
+   * Optional. The record of every request a system principal makes (its
+   * key, scope, route and target tenant). Without it nothing is recorded,
+   * as on a runtime that issues no system keys.
+   */
+  readonly systemAccessAudit?: SystemAccessAuditBinding;
   /**
    * Optional. Issue and accept public run tokens (`kgi_pt_…`):
    * short-lived, read-only tokens a browser uses to follow specific runs
@@ -1169,6 +1189,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   });
   const authorizer: Authorizer | undefined =
     input.authz !== undefined ? createAuthorizer(input.authz.authzCheckBinding) : undefined;
+  // A system principal acts in no tenant: it reaches /v1/system/* (and the
+  // deployment's license), nothing else, and each of its requests is recorded.
+  v1.use('*', systemPrincipalFence(input.systemAccessAudit, authorizer));
   // A key limited to a project names no other one.
   v1.use('*', refuseOtherProjectForKey(authorizer));
   // Page cursors are sealed at the edge, for every list.
@@ -1223,7 +1246,12 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     );
   }
   if (input.tokenAdmin !== undefined) {
-    v1.route('/tokens', tokensRouter(input.tokenAdmin, authorizer));
+    v1.route(
+      '/tokens',
+      tokensRouter(input.tokenAdmin, authorizer, {
+        ...(input.tenancy !== undefined && { tenancy: input.tenancy }),
+      }),
+    );
   }
   if (input.serviceAccountBinding !== undefined) {
     v1.route('/service-accounts', serviceAccountsRouter(input.serviceAccountBinding, authorizer));
@@ -1392,6 +1420,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   v1.route('/export-signing-keys', exportSigningKeysRouter(exportSigning));
   if (input.license !== undefined) {
     v1.route('/license', licenseRouter(input.license, authorizer));
+  }
+  if (input.systemKeys !== undefined) {
+    v1.route('/system/keys', systemKeysRouter(input.systemKeys, authorizer));
   }
   v1.route(
     '/provenance',

@@ -12,6 +12,7 @@ import { callerPrincipal, callerRef, isTenantAdmin, principalToWire } from '../c
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { withholdFromReplay } from '../middleware/idempotency.js';
+import { FULL_SYSTEM_CAPABILITY } from '../system.js';
 import {
   API_TOKEN_ROLES,
   type ApiTokenRecord,
@@ -50,7 +51,20 @@ import { tokenSignInKey } from './token-sign-in.js';
  *   that never expires (the deployment's token, a key without an expiry)
  *   and a session from any other sign-in cap nothing.
  */
-export function tokensRouter(admin: TokenAdmin, authorizer?: Authorizer): Hono<AppEnv> {
+export interface TokensRouterOptions {
+  /**
+   * How many tenants the runtime serves (default `single`). With `multi`, a
+   * tenant's key is never minted holding `kindgi:system`: on such a runtime
+   * only system keys act for the operator.
+   */
+  readonly tenancy?: 'single' | 'multi';
+}
+
+export function tokensRouter(
+  admin: TokenAdmin,
+  authorizer?: Authorizer,
+  options: TokensRouterOptions = {},
+): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   r.use('/*', requireOwnerOrAdmin(authorizer));
 
@@ -67,6 +81,7 @@ export function tokensRouter(admin: TokenAdmin, authorizer?: Authorizer): Hono<A
     const owner = keyOwner(c);
     const principal = parsed.value.for ?? owner;
     const refused =
+      systemCapabilityRefusal(c, authorizer, parsed.value.capabilities, options.tenancy) ??
       (await mintRefusal(c, authorizer, owner, principal, parsed.value)) ??
       (await expiryRefusal(c, admin, authorizer, parsed.value.expiresAt));
     if (refused !== undefined) return fail(c, refused, requestId);
@@ -197,6 +212,34 @@ function samePrincipal(a: TokenPrincipal, b: TokenPrincipal | undefined): boolea
 }
 
 /** Why the route refuses this mint before the store sees it, if it does. */
+/**
+ * A tenant's key never carries a system scope (`system:*`): those are
+ * system keys' (`/v1/system/keys`). On a runtime serving many tenants it
+ * doesn't carry `kindgi:system` either. Refused `403
+ * capability-not-mintable`, and recorded.
+ */
+function systemCapabilityRefusal(
+  c: Context<AppEnv>,
+  authorizer: Authorizer | undefined,
+  capabilities: readonly string[],
+  tenancy: 'single' | 'multi' | undefined,
+): WireError | undefined {
+  const notMintable = capabilities.filter(
+    (cap) => cap.startsWith('system:') || (tenancy === 'multi' && cap === FULL_SYSTEM_CAPABILITY),
+  );
+  if (notMintable.length === 0) return undefined;
+  const refusal: Refusal = {
+    action: 'admin',
+    resource: ref('tenant', c.get('tenantId') as unknown as string),
+    message: `A tenant's key can't carry ${notMintable.join(', ')}: the operator's powers are system keys' (/v1/system/keys)`,
+    failing: 'scope',
+    code: 'capability-not-mintable',
+    details: { capabilities: notMintable },
+  };
+  recordRefusal(c, authorizer, refusal);
+  return refusalError(refusal);
+}
+
 async function mintRefusal(
   c: Context<AppEnv>,
   authorizer: Authorizer | undefined,

@@ -73,6 +73,7 @@ import {
 } from '@kindgi/policy-contract';
 
 import { ERROR_CODE_TO_STATUS } from '../errors.js';
+import { FULL_SYSTEM_CAPABILITY, SYSTEM_SCOPES } from '../system.js';
 
 export type JsonSchema = Record<string, unknown>;
 
@@ -1208,6 +1209,75 @@ export const ApiTokenSchema: JsonSchema = {
       description: 'When the key last authenticated a request (updated at most once a minute).',
     },
   },
+};
+
+const SYSTEM_KEY_SCOPE: JsonSchema = {
+  type: 'string',
+  enum: [...SYSTEM_SCOPES, FULL_SYSTEM_CAPABILITY],
+  description:
+    'A system scope, or `kindgi:system` for every one of them. None reads customer content.',
+};
+
+export const SystemKeySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: "A system key (`kgi_sy_…`): the operator's, acting in no tenant. Never its secret.",
+  required: ['id', 'scopes', 'createdAt', 'mintedBy'],
+  properties: {
+    id: { type: 'string', description: "The key's id." },
+    label: { type: 'string', description: 'What the key is for, as given at mint.' },
+    scopes: { type: 'array', items: SYSTEM_KEY_SCOPE },
+    createdAt: { type: 'string', format: 'date-time' },
+    expiresAt: { type: 'string', format: 'date-time' },
+    revokedAt: { type: 'string', format: 'date-time' },
+    mintedBy: {
+      type: 'string',
+      description: "Who minted it: a system key's id, or `boot` for the deployment's own token.",
+    },
+  },
+};
+
+export const MintSystemKeyBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['scopes'],
+  properties: {
+    scopes: {
+      type: 'array',
+      minItems: 1,
+      uniqueItems: true,
+      items: SYSTEM_KEY_SCOPE,
+      description: "The least the key's service needs; `kindgi:system` alone for a full key.",
+    },
+    label: { type: 'string', minLength: 1, maxLength: 100 },
+    expiresAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'When it stops working. A minter that expires mints only keys expiring no later than it.',
+    },
+  },
+};
+
+export const MintSystemKeyResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: 'The new system key, plus its secret.',
+  required: [...(SystemKeySchema.required as readonly string[]), 'token'],
+  properties: {
+    ...(SystemKeySchema.properties as Record<string, JsonSchema>),
+    token: {
+      type: 'string',
+      description: 'Plaintext bearer token (`kgi_sy_…`). Returned exactly once at mint time.',
+    },
+  },
+};
+
+export const SystemKeyListSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data'],
+  properties: { data: { type: 'array', items: SystemKeySchema } },
 };
 
 export const MintTokenResultSchema: JsonSchema = {
@@ -11749,6 +11819,10 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['RunProgressEvent', RunProgressEventSchema],
   ['MintTokenBody', MintTokenBodySchema],
   ['MintTokenResult', MintTokenResultSchema],
+  ['SystemKey', SystemKeySchema],
+  ['MintSystemKeyBody', MintSystemKeyBodySchema],
+  ['MintSystemKeyResult', MintSystemKeyResultSchema],
+  ['SystemKeyList', SystemKeyListSchema],
   ['ApiToken', ApiTokenSchema],
   ['ApiTokenPage', ApiTokenPageSchema],
   ['ApiKeyPrincipal', ApiKeyPrincipalSchema],

@@ -21,6 +21,35 @@ export type { SignInOptionsRateLimit } from './routes/sign-in-options.js';
 export type { LicenseStatus, LicenseStatusBinding } from './routes/license.js';
 export { WRITE_AUDIT_KINDS } from './routes/write-audit.js';
 export type { WriteAuditKind } from './routes/write-audit.js';
+export {
+  FULL_SYSTEM_CAPABILITY,
+  SYSTEM_PRINCIPAL_ALLOWED_ROUTES,
+  SYSTEM_SCOPES,
+  SYSTEM_TENANT_ID,
+  holdsSystemScope,
+  isSystemCapability,
+  isSystemScope,
+} from './system.js';
+export type { SystemPrincipal, SystemScope } from './system.js';
+export {
+  requireFullSystem,
+  requireSystemScope,
+  systemPrincipalFence,
+  systemReadAcrossTenants,
+  withSystemTenantContext,
+} from './middleware/system.js';
+export type {
+  SystemAccessAuditBinding,
+  SystemAccessRecord,
+  SystemTenantDirectory,
+  SystemTenantOptions,
+  SystemTenantState,
+} from './middleware/system.js';
+export type {
+  SystemKeyMintInput,
+  SystemKeyRecord,
+  SystemKeysBinding,
+} from './routes/system-keys.js';
 export { createInMemoryRateLimitStore } from './rate-limit-store.js';
 export type { RateLimitStore, RateLimitTake, RateLimitTakeInput } from './rate-limit-store.js';
 export type {

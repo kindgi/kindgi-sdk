@@ -1857,6 +1857,80 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse('No token with that id that the caller may see.'),
     },
   },
+  // ---------- system keys ----------
+  {
+    method: 'post',
+    honoPath: '/v1/system/keys',
+    openapiPath: '/v1/system/keys',
+    operationId: 'systemKeys.mint',
+    summary: 'Mint a system key',
+    description:
+      "A system key (`kgi_sy_…`) is the operator's, for a service that acts for it (sign-up, the orchestrator, billing, the license renewal), with the least scope that service needs. It acts in no tenant: it reaches `/v1/system/*` and the deployment's license, and every other route refuses it (`system-key-on-tenant-route`). Every request it makes is recorded. Only the full system capability (`kindgi:system`: the deployment's own token on a runtime serving many tenants, or a full system key) mints one, and a key can't outlive the key minting it. Returns the plaintext token exactly once. Only mounted when the deployment keeps system keys.",
+    tags: ['system-keys'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('MintSystemKeyBody') },
+    responses: {
+      '201': { description: 'System key minted.', schema: ref('MintSystemKeyResult') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        'Malformed request body: no scopes, one that is not a system scope, a scope twice, `kindgi:system` beside another, a past `expiresAt`, or an empty label.',
+      ),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`); a scoped system key (`system-scope-missing`, `details.scope` `kindgi:system`); a key that would outlive the key minting it (`token-expiry-exceeds-minter`, its `details.latestExpiresAt` the latest allowed).",
+      ),
+      '409': ErrorResponse(
+        "Idempotency-Key reused with a different body (`idempotency-key-body-mismatch`), or a retry of a request that succeeded: its answer carried a secret, which isn't kept (`idempotency-key-replay-withheld`).",
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/system/keys',
+    openapiPath: '/v1/system/keys',
+    operationId: 'systemKeys.list',
+    summary: 'List system keys',
+    description:
+      'Newest first, revoked ones too. Never returns secrets. The full system capability only.',
+    tags: ['system-keys'],
+    security: 'bearer',
+    responses: {
+      '200': { description: 'The system keys.', schema: ref('SystemKeyList') },
+      ...CommonAuthErrors,
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a scoped system key (`system-scope-missing`).",
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/system/keys/:keyId/revoke',
+    openapiPath: '/v1/system/keys/{keyId}/revoke',
+    operationId: 'systemKeys.revoke',
+    summary: 'Revoke a system key',
+    description:
+      'Takes effect on the next request. Revoking a revoked key keeps the first time. The full system capability only.',
+    tags: ['system-keys'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'keyId',
+        in: 'path',
+        required: true,
+        description: "The system key's id.",
+        schema: { type: 'string' },
+      },
+      IdempotencyKeyParam,
+    ],
+    responses: {
+      '200': { description: 'Revoked.', schema: ref('SystemKey') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a scoped system key (`system-scope-missing`).",
+      ),
+      '404': ErrorResponse('No system key with that id (`system-key-not-found`).'),
+    },
+  },
   // ---------- service accounts ----------
   {
     method: 'post',
@@ -3843,7 +3917,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'license.get',
     summary: "Where the deployment's license key stands",
     description:
-      "Whose key, which use, until when and how many days are left, and from 30 days before it expires how to get the next one, as the runtime's startup banner says it. Never the key itself. `mode: development` when the runtime runs with `KINDGI_DEV` and needs no key. The license is the deployment's: its own token (`KINDGI_API_TOKEN`) reads all of it, `renew` with where the deployment keeps its key included. Where the deployment serves exactly one tenant, that tenant's admins read the countdown only (`mode`, `standing`, `expiresAt`, `startsUntil`, `daysLeft`, `renewBy`): never whose key it is or where it's kept. Anyone else is refused. A deployment that doesn't report it answers 404.",
+      "Whose key, which use, until when and how many days are left, and from 30 days before it expires how to get the next one, as the runtime's startup banner says it. Never the key itself. `mode: development` when the runtime runs with `KINDGI_DEV` and needs no key. The license is the deployment's: its own token (`KINDGI_API_TOKEN`), or a system key holding `system:license` (the renewal job's), reads all of it, `renew` with where the deployment keeps its key included. Where the deployment serves exactly one tenant, that tenant's admins read the countdown only (`mode`, `standing`, `expiresAt`, `startsUntil`, `daysLeft`, `renewBy`): never whose key it is or where it's kept. Anyone else is refused. A deployment that doesn't report it answers 404.",
     tags: ['system'],
     security: 'bearer',
     responses: {

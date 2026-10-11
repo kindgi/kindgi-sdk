@@ -53,6 +53,8 @@ const TAG_DESCRIPTIONS: Readonly<Record<string, string>> = {
     'The public keys this deployment signs its exports with (audit bundles, provenance, compliance evidence): what a verifier pins.',
   'signing-keys':
     'The deployment trust list: the public keys whose signatures `POST /v1/deployments` accepts. Revoked keys stay readable for audit.',
+  'system-keys':
+    "The operator's system keys (`kgi_sy_…`): each acts in no tenant, with the least system scope its service needs, and only the full system capability mints them.",
   tokens:
     'API token administration (mint + revoke), and public run tokens: short-lived, read-only tokens a browser uses to follow specific runs.',
   approvals: 'Human-in-the-loop review queue (role-scoped).',

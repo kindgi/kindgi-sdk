@@ -29,6 +29,10 @@
       "description": "API token administration (mint + revoke), and public run tokens: short-lived, read-only tokens a browser uses to follow specific runs."
     },
     {
+      "name": "system-keys",
+      "description": "The operator's system keys (`kgi_sy_…`): each acts in no tenant, with the least system scope its service needs, and only the full system capability mints them."
+    },
+    {
       "name": "service-accounts"
     },
     {
@@ -356,6 +360,13 @@
           "role-exceeds-principal": 403,
           "key-project-mismatch": 403,
           "token-expiry-exceeds-minter": 403,
+          "capability-not-mintable": 403,
+          "system-key-on-tenant-route": 403,
+          "system-principal-required": 403,
+          "system-scope-missing": 403,
+          "system-key-not-found": 404,
+          "tenant-closing": 409,
+          "tenant-suspended": 409,
           "service-account-not-found": 404,
           "service-account-name-taken": 409,
           "service-account-unregistered": 409,
@@ -2391,6 +2402,232 @@
           "token": {
             "type": "string",
             "description": "Plaintext bearer token. Returned exactly once at mint time."
+          }
+        }
+      },
+      "SystemKey": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "A system key (`kgi_sy_…`): the operator's, acting in no tenant. Never its secret.",
+        "required": [
+          "id",
+          "scopes",
+          "createdAt",
+          "mintedBy"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The key's id."
+          },
+          "label": {
+            "type": "string",
+            "description": "What the key is for, as given at mint."
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "system:tenants",
+                "system:tenants:production",
+                "system:tenants:limits",
+                "system:tenants:contacts",
+                "system:tenants:purge",
+                "system:suspend",
+                "system:deployments",
+                "system:usage:read",
+                "system:license",
+                "kindgi:system"
+              ],
+              "description": "A system scope, or `kindgi:system` for every one of them. None reads customer content."
+            }
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "revokedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "mintedBy": {
+            "type": "string",
+            "description": "Who minted it: a system key's id, or `boot` for the deployment's own token."
+          }
+        }
+      },
+      "MintSystemKeyBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "scopes"
+        ],
+        "properties": {
+          "scopes": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "enum": [
+                "system:tenants",
+                "system:tenants:production",
+                "system:tenants:limits",
+                "system:tenants:contacts",
+                "system:tenants:purge",
+                "system:suspend",
+                "system:deployments",
+                "system:usage:read",
+                "system:license",
+                "kindgi:system"
+              ],
+              "description": "A system scope, or `kindgi:system` for every one of them. None reads customer content."
+            },
+            "description": "The least the key's service needs; `kindgi:system` alone for a full key."
+          },
+          "label": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When it stops working. A minter that expires mints only keys expiring no later than it."
+          }
+        }
+      },
+      "MintSystemKeyResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "The new system key, plus its secret.",
+        "required": [
+          "id",
+          "scopes",
+          "createdAt",
+          "mintedBy",
+          "token"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The key's id."
+          },
+          "label": {
+            "type": "string",
+            "description": "What the key is for, as given at mint."
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "system:tenants",
+                "system:tenants:production",
+                "system:tenants:limits",
+                "system:tenants:contacts",
+                "system:tenants:purge",
+                "system:suspend",
+                "system:deployments",
+                "system:usage:read",
+                "system:license",
+                "kindgi:system"
+              ],
+              "description": "A system scope, or `kindgi:system` for every one of them. None reads customer content."
+            }
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "revokedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "mintedBy": {
+            "type": "string",
+            "description": "Who minted it: a system key's id, or `boot` for the deployment's own token."
+          },
+          "token": {
+            "type": "string",
+            "description": "Plaintext bearer token (`kgi_sy_…`). Returned exactly once at mint time."
+          }
+        }
+      },
+      "SystemKeyList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "data"
+        ],
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "A system key (`kgi_sy_…`): the operator's, acting in no tenant. Never its secret.",
+              "required": [
+                "id",
+                "scopes",
+                "createdAt",
+                "mintedBy"
+              ],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "The key's id."
+                },
+                "label": {
+                  "type": "string",
+                  "description": "What the key is for, as given at mint."
+                },
+                "scopes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "system:tenants",
+                      "system:tenants:production",
+                      "system:tenants:limits",
+                      "system:tenants:contacts",
+                      "system:tenants:purge",
+                      "system:suspend",
+                      "system:deployments",
+                      "system:usage:read",
+                      "system:license",
+                      "kindgi:system"
+                    ],
+                    "description": "A system scope, or `kindgi:system` for every one of them. None reads customer content."
+                  }
+                },
+                "createdAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "expiresAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "revokedAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "mintedBy": {
+                  "type": "string",
+                  "description": "Who minted it: a system key's id, or `boot` for the deployment's own token."
+                }
+              }
+            }
           }
         }
       },
@@ -22418,6 +22655,258 @@
         ]
       }
     },
+    "/v1/system/keys": {
+      "post": {
+        "operationId": "systemKeys.mint",
+        "summary": "Mint a system key",
+        "tags": [
+          "system-keys"
+        ],
+        "responses": {
+          "201": {
+            "description": "System key minted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MintSystemKeyResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body: no scopes, one that is not a system scope, a scope twice, `kindgi:system` beside another, a past `expiresAt`, or an empty label.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A tenant's key or session (`system-principal-required`); a scoped system key (`system-scope-missing`, `details.scope` `kindgi:system`); a key that would outlive the key minting it (`token-expiry-exceeds-minter`, its `details.latestExpiresAt` the latest allowed).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key reused with a different body (`idempotency-key-body-mismatch`), or a retry of a request that succeeded: its answer carried a secret, which isn't kept (`idempotency-key-replay-withheld`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "A system key (`kgi_sy_…`) is the operator's, for a service that acts for it (sign-up, the orchestrator, billing, the license renewal), with the least scope that service needs. It acts in no tenant: it reaches `/v1/system/*` and the deployment's license, and every other route refuses it (`system-key-on-tenant-route`). Every request it makes is recorded. Only the full system capability (`kindgi:system`: the deployment's own token on a runtime serving many tenants, or a full system key) mints one, and a key can't outlive the key minting it. Returns the plaintext token exactly once. Only mounted when the deployment keeps system keys.",
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MintSystemKeyBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "get": {
+        "operationId": "systemKeys.list",
+        "summary": "List system keys",
+        "tags": [
+          "system-keys"
+        ],
+        "responses": {
+          "200": {
+            "description": "The system keys.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemKeyList"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A tenant's key or session (`system-principal-required`), or a scoped system key (`system-scope-missing`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Newest first, revoked ones too. Never returns secrets. The full system capability only.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/system/keys/{keyId}/revoke": {
+      "post": {
+        "operationId": "systemKeys.revoke",
+        "summary": "Revoke a system key",
+        "tags": [
+          "system-keys"
+        ],
+        "responses": {
+          "200": {
+            "description": "Revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SystemKey"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A tenant's key or session (`system-principal-required`), or a scoped system key (`system-scope-missing`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No system key with that id (`system-key-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Takes effect on the next request. Revoking a revoked key keeps the first time. The full system capability only.",
+        "parameters": [
+          {
+            "name": "keyId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "The system key's id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
+          }
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
     "/v1/service-accounts": {
       "post": {
         "operationId": "serviceAccounts.create",
@@ -31304,7 +31793,7 @@
             }
           }
         },
-        "description": "Whose key, which use, until when and how many days are left, and from 30 days before it expires how to get the next one, as the runtime's startup banner says it. Never the key itself. `mode: development` when the runtime runs with `KINDGI_DEV` and needs no key. The license is the deployment's: its own token (`KINDGI_API_TOKEN`) reads all of it, `renew` with where the deployment keeps its key included. Where the deployment serves exactly one tenant, that tenant's admins read the countdown only (`mode`, `standing`, `expiresAt`, `startsUntil`, `daysLeft`, `renewBy`): never whose key it is or where it's kept. Anyone else is refused. A deployment that doesn't report it answers 404.",
+        "description": "Whose key, which use, until when and how many days are left, and from 30 days before it expires how to get the next one, as the runtime's startup banner says it. Never the key itself. `mode: development` when the runtime runs with `KINDGI_DEV` and needs no key. The license is the deployment's: its own token (`KINDGI_API_TOKEN`), or a system key holding `system:license` (the renewal job's), reads all of it, `renew` with where the deployment keeps its key included. Where the deployment serves exactly one tenant, that tenant's admins read the countdown only (`mode`, `standing`, `expiresAt`, `startsUntil`, `daysLeft`, `renewBy`): never whose key it is or where it's kept. Anyone else is refused. A deployment that doesn't report it answers 404.",
         "security": [
           {
             "bearerAuth": []
