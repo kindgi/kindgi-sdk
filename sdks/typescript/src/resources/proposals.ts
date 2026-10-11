@@ -67,6 +67,20 @@ export interface ProposalsClient {
   evaluate(id: FixProposalId | string, input: EvaluateProposalInput): Promise<FixProposal>;
 
   /**
+   * Rescore the latest evaluation, after people judged the comparison's new
+   * answers on its replay runs: a new comparison that scores the same
+   * replays again, counting those judgments. It becomes the proposal's
+   * evaluation; the run rescored stays as it was. Returns the proposal,
+   * `evaluating`.
+   *
+   * @wire `POST /v1/proposals/{proposalId}/rescore`
+   */
+  rescore(
+    id: FixProposalId | string,
+    input?: { readonly idempotencyKey?: string },
+  ): Promise<FixProposal>;
+
+  /**
    * A promotion of the candidate for the proposal's scope, through its
    * gate: the proposal, `promoted` or `in-review`. A gate refusal throws
    * (`gate-failed`, with the checks).
@@ -219,6 +233,11 @@ export function makeProposalsClient(transport: Transport): ProposalsClient {
     async evaluate(id, input) {
       const { idempotencyKey, ...body } = input;
       return post({ path: `/v1/proposals/${seg(id)}/evaluate`, body, idempotencyKey });
+    },
+
+    async rescore(id, input = {}) {
+      const { idempotencyKey } = input;
+      return post({ path: `/v1/proposals/${seg(id)}/rescore`, body: {}, idempotencyKey });
     },
 
     async request(id, input = {}) {

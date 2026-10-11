@@ -654,6 +654,105 @@
       ]
     },
     {
+      "name": "a union of scalar types (what Zod writes for a union of scalars)",
+      "value": 0,
+      "valid": true,
+      "issues": []
+    },
+    {
+      "name": "a union of scalar types (what Zod writes for a union of scalars)",
+      "value": 1,
+      "valid": true,
+      "issues": []
+    },
+    {
+      "name": "a union of scalar types (what Zod writes for a union of scalars)",
+      "value": 2,
+      "valid": true,
+      "issues": []
+    },
+    {
+      "name": "a union of scalar types (what Zod writes for a union of scalars)",
+      "value": 3,
+      "valid": true,
+      "issues": []
+    },
+    {
+      "name": "a union of scalar types (what Zod writes for a union of scalars)",
+      "value": 4,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "/value",
+          "schemaPath": "#/properties/value/minLength",
+          "keyword": "minLength",
+          "params": {
+            "limit": 2
+          },
+          "message": "must NOT have fewer than 2 characters"
+        }
+      ]
+    },
+    {
+      "name": "a union of scalar types (what Zod writes for a union of scalars)",
+      "value": 5,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "/value",
+          "schemaPath": "#/properties/value/minimum",
+          "keyword": "minimum",
+          "params": {
+            "comparison": ">=",
+            "limit": 0
+          },
+          "message": "must be >= 0"
+        }
+      ]
+    },
+    {
+      "name": "a union of scalar types (what Zod writes for a union of scalars)",
+      "value": 6,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "/value",
+          "schemaPath": "#/properties/value/type",
+          "keyword": "type",
+          "params": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ]
+          },
+          "message": "must be string,number,boolean,null"
+        }
+      ]
+    },
+    {
+      "name": "a union of scalar types (what Zod writes for a union of scalars)",
+      "value": 7,
+      "valid": false,
+      "issues": [
+        {
+          "instancePath": "/value",
+          "schemaPath": "#/properties/value/type",
+          "keyword": "type",
+          "params": {
+            "type": [
+              "string",
+              "number",
+              "boolean",
+              "null"
+            ]
+          },
+          "message": "must be string,number,boolean,null"
+        }
+      ]
+    },
+    {
       "name": "tagged union (oneOf by const)",
       "value": 0,
       "valid": true,

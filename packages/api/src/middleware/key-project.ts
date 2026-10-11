@@ -3,8 +3,11 @@
 
 import type { MiddlewareHandler } from 'hono';
 
-import { statusFor, toWireError } from '../errors.js';
+import { ref } from '@kindgi/authz';
+
+import { refused } from '../routes/denied.js';
 import type { AppEnv } from '../types.js';
+import type { Authorizer } from './authorize.js';
 
 const PROJECT_PATH_RE = /\/projects\/([^/]+)/;
 const WRITE_METHODS: ReadonlySet<string> = new Set(['POST', 'PUT', 'PATCH']);
@@ -20,26 +23,23 @@ const WRITE_METHODS: ReadonlySet<string> = new Set(['POST', 'PUT', 'PATCH']);
  *
  * Requests from any other caller pass untouched. What the key may do in
  * its own project is the authorizer's to decide, under the principal's
- * grants.
+ * grants. The refusal is recorded with `authorizer`, as every refusal the
+ * API decides itself is.
  */
-export function refuseOtherProjectForKey(): MiddlewareHandler<AppEnv> {
+export function refuseOtherProjectForKey(authorizer?: Authorizer): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     const keyProject = c.get('tokenProjectId');
     if (keyProject === undefined) return next();
     for (const named of await projectsNamed(c.req)) {
       if (named !== keyProject) {
-        c.status(statusFor('key-project-mismatch') as never);
-        return c.json(
-          toWireError(
-            {
-              code: 'key-project-mismatch',
-              message: `This API key is limited to project ${keyProject}; the request names project ${named}`,
-              keyProjectId: keyProject,
-              projectId: named,
-            },
-            c.get('requestId'),
-          ),
-        );
+        return refused(c, authorizer, {
+          action: c.req.method === 'GET' || c.req.method === 'HEAD' ? 'read' : 'write',
+          resource: ref('project', named),
+          message: `This API key is limited to project ${keyProject}; the request names project ${named}`,
+          failing: 'scope',
+          code: 'key-project-mismatch',
+          details: { keyProjectId: keyProject, projectId: named },
+        });
       }
     }
     return next();

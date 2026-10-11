@@ -183,11 +183,7 @@ export interface UserCollectionPage {
   readonly nextCursor?: Cursor;
 }
 
-/**
- * Wire-safe subset of `Session` (from `session-store-binding.ts`).
- * Excludes the opaque provider `accessToken` / `refreshToken` — those
- * never cross the wire, even to admins.
- */
+/** What the wire shows of a `Session` (from `session-store-binding.ts`). */
 export interface SessionSummary {
   readonly sessionId: string;
   readonly userId: UserId;

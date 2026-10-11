@@ -19,8 +19,9 @@ import type {
  *
  * Events are the causal glue between runs. Filters are declarative
  * predicates (data, not code). Delivery at-least-once with idempotent
- * handlers. Two shapes: trigger-a-new-run (see `client.eventTriggers`)
- * OR a run waiting inside a node handler (`ctx.waitForToken` in
+ * handlers. Two shapes: trigger-a-new-run (event triggers, not served
+ * yet: the runtime fires schedules only) OR a run waiting inside a node
+ * handler (`ctx.waitForToken` in
  * `@kindgi/handler`, not surfaced by the SDK).
  *
  * **No API routes.** There is no `packages/api/src/routes/events.ts`:

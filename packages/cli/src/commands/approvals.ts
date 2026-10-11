@@ -31,12 +31,21 @@ const list: LeafCommand = {
   kind: 'leaf',
   name: 'list',
   description: 'List the approvals your reviewer role can see.',
-  usage: `kindgi approvals list [--status=${STATUSES.join('|')}] [--limit=<n>] [--cursor=<c>]`,
+  usage:
+    'kindgi approvals list [--status=<status>[,<status>…]] [--assigned-to=me] [--order=asc|desc] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
     status: {
       type: 'string',
       description:
-        'Only approvals in this status: `pending`, `assigned`, `in_review`, `approved`, `rejected`, `escalated`, `expired` or `withdrawn`.',
+        'Only approvals in these statuses, comma-separated (`pending,assigned,in_review` are the open ones): `pending`, `assigned`, `in_review`, `approved`, `rejected`, `escalated`, `expired` or `withdrawn`.',
+    },
+    'assigned-to': {
+      type: 'string',
+      description: '`me`: only the approvals assigned to you.',
+    },
+    order: {
+      type: 'string',
+      description: '`asc` (oldest first) or `desc` (newest first, the default).',
     },
     limit: {
       type: 'string',
@@ -50,10 +59,22 @@ const list: LeafCommand = {
   run: (ctx) =>
     runSdk(ctx, 'approvals list', async () => {
       const status = stringFlag(ctx, 'status');
+      const assignedTo = stringFlag(ctx, 'assigned-to');
+      const order = stringFlag(ctx, 'order');
       const limit = integerFlag(ctx, 'limit');
       const cursor = stringFlag(ctx, 'cursor');
       return await ctx.client().approvals.list({
-        ...(status !== undefined && { status: oneOf('status', status, STATUSES) }),
+        ...(status !== undefined && {
+          status: status
+            .split(',')
+            .map((s) => s.trim())
+            .filter((s) => s.length > 0)
+            .map((s) => oneOf('status', s, STATUSES)),
+        }),
+        ...(assignedTo !== undefined && {
+          assignedTo: oneOf('assigned-to', assignedTo, ['me'] as const),
+        }),
+        ...(order !== undefined && { order: oneOf('order', order, ['asc', 'desc'] as const) }),
         ...(limit !== undefined && { limit }),
         ...(cursor !== undefined && { cursor: cursor as never }),
       });

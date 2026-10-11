@@ -69,7 +69,8 @@ class GuardrailTest {
     Matcher block = Pattern.compile("const BUILT_IN_CHECKS\\b[^=]*=\\s*\\[(.*?)\\];", Pattern.DOTALL).matcher(source);
     assertThat(block.find()).as("checks.ts declares BUILT_IN_CHECKS as an array").isTrue();
     List<String> ids = new ArrayList<>();
-    Matcher id = Pattern.compile("\\bid:\\s*'([^']+)'").matcher(block.group(1));
+    // Each entry names its id as `builtIn('must-cite', …)`, or as an object's `id: 'must-cite'`.
+    Matcher id = Pattern.compile("(?:\\bbuiltIn\\(\\s*|\\bid:\\s*)'([^']+)'").matcher(block.group(1));
     while (id.find()) {
       ids.add(id.group(1));
     }

@@ -740,6 +740,87 @@ describe('kindgi env init', () => {
     expect(written).toContain('# KINDGI_API_PORT=4000');
   });
 
+  test('non-interactive: --kms=azure writes the Key Vault key (required) and no GCP vars', async () => {
+    const fixtures = makeFixtures();
+    const outPath = join(packDir, '.env.example');
+    const out = await runCli(
+      baseInputs(fixtures, [
+        'env',
+        'init',
+        '--secrets-backend=postgres',
+        '--kms=azure',
+        `--out=${outPath}`,
+        '--non-interactive',
+      ]),
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    const written = fixtures.state.files.get(outPath);
+    expect(written).toContain(
+      'KINDGI_SECRETS_AZURE_KEY_ID=https://my-vault.vault.azure.net/keys/kindgi-secrets',
+    );
+    expect(written).toContain('# KINDGI_AZURE_CLIENT_ID=');
+    expect(written).not.toContain('KINDGI_SECRETS_GCP_PROJECT_ID');
+  });
+
+  test('non-interactive: --secrets-manager=azure writes the vault URL and the manager, no KMS vars', async () => {
+    const fixtures = makeFixtures();
+    const outPath = join(packDir, '.env.example');
+    const out = await runCli(
+      baseInputs(fixtures, [
+        'env',
+        'init',
+        '--secrets-backend=secret-manager',
+        '--secrets-manager=azure',
+        `--out=${outPath}`,
+        '--non-interactive',
+      ]),
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    const written = fixtures.state.files.get(outPath);
+    expect(written).toContain('KINDGI_SECRETS_MANAGER=azure');
+    expect(written).toContain(
+      'KINDGI_SECRETS_AZURE_VAULT_URL=https://my-kindgi-secrets.vault.azure.net',
+    );
+    // No KMS or AAD key setting (descriptions may still mention them).
+    expect(written).not.toMatch(/^(# )?KINDGI_SECRETS_BACKEND_KMS=/m);
+    expect(written).not.toMatch(/^(# )?KINDGI_SECRETS_AAD_KEY(_PATH)?=/m);
+  });
+
+  test('--kms with secret-manager is refused, pointing at --secrets-manager', async () => {
+    const fixtures = makeFixtures();
+    const out = await runCli(
+      baseInputs(fixtures, [
+        'env',
+        'init',
+        '--secrets-backend=secret-manager',
+        '--kms=gcp',
+        `--out=${join(packDir, '.env.example')}`,
+        '--non-interactive',
+      ]),
+    );
+    expect(out.exitCode).toBe(2);
+    expect(out.stderr).toBe(
+      '--kms is for --secrets-backend=postgres. For secret-manager, pick --secrets-manager.\n',
+    );
+  });
+
+  test('non-interactive secret-manager without --secrets-manager → exit 2 naming the choices', async () => {
+    const fixtures = makeFixtures();
+    const out = await runCli(
+      baseInputs(fixtures, [
+        'env',
+        'init',
+        '--secrets-backend=secret-manager',
+        `--out=${join(packDir, '.env.example')}`,
+        '--non-interactive',
+      ]),
+    );
+    expect(out.exitCode).toBe(2);
+    expect(out.stderr).toBe(
+      '--secrets-manager is required when --secrets-backend=secret-manager. Choices: azure, gcp, aws, vault.\n',
+    );
+  });
+
   test('non-interactive: backend=none writes only core vars (no secrets group)', async () => {
     const fixtures = makeFixtures();
     const outPath = join(packDir, '.env.example');

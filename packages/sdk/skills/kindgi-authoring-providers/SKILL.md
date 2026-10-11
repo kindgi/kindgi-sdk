@@ -9,10 +9,10 @@ description: >
   OpenAI-compatible endpoint, a hosted gateway such as OpenRouter
   included), and local
   via the in-process ONNX adapter — plus the credential flow (in
-  `kindgi dev` the key lives in the project's env files — `.env`, then
-  `.env.local` — added by hand or with `kindgi secrets set`'s no-echo
-  prompt; the Kindgi runtime reads it through the dotenv secret binding
-  at agent-turn time). One provider row exposes one
+  `kindgi dev` the key lives in Kindgi's own `.kindgi/secrets.env`, set
+  with `kindgi secrets set`'s no-echo prompt, or in the project's env files
+  (`.env`, `.env.local`); the Kindgi runtime reads it through the dotenv
+  secret binding at agent-turn time). One provider row exposes one
   connection with one or more models under `metadata.models[]`; the
   router picks the (provider, model) tuple per invocation. Load this
   when the user asks to "register a provider", "use Claude / GPT /
@@ -79,11 +79,15 @@ Three moving parts:
    `.env.local` on top (change the list with `dev.envFiles` in
    `kindgi.config.ts`, `envFiles` under `[tool.kindgi.dev]` in a Python
    pack's `pyproject.toml`, or `dev.envFiles` in a Java or Scala pack's
-   `kindgi.config.json`). A key already in the app's `.env` just works.
-   `kindgi secrets set` (interactive, no-echo) writes `.env.local`. For
-   non-sensitive values (log levels, region names, feature flags),
-   `kindgi env set NAME VALUE --env=local` writes the same file with a
-   positional value — never route real secrets through it. `KINDGI_*`
+   `kindgi.config.json`), then Kindgi's own `.kindgi/secrets.env` on top.
+   A key already in the app's `.env` just works. `kindgi secrets set`
+   (interactive, no-echo) writes `.kindgi/secrets.env`, a file the app
+   doesn't load (a framework loads `.env.local` into every route); `--app`
+   writes the app's file instead, for a value the app reads too (a webhook
+   signing secret). For non-sensitive values (log levels, region names,
+   feature flags), `kindgi env set NAME VALUE --env=local` writes the app's
+   `.env.local` with a positional value — never route real secrets
+   through it. `KINDGI_*`
    names configure Kindgi itself and are never resolvable as secrets.
 2. **Provider registration** — `kindgi providers register --spec=@provider.json` (`POST /v1/providers`)
 3. **Agent's `capabilities.needs`** — matched at the (provider, model) tuple level at turn time
@@ -120,10 +124,12 @@ then parse, check against the schema and repair, on every provider.
 kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant
 # Prompts interactively (echo disabled). Paste the key, press enter.
 ```
-Writes to `.env.local` at the pack root via the dotenv secret binding —
-or add `ANTHROPIC_API_KEY=…` to `.env` / `.env.local` yourself; `kindgi
-dev` reads both. If the pack lives inside an app whose `.env` already
-has the key, there is nothing to do. Keep env files gitignored. For pipelines/CI, pipe the value with
+Writes to `.kindgi/secrets.env` at the pack root via the dotenv secret
+binding — or add `ANTHROPIC_API_KEY=…` to that file yourself; `kindgi dev`
+also reads the app's `.env` / `.env.local`. If the pack lives inside an app
+whose env file already has the key, it works as it is; `kindgi secrets copy`
+gives Kindgi its own copy and never edits the app's files (the app may use
+the key itself: leave removing it to the person). Keep env files gitignored. For pipelines/CI, pipe the value with
 `echo -n "$KEY" | kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant --from-stdin`,
 or read from a mode-0600 file with `--from-file <path>`. Never pass a
 credential on argv.
@@ -178,8 +184,8 @@ In a Java or Scala pack's `kindgi.config.json`, the same keys:
 - Each boot prints `Providers from kindgi.config.ts:` (the pack's config file) with one line each:
   `registered`, `unchanged`, `registered again (changed in kindgi.config.ts)`,
   `unregistered (no longer in kindgi.config.ts)`, or ⚠ `not registered: <KEY>
-  is not in .env, .env.local` (set the key, then restart: the config isn't
-  watched).
+  is not in .env, .env.local, .kindgi/secrets.env` (set the key, then
+  restart: the config isn't watched).
 - A provider with that id that `kindgi dev` didn't register is left as it is;
   if its region or models differ, a ⚠ line names the
   `kindgi providers unregister` that lets the config's version apply.

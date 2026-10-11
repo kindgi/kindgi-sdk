@@ -49,8 +49,30 @@ describe('kindgi approvals', () => {
       approvals: { list: rec('list', { data: [{ id: 'a-1' }] }) },
     });
     expect(out.exitCode, out.stderr).toBe(0);
-    expect(calls).toEqual([['list', { status: 'pending', limit: 5, cursor: 'c1' }]]);
+    expect(calls).toEqual([['list', { status: ['pending'], limit: 5, cursor: 'c1' }]]);
     expect(JSON.parse(out.stdout)).toEqual({ data: [{ id: 'a-1' }] });
+  });
+
+  test('list: a reviewer inbox in one read (several statuses, --assigned-to=me, --order=asc)', async () => {
+    const { calls, rec } = recorder();
+    const out = await run(
+      [
+        'approvals',
+        'list',
+        '--status=pending,assigned,in_review',
+        '--assigned-to=me',
+        '--order=asc',
+      ],
+      { approvals: { list: rec('list', { data: [] }) } },
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([
+      ['list', { status: ['pending', 'assigned', 'in_review'], assignedTo: 'me', order: 'asc' }],
+    ]);
+    for (const bad of [['--assigned-to=someone'], ['--order=oldest'], ['--status=pending,open']]) {
+      const refused = await run(['approvals', 'list', ...bad], { approvals: {} });
+      expect(refused.exitCode, bad.join(' ')).toBe(2);
+    }
   });
 
   test('list refuses an unknown status', async () => {

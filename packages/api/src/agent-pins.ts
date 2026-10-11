@@ -6,7 +6,7 @@ import type { TupleEnqueueHook } from '@kindgi/authz';
 import { pickVersion } from '@kindgi/tools';
 import type { Cursor, ProjectId, TenantId, ToolId } from '@kindgi/types';
 
-import type { AgentRegistryBinding } from './agent-binding.js';
+import type { AgentRegistryBinding, AgentVersionRecord } from './agent-binding.js';
 import type { BlockRegistryBinding } from './block-binding.js';
 import { resolveBlockPins } from './block-pins.js';
 import { type DeployedVersionOutcome, deployVersion } from './deploy-versions.js';
@@ -148,8 +148,8 @@ export async function activeAgentVersions(
   agents: AgentRegistryBinding,
   tenantId: TenantId,
   agentId: AgentId,
-): Promise<readonly Agent[]> {
-  const versions: Agent[] = [];
+): Promise<readonly AgentVersionRecord[]> {
+  const versions: AgentVersionRecord[] = [];
   let cursor: Cursor | undefined;
   do {
     const page = await agents.listVersions({

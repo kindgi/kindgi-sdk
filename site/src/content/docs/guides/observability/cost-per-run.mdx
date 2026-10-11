@@ -244,6 +244,11 @@ The sum covers only that customer's runs:
 - **`scope`** narrows the sum to an org (`{ kind: 'org', orgId }`) or a
   project (`{ kind: 'project', projectId }`). Python: `scope_kind` and
   `scope_id`.
+- **Who sees what:** the sum needs `read` on its scope. Across projects
+  (no scope, or an org), it counts only the projects the caller may read,
+  and records with no project; a tenant admin's sum counts every project.
+  Where the deployment's cost store can't apply the limit, anyone but a
+  tenant admin is refused (`403`).
 - **`from` and `to`**: the time window; `to` is exclusive.
 - **The groups** come most expensive first, at most 1000 of them; `?limit=`
   on the API (Python: `limit=`), up to 10000, sets another cap. `truncated` says whether some were left

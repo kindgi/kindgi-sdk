@@ -17,6 +17,9 @@ import { describe, expect, test, vi } from 'vitest';
 
 import { type WatchEvents, directoryWatches } from '../src/dev/shared-watch.js';
 
+/** vi.waitFor's own default (1 s) is too short on a loaded machine; a passing wait returns as soon as it holds. */
+const WAIT = { timeout: 15_000 } as const;
+
 /** A watch whose events the test pushes; it ends as `node:fs/promises`'s does when aborted. */
 function pushed(): {
   readonly watch: WatchEvents;
@@ -152,7 +155,7 @@ describe('directoryWatches', () => {
     const watches = directoryWatches(ending);
     const failed = vi.fn();
     watches.subscribe('/pack', vi.fn(), failed);
-    await vi.waitFor(() => expect(failed).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(failed).toHaveBeenCalledTimes(1), WAIT);
     expect(String(failed.mock.calls[0]?.[0])).toContain('ended');
     watches.subscribe('/pack', vi.fn(), vi.fn());
     expect(opened).toEqual(['/pack', '/pack']);

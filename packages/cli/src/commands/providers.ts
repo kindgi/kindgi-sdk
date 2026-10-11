@@ -3,7 +3,14 @@
 
 import type { Provider, ProviderPage, RegisterProviderInput } from '@kindgi/client';
 import { type KindgiConfig, packLanguage } from '@kindgi/handler-runtime';
-import { LOCAL_ENV_NAME, displayEnvPath, packValues, readPackEnv } from '@kindgi/secrets-dotenv';
+import {
+  KINDGI_SECRETS_FILE,
+  LOCAL_ENV_NAME,
+  displayEnvPath,
+  packValues,
+  readPackEnv,
+} from '@kindgi/secrets-dotenv';
+import type { EnvName } from '@kindgi/types';
 
 import type { CommandContext } from '../context.js';
 import { loadLocalEnvSettings } from '../env/project-env.js';
@@ -265,6 +272,21 @@ async function missingPackSecret(
     env: ctx.env,
   });
   if (Object.hasOwn(packValues(env.values), name)) return undefined;
+  if (env.unreadable.length > 0) {
+    // A file this process can't read (a coding agent's read guard): ask the
+    // runtime, which reads the env files itself, by name only. Unreachable,
+    // the key is left for the runtime to resolve when the provider is used.
+    try {
+      const held = await ctx.client().secrets.get({
+        scope: { kind: 'tenant' },
+        envName: LOCAL_ENV_NAME as unknown as EnvName,
+        name,
+      });
+      if (held !== null) return undefined;
+    } catch {
+      return undefined;
+    }
+  }
   const runner = await detectBinRunner(
     ctx.cwd,
     packLanguage(settings.config as KindgiConfig),
@@ -275,7 +297,8 @@ async function missingPackSecret(
   return [
     `${name} (the ${preset.name} key) is not in ${files}. Set it first, then register again:`,
     `  ${binDisplay(runner, 'kindgi', ['secrets', 'set', name, `--env=${LOCAL_ENV_NAME}`, '--scope=tenant'])}   # a no-echo prompt`,
-    `or add ${name}=… to .env yourself.`,
+    `or add ${name}=… to ${KINDGI_SECRETS_FILE} yourself (Kindgi's own file; your app doesn't load it).`,
+    `If the runtime already holds ${name} in another environment (a deployed runtime's, for example), name it: ${binDisplay(runner, 'kindgi', ['providers', 'register', `--preset=${preset.name}`, '--env=<that environment>'])}. Without --env, the preset reads ${LOCAL_ENV_NAME}, the pack's own env files.`,
   ].join('\n');
 }
 

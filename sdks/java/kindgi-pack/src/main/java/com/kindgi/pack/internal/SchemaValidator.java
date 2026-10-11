@@ -88,10 +88,8 @@ public final class SchemaValidator {
               throw new SchemaException(at + "/type: unknown type " + t);
             }
           }
-          // As Ajv's strict mode: a union of types, other than one type or null, is refused.
-          if (types.stream().filter(t -> !"null".equals(t)).count() > 1) {
-            throw new SchemaException(at + "/type: a union of types (" + types + ") isn't supported; use oneOf");
-          }
+          // A union of types is standard JSON Schema, and every Kindgi schema compiler takes it
+          // (Ajv's allowUnionTypes, in the TypeScript packages).
           break;
         case "properties":
         case "$defs":

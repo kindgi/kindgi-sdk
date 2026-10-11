@@ -243,11 +243,21 @@ export interface ListAgentsFilter {
   readonly limit?: number;
   readonly cursor?: string;
   readonly name?: string;
+  /**
+   * List retired agents too (every version unregistered), each as its
+   * highest version with `unregisteredAt`. Default: `false`.
+   */
+  readonly includeRetired?: boolean;
 }
 
 export interface ListVersionsFilter {
   readonly limit?: number;
   readonly cursor?: string;
+  /**
+   * List unregistered versions too, each with `unregisteredAt` (a
+   * retired agent's included). Default: `false` (active versions only).
+   */
+  readonly includeTombstoned?: boolean;
 }
 
 interface MutationOptions {
@@ -287,6 +297,7 @@ export function makeAgentsClient(transport: Transport): AgentsClient {
         query: {
           ...(filter?.limit !== undefined && { limit: filter.limit }),
           ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
+          ...(filter?.includeTombstoned === true && { includeTombstoned: 'true' }),
         },
       });
     },
@@ -350,6 +361,7 @@ export function makeAgentsClient(transport: Transport): AgentsClient {
           ...(filter?.limit !== undefined && { limit: filter.limit }),
           ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
           ...(filter?.name !== undefined && { name: filter.name }),
+          ...(filter?.includeRetired === true && { includeRetired: 'true' }),
         },
       });
     },

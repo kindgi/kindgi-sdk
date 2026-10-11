@@ -8,9 +8,6 @@ import java.util.Map;
 
 public final class ProcessEnv {
   public static final Tool<Map<String, Object>, Map<String, Object>> TOOL = Tool.define("conformance.process-env")
-      .description("Returns the names of the KINDGI_ variables in its process environment.")
-      .handler((input, ctx) -> Map.of("names", System.getenv().keySet().stream()
-          .filter(name -> name.startsWith("KINDGI_"))
-          .sorted()
-          .toList()));
+      .description("Returns the names in its process environment.")
+      .handler((input, ctx) -> Map.of("names", System.getenv().keySet().stream().sorted().toList()));
 }

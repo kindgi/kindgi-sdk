@@ -59,6 +59,7 @@ import {
   detectPackageManager,
   installCommand,
 } from '../package-manager.js';
+import { agentAccessRows, patchAgentAccess } from './agent-access.js';
 import { type KindgiDependencySpecs, resolveKindgiDependencySpecs } from './dependency-specs.js';
 import { patchGitignore, patchPrettierignore } from './gitignore-patcher.js';
 import {
@@ -86,6 +87,8 @@ const AUGMENT_SUBDIRS = ['agents', 'tools', 'guardrails', 'flows'] as const;
 
 export interface RunInitAugmentInputs {
   readonly targetDir: string;
+  /** The CLI's home folder: a repository rooted there gets no settings from init (`agent-access.ts`). */
+  readonly home?: string;
   /**
    * Optional root containing shipped skill folders (each with a
    * `SKILL.md`). If undefined, no skills are copied. Production
@@ -307,6 +310,7 @@ export async function runInitAugment(inputs: RunInitAugmentInputs): Promise<Comm
 
   const patchResult = await applyAugmentPatches({
     targetDir: inputs.targetDir,
+    ...(inputs.home !== undefined && { home: inputs.home }),
     pkgJsonPath,
     specs: deps.specs,
     packageManager: deps.packageManager,
@@ -346,6 +350,7 @@ export async function runInitAugment(inputs: RunInitAugmentInputs): Promise<Comm
         `  Kindgi added to ${inputs.targetDir} (augment mode).`,
         `  Pack id: ${packId}    Version: ${packVersion}`,
         `  Wrote ${created.length} file${created.length === 1 ? '' : 's'}; skipped ${skipped.length}.`,
+        ...(patchResult.outside ?? []).map((line) => `  ✓ ${line}`),
         ...warnings.map((warning) => `  ⚠ ${warning}`),
         '',
         '  Next steps:',
@@ -411,7 +416,7 @@ export function augmentNextSteps(pm: PackageManager, samplePackId?: string): rea
     `Install: ${installCommand(pm)}`,
     `Boot the dev server: ${binDisplay(pm, 'kindgi', ['dev'])}`,
     `Secrets: kindgi dev reads your .env and .env.local — keys there are available, or run ${setSecret}`,
-    `Model provider: agents answer with the dev-echo fallback until you register one — e.g. ${binDisplay(pm, 'kindgi', ['providers', 'register', '--preset=anthropic'])} (ANTHROPIC_API_KEY in .env); more in .claude/skills/kindgi-authoring-providers/SKILL.md`,
+    `Model provider: until you register one, agents under kindgi dev answer with its dev-echo fallback (canned replies) — e.g. ${binDisplay(pm, 'kindgi', ['providers', 'register', '--preset=anthropic'])} (ANTHROPIC_API_KEY in .env); more in .claude/skills/kindgi-authoring-providers/SKILL.md`,
     ...(samplePackId === undefined
       ? []
       : [
@@ -621,6 +626,8 @@ type PatchesResult =
       readonly created: readonly string[];
       readonly skipped: readonly string[];
       readonly warnings: readonly string[];
+      /** What was written outside the app's folder (`agentAccessRows`), printed whatever else is. */
+      readonly outside?: readonly string[];
     }
   | { readonly kind: 'err'; readonly stderr: string };
 
@@ -632,6 +639,7 @@ type PatchesResult =
  */
 async function applyAugmentPatches(args: {
   readonly targetDir: string;
+  readonly home?: string;
   readonly pkgJsonPath: string;
   readonly specs: KindgiDependencySpecs;
   readonly packageManager: PackageManager;
@@ -678,6 +686,17 @@ async function applyAugmentPatches(args: {
     created.push(`${prettierignorePath} (patched: +${patchPrettier.appended.join(', +')})`);
   }
 
+  // Keep the coding agent out of the files that hold keys (`agent-access.ts`).
+  const access = agentAccessRows(
+    args.targetDir,
+    await patchAgentAccess(args.targetDir, {
+      ...(args.home !== undefined && { home: args.home }),
+    }),
+  );
+  created.push(...access.created);
+  skipped.push(...access.skipped);
+  warnings.push(...access.warnings);
+
   const esbuild =
     args.packageManager === 'pnpm'
       ? await decideEsbuildInPnpm(args.targetDir)
@@ -691,7 +710,7 @@ async function applyAugmentPatches(args: {
     warnings.push(...esbuild.warnings);
   }
 
-  return { kind: 'ok', created, skipped, warnings };
+  return { kind: 'ok', created, skipped, warnings, outside: access.outside };
 }
 
 /**

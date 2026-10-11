@@ -45,6 +45,12 @@ export type {
 export { JUDGE_THINKING_TOKENS, JUDGE_VERDICT_TOKENS, invokeJudge } from './judge.js';
 export type { LlmJudgeConfig } from './judge.js';
 export type {
+  GuardrailCheckOutcome,
+  GuardrailCheckOutcomeKind,
+  GuardrailOutcomeRecord,
+  GuardrailOutcomeSink,
+} from './outcomes.js';
+export type {
   Action,
   Budget,
   BuiltInGuardrailKind,

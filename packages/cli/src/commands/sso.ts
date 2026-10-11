@@ -8,9 +8,16 @@ import type {
   IdentityProviderSignInUrlsResult,
   IdentityProviderUpdateInput,
 } from '@kindgi/client';
+import {
+  IDENTITY_PROVIDER_PRESETS,
+  type IdentityProviderPreset,
+  identityProviderHandoff,
+  isIdentityProviderPreset,
+} from '@kindgi/client/sso-handoff';
 
 import type { CommandContext } from '../context.js';
 import { type Rendered, renderJson } from '../output.js';
+import { CLI_VERSION } from '../version-info.js';
 import {
   listFlag,
   readJsonInput,
@@ -30,67 +37,6 @@ import type { Command, LeafCommand } from './types.js';
  */
 
 type Kind = 'oidc' | 'saml';
-
-/** The identity providers `start --idp` has steps for. */
-/** The setup guides, at the docs' root (always the latest release). */
-const GUIDES = 'https://docs.kindgi.com/guides/sso';
-
-const IDP_STEPS: Readonly<
-  Record<string, { readonly kind: Kind; readonly guide: string; readonly steps: string }>
-> = {
-  google: {
-    kind: 'oidc',
-    guide: 'google',
-    steps: [
-      'Google Cloud console → Google Auth Platform:',
-      '  1. Branding: the app name and a support email.',
-      '  2. Audience: Internal (only your Google Workspace accounts; no test users, no review).',
-      '  3. Data access: openid, email, profile.',
-      '  4. Clients → Create client → Web application → Authorized redirect URIs: the URI above.',
-      '  5. Download the client ID and secret (Google shows the secret once).',
-      'Issuer: https://accounts.google.com',
-    ].join('\n'),
-  },
-  entra: {
-    kind: 'oidc',
-    guide: 'entra-id',
-    steps: [
-      'Microsoft Entra admin center → App registrations → New registration:',
-      '  1. Supported account types: this organizational directory only (single tenant).',
-      '  2. Redirect URI: Web, the URI above.',
-      '  3. Copy the Application (client) ID and the Directory (tenant) ID.',
-      '  4. Certificates & secrets → New client secret: copy its Value (shown once). It expires:',
-      '     note the date.',
-      '  5. Enterprise applications → the app → Properties → Assignment required: Yes; then',
-      '     Users and groups: who may sign in.',
-      'Issuer: https://login.microsoftonline.com/<directory-tenant-id>/v2.0 (never `common`).',
-    ].join('\n'),
-  },
-  okta: {
-    kind: 'oidc',
-    guide: 'okta',
-    steps: [
-      'Okta admin console → Applications → Create App Integration → OIDC - OpenID Connect →',
-      'Web Application:',
-      '  1. Sign-in redirect URIs: the URI above.',
-      '  2. Assignments: the groups who may sign in.',
-      '  3. Copy the client ID and the client secret.',
-      'Issuer: https://<your-org>.okta.com',
-    ].join('\n'),
-  },
-  keycloak: {
-    kind: 'oidc',
-    guide: 'keycloak',
-    steps: [
-      'Keycloak admin console → your realm → Clients → Create client → OpenID Connect:',
-      '  1. Client authentication: On. Authentication flow: Standard flow.',
-      '  2. Valid redirect URIs: the URI above (exactly; no wildcard).',
-      '  3. Credentials tab: copy the client secret.',
-      '  4. Each person needs an email with "Email verified" on, or sign-in is refused.',
-      'Issuer: https://<keycloak-host>/realms/<realm>',
-    ].join('\n'),
-  },
-};
 
 const kindOption = {
   kind: {
@@ -171,40 +117,16 @@ function kindFlag(ctx: CommandContext): Kind | undefined {
 }
 
 /** What to send IT: the URLs for their side, and what to send back. */
-export function handoffText(urls: IdentityProviderSignInUrlsResult, idp?: string): string {
+export function handoffText(
+  urls: IdentityProviderSignInUrlsResult,
+  idp?: IdentityProviderPreset,
+): string {
   const { providerId, signIn } = urls;
-  const out: string[] = [];
-  if ('redirectUri' in signIn) {
-    out.push(
-      `Sign-in with "${providerId}" (OpenID Connect). Send this to whoever runs your identity provider:`,
-      '',
-      '  Create an OpenID Connect web application (a confidential client) for Kindgi.',
-      `  Redirect URI:  ${signIn.redirectUri}`,
-      '  Scopes:        openid email profile',
-      '  Let in only the people who should use Kindgi (assign users or groups).',
-      '',
-      '  Send back: the issuer URL and the client ID. The client secret goes into',
-      "  Kindgi's secret store under a name, never by email or chat:",
-      '    kindgi secrets set <NAME> --env=<runtime env> --scope=tenant',
-    );
-  } else {
-    out.push(
-      `Sign-in with "${providerId}" (SAML). Send this to whoever runs your identity provider:`,
-      '',
-      '  Create a SAML 2.0 application for Kindgi.',
-      `  ACS URL (single sign-on URL):  ${signIn.acsUrl}`,
-      `  Entity ID (audience):          ${signIn.spEntityId}`,
-      `  Service provider metadata:     ${signIn.spMetadataUrl}`,
-      '  Name ID: the email address (or an `email` attribute). Sign the assertions.',
-      '  Let in only the people who should use Kindgi (assign users or groups).',
-      '',
-      "  Send back: the identity provider's metadata XML.",
-    );
-  }
-  const steps = idp === undefined ? undefined : IDP_STEPS[idp];
-  if (steps !== undefined) out.push('', steps.steps);
-  const guide = steps?.guide ?? ('redirectUri' in signIn ? 'oidc' : 'saml');
-  out.push('', `Step by step: ${GUIDES}/${guide}/`);
+  // The guide on this CLI's release line, not the docs' root.
+  const handoff = identityProviderHandoff(urls, idp, { version: CLI_VERSION });
+  const out: string[] = [handoff.message];
+  if (handoff.steps !== undefined) out.push('', handoff.steps);
+  out.push('', `Step by step: ${handoff.guideUrl}`);
   out.push(
     '',
     'Then register it:',
@@ -236,10 +158,13 @@ const start: LeafCommand = {
     runSdkRendered(ctx, 'sso providers start', async (): Promise<Rendered> => {
       const providerId = requiredPositional(ctx, 0, 'provider-id');
       const idp = stringFlag(ctx, 'idp');
-      if (idp !== undefined && IDP_STEPS[idp] === undefined) {
-        throw new Error(`--idp must be one of: ${Object.keys(IDP_STEPS).join(', ')}`);
+      if (idp !== undefined && !isIdentityProviderPreset(idp)) {
+        throw new Error(
+          `--idp must be one of: ${Object.keys(IDENTITY_PROVIDER_PRESETS).join(', ')}`,
+        );
       }
-      const kind = kindFlag(ctx) ?? (idp !== undefined ? IDP_STEPS[idp]?.kind : undefined);
+      const kind =
+        kindFlag(ctx) ?? (idp !== undefined ? IDENTITY_PROVIDER_PRESETS[idp].kind : undefined);
       const urls = await ctx
         .client()
         .auth.providers.signIn(providerId, kind === undefined ? undefined : { kind });

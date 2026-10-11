@@ -146,9 +146,9 @@ describe('what each scope recalls', () => {
     expect(searches[0]?.readers.onBehalfOfProjectIds).toBeUndefined();
   });
 
-  test('same-user without an end user: the user the run acts for', async () => {
+  test('same-user without an end user: nothing, never the user the run acts for; the journal says why', async () => {
     const m = memory();
-    await retrieveForTurn(
+    const out = await retrieveForTurn(
       agentWith({ source: 'conversations', scope: 'same-user' }),
       { ...conversation, participantId: undefined } as unknown as Conversation,
       conversationId,
@@ -156,9 +156,38 @@ describe('what each scope recalls', () => {
       { memory: m.binding },
       { projectId, userId: 'alice' as UserId },
     );
-    expect(m.searches[0]?.selections).toEqual([
-      { agentId: 'acme.desk', userId: 'alice', excludeConversationId: 'conv-now' },
-    ]);
+    expect(m.searches).toEqual([]);
+    expect(out).toEqual({
+      kind: 'ok',
+      value: { facts: [], recalled: [], degraded: [{ intent: 0, reason: 'no-participant' }] },
+    });
+  });
+
+  test('three customers through one credential, none named: nobody recalls anyone else', async () => {
+    // One key (one user, `svc`) starts every customer's turn, with no `participantId`.
+    // Their earlier messages, from turns that named no end user either.
+    const unnamed = (text: string): RecalledMessage => {
+      const { participantId: _none, ...rest } = message({ text });
+      return rest;
+    };
+    const others: RecallHit[] = [
+      { message: unnamed("cus_chen: where's my parcel?"), score: 1 },
+      { message: unnamed('cus_ana: refund please'), score: 1 },
+    ] as unknown as RecallHit[];
+    for (const customer of ['cus_ben', 'cus_chen', 'cus_ana']) {
+      const m = memory(others);
+      const out = await retrieveForTurn(
+        agentWith({ source: 'conversations', scope: 'same-user' }),
+        { ...conversation, participantId: undefined } as unknown as Conversation,
+        conversationId,
+        `${customer}: hello`,
+        { memory: m.binding },
+        { projectId, userId: 'svc' as UserId },
+      );
+      if (out.kind === 'err') throw new Error(out.error.message);
+      expect(m.searches).toEqual([]);
+      expect(out.value.recalled).toEqual([]);
+    }
   });
 
   test("same-project: other people's conversations, in the run's own project only", async () => {

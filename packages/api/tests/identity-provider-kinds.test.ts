@@ -21,8 +21,11 @@ import type {
 
 /**
  * `/v1/auth/providers` with one shape per `kind`: `oidc` (issuer +
- * discovery), `saml` (metadata, or entity ID + SSO URL + certificates) and
- * `oauth2` (endpoints given). Secrets only by reference.
+ * discovery) and `saml` (metadata, or entity ID + SSO URL + certificates).
+ * Secrets only by reference. A plain OAuth 2.0 provider (`oauth2`) is
+ * refused as a deployment refused it (422), and `allowedRedirectUris`
+ * (which nothing enforces: sign-in runs in the deployment) is refused on
+ * writes, while a provider stored with it still loads without it.
  */
 
 const tenantId = randomUUID() as TenantId;
@@ -44,6 +47,8 @@ function makeApp(
     kind: 'ok',
     providerId: config.providerId,
   }),
+  /** A binding that gives URLs whatever the kind (as a runtime's could). */
+  signInForAnyKind = false,
 ) {
   const stored = new Map<string, ProviderConfig>();
   const identityProvider: IdentityProviderBinding = {
@@ -55,6 +60,15 @@ function makeApp(
       return outcome;
     },
     unregister: async ({ providerId }) => ({ unregistered: stored.delete(providerId) }),
+    update: async ({ config }) => {
+      if (!stored.has(config.providerId)) return { kind: 'not-found' };
+      stored.set(config.providerId, config);
+      return { kind: 'ok', provider: config };
+    },
+    signInUrls: async ({ providerId, kind }) =>
+      kind === 'oidc' || signInForAnyKind
+        ? { redirectUri: `https://kindgi.example.com/sso/callback/${providerId}` }
+        : undefined,
   };
   const app = createApp({
     ...createStubAppBindings(),
@@ -62,9 +76,6 @@ function makeApp(
     runHandler: {} as RunHandlerBinding,
     sessionStore: noSessions,
     identityProvider,
-    exchangeCode: async () => {
-      throw new Error('not used');
-    },
   });
   return { app, stored };
 }
@@ -132,20 +143,6 @@ describe('registering each kind', () => {
     expect(byParts.status).toBe(201);
   });
 
-  test('oauth2: a plain OAuth 2.0 provider keeps its shape', async () => {
-    const { app } = makeApp();
-    const res = await register(app, {
-      providerId: 'github',
-      kind: 'oauth2',
-      clientId: 'gh-client',
-      clientSecretRef: 'GITHUB_SECRET',
-      authorizationEndpoint: 'https://github.com/login/oauth/authorize',
-      tokenEndpoint: 'https://github.com/login/oauth/access_token',
-      scopes: ['read:user'],
-    });
-    expect(res.status).toBe(201);
-  });
-
   test('the stored provider comes back with signIn when the deployment returns it', async () => {
     const { app } = makeApp((config) => ({
       kind: 'ok',
@@ -190,6 +187,11 @@ describe('refusals', () => {
       'needs `domains`',
     ],
     ['a domain that is no domain', { ...OIDC, domains: ['not a domain'] }, 'email domains'],
+    [
+      'allowedRedirectUris, which nothing enforces',
+      { ...OIDC, allowedRedirectUris: ['https://app.example/cb'] },
+      '`allowedRedirectUris` is no longer accepted',
+    ],
   ])('%s → 400 invalid-provider-config', async (_name, body, message) => {
     const { app } = makeApp();
     const res = await register(app, body);
@@ -211,42 +213,130 @@ describe('refusals', () => {
     expect(error.message).toBe('The issuer https://acme.okta.example has no discovery document');
     expect(stored.size).toBe(0);
   });
+
+  test('a plain OAuth 2.0 provider (oauth2) → 422 identity-provider-invalid, as a deployment refused it', async () => {
+    const { app, stored } = makeApp();
+    const res = await register(app, {
+      providerId: 'github',
+      kind: 'oauth2',
+      clientId: 'gh-client',
+      clientSecretRef: 'GITHUB_SECRET',
+      authorizationEndpoint: 'https://github.com/login/oauth/authorize',
+      tokenEndpoint: 'https://github.com/login/oauth/access_token',
+      scopes: ['read:user'],
+    });
+    expect(res.status).toBe(422);
+    const error = (await res.json()) as {
+      error: { code: string; message: string; details?: Record<string, unknown> };
+    };
+    expect(error.error.code).toBe('identity-provider-invalid');
+    expect(error.error.message).toContain(
+      'a plain OAuth 2.0 provider (`oauth2`) is not one of them',
+    );
+    expect(error.error.details).toEqual({ providerId: 'github' });
+    expect(stored.size).toBe(0);
+  });
 });
 
-describe("this API's own OAuth flow (login) per kind", () => {
-  const login = (app: ReturnType<typeof makeApp>['app'], providerId: string) =>
-    app.request(`/v1/auth/login/${providerId}`, {
-      method: 'POST',
-      headers: { authorization: `Bearer ${BEARER}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ redirectUri: 'https://app.example/cb' }),
-    });
+describe('a provider stored with allowedRedirectUris (from before)', () => {
+  const STORED = {
+    ...OIDC,
+    domains: ['acme.com'],
+    allowedRedirectUris: ['https://app.example/cb'],
+  } as unknown as ProviderConfig;
+  const get = (app: ReturnType<typeof makeApp>['app'], path: string) =>
+    app.request(path, { headers: { authorization: `Bearer ${BEARER}` } });
 
-  test('a SAML provider signs in through the deployment, not here', async () => {
-    const { app } = makeApp();
-    await register(app, SAML_METADATA);
-    const res = await login(app, 'acme-entra');
-    expect(res.status).toBe(400);
-    expect((await errorOf(res)).message).toContain("signs in through the deployment's own sign-in");
+  test('still loads, lists and gives its sign-in URL, without the field', async () => {
+    const { app, stored } = makeApp();
+    stored.set('acme-okta', STORED);
+
+    const one = await get(app, '/v1/auth/providers/acme-okta');
+    expect(one.status).toBe(200);
+    const body = (await one.json()) as Record<string, unknown>;
+    expect(body).toMatchObject({ providerId: 'acme-okta', kind: 'oidc', clientId: 'client-1' });
+    expect(body).not.toHaveProperty('allowedRedirectUris');
+
+    const list = (await (await get(app, '/v1/auth/providers')).json()) as {
+      data: Record<string, unknown>[];
+    };
+    expect(list.data.map((p) => p.providerId)).toEqual(['acme-okta']);
+    expect(list.data[0]).not.toHaveProperty('allowedRedirectUris');
+
+    const signIn = await get(app, '/v1/auth/providers/acme-okta/sign-in');
+    expect(signIn.status).toBe(200);
+    expect(await signIn.json()).toMatchObject({
+      registered: true,
+      signIn: { redirectUri: 'https://kindgi.example.com/sso/callback/acme-okta' },
+    });
   });
 
-  test('an OIDC provider with its endpoints uses them, with the default OIDC scopes', async () => {
-    const { app } = makeApp();
-    await register(app, {
-      ...OIDC,
-      authorizationEndpoint: 'https://acme.okta.example/oauth2/v1/authorize',
-      tokenEndpoint: 'https://acme.okta.example/oauth2/v1/token',
+  test('a change to it saves without the field; setting the field again is refused', async () => {
+    const { app, stored } = makeApp();
+    stored.set('acme-okta', STORED);
+    const patch = (body: unknown) =>
+      app.request('/v1/auth/providers/acme-okta', {
+        method: 'PATCH',
+        headers: { authorization: `Bearer ${BEARER}`, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+
+    expect((await patch({ displayName: 'Acme' })).status).toBe(200);
+    expect(stored.get('acme-okta')).toMatchObject({ displayName: 'Acme' });
+    expect(stored.get('acme-okta')).not.toHaveProperty('allowedRedirectUris');
+
+    const again = await patch({ allowedRedirectUris: ['https://app.example/cb'] });
+    expect(again.status).toBe(400);
+    expect((await errorOf(again)).code).toBe('invalid-provider-config');
+  });
+});
+
+describe('a provider stored as oauth2 (from before)', () => {
+  test('still lists, with its common fields', async () => {
+    const { app, stored } = makeApp();
+    stored.set('github', {
+      providerId: 'github',
+      kind: 'oauth2',
+      displayName: 'GitHub',
+      clientId: 'gh-client',
+    } as unknown as ProviderConfig);
+    const res = await app.request('/v1/auth/providers', {
+      headers: { authorization: `Bearer ${BEARER}` },
     });
-    const res = await login(app, 'acme-okta');
     expect(res.status).toBe(200);
-    const { authorizationUrl } = (await res.json()) as { authorizationUrl: string };
-    const url = new URL(authorizationUrl);
-    expect(url.origin + url.pathname).toBe('https://acme.okta.example/oauth2/v1/authorize');
-    expect(url.searchParams.get('scope')).toBe('openid email profile');
+    const body = (await res.json()) as { data: Record<string, unknown>[] };
+    expect(body.data).toEqual([{ providerId: 'github', kind: 'oauth2', displayName: 'GitHub' }]);
   });
 
-  test('an OIDC provider without endpoints signs in through the deployment', async () => {
-    const { app } = makeApp();
-    await register(app, OIDC);
-    expect((await login(app, 'acme-okta')).status).toBe(400);
+  test('its sign-in URLs: 400, a kind this deployment does not sign in with, whatever the binding says', async () => {
+    const { app, stored } = makeApp(undefined, true);
+    stored.set('github', {
+      providerId: 'github',
+      kind: 'oauth2',
+      clientId: 'gh-client',
+    } as unknown as ProviderConfig);
+    const res = await app.request('/v1/auth/providers/github/sign-in', {
+      headers: { authorization: `Bearer ${BEARER}` },
+    });
+    expect(res.status).toBe(400);
+    const error = await errorOf(res);
+    expect(error.code).toBe('bad-input');
+    expect(error.message).toBe("This deployment doesn't sign in with `oauth2` providers");
   });
+});
+
+describe('the old sign-in routes are gone', () => {
+  test.each([['/v1/auth/login/acme-okta'], ['/v1/auth/callback/acme-okta']])(
+    'POST %s → 404',
+    async (path) => {
+      const { app } = makeApp();
+      await register(app, OIDC);
+      const res = await app.request(path, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${BEARER}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ code: 'c', state: 's', redirectUri: 'https://app.example/cb' }),
+      });
+      expect(res.status).toBe(404);
+    },
+  );
 });
