@@ -24,10 +24,6 @@ final class Kindgi_Admin {
 		add_action( 'admin_menu', array( self::class, 'menu' ) );
 		add_action( 'admin_enqueue_scripts', array( self::class, 'assets' ) );
 		add_action( 'admin_post_' . self::CONNECT, array( self::class, 'connect' ) );
-		// A changed role signs the person in again at their next call, so Kindgi sees it at once.
-		foreach ( array( 'set_user_role', 'add_user_role', 'remove_user_role' ) as $hook ) {
-			add_action( $hook, array( Kindgi_Sessions::class, 'forget' ) );
-		}
 		add_filter( 'wp_privacy_personal_data_exporters', array( self::class, 'exporters' ) );
 		add_filter( 'wp_privacy_personal_data_erasers', array( self::class, 'erasers' ) );
 	}
@@ -100,24 +96,23 @@ final class Kindgi_Admin {
 
 	/**
 	 * Forgets the person here: their subject, Kindgi id and cached
-	 * session. Their record at Kindgi stays: a tenant admin removes them
-	 * there. Signing in again later makes them a new person at Kindgi.
+	 * session, and tells Kindgi they left this site, which ends their
+	 * grants and sessions there for good (`Kindgi_People`). Their record at
+	 * Kindgi stays. Signing in again later makes them a new person there.
 	 */
 	public static function erase( string $email ): array {
 		$user    = get_user_by( 'email', $email );
 		$removed = false;
 		if ( false !== $user ) {
 			foreach ( array( Kindgi_Sessions::SUBJECT, Kindgi_Sessions::USER_ID, Kindgi_Sessions::SESSION ) as $key ) {
-				if ( false !== get_user_option( $key, $user->ID ) ) {
-					delete_user_option( $user->ID, $key );
-					$removed = true;
-				}
+				$removed = $removed || false !== get_user_option( $key, $user->ID );
 			}
+			Kindgi_People::left( $user->ID );
 		}
 		return array(
 			'items_removed'  => $removed,
 			'items_retained' => false,
-			'messages'       => $removed ? array( __( "Kindgi keeps its own record of this person: a tenant admin can remove them there, which ends their sign-ins. Their name stays on what they did.", 'kindgi' ) ) : array(),
+			'messages'       => $removed ? array( __( 'Kindgi is told this person left this site, which ends their access there for good. Kindgi keeps its own record of them, and their name stays on what they did.', 'kindgi' ) ) : array(),
 			'done'           => true,
 		);
 	}
@@ -194,6 +189,7 @@ final class Kindgi_Admin {
 				</p>
 				<?php self::warnings( $site ); ?>
 			<?php endif; ?>
+			<?php self::waiting(); ?>
 			<table class="form-table" role="presentation">
 				<tr><th scope="row"><?php esc_html_e( 'Origin', 'kindgi' ); ?></th><td><code><?php echo esc_html( Kindgi_Settings::home_origin() ); ?></code></td></tr>
 				<tr><th scope="row"><?php esc_html_e( 'Approvals URL', 'kindgi' ); ?></th><td><code><?php echo esc_html( Kindgi_Settings::approvals_url() ); ?></code></td></tr>
@@ -301,6 +297,30 @@ final class Kindgi_Admin {
 		// Kindgi ended the site's sessions: so do the copies kept here.
 		Kindgi_Sessions::forget_all();
 		self::done( 'ok', __( 'Connected: your staff can use the Kindgi page now.', 'kindgi' ) );
+	}
+
+	/** People whose changes haven't reached Kindgi yet: wp-cron keeps trying. */
+	private static function waiting(): void {
+		$waiting = Kindgi_People::waiting();
+		if ( array() === $waiting ) {
+			return;
+		}
+		$when = get_option( 'date_format' ) . ' ' . get_option( 'time_format' );
+		echo '<h2>' . esc_html__( 'Waiting to reach Kindgi', 'kindgi' ) . '</h2>';
+		echo '<p>' . esc_html__( "Kindgi hasn't heard about these changes yet. Until it does, these people keep what they had there. WordPress tries again on its own (wp-cron), less often each time, and never gives up.", 'kindgi' ) . '</p>';
+		echo '<table class="widefat striped"><thead><tr>';
+		foreach ( array( __( 'Who', 'kindgi' ), __( 'Change', 'kindgi' ), __( 'Tries', 'kindgi' ), __( 'Last answer', 'kindgi' ), __( 'Next try', 'kindgi' ) ) as $heading ) {
+			echo '<th scope="col">' . esc_html( $heading ) . '</th>';
+		}
+		echo '</tr></thead><tbody>';
+		foreach ( $waiting as $row ) {
+			echo '<tr><td>' . esc_html( $row['who'] ) . '</td><td>'
+				. esc_html( $row['left'] ? __( 'Left this site', 'kindgi' ) : __( 'Roles changed', 'kindgi' ) ) . '</td><td>'
+				. esc_html( (string) $row['tries'] ) . '</td><td>'
+				. esc_html( $row['error'] ) . '</td><td>'
+				. esc_html( (string) wp_date( $when, $row['due'] ) ) . '</td></tr>';
+		}
+		echo '</tbody></table>';
 	}
 
 	/** What's wrong with a connected site, as notices. */

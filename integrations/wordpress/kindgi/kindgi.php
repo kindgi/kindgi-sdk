@@ -27,9 +27,12 @@ require_once __DIR__ . '/includes/class-kindgi-keys.php';
 require_once __DIR__ . '/includes/class-kindgi-settings.php';
 require_once __DIR__ . '/includes/class-kindgi-http.php';
 require_once __DIR__ . '/includes/class-kindgi-sessions.php';
+require_once __DIR__ . '/includes/class-kindgi-people.php';
 require_once __DIR__ . '/includes/class-kindgi-api.php';
 require_once __DIR__ . '/includes/class-kindgi-rest.php';
 require_once __DIR__ . '/includes/class-kindgi-admin.php';
 
 Kindgi_Rest::register();
 Kindgi_Admin::register();
+Kindgi_People::register();
+register_deactivation_hook( __FILE__, array( Kindgi_People::class, 'unschedule' ) );

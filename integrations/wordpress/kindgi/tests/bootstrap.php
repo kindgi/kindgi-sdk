@@ -20,6 +20,11 @@ function kindgi_test_reset(): void {
 		'home'         => 'https://acme-store.example',
 		'environment'  => 'production',
 		'requests'     => array(),
+		'answers'      => array(),
+		'users'        => array(),
+		'actions'      => array(),
+		'cron'         => array(),
+		'transients'   => array(),
 	);
 	putenv( 'KINDGI_SITE_SECRET_KEY' );
 }
@@ -132,10 +137,85 @@ function home_url(): string {
 	return $GLOBALS['kindgi_test']['home'];
 }
 
-/** No network in tests: each call is recorded, and answered as unreachable. */
+/**
+ * No network in tests: each call is recorded, and answered with the next
+ * answer a test queued (`kindgi_test_answer()`), else as unreachable.
+ */
 function wp_remote_request( string $url, array $args ) {
 	$GLOBALS['kindgi_test']['requests'][] = array( $url, $args );
+	if ( array() !== $GLOBALS['kindgi_test']['answers'] ) {
+		return array_shift( $GLOBALS['kindgi_test']['answers'] );
+	}
 	return new WP_Error( 'http_request_failed', 'no network in tests' );
+}
+
+function wp_remote_retrieve_body( $response ): string {
+	return (string) ( $response['body'] ?? '' );
+}
+
+function wp_remote_retrieve_response_code( $response ) {
+	return $response['response']['code'] ?? '';
+}
+
+function wp_remote_retrieve_header( $response, string $name ) {
+	return $response['headers'][ $name ] ?? '';
+}
+
+/** Users, by id: what `kindgi_test_user()` made and a test didn't delete. */
+function get_userdata( int $user_id ) {
+	return $GLOBALS['kindgi_test']['users'][ $user_id ] ?? false;
+}
+
+function get_user_by( string $field, $value ) {
+	foreach ( $GLOBALS['kindgi_test']['users'] as $user ) {
+		if ( 'email' === $field && $user->user_email === $value ) {
+			return $user;
+		}
+	}
+	return false;
+}
+
+function is_user_member_of_blog( int $user_id = 0, int $blog_id = 0 ): bool {
+	return isset( $GLOBALS['kindgi_test']['users'][ $user_id ] );
+}
+
+function add_action( string $hook, $callback, int $priority = 10, int $args = 1 ): bool {
+	$GLOBALS['kindgi_test']['actions'][ $hook ][] = $callback;
+	return true;
+}
+
+/** wp-cron: each hook's next run. */
+function wp_next_scheduled( string $hook ) {
+	return $GLOBALS['kindgi_test']['cron'][ $hook ] ?? false;
+}
+
+function wp_schedule_single_event( int $timestamp, string $hook ): bool {
+	$GLOBALS['kindgi_test']['cron'][ $hook ] = min( $timestamp, $GLOBALS['kindgi_test']['cron'][ $hook ] ?? PHP_INT_MAX );
+	return true;
+}
+
+function wp_schedule_event( int $timestamp, string $recurrence, string $hook ): bool {
+	$GLOBALS['kindgi_test']['cron'][ $hook ] = $timestamp;
+	return true;
+}
+
+function wp_clear_scheduled_hook( string $hook ): int {
+	unset( $GLOBALS['kindgi_test']['cron'][ $hook ] );
+	return 1;
+}
+
+function set_transient( string $name, $value, int $expiration = 0 ): bool {
+	$GLOBALS['kindgi_test']['transients'][ $name ] = $value;
+	return true;
+}
+
+function get_transient( string $name ) {
+	return $GLOBALS['kindgi_test']['transients'][ $name ] ?? false;
+}
+
+function delete_transient( string $name ): bool {
+	unset( $GLOBALS['kindgi_test']['transients'][ $name ] );
+	return true;
 }
 
 function wp_get_environment_type(): string {
@@ -185,6 +265,7 @@ require_once dirname( __DIR__ ) . '/includes/class-kindgi-keys.php';
 require_once dirname( __DIR__ ) . '/includes/class-kindgi-settings.php';
 require_once dirname( __DIR__ ) . '/includes/class-kindgi-http.php';
 require_once dirname( __DIR__ ) . '/includes/class-kindgi-sessions.php';
+require_once dirname( __DIR__ ) . '/includes/class-kindgi-people.php';
 require_once dirname( __DIR__ ) . '/includes/class-kindgi-api.php';
 require_once dirname( __DIR__ ) . '/includes/class-kindgi-rest.php';
 require_once dirname( __DIR__ ) . '/includes/class-kindgi-admin.php';

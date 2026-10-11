@@ -5,13 +5,20 @@
 defined( 'ABSPATH' ) || exit;
 
 /**
- * The site's statement about the person signed in here right now: a
- * compact JWS (EdDSA, `typ: kindgi-site+jwt`) that Kindgi exchanges for a
- * 15-minute session as that person, limited to the site's project.
+ * The site's statement about one of its people: a compact JWS (EdDSA,
+ * `typ: kindgi-site+jwt`) that Kindgi exchanges for a 15-minute session as
+ * that person, limited to the site's project.
  *
  * Short and used once: it lives 60 seconds and carries a fresh `jti`.
  * The person is their `sub`, a random UUID this site keeps for them, never
  * their numeric id, login name or email, which can change or be reused.
+ *
+ * - **Every statement about someone here carries their name:** Kindgi
+ *   shows a person as the latest statement names them, and one with no
+ *   name as "A person, via <site>".
+ * - **A statement that says the person left** (`removed`, with no roles)
+ *   gets no session: Kindgi retires the person for good and ends their
+ *   grants, reviewer role and sessions (`Kindgi_People`).
  */
 final class Kindgi_Statement {
 
@@ -31,7 +38,9 @@ final class Kindgi_Statement {
 	 * The claims for one person.
 	 *
 	 * @param array  $site   The enrolled site: `site_id` and `audience`.
-	 * @param array  $person `subject`, `name`, `roles` (this site's), and `email` ('' for none).
+	 * @param array  $person `subject`, `name`, `roles` (this site's), and `email` ('' for none);
+	 *                       `removed` when the person left this site (their user deleted, removed
+	 *                       from it or erased), which Kindgi takes as for good.
 	 * @param int    $now    Seconds since the epoch.
 	 * @param string $jti    A fresh, unique id for this statement.
 	 * @return array
@@ -49,6 +58,9 @@ final class Kindgi_Statement {
 		);
 		if ( isset( $person['email'] ) && '' !== $person['email'] ) {
 			$claims['email'] = (string) $person['email'];
+		}
+		if ( ! empty( $person['removed'] ) ) {
+			$claims['removed'] = true;
 		}
 		return $claims;
 	}

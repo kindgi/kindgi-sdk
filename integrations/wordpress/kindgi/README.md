@@ -70,8 +70,10 @@ Each person acts as themselves. Kindgi's record says "approved by Jane, via Acme
 - **Kindgi decides the rest from the person's roles on this site.** A role the site wasn't registered to allow is refused there.
 - **The Approvals tab** shows only for someone whose roles give a reviewer role.
 - **Notification address:** each statement carries the person's email, for Kindgi's "an approval is waiting" mail only. Change it, or send none, with the `kindgi_statement_email` filter.
-- **A changed role counts at their next sign-in.** Changing a person's role forgets their cached session, so their next call signs in again with the new roles. Losing every role the site allows ends their grants and sessions at Kindgi then.
-- **When someone leaves the store, remove them in Kindgi too.** Deleting their WordPress user, or taking away their roles, reaches Kindgi only at their next sign-in through the site. Until then, they keep their reviewer role and its emails.
+- **A changed role counts at once.** The plugin tells Kindgi when a person's roles change, so what they get there follows. Losing every role the site allows ends their grants, reviewer role and sessions at Kindgi. The same roles back bring the same person back.
+- **When someone leaves, Kindgi is told, for good.** Deleting their user, removing them from the site (on a network), or erasing their data ends their grants, reviewer role and sessions at Kindgi, and Kindgi refuses them from then on.
+- **A change that can't reach Kindgi waits.** WordPress tries it again on its own (wp-cron), less often each time, and never gives up. **Kindgi → Settings** lists it under "Waiting to reach Kindgi". Once a day the plugin also checks everyone Kindgi knows against WordPress, for changes no hook saw.
+- **Deactivating the plugin stops all of this.** Pause the site in Kindgi if the plugin stays off.
 
 ## Security: what "the site vouches" means
 
@@ -102,10 +104,11 @@ To give an agent tools that act on the store (look up an order, refund it), Word
 | The enrollment: the site's id, Kindgi's audience, the key's id, the origin | The `kindgi_site` option |
 | The signing key, when it isn't in `wp-config.php` or the environment | The `kindgi_site_secret_key` option, not autoloaded |
 | Each person's subject, Kindgi id, and sealed session | User options `kindgi_subject`, `kindgi_user_id`, `kindgi_session` |
+| The people Kindgi knows (subject, user id, roles), and changes still waiting to reach it | The `kindgi_people` option, not autoloaded |
 
-WordPress's personal-data tools (**Tools → Export Personal Data** and **Erase Personal Data**) cover each person's subject and Kindgi id. Erasing forgets the person on this site, not in Kindgi. Kindgi keeps its own record of the person: removing them there ends their sign-ins, and their name stays on the records they're part of, decisions included.
+WordPress's personal-data tools (**Tools → Export Personal Data** and **Erase Personal Data**) cover each person's subject and Kindgi id. Erasing forgets the person on this site, and tells Kindgi they left, which ends their access there for good. Kindgi keeps its own record of the person, and their name stays on the records they're part of, decisions included.
 
-Deleting the plugin removes all of them except each person's subject and Kindgi id. They say who each person is, so a site installed again and connected with a new code for the same site in Kindgi finds the same people there, with their history. Kindgi keeps its own record.
+Deleting the plugin removes all of them except each person's subject and Kindgi id, and the people Kindgi knows. They say who each person is, so a site installed again and connected with a new code for the same site in Kindgi finds the same people there, with their history, and tells Kindgi any change still waiting. Kindgi keeps its own record.
 
 ## Contributing
 

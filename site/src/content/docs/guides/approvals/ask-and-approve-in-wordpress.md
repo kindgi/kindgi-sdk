@@ -272,8 +272,9 @@ another reviewer decides." instead of **Approve**.
   This person is signed in by a site, which gives their grants back at their next sign-in: remove the person, change their role on the site, or pause the site instead
   ```
 
-- **To change what they get,** change the site's `roleMap`, or their role in
-  WordPress. It applies at their next sign-in, so within 15 minutes.
+- **To change what they get,** change their role in WordPress: the plugin
+  tells Kindgi at once. A change to the site's `roleMap` applies at each
+  person's next sign-in, so within 15 minutes for someone using the page.
 - **In the people list,** a site's person shows as "Jane, via Acme store",
   with no grants of their own: theirs come from the site.
 - **Their name follows the site.** Each sign-in shows them as the site names
@@ -292,10 +293,30 @@ another reviewer decides." instead of **Approve**.
 - **Remove one person** (`kindgi.users.unregister(userId)`). It's for good:
   their next sign-in is refused, "This person was removed: their site can't
   sign them in again".
-- **When someone leaves the store,** remove them in Kindgi too. Deleting
-  their WordPress user, or taking away their roles, reaches Kindgi only at
-  their next sign-in through the site. Until then, they keep their reviewer
-  role and its emails.
+
+## When someone leaves the store
+
+The plugin tells Kindgi when a person it knows changes in WordPress, so
+someone who can't open the page any more doesn't keep what they had:
+
+- **Deleting their WordPress user** is for good. So is removing them from
+  the site, on a multisite network, and erasing their data with WordPress's
+  personal-data tools. Kindgi ends their grants, their reviewer role (and
+  its emails) and every session they hold, so a page they still have open
+  can't approve anything. Then it refuses them: "This person was removed:
+  their site can't sign them in again".
+- **Taking away their roles** ends the same, but not for good. Give them a
+  role that may sign in again, and they're the same person in Kindgi, with
+  their history.
+- **If Kindgi can't be reached,** the change waits. WordPress tries again
+  on its own (wp-cron), less often each time, and never gives up. Until it
+  gets through, the person keeps what they had, and **Kindgi → Settings**
+  lists the change under "Waiting to reach Kindgi".
+- **Once a day,** the plugin checks everyone Kindgi knows against WordPress,
+  so a change no hook saw (a role edited in the database, a user deleted by
+  hand) still reaches Kindgi.
+- **With the plugin deactivated,** none of this happens. Pause the site in
+  Kindgi if the plugin stays off.
 
 ## When a sign-in is refused
 
@@ -377,7 +398,7 @@ The plugin's
 [README](https://github.com/kindgi/kindgi-sdk/tree/main/integrations/wordpress/kindgi#what-the-plugin-stores)
 lists what it keeps, and how WordPress's personal-data tools cover it.
 
-Erasing a person with those tools forgets them on the site, not in Kindgi.
-Kindgi keeps its own record of the person: removing them there
-(`kindgi.users.unregister`) ends their sign-ins, and their name stays on the
-records they're part of, decisions included.
+Erasing a person with those tools forgets them on the site, and tells
+Kindgi they left, which ends their access there for good. Kindgi keeps its
+own record of the person, and their name stays on the records they're part
+of, decisions included.

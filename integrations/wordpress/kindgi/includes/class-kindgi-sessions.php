@@ -43,7 +43,24 @@ final class Kindgi_Sessions {
 	 * @return array{token: string, expires_at: int, user_id: string, project_id: string}|WP_Error
 	 */
 	public static function sign_in( WP_User $user ) {
-		$statement = self::statement_for( $user );
+		$person  = self::person( $user );
+		$session = self::exchange( $person );
+		if ( ! is_wp_error( $session ) ) {
+			self::keep( $user->ID, $session );
+		}
+		Kindgi_People::answered( $person, $user, $session );
+		return $session;
+	}
+
+	/**
+	 * Kindgi's answer to a statement about a person: a session as them, or
+	 * why not (Kindgi's refusal, with its reason).
+	 *
+	 * @param array $person From `person()`, or one who left this site (`removed`).
+	 * @return array{token: string, expires_at: int, user_id: string, project_id: string}|WP_Error
+	 */
+	public static function exchange( array $person ) {
+		$statement = self::statement_about( $person );
 		if ( is_wp_error( $statement ) ) {
 			return $statement;
 		}
@@ -59,15 +76,22 @@ final class Kindgi_Sessions {
 			return new WP_Error( 'kindgi_bad_answer', __( "Kindgi's answer to a sign-in wasn't one.", 'kindgi' ), array( 'status' => 502 ) );
 		}
 		$expires = is_string( $body['expiresAt'] ?? null ) ? strtotime( $body['expiresAt'] ) : false;
-		$session = array(
+		return array(
 			'token'      => $body['token'],
 			'expires_at' => false === $expires ? time() + self::REFRESH_BEFORE : $expires,
 			'user_id'    => $body['userId'],
 			'project_id' => $body['projectId'],
 		);
-		update_user_option( $user->ID, self::USER_ID, $session['user_id'] );
-		update_user_option( $user->ID, self::SESSION, Kindgi_Box::seal( (string) wp_json_encode( $session ), self::box_key() ) );
-		return $session;
+	}
+
+	/**
+	 * Keeps the person's session, sealed, and their Kindgi id.
+	 *
+	 * @param array{token: string, expires_at: int, user_id: string, project_id: string} $session From `exchange()`.
+	 */
+	public static function keep( int $user_id, array $session ): void {
+		update_user_option( $user_id, self::USER_ID, $session['user_id'] );
+		update_user_option( $user_id, self::SESSION, Kindgi_Box::seal( (string) wp_json_encode( $session ), self::box_key() ) );
 	}
 
 	/**
@@ -76,6 +100,16 @@ final class Kindgi_Sessions {
 	 * @return string|WP_Error
 	 */
 	public static function statement_for( WP_User $user ) {
+		return self::statement_about( self::person( $user ) );
+	}
+
+	/**
+	 * The signed statement about a person, or why this site won't sign one.
+	 *
+	 * @param array $person From `person()`, or one who left this site (`removed`).
+	 * @return string|WP_Error
+	 */
+	public static function statement_about( array $person ) {
 		$site = Kindgi_Settings::site();
 		if ( null === $site ) {
 			return new WP_Error(
@@ -109,8 +143,14 @@ final class Kindgi_Sessions {
 				array( 'status' => 409 )
 			);
 		}
-		$claims = Kindgi_Statement::claims( $site, self::person( $user ), time(), wp_generate_uuid4() );
+		$claims = Kindgi_Statement::claims( $site, $person, time(), wp_generate_uuid4() );
 		return Kindgi_Statement::sign( $claims, $site['kid'], Kindgi_Keys::secret_key( $seed ) );
+	}
+
+	/** The person's subject on this site, when they have one (never made by asking). */
+	public static function subject_of( int $user_id ): ?string {
+		$subject = get_user_option( self::SUBJECT, $user_id );
+		return is_string( $subject ) && '' !== $subject ? $subject : null;
 	}
 
 	/** Forgets the person's kept session: the next call signs them in again. */
@@ -129,7 +169,7 @@ final class Kindgi_Sessions {
 	 *
 	 * @return array{subject: string, name: string, roles: string[], email: string}
 	 */
-	private static function person( WP_User $user ): array {
+	public static function person( WP_User $user ): array {
 		$subject = get_user_option( self::SUBJECT, $user->ID );
 		if ( ! is_string( $subject ) || '' === $subject ) {
 			global $wpdb;
