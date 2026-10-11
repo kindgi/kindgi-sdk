@@ -309,6 +309,7 @@ Nothing starts and nothing is written, and they print names and ids, never a val
 | Check | What it lists |
 | --- | --- |
 | `provider-keys` | Each tool version, MCP endpoint and webhook endpoint that names a model provider's key. A model provider's key is used by its provider only, so from 0.1.6 they're refused: a tool's calls fail with `provider-key-refused`, and so do an MCP endpoint's connections and a webhook endpoint's deliveries. For each, store the key it needs under its own name (the same value is fine), name that instead, and deploy or register it again. See [Give a tool a secret](../../guides/tools/give-a-tool-a-secret/#a-model-providers-key-isnt-a-tools). |
+| `mcp-header-credentials` | From 0.1.8. Each MCP endpoint that keeps a credential in plaintext `config.headers` (`X-Api-Key`, `Authorization`, …), registered before 0.1.8 refused that. They keep working, and from 0.1.8 their requests never follow a redirect. For each, store each header's value as a secret, and register the endpoint again with `auth` in place of the header. See [Not in `config.headers`](../../guides/tools/mcp-servers/#not-in-configheaders). |
 
 Here `check provider-keys` runs on a 0.1.5 database where a tool and an MCP endpoint name Anthropic's key (exit `1`):
 
@@ -329,6 +330,21 @@ The runtime logs the same at every start, one `WARN` per tool version or endpoin
 
 ```json
 {"time":"2026-10-10T10:15:40.130Z","level":"warn","severity":"WARNING","subsystem":"providers.keys","message":"provider-key-declared tenant=… tool=acme.translate@1.0.0 secret=ANTHROPIC_API_KEY provider=anthropic: a model provider's key is used by its provider only, so this tool's calls are refused. Store the key it needs under its own name and use that name","tenantId":"…","kind":"tool","id":"acme.translate","version":"1.0.0","secretName":"ANTHROPIC_API_KEY","providerId":"anthropic"}
+```
+
+Here `check mcp-header-credentials` runs on a database with two endpoints registered before 0.1.8 with a key and a secret in `config.headers` (exit `1`). Each line ends with the `auth` that replaces the headers:
+
+```text
+mcp-header-credentials: 2 MCP endpoints keep a credential in plaintext config.headers (1 tenant checked):
+  tenant=… mcp-endpoint=inventory-legacy headers=X-Api-Key,X-Api-Secret → auth: { scheme: "header", headers: [{ name: "X-Api-Key", secretRef: { envName, name } }, { name: "X-Api-Secret", secretRef: { envName, name } }] }
+  tenant=… mcp-endpoint=inventory-moved headers=X-Api-Key,X-Api-Secret → auth: { scheme: "header", headers: [{ name: "X-Api-Key", secretRef: { envName, name } }, { name: "X-Api-Secret", secretRef: { envName, name } }] }
+They still work, and their requests never follow a redirect, but each value is stored as given. For each, store the header's value as a secret (kindgi secrets set <NAME> --env=<env> --scope=tenant), then unregister the endpoint and register it again with that auth in place of the header.
+```
+
+At every start, the runtime logs one `WARN` per such endpoint:
+
+```json
+{"time":"2026-10-10T23:54:31.368Z","level":"warn","severity":"WARNING","subsystem":"mcp.headers","message":"mcp-header-credential tenant=… mcp-endpoint=inventory-legacy headers=X-Api-Key,X-Api-Secret: this endpoint keeps a credential in plaintext config.headers, from before that was refused. It still works, and its requests never follow a redirect. Store each value as a secret, then unregister the endpoint and register it again with auth: { scheme: \"header\", headers: [{ name: \"X-Api-Key\", secretRef: { envName, name } }, { name: \"X-Api-Secret\", secretRef: { envName, name } }] } in place of the header","tenantId":"…","endpointId":"inventory-legacy","headerNames":["X-Api-Key","X-Api-Secret"]}
 ```
 
 ### From 0.1.5 to 0.1.6

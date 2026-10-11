@@ -8,7 +8,8 @@
  * reads the ✓/✗ lines. Any failed check exits 1.
  *
  * The checks, in order: Node, npm, Python and uv (a Python project's),
- * Docker, pull access to the pinned runtime image, the project, its
+ * Docker, pull access to the pinned runtime image, console sign-in and MCP
+ * endpoint headers on the runtime the CLI points at, the project, its
  * dependencies, a model key in its env files (never its value), the
  * runtime `kindgi dev` runs, and a provider registered there. Outside a
  * project the project's checks are skipped, saying why; a check that
@@ -34,6 +35,9 @@ import {
   displayEnvPath,
   readPackEnv,
 } from '@kindgi/secrets-dotenv';
+
+import type { KindgiClient, McpEndpoint } from '@kindgi/client';
+import type { Cursor } from '@kindgi/types';
 
 import type { CommandContext } from '../context.js';
 import {
@@ -94,6 +98,7 @@ export type DoctorCheckId =
   | 'runtime'
   | 'provider'
   | 'console-sign-in'
+  | 'mcp-headers'
   | 'erasures';
 
 export interface DoctorCheck {
@@ -159,6 +164,7 @@ const TITLES: Readonly<Record<DoctorCheckId, string>> = {
   runtime: 'Runtime',
   provider: 'Provider',
   'console-sign-in': 'Console sign-in',
+  'mcp-headers': 'MCP endpoint headers',
   erasures: 'Erasures',
 };
 
@@ -215,6 +221,7 @@ export async function runDoctor(ctx: CommandContext, dir: string): Promise<Docto
       : skip('registry', 'Not checked: it needs Docker running.'),
   );
   checks.push(await consoleSignInCheck(ctx));
+  checks.push(await mcpHeadersCheck(ctx));
 
   if (config === undefined || language === undefined) {
     checks.push({
@@ -1002,6 +1009,80 @@ async function consoleSignInCheck(ctx: CommandContext): Promise<DoctorCheck> {
     // The providers couldn't be listed: the sign-in options already said it's on.
   }
   return pass('console-sign-in', 'People sign in to the console with an identity provider.');
+}
+
+/**
+ * What the API answers for a credential header's value in an MCP endpoint's
+ * `config.headers` (`MCPEndpoint` in the API's schema), so the value is never
+ * read back.
+ */
+const REDACTED_HEADER_VALUE = '[redacted]';
+
+/**
+ * MCP endpoints, on the runtime the CLI points at, that keep a credential in
+ * plaintext `config.headers`. They were registered before the API refused
+ * that, and they keep working, but the value is stored as given, not as a
+ * secret. The API answers each such value as `[redacted]`, so its name is
+ * all this reads (and a runtime that redacts never sends them on a redirect).
+ */
+async function mcpHeadersCheck(ctx: CommandContext): Promise<DoctorCheck> {
+  const apiUrl = ctx.config.apiUrl?.replace(/\/+$/, '');
+  const token = ctx.config.token;
+  if (apiUrl === undefined || token === undefined) {
+    return skip(
+      'mcp-headers',
+      'Not checked: no runtime to ask (set KINDGI_API_URL and KINDGI_API_TOKEN, or run kindgi auth login).',
+    );
+  }
+  let endpoints: readonly McpEndpoint[];
+  try {
+    endpoints = await allMcpEndpoints(ctx.clientFor(apiUrl, token));
+  } catch (err) {
+    return skip(
+      'mcp-headers',
+      `Not checked: the MCP endpoints at ${apiUrl} couldn't be listed (${firstLine((err as Error).message)}).`,
+    );
+  }
+  const found = endpoints.flatMap((e) => {
+    const headers = e.config.transport === 'stdio' ? undefined : e.config.headers;
+    const names = Object.entries(headers ?? {})
+      .filter(([, value]) => value === REDACTED_HEADER_VALUE)
+      .map(([name]) => name);
+    return names.length === 0 ? [] : [`${e.endpointId}: ${names.join(', ')}`];
+  });
+  if (found.length === 0) {
+    return pass(
+      'mcp-headers',
+      endpoints.length === 0
+        ? 'No MCP endpoint is registered.'
+        : `No MCP endpoint keeps a credential in config.headers (${endpoints.length} checked).`,
+    );
+  }
+  return {
+    ...warn(
+      'mcp-headers',
+      found.length === 1
+        ? 'An MCP endpoint keeps a credential in plaintext config.headers, from before that was refused. It still works, but the value is stored as given, not as a secret.'
+        : `${found.length} MCP endpoints keep a credential in plaintext config.headers, from before that was refused. They still work, but each value is stored as given, not as a secret.`,
+      'Store each value as a secret (kindgi secrets set <NAME> --env=<name> --scope=tenant), then unregister the endpoint and register it again with the header in auth: { scheme: "header", headers: [{ name: "<header>", secretRef: { envName, name } }] }.',
+    ),
+    details: found,
+  };
+}
+
+/** Every MCP endpoint, page by page. */
+async function allMcpEndpoints(client: KindgiClient): Promise<readonly McpEndpoint[]> {
+  const all: McpEndpoint[] = [];
+  let cursor: Cursor | undefined;
+  do {
+    const page = await client.mcp.endpoints.list({
+      limit: 100,
+      ...(cursor !== undefined && { cursor }),
+    });
+    all.push(...page.data);
+    cursor = page.hasMore ? page.nextCursor : undefined;
+  } while (cursor !== undefined);
+  return all;
 }
 
 async function providerCheck(

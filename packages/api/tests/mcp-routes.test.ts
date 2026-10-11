@@ -376,7 +376,7 @@ describe('API — mcp endpoints register + get', () => {
     });
   });
 
-  describe('auth: basic and oauth2-client-credentials', () => {
+  describe('auth, and credentials in config.headers', () => {
     const http = {
       endpointId: 'acme.shop',
       name: 'Shop',
@@ -513,6 +513,221 @@ describe('API — mcp endpoints register + get', () => {
           reason,
         ]);
       }
+    });
+
+    const ref = { envName: 'local', name: 'INVENTORY_KEY' };
+    const header = {
+      scheme: 'header',
+      headers: [
+        { name: 'X-Api-Key', secretRef: ref },
+        {
+          name: 'X-Api-Secret',
+          secretRef: { envName: 'local', name: 'INVENTORY_SECRET' },
+          prefix: 'Secret ',
+        },
+      ],
+    };
+    const withHeaders = (headers: Record<string, string>, transport = 'streamable-http') => ({
+      ...http,
+      transport,
+      config: { ...http.config, transport, headers },
+    });
+
+    test('header: stored and read back as registered, each value by reference only', async () => {
+      const { app } = makeApp();
+      expect((await post(app, { ...http, auth: header })).status).toBe(201);
+      const shop = await read(app, 'acme.shop');
+      expect(shop.auth).toEqual(header);
+      expect(shop.secretRef).toBeUndefined();
+      // `Authorization` with a prefix of its own, which the bearer form can't send.
+      const token = {
+        scheme: 'header',
+        headers: [{ name: 'Authorization', prefix: 'Token ', secretRef: ref }],
+      };
+      expect((await post(app, { ...http, endpointId: 'acme.erp', auth: token })).status).toBe(201);
+      expect((await read(app, 'acme.erp')).auth).toEqual(token);
+      // Four headers, the most.
+      const four = {
+        scheme: 'header',
+        headers: ['A', 'B', 'C', 'D'].map((n) => ({ name: `X-Key-${n}`, secretRef: ref })),
+      };
+      expect((await post(app, { ...http, endpointId: 'acme.four', auth: four })).status).toBe(201);
+    });
+
+    test('header: the list and each header are checked', async () => {
+      const { app } = makeApp();
+      const one = (h: Record<string, unknown>) => ({ scheme: 'header', headers: [h] });
+      const cases: [unknown, string][] = [
+        [{ scheme: 'header' }, 'invalid-auth'],
+        [{ scheme: 'header', headers: [] }, 'invalid-auth'],
+        [{ scheme: 'header', headers: { name: 'X-Api-Key', secretRef: ref } }, 'invalid-auth'],
+        [
+          {
+            scheme: 'header',
+            headers: ['A', 'B', 'C', 'D', 'E'].map((n) => ({ name: `X-Key-${n}`, secretRef: ref })),
+          },
+          'invalid-auth',
+        ],
+        [{ ...header, secretRef: ref }, 'invalid-auth'],
+        [{ scheme: 'header', headers: ['X-Api-Key'] }, 'invalid-auth'],
+        [one({ name: 'X-Api-Key', secretRef: ref, value: 'k' }), 'invalid-auth'],
+        [one({ name: '', secretRef: ref }), 'invalid-auth'],
+        [one({ name: 'X Api Key', secretRef: ref }), 'invalid-auth'],
+        [one({ name: 'X-Api-Key:', secretRef: ref }), 'invalid-auth'],
+        [one({ name: `X-${'k'.repeat(255)}`, secretRef: ref }), 'invalid-auth'],
+        [one({ name: 'Content-Type', secretRef: ref }), 'invalid-auth'],
+        [one({ name: 'mcp-session-id', secretRef: ref }), 'invalid-auth'],
+        [one({ name: 'HOST', secretRef: ref }), 'invalid-auth'],
+        [one({ name: 'traceparent', secretRef: ref }), 'invalid-auth'],
+        [one({ name: 'X-Api-Key', secretRef: ref, prefix: '' }), 'invalid-auth'],
+        [one({ name: 'X-Api-Key', secretRef: ref, prefix: 'k'.repeat(65) }), 'invalid-auth'],
+        [
+          one({ name: 'X-Api-Key', secretRef: ref, prefix: 'Key\r\nX-Injected: 1' }),
+          'invalid-auth',
+        ],
+        [
+          {
+            scheme: 'header',
+            headers: [
+              { name: 'X-Api-Key', secretRef: ref },
+              { name: 'x-api-key', secretRef: ref },
+            ],
+          },
+          'invalid-auth',
+        ],
+        [one({ name: 'X-Api-Key' }), 'invalid-secret-ref'],
+        [one({ name: 'X-Api-Key', secretRef: 'INVENTORY_KEY' }), 'invalid-secret-ref'],
+      ];
+      for (const [auth, reason] of cases) {
+        expect(await refusal(await post(app, { ...http, auth })), JSON.stringify(auth)).toEqual([
+          400,
+          'invalid-mcp-endpoint',
+          reason,
+        ]);
+      }
+    });
+
+    test('header: a name auth sends that config.headers sets too → 400 auth-header-in-config', async () => {
+      const { app } = makeApp();
+      const tenantKey = { scheme: 'header', headers: [{ name: 'X-Tenant-Key', secretRef: ref }] };
+      expect(
+        await refusal(
+          await post(app, { ...withHeaders({ 'x-tenant-key': 'acme' }), auth: tenantKey }),
+        ),
+      ).toEqual([400, 'invalid-mcp-endpoint', 'auth-header-in-config']);
+      const token = { scheme: 'header', headers: [{ name: 'authorization', secretRef: ref }] };
+      const both = await post(app, { ...withHeaders({ Authorization: 'Token abc' }), auth: token });
+      expect(await refusal(both)).toEqual([400, 'invalid-mcp-endpoint', 'auth-header-in-config']);
+      // A plain header beside it is fine.
+      expect((await post(app, { ...withHeaders({ 'X-Region': 'eu' }), auth: header })).status).toBe(
+        201,
+      );
+    });
+
+    test('a credential in config.headers → 400 credential-in-headers, naming the header, never its value', async () => {
+      const { app } = makeApp();
+      const value = 'plain-v4lue-1';
+      for (const name of [
+        'Authorization',
+        'proxy-authorization',
+        'Cookie',
+        'X-Api-Key',
+        'X-API-KEY',
+        'api_key',
+        'X-Apikey',
+        'X-Auth',
+        'X-Auth-Token',
+        'X-Access-Token',
+        'X-Access-Key',
+        'X-Private-Key',
+        'Ocp-Apim-Subscription-Key',
+        'X-Session-Id',
+        'X-Signature',
+        'X-Client-Secret',
+        'X-Credentials',
+        'Password',
+      ]) {
+        for (const transport of ['streamable-http', 'http-sse']) {
+          const res = await post(app, withHeaders({ 'X-Region': 'eu', [name]: value }, transport));
+          const body = (await res.clone().json()) as { error: { message: string } };
+          expect(await refusal(res), `${transport} ${name}`).toEqual([
+            400,
+            'invalid-mcp-endpoint',
+            'credential-in-headers',
+          ]);
+          expect(body.error.message).toContain(`"${name}"`);
+          expect(body.error.message).toContain('auth: { scheme: "header"');
+          expect(body.error.message).not.toContain(value);
+          expect(body.error.message).not.toContain('X-Region');
+        }
+      }
+      // Beside a bearer or another auth, too: neither sends the header.
+      const key = { 'X-Api-Key': value };
+      for (const extra of [
+        { secretRef: ref },
+        { auth: { ...header, headers: [header.headers[1]] } },
+      ]) {
+        expect(await refusal(await post(app, { ...withHeaders(key), ...extra }))).toEqual([
+          400,
+          'invalid-mcp-endpoint',
+          'credential-in-headers',
+        ]);
+      }
+    });
+
+    test('plain headers register as before, including names near a credential word', async () => {
+      const { app } = makeApp();
+      const plain = {
+        'X-Tenant': 'acme',
+        'X-Request-Id': 'r-1',
+        'Accept-Language': 'en',
+        'X-Region': 'eu',
+        'X-Authority': 'acme',
+        'X-Tokenizer': 'cl100k',
+        'X-Key-Id': 'k-1',
+        'X-Api-Version': '2',
+      };
+      expect((await post(app, withHeaders(plain))).status).toBe(201);
+      expect((await read(app, 'acme.shop')).config).toEqual({ ...http.config, headers: plain });
+    });
+
+    test('an endpoint registered before with a credential header: GET answers its value as [redacted], its name kept', async () => {
+      const { app, binding } = makeApp();
+      const headers = {
+        'X-Api-Key': 'plain-v4lue-1',
+        'X-Region': 'eu',
+        authorization: 'Bearer plain-v4lue-2',
+      };
+      await binding.register({
+        tenantId,
+        scope: { kind: 'tenant', tenantId },
+        endpoint: {
+          endpointId: 'acme.legacy',
+          name: 'Legacy',
+          transport: 'http-sse',
+          config: { transport: 'http-sse', url: 'https://mcp.acme.test/sse', headers },
+        },
+        enqueueTuples: () => [],
+      });
+      const redacted = { 'X-Api-Key': '[redacted]', 'X-Region': 'eu', authorization: '[redacted]' };
+      expect((await read(app, 'acme.legacy')).config).toEqual({
+        transport: 'http-sse',
+        url: 'https://mcp.acme.test/sse',
+        headers: redacted,
+      });
+      const listed = await (
+        await app.request('/v1/mcp/endpoints', { headers: { authorization: `Bearer ${TOKEN}` } })
+      ).text();
+      expect(listed).not.toContain('plain-v4lue');
+      expect((JSON.parse(listed) as { data: MCPEndpoint[] }).data[0]?.config).toMatchObject({
+        headers: redacted,
+      });
+      // The stored row keeps the value: the runtime reads it there, not from the API.
+      expect((await binding.get({ tenantId, endpointId: 'acme.legacy' }))?.config).toEqual({
+        transport: 'http-sse',
+        url: 'https://mcp.acme.test/sse',
+        headers,
+      });
     });
   });
 

@@ -5741,7 +5741,7 @@ export const MCPEndpointSecretRefSchema: JsonSchema = {
   additionalProperties: false,
   required: ['envName', 'name'],
   description:
-    "The secret an MCP endpoint authenticates with: a name in the deployment's secrets store, resolved at the endpoint's tenant scope by the runtime (the shape webhooks and providers use). As the endpoint's own `secretRef`, it is sent as its bearer; inside `auth`, it is the scheme's password or client secret. The endpoint keeps only this reference.",
+    "The secret an MCP endpoint authenticates with: a name in the deployment's secrets store, resolved at the endpoint's tenant scope by the runtime (the shape webhooks and providers use). As the endpoint's own `secretRef`, it is sent as its bearer; inside `auth`, it is the scheme's password, client secret or header value. The endpoint keeps only this reference.",
   properties: {
     envName: { type: 'string', pattern: '^[a-z][a-z0-9-]{0,62}$' },
     name: { type: 'string', minLength: 1, maxLength: 256 },
@@ -5806,14 +5806,65 @@ export const MCPOAuth2ClientCredentialsAuthSchema: JsonSchema = {
   },
 };
 
+export const MCPAuthHeaderSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['name', 'secretRef'],
+  description: 'One header a `header` auth sends: `<name>: <prefix><secret>`.',
+  properties: {
+    name: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 256,
+      pattern: "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$",
+      description:
+        'An HTTP header name, once per `auth` (case-insensitive). Not one the MCP transport or HTTP sets itself (`Host`, `Content-Type`, `Content-Length`, `Accept`, `Connection`, `Mcp-Session-Id`, `Mcp-Protocol-Version`, `Last-Event-ID`, `traceparent`, `tracestate`, …): reason `invalid-auth`.',
+    },
+    secretRef: { $ref: '#/components/schemas/MCPEndpointSecretRef' },
+    prefix: {
+      type: 'string',
+      minLength: 1,
+      maxLength: 64,
+      description:
+        'Text sent before the secret, such as `Token ` or `ApiKey `, without control characters. Absent: none. Not a secret: it reads back as registered.',
+    },
+  },
+};
+
+export const MCPHeaderAuthSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['scheme', 'headers'],
+  description:
+    "Headers of the server's own, each with a secret: an API key in `X-Api-Key`, a key and a secret in two headers, or `Authorization` with a prefix other than `Bearer ` (`Token …`). The runtime resolves each `secretRef` when it connects, and refuses to follow a redirect with them, as it does for every `auth`.",
+  properties: {
+    scheme: { const: 'header' },
+    headers: {
+      type: 'array',
+      minItems: 1,
+      maxItems: 4,
+      items: { $ref: '#/components/schemas/MCPAuthHeader' },
+    },
+  },
+};
+
 export const MCPEndpointAuthSchema: JsonSchema = {
   description:
     "How an MCP endpoint signs in when it isn't a plain bearer. Each scheme names its secret by reference; the runtime resolves it, and no value is stored or answered.",
   oneOf: [
     { $ref: '#/components/schemas/MCPBasicAuth' },
     { $ref: '#/components/schemas/MCPOAuth2ClientCredentialsAuth' },
+    { $ref: '#/components/schemas/MCPHeaderAuth' },
   ],
   discriminator: { propertyName: 'scheme' },
+};
+
+/** An HTTP endpoint's `config.headers`: plain headers, never a credential. */
+const MCP_CONFIG_HEADERS: JsonSchema = {
+  type: 'object',
+  additionalProperties: { type: 'string' },
+  description:
+    'Headers sent with every request, as given. Not for a credential: a header named `Authorization`, `Proxy-Authorization` or `Cookie`, or with a `-`/`_`-separated part `token`, `secret`, `password`, `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session` or `auth`, or the parts `api-key`, `access-key`, `private-key`, `auth-key` or `subscription-key` (`X-Api-Key`, `X-Auth-Token`), is refused (`invalid-mcp-endpoint`, reason `credential-in-headers`). Send it by reference: `auth` with `scheme: header`, or `secretRef` for a bearer. An endpoint registered with one before keeps working, and its value reads back as `[redacted]`.',
 };
 
 /**
@@ -5862,10 +5913,7 @@ export const MCPEndpointSchema: JsonSchema = {
               format: 'uri',
               description: 'Optional distinct SSE endpoint if the server splits them.',
             },
-            headers: {
-              type: 'object',
-              additionalProperties: { type: 'string' },
-            },
+            headers: MCP_CONFIG_HEADERS,
           },
         },
         {
@@ -5875,10 +5923,7 @@ export const MCPEndpointSchema: JsonSchema = {
           properties: {
             transport: { const: 'streamable-http' },
             url: { type: 'string', format: 'uri' },
-            headers: {
-              type: 'object',
-              additionalProperties: { type: 'string' },
-            },
+            headers: MCP_CONFIG_HEADERS,
           },
         },
       ],
@@ -5887,7 +5932,7 @@ export const MCPEndpointSchema: JsonSchema = {
     auth: {
       $ref: '#/components/schemas/MCPEndpointAuth',
       description:
-        "How the endpoint signs in when it isn't a plain bearer: `basic` or `oauth2-client-credentials`. Not with `secretRef` (`invalid-mcp-endpoint`, reason `auth-with-secret-ref`), not on a `stdio` endpoint (reason `auth-on-stdio`), and not with an `Authorization` header in `config.headers` (reason `auth-with-authorization-header`). An older runtime refuses the field as unknown.",
+        "How the endpoint signs in when it isn't a plain bearer: `basic`, `oauth2-client-credentials` or `header`. Not with `secretRef` (`invalid-mcp-endpoint`, reason `auth-with-secret-ref`), not on a `stdio` endpoint (reason `auth-on-stdio`), and not with a header in `config.headers` that `auth` sends: `Authorization` for `basic` and `oauth2-client-credentials` (reason `auth-with-authorization-header`), a name in `auth.headers` for `header` (reason `auth-header-in-config`). An older runtime refuses the field as unknown, or the `header` scheme as `invalid-auth`.",
     },
     instructions: {
       type: 'string',
@@ -11709,6 +11754,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['MCPEndpointAuth', MCPEndpointAuthSchema],
   ['MCPBasicAuth', MCPBasicAuthSchema],
   ['MCPOAuth2ClientCredentialsAuth', MCPOAuth2ClientCredentialsAuthSchema],
+  ['MCPHeaderAuth', MCPHeaderAuthSchema],
+  ['MCPAuthHeader', MCPAuthHeaderSchema],
   ['MCPEndpointCollectionPage', MCPEndpointCollectionPageSchema],
   ['RegisterMCPEndpointBody', RegisterMCPEndpointBodySchema],
   ['RegisterMCPEndpointResult', RegisterMCPEndpointResultSchema],
