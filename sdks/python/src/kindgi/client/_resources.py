@@ -1484,7 +1484,7 @@ class SystemKeysResource:
     def list(self, /, *, timeout: float | None = None) -> _models.SystemKeyList:
         """List system keys. `GET /v1/system/keys`
 
-        Newest first, revoked ones too. Never returns secrets. The full system capability only.
+        The operator's system keys (`kgi_sy_…`) on a runtime serving many tenants: each acts in no tenant, for one service, with the scopes it was minted with. Newest first, revoked ones too. Never returns secrets. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) lists them.
         """
         return self._client._request(
             _OPERATIONS["systemKeys.list"],
@@ -1506,7 +1506,7 @@ class SystemKeysResource:
     ) -> _models.MintSystemKeyResult:
         """Mint a system key. `POST /v1/system/keys`
 
-        A system key (`kgi_sy_…`) is the operator's, for a service that acts for it (sign-up, the orchestrator, billing, the license renewal), with the least scope that service needs. It acts in no tenant: it reaches `/v1/system/*` and the deployment's license, and every other route refuses it (`system-key-on-tenant-route`). Every request it makes is recorded. Only the full system capability (`kindgi:system`: the deployment's own token on a runtime serving many tenants, or a full system key) mints one, and a key can't outlive the key minting it. Returns the plaintext token exactly once. Only mounted when the deployment keeps system keys.
+        A system key (`kgi_sy_…`) is the operator's, for a service that acts for it (sign-up, the orchestrator, billing, the license renewal), with the least scope that service needs. It acts in no tenant: it reaches `/v1/system/*` and the deployment's license, and every other route refuses it (`system-key-on-tenant-route`). Every request it makes is recorded. Only the full system capability (`kindgi:system`: the deployment's own token on a runtime serving many tenants, or a full system key) mints one, and a key can't outlive the key minting it. Returns the plaintext token exactly once. A runtime serving one tenant has no system keys: there, the deployment's own token is that tenant's, and this route isn't mounted.
         """
         return self._client._request(
             _OPERATIONS["systemKeys.mint"],
@@ -1528,7 +1528,7 @@ class SystemKeysResource:
     ) -> _models.SystemKey:
         """Revoke a system key. `POST /v1/system/keys/{keyId}/revoke`
 
-        Takes effect on the next request. Revoking a revoked key keeps the first time. The full system capability only.
+        Revokes one of the operator's system keys (`kgi_sy_…`): it stops working on the next request. Revoking a revoked key keeps the first time. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) revokes them.
         """
         return self._client._request(
             _OPERATIONS["systemKeys.revoke"],
@@ -8812,7 +8812,7 @@ class AsyncSystemKeysResource:
     async def list(self, /, *, timeout: float | None = None) -> _models.SystemKeyList:
         """List system keys. `GET /v1/system/keys`
 
-        Newest first, revoked ones too. Never returns secrets. The full system capability only.
+        The operator's system keys (`kgi_sy_…`) on a runtime serving many tenants: each acts in no tenant, for one service, with the scopes it was minted with. Newest first, revoked ones too. Never returns secrets. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) lists them.
         """
         return await self._client._request(
             _OPERATIONS["systemKeys.list"],
@@ -8834,7 +8834,7 @@ class AsyncSystemKeysResource:
     ) -> _models.MintSystemKeyResult:
         """Mint a system key. `POST /v1/system/keys`
 
-        A system key (`kgi_sy_…`) is the operator's, for a service that acts for it (sign-up, the orchestrator, billing, the license renewal), with the least scope that service needs. It acts in no tenant: it reaches `/v1/system/*` and the deployment's license, and every other route refuses it (`system-key-on-tenant-route`). Every request it makes is recorded. Only the full system capability (`kindgi:system`: the deployment's own token on a runtime serving many tenants, or a full system key) mints one, and a key can't outlive the key minting it. Returns the plaintext token exactly once. Only mounted when the deployment keeps system keys.
+        A system key (`kgi_sy_…`) is the operator's, for a service that acts for it (sign-up, the orchestrator, billing, the license renewal), with the least scope that service needs. It acts in no tenant: it reaches `/v1/system/*` and the deployment's license, and every other route refuses it (`system-key-on-tenant-route`). Every request it makes is recorded. Only the full system capability (`kindgi:system`: the deployment's own token on a runtime serving many tenants, or a full system key) mints one, and a key can't outlive the key minting it. Returns the plaintext token exactly once. A runtime serving one tenant has no system keys: there, the deployment's own token is that tenant's, and this route isn't mounted.
         """
         return await self._client._request(
             _OPERATIONS["systemKeys.mint"],
@@ -8856,7 +8856,7 @@ class AsyncSystemKeysResource:
     ) -> _models.SystemKey:
         """Revoke a system key. `POST /v1/system/keys/{keyId}/revoke`
 
-        Takes effect on the next request. Revoking a revoked key keeps the first time. The full system capability only.
+        Revokes one of the operator's system keys (`kgi_sy_…`): it stops working on the next request. Revoking a revoked key keeps the first time. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) revokes them.
         """
         return await self._client._request(
             _OPERATIONS["systemKeys.revoke"],
