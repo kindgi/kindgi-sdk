@@ -317,6 +317,8 @@ someone who can't open the page any more doesn't keep what they had:
   database, WooCommerce's roles removed when it's deleted with all its
   data, or a user deleted from a network's admin where the plugin is active
   per site.
+- **The retries and the daily check need wp-cron.** On a site with
+  `DISABLE_WP_CRON` set, a system cron must call `wp-cron.php`.
 - **With the plugin deactivated,** none of this happens. Pause the site in
   Kindgi if the plugin stays off.
 

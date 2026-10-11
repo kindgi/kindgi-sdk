@@ -73,6 +73,7 @@ Each person acts as themselves. Kindgi's record says "approved by Jane, via Acme
 - **A changed role counts at once.** The plugin tells Kindgi when a person's roles change, so what they get there follows. Losing every role the site allows ends their grants, reviewer role and sessions at Kindgi. The same roles back bring the same person back.
 - **When someone leaves, Kindgi is told, for good.** Deleting their user, removing them from the site (on a network), or erasing their data ends their grants, reviewer role and sessions at Kindgi, and Kindgi refuses them from then on.
 - **A change that can't reach Kindgi waits.** WordPress tries it again on its own (wp-cron), less often each time, and never gives up. **Kindgi → Settings** lists it under "Waiting to reach Kindgi". Once a day the plugin also checks everyone Kindgi knows against WordPress, for changes no hook saw: a role edited in the database, WooCommerce's own roles removed when it's deleted with all its data (`WC_REMOVE_ALL_DATA`), or a user deleted from a network's admin where this plugin is active per site. Until that check runs, such a person keeps what they had at Kindgi.
+- **Both need wp-cron to run.** On a site with `DISABLE_WP_CRON` set, a system cron must call `wp-cron.php`. Without one, nothing waiting is tried again, the daily check never runs, and **Kindgi → Settings** shows next tries in the past.
 - **Deactivating the plugin stops all of this.** Pause the site in Kindgi if the plugin stays off.
 
 ## Security: what "the site vouches" means
