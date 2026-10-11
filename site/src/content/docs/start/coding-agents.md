@@ -44,6 +44,7 @@ agent that uses it, a flow around both) loads each one in turn.
 | `kindgi-authoring-providers` | Connecting a model: Anthropic, Gemini, OpenAI-compatible endpoints |
 | `kindgi-authoring-mcp-servers` | Giving the coding agent an MCP server |
 | `kindgi-framework-feedback` | Reporting a problem in Kindgi itself |
+| `kindgi-using` | Guiding you in using what was built: the CLI's answer and the console page beside it |
 
 A pack gets the skills for its language, plus the shared ones.
 

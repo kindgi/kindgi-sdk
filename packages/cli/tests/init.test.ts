@@ -118,6 +118,7 @@ describe('kindgi init — minimal template', () => {
       '.claude/skills/kindgi-authoring-tools/SKILL.md',
       '.claude/skills/kindgi-framework-feedback/SKILL.md',
       '.claude/skills/kindgi-getting-started/SKILL.md',
+      '.claude/skills/kindgi-using/SKILL.md',
       '.gitignore',
       '.nvmrc',
       'AGENTS.md',
@@ -417,6 +418,7 @@ describe('kindgi init — python template', () => {
       '.claude/skills/kindgi-python-authoring-guardrails/SKILL.md',
       '.claude/skills/kindgi-python-authoring-tools/SKILL.md',
       '.claude/skills/kindgi-python-getting-started/SKILL.md',
+      '.claude/skills/kindgi-using/SKILL.md',
       '.gitignore',
       'AGENTS.md',
       'README.md',
@@ -461,6 +463,7 @@ describe('kindgi init — java template', () => {
       '.claude/skills/kindgi-java-authoring-guardrails/SKILL.md',
       '.claude/skills/kindgi-java-authoring-tools/SKILL.md',
       '.claude/skills/kindgi-java-getting-started/SKILL.md',
+      '.claude/skills/kindgi-using/SKILL.md',
     ]);
     const files = all.filter((f) => !f.startsWith('.claude/'));
     expect(files).toEqual([
@@ -530,6 +533,7 @@ describe('kindgi init — scala template', () => {
       '.claude/skills/kindgi-scala-authoring-guardrails/SKILL.md',
       '.claude/skills/kindgi-scala-authoring-tools/SKILL.md',
       '.claude/skills/kindgi-scala-getting-started/SKILL.md',
+      '.claude/skills/kindgi-using/SKILL.md',
       '.gitignore',
       'AGENTS.md',
       'README.md',
@@ -614,6 +618,7 @@ describe('kindgi init — sample template', () => {
       '.claude/skills/kindgi-authoring-tools/SKILL.md',
       '.claude/skills/kindgi-framework-feedback/SKILL.md',
       '.claude/skills/kindgi-getting-started/SKILL.md',
+      '.claude/skills/kindgi-using/SKILL.md',
       '.gitignore',
       '.nvmrc',
       'AGENTS.md',
