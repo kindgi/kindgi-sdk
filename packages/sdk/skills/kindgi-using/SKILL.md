@@ -23,7 +23,7 @@ pack_languages: [node, python, java, scala]
 
 > **Running `kindgi`:** in a Node project the CLI is a devDependency
 > (`@kindgi/cli`), not a global command. Run it through the project's
-> package manager — `pnpm exec kindgi …`, `npx --no kindgi …` (npm),
+> package manager — `pnpm exec kindgi …`, `npx --no -- kindgi …` (npm),
 > `yarn kindgi …` or `bun run kindgi …`. A Python pack (`[tool.kindgi]` in
 > `pyproject.toml`) has no Node project: run the `kindgi` on `PATH`. A Java
 > or Scala pack (`kindgi.config.json`) runs the CLI it pins: `./kindgiw …`.
@@ -36,9 +36,10 @@ clicks, so they can see it for themselves.
 
 ## The rules
 
-1. **Give both.** Each answer has the CLI's answer and the console link,
-   written as **In the CLI:** … and **In the console:** … When one side
-   has nothing for the question, say so in one line.
+1. **Give both, briefly.** Start with the answer in one sentence. Then
+   **In the CLI:** … and **In the console:** …, a few lines each. When one
+   side has nothing for the question, say so in one line. Offer more
+   detail instead of showing it ("Want the run-by-run breakdown?").
 2. **Guiding is read-only.** You look things up and show where they are.
    Nothing you run here changes Kindgi.
 3. **Some actions are the person's alone.** Never do these for them, even
@@ -56,6 +57,10 @@ clicks, so they can see it for themselves.
 6. **Say the fields that answer the question.** Read the CLI's JSON and
    put what matters in words. A run carries a `publicAccessToken`: never
    paste a run, or any answer, whole.
+7. **About one person, show only that person.** Asked about one
+   customer, never show another's facts, runs or ratings, not even to
+   prove a lookup works: check that quietly, and say only what is stored
+   (or not) for the one they asked about.
 
 ## Links into the console
 

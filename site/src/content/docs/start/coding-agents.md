@@ -46,6 +46,13 @@ agent that uses it, a flow around both) loads each one in turn.
 | `kindgi-framework-feedback` | Reporting a problem in Kindgi itself |
 | `kindgi-using` | Guiding you in using what was built: the CLI's answer and the console page beside it |
 
+Your coding agent also guides you in using what it built. Ask it to show
+you around Kindgi's console or to find something (the answers an agent
+gave, who has access, what waits for a decision), and with
+`kindgi-using` it answers with the CLI's answer and the console page side
+by side. Deciding approvals, erasing, people, keys and making a version
+live stay yours: it gives you the page and the clicks.
+
 A pack gets the skills for its language, plus the shared ones.
 
 ### Matched to your version
