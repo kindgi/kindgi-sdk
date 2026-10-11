@@ -171,8 +171,12 @@ Set `server_image` and `pack_image` in `prod.tfvars` to the two digests
 (`…@sha256:…`).
 
 **Without a pack service** (runtime 0.1.8 or later): where each deployment is
-a Cloud Run service of its own (`KINDGI_PACK_ROUTING=per-deployment`), leave
-`pack_image` unset.
+a Cloud Run service of its own (`KINDGI_PACK_ROUTING=per-deployment`, on a
+runtime serving many tenants: `KINDGI_TENANCY=multi`), leave `pack_image`
+unset. A runtime serving one tenant keeps `pack_image`.
+- **Who runs those services:** your orchestrator creates each deployment's
+  service and records its endpoint through the runtime's
+  `/v1/system/…/endpoint` routes. This module doesn't.
 - **What the module then leaves out:** the pack service, its service account
   and its grants, and the server's `KINDGI_PACK_SERVICE_URL`.
 - **What stays:** the pack token and `KINDGI_PACK_SERVICE_AUTH`, which are how

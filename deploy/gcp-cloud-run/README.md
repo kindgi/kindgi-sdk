@@ -85,7 +85,8 @@ kindgi build --local --push --env dev      # the pack image, signed; writes .kin
 
 The mirrored runtime keeps the release's digest. Set `server_image` and `pack_image` to the two digests (`…@sha256:…`).
 
-**Without a pack service** (runtime 0.1.8 or later): where each deployment is a Cloud Run service of its own (`KINDGI_PACK_ROUTING=per-deployment`), leave `pack_image` unset.
+**Without a pack service** (runtime 0.1.8 or later): where each deployment is a Cloud Run service of its own (`KINDGI_PACK_ROUTING=per-deployment`, on a runtime serving many tenants: `KINDGI_TENANCY=multi`), leave `pack_image` unset. A runtime serving one tenant keeps `pack_image`.
+- **Who runs those services:** your orchestrator creates each deployment's service and records its endpoint through the runtime's `/v1/system/…/endpoint` routes. This module doesn't.
 - **What the module then leaves out:** the pack service, its service account and its grants, and the server's `KINDGI_PACK_SERVICE_URL`.
 - **What stays:** the pack token and `KINDGI_PACK_SERVICE_AUTH`, which are how the server calls each deployment's service.
 - **The `pack_*` settings** configure the one pack service, so set with no `pack_image` they're refused rather than ignored.
