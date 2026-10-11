@@ -44,7 +44,8 @@ interface ConfigLevel {
  * `paths`: none. `paths` and `baseUrl` come from the nearest config that
  * sets each (the app's own, then what it extends, the last of an array
  * first); targets resolve against `baseUrl`, else the folder of the config
- * that sets `paths`. A target list's first entry is used (vitest has no
+ * that sets `paths`; a leading `${configDir}` is the app's folder, as
+ * TypeScript has it. A target list's first entry is used (vitest has no
  * fallback), and a pattern starting with `*` is left out (vitest would
  * send every import, packages too, through it).
  */
@@ -74,7 +75,7 @@ export async function readTsconfigPaths(appDir: string): Promise<TsconfigPaths> 
   const withBaseUrl = levels.find((l) => typeof l.compilerOptions.baseUrl === 'string');
   const base =
     withBaseUrl !== undefined
-      ? resolve(withBaseUrl.dir, withBaseUrl.compilerOptions.baseUrl as string)
+      ? resolve(withBaseUrl.dir, inConfigDir(withBaseUrl.compilerOptions.baseUrl as string, app))
       : withPaths.dir;
 
   const aliases: PathAlias[] = [];
@@ -95,7 +96,7 @@ export async function readTsconfigPaths(appDir: string): Promise<TsconfigPaths> 
         `tsconfig.json maps "${pattern}" to ${targets.length} places; vitest's alias takes the first, ${first}.`,
       );
     }
-    aliases.push({ pattern, target: fromApp(app, resolve(base, first)) });
+    aliases.push({ pattern, target: fromApp(app, resolve(base, inConfigDir(first, app))) });
   }
   return { aliases: aliases.sort(byPrecedence), notes };
 }
@@ -154,6 +155,17 @@ function resolveExtends(spec: string, from: string): string | undefined {
   }
   return undefined;
 }
+
+/**
+ * A path with TypeScript's `${configDir}` (5.5+) at its start made
+ * absolute: it names the folder of the tsconfig in use, the app's, even
+ * when a config it extends writes it.
+ */
+function inConfigDir(path: string, app: string): string {
+  return path.startsWith(CONFIG_DIR) ? join(app, path.slice(CONFIG_DIR.length)) : path;
+}
+
+const CONFIG_DIR = '${configDir}';
 
 /** `path`'s real path, or `path` resolved when it has none. */
 async function realOrResolved(path: string): Promise<string> {

@@ -91,6 +91,25 @@ describe('readTsconfigPaths', () => {
     ]);
   });
 
+  test("`${configDir}` is the app's folder, even in the config it extends", async () => {
+    await put(
+      'node_modules/@acme/tsconfig/tsconfig.json',
+      '{ "compilerOptions": { "paths": { "@/*": ["${configDir}/src/*"], "#db": ["./db.ts"] } } }',
+    );
+    await put('node_modules/@acme/tsconfig/package.json', '{ "name": "@acme/tsconfig" }');
+    await put('tsconfig.json', '{ "extends": "@acme/tsconfig/tsconfig.json" }');
+    expect((await readTsconfigPaths(root)).aliases).toEqual([
+      { pattern: '#db', target: 'node_modules/@acme/tsconfig/db.ts' },
+      { pattern: '@/*', target: 'src/*' },
+    ]);
+
+    await put(
+      'tsconfig.json',
+      '{ "compilerOptions": { "baseUrl": "${configDir}/app", "paths": { "~/*": ["./*"] } } }',
+    );
+    expect((await readTsconfigPaths(root)).aliases).toEqual([{ pattern: '~/*', target: 'app/*' }]);
+  });
+
   test('an extends array: the last entry wins', async () => {
     await put('a.json', '{ "compilerOptions": { "paths": { "@/*": ["a/*"] } } }');
     await put('b.json', '{ "compilerOptions": { "paths": { "@/*": ["b/*"] } } }');
