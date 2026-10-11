@@ -86,6 +86,7 @@ import {
   mintPublicRunToken,
   resolvePublicRunTokenConfig,
 } from './public-run-token.js';
+import type { RateLimitStore } from './rate-limit-store.js';
 import type { RetentionBinding } from './retention-binding.js';
 import type { ReviewerBinding, ReviewerRegistryBinding } from './reviewer-binding.js';
 import {
@@ -112,6 +113,7 @@ import { exportSigningKeysRouter } from './routes/export-signing-keys.js';
 import { flowsRouter } from './routes/flows.js';
 import { gatePoliciesRouter } from './routes/gate-policies.js';
 import { guardrailsRouter } from './routes/guardrails.js';
+import { hooksRouter } from './routes/hooks.js';
 import { identityRouter } from './routes/identity.js';
 import { improvementPassesRouter, mountImproveRoute } from './routes/improvement-passes.js';
 import { judgedSuitesRouter } from './routes/judged-suites.js';
@@ -147,7 +149,7 @@ import { toolsRouter } from './routes/tools.js';
 import { webhookEndpointsRouter } from './routes/webhook-endpoints.js';
 import { webhooksRouter } from './routes/webhooks.js';
 import type { S3CredentialBinding } from './s3-credential-binding.js';
-import type { SecretBinding } from './secrets-binding.js';
+import { type SecretBinding, observeSecretWrites } from './secrets-binding.js';
 import type { ServiceAccountBinding } from './service-account-binding.js';
 import type { SessionStoreBinding } from './session-store-binding.js';
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from './signing-key-binding.js';
@@ -791,6 +793,32 @@ export interface CreateAppInput {
    */
   readonly identityProviderChanges?: 'tenant' | 'operator';
   /**
+   * The deployment's public base URL (e.g. `https://kindgi.acme.example`):
+   * what a webhook trigger's `receiveUrl` is made from. Never taken from a
+   * request's `Host`, which the caller writes. Absent: webhook trigger
+   * records carry no `receiveUrl`, and the CLI says how to set one.
+   */
+  readonly publicUrl?: string;
+  /**
+   * Mounts the inbound receiver, `POST /v1/hooks/{tenantId}/{webhookId}`
+   * (outside the bearer chain), when `triggerRegistry` serves webhook
+   * triggers (with `findWebhook`, `fireWebhook` and
+   * `recordWebhookRefusal`) and `secretsBinding` is set: a signed request
+   * starts the trigger's flow as its owner. `envName` is the env this
+   * deployment serves, where each trigger's signing secret is read.
+   */
+  readonly webhookReceiver?: {
+    readonly envName: import('@kindgi/types').EnvName;
+    /**
+     * Who the client is (for the per-client refusal limit and the audit
+     * record); `undefined` when clients can't be told apart, which turns
+     * the per-client limit off.
+     */
+    readonly clientAddress?: (request: Request) => string | undefined;
+    /** Where the counts live; default this process's memory. */
+    readonly rateLimitStore?: RateLimitStore;
+  };
+  /**
    * The rate limit on `GET /v1/auth/sign-in-options` (unauthenticated):
    * requests per client per window, and how to tell clients apart.
    * Default: 30 a minute, per nearest (rightmost) `X-Forwarded-For` hop.
@@ -1014,6 +1042,12 @@ export interface ScalarDocsConfig {
 const DEFAULT_TOKEN_SIGN_IN_TTL_MS = 12 * 60 * 60 * 1000;
 
 export function createApp(input: CreateAppInput): Hono<AppEnv> {
+  // Every secret route and reader goes through one binding, whose writes
+  // the webhook receiver hears: it keeps a trigger's signing key for a few
+  // seconds, and drops it at once when its secret is written here.
+  const observedSecrets =
+    input.secretsBinding === undefined ? undefined : observeSecretWrites(input.secretsBinding);
+  const secretsBinding = observedSecrets?.binding;
   // A cookie session's value is the token the store minted. A store that
   // can't resolve its own tokens would put the session id there instead,
   // and the id is no secret (whoami and the audit trail show it).
@@ -1266,12 +1300,18 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // A model provider's key is used by its provider only: the routes that
   // write a tool, an endpoint or a provider check names against it.
   const providerKeys = providerKeysOf(input.providerRegistry);
+  const receiveUrl =
+    input.publicUrl === undefined
+      ? undefined
+      : (tenantId: import('@kindgi/types').TenantId, webhookId: string) =>
+          `${input.publicUrl?.replace(/\/+$/, '')}/v1/hooks/${tenantId}/${webhookId}`;
   const secretUsers = (tenantId: import('@kindgi/types').TenantId, name: string) =>
     usersOfSecret(
       {
         ...(input.toolRegistry !== undefined && { tools: input.toolRegistry }),
         ...(input.mcpEndpointRegistry !== undefined && { mcpEndpoints: input.mcpEndpointRegistry }),
         ...(input.webhookEndpoints !== undefined && { webhookEndpoints: input.webhookEndpoints }),
+        ...(input.triggerRegistry !== undefined && { triggers: input.triggerRegistry }),
       },
       tenantId,
       name,
@@ -1430,9 +1470,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     );
   }
   // Trigger admin surfaces. Three sibling routers over the same
-  // `TriggerRegistryBinding` — each pins its own kind. There is no
-  // external webhook receiver route here (it would need
-  // unauthenticated tenant resolution).
+  // `TriggerRegistryBinding` — each pins its own kind. The inbound
+  // webhook receiver is outside the bearer chain (`/v1/hooks`, below).
   if (input.triggerRegistry !== undefined) {
     const kinds = new Set<TriggerKind>(input.triggerKinds ?? TRIGGER_KINDS);
     if (kinds.has('cron')) {
@@ -1450,7 +1489,21 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       v1.route('/event-triggers', eventTriggersRouter(input.triggerRegistry, authorizer));
     }
     if (kinds.has('webhook')) {
-      v1.route('/webhooks', webhooksRouter(input.triggerRegistry, authorizer));
+      v1.route(
+        '/webhooks',
+        webhooksRouter(input.triggerRegistry, {
+          ...(authorizer !== undefined && { authorizer }),
+          ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
+          names: {
+            ...(input.identityDirectory !== undefined && { directory: input.identityDirectory }),
+            ...(input.serviceAccountBinding !== undefined && {
+              serviceAccounts: input.serviceAccountBinding,
+            }),
+          },
+          providerKeys,
+          ...(receiveUrl !== undefined && { receiveUrl }),
+        }),
+      );
     }
   }
   if (input.webhookEndpoints !== undefined) {
@@ -1572,7 +1625,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     tenantRouter({
       tenantHierarchyBinding: input.tenantHierarchyBinding,
       ...(input.envBinding !== undefined && { envBinding: input.envBinding }),
-      ...(input.secretsBinding !== undefined && { secretsBinding: input.secretsBinding }),
+      ...(secretsBinding !== undefined && { secretsBinding }),
       ...(authorizer !== undefined && { authorizer }),
     }),
   );
@@ -1590,11 +1643,11 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   if (input.auditEvents !== undefined) {
     v1.route('/audit', auditRouter(input.auditEvents, authorizer));
   }
-  if (input.secretsBinding !== undefined) {
+  if (secretsBinding !== undefined) {
     v1.route(
       '/secrets',
       secretsRouter({
-        secretsBinding: input.secretsBinding,
+        secretsBinding,
         rotationStatusStore: input.rotationStatusStore ?? createInMemoryRotationStatusStore(),
         ...(authorizer !== undefined && { authorizer }),
         ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
@@ -1644,7 +1697,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           // POST /v1/deployments/:deploymentId/secrets needs the
           // secretsBinding. Absent binding → the route answers 500 with an
           // operator-actionable message.
-          ...(input.secretsBinding !== undefined && { secretsBinding: input.secretsBinding }),
+          ...(secretsBinding !== undefined && { secretsBinding }),
           // A deploy registers tools and guardrails: the same cache hooks
           // `POST /v1/tools` / `POST /v1/guardrails` call.
           ...(input.onToolWrite !== undefined && { onToolWrite: input.onToolWrite }),
@@ -1721,6 +1774,36 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(input.signInEmailLink !== undefined && { emailLink: input.signInEmailLink }),
     }),
   );
+  // The inbound webhook receiver: outside the bearer chain (mounted ahead
+  // of `/v1`), since nobody signs in to send a webhook; the request's
+  // signature is what it checks. A bearer token, if sent, is never read.
+  if (
+    input.webhookReceiver !== undefined &&
+    input.triggerRegistry !== undefined &&
+    secretsBinding !== undefined &&
+    observedSecrets !== undefined &&
+    new Set<TriggerKind>(input.triggerKinds ?? TRIGGER_KINDS).has('webhook') &&
+    input.triggerRegistry.findWebhook !== undefined &&
+    input.triggerRegistry.fireWebhook !== undefined &&
+    input.triggerRegistry.recordWebhookRefusal !== undefined
+  ) {
+    app.route(
+      '/v1/hooks',
+      hooksRouter({
+        triggers: input.triggerRegistry,
+        secrets: secretsBinding,
+        secretWrites: observedSecrets.writes,
+        envName: input.webhookReceiver.envName,
+        providerKeys,
+        ...(input.webhookReceiver.clientAddress !== undefined && {
+          clientAddress: input.webhookReceiver.clientAddress,
+        }),
+        ...(input.webhookReceiver.rateLimitStore !== undefined && {
+          rateLimitStore: input.webhookReceiver.rateLimitStore,
+        }),
+      }),
+    );
+  }
   // Browser sessions need a way out even without identity providers
   // (which bring their own `/auth` routes, logout included).
   if (cookieSessions && input.identityProvider === undefined && input.sessionStore !== undefined) {

@@ -30,7 +30,16 @@ final class OperationPlanner {
   private static final Set<String> PATH_ITEM_KEYS =
       Set.of("get", "post", "put", "patch", "delete", "head", "parameters", "summary", "description");
   private static final Set<String> OPERATION_KEYS =
-      Set.of("operationId", "summary", "description", "tags", "parameters", "requestBody", "responses", "security");
+      Set.of(
+          "operationId",
+          "summary",
+          "description",
+          "tags",
+          "parameters",
+          "requestBody",
+          "responses",
+          "security",
+          "x-kindgi-sender-only");
   private static final Set<String> PARAMETER_KEYS =
       Set.of("name", "in", "schema", "required", "description", "x-kindgi-segment-path");
 
@@ -143,7 +152,11 @@ final class OperationPlanner {
       }
       for (String method : List.of("get", "post", "put", "patch", "delete", "head")) {
         if (item.containsKey(method)) {
-          out.put(method.toUpperCase() + " " + pe.getKey(), map(item.get(method), pe.getKey() + " " + method));
+          Map<String, Object> op = map(item.get(method), pe.getKey() + " " + method);
+          // An outside sender's path: no client method, so none of its schemas either.
+          if (!Boolean.TRUE.equals(op.get("x-kindgi-sender-only"))) {
+            out.put(method.toUpperCase() + " " + pe.getKey(), op);
+          }
         }
       }
     }
@@ -196,7 +209,8 @@ final class OperationPlanner {
         if (id == null || !ids.add(id)) {
           throw new GenerationException(path + " " + method + ": missing or duplicate operationId " + id);
         }
-        if (SKIPPED_METHODS.contains(method)) {
+        // An outside sender's path (the inbound webhook receiver), as `HEAD`: no client method.
+        if (SKIPPED_METHODS.contains(method) || Boolean.TRUE.equals(raw.get("x-kindgi-sender-only"))) {
           skipped.add(id);
           continue;
         }

@@ -392,10 +392,12 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'trigger-lifecycle-failed': 500,
   /** The deployment's trigger registry can't do this yet (fire history, run-now, a new owner). */
   'trigger-operation-unsupported': 501,
-  'webhook-signature-invalid': 401,
-  'webhook-inactive': 410,
-  'webhook-secret-missing': 500,
-  'webhook-flow-not-found': 502,
+  // The inbound receiver (`POST /v1/hooks/…`): one answer for any request
+  // that doesn't prove its sender, whatever the reason (recorded, not said).
+  'webhook-refused': 401,
+  'webhook-gone': 410,
+  'webhook-body-too-large': 413,
+  'webhook-body-not-json': 400,
   // Outbound webhook endpoints.
   'webhook-endpoint-not-found': 404,
   'webhook-delivery-not-found': 404,

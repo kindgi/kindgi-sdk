@@ -7,12 +7,13 @@ import { type Action, ref } from '@kindgi/authz';
 import type { TenantId, TriggerId } from '@kindgi/types';
 
 import type { Authorizer } from '../middleware/authorize.js';
-import type { TriggerRecord, TriggerRegistryBinding } from '../trigger-binding.js';
+import type { TriggerRegistryBinding } from '../trigger-binding.js';
 import type { AppEnv } from '../types.js';
 import { deniedBy } from './denied.js';
 
 /**
- * Who may manage an event or webhook trigger (T243 A): the flow it fires.
+ * Who may manage an event trigger (T243 A): the flow it fires. (Schedules
+ * and webhook triggers have a project, and their routers check it.)
  * A trigger has no parent tuple of its own, so every check names its
  * flow: `read` to see it; `write` to pause, resume or unregister it; and
  * `write` plus `execute` to register it or change what it runs, since it
@@ -40,7 +41,7 @@ export interface TriggerAccess {
 
 export function triggerAccess(
   binding: TriggerRegistryBinding,
-  kind: Exclude<TriggerRecord['kind'], 'cron'>,
+  kind: 'event',
   authorizer: Authorizer | undefined,
 ): TriggerAccess {
   const onFlow = async (
@@ -60,8 +61,8 @@ export function triggerAccess(
       if (authorizer === undefined) return undefined;
       const tenantId = c.get('tenantId') as TenantId;
       const rec = await binding.get({ tenantId, triggerId });
-      // A schedule's access is the schedules router's own (it may run an agent).
-      if (rec === null || rec.kind === 'cron' || rec.kind !== kind) return undefined;
+      // A schedule's and a webhook trigger's access is their router's own (their project).
+      if (rec === null || rec.kind !== kind) return undefined;
       return onFlow(c, rec.flowId, actions);
     },
     async visible(c, rows) {

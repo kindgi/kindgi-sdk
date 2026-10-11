@@ -329,6 +329,19 @@ export type {
   WebhookTestEvent,
 } from './resources/webhook-endpoints.js';
 export type {
+  ListWebhookFiresFilter,
+  ListWebhookTriggersFilter,
+  RegisterWebhookTriggerInput,
+  UnregisterWebhookTriggerResult,
+  UpdateWebhookTriggerInput,
+  WebhookFire,
+  WebhookFirePage,
+  WebhookSignature,
+  WebhookTrigger,
+  WebhookTriggerPage,
+  WebhooksClient,
+} from './resources/webhooks.js';
+export type {
   ListSigningKeysFilter,
   RevokeSigningKeyResult,
   SigningKeyPage,

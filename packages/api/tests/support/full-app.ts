@@ -20,7 +20,7 @@ import {
   makeInMemoryProjectBinding,
   makeInMemoryTeamBinding,
 } from '@kindgi/platform';
-import type { SigningKeyId, TenantId } from '@kindgi/types';
+import type { EnvName, SigningKeyId, TenantId } from '@kindgi/types';
 import type {
   AdapterRegistryBinding,
   AgentRegistryBinding,
@@ -291,7 +291,12 @@ const noopTriggerRegistry: TriggerRegistryBinding = {
     error: { code: 'trigger-lifecycle-failed', message: 'noop', triggerId },
   }),
   unregister: async ({ triggerId }) => ({ triggerId, unregistered: false }),
-  fetchActiveByWebhookId: async () => null,
+  findWebhook: async () => null,
+  fireWebhook: async ({ triggerId }) => ({
+    kind: 'err',
+    error: { code: 'trigger-not-found', message: 'noop', triggerId },
+  }),
+  recordWebhookRefusal: async () => {},
 };
 
 const noopPolicyRegistry: PolicyRegistryBinding = {
@@ -642,5 +647,7 @@ export function fullAppInput(): CreateAppInput {
     teamProjectGrantBinding: projectTrio.grants,
     envBinding: noopEnvBinding,
     secretsBinding: noopSecretsBinding,
+    webhookReceiver: { envName: 'test' as EnvName },
+    publicUrl: 'https://kindgi.acme.example',
   };
 }

@@ -60,6 +60,7 @@ import {
   type WebhookEndpointsClient,
   makeWebhookEndpointsClient,
 } from './resources/webhook-endpoints.js';
+import { type WebhooksClient, makeWebhooksClient } from './resources/webhooks.js';
 import { createTransport } from './transport.js';
 import type { ClientOptions } from './types.js';
 
@@ -130,6 +131,8 @@ export interface KindgiClient {
   readonly events: EventsClient;
   readonly artifacts: ArtifactsClient;
   readonly webhookEndpoints: WebhookEndpointsClient;
+  /** Inbound webhook triggers: a signed request starts a flow run. */
+  readonly webhooks: WebhooksClient;
   // Packs
   readonly packs: PacksClient;
 }
@@ -197,6 +200,7 @@ export function createClient(options: ClientOptions): KindgiClient {
     events: makeEventsClient(transport),
     artifacts: makeArtifactsClient(transport),
     webhookEndpoints: makeWebhookEndpointsClient(transport),
+    webhooks: makeWebhooksClient(transport),
     packs: makePacksClient(transport),
   };
 }

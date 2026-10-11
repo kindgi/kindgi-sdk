@@ -84,6 +84,13 @@ export interface OperationSpec {
    * with the schemas only it uses, so no client offers it.
    */
   readonly unserved?: string;
+  /**
+   * Why no client offers this operation: it's the path an outside sender
+   * calls (the inbound webhook receiver, signed with the trigger's
+   * secret), not one a Kindgi client does. The document keeps it, marked
+   * `x-kindgi-sender-only`, and the client generators skip it.
+   */
+  readonly senderOnly?: string;
 }
 
 // ---------------- shared parameters ----------------
@@ -4181,7 +4188,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       '400': ErrorResponse('Validation failed (see `details.reason`).'),
       '409': ErrorResponse(
-        "Provider already registered at that id. Or `provider-key-in-use`: `secret_ref` names a secret that a tool (its current version), an MCP endpoint or a webhook endpoint uses; `details.usedBy` lists each (`kind`, `id`, a tool's `version`). Store the provider's key under its own name. Nothing is stored.",
+        "Provider already registered at that id. Or `provider-key-in-use`: `secret_ref` names a secret that a tool (its current version), an MCP endpoint, a webhook endpoint or a webhook trigger uses; `details.usedBy` lists each (`kind`, `id`, a tool's `version`). Store the provider's key under its own name. Nothing is stored.",
       ),
       '422': ErrorResponse(
         "`provider-config-invalid`: a `send_traceparent` that isn't a boolean, or the provider's adapter refuses the registration (its `adapter_config`, its metadata, or a missing `secret_ref`); `details.issues` lists each (`path`, a JSON pointer, and `message`), the registration's own fields first, as other validation errors do. Nothing is stored.",
@@ -8279,10 +8286,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/webhooks',
     openapiPath: '/v1/webhooks',
     operationId: 'webhooks.register',
-    unserved: "Inbound webhooks aren't served yet: the runtime fires schedules only.",
     summary: 'Register a webhook trigger',
     description:
-      'Registers a `kind=webhook` trigger. The route mints `webhookId` (a random UUID). Caller must have written the plaintext HMAC secret to `/v1/secrets` first and passes the resulting name as `hmacSecretName` — the trigger never stores the plaintext. Rotation flows through `POST /v1/secrets/:name/rotate`.',
+      "A signed request to the trigger's `receiveUrl` (`POST /v1/hooks/{tenantId}/{webhookId}`) starts a run of its flow, as its owner: the caller, until an admin takes it over. The route mints `webhookId` (a random UUID). The signing secret is written first (`POST /v1/secrets`), and `hmacSecretName` names it; a model provider's key is refused (`400 provider-key-refused`). `signature` says how the sender signs (default: a hex HMAC-SHA256 of the raw body in `X-Kindgi-Signature`); `deliveryIdHeader` names the header whose value, with the body, dedupes deliveries. A trigger that names no `projectId` goes in the tenant's Default project. Needs `write` on the project and `execute` on the flow.",
     tags: ['webhooks'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -8290,6 +8296,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Webhook registered.', schema: ref('WebhookTriggerRecord') },
       ...CommonMutationErrors,
+      '400': ErrorResponse(
+        "A body that fails validation (`bad-input`), or `provider-key-refused`: `hmacSecretName` is a model provider's key.",
+      ),
       '409': ErrorResponse('Route-minted webhookId collided (astronomically rare).'),
     },
   },
@@ -8298,11 +8307,23 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/webhooks',
     openapiPath: '/v1/webhooks',
     operationId: 'webhooks.list',
-    unserved: "Inbound webhooks aren't served yet: the runtime fires schedules only.",
     summary: 'List webhook triggers',
+    description:
+      "The tenant's webhook triggers whose project the caller may read; with `projectId`, that project's only (which needs `read` on it).",
     tags: ['webhooks'],
     security: 'bearer',
-    parameters: [LimitQueryParam, CursorQueryParam, TriggerStatusFilterQueryParam],
+    parameters: [
+      LimitQueryParam,
+      CursorQueryParam,
+      TriggerStatusFilterQueryParam,
+      {
+        name: 'projectId',
+        in: 'query',
+        required: false,
+        description: "Only this project's webhook triggers.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+    ],
     responses: {
       '200': {
         description: 'Page of webhook triggers.',
@@ -8316,7 +8337,6 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/webhooks/:triggerId',
     openapiPath: '/v1/webhooks/{triggerId}',
     operationId: 'webhooks.get',
-    unserved: "Inbound webhooks aren't served yet: the runtime fires schedules only.",
     summary: 'Fetch a webhook trigger',
     tags: ['webhooks'],
     security: 'bearer',
@@ -8332,10 +8352,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/webhooks/:triggerId',
     openapiPath: '/v1/webhooks/{triggerId}',
     operationId: 'webhooks.update',
-    unserved: "Inbound webhooks aren't served yet: the runtime fires schedules only.",
     summary: 'Update a webhook trigger',
     description:
-      'HMAC secret rotation is NOT here — rotate via `POST /v1/secrets/:name/rotate` on the referenced secret.',
+      "Changes the flow version (which needs `execute` on the flow), the input, the label, which secret signs (`hmacSecretName`, never a model provider's key), the signature scheme, the delivery-id header, the body cap or the rate (`null` clears the last three). The flow itself stays: register another trigger for another flow. Rotating the secret's value goes through `POST /v1/secrets/{name}/rotate`.",
     tags: ['webhooks'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
@@ -8351,8 +8370,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/webhooks/:triggerId/pause',
     openapiPath: '/v1/webhooks/{triggerId}/pause',
     operationId: 'webhooks.pause',
-    unserved: "Inbound webhooks aren't served yet: the runtime fires schedules only.",
     summary: 'Pause a webhook trigger',
+    description:
+      "While paused, a signed delivery is answered `202` and recorded as a `skipped` fire, and no run starts: **its event is dropped**. Senders such as WooCommerce never resend, so resuming doesn't bring those events back.",
     tags: ['webhooks'],
     security: 'bearer',
     parameters: [TriggerIdPathParam, IdempotencyKeyParam],
@@ -8367,7 +8387,6 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/webhooks/:triggerId/resume',
     openapiPath: '/v1/webhooks/{triggerId}/resume',
     operationId: 'webhooks.resume',
-    unserved: "Inbound webhooks aren't served yet: the runtime fires schedules only.",
     summary: 'Resume a webhook trigger',
     tags: ['webhooks'],
     security: 'bearer',
@@ -8383,7 +8402,6 @@ export const OPERATIONS: readonly OperationSpec[] = [
     honoPath: '/v1/webhooks/:triggerId/unregister',
     openapiPath: '/v1/webhooks/{triggerId}/unregister',
     operationId: 'webhooks.unregister',
-    unserved: "Inbound webhooks aren't served yet: the runtime fires schedules only.",
     summary: 'Soft-delete a webhook trigger (tombstone)',
     tags: ['webhooks'],
     security: 'bearer',
@@ -8391,6 +8409,109 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: 'Tombstone outcome.', schema: ref('WebhookTriggerUnregisterResult') },
       ...CommonMutationErrors,
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/webhooks/:triggerId/fires',
+    openapiPath: '/v1/webhooks/{triggerId}/fires',
+    operationId: 'webhooks.fires',
+    summary: "A webhook trigger's deliveries",
+    description:
+      "Newest first: each delivery the trigger received and what came of it: the run it started (`started`, or `pending` while it starts), or why it was `skipped` (paused) or `refused` (`detail`: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `rate-limited`, `body-too-large`, `body-not-json`, or the owner's lost access). A delivery that repeated an earlier one's dedupe key counts on that one (`duplicates`). A fire keeps the event only until its run starts. Refusals and skipped deliveries past 20 a minute only count (the trigger's `suppressedRefusals`).",
+    tags: ['webhooks'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': { description: 'Page of deliveries.', schema: ref('WebhookFirePage') },
+      ...CommonAuthErrors,
+      '404': ErrorResponse('No webhook trigger with that id.'),
+      '501': ErrorResponse(
+        '`trigger-operation-unsupported`: this deployment keeps no delivery history.',
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/webhooks/:triggerId/owner',
+    openapiPath: '/v1/webhooks/{triggerId}/owner',
+    operationId: 'webhooks.takeOwnership',
+    summary: 'Take over a webhook trigger',
+    description:
+      "The caller becomes the trigger's owner, so its runs act as the caller from the next delivery. Needs `admin` on the trigger's project and `execute` on its flow. For a trigger whose owner left or lost access.",
+    tags: ['webhooks'],
+    security: 'bearer',
+    parameters: [TriggerIdPathParam, IdempotencyKeyParam],
+    responses: {
+      '200': {
+        description: 'The trigger, with its new owner.',
+        schema: ref('WebhookTriggerRecord'),
+      },
+      ...CommonMutationErrors,
+      '404': ErrorResponse('No webhook trigger with that id.'),
+      '501': ErrorResponse(
+        "`trigger-operation-unsupported`: this deployment can't change a trigger's owner.",
+      ),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/hooks/:tenantId/:webhookId',
+    openapiPath: '/v1/hooks/{tenantId}/{webhookId}',
+    operationId: 'hooks.receive',
+    senderOnly:
+      "The trigger's sender (WooCommerce, Drupal, GitHub…) posts here, signed with the trigger's secret; a Kindgi client never does.",
+    summary: 'Receive a webhook delivery',
+    description:
+      "The receive URL a webhook trigger's sender posts to: no sign-in, and a bearer token, if sent, is never read. The request's signature, made with the trigger's secret in its `signature` scheme over the raw body, is what lets it start the trigger's flow as the trigger's owner. Every request that doesn't prove its sender (an unknown tenant or id, a missing, wrong or stale signature, a secret that can't be read) is `401 webhook-refused`, with the reason only in the trigger's history and the access audit; the URL isn't a secret, the signature is. A WooCommerce save-time ping (unsigned `webhook_id=<n>`) is answered `200` and starts nothing. The event the flow gets is the body, parsed as JSON for a JSON content type, else its text: data from outside, never instructions. A run's start isn't waited for.",
+    tags: ['webhooks'],
+    security: 'public',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: "The trigger's tenant.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+      {
+        name: 'webhookId',
+        in: 'path',
+        required: true,
+        description: "The trigger's routable id (`webhookId`).",
+        schema: { type: 'string', format: 'uuid' },
+      },
+    ],
+    requestBody: {
+      required: true,
+      description: "Any bytes, signed as the trigger says; at most the trigger's `bodyLimitBytes`.",
+      schema: { type: 'string', format: 'binary' },
+      contentType: '*/*',
+    },
+    responses: {
+      '200': {
+        description:
+          "A delivery whose dedupe key an earlier fire holds (`duplicate: true`, that fire's id): nothing new started. Or a WooCommerce ping (`received: ping`).",
+        schema: ref('WebhookReceipt'),
+      },
+      '202': {
+        description:
+          'Taken: a fire recorded, its run starting as the owner (`fireId`). Or, on a paused trigger, a `skipped` fire and no run (`skipped: paused`).',
+        schema: ref('WebhookReceipt'),
+      },
+      '400': ErrorResponse(
+        '`webhook-body-not-json`: a JSON content type whose body does not parse.',
+      ),
+      '401': ErrorResponse(
+        "`webhook-refused`: the request doesn't prove its sender (the same answer whatever the reason).",
+      ),
+      '410': ErrorResponse('`webhook-gone`: the trigger was unregistered.'),
+      '413': ErrorResponse(
+        "`webhook-body-too-large`: past the trigger's `bodyLimitBytes` (or 1 MiB, before any lookup).",
+      ),
+      '429': ErrorResponse(
+        "`rate-limit-exceeded`: past the trigger's `rateLimitPerMinute`, or too many refused requests from this client; `Retry-After` says when.",
+      ),
     },
   },
 
