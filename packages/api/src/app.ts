@@ -2038,7 +2038,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     const s3 = new Hono<AppEnv>();
     s3.use('*', sigv4Middleware(input.s3Credentials));
     // A frozen tenant's artifacts are read, not written, here too.
-    s3.use('*', tenantStateGate(input.tenantStates));
+    s3.use('*', tenantStateGate(input.tenantStates, { surface: 's3' }));
     s3.route('/', s3Router(input.blobStorage));
     app.route('/s3', s3);
   }
