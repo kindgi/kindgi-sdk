@@ -120,6 +120,62 @@ so when it starts: `⚠ KINDGI_API_TOKEN changed, so it acts as a new user`.
 **When OpenFGA is unreachable,** requests that need a check answer `500`
 (`FGA Error: connect ECONNREFUSED …`); they work again once it's back.
 
+### Require a key for OpenFGA
+
+OpenFGA answers whoever reaches it, so anything else on its network could read
+and write your permissions. From runtime 0.1.8, OpenFGA can require a key, and
+the runtime sends it with every call (`Authorization: Bearer <key>`). An
+earlier runtime ignores the setting, and OpenFGA then refuses its calls.
+
+Use OpenFGA 1.14.0 or later with a key, with its playground off: before 1.14.0,
+the playground page shows the key to anyone who opens it
+([CVE-2026-40293](https://db.gcve.eu/vuln/CVE-2026-40293)). Make a key, run
+OpenFGA with it, and give the runtime the same key:
+
+```sh
+OPENFGA_KEY=$(openssl rand -hex 32)
+
+docker run -d --name kindgi-openfga --network kindgi --restart unless-stopped \
+  openfga/openfga:v1.22.0 run \
+  --datastore-engine postgres \
+  --datastore-uri "postgres://kindgi:$DB_PASSWORD@kindgi-db:5432/openfga?sslmode=disable" \
+  --authn-method preshared --authn-preshared-keys "$OPENFGA_KEY" \
+  --playground-enabled=false
+```
+
+In `kindgi.env`, beside the address:
+
+```sh
+KINDGI_OPENFGA_PRESHARED_KEY=<the same key>
+```
+
+The key is printable ASCII, without spaces or commas: it travels in a header,
+and OpenFGA's list of keys is comma-separated. After a
+[restart](../operate/#restart-the-runtime), the startup lines say what the
+runtime's calls carry, never the key:
+
+```text
+  OpenFGA calls carry its preshared key (KINDGI_OPENFGA_PRESHARED_KEY)
+```
+
+A runtime whose key OpenFGA doesn't hold, or that has none, doesn't start:
+
+```text
+kindgi-runtime: fatal: Error: OpenFGA at http://127.0.0.1:63551 refused the server's call (401): set KINDGI_OPENFGA_PRESHARED_KEY to one of the keys OpenFGA runs with (its OPENFGA_AUTHN_PRESHARED_KEYS) and, for an OpenFGA behind Cloud Run IAM, KINDGI_OPENFGA_AUTH=google-id-token.
+```
+
+**To change the key** with no call refused, use OpenFGA's list of keys, and
+restart each in turn:
+
+1. Add the new key to OpenFGA's: `--authn-preshared-keys "$OLD_KEY,$NEW_KEY"`.
+   Restart OpenFGA.
+2. Set the runtime's `KINDGI_OPENFGA_PRESHARED_KEY` to the new key. Restart the
+   runtime.
+3. Drop the old key from OpenFGA's list. Restart OpenFGA.
+
+On Cloud Run, OpenFGA's IAM adds a second check:
+[OpenFGA behind Cloud Run IAM](../cloud-run/#openfga-behind-cloud-run-iam).
+
 ## A denied request
 
 A request the check refuses gets `403`, with what was asked, on what, and why

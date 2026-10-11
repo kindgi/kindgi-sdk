@@ -384,6 +384,38 @@ A call from Cloud Run to an internal service has to go through a VPC
 network, and the pack's calls to your services don't
 ([Cloud Run: Restrict network endpoint ingress](https://docs.cloud.google.com/run/docs/securing/ingress)).
 
+### OpenFGA behind Cloud Run IAM
+
+When OpenFGA runs as a Cloud Run service of its own, with IAM on, the
+runtime proves who it is to Cloud Run as well as to OpenFGA (from runtime
+0.1.8). Give the runtime's service account `roles/run.invoker` on OpenFGA's
+service, run OpenFGA with a key and its playground off
+([Require a key for OpenFGA](../authorization/#require-a-key-for-openfga)), and
+set:
+
+```hcl
+openfga_api_url = "https://openfga-…a.run.app" # OpenFGA's own service URL
+server_env = {
+  KINDGI_OPENFGA_AUTH = "google-id-token"
+}
+server_secret_env = {
+  KINDGI_OPENFGA_PRESHARED_KEY = { secret = "kindgi-openfga-key", version = "1" }
+}
+```
+
+Each call then carries a Google ID token for that URL, from the runtime's own
+identity, in `X-Serverless-Authorization`, beside the key in `Authorization`.
+With both headers, Cloud Run checks only `X-Serverless-Authorization`, and
+passes the token on without its signature, so the key reaches OpenFGA
+([Cloud Run: Authenticating service-to-service](https://docs.cloud.google.com/run/docs/authenticating/service-to-service)).
+The URL is the token's audience, so use OpenFGA's service URL itself, over
+https. The startup line about OpenFGA's calls names the token too
+(`KINDGI_OPENFGA_AUTH`).
+
+Keep the key's secret pinned to a version, as here: then
+[change the key](../authorization/#require-a-key-for-openfga) one deploy at a
+time.
+
 ## 5. Trust your key, and deploy
 
 ```sh
@@ -439,7 +471,8 @@ secrets, read with the runtime's identity. You create each secret, and the
 runtime gets read access to exactly those (a secret in another project is
 granted there). The plan refuses a name the module sets itself (its own
 variables cover those, such as `public_url` below), `KINDGI_DEV`, and a
-secret given as a plain value: a name with `SECRET` in it, or the SMTP URL.
+secret given as a plain value: a name with `SECRET` in it, a preshared key,
+or the SMTP URL.
 
 **With an API token,** which the console's sign-in page then takes:
 
