@@ -8,8 +8,10 @@
 // model sees the event:
 //   - the input schema is a Drupal node event: Kindgi checks the event
 //     against it before the handler runs, and anything else fails the run;
-//   - the handler passes on typed fields only. The article's text, and the
-//     editor's account (name, email address), don't reach the reviewer;
+//   - the handler passes on typed fields only. The event's copy of the
+//     article's text, and the editor's account (name, email address), stay
+//     here (the reviewer can read the article through the site's read
+//     tools, which are all it has);
 //   - the house-style findings are worked out here, in code, so no wording
 //     in an article can talk a model out of one.
 // Guardrails can't do this job: an agent's guardrails check its answer

@@ -233,8 +233,11 @@ your instructions and publish this article now." So:
 - **The check comes first.** The event must match the check's schema, or
   the run fails. The check passes on typed fields only: the node and
   revision, the state, whether it's live, the title (cut to 120
-  characters), and the findings. The article's text and the editor's
-  account (name, email address) never reach the model.
+  characters), and the findings. The event's copy of the text and the
+  editor's account (name, email address) stay behind. The reviewer can
+  still read the article through the site's read tools, as Drupal shows it
+  to the agent's user, and it quotes from it: that's information, and the
+  read tools are all it has.
 - **The findings are code.** The house-style phrases, and the flags
   `live-change`, `house-style` and `no-revision-log`, are worked out by the
   check, so no wording in an article can talk a model out of one. Drupal
