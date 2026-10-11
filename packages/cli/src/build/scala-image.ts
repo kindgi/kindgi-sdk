@@ -12,7 +12,9 @@
  * `/app/index.json` written with `com.kindgi.pack.Main index` and the
  * pinned artifact version and publish time, the launcher from the pack's
  * kindgi-pack jar, and the pack service on a pinned JRE 17, as user 65532,
- * on `PORT` (8080).
+ * on `PORT` (8080). The launcher keeps the names the pack declares
+ * (`KINDGI_PACK_ENV_DECLARED`, from the local index) and drops the rest of
+ * the environment.
  *
  * The build context is the pack root, minus build output (`target/`,
  * `project/target/`, `project/project/`), IDE and build-server state
@@ -60,6 +62,12 @@ export interface RenderScalaContainerfileInputs {
   readonly buildTarget: string;
   /** Debian packages for the final stage, checked (`checkAptPackages`). */
   readonly systemPackages: readonly string[];
+  /**
+   * The names the pack declares (`env.required`, `env.optional`), from the
+   * local index: `KINDGI_PACK_ENV_DECLARED`, the launcher's list of what to
+   * keep.
+   */
+  readonly declaredEnv: readonly string[];
 }
 
 export function renderScalaContainerfile(inputs: RenderScalaContainerfileInputs): string {
@@ -102,6 +110,7 @@ ARG KINDGI_ARTIFACT_VERSION=${artifactVersion}
 ARG KINDGI_PUBLISHED_AT=${publishedAt}
 ENV KINDGI_ARTIFACT_VERSION=\${KINDGI_ARTIFACT_VERSION} \\
     KINDGI_PUBLISHED_AT=\${KINDGI_PUBLISHED_AT} \\
+    KINDGI_PACK_ENV_DECLARED="${inputs.declaredEnv.join(',')}" \\
     PORT=8080
 ${apt === '' ? '' : `${apt}\n`}WORKDIR /app
 COPY --from=build /app/lib /app/lib

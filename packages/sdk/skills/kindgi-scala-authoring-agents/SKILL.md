@@ -138,10 +138,10 @@ object BriefWriter {
 - **`set("parameters", List(Map("name" -> …, "type" -> …, "required" -> …)))`:**
   inputs the caller supplies per run. They fill `{{ … }}` in the
   instructions.
-- **`set("preferredProvider", "anthropic")`, `set("preferredModel", "claude-haiku-4-5")`:**
+- **`set("preferredProvider", "anthropic")`, `set("preferredModel", "claude-haiku-5-5")`:**
   soft hints. The router prefers them when they satisfy the capabilities.
   To *require* a model, put it in the capability:
-  `Map("needs" -> List(Map("feature" -> "tool-use"), Map("models" -> Map("allow" -> List("claude-haiku-4-5")))))`.
+  `Map("needs" -> List(Map("feature" -> "tool-use"), Map("models" -> Map("allow" -> List("claude-haiku-5-5")))))`.
 - **`set("conversationPolicy", …)`:** `historyLimit` caps the prior messages
   loaded, and `hitl` configures approval gates. Absent, the turn loads the
   full history with no gates. A tenant's `hitl` policy can tighten the gates

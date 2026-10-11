@@ -1,0 +1,53 @@
+{
+  "name": "@kindgi/adapter-model-shared",
+  "version": "0.1.5",
+  "description": "Shared plumbing for Kindgi's model adapters: retries with counted attempts, typed errors, the reasoning state across a pause, usage onto Kindgi's counters. Today's engine is the AI SDK's provider packages, behind one module.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kindgi/kindgi-sdk.git",
+    "directory": "packages/adapters/model-shared"
+  },
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./ai-sdk": {
+      "types": "./dist/ai-sdk/index.d.ts",
+      "import": "./dist/ai-sdk/index.js",
+      "default": "./dist/ai-sdk/index.js"
+    }
+  },
+  "files": ["dist", "src", "README.md"],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "clean": "rm -rf dist *.tsbuildinfo"
+  },
+  "dependencies": {
+    "@ai-sdk/provider": "4.0.25",
+    "@kindgi/capabilities": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
+  },
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "homepage": "https://github.com/kindgi/kindgi-sdk/tree/main/packages/adapters/model-shared#readme",
+  "bugs": {
+    "url": "https://github.com/kindgi/kindgi-sdk/issues"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts"
+}

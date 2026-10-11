@@ -33,6 +33,7 @@ import {
   type PackLanguage,
   findKindgiConfig,
   resolveDiscovery,
+  resolvePackEnv,
 } from '@kindgi/handler-runtime';
 
 import { checkAptPackages } from '../build/apt.js';
@@ -79,6 +80,7 @@ import type { IndexedCounts } from '../dev/runners.js';
 import { renderJson } from '../output.js';
 import { loadPackConfig } from '../pack-config.js';
 import { isPackageVersion } from '../package-manager.js';
+import { timeFlagValue } from './helpers.js';
 import type { CommandResult, LeafCommand } from './types.js';
 
 /**
@@ -157,7 +159,7 @@ export const buildCommand: LeafCommand = {
     'published-at': {
       type: 'string',
       description:
-        'The publish time (ISO 8601), in the image and its signature. Default: the build time. For a reproducible build, pass `--artifact-version` and `--published-at`.',
+        'The publish time (an ISO 8601 time with a zone, or a date: its start, UTC), in the image and its signature. Default: the build time. For a reproducible build, pass `--artifact-version` and `--published-at`.',
     },
     tenant: {
       type: 'string',
@@ -837,6 +839,7 @@ async function prepareNodeContext(
     `    ✓ ${localIndex.counts.tools} tools, ${localIndex.counts.guardrails} guardrails, ` +
       `${localIndex.counts.agents} agents, ${localIndex.counts.flows} flows indexed`,
   );
+  printIndexWarnings(localIndex, lines);
 
   // ---- 3. Containerfile + context --------------------------------------
   const containerfilePath = join(args.outDir, 'Containerfile');
@@ -969,6 +972,7 @@ async function preparePythonContext(
     `    ✓ ${localIndex.counts.tools} tools, ${localIndex.counts.guardrails} guardrails, ` +
       `${localIndex.counts.agents} agents, ${localIndex.counts.flows} flows discovered`,
   );
+  printIndexWarnings(localIndex, lines);
 
   const packFiles = await collectPythonContextFiles(args.packDir);
   if (packFiles.kind === 'error') return failure(`${packFiles.message}\n`);
@@ -1060,12 +1064,23 @@ async function prepareJvmContext(
         .join('\n')}\n`,
     );
   }
+  // The launcher keeps these names in the image, and drops the rest.
+  const declared = resolvePackEnv(
+    (JSON.parse(await readFile(expectedIndexPath, 'utf8')) as { readonly env?: unknown }).env,
+  );
+  if (declared.kind === 'err')
+    return failure(`kindgi build: the index's env: ${declared.message}\n`);
+  const declaredEnv = [
+    ...(declared.value?.required ?? []),
+    ...(declared.value?.optional ?? []),
+  ].sort();
   const tool = code.language === 'java' ? code.maven : code.sbt;
   lines(`  Indexing (${name} — ${code.javaHome ?? code.java}; ${tool.join(' ')})`);
   lines(
     `    ✓ ${localIndex.counts.tools} tools, ${localIndex.counts.guardrails} guardrails, ` +
       `${localIndex.counts.agents} agents, ${localIndex.counts.flows} flows discovered`,
   );
+  printIndexWarnings(localIndex, lines);
 
   const packFiles =
     language === 'java'
@@ -1091,6 +1106,7 @@ async function prepareJvmContext(
       language === 'java' ? DEFAULT_JAVA_BUILD_IMAGE_REF : DEFAULT_SCALA_BUILD_IMAGE_REF,
     runtimeImageRef: DEFAULT_JAVA_RUNTIME_IMAGE_REF,
     systemPackages: system.packages,
+    declaredEnv,
   });
   const contextDir = join(args.outDir, 'context');
   await java.writeContext({
@@ -1175,8 +1191,18 @@ async function resolveBuildArgs(ctx: CommandContext): Promise<ArgsOutcome> {
   const avFlag = ctx.options['artifact-version'];
   const artifactVersion =
     typeof avFlag === 'string' && avFlag !== '' ? avFlag : defaults.artifactVersion;
+  // A given --published-at goes into the signed image as the API's
+  // `date-time` (a date reads as that day's start in UTC), or deploying it
+  // would be refused.
   const paFlag = ctx.options['published-at'];
-  const publishedAt = typeof paFlag === 'string' && paFlag !== '' ? paFlag : defaults.publishedAt;
+  let publishedAt = defaults.publishedAt;
+  if (typeof paFlag === 'string' && paFlag !== '') {
+    try {
+      publishedAt = timeFlagValue(paFlag, 'published-at');
+    } catch (err) {
+      return { kind: 'error', stderr: `${(err as Error).message}\n`, exitCode: 2 };
+    }
+  }
 
   // --tenant — flag > env block > KINDGI_TENANT_ID env var > error.
   const tenantFlag = ctx.options.tenant;
@@ -1379,4 +1405,12 @@ async function isFile(path: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/** The indexer's warnings, a line each: what the pack should change, though it builds as it is. */
+function printIndexWarnings(
+  result: { readonly warnings?: readonly { readonly message: string }[] },
+  lines: (s: string) => void,
+): void {
+  for (const w of result.warnings ?? []) lines(`    ⚠ ${w.message}`);
 }

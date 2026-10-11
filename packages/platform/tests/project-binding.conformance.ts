@@ -223,18 +223,34 @@ export function runProjectBindingConformance(
   });
 
   describe(`${label} — membership + grant idempotency`, () => {
-    it('project-membership add is idempotent (does not overwrite role)', async () => {
+    it('project-membership add keeps the role held: `ok` for that role, `membership-exists` for another', async () => {
       const { projects, memberships } = makeBinding();
       const id = await createProject(projects, T1, { name: 'A', slug: 'a' });
       expect(await memberships.add(T1, { projectId: id, userId: U1, role: 'owner' })).toEqual({
         kind: 'ok',
       });
-      expect(await memberships.add(T1, { projectId: id, userId: U1, role: 'viewer' })).toEqual({
+      expect(await memberships.add(T1, { projectId: id, userId: U1, role: 'owner' })).toEqual({
         kind: 'ok',
+      });
+      expect(await memberships.add(T1, { projectId: id, userId: U1, role: 'viewer' })).toEqual({
+        kind: 'membership-exists',
+        role: 'owner',
       });
       const page = await memberships.list(T1, id, {});
       expect(page.items).toHaveLength(1);
       expect(page.items[0]?.role).toBe('owner');
+    });
+
+    it('a team grant reads back with `get` (where the binding has it), with when it was given', async () => {
+      const { projects, grants } = makeBinding();
+      const id = await createProject(projects, T1, { name: 'A', slug: 'a' });
+      await grants.add(T1, { teamId: TEAM_A, projectId: id, role: 'editor' });
+      if (grants.get === undefined) return;
+      const got = await grants.get(T1, TEAM_A, id);
+      expect(got).toMatchObject({ teamId: TEAM_A, projectId: id, role: 'editor' });
+      expect(typeof got?.grantedAt).toBe('string');
+      expect(await grants.get(T1, TEAM_B, id)).toBeUndefined();
+      expect(await grants.get(T2, TEAM_A, id)).toBeUndefined();
     });
 
     it('project-membership updateRole mutates the role', async () => {

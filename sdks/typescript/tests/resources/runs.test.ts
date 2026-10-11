@@ -685,3 +685,51 @@ describe('runs.start — segments pick the live version', () => {
     expect(JSON.parse(stub.calls[0]?.body ?? '{}')).not.toHaveProperty('segments');
   });
 });
+
+describe('runs.failures', () => {
+  it('GETs /v1/runs/failures with the project, the window and the grouping', async () => {
+    const groups = {
+      from: '2026-10-01T00:00:00.000Z',
+      to: '2026-10-08T00:00:00.000Z',
+      groups: [
+        {
+          code: 'budget-exceeded',
+          subject: { kind: 'agent', id: 'acme.refunds' },
+          version: '2.1.0',
+          count: 3,
+          firstSeen: '2026-10-01T09:00:00.000Z',
+          lastSeen: '2026-10-02T09:00:00.000Z',
+          exampleRunId: '00000000-0000-4000-8000-000000000009',
+        },
+      ],
+      outcomes: [],
+      unrecorded: [],
+      total: 3,
+    };
+    const stub = jsonFetch(groups);
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    const answer = await client.runs.failures({
+      projectId: 'p-1',
+      from: new Date('2026-10-01T00:00:00Z'),
+      to: '2026-10-08T00:00:00Z',
+      agentId: 'acme.refunds',
+      groupBy: ['code'],
+      limit: 20,
+    });
+    expect(answer).toEqual(groups);
+    const url = new URL(stub.calls[0]?.url ?? '');
+    expect(url.pathname).toBe('/v1/runs/failures');
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      projectId: 'p-1',
+      from: '2026-10-01T00:00:00.000Z',
+      to: '2026-10-08T00:00:00Z',
+      agentId: 'acme.refunds',
+      groupBy: 'code',
+      limit: '20',
+    });
+  });
+});

@@ -166,6 +166,12 @@ export interface ProjectPatch {
  */
 export type ProjectRole = 'viewer' | 'editor' | 'owner' | 'admin' | 'member';
 
+/**
+ * A role a team holds on a project: `viewer`, `editor` or `admin`. A team
+ * never owns one (`owner` is a person's), and `member` is retired.
+ */
+export type TeamProjectRole = Exclude<ProjectRole, 'owner' | 'member'>;
+
 export interface ProjectMembership {
   readonly projectId: ProjectId;
   readonly userId: UserId;

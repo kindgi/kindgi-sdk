@@ -275,6 +275,41 @@ describe('API — project memberships', () => {
       body: JSON.stringify({ userId: randomUUID(), role: 'bad' }),
     });
     expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { message: string } };
+    expect(body.error.message).toBe('`role` must be one of: viewer, editor, owner, admin');
+  });
+
+  test('`member` is retired: adding or changing to it is a 400 naming `viewer`, and changes nothing', async () => {
+    const { app } = makeApp();
+    const projectId = await createProject(app, TOKEN_A, { name: 'x', slug: 'x' });
+    const userId = randomUUID();
+    const send = (method: string, path: string, body: unknown) =>
+      app.request(`/v1/projects/${projectId}/memberships${path}`, {
+        method,
+        headers: { authorization: `Bearer ${TOKEN_A}`, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    const roles = async () => {
+      const res = await app.request(`/v1/projects/${projectId}/memberships`, {
+        headers: { authorization: `Bearer ${TOKEN_A}` },
+      });
+      return ((await res.json()) as { data: { role: string }[] }).data.map((m) => m.role);
+    };
+    const retired = {
+      code: 'bad-input',
+      message: "`member` isn't a project role: use `viewer`, which grants the same",
+    };
+
+    const add = await send('POST', '', { userId, role: 'member' });
+    expect(add.status).toBe(400);
+    expect(((await add.json()) as { error: unknown }).error).toMatchObject(retired);
+    expect(await roles()).toEqual([]);
+
+    expect((await send('POST', '', { userId, role: 'editor' })).status).toBe(201);
+    const change = await send('PATCH', `/${userId}`, { role: 'member' });
+    expect(change.status).toBe(400);
+    expect(((await change.json()) as { error: unknown }).error).toMatchObject(retired);
+    expect(await roles()).toEqual(['editor']);
   });
 });
 

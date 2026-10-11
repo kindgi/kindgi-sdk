@@ -5,7 +5,8 @@
  * Conversations and authorization (T243 A): reading one, its messages,
  * or the list needs `read` on its project (its agent, for one from
  * before projects); opening or closing one needs `execute` on its agent,
- * as starting a run does.
+ * as starting a run does; unregistering one (a tombstone the retention
+ * sweep then deletes) needs `write` on its project (or agent).
  */
 
 import { randomUUID } from 'node:crypto';
@@ -42,8 +43,10 @@ function conversation(projectId?: string): Conversation {
 }
 const inP = conversation(P);
 const legacy = conversation();
+const Q = randomUUID();
+const inQ = conversation(Q);
 
-function harness(grants: readonly string[]) {
+function harness(grants: readonly string[], { authzOn = true }: { authzOn?: boolean } = {}) {
   const asked: string[] = [];
   const decide = (action: Action, r: ResourceRef): Decision => {
     asked.push(`${action} ${r.type}:${r.id}`);
@@ -57,7 +60,7 @@ function harness(grants: readonly string[]) {
   const reached: string[] = [];
   const conversations = {
     getConversation: async (_t: TenantId, id: string) => {
-      const found = [inP, legacy].find((c) => c.id === id);
+      const found = [inP, legacy, inQ].find((c) => c.id === id);
       return found === undefined
         ? { kind: 'err', error: { code: 'conversation-not-found', message: 'x' } }
         : { kind: 'ok', value: found };
@@ -78,19 +81,25 @@ function harness(grants: readonly string[]) {
       reached.push('messages');
       return { kind: 'ok', value: [] };
     },
+    unregisterConversation: async (_t: TenantId, id: string) => {
+      reached.push(`unregister ${id}`);
+      return { kind: 'ok', value: [inP, legacy, inQ].find((c) => c.id === id) };
+    },
   } as unknown as ConversationBinding;
   const app = createApp({
     ...createStubAppBindings(),
     conversationBinding: conversations,
     resolveToken,
     runHandler: {} as RunHandlerBinding,
-    authz: {
-      fgaApiUrl: 'http://fga.invalid',
-      authzCheckBinding: {
-        check: async (_p, action, r) => decide(action, r),
-        checkBatch: async (_p, action, rs) => rs.map((r) => decide(action, r)),
-      } satisfies AuthzCheckBinding,
-    },
+    ...(authzOn && {
+      authz: {
+        fgaApiUrl: 'http://fga.invalid',
+        authzCheckBinding: {
+          check: async (_p, action, r) => decide(action, r),
+          checkBatch: async (_p, action, rs) => rs.map((r) => decide(action, r)),
+        } satisfies AuthzCheckBinding,
+      },
+    }),
   });
   const call = (method: string, path: string, body?: unknown) =>
     app.request(path, {
@@ -152,5 +161,56 @@ describe('opening or closing one needs execute on its agent', () => {
     });
     await call('POST', `/v1/conversations/${inP.id}/close`);
     expect(reached).toEqual(['open', 'close']);
+  });
+});
+
+describe('unregistering one needs write on its project (or agent)', () => {
+  test('refused 403 before the binding: no grant, read only (a viewer), or execute only', async () => {
+    for (const grants of [[], [`read project:${P}`], [`execute agent:${AGENT}`]]) {
+      const { call, asked, reached } = harness(grants);
+      expect((await call('POST', `/v1/conversations/${inP.id}/unregister`)).status).toBe(403);
+      expect(asked).toEqual([`write project:${P}`]);
+      expect(reached).toEqual([]);
+    }
+  });
+
+  test('with write on its project, through', async () => {
+    const { call, reached } = harness([`write project:${P}`]);
+    expect((await call('POST', `/v1/conversations/${inP.id}/unregister`)).status).toBe(200);
+    expect(reached).toEqual([`unregister ${inP.id}`]);
+  });
+
+  test("write on one project doesn't reach another project's conversation", async () => {
+    const { call, asked, reached } = harness([`write project:${P}`]);
+    expect((await call('POST', `/v1/conversations/${inQ.id}/unregister`)).status).toBe(403);
+    expect(asked).toEqual([`write project:${Q}`]);
+    expect(reached).toEqual([]);
+  });
+
+  test('one from before projects is checked on its agent', async () => {
+    const denied = harness([]);
+    expect((await denied.call('POST', `/v1/conversations/${legacy.id}/unregister`)).status).toBe(
+      403,
+    );
+    expect(denied.asked).toEqual([`write agent:${AGENT}`]);
+    const allowed = harness([`write agent:${AGENT}`]);
+    expect((await allowed.call('POST', `/v1/conversations/${legacy.id}/unregister`)).status).toBe(
+      200,
+    );
+    expect(allowed.reached).toEqual([`unregister ${legacy.id}`]);
+  });
+
+  test('with authorization off, as before: through, unchecked', async () => {
+    const { call, asked, reached } = harness([], { authzOn: false });
+    expect((await call('POST', `/v1/conversations/${inP.id}/unregister`)).status).toBe(200);
+    expect(asked).toEqual([]);
+    expect(reached).toEqual([`unregister ${inP.id}`]);
+  });
+
+  test('an unknown one answers 404 before any check, as reading one does', async () => {
+    const { call, asked, reached } = harness([`write project:${P}`]);
+    expect((await call('POST', `/v1/conversations/${randomUUID()}/unregister`)).status).toBe(404);
+    expect(asked).toEqual([]);
+    expect(reached).toEqual([]);
   });
 });

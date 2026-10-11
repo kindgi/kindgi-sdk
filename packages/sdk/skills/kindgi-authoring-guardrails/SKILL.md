@@ -15,7 +15,7 @@ description: >
   kindgi-authoring-agents.
 type: core
 library: "@kindgi/sdk"
-version: "0.3.6"
+version: "0.3.8"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -55,7 +55,11 @@ before the response is stored.
 - **Built-in checks** (`BUILT_IN_CHECK_IDS` in `@kindgi/guardrails`):
   `must-cite`, `never-call-tool`, `max-tool-calls`, `output-matches`,
   `tool-order`, `required-substring`, `forbidden-substring`. A guardrail
-  can name one of these instead of shipping its own check.
+  can name one of these (`check: 'forbidden-substring'`) instead of
+  shipping its own check, and the runtime runs the built-in. Their ids
+  are reserved: a pack that ships its own check under one is refused
+  (`reserved-check-id`), so name yours `<pack>.checks.<name>`. See
+  "Using a built-in check" below for each one's `config`.
 
 `@kindgi/sdk` exports `defineCheck` but no helper for the guardrail
 itself: a pack file default-exports the declaration as a plain object.
@@ -118,6 +122,46 @@ How the pack tooling reads this file:
   schema resolves: the schema's defaults applied (a guardrail that
   declares no config gets them all), and a config that doesn't fit
   refused, naming where.
+
+## Using a built-in check
+
+Name the built-in as the guardrail's `check`, give its `config`, and ship
+no check implementation:
+
+```ts
+// guardrails/no-guarantees/index.ts
+export default {
+  id: 'acme.no-guarantees',
+  name: 'Never promise a guarantee',
+  kind: 'zero-llm',
+  check: 'forbidden-substring',
+  config: { patterns: ['guaranteed', 'we promise'] },
+  action: { 'on-violation': 'halt' },
+  severity: 'error',
+};
+```
+
+Each built-in's `config` (tool lists hold tool ids, as in
+`acme.fetch-precedent`; a setting without `?` is required):
+
+| Check | Fails when | `config` |
+| --- | --- | --- |
+| `must-cite` | the answer is empty, or has fewer than `minCitations` matches of `sourcePattern` | `minCitations?: integer ≥ 1` (1), `sourcePattern?: string` (a regex; `[…]`-style citations by default) |
+| `never-call-tool` | the turn called any tool in `tools` | `tools: (string \| { id, version? })[]`, one or more |
+| `max-tool-calls` | the turn made more than `max` tool calls | `max?: integer ≥ 0` (10) |
+| `output-matches` | the answer doesn't match `pattern` (with `negate: true`, it does) | `pattern: string` (a regex), `flags?: string` (letters `dgimsuyv`), `negate?: boolean` |
+| `tool-order` | the tools in `sequence` weren't called in that order (others may come between) | `sequence: string[]`, one or more |
+| `required-substring` | the answer is empty, or lacks any of `patterns` | `patterns: string[]`, one or more non-empty (plain text), `caseSensitive?: boolean` (false) |
+| `forbidden-substring` | the answer contains any of `patterns` | `patterns: string[]`, one or more non-empty (plain text), `caseSensitive?: boolean` (false) |
+
+A config the check doesn't take is refused: a required setting left out,
+the wrong type, a setting the check doesn't know, or a regex that doesn't
+compile. Registering it answers `422 guardrail-config-invalid` (each
+problem in `details.issues`); deploying a pack with one fails with
+`deployment-validation-failed`; one that still reaches a turn is a check
+that can't run (`invalid-check-config`), so a `halt` guardrail stops the
+turn. Each built-in's JSON Schema is its registered check's
+`configSchema`.
 
 ## Validating a declaration in-process
 

@@ -19,6 +19,7 @@ import {
   stringFlag,
 } from './helpers.js';
 import {
+  type JournalEntry,
   RESUME_EXIT_CODES,
   type WaitingApproval,
   runWaitAnswer,
@@ -32,8 +33,23 @@ const RUNS_TABLE: TableSpec<RunPage, Run> = {
   columns: [
     { header: 'ID', get: (run) => String(run.id) },
     { header: 'STATUS', get: (run) => run.status },
-    { header: 'FLOW', get: (run) => run.flowId },
+    // An agent's run is the `agent.turn` flow: name the agent instead.
+    {
+      header: 'FLOW / AGENT',
+      get: (run) => (run.agent !== undefined ? `${run.agent.id}@${run.agent.version}` : run.flowId),
+    },
     { header: 'CREATED', get: (run) => String(run.createdAt) },
+  ],
+};
+
+/** `runs journal --table`: one row per entry; the payload stays in the JSON. */
+const JOURNAL_TABLE: TableSpec<{ readonly data: readonly unknown[] }, JournalEntry> = {
+  rows: (page) => page.data as readonly JournalEntry[],
+  columns: [
+    { header: 'SEQ', get: (entry) => String(entry.sequence) },
+    { header: 'KIND', get: (entry) => entry.kind },
+    { header: 'NODE', get: (entry) => entry.nodeId ?? '' },
+    { header: 'TIME', get: (entry) => entry.timestamp },
   ],
 };
 
@@ -151,21 +167,26 @@ const journal: LeafCommand = {
     },
   },
   run: (ctx) =>
-    runSdk(ctx, 'runs journal', async () => {
-      const runId = requiredPositional(ctx, 0, 'run-id') as RunId;
-      const since = stringFlag(ctx, 'since');
-      const cursor = stringFlag(ctx, 'cursor');
-      const limitStr = stringFlag(ctx, 'limit');
-      const limit = limitStr !== undefined ? Number.parseInt(limitStr, 10) : undefined;
-      if (limit !== undefined && Number.isNaN(limit)) {
-        throw new UsageError(`--limit must be an integer, got "${limitStr}"`);
-      }
-      return await ctx.client().runs.journal(runId, {
-        ...(since !== undefined && { since: since as never }),
-        ...(cursor !== undefined && { cursor: cursor as never }),
-        ...(limit !== undefined && { limit }),
-      });
-    }),
+    runSdk(
+      ctx,
+      'runs journal',
+      async () => {
+        const runId = requiredPositional(ctx, 0, 'run-id') as RunId;
+        const since = stringFlag(ctx, 'since');
+        const cursor = stringFlag(ctx, 'cursor');
+        const limitStr = stringFlag(ctx, 'limit');
+        const limit = limitStr !== undefined ? Number.parseInt(limitStr, 10) : undefined;
+        if (limit !== undefined && Number.isNaN(limit)) {
+          throw new UsageError(`--limit must be an integer, got "${limitStr}"`);
+        }
+        return await ctx.client().runs.journal(runId, {
+          ...(since !== undefined && { since: since as never }),
+          ...(cursor !== undefined && { cursor: cursor as never }),
+          ...(limit !== undefined && { limit }),
+        });
+      },
+      JOURNAL_TABLE,
+    ),
 };
 
 const stream: LeafCommand = {

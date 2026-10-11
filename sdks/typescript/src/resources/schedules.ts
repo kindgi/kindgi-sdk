@@ -50,6 +50,11 @@ export interface ListSchedulesFilter {
   readonly limit?: number;
   readonly cursor?: string;
   readonly status?: 'active' | 'paused';
+  /**
+   * Only this project's schedules. A runtime before 0.1.6 ignores it and
+   * lists every project's.
+   */
+  readonly projectId?: string;
 }
 
 export interface SchedulesClient {
@@ -160,6 +165,7 @@ export function makeSchedulesClient(transport: Transport): SchedulesClient {
           ...(filter?.limit !== undefined && { limit: filter.limit }),
           ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
           ...(filter?.status !== undefined && { status: filter.status }),
+          ...(filter?.projectId !== undefined && { projectId: filter.projectId }),
         },
       });
     },

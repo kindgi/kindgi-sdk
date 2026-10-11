@@ -58,7 +58,7 @@ use a real model, set one LLM provider's key and register its preset, with
 `kindgi dev` running, from another terminal. For Claude:
 
 ```sh
-./kindgiw secrets set ANTHROPIC_API_KEY --env=local --scope=tenant   # no-echo prompt; writes .env.local
+./kindgiw secrets set ANTHROPIC_API_KEY --env=local --scope=tenant   # no-echo prompt; writes .kindgi/secrets.env
 ./kindgiw providers register --preset=anthropic                      # Opus 5.5, Sonnet 5.5, Haiku 4.5
 ```
 

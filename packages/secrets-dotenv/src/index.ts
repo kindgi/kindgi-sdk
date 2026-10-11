@@ -15,8 +15,9 @@
  * See `pack-env.ts`. For `local` (the environment `kindgi dev` runs as)
  * the binding reads the project's own env files — `.env`, then
  * `.env.local` on top, overridable via `dev.envFiles` — the same files,
- * parsed the same way, as the application beside the pack. A key added
- * to `.env` by hand is a secret the pack can resolve; nothing needs to be
+ * parsed the same way, as the application beside the pack, and then
+ * Kindgi's own `.kindgi/secrets.env` on top of those. A key added to
+ * `.env` by hand is a secret the pack can resolve; nothing needs to be
  * copied anywhere. Other environments read `.env.<envName>`.
  *
  * ## Semantics
@@ -24,12 +25,17 @@
  *   - **Reads** (`list`, `get`, `resolve`, `getVersion`, `listVersions`):
  *     the merged, `${VAR}`-expanded view. `KINDGI_*` names are Kindgi
  *     runtime config and are invisible here. Version metadata is
- *     synthetic (`versionId: 1`) — dotenv files don't version.
- *   - **`set`**: writes the highest-precedence file (`.env.local` by
- *     default) via `@kindgi/dotenv-file`'s `setKey` — one line changes,
- *     every other byte stays. `create-new` returns `already-exists` when
- *     the name is defined in ANY of the files. Refuses `KINDGI_*` and the
- *     reserved `kindgi.` prefix. Files are written atomically, mode 0600.
+ *     synthetic (`versionId: 1`) — dotenv files don't version. A file
+ *     that exists but can't be read is left out, and a `resolve` that
+ *     misses says which.
+ *   - **`set`**: for `local`, writes Kindgi's `.kindgi/secrets.env`, a
+ *     file the application doesn't load; with `appEnvFile`, the app's
+ *     highest-precedence file (`.env.local` by default) instead, for a
+ *     value the app reads too. Either way via `@kindgi/dotenv-file`'s
+ *     `setKey` — one line changes, every other byte stays. `create-new`
+ *     returns `already-exists` when the name is defined in ANY of the
+ *     files. Refuses `KINDGI_*` and the reserved `kindgi.` prefix. Kindgi's
+ *     file is written atomically, mode 0600; an app file keeps its mode.
  *   - **`rotate` / `revoke`**: not supported — the answer is "edit the
  *     env file", and the error says which files.
  *   - **Scope-blind**: dotenv files are flat, so the `Scope` on every
@@ -43,8 +49,6 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { chmod, mkdir, rename, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
 
 import type {
   SecretBinding,
@@ -72,21 +76,33 @@ import type { Result } from '@kindgi/types';
 
 import {
   type PackEnv,
+  describeUnreadable,
   displayEnvPath,
   isRuntimeKey,
   packValues,
   readFileOrNull,
   readPackEnv,
 } from './pack-env.js';
+import { SECRETS_FILE_MODE, existingMode, writeAtomic } from './write-file.js';
 
 export {
+  type CopiedName,
+  type CopyToKindgiFileInput,
+  type CopyToKindgiFileResult,
+  copyToKindgiFile,
+  namesInAppFiles,
+} from './copy.js';
+export {
   DEFAULT_LOCAL_ENV_FILES,
+  KINDGI_SECRETS_FILE,
   LOCAL_ENV_NAME,
   type PackEnv,
   type PackEnvFiles,
   type PackEnvFilesInput,
   RUNTIME_KEY_PREFIX,
   type ReadPackEnvInput,
+  type UnreadableEnvFile,
+  describeUnreadable,
   displayEnvPath,
   isRuntimeKey,
   packValues,
@@ -111,8 +127,6 @@ export interface CreateDotenvSecretBindingOptions {
    */
   readonly env?: Readonly<Record<string, string | undefined>>;
 }
-
-const FILE_MODE = 0o600;
 
 export function createDotenvSecretBinding(
   options: CreateDotenvSecretBindingOptions,
@@ -158,11 +172,15 @@ export function createDotenvSecretBinding(
     const env = await load(input.envName);
     const secrets = packValues(env.values);
     if (!Object.hasOwn(secrets, input.name)) {
+      const unread =
+        env.unreadable.length > 0
+          ? ` (couldn't read ${describeUnreadable(packDir, env.unreadable)})`
+          : '';
       return {
         kind: 'err',
         error: {
           code: 'secret-not-found',
-          message: `No secret "${input.name}" for env "${input.envName as unknown as string}" in ${filesLabel(env)} at ${packDir}`,
+          message: `No secret "${input.name}" for env "${input.envName as unknown as string}" in ${filesLabel(env)} at ${packDir}${unread}`,
           name: input.name,
         },
       };
@@ -203,7 +221,9 @@ export function createDotenvSecretBinding(
       return { kind: 'already-exists', record: toRecord(input) };
     }
 
-    const failure = await writeKey(env.files.write, input.name, input.value);
+    const toApp = input.appEnvFile === true;
+    const target = toApp ? env.files.appWrite : env.files.write;
+    const failure = await writeKey(target, input.name, input.value, toApp);
     if (failure !== undefined) return storeError(failure);
 
     // Authorization-tuple hook (`enqueueTuples`) — invoked ONLY on fresh
@@ -215,8 +235,16 @@ export function createDotenvSecretBinding(
     return { kind: 'ok', record: toRecord(input), versionId: 1 };
   }
 
-  /** `setKey` into `file` and write it back atomically; the error message on failure. */
-  async function writeKey(file: string, name: string, value: string): Promise<string | undefined> {
+  /**
+   * `setKey` into `file` and write it back atomically; the error message on
+   * failure. An app's file keeps its mode (it's the app's); Kindgi's is 0600.
+   */
+  async function writeKey(
+    file: string,
+    name: string,
+    value: string,
+    keepMode: boolean,
+  ): Promise<string | undefined> {
     const label = displayEnvPath(packDir, file);
     let contents: string;
     try {
@@ -226,7 +254,7 @@ export function createDotenvSecretBinding(
       return `Failed to read ${label}: ${(err as Error).message}`;
     }
     try {
-      await writeAtomic(file, contents);
+      await writeAtomic(file, contents, keepMode ? await existingMode(file) : SECRETS_FILE_MODE);
       return undefined;
     } catch (err) {
       return `Failed to write ${label}: ${(err as Error).message}`;
@@ -259,7 +287,17 @@ export function createDotenvSecretBinding(
     };
   }
 
-  return { list, get, resolve, getVersion, listVersions, set, rotate, revoke };
+  return {
+    list,
+    get,
+    resolve,
+    getVersion,
+    listVersions,
+    set,
+    rotate,
+    revoke,
+    writesAppEnvFiles: true,
+  };
 }
 
 // ---------------------------------------------------------------------
@@ -312,13 +350,4 @@ function toVersion(input: {
     value: null,
     createdAt: new Date(0).toISOString(),
   };
-}
-
-/** Write-tmp + rename, mode 0600 (chmod again: rename can keep a looser mode). */
-async function writeAtomic(target: string, contents: string): Promise<void> {
-  await mkdir(dirname(target), { recursive: true });
-  const tmp = `${target}.${process.pid}.${Date.now()}.tmp`;
-  await writeFile(tmp, contents, { mode: FILE_MODE });
-  await rename(tmp, target);
-  await chmod(target, FILE_MODE);
 }

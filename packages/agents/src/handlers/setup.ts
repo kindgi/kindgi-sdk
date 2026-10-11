@@ -11,7 +11,7 @@ import { emitTurnEvent } from '../streaming.js';
 
 import type { TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
-import { SESSION_GATE_SUBJECT, readGateDecision } from './gate-decision.js';
+import { SESSION_GATE_SUBJECT, readGateDecision, withdrawnGateFailure } from './gate-decision.js';
 import { followReplaySessionGate } from './replay.js';
 import { writeRunSnapshot } from './run-snapshot.js';
 import {
@@ -261,11 +261,13 @@ export function buildSetupHandler(ctx: TurnContext): NodeHandler {
               kind: 'resumed-from',
             });
           }
-          throwAgentTurnFailure({
-            code: 'hitl-cancelled',
-            message: `Session-HITL gate cancelled: ${cause.reason}`,
-            reason: cause.reason,
-          } as never);
+          throwAgentTurnFailure(
+            (withdrawnGateFailure(cause.reason, 'the session-HITL gate') ?? {
+              code: 'hitl-cancelled',
+              message: `Session-HITL gate cancelled: ${cause.reason}`,
+              reason: cause.reason,
+            }) as never,
+          );
         }
         // SuspensionSignal or anything else — let it propagate. The
         // kernel executor's dispatch catch handles SuspensionSignal by

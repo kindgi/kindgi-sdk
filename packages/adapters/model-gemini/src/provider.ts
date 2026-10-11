@@ -21,6 +21,7 @@ import type {
 } from '@kindgi/capabilities';
 import { adapterConfigError, samplingFor } from '@kindgi/capabilities';
 import { createAttemptCounter } from '@kindgi/capabilities/attempts';
+import { headerValueProblem } from '@kindgi/types';
 
 import { type GeminiModelInfo, computeCostUsd, toFrameworkUsage } from './cost.js';
 import { fromGeminiResponse, toGeminiFunctions, toGeminiRequest } from './translate.js';
@@ -101,6 +102,14 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
       if (key.trim() === '') {
         throw new Error(
           `${GEMINI_ADAPTER_ID}: provider "${metadata.id}"'s Gemini API key is empty.`,
+        );
+      }
+      // Checked before the SDK sends it: fetch's own error for a key it can't
+      // send (a line break inside) quotes the key, into the call's failure.
+      const problem = headerValueProblem(key);
+      if (problem !== undefined) {
+        throw new Error(
+          `${GEMINI_ADAPTER_ID}: provider "${metadata.id}": its API key has ${problem}, which a header can't carry: store the secret without it`,
         );
       }
       if (cached?.key === key) return cached.client;

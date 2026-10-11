@@ -402,6 +402,6 @@ class PackServiceTest {
         .anySatisfy(p -> assertThat(p).contains("MAX_CONCURRENCY"))
         .anySatisfy(p -> assertThat(p).contains("KINDGI_PACK_ENV_CHECK"));
     Object ok = Serve.readConfig(List.of(), Map.of("KINDGI_PACK_SERVICE_TOKEN", " x \n", "PORT", "0"), null);
-    assertThat(ok).isEqualTo(new Serve.Config(Path.of("/app/index.json"), "x", 0, null, 32, "strict"));
+    assertThat(ok).isEqualTo(new Serve.Config(Path.of("/app/index.json"), "x", 0, null, 32, "strict", "on"));
   }
 }

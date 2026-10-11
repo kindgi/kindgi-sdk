@@ -157,6 +157,7 @@ function evalRunFake(agents: AgentRegistryBinding) {
         suiteVersion: '1.0.0',
         kind: 'judged',
         ...(input.agentRef !== undefined && { agentRef: input.agentRef }),
+        ...(input.comparison !== undefined && { comparison: input.comparison }),
         status: 'running',
         dryRun: false,
         startedAt: NOW,
@@ -822,6 +823,88 @@ describe('POST /v1/proposals/:id/evaluate', () => {
   });
 });
 
+describe('POST /v1/proposals/:id/rescore', () => {
+  test("after people judge the new answers: the same replays scored again become the proposal's evaluation", async () => {
+    const { call, id, evalRuns } = await drafted();
+    const first = await call('POST', `/v1/proposals/${id}/evaluate`, {
+      suiteId: 'acme.scoring-judged',
+      repetitions: 3,
+    });
+    const firstRunId = first.body.evaluation.evalRunId as string;
+    // Every answer changed, so nothing measured the candidate.
+    await evalRuns.finish(firstRunId, { delta: null });
+    expect((await call('GET', `/v1/proposals/${id}`)).body.status).toBe('not-better');
+
+    const res = await call('POST', `/v1/proposals/${id}/rescore`);
+    expect(res.status, JSON.stringify(res.body)).toBe(202);
+    expect(res.body.status).toBe('evaluating');
+    const rescoreRunId = res.body.evaluation.evalRunId as string;
+    expect(rescoreRunId).not.toBe(firstRunId);
+    expect(res.body.evaluation).toMatchObject({
+      suiteId: 'acme.scoring-judged',
+      objective: 'weightedYesShare',
+    });
+    expect(evalRuns.started[1]).toEqual({
+      tenantId,
+      projectId,
+      suiteId: 'acme.scoring-judged',
+      suiteVersion: '1.0.0',
+      agentRef: { agentId: AGENT, version: '1.0.1' },
+      correlationId: `proposal:${id}`,
+      comparison: expect.objectContaining({ repetitions: 3, rescoreOf: firstRunId }),
+    });
+
+    await evalRuns.finish(rescoreRunId, { delta: 0.2 });
+    expect((await call('GET', `/v1/proposals/${id}`)).body.status).toBe('evaluated');
+    // The run rescored stays as it was.
+    expect(evalRuns.runs.get(firstRunId)?.result).toMatchObject({
+      summary: { metrics: { weightedYesShare: { delta: null } } },
+    });
+  });
+
+  test('only after a completed evaluation: a draft, an evaluating or a failed one is 409', async () => {
+    const { call, id, evalRuns } = await drafted();
+    const draft = await call('POST', `/v1/proposals/${id}/rescore`);
+    expect(draft.status).toBe(409);
+    expect(draft.body.error).toMatchObject({
+      code: 'proposal-invalid-state-transition',
+      details: { status: 'draft' },
+    });
+    const started = await call('POST', `/v1/proposals/${id}/evaluate`, {
+      suiteId: 'acme.scoring-judged',
+    });
+    const evaluating = await call('POST', `/v1/proposals/${id}/rescore`);
+    expect(evaluating.body.error).toMatchObject({ details: { status: 'evaluating' } });
+    await evalRuns.finish(started.body.evaluation.evalRunId, 'failed');
+    const failed = await call('POST', `/v1/proposals/${id}/rescore`);
+    expect(failed.status).toBe(409);
+    expect(failed.body.error).toMatchObject({ details: { status: 'evaluation-failed' } });
+    expect(evalRuns.started).toHaveLength(1);
+  });
+
+  test('a latest evaluation that is no comparison of a test set is 409 eval-run-not-rescorable', async () => {
+    const h = await evaluated(0.1);
+    const proposal = await h.call('GET', `/v1/proposals/${h.id}`);
+    const runId = proposal.body.evaluation.evalRunId as string;
+    const run = h.evalRuns.runs.get(runId);
+    if (run === undefined) throw new Error('no run');
+    h.evalRuns.runs.set(runId, { ...run, kind: 'accuracy' });
+    const res = await h.call('POST', `/v1/proposals/${h.id}/rescore`);
+    expect(res.status).toBe(409);
+    expect(res.body.error).toMatchObject({ code: 'eval-run-not-rescorable' });
+  });
+
+  test('it takes no fields: the test set and settings are the latest evaluation’s (400)', async () => {
+    const h = await evaluated(0);
+    const res = await h.call('POST', `/v1/proposals/${h.id}/rescore`, {
+      suiteId: 'acme.other',
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error.message).toContain('`suiteId`');
+    expect(h.evalRuns.started).toHaveLength(1);
+  });
+});
+
 describe('POST /v1/proposals/:id/request', () => {
   test('a draft cannot be requested (409)', async () => {
     const { call, id } = await drafted();
@@ -1017,6 +1100,20 @@ describe('authorization on the agent', () => {
     const request = await h.call('POST', `/v1/proposals/${h.id}/request`, {});
     expect(request.status).toBe(403);
     expect(request.body.error.message).toContain('promote');
+  });
+
+  test('rescoring needs publish, as evaluating does', async () => {
+    const grants = [`read agent:${AGENT}`, `publish agent:${AGENT}`];
+    const h = await drafted({ grants });
+    const started = await h.call('POST', `/v1/proposals/${h.id}/evaluate`, {
+      suiteId: 'acme.scoring-judged',
+    });
+    await h.evalRuns.finish(started.body.evaluation.evalRunId, { delta: 0 });
+    grants.pop(); // read only, from here on
+    const res = await h.call('POST', `/v1/proposals/${h.id}/rescore`);
+    expect(res.status).toBe(403);
+    expect(res.body.error.message).toContain('publish');
+    expect(h.evalRuns.started).toHaveLength(1);
   });
 });
 

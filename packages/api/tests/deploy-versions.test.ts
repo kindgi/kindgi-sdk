@@ -50,3 +50,29 @@ describe('deployVersion reuses a version an edit derived', () => {
     expect(published).toEqual([]);
   });
 });
+
+describe('deployVersion reads what the registry sets as no part of the definition', () => {
+  test('a version read back with its project is unchanged', async () => {
+    const published: Def[] = [];
+    const outcome = await deployVersion<Def>({
+      label: 'agent "acme.intake"',
+      definition,
+      pins: before,
+      pinsDigest: pinsDigest(before),
+      existing: [
+        {
+          ...definition,
+          pins: before,
+          pinsDigest: pinsDigest(before),
+          projectId: '6f1c2d4e-0000-4000-8000-000000000001',
+        },
+      ],
+      publish: async (version) => {
+        published.push(version);
+        return 'ok';
+      },
+    });
+    expect(outcome).toEqual({ kind: 'unchanged', version: '1.0.0' });
+    expect(published).toEqual([]);
+  });
+});
