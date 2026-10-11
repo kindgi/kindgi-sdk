@@ -314,6 +314,12 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // `POST /v1/auth/refresh` with a browser session (cookie): refused, so a
   // fresh session token never reaches page scripts.
   'cookie-session-not-refreshable': 400,
+  // `POST /v1/auth/refresh` with a session limited to a project or a role:
+  // refused, so no copy of it can come back without its limits.
+  'limited-session-not-refreshable': 400,
+  // `POST /v1/tokens` by a session limited to a project: a key would
+  // outlive whatever ends the session.
+  'limited-session-cannot-mint': 403,
   // `POST /v1/auth/token-sign-in` signed in by a session (a cookie or a
   // session token) rather than an API token: there's nothing to exchange.
   'token-sign-in-needs-an-api-token': 400,

@@ -8223,11 +8223,12 @@ export const WhoamiResultSchema: JsonSchema = {
     tokenId: { type: 'string', description: "The caller's API key, when it is one." },
     role: {
       ...ApiTokenRoleSchema,
-      description: "The caller's API key role, when the key has one.",
+      description:
+        "The caller's API key role, when the key has one, or its session's role ceiling.",
     },
     projectId: {
       type: 'string',
-      description: "The project the caller's API key is limited to, when it is.",
+      description: "The project the caller's API key or session is limited to, when it is.",
     },
     tenantAdmin: {
       type: 'boolean',

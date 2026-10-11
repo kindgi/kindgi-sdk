@@ -221,6 +221,17 @@ async function mintRefusal(
     });
   }
   const narrowedTo = c.get('tokenProjectId');
+  if (narrowedTo !== undefined && c.get('sessionId') !== undefined) {
+    // A session limited to a project mints no keys: a key would outlive
+    // whatever ends the session (its 15 minutes, a revoked site).
+    return refuse({
+      action: 'admin',
+      resource: tenant,
+      message: `This session is limited to project ${narrowedTo}, and a session limited to a project mints no keys`,
+      failing: 'scope',
+      code: 'limited-session-cannot-mint',
+    });
+  }
   if (narrowedTo !== undefined && body.projectId !== (narrowedTo as unknown as ProjectId)) {
     return refuse({
       action: 'admin',

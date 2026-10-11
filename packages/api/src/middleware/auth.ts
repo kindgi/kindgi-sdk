@@ -487,6 +487,12 @@ async function resolveSessionToken(
     scopes: session.scopes,
     expiresAt: new Date(session.expiresAt as unknown as string),
     revoked: session.revokedAt !== undefined,
+    // A session's limits are read exactly as a key's (`keyCeilingDeny`,
+    // `refuseOtherProjectForKey`, `inKeyProject`).
+    ...(session.projectId !== undefined && {
+      tokenProjectId: session.projectId as unknown as string,
+    }),
+    ...(session.role !== undefined && { tokenRole: session.role }),
     ...(session.rotatedAt !== undefined && { rotated: true }),
     ...(session.lastActiveAt !== undefined && {
       lastActiveAt: new Date(session.lastActiveAt as unknown as string),
