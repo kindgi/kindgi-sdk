@@ -38,8 +38,8 @@ const weatherOutput: JsonSchema = {
 };
 
 /**
- * Valid JSON Schema that Ajv's strict mode refuses: a union type and an
- * open tuple, as zod (`z.union`, `z.tuple`) writes them.
+ * Valid JSON Schema as an MCP server sends it: a union type, and an open tuple, which Ajv's
+ * strict mode refuses on a pack's own tool (a union of types it takes).
  */
 const looseInput: JsonSchema = {
   type: 'object',
@@ -134,19 +134,44 @@ describe('a pack’s own tools are Draft 2020-12, in strict mode', () => {
     }
   });
 
-  test('a loosely written 2020-12 schema is refused by strict mode', () => {
+  test('a loosely written 2020-12 schema is refused by strict mode, with the way out', () => {
     const { $schema: _draft07, ...loose2020 } = looseInput;
+    // A tuple left open (no `items` after `prefixItems`, no `minItems`): strict mode's lint.
     const prefixed = {
       ...loose2020,
       properties: {
-        id: { type: ['string', 'number'] },
         point: { type: 'array', prefixItems: [{ type: 'number' }, { type: 'number' }] },
       },
     };
     for (const [label, candidate] of packTools({ input: prefixed })) {
       const r = defineTool(candidate);
       expect(r.kind === 'err' && r.error.code, label).toBe('invalid-schema');
-      if (r.kind === 'err') expect(r.error.message).toMatch(/strict mode/);
+      if (r.kind === 'err') {
+        expect(r.error.message).toMatch(/strict mode/);
+        expect(r.error.message).toContain('`z.json()` (or `{}` in JSON Schema) compiles');
+      }
+    }
+  });
+
+  test('a union of types is standard JSON Schema: it compiles on a pack’s own tool', async () => {
+    const { $schema: _draft07, ...loose2020 } = looseInput;
+    const union = {
+      ...loose2020,
+      properties: { id: { type: ['string', 'number'] } },
+      required: ['id'],
+    };
+    const { $schema: _out07, ...output2020 } = weatherOutput;
+    for (const [label, candidate] of packTools({ input: union, output: output2020 })) {
+      const r = defineTool(candidate);
+      expect(r.kind, label).toBe('ok');
+      if (r.kind !== 'ok') continue;
+      const ok = await invokeTool(r.value, { id: 'a-1' }, ctx);
+      expect(ok.kind === 'err' && ok.error.code, label).not.toBe('input-validation-failed');
+      const bad = await invokeTool(r.value, { id: [1] }, ctx);
+      expect(bad.kind === 'err' && bad.error.code, label).toBe('input-validation-failed');
+      // As the API checks a registration (`POST /v1/tools`).
+      const { handler: _handler, ...manifest } = candidate;
+      expect(validateToolManifest(manifest).kind, label).toBe('ok');
     }
   });
 

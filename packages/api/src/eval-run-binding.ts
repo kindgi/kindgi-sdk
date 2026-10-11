@@ -117,6 +117,8 @@ export interface EvalRun {
   readonly correlationId?: string;
   /** A comparison eval run's baseline, reads and repetitions. */
   readonly comparison?: EvalComparison;
+  /** The project the run belongs to. Absent from a runtime that doesn't say. */
+  readonly projectId?: ProjectId;
 }
 
 export interface EvalRunFilter {
@@ -182,6 +184,13 @@ export interface EvalComparison {
   readonly overrides?: EvalOverrides;
   /** Only part of the test set's cases (absent: all of them). */
   readonly sample?: EvalSample;
+  /**
+   * Rescore that comparison eval run instead of replaying: its replays'
+   * outputs are scored again, with the judgments recorded on them since
+   * (a changed answer judged on the replay itself). Nothing runs; the run
+   * rescored stays as it was. Same suite version, candidate and sample.
+   */
+  readonly rescoreOf?: string;
 }
 
 /** Block content that replaces a version's pinned content: settings values and prompt templates, by block id. */
@@ -216,6 +225,11 @@ export interface EvalRunStartInput {
    */
   readonly projectId: ProjectId;
   readonly suiteId: string;
+  /**
+   * The suite version to run (absent: the latest). A rescore names the
+   * version the run it rescores ran, so the cases are the same.
+   */
+  readonly suiteVersion?: string;
   readonly agentRef?: AgentRef;
   readonly flowRef?: FlowRef;
   readonly dryRun?: boolean;

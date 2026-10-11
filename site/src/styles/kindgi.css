@@ -5,7 +5,8 @@
    white cards and code with soft shadows.
    Both: IBM Plex Serif headings and site title, 6px corners, and asides in
    the same roles (note blue, tip green, caution honey, danger red).
-   Fonts: IBM Plex Sans for text, IBM Plex Mono for code. */
+   Fonts: IBM Plex Sans for text, IBM Plex Mono for code, served from the site
+   itself (Fontsource, in astro.config.mjs's customCss). */
 
 :root {
   --sl-font: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;

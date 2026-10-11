@@ -171,6 +171,11 @@ export type TeamMembershipAddOutcome =
   | {
       /** No team with this id in the tenant. */
       readonly kind: 'team-not-found';
+    }
+  | {
+      /** The person is a member already, with another role (kept: change it with `updateRole`). */
+      readonly kind: 'membership-exists';
+      readonly role: TeamRole;
     };
 
 /** What `TeamMembershipBinding.updateRole` did. */

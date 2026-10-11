@@ -30,14 +30,13 @@ import type { LoadedClassifier } from '@kindgi/compliance';
 import {
   createEd25519ExportSigner,
   createExportSignerFromPem,
-  createInMemorySigningKeyBinding,
   generateEd25519KeyPair,
   parsePublicKeyPem,
   verifyEd25519,
 } from '@kindgi/crypto';
 import type { ExportSigningBinding } from '@kindgi/crypto';
 import { compileInlineSchema } from '@kindgi/schema';
-import type { SigningKeyId, TenantId, UserId } from '@kindgi/types';
+import type { TenantId, UserId } from '@kindgi/types';
 import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
@@ -297,28 +296,6 @@ describe('GET /v1/export-signing-keys', () => {
     expect((await harness({ exportSigning: false }).get('/v1/export-signing-keys')).json).toEqual({
       data: [],
     });
-  });
-});
-
-describe('the deprecated signingKey binding', () => {
-  test('still signs, under its own key ids', async () => {
-    const pair = generateEd25519KeyPair();
-    const app = createApp({
-      ...createStubAppBindings(),
-      resolveToken,
-      runHandler: {} as RunHandlerBinding,
-      provenanceBinding,
-      signingKey: createInMemorySigningKeyBinding([
-        { keyId: 'legacy-key' as SigningKeyId, algorithm: 'ed25519', ...pair },
-      ]),
-    });
-    const res = await app.request(`/v1/provenance/${runId}/export`, {
-      method: 'POST',
-      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
-      body: JSON.stringify({ signingKeyId: 'legacy-key' }),
-    });
-    expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({ signingKeyId: 'legacy-key', kind: 'provenance' });
   });
 });
 

@@ -336,10 +336,14 @@ export function createInProcessEvalRunBinding(
 
   return {
     async start(input: EvalRunStartInput): Promise<EvalRunStartOutcome> {
-      const suite = await options.suiteRegistry.get({
-        tenantId: input.tenantId,
-        suiteId: input.suiteId,
-      });
+      const suite =
+        input.suiteVersion === undefined
+          ? await options.suiteRegistry.get({ tenantId: input.tenantId, suiteId: input.suiteId })
+          : await options.suiteRegistry.getVersion({
+              tenantId: input.tenantId,
+              suiteId: input.suiteId,
+              version: input.suiteVersion,
+            });
       if (suite === null) {
         return { kind: 'suite-not-found', suiteId: input.suiteId };
       }
@@ -537,6 +541,7 @@ function newRunRecord(input: EvalRunStartInput, suite: EvalSuite, runId: RunId, 
     startedAt: at.toISOString() as unknown as Timestamp,
     ...(input.correlationId !== undefined && { correlationId: input.correlationId }),
     ...(input.comparison !== undefined && { comparison: input.comparison }),
+    projectId: input.projectId,
   };
 }
 

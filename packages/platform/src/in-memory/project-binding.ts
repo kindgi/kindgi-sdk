@@ -248,7 +248,13 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
         return { kind: 'project-not-found' };
       }
       const key = projMembershipKey(input.projectId, input.userId);
-      if (membershipRows.has(key)) return { kind: 'ok' };
+      const held = membershipRows.get(key);
+      if (held !== undefined) {
+        // A member keeps the role they hold: a change is `updateRole`.
+        return held.role === input.role
+          ? { kind: 'ok' }
+          : { kind: 'membership-exists', role: held.role };
+      }
       const row: ProjectMembership = {
         projectId: input.projectId,
         userId: input.userId,
@@ -324,9 +330,15 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
         teamId: input.teamId,
         projectId: input.projectId,
         role: input.role,
+        grantedAt: nowTimestamp(),
       };
       grantRows.set(key, row);
       grantOrder.push(key);
+    },
+
+    async get(tenantId, teamId, projectId): Promise<TeamProjectGrant | undefined> {
+      if (findProjectInTenant(tenantId, projectId) === undefined) return undefined;
+      return grantRows.get(grantKey(teamId, projectId));
     },
 
     async remove(tenantId, teamId, projectId): Promise<void> {

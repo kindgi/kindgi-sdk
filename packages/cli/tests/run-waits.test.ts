@@ -258,3 +258,54 @@ test('the journal is read page by page, from the sequence after the last', async
   expect(p.sinces).toEqual([undefined, 2]);
   expect(answer.kind).toBe('approval');
 });
+
+describe('a runtime that answers it with the run (`waitingFor`, 0.1.6 on): used as it is', () => {
+  function withWaitingFor(
+    waitingFor: NonNullable<Awaited<ReturnType<RunWaitPort['getRun']>>['waitingFor']>,
+  ) {
+    const base = port({ runs: { r1: 'suspended' } });
+    return {
+      ...base,
+      getRun: async (id: string) => ({ id, status: 'suspended', waitingFor }),
+    } satisfies RunWaitPort;
+  }
+
+  test('an approval holding a tool call: named, with the call and the command; nothing else is read', async () => {
+    const p = withWaitingFor({
+      approvals: [
+        {
+          approvalId: 'ap-9',
+          status: 'pending',
+          requiredRole: 'senior',
+          title: 'Refund order 7',
+          tool: { id: 'acme.refund', version: '1.0.0', callId: 'call_1' },
+        },
+      ],
+      other: [],
+    });
+    const answer = await runWaitAnswer(p, 'r1');
+    expect(answer.kind).toBe('approval');
+    expect(p.sinces).toEqual([]);
+    expect(p.asked).toEqual([]);
+    expect(runWaitText(answer)).toBe(
+      'Run r1 waits for approval ap-9 ("Refund order 7"), holding call call_1 to acme.refund@1.0.0, for a senior reviewer or above. It continues once the approval is decided: kindgi approvals complete ap-9 --decision=approve (or --decision=reject).\n',
+    );
+    expect(RESUME_EXIT_CODES[answer.kind]).toBe(3);
+  });
+
+  test('only other waits: the runtime answer, in the same words', async () => {
+    const p = withWaitingFor({
+      approvals: [],
+      other: [{ what: 'child-run', childRunId: 'c2', childStatus: 'running' }],
+    });
+    const answer = await runWaitAnswer(p, 'r1');
+    expect(answer).toEqual({
+      kind: 'runtime',
+      runId: 'r1',
+      status: 'suspended',
+      waits: [{ what: 'child-run', childRunId: 'c2', childStatus: 'running' }],
+    });
+    expect(p.sinces).toEqual([]);
+    expect(RESUME_EXIT_CODES[answer.kind]).toBe(4);
+  });
+});

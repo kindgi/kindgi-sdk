@@ -172,9 +172,12 @@ export function makeInMemoryTeamBinding(options: InMemoryHierarchyOptions = {}):
         return { kind: 'team-not-found' };
       }
       const key = membershipKey(input.teamId, input.userId);
-      if (membershipRows.has(key)) {
-        // Idempotent — role mutation goes through updateRole.
-        return { kind: 'ok' };
+      const held = membershipRows.get(key);
+      if (held !== undefined) {
+        // A member keeps the role they hold: a change is `updateRole`.
+        return held.role === input.role
+          ? { kind: 'ok' }
+          : { kind: 'membership-exists', role: held.role };
       }
       const row: TeamMembership = {
         teamId: input.teamId,

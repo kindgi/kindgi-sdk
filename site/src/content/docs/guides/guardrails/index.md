@@ -18,6 +18,8 @@ is stored.
   with, and their schema.
 - [Stop a turn or record a violation](halt-or-record/): `halt` versus
   `log-only`, severity, and which agents a guardrail covers.
+- [Use a built-in check](use-a-built-in-check/): name one of Kindgi's seven
+  checks instead of writing your own, and the settings each reads.
 
 The examples use the quickstarts' pack, `my-pack`, whose agent answers with
 `dev-echo` until you connect a model.

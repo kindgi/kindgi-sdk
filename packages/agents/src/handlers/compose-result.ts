@@ -8,6 +8,7 @@ import type { AgentTurnResult, AgentTurnUsage, AgentTurnWarning } from './result
 
 import type { TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
+import { turnParticipantId } from './remember-tool.js';
 import { replayReport } from './replay.js';
 import { parseJsonAnswer } from './structured-output.js';
 
@@ -30,7 +31,25 @@ function turnWarnings(
     });
   }
   for (const [code, message] of ctx.modelWarnings ?? []) warnings.push({ code, message });
+  const memory = needsParticipant(ctx);
+  if (memory !== undefined) warnings.push(memory);
   return warnings.length > 0 ? { warnings } : {};
+}
+
+/**
+ * Same-user memory (a retrieval or `remember` scoped to the end user) in a
+ * run that names no end user: none was read or kept. Say how to fix it.
+ */
+function needsParticipant(ctx: TurnContext): AgentTurnWarning | undefined {
+  const agent = ctx.input.agent;
+  const sameUser =
+    agent.retrieval.some((i) => i.scope === 'same-user') ||
+    agent.memory?.remember?.scope === 'same-user';
+  if (!sameUser || turnParticipantId(ctx) !== undefined) return undefined;
+  return {
+    code: 'memory-needs-participant',
+    message: `Agent "${agent.id}" keeps memory per end user, but this run names none (\`participantId\`), so it read and kept none. Pass the person's \`participantId\` on each run: the user a credential acts for may serve many people.`,
+  };
 }
 
 /**

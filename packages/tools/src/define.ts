@@ -2,6 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import {
+  compileInlineSchema,
   compileJsonSchema,
   createSpecRegistry,
   isZodSchema,
@@ -68,6 +69,16 @@ function resolveZodConverterSync(): ZodConverter | undefined {
 }
 
 /**
+ * For a schema Ajv's strict mode refuses (an authoring lint, not invalid JSON Schema), the way
+ * out for a value of any JSON shape. Empty for other failures.
+ */
+function strictHint(cause: unknown): string {
+  return cause instanceof Error && /strict mode/.test(cause.message)
+    ? '. For a field that may hold any JSON value, `z.json()` (or `{}` in JSON Schema) compiles.'
+    : '';
+}
+
+/**
  * Sanity-check that a candidate JSON Schema compiles as the tool's
  * schemas do (`schemaOptions`): a pack's own tool's as Draft 2020-12 in
  * Ajv's strict mode, an MCP server's in the dialect it declares.
@@ -83,7 +94,7 @@ function compilesAsSchema(
   } catch (cause) {
     return {
       code: 'invalid-schema',
-      message: `Tool ${where} schema does not compile: ${cause instanceof Error ? cause.message : String(cause)}`,
+      message: `Tool ${where} schema does not compile: ${cause instanceof Error ? cause.message : String(cause)}${strictHint(cause)}`,
       where,
       cause,
     };
@@ -400,6 +411,8 @@ function finalizeDefinition<
   if (badInput) return { kind: 'err', error: badInput };
   const badOutput = compilesAsSchema(manifest.output, 'output', manifest);
   if (badOutput) return { kind: 'err', error: badOutput };
+  const badNeeds = needsSpecProblem(manifest);
+  if (badNeeds) return { kind: 'err', error: badNeeds };
 
   const tool = {
     ...wireSpec,
@@ -429,6 +442,42 @@ function toDefinitionError(err: {
     };
   });
   return { code: 'invalid-tool-definition', message: err.message, issues };
+}
+
+/**
+ * Each schema in `needsSpec.secrets` and `needsSpec.env` compiles as the runtime compiles it when
+ * it loads the tool (`compileInlineSchema`), and an env value's `default` is a string. A runtime
+ * that couldn't compile one would leave the whole tool out, so it's refused here, where the
+ * tool is defined, registered (`POST /v1/tools`) or deployed, naming the tool, the slot and the
+ * name.
+ */
+function needsSpecProblem(manifest: ToolManifest): InvalidToolDefinitionError | undefined {
+  const tool = manifest.id as unknown as string;
+  for (const slot of ['secrets', 'env'] as const) {
+    for (const [name, schema] of Object.entries(manifest.needsSpec?.[slot] ?? {})) {
+      const path = `/needsSpec/${slot}/${name}`;
+      const compiled = compileInlineSchema(schema);
+      if (compiled.kind === 'err') {
+        const why = compiled.error.message.replace(/^Inline schema failed to compile: /, '');
+        return {
+          code: 'invalid-tool-definition',
+          message: `Tool "${tool}": the schema for needsSpec.${slot}.${name} doesn't compile: ${why}`,
+          issues: [{ path, message: `doesn't compile: ${why}` }],
+        };
+      }
+      const fallback = (schema as { readonly default?: unknown }).default;
+      if (slot === 'env' && fallback !== undefined && typeof fallback !== 'string') {
+        return {
+          code: 'invalid-tool-definition',
+          message: `Tool "${tool}": needsSpec.env.${name}'s default must be a string: env values are strings.`,
+          issues: [
+            { path: `${path}/default`, message: 'must be a string: env values are strings' },
+          ],
+        };
+      }
+    }
+  }
+  return undefined;
 }
 
 function checkEffectKinds(manifest: ToolManifest): UnknownEffectError | undefined {
@@ -505,6 +554,8 @@ export function validateToolManifest(
   if (badInput) return { kind: 'err', error: badInput };
   const badOutput = compilesAsSchema(parsed.output, 'output', parsed);
   if (badOutput) return { kind: 'err', error: badOutput };
+  const badNeeds = needsSpecProblem(parsed);
+  if (badNeeds) return { kind: 'err', error: badNeeds };
   const badUrl = checkHttpUrlTemplate(parsed);
   if (badUrl) return { kind: 'err', error: badUrl };
   return { kind: 'ok', value: parsed };

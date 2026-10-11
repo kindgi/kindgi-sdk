@@ -14,7 +14,7 @@ description: >
   kindgi-python-authoring-tools.
 type: core
 library: "kindgi (Python)"
-version: "0.1.3"
+version: "0.1.4"
 sdk_version: "0.0.0"
 pack_languages: [python]
 sources:
@@ -121,7 +121,14 @@ def no_fabricated_quotes(config: Config, trace: RunTrace) -> CheckResult:
 - **`config`** — the values the check runs with (above); **`config_type`**
   — the config's type when the check's first parameter isn't annotated
   with it.
-- **`name`** — a display name. **`check_id`** — defaults to the id.
+- **`name`** — a display name. **`check_id`** — defaults to the id. It
+  can't be a built-in check's id (`must-cite`, `never-call-tool`,
+  `max-tool-calls`, `output-matches`, `tool-order`, `required-substring`,
+  `forbidden-substring`): a pack can't replace a built-in, and the
+  decorator raises `DefinitionError`. Name yours
+  `<pack>.checks.<name>`. A Python pack can't use a built-in check yet,
+  since `@guardrail` always decorates a check function: write the rule
+  as your own check.
 - `sandbox=`, `limits=`, `network=` are recorded in the index.
 
 ## Testing

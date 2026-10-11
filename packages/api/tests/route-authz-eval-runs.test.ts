@@ -2,10 +2,10 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * Eval runs and authorization (T243 A). Starting one needs `write` on the
- * project it lands in and `execute` on what it evaluates (the agent or
- * the flow); the eval-suites router's own check on the suite comes on
- * top, and isn't wired here. An eval run is read through its suite:
+ * Eval runs and authorization (T243 A). Starting one needs `execute` on
+ * the suite, `write` on the project it lands in and `execute` on what it
+ * evaluates (the agent or the flow), asked in that order by the start
+ * route itself (the eval-suites router's admin check skips it). An eval run is read through its suite:
  * `read` on the suite to list, get or follow it, `write` to cancel it. A
  * run that isn't there is still the handler's 404, with nothing asked.
  */
@@ -80,27 +80,28 @@ function harness(grants: readonly string[]) {
   return { call, asked };
 }
 
+const EXECUTE_SUITE = 'execute eval_suite:acme.suite-mine';
 const WRITE_PROJECT = `write project:${PROJECT}`;
 const START = '/v1/eval-suites/acme.suite-mine/runs';
 
 describe('starting an eval run', () => {
-  test('needs `write` on its project and `execute` on the agent it evaluates', async () => {
-    const both = harness([WRITE_PROJECT, 'execute agent:acme.agent']);
+  test('needs `execute` on the suite, `write` on its project and `execute` on the agent it evaluates', async () => {
+    const both = harness([EXECUTE_SUITE, WRITE_PROJECT, 'execute agent:acme.agent']);
     const res = await both.call('POST', START, {
       projectId: PROJECT,
       agentRef: { agentId: 'acme.agent' },
     });
     expect(res.status).toBe(201);
 
-    const noExecute = harness([WRITE_PROJECT]);
+    const noExecute = harness([EXECUTE_SUITE, WRITE_PROJECT]);
     const refused = await noExecute.call('POST', START, {
       projectId: PROJECT,
       agentRef: { agentId: 'acme.agent' },
     });
     expect(refused.status).toBe(403);
-    expect(noExecute.asked).toEqual([WRITE_PROJECT, 'execute agent:acme.agent']);
+    expect(noExecute.asked).toEqual([EXECUTE_SUITE, WRITE_PROJECT, 'execute agent:acme.agent']);
 
-    const noWrite = harness(['execute agent:acme.agent']);
+    const noWrite = harness([EXECUTE_SUITE, 'execute agent:acme.agent']);
     expect(
       (
         await noWrite.call('POST', START, {
@@ -109,14 +110,25 @@ describe('starting an eval run', () => {
         })
       ).status,
     ).toBe(403);
-    expect(noWrite.asked).toEqual([WRITE_PROJECT]);
+    expect(noWrite.asked).toEqual([EXECUTE_SUITE, WRITE_PROJECT]);
+
+    const noSuite = harness([WRITE_PROJECT, 'execute agent:acme.agent']);
+    expect(
+      (
+        await noSuite.call('POST', START, {
+          projectId: PROJECT,
+          agentRef: { agentId: 'acme.agent' },
+        })
+      ).status,
+    ).toBe(403);
+    expect(noSuite.asked).toEqual([EXECUTE_SUITE]);
   });
 
   test('a flow candidate needs `execute` on the flow', async () => {
-    const { call, asked } = harness([WRITE_PROJECT]);
+    const { call, asked } = harness([EXECUTE_SUITE, WRITE_PROJECT]);
     const res = await call('POST', START, { projectId: PROJECT, flowRef: { flowId: 'acme.flow' } });
     expect(res.status).toBe(403);
-    expect(asked).toEqual([WRITE_PROJECT, 'execute flow:acme.flow']);
+    expect(asked).toEqual([EXECUTE_SUITE, WRITE_PROJECT, 'execute flow:acme.flow']);
   });
 });
 
