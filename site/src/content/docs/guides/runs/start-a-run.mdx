@@ -220,7 +220,7 @@ background. Start an agent with `agent` instead of `flow`, and its input
 | `id` | The run's id: for `get`, `cancel`, the journal and the event stream. |
 | `status` | `pending`, `running`, `suspended`, `completed`, `failed` or `cancelled`. `kindgi runs resume <run-id>` says what a `suspended` run waits for ([details](../../approvals/decide-an-approval/#what-a-run-waits-for)). |
 | `output` | What the run returned, once it completed. |
-| `failureMessage` | Why it failed. |
+| `failure` | Why it failed: its `code` and `message` (an agent's turn has its own code, such as `budget-exceeded`; any other failure is `run-failed`). See [why runs failed](../see-why-runs-failed/). |
 | `flowId`, `flowVersion` | The flow and the version the run is pinned to. An agent's turn reports `agent.turn`, and its agent is in `agent`. |
 | `agent` | For an agent's turn: the agent's `id`, the `version` that ran, and the `conversationId`. A flow's run has none, nor does a turn from before Kindgi 0.1.3. |
 | `dryRun` | Whether it was a [dry run](../../flows/dry-run-a-flow/). |
@@ -234,7 +234,7 @@ The client references have every field and option:
 ## When it fails
 
 A run that fails is still a run: `start` returns it, with `status: "failed"`
-and `failureMessage`. A request the API refuses (a flow that doesn't exist,
+and its `failure`. A request the API refuses (a flow that doesn't exist,
 a malformed input) raises an error instead, and no run exists:
 
 <Tabs syncKey="lang">
@@ -244,7 +244,7 @@ a malformed input) raises an error instead, and no run exists:
 import { KindgiApiError } from '@kindgi/sdk/client';
 
 const run = await kindgi.runs.start({ flow: 'acme.review-order', input: { orderId: 'Z-9' } });
-if (run.status === 'failed') console.log(run.failureMessage);
+if (run.status === 'failed') console.log(run.failure?.code, run.failure?.message);
 
 try {
   await kindgi.runs.start({ flow: 'acme.no-such-flow', input: {} });
@@ -254,7 +254,7 @@ try {
 ```
 
 ```text
-handler-error: Tool "acme.get-order" handler threw: handler-throw: Handler for tool "acme.get-order" threw: Error: No order Z-9
+run-failed handler-error: Tool "acme.get-order" handler threw: handler-throw: Handler for tool "acme.get-order" threw: Error: No order Z-9
 not-found No flow "acme.no-such-flow" is registered in this tenant.
 ```
 
@@ -266,7 +266,7 @@ from kindgi.client import NotFoundError
 
 run = kindgi.runs.start(flow="acme.review-order", input={"orderId": "Z-9"})
 if run.status == "failed":
-    print(run.failure_message)
+    print(run.failure.code, run.failure.message)
 
 try:
     kindgi.runs.start(flow="acme.no-such-flow", input={})
@@ -275,7 +275,7 @@ except NotFoundError as err:
 ```
 
 ```text
-handler-error: Tool "acme.get-order" handler threw: handler-throw: Handler for tool "acme.get-order" threw: ValueError: No order Z-9
+run-failed handler-error: Tool "acme.get-order" handler threw: handler-throw: Handler for tool "acme.get-order" threw: ValueError: No order Z-9
 No flow "acme.no-such-flow" is registered in this tenant.
 ```
 
