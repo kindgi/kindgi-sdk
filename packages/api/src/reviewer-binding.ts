@@ -111,4 +111,10 @@ export type ReviewerRegisterOutcome =
 
 export type ReviewerUnregisterOutcome = {
   readonly unregistered: boolean;
+  /**
+   * Refused: the reviewer is a person a site signs in, whose reviewer role
+   * is their site's (their next sign-in would put it back). Remove the
+   * person, change their role on the site, or pause the site instead.
+   */
+  readonly refused?: { readonly code: 'site-person-grants-managed'; readonly message: string };
 };

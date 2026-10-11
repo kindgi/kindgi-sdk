@@ -68,6 +68,12 @@ function makeApp() {
       await projects.memberships.add(tenantId, { projectId, userId, role });
       return { kind: 'ok', value: undefined };
     },
+    async removeTeamMember({ userId }) {
+      return refusing(userId) ? { kind: 'err', error: MANAGED } : { kind: 'ok', value: undefined };
+    },
+    async removeProjectMember({ userId }) {
+      return refusing(userId) ? { kind: 'err', error: MANAGED } : { kind: 'ok', value: undefined };
+    },
     async updateTeamMemberRole({ userId }) {
       return refusing(userId)
         ? { kind: 'err', error: MANAGED }
@@ -88,7 +94,7 @@ function makeApp() {
     list: async () => ({ data: [] }),
     get: async () => null,
     register: async () => ({ kind: 'refused', ...MANAGED }),
-    unregister: async () => ({ unregistered: true }),
+    unregister: async () => ({ unregistered: false, refused: MANAGED }),
   } as unknown as ReviewerRegistryBinding;
 
   const app = createApp({
@@ -131,7 +137,7 @@ async function send(
   const res = await app.request(path, {
     method,
     headers: { authorization: 'Bearer admin-token', 'content-type': 'application/json' },
-    body: JSON.stringify(body),
+    ...(body !== undefined && { body: JSON.stringify(body) }),
   });
   const text = await res.text();
   return {
@@ -181,6 +187,24 @@ describe("a grant naming a site's person is refused with its own code", () => {
     ],
     ['tenant admin', 'POST', () => `/v1/identity/users/${jane}/grant`, { kind: 'tenant-admin' }],
     ['a reviewer role', 'POST', () => '/v1/approvals/reviewers', { userId: jane, role: 'admin' }],
+    [
+      'removing a project membership',
+      'DELETE',
+      (ids: Ids) => `/v1/projects/${ids.projectId}/memberships/${jane}`,
+      undefined,
+    ],
+    [
+      'removing a team membership',
+      'DELETE',
+      (ids: Ids) => `/v1/teams/${ids.teamId}/memberships/${jane}`,
+      undefined,
+    ],
+    [
+      'unregistering a reviewer',
+      'POST',
+      () => `/v1/approvals/reviewers/${randomUUID()}/unregister`,
+      undefined,
+    ],
   ] as const)('%s', async (_what, method, path, body) => {
     const a = makeApp();
     const ids = await seeded(a);

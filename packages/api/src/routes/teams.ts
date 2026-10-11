@@ -447,6 +447,12 @@ export function teamsRouter(
         return c.json(toWireError(refusal, c.get('requestId')));
       }
       const res = await tenantHierarchy.removeTeamMember({ tenantId, teamId, userId });
+      if (res.kind === 'err' && res.error.code === 'site-person-grants-managed') {
+        c.status(statusFor(res.error.code) as never);
+        return c.json(
+          toWireError({ code: res.error.code, message: res.error.message }, c.get('requestId')),
+        );
+      }
       if (res.kind === 'err') throw new Error(res.error.message, { cause: res.error });
     } else {
       await membershipBinding.remove(tenantId, teamId, userId);

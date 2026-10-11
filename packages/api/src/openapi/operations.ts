@@ -2173,7 +2173,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       '404': ErrorResponse('No reviewer with that id under this tenant.'),
       '403': ErrorResponse(
-        'With authorization enforced, the caller is not an admin of the tenant.',
+        'With authorization enforced, the caller is not an admin of the tenant; or the person is one a site signs in, whose grants their site gives back at their next sign-in: remove the person, change their role on the site, or pause the site instead (`site-person-grants-managed`).',
       ),
     },
   },
@@ -6705,6 +6705,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       IdempotencyKeyParam,
     ],
     responses: {
+      '403': ErrorResponse(
+        'The person is one a site signs in, whose grants their site gives back at their next sign-in: remove the person, change their role on the site, or pause the site instead (`site-person-grants-managed`).',
+      ),
       '204': { description: 'Removed (or already absent). No body.' },
       ...CommonAuthErrors,
       '501': ErrorResponse(
@@ -7530,6 +7533,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       IdempotencyKeyParam,
     ],
     responses: {
+      '403': ErrorResponse(
+        'The person is one a site signs in, whose grants their site gives back at their next sign-in: remove the person, change their role on the site, or pause the site instead (`site-person-grants-managed`).',
+      ),
       '204': { description: 'Removed (or already absent). No body.' },
       ...CommonAuthErrors,
       '501': ErrorResponse(

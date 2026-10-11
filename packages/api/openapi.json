@@ -24208,7 +24208,7 @@
             }
           },
           "403": {
-            "description": "With authorization enforced, the caller is not an admin of the tenant.",
+            "description": "With authorization enforced, the caller is not an admin of the tenant; or the person is one a site signs in, whose grants their site gives back at their next sign-in: remove the person, change their role on the site, or pause the site instead (`site-person-grants-managed`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -42289,6 +42289,16 @@
               }
             }
           },
+          "403": {
+            "description": "The person is one a site signs in, whose grants their site gives back at their next sign-in: remove the person, change their role on the site, or pause the site instead (`site-person-grants-managed`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "501": {
             "description": "With authorization enforced, a runtime whose tenant-hierarchy binding can't change the membership together with its authorization tuple refuses with `authz-membership-unsupported`; nothing is changed.",
             "content": {
@@ -44779,6 +44789,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The person is one a site signs in, whose grants their site gives back at their next sign-in: remove the person, change their role on the site, or pause the site instead (`site-person-grants-managed`).",
             "content": {
               "application/json": {
                 "schema": {

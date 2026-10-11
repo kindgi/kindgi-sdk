@@ -168,6 +168,10 @@ export function reviewersRouter(
     const reviewerId = c.req.param('reviewerId') as ReviewerId;
 
     const outcome = await binding.unregister({ tenantId, reviewerId });
+    if (outcome.refused !== undefined) {
+      c.status(statusFor(outcome.refused.code) as never);
+      return c.json(toWireError({ ...outcome.refused }, requestId));
+    }
     if (!outcome.unregistered) {
       c.status(statusFor('reviewer-not-found') as never);
       return c.json(
