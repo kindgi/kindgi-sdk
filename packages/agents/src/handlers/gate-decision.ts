@@ -99,3 +99,26 @@ export function readGateDecision(value: unknown): GateDecision {
   }
   return { approved: false, reason: 'unreadable', rationale: UNREADABLE_DECISION };
 }
+
+/**
+ * The reason an approval's withdrawal cancels its gate's waitpoint with:
+ * a reviewer took the request back, so the turn can't go on.
+ */
+export const APPROVAL_WITHDRAWN_REASON = 'approval-withdrawn';
+
+/**
+ * The turn failure when a reviewer withdrew the gate's approval
+ * (`hitl-withdrawn`), or `undefined` for any other cancellation, which
+ * stays `hitl-cancelled`. Every `hitl-*` failure is a person's outcome,
+ * not an error. `gate` names what waited, e.g. "the session-HITL gate".
+ */
+export function withdrawnGateFailure(
+  reason: string,
+  gate: string,
+):
+  | { readonly code: 'hitl-withdrawn'; readonly message: string; readonly reason: string }
+  | undefined {
+  return reason === APPROVAL_WITHDRAWN_REASON
+    ? { code: 'hitl-withdrawn', message: `The approval for ${gate} was withdrawn`, reason }
+    : undefined;
+}

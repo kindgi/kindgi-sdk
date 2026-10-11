@@ -4,7 +4,7 @@
 import { describe, expect, test } from 'vitest';
 
 import type { ModelMessage } from '@kindgi/capabilities';
-import type { NodeContext } from '@kindgi/handler';
+import { type NodeContext, WaitpointCancelledError } from '@kindgi/handler';
 import type { HitlSpec } from '@kindgi/policy-contract';
 import { defineTool } from '@kindgi/tools';
 import type { AnyTool } from '@kindgi/tools';
@@ -13,6 +13,7 @@ import type { RunId, TenantId, ToolId } from '@kindgi/types';
 import type { TurnContext } from '../src/handlers/context.js';
 import { buildDispatchToolsHandler } from '../src/handlers/dispatch-tools.js';
 import { AgentTurnFailure } from '../src/handlers/errors.js';
+import { APPROVAL_WITHDRAWN_REASON } from '../src/handlers/gate-decision.js';
 import { resolveTurnHitlPolicy } from '../src/handlers/turn-environment.js';
 import { resolveEffectiveHitlPolicy } from '../src/hitl-policy.js';
 import type { Agent } from '../src/types.js';
@@ -305,5 +306,35 @@ describe('a tool gate that parked keeps its decision when the turn resumes', () 
     );
     expect(waits).toHaveLength(1);
     expect(ran).toEqual([{ q: 'x' }]);
+  });
+});
+
+describe('dispatch-tools — a gated call whose wait is cancelled', () => {
+  const gated = agent({ hitl: { tools: { overrides: { 'pack.lookup': 'always_ask' } } } });
+  const cancelledWith = (reason: string) => async (tokenId: string) => {
+    throw new WaitpointCancelledError(tokenId, 'dispatch' as never, reason);
+  };
+  const failureOf = async (reason: string) => {
+    const error = await dispatchUnder(undefined, gated, { answer: cancelledWith(reason) }).catch(
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(AgentTurnFailure);
+    return (error as AgentTurnFailure).payload as unknown as Record<string, unknown>;
+  };
+
+  test('withdrawn by a reviewer: the turn fails with hitl-withdrawn, and the tool never runs', async () => {
+    expect(await failureOf(APPROVAL_WITHDRAWN_REASON)).toEqual({
+      code: 'hitl-withdrawn',
+      message: 'The approval for tool call pack.lookup was withdrawn',
+      reason: APPROVAL_WITHDRAWN_REASON,
+    });
+  });
+
+  test('cancelled otherwise (a timeout): hitl-cancelled, as before', async () => {
+    expect(await failureOf('timeout')).toEqual({
+      code: 'hitl-cancelled',
+      message: 'Tool-call HITL cancelled for pack.lookup: timeout',
+      reason: 'timeout',
+    });
   });
 });

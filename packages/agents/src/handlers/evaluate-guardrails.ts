@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { UsageSink } from '@kindgi/capabilities';
-import type { EvaluationOutcome } from '@kindgi/guardrails';
+import type { EvaluationOutcome, GuardrailCheckOutcome } from '@kindgi/guardrails';
 import type { NodeContext, NodeHandler } from '@kindgi/handler';
 import type { Timestamp } from '@kindgi/types';
 
@@ -106,6 +106,8 @@ export function buildEvaluateGuardrailsHandler(ctx: TurnContext): NodeHandler {
     );
     throwIfJudgeCallsUnrecorded(outcomes);
     const categorized = categorizeOutcomes(outcomes, ctx.guardrails);
+    // Recorded before the gate acts on them, so a blocked turn is counted too.
+    await recordOutcomes(ctx, kctx, evaluatedAt, categorized.checks);
 
     const allViolations = [...categorized.blocking, ...categorized.warnings, ...categorized.other];
     for (const v of allViolations) {
@@ -217,6 +219,42 @@ function judgeUsageSink(ctx: TurnContext, kctx: NodeContext): UsageSink | undefi
         ...call,
       }),
   };
+}
+
+/**
+ * Records what each guardrail's check came to in the outcome ledger
+ * (`bindings.guardrailOutcomes`). A replay or a dry run records nothing:
+ * its outcomes aren't production's. Outcomes that couldn't be recorded
+ * fail the step, as an unrecorded model call does, so the counts never
+ * silently miss a turn.
+ */
+async function recordOutcomes(
+  ctx: TurnContext,
+  kctx: NodeContext,
+  at: Timestamp,
+  checks: readonly GuardrailCheckOutcome[],
+): Promise<void> {
+  const sink = ctx.bindings.guardrailOutcomes;
+  if (sink === undefined || checks.length === 0) return;
+  if (ctx.input.replay !== undefined || kctx.dryRun) return;
+  try {
+    await sink.record({
+      tenantId: ctx.input.tenantId,
+      projectId: ctx.input.projectId,
+      runId: kctx.runId,
+      nodeId: kctx.nodeId as unknown as string,
+      agentId: ctx.input.agent.id,
+      agentVersion: ctx.input.agent.version,
+      at,
+      checks,
+    });
+  } catch (cause) {
+    throwAgentTurnFailure({
+      code: 'persistence-error',
+      message: `The guardrail outcomes couldn't be recorded: ${cause instanceof Error ? cause.message : String(cause)}`,
+      cause,
+    });
+  }
 }
 
 /**

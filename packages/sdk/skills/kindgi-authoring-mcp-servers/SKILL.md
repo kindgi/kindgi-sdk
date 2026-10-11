@@ -79,10 +79,11 @@ MY_DB_URL=…       →  { "command": "pnpm",    →  reads .env +         →  
 Three moving parts:
 
 1. **The secret on disk** — for `local`, the project's env files at the
-   pack root (`.env`, then `.env.local`; `dev.envFiles` to change);
-   other environments use `.env.<envName>`. Add it by hand or with
-   `kindgi secrets set` (interactive no-echo prompt; never the value on
-   argv), which writes `.env.local`. See `kindgi-authoring-providers`
+   pack root (`.env`, then `.env.local`; `dev.envFiles` to change), then
+   Kindgi's own `.kindgi/secrets.env`; other environments use
+   `.env.<envName>`. Add it with `kindgi secrets set` (interactive no-echo
+   prompt; never the value on argv), which writes `.kindgi/secrets.env`,
+   or by hand. See `kindgi-authoring-providers`
    for the same flow used for LLM API keys.
 2. **`.mcp.json` at the pack root** — Kindgi writes this via
    `kindgi mcp add`. Every entry runs the project's own `kindgi
@@ -257,8 +258,8 @@ gotcha #4.
 The invariants this skill inherits — every bullet here is enforced by
 you, the coding agent, in the session where MCP is wired:
 
-- **Never Read `.env`, `.env.local` or `.env.<envName>` files.** Their contents are the raw
-  secret values. Reading them puts the secret in your tool result and
+- **Never Read `.env`, `.env.local`, `.env.<envName>`, `.kindgi/secrets.env`
+  or `.kindgi/dev/runtime.env`.** Their contents are the raw secret values. Reading them puts the secret in your tool result and
   from there in every subsequent turn's context sent to the model
   provider.
 - **Never run `env | grep SECRET_NAME`, `printenv SECRET_NAME`, or

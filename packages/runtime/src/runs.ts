@@ -100,6 +100,12 @@ export type RunListScope =
  * `{ createdAt, id }` internally.
  */
 export interface RunListCursor {
+  /**
+   * The last run's `createdAt`, as the binding's `nextCursor` carries it:
+   * as stored (Postgres keeps microseconds). A binding compares it as given,
+   * never through a JS `Date`, which keeps milliseconds and would skip the
+   * runs created earlier in the same millisecond.
+   */
   readonly createdAt: Timestamp;
   readonly id: RunId;
 }
@@ -128,6 +134,18 @@ export interface ListRunsInput {
   readonly evalRunId?: string;
   /** Only the runs this trigger started (`RunTriggerRef.triggerId`). */
   readonly triggerId?: TriggerId;
+  /** Only runs in one of these statuses. */
+  readonly statuses?: readonly RunStatus[];
+  /** Only runs created strictly after this time. */
+  readonly createdAfter?: Timestamp;
+  /** Only runs created strictly before this time. */
+  readonly createdBefore?: Timestamp;
+  /** With `agentId`: only the turns that ran this version. Turns from before versions were recorded never match. */
+  readonly agentVersion?: string;
+  /** Only runs of this flow (an agent's turns run `agent.turn`). */
+  readonly flowId?: string;
+  /** With `flowId`: only runs of this version. */
+  readonly flowVersion?: string;
 }
 
 export interface ListRunsPage {

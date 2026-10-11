@@ -16,6 +16,7 @@ import type {
 } from '@kindgi/handler-runtime/pack-service';
 import type { ProjectDatabases } from './project-database.js';
 import type { ProjectOutcome } from './project.js';
+import type { ActiveDevSandbox, SandboxAvailability } from './sandbox/index.js';
 
 import type { JvmPackCode, PackCode } from './pack-code.js';
 
@@ -150,6 +151,13 @@ export interface IndexerRunOptions {
    * line as it comes; not the indexer's own result line.
    */
   readonly onOutput?: (line: string, stream: 'stdout' | 'stderr') => void;
+  /**
+   * The sandbox the indexer child runs in (`dev/sandbox`): it imports every
+   * primitive's module, so it runs the pack's code too. Absent, none.
+   */
+  readonly sandbox?: ActiveDevSandbox;
+  /** A notice for the user from starting the indexer in its sandbox. */
+  readonly onNotice?: (line: string) => void;
 }
 
 /** The local pack service `kindgi dev` runs the pack's code in. */
@@ -169,6 +177,10 @@ export interface DevPackServiceOptions {
    */
   readonly port?: number;
   readonly token?: string;
+  /** The sandbox the pack service runs in (`dev/sandbox`); absent, none. */
+  readonly sandbox?: ActiveDevSandbox;
+  /** A notice for the user from starting the pack service (the sandbox's). */
+  readonly onNotice?: (line: string) => void;
 }
 
 /**
@@ -206,6 +218,16 @@ export interface IndexOutcome {
    * print. Empty on a fully-clean pass.
    */
   readonly fileErrors: readonly {
+    readonly code: string;
+    readonly message: string;
+    readonly filePath?: string;
+  }[];
+  /**
+   * What the pack should change but that doesn't stop the build (for
+   * example a check id without the pack's prefix). Absent from an indexer
+   * that reports none.
+   */
+  readonly warnings?: readonly {
     readonly code: string;
     readonly message: string;
     readonly filePath?: string;
@@ -309,6 +331,8 @@ export interface DevRunners {
   }) => PackBuilder;
   /** The local pack service (not yet started). */
   readonly createPackService: (opts: DevPackServiceOptions) => DevPackService;
+  /** Whether this machine can sandbox the pack service, and with what (`dev/sandbox/detect.ts`). */
+  readonly detectSandbox: () => Promise<SandboxAvailability>;
   /**
    * Check a Python pack's interpreter can run pack code (`import kindgi`),
    * with the pack's environment: a one-line description, or why not.

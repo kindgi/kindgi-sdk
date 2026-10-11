@@ -354,10 +354,40 @@ const cancel: LeafCommand = {
     }),
 };
 
+const rescore: LeafCommand = {
+  kind: 'leaf',
+  name: 'rescore',
+  description:
+    "Rescore a completed comparison of a test set: a new eval run that replays nothing and scores the run's replays again, with what people judged on them since (judge a changed answer on its replay, then rescore). The run rescored stays as it was.",
+  usage: 'kindgi eval-runs rescore <run-id> [--project=<project-id>] [--wait]',
+  optionSpec: {
+    project: {
+      type: 'string',
+      description: "The run's project, only for a runtime that doesn't record it on the run.",
+    },
+    wait: {
+      type: 'boolean',
+      description: 'Wait until the rescore finishes, and show it.',
+    },
+  },
+  run: (ctx) =>
+    runSdk(ctx, 'eval-runs rescore', async () => {
+      const runId = requiredPositional(ctx, 0, 'run-id');
+      const project = stringFlag(ctx, 'project');
+      const client = ctx.client();
+      const started = await client.evalRuns.rescore(
+        runId,
+        project !== undefined ? { projectId: project } : undefined,
+      );
+      if (ctx.options.wait !== true) return started;
+      return await followEvalRun(started.runId, { get: (id) => client.evalRuns.get(id) });
+    }),
+};
+
 export const evalRunsCommand: Command = {
   kind: 'group',
   name: 'eval-runs',
   description:
-    'Eval runs: run an eval suite, or compare an agent version on a test set (start / show / list / cancel).',
-  subcommands: [start, show, list, cancel],
+    'Eval runs: run an eval suite, or compare an agent version on a test set (start / show / list / cancel / rescore).',
+  subcommands: [start, show, list, cancel, rescore],
 };

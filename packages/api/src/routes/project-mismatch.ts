@@ -9,13 +9,14 @@ import { statusFor, toWireError } from '../errors.js';
 import type { AppEnv } from '../types.js';
 
 /** The kinds whose ids belong to the project their first version went to, and never move. */
-export type ProjectBoundKind = 'agent' | 'flow' | 'tool' | 'eval-suite';
+export type ProjectBoundKind = 'agent' | 'flow' | 'tool' | 'eval-suite' | 'block';
 
 const NOUN: Readonly<Record<ProjectBoundKind, string>> = {
   agent: 'Agent',
   flow: 'Flow',
   tool: 'Tool',
   'eval-suite': 'Eval suite',
+  block: 'Block',
 };
 
 const ID_FIELD: Readonly<Record<ProjectBoundKind, string>> = {
@@ -23,13 +24,14 @@ const ID_FIELD: Readonly<Record<ProjectBoundKind, string>> = {
   flow: 'flowId',
   tool: 'toolId',
   'eval-suite': 'suiteId',
+  block: 'blockId',
 };
 
 /**
  * `409 <kind>-project-mismatch`: the id belongs to another project than
- * the one given, and never moves (as a block's versions stay in its
- * project). The project it belongs to stays off the wire, so a caller who
- * can't read that project doesn't learn it; the request's log keeps it.
+ * the one given, and never moves. The project it belongs to stays off the
+ * wire, so a caller who can't read that project doesn't learn it; the
+ * request's log keeps it.
  */
 export function projectMismatch(
   c: Context<AppEnv>,

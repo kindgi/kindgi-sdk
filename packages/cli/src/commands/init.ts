@@ -10,6 +10,7 @@ import type { PackLanguage } from '@kindgi/handler-runtime';
 
 import { PACK_UV_REQUIRED_VERSION } from '../build/python-image.js';
 import type { CommandContext } from '../context.js';
+import { writeAgentAccess } from '../init/agent-access.js';
 import { runInitAugment } from '../init/augment-scaffolder.js';
 import {
   JVM_PREVIEW,
@@ -179,6 +180,7 @@ export async function runInit(
     }
     return runInitJavaAugment({
       targetDir: detected.targetDir,
+      ...(ctx.home !== undefined && { home: ctx.home }),
       templatesRoot,
       ...(skillsRoot !== undefined && { skillsRoot }),
       ...(typeof packIdRaw === 'string' && packIdRaw !== '' && { packIdOverride: packIdRaw }),
@@ -198,6 +200,7 @@ export async function runInit(
     }
     return runInitScalaAugment({
       targetDir: detected.targetDir,
+      ...(ctx.home !== undefined && { home: ctx.home }),
       templatesRoot,
       ...(skillsRoot !== undefined && { skillsRoot }),
       ...(typeof packIdRaw === 'string' && packIdRaw !== '' && { packIdOverride: packIdRaw }),
@@ -220,6 +223,7 @@ export async function runInit(
     }
     return runInitPythonAugment({
       targetDir: detected.targetDir,
+      ...(ctx.home !== undefined && { home: ctx.home }),
       ...(skillsRoot !== undefined && { skillsRoot }),
       ...(typeof packIdRaw === 'string' && packIdRaw !== '' && { packIdOverride: packIdRaw }),
       force: ctx.options.force === true,
@@ -233,6 +237,7 @@ export async function runInit(
     if (template.kind === 'err') return { kind: 'error', stderr: template.stderr, exitCode: 1 };
     return runInitAugment({
       targetDir: detected.targetDir,
+      ...(ctx.home !== undefined && { home: ctx.home }),
       template: template.name,
       templatesRoot,
       ...(skillsRoot !== undefined && { skillsRoot }),
@@ -335,6 +340,11 @@ async function runInitFresh(
     language: 'node',
   });
   for (const s of skillsWritten) filesWritten.push(s);
+  // Keep the coding agent out of the files that hold keys (`init/agent-access.ts`).
+  const access = await writeAgentAccess(args.targetDir, {
+    ...(ctx.home !== undefined && { home: ctx.home }),
+  });
+  filesWritten.push(...access.files);
 
   // A standalone pack pins the pnpm that will install it, so the image
   // (`kindgi build`), CI and a teammate all use that one (T196).
@@ -378,6 +388,7 @@ async function runInitFresh(
 
   const stderr = [
     `✓ Pack scaffolded at ${args.targetDir}/`,
+    ...access.lines,
     ...(pnpmPin.kind === 'pinned'
       ? [`✓ package.json pins pnpm@${pnpmPin.version} (packageManager)`]
       : []),
@@ -509,6 +520,11 @@ async function runInitPython(
     language: 'python',
   });
   for (const s of skillsWritten) filesWritten.push(s);
+  // Keep the coding agent out of the files that hold keys (`init/agent-access.ts`).
+  const access = await writeAgentAccess(args.targetDir, {
+    ...(ctx.home !== undefined && { home: ctx.home }),
+  });
+  filesWritten.push(...access.files);
   const displayPath = relative(ctx.cwd, args.targetDir) || '.';
   const nextSteps = [
     `cd ${displayPath}`,
@@ -518,6 +534,7 @@ async function runInitPython(
   ];
   const stderr = [
     `✓ Python pack scaffolded at ${args.targetDir}/`,
+    ...access.lines,
     '',
     'Next steps:',
     ...nextSteps.map((s) => `  ${s}`),
@@ -576,6 +593,11 @@ async function runInitJava(
     language: 'java',
   });
   for (const s of skillsWritten) filesWritten.push(s);
+  // Keep the coding agent out of the files that hold keys (`init/agent-access.ts`).
+  const access = await writeAgentAccess(args.targetDir, {
+    ...(ctx.home !== undefined && { home: ctx.home }),
+  });
+  filesWritten.push(...access.files);
   const displayPath = relative(ctx.cwd, args.targetDir) || '.';
   const install =
     source.kind === 'local-checkout'
@@ -591,6 +613,7 @@ async function runInitJava(
   ];
   const stderr = [
     `✓ Java pack scaffolded at ${args.targetDir}/ (preview)`,
+    ...access.lines,
     `  ${JVM_PREVIEW}`,
     '',
     'Next steps (a JDK 17 or later, JAVA_HOME set):',
@@ -689,6 +712,11 @@ async function runInitScala(
   })) {
     filesWritten.push(s);
   }
+  // Keep the coding agent out of the files that hold keys (`init/agent-access.ts`).
+  const access = await writeAgentAccess(args.targetDir, {
+    ...(ctx.home !== undefined && { home: ctx.home }),
+  });
+  filesWritten.push(...access.files);
   filesWritten.sort();
   const displayPath = relative(ctx.cwd, args.targetDir) || '.';
   const install =
@@ -706,6 +734,7 @@ async function runInitScala(
   ];
   const stderr = [
     `✓ Scala pack scaffolded at ${args.targetDir}/ (preview)`,
+    ...access.lines,
     `  ${JVM_PREVIEW}`,
     '',
     'Next steps (a JDK 17 or later, JAVA_HOME set, and sbt):',

@@ -44,13 +44,31 @@ export interface Classification {
   readonly exportable: boolean;
 }
 
-/** Wire schema for the classifier JSON file. Versioned envelope. */
+/**
+ * A classifier, every kind with its own classification: what a loader
+ * makes of the file (`ComplianceClassifierSource`), and what
+ * `LoadedClassifier.file` holds.
+ */
 export interface ComplianceClassifierFile {
   readonly version: 1;
   /** Default classification for kinds not explicitly listed. */
   readonly default: Classification;
   /** Per-kind overrides. Missing kind → `default`. */
   readonly byKind: Readonly<Record<string, Classification>>;
+}
+
+/**
+ * The classifier JSON file as written. A kind's entry is its
+ * classification, or the name of another kind whose classification it
+ * takes (`"secret-rotated": "secret-set"`), so related kinds can't drift
+ * apart. A loader resolves the names into a `ComplianceClassifierFile`; a
+ * name must be a kind listed with a classification of its own (not another
+ * name, nor `default`), or the file is refused.
+ */
+export interface ComplianceClassifierSource {
+  readonly version: 1;
+  readonly default: Classification;
+  readonly byKind: Readonly<Record<string, Classification | string>>;
 }
 
 /**

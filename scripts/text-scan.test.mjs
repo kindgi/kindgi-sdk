@@ -15,7 +15,7 @@ import { join } from 'node:path';
 import { after, describe, test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { prTextProblems, prTexts } from './check-pr-text.mjs';
+import { PR_RULES, commitMessageText, prTextProblems, prTexts } from './check-pr-text.mjs';
 import { NAME_HIT, loadNames, nameHits, scanText, tokenize } from './text-scan.mjs';
 
 const SALT = 'kindgi-names-v1';
@@ -31,6 +31,8 @@ const FIXTURE = {
 const names = loadNames(FIXTURE);
 /** An internal scratch path, built so the repository's own checks don't flag this file. */
 const scratch = (name) => `.${'scratch'}/${name}`;
+/** An internal reference, assembled from parts for the same reason. */
+const ref = (...parts) => parts.join('');
 
 describe('tokenize', () => {
   test('runs of letters, digits and underscores, lower-cased', () => {
@@ -121,5 +123,105 @@ describe('check-pr-text', () => {
     assert.match(bad.stderr, /the title, line 1: a name the repository doesn't use/);
     assert.doesNotMatch(bad.stderr, /zorblax/);
     assert.equal(run({ title: 'feat: the runtime half', body: 'the zorblax AI OS' }).status, 0);
+  });
+});
+
+describe("internal tracking references, in a pull request's text", () => {
+  const pr = { ...PR_RULES, names };
+  const whats = (text, options = pr) => scanText(text, options).map((p) => p.what);
+
+  test('ticket, step and check ids, process rule numbers, release batches', () => {
+    assert.deepEqual(whats(`fix: the retry (${ref('T', 292)})`), ['internal tracking id']);
+    assert.deepEqual(whats(`the sign-in half (${ref('T', '94c')})`), ['internal tracking id']);
+    assert.deepEqual(whats(`memory, ${ref('M-', 2)}`), ['internal step id']);
+    assert.deepEqual(whats(`live check ${ref('L-A', 5)} and ${ref('L-B', 10)}`), [
+      'internal step id',
+    ]);
+    assert.deepEqual(whats(`an ${ref('L-A', 5, '-style')} check`), ['internal step id']);
+    assert.deepEqual(whats(`additive (${ref('protocol ', 16)})`), ['internal process rule']);
+    assert.deepEqual(whats(`asked first (${ref('protocol ', 4)})`), ['internal process rule']);
+    assert.deepEqual(whats(`found by ${ref('w', 3)}, reviewed`), ['internal session name']);
+    assert.deepEqual(whats(`0.1.5, ${ref('wave ', 2)}`), ['internal release batch']);
+    assert.deepEqual(whats(`after ${ref('pin ', 'batch')} 24`), ['internal release batch']);
+  });
+
+  test('real terms that look a little like them are left alone', () => {
+    for (const text of [
+      'started at T12:00:00Z',
+      'on 2026-10-09T15:00',
+      'an NVIDIA T4',
+      '{"orderId":"A-1042"}',
+      'pack protocol 2.5.0, and the log line says protocol 2',
+      'Protocol 2, the pack protocol',
+      'per the W3C and the w3c validator',
+      'env names match /^E[A-Z0-9_]+$/',
+      'a digest is [A-F0-9]{64}',
+      'a key is [.A-Z0-9]+',
+      'ECDSA over P-256, SHA-1, UTF-8, ISO-8859-1',
+      'a wave of retries',
+    ]) {
+      assert.deepEqual(whats(text), [], text);
+    }
+  });
+
+  test("a repository file isn't checked for them: only a pull request's text", () => {
+    assert.deepEqual(whats(`see ${ref('T', 292)}`, { names }), []);
+  });
+
+  test('an allowed term is blanked out, as a whole word only', () => {
+    const allowed = { ...pr, allowed: [ref('X-', 1)] };
+    assert.deepEqual(whats(`the ${ref('x-', 1)} board`, allowed), []);
+    assert.deepEqual(whats(`the ${ref('X-', 1)} board`, allowed), []);
+    assert.deepEqual(whats(`the ${ref('X-', 1)} and ${ref('Y-', 1)}`, allowed), [
+      'internal step id',
+    ]);
+    assert.deepEqual(whats(`a ${ref('X-', 1, 'b')}`, allowed), ['internal step id']);
+  });
+
+  test('a commit is checked for them by default; the excerpt is the line', () => {
+    const git = () => `aaaaaaaaaa\x00fix: one\n\nfound in ${ref('T', 292)}\n\x01`;
+    const texts = prTexts(
+      { pull_request: { title: 't', body: '', base: { sha: 'b' }, head: { sha: 'h' } } },
+      git,
+    );
+    assert.deepEqual(prTextProblems(texts, { names }), [
+      `commit aaaaaaa, line 3: internal tracking id: found in ${ref('T', 292)}`,
+    ]);
+  });
+});
+
+describe('check-pr-text --message (the commit-msg hook)', () => {
+  test('a message as git stores it: no comment lines, nothing below the scissors', () => {
+    const raw = [
+      'fix: one',
+      '',
+      `# On branch fix/${ref('T', 292)}`,
+      'the body',
+      '# ------------------------ >8 ------------------------',
+      `diff --git a/x b/x (${ref('T', 293)})`,
+    ].join('\n');
+    assert.equal(commitMessageText(raw), 'fix: one\n\n\nthe body');
+    assert.equal(commitMessageText(raw.replaceAll('#', ';'), ';'), 'fix: one\n\n\nthe body');
+  });
+
+  test('the command fails on a problem, naming the line, and passes clean text', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'kindgi-commit-msg-'));
+    after(() => rmSync(dir, { recursive: true, force: true }));
+    const namesFile = join(dir, 'names.json');
+    writeFileSync(namesFile, JSON.stringify(FIXTURE));
+    const script = fileURLToPath(new URL('./check-pr-text.mjs', import.meta.url));
+    const run = (message) => {
+      const file = join(dir, 'COMMIT_EDITMSG');
+      writeFileSync(file, message);
+      return spawnSync(process.execPath, [script, '--message', file, '--names', namesFile], {
+        cwd: dir,
+        encoding: 'utf8',
+      });
+    };
+    const bad = run(`fix: one\n\nthe ${ref('M-', 2)} half\n`);
+    assert.equal(bad.status, 1);
+    assert.match(bad.stderr, /the commit message, line 3: internal step id/);
+    assert.equal(run(`fix: one\n\n# ${ref('T', 292)} in a comment\n`).status, 0);
+    assert.equal(run('fix: the zorblax half\n').status, 1);
   });
 });

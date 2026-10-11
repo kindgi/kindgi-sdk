@@ -9,6 +9,7 @@ import {
   type EvaluationOutcome,
   type EvaluationResult,
   type Guardrail,
+  type GuardrailCheckOutcome,
   type GuardrailSeverity,
   type ModelCallRecord,
   type OnViolation,
@@ -254,6 +255,12 @@ export interface GuardrailEvaluationError {
  * fails closed). `guardrails` is the list the outcomes came from, one
  * outcome per guardrail in order (`evaluateGate`), which says each error's
  * action; without it, an error's guardrail is looked up by id.
+ *
+ * `checks` is what each guardrail's check came to, in order, for the
+ * outcome ledger (`GuardrailOutcomeSink`): `blocked` (in `blocking`),
+ * `violated` (in `warnings` or `other`), `errored` (in `errors`), or
+ * `passed`. A guardrail whose scope didn't match wasn't checked and has no
+ * entry.
  */
 export function categorizeOutcomes(
   outcomes: readonly EvaluationOutcome[],
@@ -264,12 +271,14 @@ export function categorizeOutcomes(
   readonly other: readonly EvaluationResult[];
   readonly errors: readonly GuardrailEvaluationError[];
   readonly blockingErrors: readonly GuardrailEvaluationError[];
+  readonly checks: readonly GuardrailCheckOutcome[];
 } {
   const blocking: EvaluationResult[] = [];
   const warnings: EvaluationResult[] = [];
   const other: EvaluationResult[] = [];
   const errors: GuardrailEvaluationError[] = [];
   const blockingErrors: GuardrailEvaluationError[] = [];
+  const checks: GuardrailCheckOutcome[] = [];
   const byId = new Map(guardrails.map((g) => [g.id as string, g]));
   const inOrder = guardrails.length === outcomes.length;
   outcomes.forEach((outcome, i) => {
@@ -290,17 +299,35 @@ export function categorizeOutcomes(
       };
       errors.push(error);
       if (error.action === 'halt') blockingErrors.push(error);
+      checks.push({
+        guardrailId: error.guardrailId,
+        outcome: 'errored',
+        ...(error.action !== undefined && { action: error.action }),
+        ...(error.severity !== undefined && { severity: error.severity }),
+        errorCode: error.code,
+      });
       return;
     }
     if (outcome.kind === 'skip') return;
     const evalResult = outcome.value;
-    if (evalResult.result.passed) return;
-    if (evalResult.action === 'halt') blocking.push(evalResult);
-    else if (evalResult.action === 'log-only' || evalResult.action === 'noop') {
+    const guardrailId = evalResult.guardrailId as unknown as string;
+    if (evalResult.result.passed) {
+      // No action was taken (the engine's `noop`).
+      checks.push({ guardrailId, outcome: 'passed', severity: evalResult.severity });
+      return;
+    }
+    const check = { guardrailId, action: evalResult.action, severity: evalResult.severity };
+    if (evalResult.action === 'halt') {
+      blocking.push(evalResult);
+      checks.push({ ...check, outcome: 'blocked' });
+      return;
+    }
+    if (evalResult.action === 'log-only' || evalResult.action === 'noop') {
       warnings.push(evalResult);
     } else other.push(evalResult);
+    checks.push({ ...check, outcome: 'violated' });
   });
-  return { blocking, warnings, other, errors, blockingErrors };
+  return { blocking, warnings, other, errors, blockingErrors, checks };
 }
 
 /**

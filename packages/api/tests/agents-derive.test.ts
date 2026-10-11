@@ -41,8 +41,9 @@ const resolveToken: TokenResolver = async (token) =>
 
 /**
  * The agent registry, storing what the route hands it. It records each
- * version's project unless `recordsProject` is false, and answers one
- * version a page, so a derive reads every page.
+ * version's project unless `recordsProject` is false, and reads it back
+ * on every record as a store does; it answers one version a page, so a
+ * derive reads every page.
  */
 function agentBinding(recordsProject = true): AgentRegistryBinding & {
   markUnregistered: (version: string) => void;
@@ -50,11 +51,16 @@ function agentBinding(recordsProject = true): AgentRegistryBinding & {
   const registry = createAgentRegistry();
   const projects = new Map<string, ProjectId>();
   const unregistered = new Set<string>();
+  const withProject = (agent: AgentVersionRecord): AgentVersionRecord => {
+    const project = projects.get(agent.version as unknown as string);
+    return recordsProject && project !== undefined ? { ...agent, projectId: project } : agent;
+  };
   const active = (agentId: string) =>
     registry
       .list()
       .filter((a) => (a.id as unknown as string) === agentId)
-      .filter((a) => !unregistered.has(a.version as unknown as string));
+      .filter((a) => !unregistered.has(a.version as unknown as string))
+      .map(withProject);
   return {
     markUnregistered: (version) => unregistered.add(version),
     async list() {
@@ -62,16 +68,13 @@ function agentBinding(recordsProject = true): AgentRegistryBinding & {
     },
     async get({ agentId }) {
       const got = registry.getLatest(agentId);
-      return got.kind === 'ok' ? got.value : null;
+      return got.kind === 'ok' ? withProject(got.value) : null;
     },
     async getVersion({ agentId, version }) {
       const got = registry.get(agentId, version as unknown as string);
       if (got.kind !== 'ok') return null;
-      const record: AgentVersionRecord = { ...got.value };
-      const project = projects.get(version as unknown as string);
       return {
-        ...record,
-        ...(recordsProject && project !== undefined && { projectId: project }),
+        ...withProject(got.value),
         ...(unregistered.has(version as unknown as string) && {
           unregisteredAt: '2026-10-01T00:00:00.000Z',
         }),
@@ -219,6 +222,7 @@ describe('POST /v1/agents/:agentId/versions derives a version', () => {
     expect(res.body).toMatchObject({
       id: 'acme.intake',
       version: '1.0.1',
+      projectId,
       instructions: { prompt: 'acme.intake-prompt', version: '^1.0.0' },
       pins,
       pinsDigest: pinsDigest(pins),
@@ -227,6 +231,7 @@ describe('POST /v1/agents/:agentId/versions derives a version', () => {
 
     const read = await call('GET', '/v1/agents/acme.intake/versions/1.0.1');
     expect(read.body.pins).toEqual(pins);
+    expect(read.body.projectId).toBe(projectId);
   });
 
   test("is numbered the next free patch after the agent's highest version", async () => {
@@ -252,8 +257,13 @@ describe('POST /v1/agents/:agentId/versions derives a version', () => {
     const swap = { from: '1.0.0', pins: { settings: { 'acme.weights': '1.1.0' } } };
     const first = await call(...derive({ ...swap, label: 'First' }));
     expect([first.status, first.body.version]).toEqual([201, '1.0.1']);
+    // The registry's rows say where they're kept: still the same definition.
     const again = await call(...derive({ ...swap, label: 'Again' }));
-    expect([again.status, again.body.version]).toEqual([200, '1.0.1']);
+    expect([again.status, again.body.version, again.body.projectId]).toEqual([
+      200,
+      '1.0.1',
+      projectId,
+    ]);
     expect(again.body.derivedFrom).toMatchObject({ version: '1.0.0', label: 'First' });
     expect(again.body.pinsDigest).toBe(first.body.pinsDigest);
   });

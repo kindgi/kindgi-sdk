@@ -10,9 +10,12 @@
  * Ajv's class for it, not 2020-12's with another meta-schema added.
  *
  * `strict` is Ajv's strict mode, an authoring lint (unknown keywords and
- * formats, loose tuples, union types): right for the schemas a pack's
- * author writes, wrong for a schema someone else's server sends, which is
- * valid JSON Schema without being written to that standard.
+ * formats, loose tuples): right for the schemas a pack's author writes,
+ * wrong for a schema someone else's server sends, which is valid JSON Schema
+ * without being written to that standard. A union of types
+ * (`type: ['string', 'number']`) is standard JSON Schema, and what Zod 4
+ * writes for a union of scalars, so it's allowed in either mode
+ * (`ALLOW_UNION_TYPES`).
  */
 
 import { createRequire } from 'node:module';
@@ -32,6 +35,14 @@ const addFormats: AddFormatsFn =
     : (addFormatsRaw as { default: AddFormatsFn }).default;
 
 const require = createRequire(import.meta.url);
+
+/**
+ * Every Kindgi schema compiler takes a union of types (`type: ['string', 'number']`): standard
+ * JSON Schema, which Ajv's strict mode otherwise refuses, and what Zod 4 writes for
+ * `z.union([z.string(), z.number()])`. The pack services' validators agree (Python's
+ * `jsonschema`, Java's `SchemaValidator`).
+ */
+export const ALLOW_UNION_TYPES = true;
 
 /** The JSON Schema dialects a schema may declare. */
 export type JsonSchemaDialect = 'draft-06' | 'draft-07' | '2019-09' | '2020-12';
@@ -97,7 +108,7 @@ export function compileJsonSchema(
   const ajvOptions = {
     strict: options.strict ?? true,
     allErrors: true,
-    allowUnionTypes: false,
+    allowUnionTypes: ALLOW_UNION_TYPES,
     ...(options.useDefaults === true && { useDefaults: true }),
   };
   let ajv: AnyAjv;

@@ -41,7 +41,7 @@ describe('the Java Containerfile', () => {
     publishedAt: '1970-01-01T00:00:00.000Z',
     buildTarget: 'staging',
   };
-  const text = renderJavaContainerfile({ ...inputs, systemPackages: [] });
+  const text = renderJavaContainerfile({ ...inputs, systemPackages: [], declaredEnv: [] });
 
   test('pins its images by digest: Maven + JDK 17 to build, a JRE 17 to run', () => {
     expect(DEFAULT_JAVA_BUILD_IMAGE_REF).toMatch(
@@ -92,8 +92,23 @@ describe('the Java Containerfile', () => {
     expect(text).toContain('PORT=8080');
   });
 
+  test("the launcher's list: the names the pack declares, and none when it declares none", () => {
+    const declared = renderJavaContainerfile({
+      ...inputs,
+      systemPackages: [],
+      declaredEnv: ['A_URL', 'CACHE_DIR'],
+    });
+    const finalStage = declared.slice(declared.indexOf('# --- stage: final'));
+    expect(finalStage).toContain('KINDGI_PACK_ENV_DECLARED="A_URL,CACHE_DIR"');
+    expect(text).toContain('KINDGI_PACK_ENV_DECLARED=""');
+  });
+
   test('declared Debian packages install in the final stage, one apt step', () => {
-    const withApt = renderJavaContainerfile({ ...inputs, systemPackages: ['tesseract-ocr'] });
+    const withApt = renderJavaContainerfile({
+      ...inputs,
+      systemPackages: ['tesseract-ocr'],
+      declaredEnv: [],
+    });
     const finalStage = withApt.slice(withApt.indexOf('# --- stage: final'));
     expect(finalStage).toContain(
       'RUN apt-get update \\\n && apt-get install -y --no-install-recommends tesseract-ocr \\\n && rm -rf /var/lib/apt/lists/*',

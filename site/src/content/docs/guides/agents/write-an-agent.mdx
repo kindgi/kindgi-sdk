@@ -291,7 +291,7 @@ A guardrail the agent names must be registered: `kindgi dev` registers the
 pack's own. An unknown id fails the turn before the model is called:
 
 ```text
-Error [invalid-request]: Agent "acme.order-desk" references guardrails not in the registry: acme.no-refunds
+Error [unresolved-guardrail]: Agent "acme.order-desk" references guardrails not in the registry: acme.no-refunds
 ```
 
 In Python, passing the guardrail object you import (as above) keeps the id

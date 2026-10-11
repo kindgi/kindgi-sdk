@@ -50,6 +50,7 @@ The preset checks that the key is there first:
 Error: ANTHROPIC_API_KEY (the anthropic key) is not in .env, .env.local. Set it first, then register again:
   pnpm exec kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant   # a no-echo prompt
 or add ANTHROPIC_API_KEY=… to .env yourself.
+If the runtime already holds ANTHROPIC_API_KEY in another environment (a deployed runtime's, for example), name it: pnpm exec kindgi providers register --preset=anthropic --env=<that environment>. Without --env, the preset reads local, the pack's own env files.
 ```
 
 ## 3. Run an agent

@@ -689,7 +689,10 @@ manifest (`.secrets/<envName>/manifest.json`), not the values. `set` and
 `rotate` read the value from a no-echo prompt, `--from-stdin` or
 `--from-file` (a file others can read is refused). `revoke` keeps an audit
 tombstone; `--hard` erases the value. Under `kindgi dev`, `--env=local`
-writes to the pack's `.env.local`.
+writes to Kindgi's own `.kindgi/secrets.env`, a file your app doesn't load;
+`set --app` writes your app's env file instead, for a value it reads too.
+`copy` copies model providers' keys (or the names given) from your app's env
+files into `.kindgi/secrets.env`, and never edits your app's files.
 
 ## `kindgi key`
 

@@ -28,6 +28,11 @@ class Kindgi(SyncClientBase, Resources):
 
     Resources follow the API's operation ids (`client.approvals.reviewers.list()`).
     Use it as a context manager, or `close()` it, to release connections.
+
+    The URL and token are found when the client is first used (its first request, or
+    `base_url` / `token`), not when it's created: a module-scope `Kindgi()` loads in a
+    build step that runs without them. If they're still missing then, that use raises
+    `ValueError`, naming what to set.
     """
 
     def __init__(
@@ -40,11 +45,9 @@ class Kindgi(SyncClientBase, Resources):
         default_headers: Mapping[str, str] | None = None,
         http_client: httpx.Client | None = None,
     ) -> None:
-        url, secret = resolve_settings(base_url, token)
         SyncClientBase.__init__(
             self,
-            url,
-            secret,
+            lambda: resolve_settings(base_url, token),
             timeout=timeout,
             max_retries=max_retries,
             default_headers=default_headers,
@@ -66,6 +69,8 @@ class AsyncKindgi(AsyncClientBase, AsyncResources):
         run = await client.runs.start(flow="acme.ledger.record-flow", input={...})
         async for event in client.runs.follow(run.id):  # to the run's end
             ...
+
+    Like `Kindgi`, it finds its URL and token on first use, not when it's created.
     """
 
     def __init__(
@@ -78,11 +83,9 @@ class AsyncKindgi(AsyncClientBase, AsyncResources):
         default_headers: Mapping[str, str] | None = None,
         http_client: httpx.AsyncClient | None = None,
     ) -> None:
-        url, secret = resolve_settings(base_url, token)
         AsyncClientBase.__init__(
             self,
-            url,
-            secret,
+            lambda: resolve_settings(base_url, token),
             timeout=timeout,
             max_retries=max_retries,
             default_headers=default_headers,

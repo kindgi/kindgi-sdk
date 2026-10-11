@@ -6,9 +6,11 @@
  * ignore patterns if absent (the fresh templates' `.gitignore` carries
  * the same three):
  *
- *   - `.env.local` — where `kindgi secrets set` writes plaintext
- *     secret values in dev mode
- *   - `.kindgi/` — build artifacts, the dev index, dev-server state
+ *   - `.env.local` — the app's local env file (its settings, and any
+ *     key put there by hand)
+ *   - `.kindgi/` — build artifacts, the dev index, dev-server state, and
+ *     Kindgi's own secrets file (`.kindgi/secrets.env`, where
+ *     `kindgi secrets set` writes in dev mode)
  *   - `.kindgirc.json` — the dev server's API URL + bearer token,
  *     written by `kindgi dev` for second-terminal commands
  *

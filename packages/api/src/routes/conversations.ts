@@ -19,7 +19,7 @@ import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
 import { deniedBy } from './denied.js';
-import { clampLimit, decodeCursor, encodeCursor } from './pagination.js';
+import { clampLimit, decodeCursor, encodeCursor, isCursorTime } from './pagination.js';
 import { parseListScope } from './scope-params.js';
 import { refuseMalformedUuidParam } from './uuid-param.js';
 
@@ -110,7 +110,7 @@ export function conversationsRouter(
     const rawCursor = c.req.query('cursor');
     if (rawCursor !== undefined && rawCursor.length > 0) {
       const decoded = decodeCursor(rawCursor);
-      if (decoded === null) {
+      if (decoded === null || !isCursorTime(decoded.createdAt)) {
         c.status(statusFor('bad-input') as never);
         return c.json(
           toWireError({ code: 'bad-input', message: '`cursor` is malformed' }, requestId),
@@ -132,13 +132,17 @@ export function conversationsRouter(
       c.status(statusFor(listResult.error.code) as never);
       return c.json(toWireError(listResult.error as never, requestId));
     }
-    const { data, hasMore } = listResult.value;
+    const { data, hasMore, next } = listResult.value;
     const last = data[data.length - 1];
+    // The binding's exact position when it gives one (`openedAt` to the
+    // microsecond); else the last row's, as a binding before it answers.
+    const position =
+      next ?? (last !== undefined ? { openedAt: last.openedAt, id: last.id } : undefined);
     const nextCursor =
-      hasMore && last !== undefined
+      hasMore && position !== undefined
         ? encodeCursor({
-            createdAt: last.openedAt as unknown as string,
-            id: last.id as unknown as string,
+            createdAt: position.openedAt as unknown as string,
+            id: position.id as unknown as string,
           })
         : undefined;
     const visible =

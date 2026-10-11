@@ -46,9 +46,9 @@ export {
   createEd25519ExportSigner,
   createExportSignerFromPem,
   ecdsaDerToP1363,
-  exportSignerFromSigningKeyBinding,
   exportSigningKey,
 } from './export-signing.js';
+export { parseRetiredExportKeys, withRetiredExportKeys } from './retired-export-keys.js';
 export type {
   ExportSignature,
   ExportSigningAlgorithm,

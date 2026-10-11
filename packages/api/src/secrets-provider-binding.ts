@@ -82,6 +82,13 @@ export interface SecretProviderGetVersionInput {
   readonly providerScope: SecretProviderScope;
   readonly name: string;
   readonly versionId: number;
+  /**
+   * The provider's own id for this version, when the caller recorded it
+   * (the router does, from `SecretProviderPutOutput.providerVersion`).
+   * Adapters whose native versions aren't integers (Azure Key Vault's
+   * hex ids, AWS's UUIDs) fetch by it; the others may ignore it.
+   */
+  readonly providerVersion?: string;
 }
 
 export interface SecretProviderPayload {
@@ -89,6 +96,8 @@ export interface SecretProviderPayload {
   readonly versionId: number;
   readonly createdAt: string;
   readonly value: string;
+  /** The provider's own id for this version (see `SecretProviderPutOutput.providerVersion`). */
+  readonly providerVersion?: string;
 }
 
 export interface SecretProviderListInput {
@@ -116,10 +125,39 @@ export interface SecretProviderPutInput {
   readonly name: string;
   readonly value: string;
   readonly writeMode: 'create-new' | 'add-version';
+  /**
+   * Kindgi's number for the version this write creates, when the caller
+   * numbers versions itself (the router does). Adapters make the write
+   * idempotent per `(name, versionId)`: if that version already exists
+   * (a retry after the provider wrote it but the caller couldn't record
+   * it), they return it instead of writing again, so a retry never
+   * leaves an orphaned version. Key Vault tags the version, AWS stages
+   * it, Vault checks-and-sets, GCP's own numbers match.
+   */
+  readonly versionId?: number;
 }
 
 export type SecretProviderPutOutput =
-  | { readonly kind: 'ok'; readonly versionId: number; readonly createdAt: string }
+  | {
+      readonly kind: 'ok';
+      readonly versionId: number;
+      readonly createdAt: string;
+      /**
+       * The provider's own id for the version written: a Key Vault
+       * version, an AWS `VersionId`, or Vault's or GCP's version number
+       * as a string. The router records it, so Kindgi's version numbers
+       * stay its own whatever the provider uses.
+       */
+      readonly providerVersion?: string;
+      /**
+       * This write ended a revoke's provider-side retention early: the
+       * secret was revoked, and setting it again meant deleting the
+       * revoked values for good (AWS Secrets Manager, whose revoke keeps
+       * the whole secret restorable until the name is set again). Absent
+       * on every other write.
+       */
+      readonly revokedValuesPurged?: true;
+    }
   | { readonly kind: 'already-exists' }
   | { readonly kind: 'version-conflict'; readonly currentVersion: number };
 
@@ -128,10 +166,18 @@ export interface SecretProviderRotateInput {
   readonly name: string;
   readonly newValue?: string;
   readonly revokeOldAfterMs?: number;
+  /** Kindgi's number for the new version: idempotent as `SecretProviderPutInput.versionId`. */
+  readonly versionId?: number;
 }
 
 export type SecretProviderRotateOutput =
-  | { readonly kind: 'ok'; readonly newVersionId: number; readonly oldVersionId: number }
+  | {
+      readonly kind: 'ok';
+      readonly newVersionId: number;
+      readonly oldVersionId: number;
+      /** The provider's own id for the new version (see `SecretProviderPutOutput`). */
+      readonly newProviderVersion?: string;
+    }
   | { readonly kind: 'rotation-pending'; readonly resumeToken: string };
 
 export interface SecretProviderDeleteInput {

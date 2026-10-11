@@ -7,6 +7,51 @@ heading into its version.
 
 ## Unreleased
 
+- `kindgi-pack`, `kindgi-pack-scala`: **`ToolContext.idempotencyKey()`**, the same every time a
+  tool call runs (resumed, retried, or run again after a crash) and different for every other
+  call, so a tool that writes can dedupe on it. `null` from a runtime before 0.1.6. The
+  constructor without it stays.
+- `kindgi-pack`, `kindgi-pack-scala`: **only the names a pack declares reach
+  its code.** The launcher (`kindgi-pack-java`) drops every variable the pack
+  doesn't declare before the JVM starts, keeping `KINDGI_*`, the platform's,
+  and the names in `KINDGI_PACK_ENV_DECLARED`, which `kindgi build` sets in
+  the image. The service logs the dropped names (`env-dropped`), never their
+  values, and won't start while an undeclared variable still reaches it.
+  `KINDGI_PACK_ENV_FILTER=off` keeps every variable.
+- `kindgi-pack`, `kindgi-pack-scala`: **the indexer warns when a guardrail's
+  check id doesn't start with the pack's id** (`<pack id>.`; the check id is
+  `checkId`, or the guardrail's own id). Packs in one tenant share one space
+  of check names, so the warning says to name it `<pack id>.checks.<name>`.
+  It's a warning only: the pack builds and indexes as before, and
+  `kindgi build` and `kindgi dev` print it.
+- `kindgi-pack`, `kindgi-pack-scala`: **a union of types validates**
+  (`"type": ["string", "number"]`, what Zod writes for a union of scalars in a
+  TypeScript tool's schema). It used to be refused as unsupported, matching the
+  TypeScript pack service's old strict mode; both take it now. (#477)
+- `kindgi-pack`, `kindgi-pack-scala`: **a secret whose schema names null is
+  optional** (`.set("needsSpec", …)` with `"type": ["string", "null"]`): with
+  runtime 0.1.6 or later, one the env doesn't have, or has empty, is absent
+  from `ctx.secrets()`, and the call goes on. The index keeps the schema as
+  written. (#478)
+
+## 0.1.5
+
+No JVM changes; the version moves with the npm packages.
+
+## 0.1.5-rc.0
+
+- `kindgi-pack`: **on SIGTERM, the service stops taking calls before it writes
+  `draining`.** It wrote the record first, so for a moment a supervisor that
+  read it and asked `/readyz` at once could still get 200. (#471)
+- `kindgi-pack`, `kindgi-pack-scala`: **a guardrail can't ship its check under
+  a built-in check's id** (`must-cite`, `never-call-tool`, `max-tool-calls`,
+  `output-matches`, `tool-order`, `required-substring`,
+  `forbidden-substring`). The runtime runs the built-in for a guardrail naming
+  one, so the pack's check would be silently replaced. `Guardrail.Builder.check`
+  (Scala: `check`) refuses it, saying to rename the check; the indexer reports
+  the file. `Guardrail.RESERVED_CHECK_IDS` lists them, and a test holds it
+  equal to `@kindgi/guardrails`' built-in checks, as the TypeScript and Python
+  pack SDKs do. (#461)
 - `kindgi-pack`, `kindgi-pack-scala`: **Jackson 2.18.11 or later.** kindgi-pack's
   Jackson (core, databind, annotations, jdk8, jsr310) and the Scala layer's
   jackson-module-scala move from 2.15.4 to 2.18.11, which fixes advisories that

@@ -76,6 +76,10 @@ export function createStubAppBindings(): StubAppBindings {
       updateTeamMemberRole: true,
       removeProjectMember: true,
       updateProjectMemberRole: true,
+      addTeamProjectGrant: true,
+      updateTeamProjectGrantRole: true,
+      removeTeamProjectGrant: true,
+      deleteTeam: true,
       getTenant: true,
     }),
     memoryBinding: createStubBinding<MemoryQueryBinding>('memoryBinding', {
@@ -112,6 +116,7 @@ export function createStubKernelBinding(): KernelBinding {
       deleteRun: true,
       getRun: true,
       listRuns: true,
+      failureGroups: true,
     }),
     scheduler: createStubBinding<SchedulerBinding>('kernelBinding.scheduler', {
       startCronScheduler: true,

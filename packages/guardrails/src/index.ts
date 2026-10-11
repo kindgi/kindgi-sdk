@@ -1,7 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-export { GUARDRAIL_SCHEMA_URI, defineGuardrail, validateGuardrailSpec } from './define.js';
+export {
+  GUARDRAIL_SCHEMA_URI,
+  GUARDRAIL_SPEC_KEYS,
+  defineGuardrail,
+  validateGuardrailSpec,
+} from './define.js';
 export { defineCheck } from './define-check.js';
 export { describeGuardrailConfigProblems, guardrailConfigProblems } from './config-problems.js';
 export type { GuardrailConfigProblem, GuardrailConfigProblemsInput } from './config-problems.js';
@@ -39,6 +44,12 @@ export type {
 } from './execution-strategy.js';
 export { JUDGE_THINKING_TOKENS, JUDGE_VERDICT_TOKENS, invokeJudge } from './judge.js';
 export type { LlmJudgeConfig } from './judge.js';
+export type {
+  GuardrailCheckOutcome,
+  GuardrailCheckOutcomeKind,
+  GuardrailOutcomeRecord,
+  GuardrailOutcomeSink,
+} from './outcomes.js';
 export type {
   Action,
   Budget,
