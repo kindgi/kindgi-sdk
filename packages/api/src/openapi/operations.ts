@@ -3835,6 +3835,24 @@ export const OPERATIONS: readonly OperationSpec[] = [
   },
   {
     method: 'get',
+    honoPath: '/v1/license',
+    openapiPath: '/v1/license',
+    operationId: 'license.get',
+    summary: "Where the deployment's license key stands",
+    description:
+      "Whose key, which use, until when and how many days are left, and from 30 days before it expires how to get the next one, as the runtime's startup banner says it. Never the key itself. `mode: development` when the runtime runs with `KINDGI_DEV` and needs no key. The license is the deployment's: its own token (`KINDGI_API_TOKEN`) reads all of it, `renew` with where the deployment keeps its key included. Where the deployment serves exactly one tenant, that tenant's admins read the countdown only (`mode`, `standing`, `expiresAt`, `startsUntil`, `daysLeft`, `renewBy`): never whose key it is or where it's kept. Anyone else is refused. A deployment that doesn't report it answers 404.",
+    tags: ['system'],
+    security: 'bearer',
+    responses: {
+      '200': { description: 'The license status.', schema: ref('LicenseStatus') },
+      ...CommonAuthErrors,
+      '403': ErrorResponse(
+        "Not the deployment's own token, nor an admin of the one tenant it serves (`license-operator-only`).",
+      ),
+    },
+  },
+  {
+    method: 'get',
     honoPath: '/v1/export-signing-keys',
     openapiPath: '/v1/export-signing-keys',
     operationId: 'exportSigningKeys.list',

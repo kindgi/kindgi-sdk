@@ -119,6 +119,7 @@ import { improvementPassesRouter, mountImproveRoute } from './routes/improvement
 import { judgedSuitesRouter } from './routes/judged-suites.js';
 import { judgingRouter } from './routes/judging.js';
 import { judgeClassesRouter, judgmentsRouter } from './routes/judgments.js';
+import { type LicenseStatusBinding, licenseRouter } from './routes/license.js';
 import { mcpRouter } from './routes/mcp.js';
 import { memoryErasuresRouter } from './routes/memory-erasures.js';
 import { memoryRouter } from './routes/memory.js';
@@ -500,6 +501,15 @@ export interface CreateAppInput {
    * binding.
    */
   readonly exportSigning?: ExportSigningBinding;
+  /**
+   * Optional. Where the deployment's license key stands, worked out on
+   * each read: `GET /v1/license`. The deployment's own token reads all of
+   * it; where the deployment serves one tenant (`soleTenant`), that
+   * tenant's admins read the countdown the console warns with, from 30
+   * days before the key expires; anyone else is refused. Without it the
+   * route isn't mounted (404), as on a deployment that doesn't report it.
+   */
+  readonly license?: LicenseStatusBinding;
   /**
    * Optional. Issue and accept public run tokens (`kgi_pt_…`):
    * short-lived, read-only tokens a browser uses to follow specific runs
@@ -1380,6 +1390,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     v1.route('/improvement-passes', improvementPassesRouter(input.improvementPasses, authorizer));
   }
   v1.route('/export-signing-keys', exportSigningKeysRouter(exportSigning));
+  if (input.license !== undefined) {
+    v1.route('/license', licenseRouter(input.license, authorizer));
+  }
   v1.route(
     '/provenance',
     provenanceRouter(

@@ -1709,6 +1709,49 @@ export const ExportSigningKeySchema: JsonSchema = {
   },
 };
 
+export const LicenseStatusSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['mode'],
+  properties: {
+    mode: {
+      type: 'string',
+      enum: ['development', 'licensed'],
+      description: '`development`: no key needed (`KINDGI_DEV`); the other fields are absent.',
+    },
+    name: { type: 'string', description: 'Whose key: the name the banner prints.' },
+    use: { type: 'string', enum: ['production', 'non-production'] },
+    expiresAt: { type: 'string', format: 'date-time' },
+    startsUntil: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'Until when the runtime starts with this key: `expiresAt` plus the 14-day grace.',
+    },
+    daysLeft: {
+      type: 'integer',
+      description: 'Whole days until it expires; negative once it has.',
+    },
+    standing: {
+      type: 'string',
+      enum: ['valid', 'expiring', 'grace', 'expired'],
+      description:
+        "`expiring`: 30 days or fewer left. `grace`: expired, and the runtime still starts with it (for 14 days). `expired`: past the grace too: this server runs on, but won't start with it again.",
+    },
+    renewBy: {
+      type: 'string',
+      enum: ['command', 'contact'],
+      description:
+        'Which way to the next key applies: `command`, a key this deployment renews itself (`kindgi license renew`); `contact`, a key Kindgi issued (write to Kindgi).',
+    },
+    renew: {
+      type: 'string',
+      description:
+        "How to get the next key, as the banner says it, with where the deployment keeps its key and renewer. Present from 30 days before the key expires, and only to the deployment's own token.",
+    },
+  },
+};
+
 export const ExportSigningKeyListSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -11738,6 +11781,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['UnregisterReviewerResult', UnregisterReviewerResultSchema],
   ['ExportSigningKey', ExportSigningKeySchema],
   ['ExportSigningKeyList', ExportSigningKeyListSchema],
+  ['LicenseStatus', LicenseStatusSchema],
   ['ExportAuditBundleBody', ExportAuditBundleBodySchema],
   ['ExportAuditBundleResult', ExportAuditBundleResultSchema],
   ['ObservationStatus', ObservationStatusSchema],

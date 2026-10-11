@@ -649,5 +649,6 @@ export function fullAppInput(): CreateAppInput {
     secretsBinding: noopSecretsBinding,
     webhookReceiver: { envName: 'test' as EnvName },
     publicUrl: 'https://kindgi.acme.example',
+    license: { status: () => ({ mode: 'development' }) },
   };
 }
