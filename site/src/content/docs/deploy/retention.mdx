@@ -295,9 +295,19 @@ then every hour, in the tenants it serves:
 | Audit events | Kept for |
 | --- | --- |
 | Access decisions (`authz-decision`) | 90 days; denied ones 365 days |
-| Run outcomes (`run-outcome`), guardrail violations (`guardrail-violation`) | 730 days |
-| Approval decisions (`hitl-decision`), secret changes (`secret-set`, `secret-rotation`) | For good: they're on legal hold |
+| Run outcomes (`run-outcome`), guardrail violations (`guardrail-violation`), changes to [env values](../../guides/tools/give-a-tool-env-values/) (`env-set`, `env-deleted`) | 730 days |
+| Approval decisions (`hitl-decision`), and changes to secrets, API keys, service accounts and people's access (below) | For good: they're on legal hold |
 | Any other kind | For good |
+
+The changes on legal hold are these kinds:
+
+- **Secrets:** `secret-set`, `secret-rotated`, `secret-rotation`,
+  `secret-rotation-started`, `secret-rotation-failed`, `secret-revoked`,
+  `secret-hard-revoked`;
+- **API keys:** `api-key-minted`, `api-key-revoked`;
+- **Service accounts:** `service-account-created`, `service-account-granted`,
+  `service-account-ungranted`, `service-account-unregistered`;
+- **People:** `person-added`, `person-granted`, `person-ungranted`.
 
 The banner says it's on:
 
@@ -319,7 +329,13 @@ Any other value stops the runtime at start:
 
 Your own classifier lists the kinds to purge under `byKind`, each with its
 `days`, and `onDenyDays` for denied ones; `legalHold: true` keeps a kind for
-good. A kind it doesn't list is kept. This one keeps run outcomes 50 days:
+good. A kind it doesn't list is kept.
+
+An entry can name another kind instead of giving a policy. It's then kept,
+and purged, as that kind is, so the two can't drift apart. The shipped
+classifier does this for each family above, such as
+`"secret-revoked": "secret-set"`. This one keeps run outcomes 50 days, and
+guardrail violations with them:
 
 ```json
 {
@@ -328,10 +344,32 @@ good. A kind it doesn't list is kept. This one keeps run outcomes 50 days:
   "byKind": {
     "authz-decision": { "retention": { "days": 90, "onDenyDays": 365 }, "signed": false, "exportable": true },
     "run-outcome": { "retention": { "days": 50 }, "signed": true, "exportable": true },
+    "guardrail-violation": "run-outcome",
     "hitl-decision": { "retention": { "days": 2555, "legalHold": true }, "signed": true, "exportable": true }
   }
 }
 ```
+
+With `KINDGI_COMPLIANCE_CLASSIFIER=/etc/kindgi/classifier.json`, the banner
+names the file:
+
+```text
+  Compliance: on, the classifier /etc/kindgi/classifier.json: /v1/compliance/*, and audit events purged by kind as it says
+```
+
+A pass still counts each kind under its own name:
+`purged 2 (run-outcome 1, guardrail-violation 1)`.
+
+The kind an entry names must have a policy of its own. A name that names
+another name, or a kind the file doesn't list, stops the runtime at start
+(exit code 1):
+
+```text
+kindgi-runtime: fatal: Error: compliance-classifier.byKind.secret-revoked: names "secret-rotated", which names another kind itself: name the kind with the policy
+```
+
+For a kind the file doesn't list, it says
+`` compliance-classifier.byKind.secret-revoked: names "secret-sett", which isn't listed with a policy ``.
 
 The setting also turns on `GET /v1/compliance/evidence`, which lists the audit
 events as compliance evidence. Without it, that route answers `404`.

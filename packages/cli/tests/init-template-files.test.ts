@@ -15,7 +15,7 @@ import { describe, expect, test } from 'vitest';
 import { collectTemplateFiles, javaPackageOf, templateTarget } from '../src/init/template-files.js';
 
 const TEMPLATES = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'templates');
-const TEMPLATE_NAMES = ['java', 'minimal', 'python', 'sample'];
+const TEMPLATE_NAMES = ['java', 'minimal', 'python', 'sample', 'woocommerce'];
 
 describe('templateTarget', () => {
   test('strips .tmpl and restores the dot of a stored dotfile', () => {
