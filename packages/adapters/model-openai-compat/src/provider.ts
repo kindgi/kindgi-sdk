@@ -23,6 +23,7 @@ import type {
 import { adapterConfigError, samplingFor } from '@kindgi/capabilities';
 import { createAttemptCounter } from '@kindgi/capabilities/attempts';
 import { nameToolsAsSent } from '@kindgi/capabilities/tool-names';
+import { headerValueProblem } from '@kindgi/types';
 
 import { EXTRA_BODY_RESERVED_RESPONSES, invokeResponses, requestOptions } from './responses.js';
 import { computeCost, decodeToolName, encodeToolName } from './wire.js';
@@ -160,6 +161,14 @@ export function createOpenAICompatModelProvider(
   const attempts = createAttemptCounter(options.clientOptions?.fetch);
   async function clientForCall(): Promise<OpenAI> {
     const key = typeof options.apiKey === 'function' ? await options.apiKey() : options.apiKey;
+    // Checked before the SDK sends it: fetch's own error for a key it can't
+    // send (a line break inside) quotes the key, into the call's failure.
+    const problem = headerValueProblem(key);
+    if (problem !== undefined) {
+      throw new Error(
+        `${OPENAI_COMPAT_ADAPTER_ID}: provider "${metadata.id}": its API key has ${problem}, which a header can't carry: store the secret without it`,
+      );
+    }
     if (cached !== undefined && cached.key === key) return cached.client;
     const client = new OpenAI({
       apiKey: key,

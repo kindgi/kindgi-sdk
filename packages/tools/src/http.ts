@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import { headerValueProblem } from '@kindgi/types';
+
 import { type ToolSpecSynthesizerOptions, registerToolSpecSynthesizer } from './spec-registry.js';
 import type { HttpAuthSpec, HttpRequestBodySpec, HttpToolSpec, ToolContext } from './types.js';
 
@@ -57,7 +59,14 @@ function buildHttpHandler(
 
     const headers: Record<string, string> = {};
     for (const h of spec.headers ?? []) {
-      headers[h.name] = substituteTemplate(h.value, inputObj);
+      const value = substituteTemplate(h.value, inputObj);
+      const problem = headerValueProblem(value);
+      if (problem !== undefined) {
+        throw new Error(
+          `http-tool "${toolId}": the header "${h.name}", filled from its input, has ${problem}, which a header can't carry`,
+        );
+      }
+      headers[h.name] = value;
     }
 
     if (spec.authorization !== undefined) {
@@ -214,9 +223,18 @@ function applyAuth(
   headers: Record<string, string>,
   auth: HttpAuthSpec,
   _ctx: ToolContext,
-  _toolId: string,
+  toolId: string,
   resolvedSecret: string,
 ): void {
+  // Checked by the header's name before fetch, whose own error would quote
+  // the secret into the call's failure message, and so into the run.
+  const problem = headerValueProblem(resolvedSecret);
+  if (problem !== undefined) {
+    const header = auth.kind === 'bearer' ? 'Authorization' : auth.headerName;
+    throw new Error(
+      `http-tool "${toolId}": its secret ${auth.secretRef.envName}/${auth.secretRef.name} for the header "${header}" has ${problem}, which a header can't carry: store the secret without it`,
+    );
+  }
   switch (auth.kind) {
     case 'bearer':
       headers.Authorization = `Bearer ${resolvedSecret}`;
