@@ -16,6 +16,7 @@ import type { EnvName, TenantId } from '@kindgi/types';
 
 import { guardProviderKeys } from '../src/index.js';
 import type { ProviderKeys, SecretBinding } from '../src/index.js';
+import { usersOfSecret } from '../src/provider-keys.js';
 
 const tenantId = randomUUID() as TenantId;
 const scope = { kind: 'tenant', tenantId } as const;
@@ -116,5 +117,49 @@ describe('guardProviderKeys', () => {
         `: ${user} never gets a model provider's key.`,
       );
     }
+  });
+});
+
+describe('usersOfSecret: MCP endpoints', () => {
+  test("an endpoint naming the secret as its bearer or in its auth uses it; one that doesn't, doesn't", async () => {
+    const secretRef = { envName, name: 'OPENAI_API_KEY' };
+    const http = {
+      name: 'MCP',
+      transport: 'streamable-http',
+      config: { transport: 'streamable-http', url: 'https://mcp.acme.example/mcp' },
+    } as const;
+    const endpoints = [
+      { ...http, endpointId: 'acme.bearer', secretRef },
+      {
+        ...http,
+        endpointId: 'acme.basic',
+        auth: { scheme: 'basic', username: 'agent', secretRef },
+      },
+      {
+        ...http,
+        endpointId: 'acme.oauth',
+        auth: {
+          scheme: 'oauth2-client-credentials',
+          tokenUrl: 'https://cms.acme.example/oauth/token',
+          clientId: 'kindgi',
+          secretRef,
+        },
+      },
+      {
+        ...http,
+        endpointId: 'acme.other',
+        auth: { scheme: 'basic', username: 'agent', secretRef: { envName, name: 'SHOP_PASSWORD' } },
+      },
+    ];
+    const users = await usersOfSecret(
+      { mcpEndpoints: { list: async () => ({ data: endpoints }) } as never },
+      tenantId,
+      'OPENAI_API_KEY',
+    );
+    expect(users).toEqual([
+      { kind: 'mcp-endpoint', id: 'acme.bearer' },
+      { kind: 'mcp-endpoint', id: 'acme.basic' },
+      { kind: 'mcp-endpoint', id: 'acme.oauth' },
+    ]);
   });
 });

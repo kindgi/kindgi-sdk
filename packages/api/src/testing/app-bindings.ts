@@ -121,7 +121,6 @@ export function createStubKernelBinding(): KernelBinding {
     scheduler: createStubBinding<SchedulerBinding>('kernelBinding.scheduler', {
       startCronScheduler: true,
       startEventTriggerScheduler: true,
-      fireByWebhookId: true,
       initialNextFireAt: true,
     }),
     waitpoint: createStubBinding<WaitpointBinding>('kernelBinding.waitpoint', {
@@ -138,7 +137,9 @@ export function createStubKernelBinding(): KernelBinding {
       pause: true,
       resume: true,
       unregister: true,
-      fetchActiveByWebhookId: true,
+      findWebhook: true,
+      fireWebhook: true,
+      recordWebhookRefusal: true,
       listFires: true,
       fireNow: true,
       setOwner: true,

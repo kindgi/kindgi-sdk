@@ -3,6 +3,7 @@
 
 /** `kindgi doctor` (T130): each check, from fakes of the tools, Docker, the runtime and the client. */
 
+import { generateKeyPairSync, sign } from 'node:crypto';
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -112,10 +113,12 @@ async function doctor(
     /** `providers.check` per provider id: its issues (default none), or an error it throws. */
     checks?: Record<string, { path: string; message: string }[]> | Error;
     json?: boolean;
+    /** More of doctor's arguments (`--path`). */
+    args?: string[];
   } = {},
 ) {
   const out = await runCli({
-    argv: ['doctor', ...(options.json === false ? [] : ['--json'])],
+    argv: ['doctor', ...(options.args ?? []), ...(options.json === false ? [] : ['--json'])],
     env: options.env ?? {},
     cwd: dir,
     home,
@@ -179,6 +182,7 @@ describe('outside a project', () => {
       'registry',
       'dev-sandbox',
       'console-sign-in',
+      'license',
       'project',
       'dependencies',
       'model-key',
@@ -1096,5 +1100,163 @@ describe('console sign-in: can anyone sign in to the console of the runtime the 
     });
     expect(out.stdout).toContain('! Console sign-in: Nobody can sign in to the console');
     expect(out.stdout).toContain('Fix: Set KINDGI_CONSOLE_TOKEN_SIGN_IN=on on the runtime');
+  });
+});
+
+describe('the license key', () => {
+  const NOW = 1_791_500_000_000;
+  const DAY = 86_400;
+  const signer = generateKeyPairSync('ed25519');
+  const licensePublicKeys = {
+    'test-lk': Buffer.from(
+      signer.publicKey.export({ format: 'jwk' }).x as string,
+      'base64url',
+    ).toString('base64'),
+  };
+  const key = (over: Record<string, unknown> = {}) => {
+    const payload = {
+      v: 1,
+      kid: 'test-lk',
+      sub: 'gh-42',
+      name: 'octo',
+      use: 'non-production',
+      iat: NOW / 1000 - 30 * DAY,
+      exp: NOW / 1000 + 57 * DAY,
+      ...over,
+    };
+    const signed = `kgi_lk_${Buffer.from(JSON.stringify(payload)).toString('base64url')}`;
+    return `${signed}.${sign(null, Buffer.from(signed, 'ascii'), signer.privateKey).toString('base64url')}`;
+  };
+  const licenseOf = async (env: Record<string, string> = {}) => {
+    const { report } = await doctor({
+      env,
+      seam: { ...seam(), now: () => NOW, licensePublicKeys },
+    });
+    return report?.checks.find((c) => c.id === 'license');
+  };
+
+  test('none here: skipped (kindgi dev needs none)', async () => {
+    expect(await licenseOf()).toMatchObject({
+      status: 'skip',
+      message: expect.stringContaining('kindgi dev needs none'),
+    });
+  });
+
+  test('KINDGI_LICENSE_KEY with time left: whose, which use, until when', async () => {
+    expect(await licenseOf({ KINDGI_LICENSE_KEY: key() })).toEqual({
+      id: 'license',
+      status: 'pass',
+      message: `octo's non-production key, until ${new Date((NOW / 1000 + 57 * DAY) * 1000).toISOString().slice(0, 10)} (57 days).`,
+    });
+  });
+
+  test('kindgi.env, in its last 30 days: a warning with the exact renew command, or access.kindgi.com', async () => {
+    await writeFile(
+      join(dir, 'kindgi.env'),
+      `KINDGI_LICENSE_KEY=${key({ exp: NOW / 1000 + 12 * DAY })}\n`,
+    );
+    const check = await licenseOf();
+    expect(check?.status).toBe('warn');
+    expect(check?.message).toMatch(
+      /^octo's non-production key expires in 12 days \(\d{4}-\d{2}-\d{2}\)\.$/,
+    );
+    expect(check?.fix).toBe(
+      'Renew it: from this deployment (kindgi license renew --env-file kindgi.env --renewer <its renewer key>), or sign in at https://access.kindgi.com',
+    );
+  });
+
+  test('the exact renew command, from where the deployment keeps its key and renewer (the environment)', async () => {
+    const check = await licenseOf({
+      KINDGI_LICENSE_KEY: key({ exp: NOW / 1000 + 12 * DAY }),
+      KINDGI_LICENSE_KEY_REF: 'gcp:projects/acme/secrets/kindgi-license-key',
+      KINDGI_LICENSE_RENEWER_REF: ' gcp:projects/acme/secrets/kindgi-license-renewer ',
+    });
+    expect(check?.fix).toBe(
+      'Renew it: from this deployment (kindgi license renew --key gcp:projects/acme/secrets/kindgi-license-key --renewer gcp:projects/acme/secrets/kindgi-license-renewer), or sign in at https://access.kindgi.com',
+    );
+  });
+
+  test('a ref with a space in it: one shell word', async () => {
+    const check = await licenseOf({
+      KINDGI_LICENSE_KEY: key({ exp: NOW / 1000 + 12 * DAY }),
+      KINDGI_LICENSE_KEY_REF: 'env-file:/srv/My Deploy/kindgi.env#KINDGI_LICENSE_KEY',
+      KINDGI_LICENSE_RENEWER_REF: "file:/srv/My Deploy/renewer's.key",
+    });
+    expect(check?.fix).toContain(
+      `kindgi license renew --key 'env-file:/srv/My Deploy/kindgi.env#KINDGI_LICENSE_KEY' --renewer 'file:/srv/My Deploy/renewer'\\''s.key'`,
+    );
+  });
+
+  test('the exact renew command, from kindgi.env', async () => {
+    await writeFile(
+      join(dir, 'kindgi.env'),
+      `KINDGI_LICENSE_KEY=${key({ exp: NOW / 1000 + 12 * DAY })}\nKINDGI_LICENSE_RENEWER_REF=file:/etc/kindgi/renewer.key\n`,
+    );
+    expect((await licenseOf())?.fix).toBe(
+      'Renew it: from this deployment (kindgi license renew --env-file kindgi.env --renewer file:/etc/kindgi/renewer.key), or sign in at https://access.kindgi.com',
+    );
+  });
+
+  test('with --path to a folder with a space: the env file as one shell word', async () => {
+    await mkdir(join(dir, 'My Deploy'));
+    await writeFile(
+      join(dir, 'My Deploy', 'kindgi.env'),
+      `KINDGI_LICENSE_KEY=${key({ exp: NOW / 1000 + 12 * DAY })}\n`,
+    );
+    const { report } = await doctor({
+      args: ['--path', 'My Deploy'],
+      seam: { ...seam(), now: () => NOW, licensePublicKeys },
+    });
+    expect(report?.checks.find((c) => c.id === 'license')?.fix).toContain(
+      `kindgi license renew --env-file '${join('My Deploy', 'kindgi.env')}' --renewer <its renewer key>`,
+    );
+  });
+
+  test('with --path: the env file named from where doctor ran', async () => {
+    await mkdir(join(dir, 'deploy'));
+    await writeFile(
+      join(dir, 'deploy', 'kindgi.env'),
+      `KINDGI_LICENSE_KEY=${key({ exp: NOW / 1000 + 12 * DAY })}\nKINDGI_LICENSE_RENEWER_REF=file:/etc/kindgi/renewer.key\n`,
+    );
+    const { report } = await doctor({
+      args: ['--path', 'deploy'],
+      seam: { ...seam(), now: () => NOW, licensePublicKeys },
+    });
+    expect(report?.checks.find((c) => c.id === 'license')?.fix).toBe(
+      `Renew it: from this deployment (kindgi license renew --env-file ${join('deploy', 'kindgi.env')} --renewer file:/etc/kindgi/renewer.key), or sign in at https://access.kindgi.com`,
+    );
+  });
+
+  test('a key Kindgi issued by hand: write to contact; in the grace: still starts; past it: fails', async () => {
+    const issued = { sub: 'acme-prod', name: 'Acme', use: 'production' };
+    const expiring = await licenseOf({
+      KINDGI_LICENSE_KEY: key({ ...issued, exp: NOW / 1000 + 3 * DAY }),
+    });
+    expect(expiring?.fix).toBe('Renew it: contact@kindgi.com');
+    const grace = await licenseOf({
+      KINDGI_LICENSE_KEY: key({ ...issued, exp: NOW / 1000 - 2 * DAY }),
+    });
+    expect([grace?.status, grace?.message.includes('the runtime starts with it until')]).toEqual([
+      'warn',
+      true,
+    ]);
+    const { out, report } = await doctor({
+      env: { KINDGI_LICENSE_KEY: key({ ...issued, exp: NOW / 1000 - 20 * DAY }) },
+      seam: { ...seam(), now: () => NOW, licensePublicKeys },
+    });
+    const expired = report?.checks.find((c) => c.id === 'license');
+    expect([
+      expired?.status,
+      expired?.message.includes("more than 14 days ago: the runtime won't start with it"),
+    ]).toEqual(['fail', true]);
+    expect(out.exitCode).toBe(1);
+  });
+
+  test('signed with a key this CLI doesn’t know: update the CLI; not a key at all: fails', async () => {
+    expect(await licenseOf({ KINDGI_LICENSE_KEY: key({ kid: 'lk-2099-1' }) })).toMatchObject({
+      status: 'warn',
+      fix: 'Update the Kindgi CLI, then run kindgi doctor again.',
+    });
+    expect(await licenseOf({ KINDGI_LICENSE_KEY: 'not-a-key' })).toMatchObject({ status: 'fail' });
   });
 });

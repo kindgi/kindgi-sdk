@@ -306,6 +306,9 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // The operator manages sign-in (KINDGI_AUTH_TENANT_PROVIDERS=off): a
   // change to a provider takes the deployment's own token.
   'identity-providers-operator-managed': 403,
+  // `GET /v1/license` by a caller who may not read it: the license is the
+  // deployment's (its own token), or a sole tenant's admins' countdown.
+  'license-operator-only': 403,
   'invalid-provider-config': 400,
   'auth-not-session-token': 400,
   // `POST /v1/auth/refresh` with a browser session (cookie): refused, so a
@@ -392,10 +395,12 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'trigger-lifecycle-failed': 500,
   /** The deployment's trigger registry can't do this yet (fire history, run-now, a new owner). */
   'trigger-operation-unsupported': 501,
-  'webhook-signature-invalid': 401,
-  'webhook-inactive': 410,
-  'webhook-secret-missing': 500,
-  'webhook-flow-not-found': 502,
+  // The inbound receiver (`POST /v1/hooks/…`): one answer for any request
+  // that doesn't prove its sender, whatever the reason (recorded, not said).
+  'webhook-refused': 401,
+  'webhook-gone': 410,
+  'webhook-body-too-large': 413,
+  'webhook-body-not-json': 400,
   // Outbound webhook endpoints.
   'webhook-endpoint-not-found': 404,
   'webhook-delivery-not-found': 404,
