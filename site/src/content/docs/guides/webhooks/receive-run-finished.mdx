@@ -215,9 +215,8 @@ ran:
   run's scope), `live` (the version live for its scope), `explicit` (your
   app named the version) or `conversation` (the conversation's own).
 - `usage` counts the agent's model calls, as on a flow's run.
-- These are the fields `GET /v1/runs/<run-id>` shows. `parseEvent`
-  (TypeScript) and `parse_event` (Python) read them as
-  `event.data.run.agent`.
+- These are the fields `GET /v1/runs/<run-id>` shows. In Python,
+  `parse_event` gives them as `event.data.run.agent`.
 - A flow's run has no `agent`, and neither does an event from a runtime
   before 0.1.6.
 
