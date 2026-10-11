@@ -255,6 +255,7 @@ describe('kindgi init --template=drupal', () => {
       'tools/check-content-event/index.test.ts',
       'guardrails/no-contact-details/index.ts',
       'agents/content-agent/index.ts',
+      'agents/content-agent/index.test.ts',
       'agents/content-reviewer/index.ts',
       'agents/content-reviewer/index.test.ts',
       'flows/content-review/index.ts',

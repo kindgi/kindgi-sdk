@@ -24,4 +24,13 @@ describe('{{PACK_ID}}.content-reviewer', () => {
     }
     expect(instructions).not.toMatch(/\{%/);
   });
+
+  test('it reads the article as it is now before it writes', () => {
+    const instructions = reviewer.instructions;
+    if (typeof instructions !== 'string') throw new Error('expected inline instructions');
+    const line = instructions.split('\n').find((l) => l.startsWith('First read the article as it is now'));
+    expect(line).toBeDefined();
+    expect(line).toContain('drupal.tool_api__load_content');
+    expect(line).toContain('drupal.tool_api__get_fields');
+  });
 });
