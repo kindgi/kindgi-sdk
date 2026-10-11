@@ -57,6 +57,20 @@ describe('validateBlock', () => {
     ).toEqual(['/content/template', '/content/parameters/0/name']);
   });
 
+  test("a prompt's parameter can't be named input: the turn's structured input fills that", () => {
+    expect(
+      issues({
+        id: 'acme.p',
+        version: '1.0.0',
+        kind: 'prompt',
+        content: {
+          template: 'Hi {{ input.name }}',
+          parameters: [{ name: 'input', type: 'string' }],
+        },
+      }),
+    ).toEqual(['/content/parameters/0/name']);
+  });
+
   test('settings values are an object satisfying the schema', () => {
     expect(
       issues({ id: 'acme.s', version: '1.0.0', kind: 'settings', content: { values: [] } }),
