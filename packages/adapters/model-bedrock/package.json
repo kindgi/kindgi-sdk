@@ -26,7 +26,8 @@
   "dependencies": {
     "@ai-sdk/amazon-bedrock": "5.0.111",
     "@kindgi/adapter-model-shared": "workspace:*",
-    "@kindgi/capabilities": "workspace:*"
+    "@kindgi/capabilities": "workspace:*",
+    "@kindgi/types": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",

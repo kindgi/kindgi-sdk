@@ -43,6 +43,7 @@ import {
   adapterConfigError,
   identitiesPresent,
 } from '@kindgi/capabilities';
+import { bearerValueProblem } from '@kindgi/types';
 
 import { BEDROCK_ADAPTER_ID, readBedrockConfig } from './config.js';
 import { isNovaModel, withoutLeadingThinking } from './nova-thinking.js';
@@ -221,6 +222,16 @@ async function bedrockKey(resolveApiKey: () => Promise<string>): Promise<string>
       'auth',
       undefined,
       'The Bedrock API key secret_ref names is empty.',
+    );
+  }
+  // Sent as `Bearer <key>`, so checked as sent, before the request: fetch's own error would
+  // quote it.
+  const problem = bearerValueProblem(trimmed);
+  if (problem !== undefined) {
+    throw new ModelProviderError(
+      'auth',
+      undefined,
+      `The Bedrock API key secret_ref names has ${problem}, which a header can't carry: store the secret without it.`,
     );
   }
   return trimmed;

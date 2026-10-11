@@ -396,6 +396,36 @@ describe('a failed sign-in is auth, once, never retried', () => {
       expect(sent).toEqual([]);
     }
   });
+
+  test("a key a header can't carry (a line break or a NUL inside): auth, never quoted, nothing sent", async () => {
+    // fetch's own error quotes a header value it refuses, the key included.
+    const everything = (error: unknown): string => {
+      const parts: string[] = [];
+      for (let c: unknown = error; c instanceof Error; c = c.cause)
+        parts.push(c.message, c.stack ?? '');
+      return parts.join('\n');
+    };
+    for (const [key, problem] of [
+      ['canary-SECRET-one\nline-two', 'a line break'],
+      ['canary-SECRET-one\r\nline-two', 'a line break'],
+      ['canary-SECRET\u0000tail', 'a control character'],
+    ] as const) {
+      const sent: Sent[] = [];
+      const err = await build(
+        { auth: 'api-key' },
+        { fetch: capturingFetch(sent), resolveApiKey: async () => key },
+      )
+        .invoke(ask())
+        .catch((e: unknown) => e);
+      expect(err, JSON.stringify(key)).toBeInstanceOf(ModelProviderError);
+      expect(err).toMatchObject({
+        kind: 'auth',
+        message: `The Bedrock API key secret_ref names has ${problem}, which a header can't carry: store the secret without it.`,
+      });
+      expect(everything(err)).not.toContain('canary');
+      expect(sent).toEqual([]);
+    }
+  });
 });
 
 describe('each attempt signs in for itself', () => {
