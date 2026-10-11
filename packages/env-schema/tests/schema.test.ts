@@ -465,6 +465,9 @@ describe('validateEnvForTarget', () => {
     ]);
     expect(envVarsForTarget({}).map((v) => v.name)).not.toContain('KINDGI_PACK_SERVICE_AUTH');
     const server = new Map(envVarsForTarget({}).map((v) => [v.name, v]));
+    expect(server.get('KINDGI_OPENFGA_AUTH')?.allowedValues).toEqual(['none', 'google-id-token']);
+    expect(server.get('KINDGI_OPENFGA_PRESHARED_KEY')?.required).toBe(false);
+    expect(server.get('KINDGI_OPENFGA_PRESHARED_KEY')?.example).toBe('');
     expect(server.get('KINDGI_IMAGE_REGISTRY_AUTH')?.allowedValues).toEqual([
       'static',
       'google',
