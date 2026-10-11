@@ -13,10 +13,12 @@ import {
   type SystemTenantDirectory,
   requireSystemScope,
   systemReadAcrossTenants,
+  systemScopeExtraRefusal,
   withSystemTenantContext,
 } from '../middleware/system.js';
-import { FULL_SYSTEM_CAPABILITY } from '../system.js';
+import { FULL_SYSTEM_CAPABILITY, type SystemScope } from '../system.js';
 import type { AppEnv } from '../types.js';
+import { refuseMalformedUuidParam } from './uuid-param.js';
 
 /** A tenant, as the operator sees it. Never its content. */
 export interface SystemTenant {
@@ -41,8 +43,8 @@ export interface SystemTenant {
 export interface SystemTenantCreateInput {
   readonly name: string;
   readonly slug?: string;
-  /** Absent: allowed. Sign-up always sends `false`. */
-  readonly productionAllowed?: boolean;
+  /** Created through the system API, a tenant is blocked unless asked otherwise. */
+  readonly productionAllowed: boolean;
   readonly test?: boolean;
   readonly imagePrefix?: ImagePrefix;
   /** The person made the tenant's admin and member, by email. Absent: an admin key instead. */
@@ -57,10 +59,15 @@ export type SystemTenantCreateOutcome =
       readonly tenant: SystemTenant;
       /** With `firstAdmin`: the person it made admin. */
       readonly firstAdmin?: { readonly personId: string };
-      /** Without `firstAdmin`: the new tenant's first admin key, shown once. */
+      /**
+       * Without `firstAdmin` only: the new tenant's first admin key, shown
+       * once. Never minted when `firstAdmin` is given.
+       */
       readonly adminKey?: { readonly tokenId: string; readonly token: string };
     }
-  | { readonly kind: 'slug-taken' };
+  | { readonly kind: 'slug-taken' }
+  /** The image prefix equals, holds or sits inside another tenant's (`imagePrefixesOverlap`). */
+  | { readonly kind: 'image-prefix-taken' };
 
 /**
  * The runtime's tenants, for the operator: creating one runs the tenant's
@@ -87,7 +94,38 @@ export interface SystemTenantsBinding {
   close(tenantId: TenantId): Promise<SystemTenant>;
   /** Sets or clears `suspended`: setting cancels its running runs; clearing resumes what was on. */
   setSuspended(tenantId: TenantId, suspended: boolean, reason?: string): Promise<SystemTenant>;
-  setImagePrefix(tenantId: TenantId, prefix: ImagePrefix): Promise<SystemTenant>;
+  /**
+   * Refused when the prefix equals, holds or sits inside another tenant's
+   * (`imagePrefixesOverlap`), checked in the same change as the write.
+   */
+  setImagePrefix(
+    tenantId: TenantId,
+    prefix: ImagePrefix,
+  ): Promise<
+    { readonly kind: 'ok'; readonly tenant: SystemTenant } | { readonly kind: 'image-prefix-taken' }
+  >;
+  /**
+   * Suspends one of its projects (`true`) or restores it (`false`): nothing
+   * new runs or deploys in it, its running runs are cancelled, and its
+   * deployments are retired; the rest of the tenant is untouched.
+   */
+  setProjectSuspended(
+    tenantId: TenantId,
+    projectId: string,
+    suspended: boolean,
+    reason?: string,
+  ): Promise<
+    | {
+        readonly kind: 'ok';
+        readonly project: {
+          readonly projectId: string;
+          readonly suspended: boolean;
+          readonly suspendedAt?: string;
+          readonly suspendedReason?: string;
+        };
+      }
+    | { readonly kind: 'project-not-found' }
+  >;
   /** Its active admins with a primary email, at most 100. */
   admins(
     tenantId: TenantId,
@@ -101,8 +139,8 @@ const MAX_REASON = 500;
 const SLUG_RE = /^[a-z0-9](?:-?[a-z0-9])*$/;
 const MAX_SLUG = 63;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const DEFAULT_LIMIT = 100;
-const MAX_LIMIT = 500;
+const DEFAULT_LIMIT = 25;
+const MAX_LIMIT = 100;
 
 type Problem = string;
 
@@ -120,25 +158,30 @@ export function systemTenantsRouter(options: {
 }): Hono<AppEnv> {
   const { tenants, directory, authorizer } = options;
   const r = new Hono<AppEnv>();
-  const ctx = (scope: Parameters<typeof requireSystemScope>[0]) => ({
+  const ctx = (scope: SystemScope) => ({
     scope,
     ...(authorizer !== undefined && { authorizer }),
   });
 
   // ---------- POST / (create) ----------
-  r.post('/', requireSystemScope('system:tenants', authorizer), async (c) => {
-    const body = await readJsonObject(c);
-    if (typeof body === 'string') return badInput(c, body);
-    const parsed = parseCreateBody(body);
-    if (typeof parsed === 'string') return badInput(c, parsed);
-    const fullOnly = fullOnlyRefusal(c, parsed);
-    if (fullOnly !== undefined) return fullOnly;
-    const created = await tenants.create({
-      ...parsed,
-      createdBy: c.get('systemPrincipal')?.keyId ?? 'boot',
-    });
-    return createdAnswer(c, created, parsed.slug);
-  });
+  r.post(
+    '/',
+    requireSystemScope(['system:tenants:create', 'system:tenants'], authorizer),
+    async (c) => {
+      const body = await readJsonObject(c);
+      if (typeof body === 'string') return badInput(c, body);
+      const parsed = parseCreateBody(body);
+      if (typeof parsed === 'string') return badInput(c, parsed);
+      const beyond = createExtrasRefusal(c, parsed, authorizer);
+      if (beyond !== undefined) return beyond;
+      const created = await tenants.create({
+        ...parsed,
+        productionAllowed: parsed.productionAllowed === true,
+        createdBy: c.get('systemPrincipal')?.keyId ?? 'boot',
+      });
+      return createdAnswer(c, created, parsed.slug);
+    },
+  );
 
   // ---------- GET / (list) ----------
   r.get('/', async (c) => {
@@ -153,6 +196,7 @@ export function systemTenantsRouter(options: {
     }
     return c.json({
       data: page.data,
+      hasMore: page.nextCursor !== undefined,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor }),
     });
   });
@@ -205,15 +249,64 @@ export function systemTenantsRouter(options: {
       c,
       directory,
       c.req.param('tenantId'),
-      { ...ctx('system:tenants'), refuse: ['closing'] },
+      { ...ctx('system:tenants:image-prefix'), refuse: ['closing'] },
       async (t) => {
         const body = await readJsonObject(c);
         if (typeof body === 'string') return badInput(c, body);
         const prefix = prefixOf(body.prefix);
         if (typeof prefix === 'string') return badInput(c, prefix);
-        return c.json(await tenants.setImagePrefix(t.id, prefix));
+        // Moving a tenant to another repository is rare and deliberate.
+        const current = (await tenants.read(t.id))?.imagePrefix;
+        if (current !== undefined && current !== `${prefix.host}/${prefix.path}`) {
+          const moving = systemScopeExtraRefusal(
+            c,
+            FULL_SYSTEM_CAPABILITY,
+            `Tenant ${t.id as unknown as string} already has an image prefix; changing it`,
+            authorizer,
+          );
+          if (moving !== undefined) return moving;
+        }
+        const set = await tenants.setImagePrefix(t.id, prefix);
+        return set.kind === 'ok' ? c.json(set.tenant) : prefixTaken(c);
       },
     ),
+  );
+
+  // ---------- PUT /:tenantId/projects/:projectId/suspended ----------
+  r.put(
+    '/:tenantId/projects/:projectId/suspended',
+    refuseMalformedUuidParam('projectId', 'a project id'),
+    (c) =>
+      withSystemTenantContext(
+        c,
+        directory,
+        c.req.param('tenantId'),
+        { ...ctx('system:suspend'), refuse: ['closing'] },
+        async (t) => {
+          const body = await readJsonObject(c);
+          if (typeof body === 'string') return badInput(c, body);
+          const parsed = parseSuspendBody(body);
+          if (typeof parsed === 'string') return badInput(c, parsed);
+          const projectId = c.req.param('projectId');
+          const done = await tenants.setProjectSuspended(
+            t.id,
+            projectId,
+            parsed.suspended,
+            parsed.reason,
+          );
+          if (done.kind === 'project-not-found') {
+            return answer(
+              c,
+              'project-not-found',
+              `No project with id "${projectId}" in this tenant.`,
+              {
+                projectId,
+              },
+            );
+          }
+          return c.json(done.project);
+        },
+      ),
   );
 
   // ---------- GET /:tenantId/admins ----------
@@ -380,15 +473,33 @@ function parseLimit(raw: string | undefined): number | Problem {
 }
 
 /**
- * An admin key is a key: only the full capability mints one. So is a test
- * tenant, which leaves the counts.
+ * What a create asks for beyond creating, each under its own scope, so a
+ * key that only creates (`system:tenants:create`, sign-up's) never gets more
+ * by asking: an admin key (no `firstAdmin`) and a test tenant take the full
+ * capability, production `system:tenants:production`, and an image prefix
+ * `system:tenants:image-prefix`. Refused naming the scope, never dropped.
  */
-function fullOnlyRefusal(c: Context<AppEnv>, body: ParsedCreate): Response | undefined {
-  if ((c.get('capabilities') ?? []).includes(FULL_SYSTEM_CAPABILITY)) return undefined;
-  if (body.firstAdmin !== undefined && body.test !== true) return undefined;
-  return answer(c, 'system-scope-missing', fullOnlyMessage(body), {
-    scope: FULL_SYSTEM_CAPABILITY,
-  });
+function createExtrasRefusal(
+  c: Context<AppEnv>,
+  body: ParsedCreate,
+  authorizer: Authorizer | undefined,
+): Response | undefined {
+  const asks: [boolean, SystemScope | typeof FULL_SYSTEM_CAPABILITY, string][] = [
+    [
+      body.firstAdmin === undefined,
+      FULL_SYSTEM_CAPABILITY,
+      'A tenant without `firstAdmin` gets an admin key',
+    ],
+    [body.test === true, FULL_SYSTEM_CAPABILITY, 'A test tenant leaves the counts'],
+    [body.productionAllowed === true, 'system:tenants:production', 'Allowing production'],
+    [body.imagePrefix !== undefined, 'system:tenants:image-prefix', 'Setting the image prefix'],
+  ];
+  for (const [asked, scope, why] of asks) {
+    if (!asked) continue;
+    const refused = systemScopeExtraRefusal(c, scope, why, authorizer);
+    if (refused !== undefined) return refused;
+  }
+  return undefined;
 }
 
 function createdAnswer(
@@ -396,6 +507,7 @@ function createdAnswer(
   created: SystemTenantCreateOutcome,
   slug: string | undefined,
 ): Response {
+  if (created.kind === 'image-prefix-taken') return prefixTaken(c);
   if (created.kind === 'slug-taken') {
     return answer(c, 'tenant-slug-taken', `Another tenant has the slug "${slug}".`, { slug });
   }
@@ -408,12 +520,6 @@ function createdAnswer(
     ...(created.firstAdmin !== undefined && { firstAdmin: created.firstAdmin }),
     ...(created.adminKey !== undefined && { adminKey: created.adminKey }),
   });
-}
-
-function fullOnlyMessage(body: ParsedCreate): string {
-  return body.test === true
-    ? 'A test tenant takes the full system capability, kindgi:system.'
-    : 'A tenant without `firstAdmin` gets an admin key, and minting a key takes the full system capability, kindgi:system: name its first admin instead.';
 }
 
 async function readJsonObject(
@@ -440,6 +546,15 @@ function answer(
   c.status(statusFor(code) as never);
   // `toWireError` puts every field besides code and message under `details`.
   return c.json(toWireError({ code, message, ...details }, c.get('requestId')));
+}
+
+/** Another tenant's prefix overlaps it: no two tenants' images may mix. */
+function prefixTaken(c: Context<AppEnv>): Response {
+  return answer(
+    c,
+    'image-prefix-taken',
+    "That image prefix equals, holds or sits inside another tenant's: each tenant's repository is its own.",
+  );
 }
 
 function badInput(c: Context<AppEnv>, message: string): Response {

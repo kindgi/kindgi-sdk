@@ -16,3 +16,19 @@
 - **`GET /v1/system/whoami`** answers any system key with its own id, scopes and expiry.
 
 The TypeScript client's `systemTenants` and `systemKeys.whoami`, and the Python client, gain the matching calls.
+
+**Also, from the reviews:**
+- **Least privilege at create:**
+  - sign-up's key can hold `system:tenants:create` only;
+  - a tenant created here starts with production **blocked**;
+  - `productionAllowed: true` takes `system:tenants:production`;
+  - `imagePrefix` takes the new `system:tenants:image-prefix`, as does `PUT …/image-prefix`;
+  - asking for more than the key's scopes is refused naming the scope.
+- **The image prefix:**
+  - changing one already set takes the full system capability;
+  - no two tenants' prefixes overlap (`409 image-prefix-taken`; `imagePrefixesOverlap`).
+- **`PUT …/projects/{projectId}/suspended`** (`system:suspend`) suspends or restores one project.
+- **A closing or suspended tenant's own requests** read, export and delete only. Anything else is `409 tenant-closing` or `409 tenant-suspended`. `GET /v1/tenant` carries `state`.
+- **`POST /v1/deployments`** refuses an image outside the tenant's repository (`409 image-not-allowed`), before any registry read. On a runtime serving many tenants, a tenant without a repository is refused (`409 image-prefix-unset`).
+- **The tenants list** carries `hasMore`.
+

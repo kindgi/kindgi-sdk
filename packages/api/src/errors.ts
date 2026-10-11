@@ -262,6 +262,12 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'tenant-suspended': 409,
   /** Creating a tenant with a slug another tenant has. */
   'tenant-slug-taken': 409,
+  /** A deployment's image outside its tenant's repository (`details.imagePrefix`, the tenant's own). */
+  'image-not-allowed': 409,
+  /** A deployment on a runtime serving many tenants, by a tenant with no image repository set. */
+  'image-prefix-unset': 409,
+  /** An image prefix that equals, holds or sits inside another tenant's. */
+  'image-prefix-taken': 409,
   'service-account-not-found': 404,
   /** An active service account of the tenant already has the name. */
   'service-account-name-taken': 409,

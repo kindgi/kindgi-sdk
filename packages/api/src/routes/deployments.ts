@@ -45,6 +45,7 @@ import { statusFor, toWireError } from '../errors.js';
 import type { FlowRegistryBinding } from '../flow-binding.js';
 import { type FlowPinsLive, publishDeployedFlow, resolveFlowPins } from '../flow-pins.js';
 import type { GuardrailRegistryBinding } from '../guardrail-binding.js';
+import { imageRefWithin, parseImagePrefix, parseImageRef } from '../image-ref.js';
 import type { ImageRegistryBinding } from '../image-registry-binding.js';
 import type { LiveVersionBinding } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
@@ -126,7 +127,22 @@ import type { ToolWriteHook } from './tools.js';
  *
  * The route is register-only + read-only.
  */
+/**
+ * Where each tenant's images must sit (`imagePrefix`, set by the operator).
+ * `required`: a runtime serving many tenants refuses a tenant without one.
+ */
+export interface DeploymentImagePrefixes {
+  of(tenantId: TenantId): Promise<string | undefined>;
+  readonly required: boolean;
+}
+
 export interface DeploymentsRouterBindings {
+  /**
+   * Each tenant deploys only images at or under its own repository. It's
+   * checked after the digest pin and before the signature or any registry
+   * read, so nothing reads another tenant's image. Absent: no check.
+   */
+  readonly imagePrefixes?: DeploymentImagePrefixes;
   /** The tenant's model providers' keys: no tool a deployment brings may name one. */
   readonly providerKeys?: ProviderKeys;
   readonly deploymentRegistry: DeploymentBinding;
@@ -299,6 +315,13 @@ export function deploymentsRouter(
       );
     }
     const imageDigest = digestFromRef;
+
+    // ---- The tenant's own repository, before any registry read ----
+    const outside = await imagePrefixRefusal(bindings.imagePrefixes, tenantId, wire.imageRef);
+    if (outside !== undefined) {
+      c.status(statusFor(outside.code) as never);
+      return c.json(toWireError(outside, requestId));
+    }
 
     // ---- Signature verification ----
     const publicKeyBytes = parsePublicKeyPem(wire.signerPublicKey);
@@ -1215,6 +1238,42 @@ function parseImageIndex(bytes: Uint8Array): Readonly<Record<string, unknown>> |
   return parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed)
     ? (parsed as Readonly<Record<string, unknown>>)
     : undefined;
+}
+
+/**
+ * Why the tenant may not deploy this image, or `undefined`: outside its
+ * repository (`409 image-not-allowed`, naming only its own prefix), or, where
+ * a prefix is required, none set (`409 image-prefix-unset`). A stored prefix
+ * that doesn't parse refuses as unset: it fails closed.
+ */
+async function imagePrefixRefusal(
+  prefixes: DeploymentImagePrefixes | undefined,
+  tenantId: TenantId,
+  imageRef: string,
+): Promise<
+  ({ readonly code: string; readonly message: string } & Record<string, unknown>) | undefined
+> {
+  if (prefixes === undefined) return undefined;
+  const raw = await prefixes.of(tenantId);
+  const prefix = raw === undefined ? undefined : parseImagePrefix(raw);
+  if (prefix === undefined || prefix.kind === 'err') {
+    if (raw === undefined && !prefixes.required) return undefined;
+    return {
+      code: 'image-prefix-unset',
+      message:
+        "This tenant has no image repository set, so it can't register a deployment yet: its operator sets one.",
+    };
+  }
+  const ref = parseImageRef(imageRef);
+  if (ref.kind === 'err') {
+    return { code: 'bad-input', message: `imageRef is refused: ${ref.error.reason}` };
+  }
+  if (imageRefWithin(ref.value, prefix.value)) return undefined;
+  return {
+    code: 'image-not-allowed',
+    message: `This tenant deploys only images at or under ${raw}.`,
+    imagePrefix: raw,
+  };
 }
 
 function extractImageDigest(imageRef: string): string | null {

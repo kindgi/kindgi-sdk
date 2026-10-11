@@ -190,6 +190,12 @@ export interface TenantSummary {
   readonly productionAllowed?: boolean;
   /** The tenant's limits that are set. Absent when none is. */
   readonly limits?: TenantLimits;
+  /**
+   * Where the tenant stands, on a runtime serving many tenants: `closing`
+   * (readable and exportable for its window, nothing runs) or `suspended`
+   * (the same, reversibly). `closing` wins. Absent: active.
+   */
+  readonly state?: 'active' | 'suspended' | 'closing';
 }
 
 /**

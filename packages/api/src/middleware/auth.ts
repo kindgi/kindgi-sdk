@@ -80,6 +80,12 @@ export interface TokenResolution {
    */
   readonly system?: SystemPrincipal;
   /**
+   * The tenant's state, when it isn't `active`: a closing or suspended
+   * tenant's own keys and sessions read, export and delete, nothing else
+   * (`tenantStateGate`). Absent: active.
+   */
+  readonly tenantState?: 'active' | 'suspended' | 'closing';
+  /**
    * Optional session id. Populated by the session-token verifier path
    * (`kgi_sk_*` tokens) so `/v1/identity/whoami` and `/v1/auth/logout`
    * can introspect / revoke the caller's own session without a second
@@ -361,6 +367,7 @@ export function bearerAuthMiddleware(
       }
     }
 
+    if (resolution.tenantState !== undefined) c.set('tenantState', resolution.tenantState);
     if (resolution.system !== undefined) {
       c.set('systemPrincipal', resolution.system);
       c.set('tenantId', SYSTEM_TENANT_ID);

@@ -95,6 +95,8 @@ export interface AppEnv {
     systemScopeUsed?: string;
     /** The tenant a system request acts in (`*` across tenants), for the access record. */
     systemTargetTenant?: string;
+    /** The caller's tenant's state when it isn't `active` (`tenantStateGate`). */
+    tenantState?: 'active' | 'suspended' | 'closing';
     /**
      * Composite authz Principal built by `principalMiddleware` from
      * the token resolution. Present on every route mounted BELOW that

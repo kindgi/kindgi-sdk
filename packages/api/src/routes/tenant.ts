@@ -197,6 +197,7 @@ export function tenantRouter(options: TenantRouterOptions): Hono<AppEnv> {
       ...(row.productionAllowed !== undefined && { productionAllowed: row.productionAllowed }),
       ...(row.productionAllowed === false && productionNext !== undefined && { productionNext }),
       ...(row.limits !== undefined && { limits: row.limits }),
+      ...(row.state !== undefined && { state: row.state }),
     });
   });
 

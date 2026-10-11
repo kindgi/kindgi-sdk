@@ -79,6 +79,7 @@ import {
   type SystemTenantDirectory,
   systemPrincipalFence,
 } from './middleware/system.js';
+import { tenantStateGate } from './middleware/tenant-state.js';
 import type { MyAccessBinding } from './my-access-binding.js';
 import { type GenerateOptions, generateOpenApiDocument } from './openapi/generate.js';
 import type { PersonGrantsBinding } from './person-grants-binding.js';
@@ -572,6 +573,14 @@ export interface CreateAppInput {
    * contacts). Mounted only with `systemTenantDirectory` too.
    */
   readonly systemTenants?: SystemTenantsBinding;
+  /**
+   * Each tenant's image repository (`PUT /v1/system/tenants/{id}/image-prefix`),
+   * which `POST /v1/deployments` checks before any registry read. Required
+   * with `tenancy: 'multi'`, where a tenant without one can't deploy.
+   */
+  readonly imagePrefixes?: {
+    of(tenantId: import('@kindgi/types').TenantId): Promise<string | undefined>;
+  };
   /**
    * Optional. Issue and accept public run tokens (`kgi_pt_…`):
    * short-lived, read-only tokens a browser uses to follow specific runs
@@ -1124,6 +1133,16 @@ const DEFAULT_TOKEN_SIGN_IN_TTL_MS = 12 * 60 * 60 * 1000;
 export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // The operator's requests are on record wherever the operator acts in no
   // tenant: the access procedure and the processing terms rely on it.
+  // Each tenant deploys only its own images there: the check needs to know them.
+  if (
+    input.tenancy === 'multi' &&
+    input.deploymentRegistry !== undefined &&
+    input.imagePrefixes === undefined
+  ) {
+    throw new Error(
+      'createApp: a runtime serving many tenants needs imagePrefixes, so a tenant deploys only images in its own repository',
+    );
+  }
   if (input.tenancy === 'multi' && input.systemAccessAudit === undefined) {
     throw new Error(
       "createApp: a runtime serving many tenants needs systemAccessAudit, the record of every request the operator's system keys make",
@@ -1256,6 +1275,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(input.tenancy !== undefined && { tenancy: input.tenancy }),
     }),
   );
+  // A closing or suspended tenant reads, exports and deletes; nothing else.
+  v1.use('*', tenantStateGate());
   // A key limited to a project names no other one.
   v1.use('*', refuseOtherProjectForKey(authorizer));
   // Page cursors are sealed at the edge, for every list.
@@ -1829,6 +1850,13 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       deploymentsRouter(
         {
           deploymentRegistry: input.deploymentRegistry,
+          ...(input.imagePrefixes !== undefined && {
+            imagePrefixes: {
+              of: (tenantId: import('@kindgi/types').TenantId) =>
+                input.imagePrefixes?.of(tenantId) ?? Promise.resolve(undefined),
+              required: input.tenancy === 'multi',
+            },
+          }),
           signingKeyRegistry: input.signingKeyRegistry,
           providerKeys,
           imageRegistry: input.imageRegistry,

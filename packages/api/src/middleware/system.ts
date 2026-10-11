@@ -280,15 +280,38 @@ function dropSystemCapabilities(c: Context<AppEnv>): void {
  * system-scope-missing`).
  */
 export function requireSystemScope(
-  scope: SystemScope,
+  scope: SystemScope | readonly [SystemScope, ...SystemScope[]],
   authorizer?: Authorizer,
 ): MiddlewareHandler<AppEnv> {
+  // Any one of them: the narrowest first, which a refusal names.
+  const scopes: readonly SystemScope[] = typeof scope === 'string' ? [scope] : scope;
   return async (c, next) => {
-    const denied = systemScopeRefusal(c, scope, authorizer);
+    const held = scopes.find((s) => holdsSystemScope(c.get('capabilities'), s));
+    const denied = systemScopeRefusal(c, held ?? (scopes[0] as SystemScope), authorizer);
     if (denied !== undefined) return denied;
-    c.set('systemScopeUsed', scope);
+    c.set('systemScopeUsed', held as SystemScope);
     return next();
   };
+}
+
+/**
+ * A system route's refusal of a request that asks for more than its scope
+ * gives (`403 system-scope-missing`, naming `scope`), recorded as every
+ * refusal the API decides itself is. `undefined` when the caller holds it.
+ */
+export function systemScopeExtraRefusal(
+  c: Context<AppEnv>,
+  scope: SystemScope | typeof FULL_SYSTEM_CAPABILITY,
+  why: string,
+  authorizer?: Authorizer,
+): Response | undefined {
+  const capabilities = c.get('capabilities');
+  const held =
+    scope === FULL_SYSTEM_CAPABILITY
+      ? (capabilities ?? []).includes(FULL_SYSTEM_CAPABILITY)
+      : holdsSystemScope(capabilities, scope);
+  if (held) return undefined;
+  return deny(c, authorizer, 'system-scope-missing', `${why}: that takes ${scope}.`, { scope });
 }
 
 /** A route only the full system capability may use: minting system keys. */
