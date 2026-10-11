@@ -1,5 +1,33 @@
 # @kindgi/agents
 
+## 0.1.7-rc.0
+
+### Patch Changes
+
+- 597173e: `@kindgi/sdk/define` bundles in an app: Next.js (Turbopack) failed to build a route that imported an agent file's exported schema, on `@kindgi/agents`' `new URL('../migrations/', import.meta.url)`. `AGENTS_MIGRATIONS_DIR` moved to a runtime-only subpath, `@kindgi/agents/migrations`, and is no longer exported from `@kindgi/agents`' main entry. A test bundles `@kindgi/sdk/define` and fails if any module it reaches resolves a file from its own URL. The `serverExternalPackages` workaround is no longer needed.
+- dab4296: A typed agent is told its `output` from the turn's first model call: the system message ends with the output's name and JSON Schema (descriptions included), in the words a repair repeats, and tells the model to call the tools it needs first. The first answer can fit, so a repair is the fallback, not most turns' second model call.
+- 049966d: A parameter named `input` is refused when an agent or a prompt block is defined, as `today`, `now`, `agent`, `conversation` and `settings` already were: `"input" is a reserved auto-injected variable — do not declare it as a parameter`. Before, it was accepted, and the turn's structured input silently replaced its value whenever a turn carried one. The reserved names now come from `AUTO_INJECTED_VARS` itself, so a new auto-injected variable is reserved as soon as it's added.
+- Updated dependencies [7bd61d6]
+- Updated dependencies [72f3582]
+- Updated dependencies [b90e2c6]
+- Updated dependencies [fdb644c]
+- Updated dependencies [b90e2c6]
+- Updated dependencies [f080a20]
+  - @kindgi/capabilities@0.1.7-rc.0
+  - @kindgi/tools@0.1.7-rc.0
+  - @kindgi/runtime@0.1.7-rc.0
+  - @kindgi/types@0.1.7-rc.0
+  - @kindgi/compliance@0.1.7-rc.0
+  - @kindgi/policy-contract@0.1.7-rc.0
+  - @kindgi/guardrails@0.1.7-rc.0
+  - @kindgi/flow@0.1.7-rc.0
+  - @kindgi/provenance@0.1.7-rc.0
+  - @kindgi/schema@0.1.7-rc.0
+  - @kindgi/authz@0.1.7-rc.0
+  - @kindgi/embedding@0.1.7-rc.0
+  - @kindgi/handler@0.1.7-rc.0
+  - @kindgi/memory@0.1.7-rc.0
+
 ## 0.1.6
 
 ### Patch Changes

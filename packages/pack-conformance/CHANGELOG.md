@@ -1,5 +1,12 @@
 # @kindgi/pack-conformance
 
+## 0.1.7-rc.0
+
+### Patch Changes
+
+- Updated dependencies [72f3582]
+  - @kindgi/specs@0.1.7-rc.0
+
 ## 0.1.6
 
 ### Patch Changes
