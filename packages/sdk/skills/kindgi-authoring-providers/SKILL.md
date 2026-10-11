@@ -23,7 +23,7 @@ description: >
   kindgi-getting-started.
 type: core
 library: "@kindgi/sdk"
-version: "0.9.12"
+version: "0.9.13"
 sdk_version: "0.0.0"
 pack_languages: [node, python, java, scala]
 sources:
