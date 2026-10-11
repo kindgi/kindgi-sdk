@@ -673,8 +673,8 @@ async function nodeTemplates(): Promise<string[]> {
     );
     if (exists) found.push(template);
   }
-  // Never vacuous: the three TypeScript templates are among them.
-  expect(found).toEqual(expect.arrayContaining(['minimal', 'sample', 'woocommerce']));
+  // Never vacuous: the four TypeScript templates are among them.
+  expect(found).toEqual(expect.arrayContaining(['minimal', 'sample', 'woocommerce', 'drupal']));
   return found;
 }
 
