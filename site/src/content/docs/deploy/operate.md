@@ -573,11 +573,15 @@ What to check before you upgrade, and what's different after:
   - **The console:** a reviewer's **Inbox** across projects, where you can
     decide several approvals in one go or by keyboard
     ([Decide an approval](../../guides/approvals/decide-an-approval/#in-the-console-your-inbox)).
-    A project gets pages for its failed runs (**What failed**), schedules,
-    flows, guardrails and members, each with a page of its own, plus
-    **Quality** for judging, and costs for the project and each run. The
-    tenant gets **Teams**, **Webhooks**, **Sign-in**, **My access** and its
-    own costs. A page or action shows only to the roles that can use it.
+    A project gets pages for its failed runs
+    ([What failed](../../guides/runs/list-runs/#what-failed)),
+    [schedules](../../guides/runs/run-on-a-schedule/#in-the-console), flows,
+    guardrails and members, each with a page of its own, plus
+    [Quality](../../guides/evals/judge-a-runs-output/#in-the-console) for
+    judging, and [costs](../../guides/observability/cost-per-run/#cost-in-the-console)
+    for the project and each run. The tenant gets **Teams**, **Webhooks**,
+    [Sign-in](../../guides/sso/#from-the-console), **My access** and its own
+    costs. A page or action shows only to the roles that can use it.
   - **Access:** who has access to a project and how
     (`GET /v1/projects/{id}/access`), a team's role on a project, what the
     caller may do (`GET /v1/identity/me/permissions`), the people list with
