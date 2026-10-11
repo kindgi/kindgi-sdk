@@ -358,14 +358,17 @@ The database migrates when 0.1.6 starts.
   endpoint's credential with a line break or a NUL in its value could show
   up in the sync log, in the error the HTTP library raised when it refused
   the header. 0.1.6 refuses such a value before sending, and its log names
-  only the header.
+  only the header. A log written before keeps what it wrote: rotate an MCP
+  credential that was ever stored with a line break inside it.
 - **A secret with a line break could appear in a run's failure message.**
   An HTTP tool's secret, or a model provider's key, containing a line break
   could show up in the error the HTTP library raised when it refused the
   header: for a tool, in the run's failure message and journal, which anyone
   who can read the run sees; for a provider's key, in errors and the logs.
   0.1.6 refuses such a value before sending, and names only the header or the
-  provider.
+  provider. A failure message or log line recorded before keeps what it
+  recorded: rotate a secret or key that was ever stored with a line break
+  inside it. One with only a trailing line break was never affected.
 
 #### What to check, and what's different
 
