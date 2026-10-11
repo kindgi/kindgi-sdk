@@ -25,7 +25,8 @@ Authorization is for several people and teams sharing one deployment:
 - **Every decision is recorded,** allowed or denied, with who asked, what for
   and why: the access audit, below.
 - **Registering an approval reviewer takes a tenant admin.**
-- **A team can't be given access to a project yet.**
+- **A team can have a role on a project** through the API
+  ([Team grants](#team-grants)). The console doesn't offer it yet.
 
 **Turn it on** when more than one person or system uses a deployment.
 **Leave it off** if one operator is all you need: you'd run OpenFGA for
