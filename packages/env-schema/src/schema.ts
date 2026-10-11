@@ -1193,7 +1193,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_PACK_ROUTING',
     description:
-      'Used from runtime 0.1.8; earlier runtimes ignore it. How the server finds the pack service for a call. `single` (default): one pack service, `KINDGI_PACK_SERVICE_URL`, for every call. `per-deployment` needs `KINDGI_TENANCY=multi`: the endpoints are recorded through the system API, which a runtime serving one tenant does not have, so the server refuses to start with it there. Each call then goes to the pack service of the deployment that shipped the tool or check, the newest such deployment with an endpoint, recorded by whatever runs the services (an orchestrator, or a script) with a `system:deployments` key. `KINDGI_PACK_SERVICE_URL` is then refused, and a call whose deployment has no endpoint fails (`pack-endpoint-pending`): it never falls back to another service. Deployments registered before it was turned on have no routes; deploy them again.',
+      'Used from runtime 0.1.8; earlier runtimes ignore it. How the server finds the pack service for a call. `single` (default): one pack service, `KINDGI_PACK_SERVICE_URL`, for every call. `per-deployment` needs `KINDGI_TENANCY=multi`: the endpoints are recorded through the system API, which a runtime serving one tenant does not have, so the server refuses to start with it there. Each call then goes to the newest deployment that shipped the tool or check, at the endpoint recorded for it by whatever runs the services (an orchestrator, or a script) with a `system:deployments` key. Each endpoint carries its own token and auth, so `KINDGI_PACK_SERVICE_URL`, `KINDGI_PACK_SERVICE_TOKEN` and `KINDGI_PACK_SERVICE_AUTH` are refused; `KINDGI_PACK_CALL_TIMEOUT_MS` still applies. A call whose deployment has no endpoint yet fails (`pack-endpoint-pending`): it never falls back to an older deployment or another service. Deployments registered before it was turned on have no routes; deploy them again.',
     example: 'single',
     required: false,
     appliesTo: appliesToServer,
@@ -1203,21 +1203,11 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_PACK_ENDPOINT_HOSTS',
     description:
-      "Used from runtime 0.1.8; earlier runtimes ignore it. With `KINDGI_PACK_ROUTING=per-deployment`: the hosts a deployment's pack endpoint may name, comma-separated. Each is a host name; `*.` and a domain, which matches one more label in front of it; or `*-`, a tail and a domain, which matches one more label ending with `-` and the tail. On Cloud Run, name each pack project with `*-<project number>.<region>.run.app`: Cloud Run URLs are `<service>-<project number>.<region>.run.app` for every project, so `*.<region>.run.app` would admit anyone's service. Lowercase, with no scheme, port or path. Without it, every endpoint is refused, so per-deployment routing is never open by default.",
+      "Used from runtime 0.1.8; earlier runtimes ignore it. With `KINDGI_PACK_ROUTING=per-deployment`: the hosts a deployment's pack endpoint may name, comma-separated. Each is a host name; `*.` and a domain, which matches one more label in front of it; or `*-`, a tail and a domain, which matches one more label ending with `-` and the tail. On Cloud Run, name each pack project with `*-<project number>.<region>.run.app`: Cloud Run URLs are `<service>-<project number>.<region>.run.app` for every project, so `*.` with `run.app` or a domain under it would admit anyone's service, and the server refuses to start with one. Lowercase, with no scheme, port or path. Without it, every endpoint is refused, so per-deployment routing is never open by default. An endpoint's host must also begin with its deployment's own service name (`kp-` and 20 characters, then `-` or `.`), so an endpoint can't point one tenant's deployment at another's service.",
     example: '*-123456789012.us-central1.run.app',
     required: false,
     appliesTo: appliesToServer,
     group: 'pack-service',
-  },
-  {
-    name: 'KINDGI_PACK_ENDPOINT_NAMES',
-    description:
-      "Used from runtime 0.1.8; earlier runtimes ignore it. With `KINDGI_PACK_ROUTING=per-deployment`: whether an endpoint's host must begin with the service name derived from its tenant and deployment (`kp-` and 20 characters, then `-`), so an endpoint can't point one tenant's deployment at another's service. `bound` (default): it must. `any`: no name check, for services named by hand; a multi-tenant server refuses to start with it.",
-    example: 'bound',
-    required: false,
-    appliesTo: appliesToServer,
-    group: 'pack-service',
-    allowedValues: ['bound', 'any'],
   },
   {
     name: 'KINDGI_IMAGE_REGISTRY_HOST',

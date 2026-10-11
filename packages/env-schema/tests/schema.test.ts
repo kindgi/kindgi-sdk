@@ -364,11 +364,7 @@ describe('envVarsForTarget — the pack service', () => {
     ]) {
       const names = envVarsForTarget(target).map((v) => v.name);
       expect(names).toEqual(
-        expect.arrayContaining([
-          'KINDGI_PACK_ROUTING',
-          'KINDGI_PACK_ENDPOINT_HOSTS',
-          'KINDGI_PACK_ENDPOINT_NAMES',
-        ]),
+        expect.arrayContaining(['KINDGI_PACK_ROUTING', 'KINDGI_PACK_ENDPOINT_HOSTS']),
       );
       expect(names).not.toContain('KINDGI_PACK_TENANT_ID');
     }

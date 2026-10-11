@@ -11,11 +11,10 @@
   - **It's a backstop for a misrouted call to an honest pack.** The boundary is the server's routing.
   - **`PACK_HEADERS.tenantId`** (`kindgi-tenant-id`): the server sets it on every call to `/v1/invoke` and `/v1/info`, from the deployment it routed the call to.
   - **`GET /v1/info`** reports `indexHash`: `sha256:` and the hex SHA-256 of the service's index file, byte for byte, which is the hash a deployment signs.
-- **`@kindgi/env-schema`** (the three routing settings are used from runtime 0.1.8; earlier runtimes ignore them):
+- **`@kindgi/env-schema`** (the routing settings are used from runtime 0.1.8; earlier runtimes ignore them):
   - **`KINDGI_PACK_TENANT_ID`** (the pack service);
-  - **`KINDGI_PACK_ROUTING`:** `single` by default, or `per-deployment`, which needs `KINDGI_TENANCY=multi` (the server refuses it with one tenant);
-  - **`KINDGI_PACK_ENDPOINT_HOSTS`:** host names; `*.` and a domain, which matches one more label; or `*-`, a tail and a domain, which matches one more label ending with `-` and the tail. On Cloud Run, the tail form, `*-<project number>.<region>.run.app`, is the one that admits only one project's services;
-  - **`KINDGI_PACK_ENDPOINT_NAMES`:** `bound` by default, or `any`.
+  - **`KINDGI_PACK_ROUTING`:** `single` by default, or `per-deployment`, which needs `KINDGI_TENANCY=multi` (the server refuses it with one tenant). Under `per-deployment`, each endpoint carries its own token and auth, so `KINDGI_PACK_SERVICE_URL`, `KINDGI_PACK_SERVICE_TOKEN` and `KINDGI_PACK_SERVICE_AUTH` are refused;
+  - **`KINDGI_PACK_ENDPOINT_HOSTS`:** host names; `*.` and a domain, which matches one more label; or `*-`, a tail and a domain, which matches one more label ending with `-` and the tail. On Cloud Run, the tail form, `*-<project number>.<region>.run.app`, is the one that admits only one project's services. `*.` with `run.app` or a domain under it (`*.us-central1.run.app`, `*.a.run.app`) is refused at startup: Cloud Run's shared domain would admit anyone's service. An endpoint's host must also begin with its deployment's own service name, whatever the allowlist.
 
-  Their parsers are exported: `parsePackTenantId`, `parsePackRouting`, `parsePackEndpointHosts`, `packEndpointHostAllowed` (it takes a URL's `hostname`, not its `host`) and `parsePackEndpointNames`.
+  Their parsers are exported: `parsePackTenantId`, `parsePackRouting`, `parsePackEndpointHosts` and `packEndpointHostAllowed` (it takes a URL's `hostname`, not its `host`).
 - **`@kindgi/specs`:** the pack protocol schema gains the header, the 421, the optional process setting, and `info.indexHash`.

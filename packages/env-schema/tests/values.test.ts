@@ -14,7 +14,6 @@ import {
   parseAzureVaultUrl,
   parseCorsOrigins,
   parsePackEndpointHosts,
-  parsePackEndpointNames,
   parsePackRouting,
   parsePackServiceToken,
   parsePackTenantId,
@@ -215,23 +214,20 @@ describe('parsePackTenantId', () => {
   );
 });
 
-describe('parsePackRouting and parsePackEndpointNames', () => {
-  test('defaults: single routing, bound names', () => {
+describe('parsePackRouting', () => {
+  test('unset or blank is single; per-deployment as given', () => {
     expect(parsePackRouting(undefined)).toBe('single');
     expect(parsePackRouting('')).toBe('single');
     expect(parsePackRouting('per-deployment')).toBe('per-deployment');
-    expect(parsePackEndpointNames(undefined)).toBe('bound');
-    expect(parsePackEndpointNames('any')).toBe('any');
   });
 
   test('anything else fails at startup, naming the setting', () => {
     expect(() => parsePackRouting('per-tenant')).toThrow('KINDGI_PACK_ROUTING');
-    expect(() => parsePackEndpointNames('loose')).toThrow('KINDGI_PACK_ENDPOINT_NAMES');
   });
 });
 
 describe('KINDGI_PACK_ENDPOINT_HOSTS', () => {
-  const allowed = parsePackEndpointHosts('*.us-central1.run.app, pack.internal');
+  const allowed = parsePackEndpointHosts('*.packs.internal, pack.internal');
 
   test('unset or blank: none, so every endpoint is refused', () => {
     expect(parsePackEndpointHosts(undefined)).toEqual([]);
@@ -239,14 +235,36 @@ describe('KINDGI_PACK_ENDPOINT_HOSTS', () => {
   });
 
   test('`*.` matches exactly one more label in front of the domain', () => {
+    expect(allowed[0]).toEqual({ kind: 'suffix', suffix: 'packs.internal' });
+    expect(packEndpointHostAllowed('kp-abcdefghijklmnopqrst.packs.internal', allowed)).toBe(true);
+    expect(packEndpointHostAllowed('KP-ABC.PACKS.INTERNAL', allowed)).toBe(true);
+    expect(packEndpointHostAllowed('packs.internal', allowed)).toBe(false);
+    expect(packEndpointHostAllowed('a.b.packs.internal', allowed)).toBe(false);
+    expect(packEndpointHostAllowed('kp-x.other.internal', allowed)).toBe(false);
+    expect(packEndpointHostAllowed('evilpacks.internal', allowed)).toBe(false);
+  });
+
+  test.each([
+    ['*.run.app'],
+    ['*.a.run.app'],
+    ['*.us-central1.run.app'],
+    ['pack.internal, *.europe-west1.run.app'],
+  ])("refuses %j at startup: Cloud Run's shared domain admits anyone's service", (raw) => {
+    expect(() => parsePackEndpointHosts(raw)).toThrow(
+      /KINDGI_PACK_ENDPOINT_HOSTS refuses "\*\.(?:[a-z0-9-]+\.)?run\.app": run\.app is Cloud Run's shared domain.*List the exact hosts, or name one project with `\*-<project number>\.<region>\.run\.app`/,
+    );
+  });
+
+  test('on Cloud Run, the tail form and exact hosts are taken; a domain that only ends in run.app is not Cloud Run', () => {
     expect(
-      packEndpointHostAllowed('kp-abcdefghijklmnopqrst-123.us-central1.run.app', allowed),
-    ).toBe(true);
-    expect(packEndpointHostAllowed('KP-ABC.US-CENTRAL1.RUN.APP', allowed)).toBe(true);
-    expect(packEndpointHostAllowed('us-central1.run.app', allowed)).toBe(false);
-    expect(packEndpointHostAllowed('a.b.us-central1.run.app', allowed)).toBe(false);
-    expect(packEndpointHostAllowed('kp-x.europe-west1.run.app', allowed)).toBe(false);
-    expect(packEndpointHostAllowed('evilus-central1.run.app', allowed)).toBe(false);
+      parsePackEndpointHosts(
+        '*-123456789012.us-central1.run.app, kp-abc-123456789012.us-central1.run.app, *.notrun.app',
+      ),
+    ).toEqual([
+      { kind: 'tail', tail: '123456789012', domain: 'us-central1.run.app' },
+      { kind: 'exact', host: 'kp-abc-123456789012.us-central1.run.app' },
+      { kind: 'suffix', suffix: 'notrun.app' },
+    ]);
   });
 
   test("`*-<tail>.` matches one more label that ends with `-<tail>`: one Cloud Run project, not anyone's", () => {

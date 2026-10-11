@@ -176,7 +176,9 @@ export const PACK_ENDPOINT_HOSTS_VAR = 'KINDGI_PACK_ENDPOINT_HOSTS';
  * - `exact` (`pack.internal`);
  * - `suffix`, from `*.<suffix>`: one more label in front of the suffix
  *   (`*.example.internal` matches `pack-a.example.internal`, but neither
- *   `example.internal` itself nor `a.b.example.internal`);
+ *   `example.internal` itself nor `a.b.example.internal`). Never `run.app`
+ *   or a domain under it: that's Cloud Run's shared domain, so the entry
+ *   would admit any project's services;
  * - `tail`, from `*-<tail>.<domain>`: one more label that ends with `-<tail>`
  *   (`*-123456789012.us-central1.run.app` matches
  *   `kp-abc-123456789012.us-central1.run.app`). On Cloud Run, whose URLs are
@@ -190,6 +192,9 @@ export type PackEndpointHost =
 
 const HOST_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 
+/** Cloud Run's shared domain: no `*.` entry may name it or a domain under it. */
+const CLOUD_RUN_DOMAIN = 'run.app';
+
 function isHostName(name: string): boolean {
   const labels = name.split('.');
   return labels.length >= 2 && labels.every((label) => HOST_LABEL.test(label));
@@ -201,7 +206,9 @@ function isHostName(name: string): boolean {
  * and a domain (`*-123456789012.us-central1.run.app`); a domain has at least
  * two labels. Unset or blank: none, so every endpoint is refused. Throws on
  * anything else, so a typo fails at startup rather than refusing every
- * endpoint later.
+ * endpoint later; and throws on `*.` with `run.app` or a domain under it
+ * (`*.us-central1.run.app`, `*.a.run.app`), which would admit anyone's
+ * Cloud Run service.
  */
 export function parsePackEndpointHosts(raw: string | undefined): readonly PackEndpointHost[] {
   if (raw === undefined || raw.trim() === '') return [];
@@ -225,9 +232,13 @@ export function parsePackEndpointHosts(raw: string | undefined): readonly PackEn
         `${PACK_ENDPOINT_HOSTS_VAR} takes host names, \`*.\` and a domain, or \`*-\`, a tail and a domain, comma-separated: lowercase, with no scheme, port or path (for example \`*-123456789012.us-central1.run.app\`). Got "${item}".`,
       );
     }
-    return suffix === undefined
-      ? { kind: 'exact' as const, host: name }
-      : { kind: 'suffix' as const, suffix: name };
+    if (suffix === undefined) return { kind: 'exact' as const, host: name };
+    if (suffix === CLOUD_RUN_DOMAIN || suffix.endsWith(`.${CLOUD_RUN_DOMAIN}`)) {
+      throw new Error(
+        `${PACK_ENDPOINT_HOSTS_VAR} refuses "${item}": ${CLOUD_RUN_DOMAIN} is Cloud Run's shared domain, whose URLs are \`<service>-<project number>.<region>.run.app\` in every project, so it would admit anyone's service. List the exact hosts, or name one project with \`*-<project number>.<region>.run.app\`.`,
+      );
+    }
+    return { kind: 'suffix' as const, suffix };
   });
 }
 
@@ -249,20 +260,6 @@ export function packEndpointHostAllowed(
     if (!HOST_LABEL.test(first)) return false;
     return entry.kind === 'suffix' || first.endsWith(`-${entry.tail}`);
   });
-}
-
-/** Whether an endpoint's host must begin with its deployment's service name (`KINDGI_PACK_ENDPOINT_NAMES`). */
-export const PACK_ENDPOINT_NAMES_VAR = 'KINDGI_PACK_ENDPOINT_NAMES';
-
-/** `bound`: the host begins with the name derived from the tenant and deployment. `any`: no name check. */
-export type PackEndpointNames = 'bound' | 'any';
-
-/** Parse `KINDGI_PACK_ENDPOINT_NAMES`. Unset or blank: `bound`. Throws on any other value. */
-export function parsePackEndpointNames(raw: string | undefined): PackEndpointNames {
-  const value = raw?.trim();
-  if (value === undefined || value === '' || value === 'bound') return 'bound';
-  if (value === 'any') return 'any';
-  throw new Error(`${PACK_ENDPOINT_NAMES_VAR} is \`bound\` or \`any\`. Got "${value}".`);
 }
 
 /**
