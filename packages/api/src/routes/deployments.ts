@@ -789,6 +789,7 @@ export function deploymentsRouter(
         signature: wire.signature,
         publishedAt: wire.publishedAt,
         primitives,
+        ...(typeof imageIndex.packId === 'string' && { packId: imageIndex.packId }),
         contents: {
           tools: validated.tools.map((t) => ({
             id: t.id as unknown as string,

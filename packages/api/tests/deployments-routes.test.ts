@@ -24,6 +24,7 @@ import type {
   Deployment,
   DeploymentBinding,
   DeploymentPrimitiveCounts,
+  DeploymentRegisterInput,
   FlowRegistryBinding,
   GuardrailRegistryBinding,
   ImageRegistryBinding,
@@ -2090,6 +2091,29 @@ describe('GET /v1/deployments — the endpoint, under per-deployment routing', (
       status: 'ready',
       since: '2026-10-11T12:05:00.000Z',
     });
+  });
+});
+
+describe('POST /v1/deployments — the pack id reaches the binding', () => {
+  test("the image index's packId is passed to register, so a binding running a service per deployment can keep it", async () => {
+    const fixture = buildSignedDeploy();
+    const inner = makeInMemoryDeploymentBinding();
+    const seen: DeploymentRegisterInput[] = [];
+    const binding: DeploymentBinding = {
+      ...inner,
+      register: async (input) => {
+        seen.push(input);
+        return inner.register(input);
+      },
+    };
+    const { app } = makeApp({ fixture, deploymentRegistry: binding });
+    const r = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(r.status).toBe(201);
+    expect(seen.map((input) => input.packId)).toEqual(['acme.aperture']);
   });
 });
 

@@ -13,6 +13,7 @@ const TENANT = '6f1c2c0e-3b0a-4f1e-9a51-0c1d2e3f4a5b';
 const ENTRY = {
   tenantId: TENANT,
   deploymentId: 'dep-1',
+  packId: 'acme.aperture',
   imageRef: `us-central1-docker.pkg.dev/acme-shard/s-1/pack@sha256:${'a'.repeat(64)}`,
   imageDigest: `sha256:${'a'.repeat(64)}`,
   artifactVersion: '20261012.1',

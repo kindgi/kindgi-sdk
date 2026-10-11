@@ -2728,6 +2728,7 @@
         "required": [
           "tenantId",
           "deploymentId",
+          "packId",
           "imageRef",
           "imageDigest",
           "artifactVersion",
@@ -2741,6 +2742,15 @@
           "deploymentId": {
             "type": "string",
             "minLength": 1
+          },
+          "packId": {
+            "type": "string",
+            "minLength": 1,
+            "description": "The pack it deploys (the image index's `packId`): keep the newest few superseded deployments per tenant and pack."
+          },
+          "projectId": {
+            "type": "string",
+            "description": "The project the deploy was scoped to. Absent for a tenant-wide deploy."
           },
           "imageRef": {
             "type": "string",

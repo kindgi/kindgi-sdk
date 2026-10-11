@@ -30,6 +30,13 @@ import type { AppEnv } from '../types.js';
 export interface SystemDeploymentEntry {
   readonly tenantId: TenantId;
   readonly deploymentId: string;
+  /**
+   * The pack it deploys (the image index's `packId`): retiring keeps the
+   * newest few superseded deployments per tenant and pack.
+   */
+  readonly packId: string;
+  /** The project the deploy was scoped to; absent for a tenant-wide one. */
+  readonly projectId?: string;
   /** Digest-pinned, as registered: the service is created from exactly this. */
   readonly imageRef: string;
   readonly imageDigest: string;
@@ -441,6 +448,8 @@ function entryToWire(entry: SystemDeploymentEntry) {
   return {
     tenantId: entry.tenantId as unknown as string,
     deploymentId: entry.deploymentId,
+    packId: entry.packId,
+    ...(entry.projectId !== undefined && { projectId: entry.projectId }),
     imageRef: entry.imageRef,
     imageDigest: entry.imageDigest,
     artifactVersion: entry.artifactVersion,

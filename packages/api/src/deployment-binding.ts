@@ -257,6 +257,12 @@ export interface DeploymentRegisterInput {
   readonly publishedAt: string;
   readonly primitives: DeploymentPrimitiveCounts;
   readonly contents: DeploymentContents;
+  /**
+   * The pack's id, from the image's index (`packId`). A binding that runs a
+   * pack service per deployment keeps it, so whatever runs those services
+   * can tell one pack's deployments from another's.
+   */
+  readonly packId?: string;
 }
 
 export type DeploymentRegisterOutcome =

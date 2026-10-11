@@ -61,6 +61,7 @@ function entry(tenantId: TenantId, deploymentId: string): SystemDeploymentEntry 
   return {
     tenantId,
     deploymentId,
+    packId: 'acme.aperture',
     imageRef: `us-central1-docker.pkg.dev/acme-shard/s-1/pack@sha256:${'a'.repeat(64)}`,
     imageDigest: `sha256:${'a'.repeat(64)}`,
     artifactVersion: '20261011.1',
@@ -220,6 +221,16 @@ describe('GET /v1/system/deployments', () => {
     });
   });
 
+  test('an entry carries its project when the deploy had one, and none otherwise', async () => {
+    const { call, deployments } = makeApp();
+    const project = randomUUID();
+    deployments.needing.push({ ...entry(live, 'dep-p'), projectId: project }, entry(live, 'dep-t'));
+    const r = await call(ORCHESTRATOR, 'GET', '/v1/system/deployments?endpoint=missing');
+    const data = r.body.data as Record<string, unknown>[];
+    expect(data[0]).toMatchObject({ packId: 'acme.aperture', projectId: project });
+    expect('projectId' in (data[1] as object)).toBe(false);
+  });
+
   test('retire: each entry with its reason', async () => {
     const { call, deployments } = makeApp();
     deployments.retiring.push(
@@ -261,9 +272,12 @@ describe('the scopes: system:deployments for the endpoint, system:suspend for th
     const { call, deployments } = makeApp();
     deployments.add(live, d);
     for (const [method, path, b] of routes) {
-      const r = await call(USAGE, method, path, b);
-      expect(r.status, `${method} ${path}`).toBe(403);
-      expect(code(r), `${method} ${path}`).toBe('system-scope-missing');
+      // A valid body, and one that isn't: the scope is checked first either way.
+      for (const sent of b === undefined ? [undefined] : [b, {}]) {
+        const r = await call(USAGE, method, path, sent);
+        expect(r.status, `${method} ${path} ${JSON.stringify(sent)}`).toBe(403);
+        expect(code(r), `${method} ${path} ${JSON.stringify(sent)}`).toBe('system-scope-missing');
+      }
     }
     expect(deployments.set).toEqual([]);
   });

@@ -1130,6 +1130,14 @@ class SystemDeploymentEntry(BaseModel):
     )
     tenant_id: Annotated[UUID, Field(alias="tenantId")]
     deployment_id: Annotated[str, Field(alias="deploymentId", min_length=1)]
+    pack_id: Annotated[str, Field(alias="packId", min_length=1)]
+    """
+    The pack it deploys (the image index's `packId`): keep the newest few superseded deployments per tenant and pack.
+    """
+    project_id: Annotated[str | None, Field(alias="projectId")] = None
+    """
+    The project the deploy was scoped to. Absent for a tenant-wide deploy.
+    """
     image_ref: Annotated[str, Field(alias="imageRef")]
     """
     Digest-pinned, as registered: the pack service is created from exactly this.

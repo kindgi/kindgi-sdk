@@ -1491,6 +1491,16 @@ export const ApiTokenPageSchema: JsonSchema = {
 const SYSTEM_DEPLOYMENT_ENTRY_PROPERTIES: Record<string, JsonSchema> = {
   tenantId: { type: 'string', format: 'uuid' },
   deploymentId: { type: 'string', minLength: 1 },
+  packId: {
+    type: 'string',
+    minLength: 1,
+    description:
+      "The pack it deploys (the image index's `packId`): keep the newest few superseded deployments per tenant and pack.",
+  },
+  projectId: {
+    type: 'string',
+    description: 'The project the deploy was scoped to. Absent for a tenant-wide deploy.',
+  },
   imageRef: {
     type: 'string',
     description: 'Digest-pinned, as registered: the pack service is created from exactly this.',
@@ -1508,6 +1518,7 @@ export const SystemDeploymentEntrySchema: JsonSchema = {
   required: [
     'tenantId',
     'deploymentId',
+    'packId',
     'imageRef',
     'imageDigest',
     'artifactVersion',
