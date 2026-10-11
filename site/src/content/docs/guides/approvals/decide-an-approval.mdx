@@ -170,6 +170,34 @@ In each approval:
 }
 ```
 
+### In the console: your Inbox
+
+A reviewer's **Inbox** lists every open approval they may
+decide, across the projects they can read, the one that has waited longest
+first. Its headline says how many and for how long, such as "4 approvals
+wait for you: the oldest for 3 h. 1 is assigned to you.", or "Nothing waits
+for you."
+
+- **Filters** by project, tier, **Assigned to you** or **No one assigned**,
+  kept in the page's link.
+- **Who it's assigned to** reads "You", "A reviewer" or "No one", never a
+  name.
+- **Choose one** to see it beside the list (in the list's place on a narrow
+  screen) and decide it there. After a decision, the next one is chosen.
+- **It reads again** every 15 seconds and when you come back to the tab. One
+  that left without your decision says so: "No longer waiting: … (decided
+  by someone else, withdrawn or expired)."
+- **One you asked for** reads "You asked: someone else approves it".
+- **Past 500 open approvals,** it holds those that have waited longest, and
+  still lists every one assigned to you. The headline then says "More may
+  wait than the inbox could read: it holds those that have waited longest.
+  Each project's Approvals page lists them all."
+
+An approval's own link, `/console/approvals/<approval-id>`, finds its
+project by itself: one still waiting opens in your Inbox, chosen; a decided
+one opens its own page. The link in a [reviewer email](#reviewer-email) is
+that link.
+
 ## Decide
 
 ```sh
@@ -220,6 +248,26 @@ Each decision also goes into the audit trail, as an `hitl-decision` event:
 who decided, how it ended and the rationale. It's kept for good, even when the
 runtime purges other audit events (see
 [Audit events](../../../deploy/retention/#audit-events)).
+
+### In the console
+
+An approval's page (or the Inbox, with it chosen) offers the decisions the
+reviewer may make, each saying what it does to the waiting run, and a
+rationale.
+
+- **Whoever asked for it,** a person or a service account, isn't offered
+  **Approve** when it needs someone else's (`separateApprover`): "You asked
+  for this, so someone else approves it."
+- **A closed approval says why,** when no decision does: "Withdrawn: its run
+  was cancelled, so nothing is left to decide.", "Withdrawn: its run ended,
+  so nothing is left to decide.", "Sent on to senior reviewers: that
+  approval decides it." (with a link, and a link back from the one it was
+  sent on to), or "It expired before anyone decided it."
+- **One decided or closed elsewhere while you were on it:** "Someone decided
+  it a moment ago: the page now shows how." or "It closed a moment ago: the
+  page now shows why."
+- **One whose run already ended:** the decision is refused, and the page
+  says how the run ended and that nothing was recorded.
 
 ### Escalate
 
