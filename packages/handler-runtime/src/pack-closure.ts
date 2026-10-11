@@ -55,6 +55,12 @@ export interface ClosureInputs {
    * the folder of a package already kept.
    */
   readonly keep: readonly string[];
+  /**
+   * Kept when installed, skipped otherwise: a build extension's keeps,
+   * which depend on how the app uses it (`.prisma/client` exists only for
+   * Prisma's `prisma-client-js` generator).
+   */
+  readonly keepIfInstalled?: readonly string[];
 }
 
 /** A package the closure keeps, by its real folder. */
@@ -119,6 +125,10 @@ export async function computeClosure(inputs: ClosureInputs): Promise<Closure> {
     const resolved = await resolveKeep(name, inputs, [...kept.keys()].sort());
     if (resolved === undefined) missing.push({ name, reason: 'keep' });
     else add(resolved, name, 'keep');
+  }
+  for (const name of sortedUnique(inputs.keepIfInstalled ?? [])) {
+    const resolved = await resolveKeep(name, inputs, [...kept.keys()].sort());
+    if (resolved !== undefined) add(resolved, name, 'keep');
   }
   await keepDependencies(queue, inputs.root, add);
 

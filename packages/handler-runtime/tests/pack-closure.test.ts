@@ -208,6 +208,19 @@ describe('computeClosure', () => {
     ]);
   });
 
+  test("an extension's keep that isn't installed is skipped: Prisma 7 has no .prisma/client", async () => {
+    const { root, pack } = await pnpmTree();
+    const closure = await computeClosure({
+      root,
+      bundleDir: join(pack, 'dist'),
+      externals: ['pg'],
+      keep: [],
+      keepIfInstalled: ['.prisma/client'],
+    });
+    expect(closure.missing).toEqual([]);
+    expect(closure.packages.map((p) => p.name)).toEqual(['pg-types', 'pg']);
+  });
+
   test('an external or a keep that is not installed is missing, by name', async () => {
     const { root, pack } = await pnpmTree();
     const closure = await computeClosure({

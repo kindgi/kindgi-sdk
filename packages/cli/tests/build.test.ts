@@ -1299,6 +1299,83 @@ describe('kindgi build --local', () => {
   });
 });
 
+describe("kindgi build — image.dependencies: 'loaded'", () => {
+  test('the bundler is asked for it, and the build says which dependencies the image keeps', async () => {
+    const fixtures = makeFixtures();
+    const modes: (string | undefined)[] = [];
+    const runners: BuildRunners = {
+      ...fixtures.runners,
+      esbuildBundle: async (o) => {
+        modes.push(o.dependencies);
+        return fixtures.runners.esbuildBundle(o);
+      },
+    };
+    const out = await runCli({
+      ...baseInputs(
+        fixtures,
+        { env: {} },
+        { environments: {}, image: { dependencies: 'loaded', keep: ['pino-pretty'] } },
+      ),
+      buildRunners: runners,
+      argv: ['build', '--local', `--path=${packDir}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(modes).toEqual(['loaded']);
+    expect(out.stderr).toContain(
+      "✓ Dependencies: only what the pack loads (image.dependencies: 'loaded'), and pino-pretty",
+    );
+    expect(fixtures.state.containerfileImages[0]).toMatchObject({
+      dependencies: 'loaded',
+      keep: ['pino-pretty'],
+    });
+  });
+
+  test("a computed import in the pack's code, and no image.keep: refused before any image is built", async () => {
+    const fixtures = makeFixtures();
+    const runners: BuildRunners = {
+      ...fixtures.runners,
+      esbuildBundle: async (o) => ({
+        ...(await fixtures.runners.esbuildBundle(o)),
+        computedImports: [
+          { file: join(packDir, 'tools', 'load.ts'), line: 4, text: 'return import(name);' },
+        ],
+      }),
+    };
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: {} }, { environments: {}, image: { dependencies: 'loaded' } }),
+      buildRunners: runners,
+      argv: ['build', '--local', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('tools/load.ts:4  return import(name);');
+    expect(out.stderr).toContain(
+      "Name the packages these load in image.keep, or set image.dependencies: 'all'.",
+    );
+    expect(fixtures.state.dockerBuilds).toHaveLength(0);
+  });
+
+  test("the default, 'all': said, and a computed import is the app's own business", async () => {
+    const fixtures = makeFixtures();
+    const runners: BuildRunners = {
+      ...fixtures.runners,
+      esbuildBundle: async (o) => ({
+        ...(await fixtures.runners.esbuildBundle(o)),
+        computedImports: [
+          { file: join(packDir, 'tools', 'load.ts'), line: 4, text: 'return import(name);' },
+        ],
+      }),
+    };
+    const out = await runCli({
+      ...baseInputs(fixtures, { env: {} }, { environments: {} }),
+      buildRunners: runners,
+      argv: ['build', '--local', `--path=${packDir}`],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stderr).toContain("✓ Dependencies: all of the app's production dependencies");
+    expect(out.stderr).not.toContain('computed name');
+  });
+});
+
 describe('kindgi build — image extensions', () => {
   const prismaImage = {
     image: {
@@ -1334,6 +1411,9 @@ describe('kindgi build — image extensions', () => {
           },
         ],
         extensions: ['prisma'],
+        dependencies: 'all',
+        keep: [],
+        keepIfInstalled: [],
       },
     ]);
     expect(fixtures.state.contextExtensionFiles).toEqual([['prisma/schema.prisma']]);

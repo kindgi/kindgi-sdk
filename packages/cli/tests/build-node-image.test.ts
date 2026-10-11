@@ -41,6 +41,9 @@ const NO_IMAGE: ResolvedImage = {
   contextFiles: [],
   steps: [],
   extensions: [],
+  dependencies: 'all',
+  keep: [],
+  keepIfInstalled: [],
 };
 
 /** `install(over)` without the host's pnpm version. */
@@ -289,5 +292,77 @@ describe('the Containerfile with image extensions', () => {
     const text = render();
     expect(text).not.toContain('ext/');
     expect(text).not.toContain('Build env');
+  });
+});
+
+describe("the Containerfile with image.dependencies: 'loaded'", () => {
+  const image = imageOf({
+    image: {
+      dependencies: 'loaded',
+      keep: ['pino-pretty', '@acme/plugin'],
+      extensions: [prisma({ schema: 'prisma/schema.prisma' })],
+      buildEnv: { DATABASE_URL: 'postgresql://build-placeholder' },
+    },
+  });
+
+  test('a closure stage trims the install from deps: externals, the keeps, no network', () => {
+    const text = render({ packRel: 'apps/support' }, false, image);
+    const closure = text.slice(
+      text.indexOf('FROM deps AS closure'),
+      text.indexOf('FROM system AS trimmed'),
+    );
+    expect(closure).toContain(
+      'COPY --from=code --chown=node:node /dist/kindgi-closure.mjs /dist/externals.json /home/node/closure-in/',
+    );
+    expect(closure).toContain(
+      [
+        'RUN node /home/node/closure-in/kindgi-closure.mjs trim \\',
+        '      --root /app \\',
+        '      --bundle-dir /app/apps/support/dist \\',
+        '      --externals /home/node/closure-in/externals.json \\',
+        '      --keep @acme/plugin \\',
+        '      --keep pino-pretty \\',
+        '      --keep-if-installed .prisma/client \\',
+        '      --out /home/node/closure',
+      ].join('\n'),
+    );
+    expect(closure).not.toContain('--mount=type=secret');
+    expect(text).toContain(
+      'FROM system AS trimmed\nCOPY --from=closure --chown=node:node /home/node/closure /app',
+    );
+  });
+
+  test('the indexer runs on the trimmed install, after the load check, with the build env', () => {
+    const text = render({}, false, image);
+    const indexer = text.slice(
+      text.indexOf('FROM trimmed AS indexer'),
+      text.indexOf('FROM system AS final'),
+    );
+    expect(indexer).toContain('USER node');
+    expect(indexer).toContain('ENV DATABASE_URL="postgresql://build-placeholder"');
+    const check = indexer.indexOf(
+      'RUN node ./dist/kindgi-closure.mjs check --bundle-dir /app/dist --externals ./dist/externals.json',
+    );
+    expect(check).toBeGreaterThan(indexer.indexOf('COPY --from=code'));
+    expect(indexer.indexOf('kindgi-index.mjs')).toBeGreaterThan(check);
+  });
+
+  test('the final image takes the trimmed install, and says it is trimmed to the pack service', () => {
+    const final = render({}, false, image).split('FROM system AS final')[1] ?? '';
+    expect(final).toContain('COPY --from=trimmed --chown=node:node /app /app');
+    expect(final).not.toContain('--from=deps');
+    expect(final).toContain('ENV KINDGI_IMAGE_DEPENDENCIES=loaded');
+    expect(final).not.toContain('DATABASE_URL');
+  });
+
+  test("'all', the default: none of it", () => {
+    for (const text of [
+      render(),
+      render({}, false, imageOf({ image: { dependencies: 'all', keep: ['x'] } })),
+    ]) {
+      expect(text).not.toMatch(/closure|trimmed|KINDGI_IMAGE_DEPENDENCIES/);
+      expect(text).toContain('FROM deps AS indexer');
+      expect(text).toContain('COPY --from=deps --chown=node:node /app /app');
+    }
   });
 });

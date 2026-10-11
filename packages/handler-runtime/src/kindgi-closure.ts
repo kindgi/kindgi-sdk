@@ -54,7 +54,7 @@ export async function main(argv: readonly string[], io: Io = defaultIo): Promise
   const options = parseOptions(rest);
   if (options === undefined) {
     io.err(
-      'usage: kindgi-closure trim --root <dir> --bundle-dir <dir> --externals <file> [--keep <name>]… --out <dir>',
+      'usage: kindgi-closure trim --root <dir> --bundle-dir <dir> --externals <file> [--keep <name>]… [--keep-if-installed <name>]… --out <dir>',
     );
     io.err('       kindgi-closure check --bundle-dir <dir> --externals <file>');
     return 2;
@@ -71,16 +71,19 @@ interface Options {
   readonly externals?: string;
   readonly out?: string;
   readonly keep: readonly string[];
+  readonly keepIfInstalled: readonly string[];
 }
 
 function parseOptions(args: readonly string[]): Options | undefined {
   const keep: string[] = [];
+  const keepIfInstalled: string[] = [];
   const named: Record<string, string> = {};
   for (let i = 0; i < args.length; i += 2) {
     const flag = args[i];
     const value = args[i + 1];
     if (flag === undefined || value === undefined || !flag.startsWith('--')) return undefined;
     if (flag === '--keep') keep.push(value);
+    else if (flag === '--keep-if-installed') keepIfInstalled.push(value);
     else named[flag.slice(2)] = value;
   }
   return {
@@ -89,6 +92,7 @@ function parseOptions(args: readonly string[]): Options | undefined {
     ...(named.externals !== undefined && { externals: named.externals }),
     ...(named.out !== undefined && { out: named.out }),
     keep,
+    keepIfInstalled,
   };
 }
 
@@ -109,6 +113,7 @@ async function trim(options: Options, io: Io): Promise<number> {
     bundleDir,
     externals: imported.packages,
     keep: options.keep,
+    keepIfInstalled: options.keepIfInstalled,
   });
   if (closure.missing.length > 0) {
     for (const miss of closure.missing) {

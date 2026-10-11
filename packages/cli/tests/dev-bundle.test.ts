@@ -286,6 +286,61 @@ describe("the dev bundler's externals", () => {
     expect(dev?.map((e) => e.name)).toEqual(image.externals);
   });
 
+  test("image.dependencies: 'loaded': dist/ also gets what the bundles import and the closure's script", async () => {
+    await put('tools/ids.ts', "import { id } from '@acme/ids/sub';\nexport default { id };\n");
+    try {
+      const outputDir = join(dir, '.kindgi', 'build-loaded', 'dist');
+      const loaded = await esbuildBundleReal({
+        packDir: dir,
+        outputDir,
+        discoveryPatterns: PATTERNS,
+        configPath: join(dir, 'kindgi.config.ts'),
+        nodeMajor: 22,
+        dependencies: 'loaded',
+      });
+      expect(JSON.parse(await readFile(join(outputDir, 'externals.json'), 'utf8'))).toEqual({
+        packages: ['@acme/ids', 'acme-clock', 'acme-config-helper'],
+        specifiers: ['@acme/ids/sub', 'acme-clock', 'acme-config-helper'],
+      });
+      expect(loaded.emitted).toContain(join(outputDir, 'kindgi-closure.mjs'));
+      expect(loaded.computedImports).toEqual([]);
+
+      const allDir = join(dir, '.kindgi', 'build-all', 'dist');
+      const all = await esbuildBundleReal({
+        packDir: dir,
+        outputDir: allDir,
+        discoveryPatterns: PATTERNS,
+        configPath: join(dir, 'kindgi.config.ts'),
+        nodeMajor: 22,
+      });
+      expect(all.emitted).not.toContain(join(allDir, 'kindgi-closure.mjs'));
+      await expect(readFile(join(allDir, 'externals.json'), 'utf8')).rejects.toThrow();
+    } finally {
+      await rm(join(dir, 'tools/ids.ts'), { force: true });
+    }
+  });
+
+  test("a computed import in the pack's own code is reported, by file and line", async () => {
+    await put(
+      'tools/plugin.ts',
+      'export async function load(name: string) {\n  return import(name);\n}\n',
+    );
+    try {
+      const bundle = await esbuildBundleReal({
+        packDir: dir,
+        outputDir: join(dir, '.kindgi', 'build-computed', 'dist'),
+        discoveryPatterns: PATTERNS,
+        configPath: join(dir, 'kindgi.config.ts'),
+        nodeMajor: 22,
+      });
+      expect(bundle.computedImports?.map((c) => [c.file.slice(dir.length + 1), c.line])).toEqual([
+        ['tools/plugin.ts', 2],
+      ]);
+    } finally {
+      await rm(join(dir, 'tools/plugin.ts'), { force: true });
+    }
+  });
+
   // Each edit is written as soon as watching starts, while watch mode's
   // first build may be reading the file — the race an editor's save can
   // hit. Whatever that build read, the last build reported is the edit's.

@@ -229,6 +229,19 @@ With a `prisma.config.ts`, name it too:
 - **patch-package:** when a skipped script runs it, `kindgi build` prints the
   build step to add (`defineBuildExtension`, also from `@kindgi/sdk/build`).
   With pnpm, `pnpm patch` applies your patches in the install itself.
+- `dependencies: 'loaded'`: the image keeps only the packages your tools
+  import, with their own dependencies, instead of every production dependency
+  of your app. On a Next.js app whose tools import `@kindgi/sdk` and `zod`, the
+  build says:
+
+  ```text
+  … kindgi-closure: kept 36 of 59 packages (27.5 MB of 354 MB)
+  … kindgi-closure: dropped 3 of the pack's own dependencies its tools don't import: next, react, react-dom
+  ```
+
+  A package your code loads by a name no import shows (a plugin named in a
+  config string) goes in `keep: ['pino-pretty']`. A miss fails the build,
+  naming the package, never a run. `'all'` is the default.
 
 The build ends with the image and a check of what's in it:
 

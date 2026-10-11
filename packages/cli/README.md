@@ -530,6 +530,45 @@ export default {
   `contextFiles`, `systemPackages`, `postInstall` steps (a package's bin, run
   through the app's package manager) and `buildEnv`.
 
+**Only what the pack loads (`image.dependencies: 'loaded'`).** By default
+(`'all'`) the image carries every production dependency of the app: a Next.js
+app's `next`, `react` and their tooling ride along, though the tools only
+import a few packages. With `'loaded'`, it carries the packages the pack's
+bundles import by name, with their own dependencies (declared, optional and
+peer, as installed), and what `image.keep` names:
+
+```ts
+image: {
+  dependencies: 'loaded',
+  keep: ['pino-pretty'], // loaded by a name in a config string, which no import shows
+},
+```
+
+- **How it's chosen:** each package is resolved as Node resolves it at run
+  time, from the bundles' folder and then from each kept package's own
+  folder, over the layout the package manager made from the lockfile (pnpm's
+  links, npm's and Yarn's hoisting). Packages are kept whole.
+- **A miss fails the build, never a run:**
+  - an import that isn't installed fails the image's closure step, by name;
+  - every package the bundles import, lazily loaded ones included, is loaded
+    on the trimmed install before indexing, which also runs there;
+  - a `require(x)` / `import(x)` with a computed name in the pack's own code
+    fails `kindgi build`, by file and line, until `image.keep` names what it
+    loads (or `dependencies` is `'all'`).
+- **The build says what it kept,** and which of the pack's own dependencies its
+  tools don't import. A Next.js app whose tools import `@kindgi/sdk` and `zod`:
+
+  ```text
+  … kindgi-closure: kept 36 of 59 packages (27.5 MB of 354 MB)
+  … kindgi-closure: dropped 3 of the pack's own dependencies its tools don't import: next, react, react-dom
+  ```
+- **At run time,** a package loaded by a name no gate could see answers with
+  what to add to `image.keep`.
+- Extensions keep what they need: `prisma()` keeps Prisma 6's generated
+  `.prisma/client` when it's there.
+- Python packs keep every dependency for now: `dependencies = "loaded"` in
+  `[tool.kindgi.image]` is refused.
+
 **`--local`:** builds the image of a TypeScript or Python pack with this
 machine's Docker (`docker buildx build --load`) into its image store, as
 `kindgi-pack/<packId>:<artifactVersion>`, with the same integrity gate. There
