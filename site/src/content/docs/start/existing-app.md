@@ -213,8 +213,10 @@ import by.
 :::note[On Kindgi 0.1.6 and earlier]
 `init` adds no test setup, and `kindgi test` looks only for
 `vitest.config.ts`, `.js`, `.mjs` or `.cjs`. Add vitest
-(`pnpm add -D vitest`) and a `vitest.config.ts` whose `test.include` is
-`['kindgi/**/*.test.ts']`, with your tsconfig `paths` as `resolve.alias`.
+(`pnpm add -D vitest`) and a `vitest.config.mjs` (`vitest.config.ts` in a
+`"type": "module"` app; in any other, a `.ts` config makes Node warn about
+ES module syntax) whose `test.include` is `['kindgi/**/*.test.ts']`, with
+your tsconfig `paths` as `resolve.alias`.
 :::
 
 ### What the pack's image needs

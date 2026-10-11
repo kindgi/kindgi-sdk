@@ -14,7 +14,7 @@ description: >
   primitive.
 type: core
 library: "@kindgi/sdk"
-version: "0.3.8"
+version: "0.3.9"
 sdk_version: "0.0.0"
 pack_languages: [node]
 ---
