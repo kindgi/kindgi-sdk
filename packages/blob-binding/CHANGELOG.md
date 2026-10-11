@@ -1,5 +1,14 @@
 # @kindgi/blob-binding
 
+## 0.1.7-rc.0
+
+### Patch Changes
+
+- Updated dependencies [b90e2c6]
+- Updated dependencies [b90e2c6]
+  - @kindgi/types@0.1.7-rc.0
+  - @kindgi/platform@0.1.7-rc.0
+
 ## 0.1.6
 
 ### Patch Changes
