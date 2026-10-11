@@ -207,7 +207,6 @@ export type {
   MalformedEnvelopeError,
   UnsupportedPayloadVersionError,
 } from './versioning.js';
-export { AGENTS_MIGRATIONS_DIR } from './migrations-dir.js';
 
 // ============ Built-in agent-turn flow ============
 // The flow every agent turn runs on, plus its node IDs — the same IDs
