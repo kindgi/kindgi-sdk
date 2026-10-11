@@ -1399,7 +1399,7 @@ class TokensResource:
     ) -> _models.MintTokenResult:
         """Mint an API key. `POST /v1/tokens`
 
-        An API key acts for one principal (`for`: a person or a service account; default the caller), with that principal's grants. Its `role` is a ceiling under them and its `projectId` a limit. Returns the plaintext token exactly once. A person or a service account's key mints its own keys; only a tenant admin mints for someone else, or an `admin` key. A caller can only grant capabilities it holds, and a key limited to a project mints only keys limited to it. Only mounted when the deployment supplies a `TokenAdmin`.
+        An API key acts for one principal (`for`: a person or a service account; default the caller), with that principal's grants. Its `role` is a ceiling under them and its `projectId` a limit. Returns the plaintext token exactly once. A person or a service account's key mints its own keys; only a tenant admin mints for someone else, or an `admin` key. A caller can only grant capabilities it holds, and a key limited to a project mints only keys limited to it. A key that expires mints only keys that expire no later than it, and a session opened by token sign-in mints as the key it was opened with. Only mounted when the deployment supplies a `TokenAdmin`.
         """
         return self._client._request(
             _OPERATIONS["tokens.mint"],
@@ -8660,7 +8660,7 @@ class AsyncTokensResource:
     ) -> _models.MintTokenResult:
         """Mint an API key. `POST /v1/tokens`
 
-        An API key acts for one principal (`for`: a person or a service account; default the caller), with that principal's grants. Its `role` is a ceiling under them and its `projectId` a limit. Returns the plaintext token exactly once. A person or a service account's key mints its own keys; only a tenant admin mints for someone else, or an `admin` key. A caller can only grant capabilities it holds, and a key limited to a project mints only keys limited to it. Only mounted when the deployment supplies a `TokenAdmin`.
+        An API key acts for one principal (`for`: a person or a service account; default the caller), with that principal's grants. Its `role` is a ceiling under them and its `projectId` a limit. Returns the plaintext token exactly once. A person or a service account's key mints its own keys; only a tenant admin mints for someone else, or an `admin` key. A caller can only grant capabilities it holds, and a key limited to a project mints only keys limited to it. A key that expires mints only keys that expire no later than it, and a session opened by token sign-in mints as the key it was opened with. Only mounted when the deployment supplies a `TokenAdmin`.
         """
         return await self._client._request(
             _OPERATIONS["tokens.mint"],

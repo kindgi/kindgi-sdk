@@ -8,7 +8,7 @@ import { setCookie } from 'hono/cookie';
 
 import type { AuditEvent, AuditEventBinding } from '@kindgi/audit-events';
 import { ref } from '@kindgi/authz';
-import type { Timestamp } from '@kindgi/types';
+import type { ApiTokenId, Timestamp } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import { encodeSessionToken } from '../middleware/auth.js';
@@ -151,7 +151,7 @@ export function tokenSignInRouter(
     const created = await options.sessionStore.create({
       tenantId,
       userId,
-      providerId: tokenId === undefined ? 'api-token' : `api-token:${tokenId}`,
+      providerId: tokenSignInProvider(tokenId),
       expiresAt: new Date(expires).toISOString() as Timestamp,
       // What the key may do, so the session acts as it did: with authz off,
       // an admin key's `tenant-admin` is how the server and console know.
@@ -187,4 +187,19 @@ export function tokenSignInRouter(
   });
 
   return r;
+}
+
+const TOKEN_SIGN_IN_PROVIDER = 'api-token';
+
+/** The provider of a session token sign-in opens: `api-token:<tokenId>`, or `api-token` for a key with no id. */
+export function tokenSignInProvider(tokenId: ApiTokenId | undefined): string {
+  return tokenId === undefined ? TOKEN_SIGN_IN_PROVIDER : `${TOKEN_SIGN_IN_PROVIDER}:${tokenId}`;
+}
+
+/** The key a session was opened with by token sign-in, from its provider; `undefined` for any other session. */
+export function tokenSignInKey(providerId: string | undefined): ApiTokenId | undefined {
+  const prefix = `${TOKEN_SIGN_IN_PROVIDER}:`;
+  if (providerId === undefined || !providerId.startsWith(prefix)) return undefined;
+  const tokenId = providerId.slice(prefix.length);
+  return tokenId.length > 0 ? (tokenId as ApiTokenId) : undefined;
 }
