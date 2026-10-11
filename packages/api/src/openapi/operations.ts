@@ -2245,6 +2245,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     parameters: [AgentIdPathParam, LimitQueryParam, CursorQueryParam, IncludeTombstonedQueryParam],
     responses: {
       '200': { description: 'Page of agent versions.', schema: ref('AgentCollectionPage') },
+      '400': ErrorResponse("`bad-input`: a `cursor` this list didn't issue."),
       ...CommonAuthErrors,
       '404': ErrorResponse('No agent was ever registered with that id under this tenant.'),
     },
@@ -2735,6 +2736,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     parameters: [FlowIdPathParam, LimitQueryParam, CursorQueryParam, IncludeTombstonedQueryParam],
     responses: {
       '200': { description: 'Page of flow versions.', schema: ref('FlowCollectionPage') },
+      '400': ErrorResponse("`bad-input`: a `cursor` this list didn't issue."),
       ...CommonAuthErrors,
       '404': ErrorResponse('No flow was ever registered with that id under this tenant.'),
     },
@@ -2876,6 +2878,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     parameters: [ToolIdPathParam, LimitQueryParam, CursorQueryParam, IncludeTombstonedQueryParam],
     responses: {
       '200': { description: 'Page of tool versions.', schema: ref('ToolVersionCollectionPage') },
+      '400': ErrorResponse("`bad-input`: a `cursor` this list didn't issue."),
       ...CommonAuthErrors,
       '404': ErrorResponse('No tool with that id under this tenant.'),
     },
@@ -4800,6 +4803,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         description: 'Page of policy versions.',
         schema: ref('PolicyVersionCollectionPage'),
       },
+      '400': ErrorResponse("`bad-input`: a `cursor` this list didn't issue."),
       ...CommonAuthErrors,
       '404': ErrorResponse('No policy with that id under this tenant.'),
     },
@@ -5002,6 +5006,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         description: 'Page of eval suite versions.',
         schema: ref('EvalSuiteCollectionPage'),
       },
+      '400': ErrorResponse("`bad-input`: a `cursor` this list didn't issue."),
       ...CommonAuthErrors,
       '404': ErrorResponse('No eval suite was ever registered with that id under this tenant.'),
     },
@@ -5184,6 +5189,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     parameters: [BlockIdPathParam, LimitQueryParam, CursorQueryParam, IncludeTombstonedQueryParam],
     responses: {
       '200': { description: 'Page of versions.', schema: ref('BlockCollectionPage') },
+      '400': ErrorResponse("`bad-input`: a `cursor` this list didn't issue."),
       ...CommonAuthErrors,
       '404': ErrorResponse('`block-not-found`.'),
     },
