@@ -76,6 +76,7 @@ export {
   checkSiteSettings,
   hasHiddenCharacters,
   siteOrigin,
+  withoutHiddenCharacters,
 } from './routes/sites.js';
 export { SITE_REQUEST_MAX_BYTES, publicEd25519Key } from './routes/site-auth.js';
 export type {

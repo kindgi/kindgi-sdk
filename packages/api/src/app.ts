@@ -842,7 +842,14 @@ export interface CreateAppInput {
    */
   readonly sites?: {
     readonly binding: SiteBinding;
-    /** Who the client is, for the binding's limit on failures per address. */
+    /**
+     * Who the client is, for the binding's limit on failures per address.
+     * The default, the nearest `X-Forwarded-For` hop, fits only behind a
+     * proxy that writes that header: without one every client shares one
+     * bucket, and the header is the caller's to set. A runtime exposed
+     * directly passes its own (the socket's address, or the address past
+     * its trusted proxies).
+     */
     readonly clientAddress?: (request: Request) => string | undefined;
   };
   /**

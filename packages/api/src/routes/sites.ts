@@ -408,10 +408,24 @@ export function siteOrigin(raw: unknown): string | undefined {
  * Characters that can disguise a name: controls (C0 and C1), format
  * characters (bidirectional marks, overrides and isolates, zero-width
  * characters, the byte-order mark) and the line and paragraph separators.
- * A site person's `name` is held to the same check.
+ * A site's display name, set by a tenant admin, is refused when it has one.
+ * A person's `name`, which a site sends, is cleaned instead
+ * (`withoutHiddenCharacters`): refusing it would keep out a person whose
+ * name needs a joiner.
  */
 export function hasHiddenCharacters(text: string): boolean {
   return /[\p{Cc}\p{Cf}\u2028\u2029]/u.test(text);
+}
+
+/**
+ * A person's name with what can disguise it removed: controls, the
+ * bidirectional marks, embeddings, overrides and isolates, the line and
+ * paragraph separators, and the other format characters, except the
+ * zero-width joiner and non-joiner (U+200D, U+200C), which names in
+ * Persian and Indic scripts, and emoji sequences, need. Trimmed.
+ */
+export function withoutHiddenCharacters(text: string): string {
+  return text.replace(/[\p{Cc}\u2028\u2029]|(?![\u200c\u200d])\p{Cf}/gu, '').trim();
 }
 
 function no(field: string, message: string): { kind: 'invalid'; field: string; message: string } {

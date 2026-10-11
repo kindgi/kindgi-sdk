@@ -536,3 +536,16 @@ test('without a site binding, none of the routes is there', async () => {
   expect((await post('/v1/auth/sites/enroll')).status).toBe(404);
   expect((await post(`/v1/projects/${P1}/sites`)).status).toBe(404);
 });
+
+describe("a person's name, as a site sends it", () => {
+  test('loses what can disguise it, and keeps the joiners names and emoji need', async () => {
+    const { withoutHiddenCharacters } = await import('../src/index.js');
+    expect(withoutHiddenCharacters('Ada‏ (admin)‮')).toBe('Ada (admin)');
+    expect(withoutHiddenCharacters(' Ac​me\u0085  ')).toBe('Acme');
+    // Persian with a zero-width non-joiner, and an emoji family with joiners.
+    expect(withoutHiddenCharacters('می‌را')).toBe('می‌را');
+    expect(withoutHiddenCharacters('Sam \u{1f468}‍\u{1f469}‍\u{1f467}')).toBe(
+      'Sam \u{1f468}‍\u{1f469}‍\u{1f467}',
+    );
+  });
+});

@@ -81,6 +81,10 @@ export interface SiteBinding {
    * (`not-verified`): before the signature the caller has proved nothing.
    * The exact reason goes to the audit.
    *
+   * A person's `name` is cleaned with `withoutHiddenCharacters` (never
+   * refused for what it holds), and shown everywhere as
+   * "<name>, via <the site's displayName>".
+   *
    * The session is created with `projectId` the site's project and `role`
    * `member`, read back with `get`, and refused (and revoked) if a limit
    * didn't come back: a store that drops one would hand out an unlimited
