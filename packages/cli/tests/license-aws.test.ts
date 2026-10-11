@@ -336,6 +336,13 @@ describe('where the credentials come from, the first that answers', () => {
     );
   });
 
+  test('the AWS CLI printing null: none here, not a crash', async () => {
+    const laptop = aws({}, {}, { aws: 'null' });
+    await expect(awsCredentials(laptop.deps, 'us-east-2')).rejects.toThrow(
+      'No AWS credentials here',
+    );
+  });
+
   test("the AWS CLI's session token with a line break inside: said by where it came from, not as none", async () => {
     const laptop = aws(
       {},

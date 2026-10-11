@@ -381,10 +381,14 @@ async function licenseKeyCheck(
   // The exact command, from where the deployment says its key and renewer
   // are kept (`KINDGI_LICENSE_KEY_REF`, `KINDGI_LICENSE_RENEWER_REF`, as the
   // runtime's banner reads them); a placeholder only for one that isn't set.
-  const renewer = (await setting('KINDGI_LICENSE_RENEWER_REF')) ?? '<its renewer key>';
+  const ref = async (name: string, placeholder: string) => {
+    const value = await setting(name);
+    return value === undefined ? placeholder : shellWord(value);
+  };
+  const renewer = await ref('KINDGI_LICENSE_RENEWER_REF', '<its renewer key>');
   const keyArg =
     where === 'KINDGI_LICENSE_KEY'
-      ? `--key ${(await setting('KINDGI_LICENSE_KEY_REF')) ?? '<where KINDGI_LICENSE_KEY is kept>'}`
+      ? `--key ${await ref('KINDGI_LICENSE_KEY_REF', '<where KINDGI_LICENSE_KEY is kept>')}`
       : `--env-file ${shellWord(relative(cwd, envFile) || 'kindgi.env')}`;
   const renew = `kindgi license renew ${keyArg} --renewer ${renewer}`;
   const checked =

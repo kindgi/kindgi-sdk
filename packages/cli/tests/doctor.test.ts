@@ -1164,6 +1164,17 @@ describe('the license key', () => {
     );
   });
 
+  test('a ref with a space in it: one shell word', async () => {
+    const check = await licenseOf({
+      KINDGI_LICENSE_KEY: key({ exp: NOW / 1000 + 12 * DAY }),
+      KINDGI_LICENSE_KEY_REF: 'env-file:/srv/My Deploy/kindgi.env#KINDGI_LICENSE_KEY',
+      KINDGI_LICENSE_RENEWER_REF: "file:/srv/My Deploy/renewer's.key",
+    });
+    expect(check?.fix).toContain(
+      `kindgi license renew --key 'env-file:/srv/My Deploy/kindgi.env#KINDGI_LICENSE_KEY' --renewer 'file:/srv/My Deploy/renewer'\\''s.key'`,
+    );
+  });
+
   test('the exact renew command, from kindgi.env', async () => {
     await writeFile(
       join(dir, 'kindgi.env'),

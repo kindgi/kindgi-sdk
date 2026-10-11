@@ -328,7 +328,7 @@ async function fromInstance(deps: CloudDeps): Promise<AwsCredentials | undefined
 }
 
 async function fromAwsCli(deps: CloudDeps): Promise<AwsCredentials | undefined> {
-  let c: { AccessKeyId?: string; SecretAccessKey?: string; SessionToken?: string };
+  let c: { AccessKeyId?: string; SecretAccessKey?: string; SessionToken?: string } | null;
   try {
     const out = await deps.run('aws', ['configure', 'export-credentials', '--format', 'process']);
     c = JSON.parse(out) as typeof c;
@@ -337,9 +337,9 @@ async function fromAwsCli(deps: CloudDeps): Promise<AwsCredentials | undefined> 
   }
   // Outside the `try`: a credential that can't be sent is said, not "none here".
   return asCredentials(
-    c.AccessKeyId,
-    c.SecretAccessKey,
-    c.SessionToken,
+    c?.AccessKeyId,
+    c?.SecretAccessKey,
+    c?.SessionToken,
     'the AWS CLI (aws configure export-credentials)',
   );
 }
