@@ -33,26 +33,19 @@ export type UsageClass = (typeof USAGE_CLASSES)[number];
  * What the ledger counts (a record's `resourceKind`):
  * - `run.started` when a run is created, and `run.ended` when it reaches a
  *   terminal status (its quantity, the wall time in milliseconds);
- * - `tool.call` when a step's tool call returns, whatever its outcome;
  * - `approval.requested` and `approval.decided`;
  * - `llm.inference` and `llm.embedding`, a model call;
- * - `storage.bytes`, a daily estimate of what's stored;
  * - `project.production`, a project put in production or taken out
- *   (`on` or `off`);
- * - `deployment.agents`, a daily count of the agents deployed in each
- *   project.
+ *   (`on` or `off`).
  */
 export const USAGE_KINDS = [
   'run.started',
   'run.ended',
-  'tool.call',
   'approval.requested',
   'approval.decided',
   'llm.inference',
   'llm.embedding',
-  'storage.bytes',
   'project.production',
-  'deployment.agents',
 ] as const;
 
 export type UsageKind = (typeof USAGE_KINDS)[number];
