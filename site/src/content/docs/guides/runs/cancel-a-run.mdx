@@ -166,3 +166,33 @@ This stops the run and every step still going inside it. It ends as cancelled, a
   nothing to stop."
 
 ![The Cancel this run? dialog over a running flow run's page: "This stops the run and every step still going inside it. It ends as cancelled, and can't be continued.", with Keep it running and Cancel the run.](../../../../assets/runs/run-cancel-dialog.png)
+
+### After a cancel
+
+The run's page says **Cancelled**, and so does each step that was still
+going when the cancel landed: a loop's node, and the round that was running.
+Those steps have no end of their own in the journal
+([what a cancel stops](#what-a-cancel-stops)), so the Overview shows each
+with a plain circle and "Cancelled", not as still running. A step that
+finished as the cancel landed keeps its end.
+
+Here a loop over six orders was cancelled while the turn for A-1002 ran:
+
+![A cancelled flow run's Overview: acme.each-order, Cancelled, its input of six orders, then under Steps "each Cancelled" and "answer Cancelled", each with a plain circle.](../../../../assets/runs/run-cancelled-steps.png)
+
+The **Journal** tab says so beside each of those starts. Its timeline for
+that run, without the times:
+
+```text
+The run started
+Started: step "each"    Cancelled with the run: no end of its own
+Done: step "answer"     1.7 s
+Done: step "answer"     1.6 s
+Started: step "answer"  Cancelled with the run: no end of its own
+The run was cancelled
+```
+
+A failed run shows its unfinished steps the same way: "Stopped: the run
+failed" on the Overview, and "Stopped when the run failed: no end of its
+own" in the Journal. Before Kindgi 0.1.7, the console showed these steps as
+still running.
