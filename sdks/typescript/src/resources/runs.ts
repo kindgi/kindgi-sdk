@@ -377,6 +377,13 @@ export interface RunFailure {
   readonly message: string;
   /** What the error came from, when it says (e.g. the router's reasons). */
   readonly cause?: unknown;
+  /**
+   * The error's own reason, when it gives one: for a turn that ended at
+   * its approval (`hitl-cancelled`), `timeout` when nobody decided in
+   * time. Absent from an older runtime and from errors without one; read
+   * `code` then.
+   */
+  readonly reason?: string;
 }
 
 /**

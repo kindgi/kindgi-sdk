@@ -24,7 +24,7 @@
  *     client accepts.
  *
  *   - The entry runs the PROJECT'S `kindgi` through its package manager
- *     (`pnpm exec kindgi mcp-launch …`, `npx --no kindgi …`, …) — the CLI
+ *     (`pnpm exec kindgi mcp-launch …`, `npx --no -- kindgi …`, …) — the CLI
  *     is a project devDependency, never assumed on PATH, and never
  *     downloaded at spawn time. A Python pack has no npm project, so its
  *     entries run the `kindgi` on PATH.

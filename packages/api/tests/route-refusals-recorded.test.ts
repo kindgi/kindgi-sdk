@@ -53,6 +53,7 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
   'key-project-mismatch',
   'judge-class-not-allowed',
   'host-access-denied',
+  'license-operator-only',
 ]);
 
 /**
@@ -81,9 +82,16 @@ const MUST_REFUSE: Readonly<Record<string, readonly string[]>> = {
     'GET /v1/approvals/reviewers',
     // A narrowed key opens no console session.
     'POST /v1/auth/token-sign-in token-sign-in-not-allowed',
+    // The license is the deployment's: only its own token reads it here.
+    'GET /v1/license license-operator-only',
   ],
   // An admin key without the capability a write needs; a caller who isn't a reviewer.
-  [NO_CAPS_KEY]: ['PUT /v1/env/{name}', 'POST /v1/secrets', 'GET /v1/approvals'],
+  [NO_CAPS_KEY]: [
+    'PUT /v1/env/{name}',
+    'POST /v1/secrets',
+    'GET /v1/approvals',
+    'GET /v1/license license-operator-only',
+  ],
 };
 
 /**

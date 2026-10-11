@@ -7,6 +7,20 @@
  * spawning real vitest.
  */
 
+/**
+ * vitest's own config file names, in the order it looks for them
+ * (`vite.config.*` aside: one often has no `test` block, and vitest then
+ * sweeps every test file under the folder).
+ */
+export const VITEST_CONFIG_FILENAMES = [
+  'vitest.config.ts',
+  'vitest.config.mts',
+  'vitest.config.cts',
+  'vitest.config.js',
+  'vitest.config.mjs',
+  'vitest.config.cjs',
+] as const;
+
 export interface RunTestsOptions {
   /** Absolute pack directory the runner spawns in. */
   readonly packDir: string;

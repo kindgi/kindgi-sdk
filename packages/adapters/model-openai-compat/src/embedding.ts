@@ -4,8 +4,10 @@
 import OpenAI from 'openai';
 
 import type { EmbeddingProvider } from '@kindgi/embedding';
+import { bearerValueProblem } from '@kindgi/types';
 
 import { OPENAI_COMPAT_ADAPTER_ID } from './provider.js';
+import { SERVER_ENV_NEVER } from './wire.js';
 
 /**
  * An embeddings endpoint that speaks OpenAI's `POST /embeddings`: OpenAI
@@ -57,10 +59,19 @@ export function createOpenAICompatEmbeddingProvider(
   async function client(): Promise<OpenAI> {
     const resolved = typeof options.apiKey === 'function' ? await options.apiKey() : options.apiKey;
     const key = resolved === undefined || resolved === '' ? NO_KEY : resolved;
+    // Checked as the SDK sends it (`Authorization: Bearer <key>`): fetch's own
+    // error would quote the key.
+    const problem = bearerValueProblem(key);
+    if (problem !== undefined) {
+      throw new Error(
+        `${OPENAI_COMPAT_ADAPTER_ID}: embeddings at ${options.baseURL}: the API key has ${problem}, which a header can't carry: store the secret without it`,
+      );
+    }
     if (cached !== undefined && cached.key === key) return cached.client;
     const fresh = new OpenAI({
       apiKey: key,
       baseURL: options.baseURL,
+      ...SERVER_ENV_NEVER,
       ...(options.clientOptions ?? {}),
     });
     cached = { key, client: fresh };

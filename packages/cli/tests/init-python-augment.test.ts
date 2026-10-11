@@ -101,6 +101,7 @@ describe('kindgi init in a uv app', () => {
       'kindgi-python-authoring-guardrails',
       'kindgi-python-authoring-tools',
       'kindgi-python-getting-started',
+      'kindgi-using',
     ]);
     expect(await readFile(join(app, '.gitignore'), 'utf8')).toContain('.kindgirc.json');
     expect(out.stderr).toContain('Pack id: acme-widgets    Version: 2.3.0');

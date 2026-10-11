@@ -47,7 +47,8 @@ your code when they need it, and records every step.
 - **The console**, at `/console/` on any runtime, shows each run on one page
   (what it did and cost, its journal, and where an agent's answer came from),
   the agents, tools and conversations, project by project; reviewers approve
-  or reject there.
+  or reject there. It follows your system's light or dark setting, or the
+  one you choose (also in ⌘K).
 
 ## Where it runs
 

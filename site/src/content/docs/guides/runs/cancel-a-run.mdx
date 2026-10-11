@@ -27,15 +27,68 @@ The run's status becomes `cancelled`, and the journal ends with
 ```
 
 That run was waiting for an approval. A run can be cancelled while it runs
-too: no further step starts, and the run ends `cancelled`. Cancelling a
-flow's run cancels the agent turns inside it. In 0.1.5, a flow cancelled while
-it runs a loop can still start a few more of the loop's steps before it stops
-([Known limitations](../../../deploy/operate/#known-limitations-in-015)).
+too, and cancelling a flow's run cancels the agent turns inside it: see
+[what a cancel stops](#what-a-cancel-stops).
 
 A run that already ended can't be cancelled:
 
 ```text
 Error [conflict]: Cannot cancel run: already cancelled
+```
+
+## What a cancel stops
+
+A cancel takes effect at once, wherever the run is:
+
+- **No step starts after it.** A flow between two steps, or in the middle of
+  a loop, starts nothing more, and its journal records no start after
+  `run.cancelled`.
+- **A step running when it lands stops.** An agent turn stops waiting for its
+  model and ends `cancelled`. A start that was waiting for the turn
+  (`wait: true`) answers within seconds with `422 agent-turn-aborted`,
+  "Agent turn cancelled".
+- **A step that ends as it lands keeps its end.** Its `step.completed` comes
+  after `run.cancelled` in the journal: it did finish.
+
+Here a flow running a loop over 2,000 orders, each answered by an agent,
+was cancelled twice. The first time, the turn for order A-1012 was running:
+the cancel stopped it, and the journal ends at the cancel:
+
+```json
+{"sequence": 77, "kind": "step.started", "nodeId": "answer", "payload": {"input": "A-1012", …}, …}
+{"sequence": 78, "kind": "run.cancelled", "payload": {}, …}
+```
+
+The second time, the turn for A-1030 finished as the cancel landed. Its end
+follows `run.cancelled`, and nothing starts after it:
+
+```json
+{"sequence": 185, "kind": "step.started", "nodeId": "answer", "payload": {"input": "A-1030", …}, …}
+{"sequence": 186, "kind": "run.cancelled", "payload": {}, …}
+{"sequence": 187, "kind": "step.completed", "nodeId": "answer", "payload": {"output": {"text": "You said: \"A-1030\"", …}, …}, …}
+{"sequence": 188, "kind": "edge.evaluated", "payload": {"to": "$end", "from": "answer", "edgeId": "b1", "decision": true, …}, …}
+{"sequence": 189, "kind": "iteration.completed", "nodeId": "each", "payload": {…, "iteration": 30, …}, …}
+```
+
+A step that was running when the run was cancelled, such as the loop itself
+or A-1012's step, has no end of its own: `run.cancelled` ends it, as it ends
+a run waiting for an approval.
+
+An agent turn started with `wait: true`, and cancelled while its model call
+ran, answers the waiting start with:
+
+```json
+{
+  "error": {
+    "code": "agent-turn-aborted",
+    "message": "Agent turn cancelled",
+    "details": {
+      "reason": "external",
+      "runId": "8619fb26-6370-48df-b9bc-01bcd91602b6"
+    },
+    "requestId": "req-fb51fd31-fe44-4a44-ad97-88baa95a23e4"
+  }
+}
 ```
 
 ## From your app
@@ -93,3 +146,53 @@ it: `approvals.list({ runId, includeDescendants: true })` in TypeScript,
 
 [Decide an approval](../../approvals/decide-an-approval/) has more on
 approvals.
+
+## In the console
+
+A run's page has **Cancel run** while it's going, for project editors and
+up. Its dialog says what a cancel does before anything happens:
+
+```text
+Cancel this run?
+This stops the run and every step still going inside it. It ends as cancelled, and can't be continued.
+```
+
+- **A run waiting for an approval** adds: "If it's waiting for an approval,
+  that approval is withdrawn: it leaves the reviewers' list."
+  ([Approvals of a cancelled run](#approvals-of-a-cancelled-run)).
+- **Keep it running** closes the dialog. **Cancel the run** cancels it, and
+  the dialog says "Cancelled.".
+- **A run that finished meanwhile:** "It had already finished: there was
+  nothing to stop."
+
+![The Cancel this run? dialog over a running flow run's page: "This stops the run and every step still going inside it. It ends as cancelled, and can't be continued.", with Keep it running and Cancel the run.](../../../../assets/runs/run-cancel-dialog.png)
+
+### After a cancel
+
+The run's page says **Cancelled**, and so does each step that was still
+going when the cancel landed: a loop's node, and the round that was running.
+Those steps have no end of their own in the journal
+([what a cancel stops](#what-a-cancel-stops)), so the Overview shows each
+with a plain circle and "Cancelled", not as still running. A step that
+finished as the cancel landed keeps its end.
+
+Here a loop over six orders was cancelled while the turn for A-1002 ran:
+
+![A cancelled flow run's Overview: acme.each-order, Cancelled, its input of six orders, then under Steps "each Cancelled" and "answer Cancelled", each with a plain circle.](../../../../assets/runs/run-cancelled-steps.png)
+
+The **Journal** tab says so beside each of those starts. Its timeline for
+that run, without the times:
+
+```text
+The run started
+Started: step "each"    Cancelled with the run: no end of its own
+Done: step "answer"     1.7 s
+Done: step "answer"     1.6 s
+Started: step "answer"  Cancelled with the run: no end of its own
+The run was cancelled
+```
+
+A failed run shows its unfinished steps the same way: "Stopped: the run
+failed" on the Overview, and "Stopped when the run failed: no end of its
+own" in the Journal. Before Kindgi 0.1.7, the console showed these steps as
+still running.

@@ -114,6 +114,7 @@ const steps = [
   ['README package table', 'pnpm', ['run', 'check:readme']],
   ['Python SDK version in step with the npm packages', 'pnpm', ['run', 'check:python-version']],
   ["JVM SDKs' version in step with the npm packages", 'pnpm', ['run', 'check:jvm-version']],
+  ['Webhook event shapes current with the API schema', 'pnpm', ['run', 'check:webhook-shapes']],
   ['JSON Schemas', 'pnpm', ['run', 'spec:validate']],
   // "Build + typecheck + test + publish checks"
   ['Python SDK environment', 'uv', ['sync', '--project', 'sdks/python', '--frozen']],
