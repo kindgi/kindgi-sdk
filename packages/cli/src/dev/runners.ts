@@ -18,6 +18,7 @@ import type { DevLockProcesses } from './dev-lock.js';
 import type { ProjectDatabases } from './project-database.js';
 import type { ProjectOutcome } from './project.js';
 import type { ActiveDevSandbox, SandboxAvailability } from './sandbox/index.js';
+import type { StartPhases } from './start-phases.js';
 
 import type { JvmPackCode, PackCode } from './pack-code.js';
 
@@ -103,8 +104,10 @@ export interface StartApiServerOptions {
   readonly logLevels?: Readonly<Record<string, string>>;
   /** Lines the runtime writes (a container's), with the stream each came on. */
   readonly onLog?: (line: string, stream: 'stdout' | 'stderr') => void;
-  /** Progress while preparing (an image pull). */
+  /** Progress while preparing. */
   readonly onProgress?: (line: string) => void;
+  /** The start's phases (the image pull, the container, migrating, waiting for it to serve), as they happen. */
+  readonly startPhases?: StartPhases;
 }
 
 /**
