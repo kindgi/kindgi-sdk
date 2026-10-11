@@ -1118,6 +1118,116 @@ class RevokeSystemKeyResult(BaseModel):
     """
 
 
+class SystemDeploymentEntry(BaseModel):
+    """
+    A deployment as whatever runs its pack service needs it: ids and the image, nothing of the tenant beyond its id. Name the service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). In the `retire` list, `reason` says why the service should go.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    deployment_id: Annotated[str, Field(alias="deploymentId", min_length=1)]
+    image_ref: Annotated[str, Field(alias="imageRef")]
+    """
+    Digest-pinned, as registered: the pack service is created from exactly this.
+    """
+    image_digest: Annotated[str, Field(alias="imageDigest", pattern="^sha256:[0-9a-f]{64}$")]
+    artifact_version: Annotated[str, Field(alias="artifactVersion")]
+    activated_at: Annotated[AwareDatetime, Field(alias="activatedAt")]
+    reason: (
+        Literal[
+            "superseded",
+            "tenant-closing",
+            "tenant-suspended",
+            "project-suspended",
+            "pack-suspended",
+        ]
+        | None
+    ) = None
+    """
+    In the `retire` list only. `superseded`: no live or promoted version routes to it any more (keep the newest few per pack, for rollbacks). `tenant-closing`, `tenant-suspended`: every deployment of the tenant, routed or not. `project-suspended`, `pack-suspended`: every deployment of the project, or this one.
+    """
+
+
+class SystemDeploymentPage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[SystemDeploymentEntry]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    Opaque cursor for the next page. Absent when `hasMore: false`.
+    """
+    has_more: Annotated[bool, Field(alias="hasMore")]
+
+
+class SetPackEndpointBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    url: str
+    """
+    `https://<host>`: no user info, path, query or fragment. Its host must be on the operator's allowlist (`KINDGI_PACK_ENDPOINT_HOSTS`) and, unless the operator set `KINDGI_PACK_ENDPOINT_NAMES=any`, begin with the deployment's own service name (`packServiceName`), then `-` or `.`.
+    """
+    auth: Literal["google-id-token", "token"]
+    """
+    How the server calls it: `google-id-token` adds an ID token for the URL (Cloud Run's invoker check) to the pack token; `token` sends the pack token only.
+    """
+    token: Annotated[str, Field(max_length=512, min_length=16)]
+    """
+    The pack service's token (`KINDGI_PACK_SERVICE_TOKEN`), printable ASCII without spaces. Stored wrapped; never returned, logged or recorded.
+    """
+
+
+class RecordDeploymentProblemBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    code: Literal[
+        "endpoint-url-invalid",
+        "endpoint-host-not-allowed",
+        "endpoint-name-mismatch",
+        "endpoint-unreachable",
+        "endpoint-info-mismatch",
+        "image-not-allowed",
+        "tenant-not-provisioned",
+        "capacity-unavailable",
+        "service-start-failed",
+    ]
+    """
+    Why the pack service couldn't be created, or was refused: one of `DEPLOYMENT_ENDPOINT_PROBLEM_CODES`. The tenant sees the code, never more.
+    """
+
+
+class SetPackSuspendedBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    suspended: bool
+    reason: Annotated[str | None, Field(max_length=500, min_length=1)] = None
+    """
+    Why, for the operator's record.
+    """
+
+
+class PackSuspension(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    suspended: bool
+    since: AwareDatetime
+    """
+    When it last changed.
+    """
+
+
 class ApiKeyPrincipal(BaseModel):
     """
     Whom an API key acts for: a person, or a service account.

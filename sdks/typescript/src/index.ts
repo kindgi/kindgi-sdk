@@ -365,6 +365,16 @@ export type {
   SystemKeySpec,
   SystemKeysClient,
 } from './resources/system-keys.js';
+export type {
+  DeploymentEndpointProblemSpec,
+  PackEndpointSpec,
+  PackSuspension,
+  PackSuspensionSpec,
+  SystemDeploymentEntry,
+  SystemDeploymentPage,
+  SystemDeploymentsClient,
+  SystemDeploymentsWanted,
+} from './resources/system-deployments.js';
 export { SIGNED_EXPORT_ALGORITHMS, verifySignedExport } from './verify-export.js';
 export { docsUrl } from './docs-links.js';
 export type {

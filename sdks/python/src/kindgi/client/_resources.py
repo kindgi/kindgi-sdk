@@ -51,6 +51,37 @@ OPERATIONS: dict[str, Operation] = {
     "systemKeys.revoke": Operation(
         "systemKeys.revoke", "POST", "/v1/system/keys/{keyId}/revoke", "json", True
     ),
+    "systemDeployments.list": Operation(
+        "systemDeployments.list", "GET", "/v1/system/deployments", "json", False
+    ),
+    "systemDeployments.setEndpoint": Operation(
+        "systemDeployments.setEndpoint",
+        "PUT",
+        "/v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint",
+        "json",
+        True,
+    ),
+    "systemDeployments.clearEndpoint": Operation(
+        "systemDeployments.clearEndpoint",
+        "DELETE",
+        "/v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint",
+        "json",
+        True,
+    ),
+    "systemDeployments.recordProblem": Operation(
+        "systemDeployments.recordProblem",
+        "PUT",
+        "/v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint/problem",
+        "json",
+        True,
+    ),
+    "systemDeployments.setSuspended": Operation(
+        "systemDeployments.setSuspended",
+        "PUT",
+        "/v1/system/tenants/{tenantId}/deployments/{deploymentId}/suspended",
+        "json",
+        True,
+    ),
     "serviceAccounts.list": Operation(
         "serviceAccounts.list", "GET", "/v1/service-accounts", "json", False
     ),
@@ -1536,6 +1567,132 @@ class SystemKeysResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.RevokeSystemKeyResult,
+            timeout=timeout,
+        )
+
+
+class SystemDeploymentsResource:
+    """`client.system_deployments` — the `systemDeployments` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        /,
+        *,
+        endpoint: Literal["missing", "retire"],
+        cursor: str | None = None,
+        limit: int | None = None,
+        timeout: float | None = None,
+    ) -> _models.SystemDeploymentPage:
+        """List deployments that need a pack service, or should lose theirs. `GET /v1/system/deployments`
+
+        Across tenants, oldest `activatedAt` first. `endpoint=missing`: deployments that need a pack service. Each is routed (a live or promoted version resolves to it), has no endpoint or a cleared one, and nothing about it is closing or suspended. `endpoint=retire`: deployments with an endpoint whose pack service should go, each with its `reason`. Name each service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). Takes `system:deployments`. Each entry carries the tenant's id and nothing else of it.
+        """
+        return self._client._request(
+            _OPERATIONS["systemDeployments.list"],
+            path={},
+            query={"endpoint": endpoint, "cursor": cursor, "limit": limit},
+            headers={},
+            response=_models.SystemDeploymentPage,
+            timeout=timeout,
+        )
+
+    def set_endpoint(
+        self,
+        tenant_id: str | UUID,
+        deployment_id: str | UUID,
+        body: _models.SetPackEndpointBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.DeploymentEndpoint:
+        """Record where a deployment's pack service runs. `PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint`
+
+        Records the endpoint, once every check passes: the URL is `https://<host>` (`endpoint-url-invalid`); its host is on the operator's allowlist (`endpoint-host-not-allowed`); its host names the deployment's own service, `packServiceName(tenantId, deploymentId)` then `-` or `.` (`endpoint-name-mismatch`; skipped with `KINDGI_PACK_ENDPOINT_NAMES=any`); the image is in the tenant's repository (`image-not-allowed`); the pack service answers `/v1/info`, with the `kindgi-tenant-id` header, as this deployment (`endpoint-unreachable`, `endpoint-info-mismatch`, with the names of the fields that differed). A refusal is also recorded as the endpoint's `problem`, which the tenant sees as a code. The deployment's endpoint is then `ready`. Refused for a closing or suspended tenant, project or pack, so a sweep can't recreate a service another one retired. Takes `system:deployments`. The same body twice records it once.
+        """
+        return self._client._request(
+            _OPERATIONS["systemDeployments.setEndpoint"],
+            path={"tenantId": tenant_id, "deploymentId": deployment_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.SetPackEndpointBody, body, fields),
+            response=_models.DeploymentEndpoint,
+            timeout=timeout,
+        )
+
+    def clear_endpoint(
+        self,
+        tenant_id: str | UUID,
+        deployment_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.DeploymentEndpoint:
+        """Clear a deployment's endpoint. `DELETE /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint`
+
+        Clears the endpoint before its pack service is deleted: the deployment's endpoint is `cleared`, and calls to its tools fail closed (`pack-endpoint-cleared`), never going to another deployment. Works for a closing or suspended tenant too: that's how its services are retired. Clearing twice keeps the first time. Takes `system:deployments`.
+        """
+        return self._client._request(
+            _OPERATIONS["systemDeployments.clearEndpoint"],
+            path={"tenantId": tenant_id, "deploymentId": deployment_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.DeploymentEndpoint,
+            timeout=timeout,
+        )
+
+    def record_problem(
+        self,
+        tenant_id: str | UUID,
+        deployment_id: str | UUID,
+        body: _models.RecordDeploymentProblemBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.DeploymentEndpoint:
+        """Record why a deployment has no pack service yet. `PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint/problem`
+
+        For whatever creates the pack services: records why a `pending` deployment has none yet, as one of the fixed codes (`tenant-not-provisioned`, `capacity-unavailable`, `service-start-failed`, `image-not-allowed`, and the endpoint checks'). The tenant sees the code and when, so a deploy waiting for `ready` can say why at once. Takes `system:deployments`.
+        """
+        return self._client._request(
+            _OPERATIONS["systemDeployments.recordProblem"],
+            path={"tenantId": tenant_id, "deploymentId": deployment_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.RecordDeploymentProblemBody, body, fields),
+            response=_models.DeploymentEndpoint,
+            timeout=timeout,
+        )
+
+    def set_suspended(
+        self,
+        tenant_id: str | UUID,
+        deployment_id: str | UUID,
+        body: _models.SetPackSuspendedBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.PackSuspension:
+        """Suspend a deployment's pack, or restore it. `PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/suspended`
+
+        Suspended, the pack's calls fail closed (`pack-suspended`), never going to an older deployment of the same tool version; its endpoint can't be set again; and it lists to retire as `pack-suspended`. Restored, it lists as needing a pack service again. Nothing is deleted. Takes `system:suspend`, which the orchestrator's key doesn't hold; `system:deployments` is refused.
+        """
+        return self._client._request(
+            _OPERATIONS["systemDeployments.setSuspended"],
+            path={"tenantId": tenant_id, "deploymentId": deployment_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.SetPackSuspendedBody, body, fields),
+            response=_models.PackSuspension,
             timeout=timeout,
         )
 
@@ -8868,6 +9025,132 @@ class AsyncSystemKeysResource:
         )
 
 
+class AsyncSystemDeploymentsResource:
+    """`client.system_deployments` — the `systemDeployments` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        /,
+        *,
+        endpoint: Literal["missing", "retire"],
+        cursor: str | None = None,
+        limit: int | None = None,
+        timeout: float | None = None,
+    ) -> _models.SystemDeploymentPage:
+        """List deployments that need a pack service, or should lose theirs. `GET /v1/system/deployments`
+
+        Across tenants, oldest `activatedAt` first. `endpoint=missing`: deployments that need a pack service. Each is routed (a live or promoted version resolves to it), has no endpoint or a cleared one, and nothing about it is closing or suspended. `endpoint=retire`: deployments with an endpoint whose pack service should go, each with its `reason`. Name each service `packServiceName(tenantId, deploymentId)` (`@kindgi/api`). Takes `system:deployments`. Each entry carries the tenant's id and nothing else of it.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemDeployments.list"],
+            path={},
+            query={"endpoint": endpoint, "cursor": cursor, "limit": limit},
+            headers={},
+            response=_models.SystemDeploymentPage,
+            timeout=timeout,
+        )
+
+    async def set_endpoint(
+        self,
+        tenant_id: str | UUID,
+        deployment_id: str | UUID,
+        body: _models.SetPackEndpointBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.DeploymentEndpoint:
+        """Record where a deployment's pack service runs. `PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint`
+
+        Records the endpoint, once every check passes: the URL is `https://<host>` (`endpoint-url-invalid`); its host is on the operator's allowlist (`endpoint-host-not-allowed`); its host names the deployment's own service, `packServiceName(tenantId, deploymentId)` then `-` or `.` (`endpoint-name-mismatch`; skipped with `KINDGI_PACK_ENDPOINT_NAMES=any`); the image is in the tenant's repository (`image-not-allowed`); the pack service answers `/v1/info`, with the `kindgi-tenant-id` header, as this deployment (`endpoint-unreachable`, `endpoint-info-mismatch`, with the names of the fields that differed). A refusal is also recorded as the endpoint's `problem`, which the tenant sees as a code. The deployment's endpoint is then `ready`. Refused for a closing or suspended tenant, project or pack, so a sweep can't recreate a service another one retired. Takes `system:deployments`. The same body twice records it once.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemDeployments.setEndpoint"],
+            path={"tenantId": tenant_id, "deploymentId": deployment_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.SetPackEndpointBody, body, fields),
+            response=_models.DeploymentEndpoint,
+            timeout=timeout,
+        )
+
+    async def clear_endpoint(
+        self,
+        tenant_id: str | UUID,
+        deployment_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.DeploymentEndpoint:
+        """Clear a deployment's endpoint. `DELETE /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint`
+
+        Clears the endpoint before its pack service is deleted: the deployment's endpoint is `cleared`, and calls to its tools fail closed (`pack-endpoint-cleared`), never going to another deployment. Works for a closing or suspended tenant too: that's how its services are retired. Clearing twice keeps the first time. Takes `system:deployments`.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemDeployments.clearEndpoint"],
+            path={"tenantId": tenant_id, "deploymentId": deployment_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.DeploymentEndpoint,
+            timeout=timeout,
+        )
+
+    async def record_problem(
+        self,
+        tenant_id: str | UUID,
+        deployment_id: str | UUID,
+        body: _models.RecordDeploymentProblemBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.DeploymentEndpoint:
+        """Record why a deployment has no pack service yet. `PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint/problem`
+
+        For whatever creates the pack services: records why a `pending` deployment has none yet, as one of the fixed codes (`tenant-not-provisioned`, `capacity-unavailable`, `service-start-failed`, `image-not-allowed`, and the endpoint checks'). The tenant sees the code and when, so a deploy waiting for `ready` can say why at once. Takes `system:deployments`.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemDeployments.recordProblem"],
+            path={"tenantId": tenant_id, "deploymentId": deployment_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.RecordDeploymentProblemBody, body, fields),
+            response=_models.DeploymentEndpoint,
+            timeout=timeout,
+        )
+
+    async def set_suspended(
+        self,
+        tenant_id: str | UUID,
+        deployment_id: str | UUID,
+        body: _models.SetPackSuspendedBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.PackSuspension:
+        """Suspend a deployment's pack, or restore it. `PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/suspended`
+
+        Suspended, the pack's calls fail closed (`pack-suspended`), never going to an older deployment of the same tool version; its endpoint can't be set again; and it lists to retire as `pack-suspended`. Restored, it lists as needing a pack service again. Nothing is deleted. Takes `system:suspend`, which the orchestrator's key doesn't hold; `system:deployments` is refused.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemDeployments.setSuspended"],
+            path={"tenantId": tenant_id, "deploymentId": deployment_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.SetPackSuspendedBody, body, fields),
+            response=_models.PackSuspension,
+            timeout=timeout,
+        )
+
+
 class AsyncServiceAccountsResource:
     """`client.service_accounts` — the `serviceAccounts` operations."""
 
@@ -15629,6 +15912,7 @@ class Resources:
     signing_keys: SigningKeysResource
     tokens: TokensResource
     system_keys: SystemKeysResource
+    system_deployments: SystemDeploymentsResource
     service_accounts: ServiceAccountsResource
     approvals: ApprovalsResource
     agents: AgentsResource
@@ -15679,6 +15963,7 @@ class Resources:
         self.signing_keys = SigningKeysResource(client)
         self.tokens = TokensResource(client)
         self.system_keys = SystemKeysResource(client)
+        self.system_deployments = SystemDeploymentsResource(client)
         self.service_accounts = ServiceAccountsResource(client)
         self.approvals = ApprovalsResource(client)
         self.agents = AgentsResource(client)
@@ -15731,6 +16016,7 @@ class AsyncResources:
     signing_keys: AsyncSigningKeysResource
     tokens: AsyncTokensResource
     system_keys: AsyncSystemKeysResource
+    system_deployments: AsyncSystemDeploymentsResource
     service_accounts: AsyncServiceAccountsResource
     approvals: AsyncApprovalsResource
     agents: AsyncAgentsResource
@@ -15781,6 +16067,7 @@ class AsyncResources:
         self.signing_keys = AsyncSigningKeysResource(client)
         self.tokens = AsyncTokensResource(client)
         self.system_keys = AsyncSystemKeysResource(client)
+        self.system_deployments = AsyncSystemDeploymentsResource(client)
         self.service_accounts = AsyncServiceAccountsResource(client)
         self.approvals = AsyncApprovalsResource(client)
         self.agents = AsyncAgentsResource(client)

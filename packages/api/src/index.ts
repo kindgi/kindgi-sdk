@@ -53,6 +53,22 @@ export type {
   SystemKeysBinding,
 } from './routes/system-keys.js';
 export { systemKeysMintedFrom } from './routes/system-keys.js';
+export {
+  PACK_ENDPOINT_AUTHS,
+  SYSTEM_DEPLOYMENT_RETIRE_REASONS,
+} from './routes/system-deployments.js';
+export type {
+  DeploymentRef,
+  PackEndpointAuth,
+  SetPackEndpointInput,
+  SetPackEndpointOutcome,
+  SystemDeploymentEntry,
+  SystemDeploymentPage,
+  SystemDeploymentRetireReason,
+  SystemDeploymentsBinding,
+  SystemDeploymentsOptions,
+  SystemDeploymentToRetire,
+} from './routes/system-deployments.js';
 export { createInMemoryRateLimitStore } from './rate-limit-store.js';
 export type { RateLimitStore, RateLimitTake, RateLimitTakeInput } from './rate-limit-store.js';
 export type {

@@ -657,5 +657,19 @@ export function fullAppInput(): CreateAppInput {
       list: async () => [],
       revoke: async () => null,
     },
+    systemDeployments: {
+      binding: {
+        listNeedingEndpoint: async () => ({ data: [] }),
+        listToRetire: async () => ({ data: [] }),
+        setEndpoint: async () => {
+          throw new Error('not used: no system principal in the sweeps');
+        },
+        clearEndpoint: async () => ({ kind: 'not-found' }),
+        recordProblem: async () => ({ kind: 'not-found' }),
+        setSuspended: async () => ({ kind: 'not-found' }),
+      },
+      tenants: { get: async () => null },
+      endpointHostAllowed: () => false,
+    },
   };
 }

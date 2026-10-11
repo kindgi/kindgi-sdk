@@ -142,6 +142,10 @@ import { secretsRouter } from './routes/secrets.js';
 import { serviceAccountsRouter } from './routes/service-accounts.js';
 import { type SignInOptionsRateLimit, signInOptionsRouter } from './routes/sign-in-options.js';
 import { signingKeysRouter } from './routes/signing-keys.js';
+import {
+  type SystemDeploymentsOptions,
+  systemDeploymentsRouter,
+} from './routes/system-deployments.js';
 import { type SystemKeysBinding, systemKeysRouter } from './routes/system-keys.js';
 import { projectTeamGrantsRouter, teamProjectGrantsRouter } from './routes/team-grants.js';
 import { teamsRouter } from './routes/teams.js';
@@ -524,6 +528,15 @@ export interface CreateAppInput {
    * Without it the routes aren't mounted (404).
    */
   readonly systemKeys?: SystemKeysBinding;
+  /**
+   * Optional. Each deployment's own pack service (per-deployment routing):
+   * `GET /v1/system/deployments` for whatever runs those services, and,
+   * under each tenant, its deployments' endpoint, problem and pack
+   * suspension. Only a system principal reaches them, so on a runtime
+   * serving one tenant nothing does (its server refuses per-deployment
+   * routing there). Without it the routes aren't mounted (404).
+   */
+  readonly systemDeployments?: SystemDeploymentsOptions;
   /**
    * The record of every request a system principal makes (its key,
    * scope, route and target tenant). Required with `tenancy: 'multi'`;
@@ -1437,6 +1450,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   }
   if (input.systemKeys !== undefined) {
     v1.route('/system/keys', systemKeysRouter(input.systemKeys, authorizer));
+  }
+  if (input.systemDeployments !== undefined) {
+    v1.route('/system', systemDeploymentsRouter(input.systemDeployments, authorizer));
   }
   v1.route(
     '/provenance',
