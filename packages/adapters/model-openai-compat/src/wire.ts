@@ -17,8 +17,9 @@ import type { ModelInfo, UsageCounters } from '@kindgi/capabilities';
  *
  * See the sibling comment in
  * `packages/adapters/model-anthropic/src/translate.ts` — same
- * substitution (`.` → `__`), same reversibility caveat (authors
- * should not put literal `__` in tool ids).
+ * substitution (`.` → `__`), and the same rule back: a call's name is
+ * looked up among the request's own tools (`toolIdsBySentName`), since a
+ * tool id can hold `__` itself; `decodeToolName` is only the fallback.
  */
 export function encodeToolName(name: string): string {
   return name.replace(/\./g, '__');

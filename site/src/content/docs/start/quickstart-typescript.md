@@ -181,7 +181,8 @@ up.
 ## 6. Connect a real model
 
 Store an Anthropic key as a secret (you're prompted for it; it isn't
-echoed, and it goes in the pack's `.env.local`), then register the provider:
+echoed, and it goes in Kindgi's own `.kindgi/secrets.env`), then register the
+provider:
 
 ```sh
 pnpm exec kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant

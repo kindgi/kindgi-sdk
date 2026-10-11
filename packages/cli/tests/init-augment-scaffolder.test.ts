@@ -15,7 +15,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
-import { defaultTemplatesRoot } from '../src/commands/init.js';
+import { AVAILABLE_TEMPLATES, defaultTemplatesRoot } from '../src/commands/init.js';
 import { detectSkillDrift } from '../src/commands/skills.js';
 import {
   derivePackId,
@@ -491,7 +491,7 @@ describe('runInitAugment — Zod', () => {
   });
 
   test('the range is the one the fresh templates use', async () => {
-    for (const template of ['minimal', 'sample']) {
+    for (const template of await nodeTemplates()) {
       const raw = await fileContents(join(defaultTemplatesRoot(), template, 'package.json.tmpl'));
       expect(JSON.parse(raw).dependencies.zod, template).toBe(zodDependency(false).spec);
     }
@@ -651,7 +651,7 @@ describe('runInitAugment — the tests kindgi test runs', () => {
   });
 
   test('the fresh templates pin the same vitest and vite', async () => {
-    for (const template of ['minimal', 'sample']) {
+    for (const template of await nodeTemplates()) {
       const raw = await fileContents(join(defaultTemplatesRoot(), template, 'package.json.tmpl'));
       const devDependencies = JSON.parse(raw).devDependencies;
       expect(devDependencies.vitest, template).toBe(`^${TESTED_VITEST_VERSION}`);
@@ -659,6 +659,24 @@ describe('runInitAugment — the tests kindgi test runs', () => {
     }
   });
 });
+
+/**
+ * The fresh templates that have a `package.json`: every TypeScript one, as each is added.
+ * The pinning checks run over all of them, so a new template can't keep an older pin.
+ */
+async function nodeTemplates(): Promise<string[]> {
+  const found: string[] = [];
+  for (const template of AVAILABLE_TEMPLATES) {
+    const exists = await stat(join(defaultTemplatesRoot(), template, 'package.json.tmpl')).then(
+      () => true,
+      () => false,
+    );
+    if (exists) found.push(template);
+  }
+  // Never vacuous: the three TypeScript templates are among them.
+  expect(found).toEqual(expect.arrayContaining(['minimal', 'sample', 'woocommerce']));
+  return found;
+}
 
 describe('renderVitestConfig', () => {
   /** The `alias` array as rollup's alias plugin applies it: the first match, `$1` filled in. */

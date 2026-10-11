@@ -125,6 +125,36 @@ const ask = (content = 'hello', model = 'gpt-6.1-sol'): ModelCallInput => ({
   messages: [{ role: 'user', content }],
 });
 
+describe('Responses: a call gets its tool id back', () => {
+  test("a tool id holding `__` (an MCP server's own name) comes back as the id", async () => {
+    const endpoint = fakeEndpoint(
+      response([
+        {
+          type: 'function_call',
+          id: 'fc_1',
+          call_id: 'call_1',
+          name: 'drupal__tool_api__list_content',
+          arguments: '{}',
+          status: 'completed',
+        },
+      ]),
+    );
+    const result = await openai(endpoint).invoke({
+      ...ask('list the articles'),
+      tools: [
+        {
+          name: 'drupal.tool_api__list_content',
+          description: 'List content.',
+          inputSchema: { type: 'object' },
+        },
+      ],
+    });
+    const sentTools = (endpoint.seen[0]?.body as { tools: { name: string }[] }).tools;
+    expect(sentTools.map((t) => t.name)).toEqual(['drupal__tool_api__list_content']);
+    expect(result.message.toolCalls?.map((c) => c.name)).toEqual(['drupal.tool_api__list_content']);
+  });
+});
+
 describe('which API a registration speaks', () => {
   test('api.openai.com speaks Responses unless adapter_config.api says otherwise', async () => {
     const endpoint = fakeEndpoint(response([textMessage('hi')]));
