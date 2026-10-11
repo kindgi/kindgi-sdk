@@ -41,15 +41,17 @@ Store it as a secret, under a name (the CLI asks for the value and doesn't
 echo it):
 
 ```sh
-kindgi secrets set ACME_WEBHOOK_SECRET --env=local --scope=tenant
+kindgi secrets set ACME_WEBHOOK_SECRET --env=local --scope=tenant --app
 ```
 
 ```text
-  Set ACME_WEBHOOK_SECRET at tenant in local.
+  Set ACME_WEBHOOK_SECRET at tenant in local, in your app's env file.
 ```
 
-In development, the `local` environment is the pack's env files: this writes
-`.env.local`, and a line in `.env` works too. In a deployment, store it in
+In development, `--app` writes it to your app's own env file, `.env.local`,
+where your receiver reads it, and Kindgi reads it there too. Without `--app`
+it would go to Kindgi's own `.kindgi/secrets.env`, which your app doesn't
+load ([Keep local values in env files](../../secrets/env-files/)). In a deployment, store it in
 that deployment's secrets store, under its environment's name (see
 [`kindgi secrets`](../../../reference/cli/secrets/)). Your receiver needs the
 same value, from its own configuration.

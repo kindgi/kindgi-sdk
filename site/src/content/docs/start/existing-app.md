@@ -61,7 +61,8 @@ pnpm install          # or the app's own package manager
   `.gitignore` entries (`.kindgi/`, `.kindgirc.json`, `.env.local`).
 
 It creates no env files: `kindgi dev` reads your app's own `.env` and
-`.env.local`. If your app lints with ESLint, leave out what Kindgi builds:
+`.env.local`, and keeps the secrets you store in its own
+`.kindgi/secrets.env`, which your app doesn't load. If your app lints with ESLint, leave out what Kindgi builds:
 add `".kindgi/**"` to the `globalIgnores` in `eslint.config.mjs`. To keep
 the pack separate from the app instead, pass `--new-repo`.
 

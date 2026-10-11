@@ -257,11 +257,18 @@ At each boot, `kindgi dev` says what it did:
   Providers from kindgi.config.ts:
     ✓ anthropic: registered
     ✓ qwen-local: registered
-    ⚠ qwen-keyed: not registered: QWEN_API_KEY is not in .env, .env.local. Set it (pnpm exec kindgi secrets set QWEN_API_KEY --env=local --scope=tenant), then restart kindgi dev
+    ⚠ qwen-keyed: not registered: QWEN_API_KEY is not in .env, .env.local, .kindgi/secrets.env. Set it (pnpm exec kindgi secrets set QWEN_API_KEY --env=local --scope=tenant), then restart kindgi dev
 ```
 
 - A provider whose key isn't in the env files is skipped. The config isn't
   watched: restart `kindgi dev` after setting the key.
+- A key in `.env`, which your app loads too, gets a line of its own:
+
+  ```text
+      ⚠ ANTHROPIC_API_KEY is in .env, which your app loads too. To give Kindgi its own copy: pnpm exec kindgi secrets copy (it never edits your app's files).
+  ```
+
+  See [A key your app's env files already hold](../secrets/env-files/#a-key-your-apps-env-files-already-hold).
 - One `kindgi dev` registered and whose declaration changed is registered
   again (`qwen-local: registered again (changed in kindgi.config.ts)`); one the
   config no longer declares is unregistered.
@@ -279,15 +286,17 @@ your staging or production one, gets its providers with
 
 ## Keys
 
-With `kindgi dev`, a provider's key is read from the pack's env files, `.env`
-and then `.env.local`, when a turn calls the model. To store one without
+With `kindgi dev`, a provider's key is read from your app's env files, `.env`
+and then `.env.local`, and then Kindgi's own `.kindgi/secrets.env`, which wins
+on a clash, when a turn calls the model. To store one without
 echoing it, with `kindgi dev` running:
 
 ```sh
 kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant
 ```
 
-It prompts for the value and writes it to `.env.local`. In a script, pipe it
+It prompts for the value and writes it to `.kindgi/secrets.env`, which your
+app doesn't load. In a script, pipe it
 in with `--from-stdin`. To replace a key that's already set, add
 `--write-mode=add-version`.
 
