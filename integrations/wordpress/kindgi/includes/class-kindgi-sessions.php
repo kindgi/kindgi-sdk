@@ -171,8 +171,18 @@ final class Kindgi_Sessions {
 		return (int) $session['expires_at'] - self::REFRESH_BEFORE > time() ? $session : null;
 	}
 
-	/** The box's key: from the auth salts in `wp-config.php`, never stored. */
-	private static function box_key(): string {
-		return hash_hmac( 'sha256', 'kindgi-session-cache', wp_salt( 'auth' ), true );
+	/**
+	 * The box's key, never stored. With the signing key in `wp-config.php`
+	 * or the environment, it's made from that key, so a read of the
+	 * database alone opens no session. With the signing key in the
+	 * database, a read of it can sign statements anyway; the salts do then
+	 * (`wp_salt()`, which may itself be in the database when `wp-config.php`
+	 * sets none).
+	 */
+	public static function box_key(): string {
+		$seed = Kindgi_Keys::configured() ? Kindgi_Keys::seed() : null;
+		return is_string( $seed )
+			? hash_hmac( 'sha256', 'kindgi-session-cache', $seed, true )
+			: hash_hmac( 'sha256', 'kindgi-session-cache', wp_salt( 'auth' ), true );
 	}
 }

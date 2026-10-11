@@ -157,12 +157,13 @@ final class Kindgi_Admin {
 			wp_die( esc_html__( 'You may not connect this site to Kindgi.', 'kindgi' ), 403 );
 		}
 		check_admin_referer( self::CONNECT );
+		// The URL is kept only once Kindgi takes the code: a typo never breaks a working connection.
+		$url = Kindgi_Settings::url();
 		if ( ! Kindgi_Settings::url_is_constant() ) {
-			$url = esc_url_raw( trim( wp_unslash( (string) ( $_POST['kindgi_url'] ?? '' ) ) ), array( 'https', 'http' ) );
-			if ( '' === $url ) {
-				self::done( 'error', __( "Kindgi's URL must be an https:// or http:// address.", 'kindgi' ) );
-			}
-			update_option( Kindgi_Settings::URL_OPTION, $url, true );
+			$url = rtrim( esc_url_raw( trim( wp_unslash( (string) ( $_POST['kindgi_url'] ?? '' ) ) ), array( 'https', 'http' ) ), '/' );
+		}
+		if ( '' === $url || ! Kindgi_Settings::url_allowed( $url ) ) {
+			self::done( 'error', __( "Kindgi's URL must be https://. An http:// URL works only on this computer (localhost) or from a local or development site.", 'kindgi' ) );
 		}
 		$code = sanitize_text_field( wp_unslash( (string) ( $_POST['kindgi_code'] ?? '' ) ) );
 		if ( '' === $code || strlen( $code ) > 200 ) {
@@ -185,7 +186,9 @@ final class Kindgi_Admin {
 			array(
 				'code'      => $code,
 				'publicKey' => $jwk,
-			)
+			),
+			null,
+			$url
 		);
 		if ( is_wp_error( $response ) ) {
 			self::done( 'error', $response->get_error_message() );
@@ -199,6 +202,9 @@ final class Kindgi_Admin {
 		}
 		if ( ! Kindgi_Keys::configured() ) {
 			Kindgi_Keys::keep( $seed );
+		}
+		if ( ! Kindgi_Settings::url_is_constant() ) {
+			update_option( Kindgi_Settings::URL_OPTION, $url, true );
 		}
 		Kindgi_Settings::keep_site(
 			array(
@@ -243,11 +249,12 @@ final class Kindgi_Admin {
 					? __( 'In wp-config.php (KINDGI_SITE_SECRET_KEY).', 'kindgi' )
 					: __( 'In the environment (KINDGI_SITE_SECRET_KEY).', 'kindgi' )
 			);
+			echo '<p class="description">' . esc_html__( "The staff's Kindgi sessions, kept for up to 15 minutes, are sealed under a key made from it: a copy of the database opens none of them.", 'kindgi' ) . '</p>';
 			return;
 		}
 		echo esc_html(
 			'option' === $source
-				? __( 'In the database, where a copy of the database carries it. Connecting again replaces it.', 'kindgi' )
+				? __( "In the database, where a copy of the database carries it, and with it the staff's Kindgi sessions. Connecting again replaces it.", 'kindgi' )
 				: __( 'None yet: connecting makes one and keeps it in the database.', 'kindgi' )
 		);
 		echo '<p class="description">';

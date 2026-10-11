@@ -77,3 +77,63 @@ function test_http_a_refusal_keeps_kindgis_code_reason_and_retry_and_a_401_is_a_
 	);
 	kindgi_assert_same( 502, Kindgi_Http::error( array( 'status' => 500, 'body' => null, 'retry_after' => null ) )->get_error_data()['status'], "Kindgi's 5xx is the store's 502" );
 }
+
+function test_settings_kindgi_url_is_https_or_http_only_here_or_on_a_development_site(): void {
+	foreach ( array( 'https://kindgi.acme.example', 'http://localhost:8080', 'http://127.0.0.1:18701', 'http://[::1]:8080', 'http://kindgi.localhost' ) as $url ) {
+		kindgi_assert( Kindgi_Settings::url_allowed( $url ), "allowed: $url" );
+	}
+	foreach ( array( 'http://kindgi.acme.example', 'http://10.0.0.5:8080', 'ftp://kindgi.acme.example', 'kindgi.acme.example', '' ) as $url ) {
+		kindgi_assert( ! Kindgi_Settings::url_allowed( $url ), "refused in production: $url" );
+	}
+	$GLOBALS['kindgi_test']['environment'] = 'local';
+	kindgi_assert( Kindgi_Settings::url_allowed( 'http://host.docker.internal:18701' ), 'http on a local site' );
+	$sent = Kindgi_Http::request( 'GET', '/v1/x', array(), null, null, 'http://kindgi.acme.example' );
+	kindgi_assert_same( 'kindgi_unreachable', $sent->get_error_code(), 'sent on a local site (and unreachable here)' );
+	kindgi_assert_same( 1, count( $GLOBALS['kindgi_test']['requests'] ), 'one request' );
+	$GLOBALS['kindgi_test']['environment'] = 'production';
+	$refused = Kindgi_Http::request( 'GET', '/v1/x', array(), null, null, 'http://kindgi.acme.example' );
+	kindgi_assert_same( 'kindgi_url_insecure', $refused->get_error_code(), 'refused in production' );
+	kindgi_assert_same( 1, count( $GLOBALS['kindgi_test']['requests'] ), 'nothing sent over plain http in production' );
+}
+
+function test_rest_a_turn_goes_only_into_the_persons_own_conversation(): void {
+	kindgi_assert( Kindgi_Rest::owns( array( 'participantId' => 'u-jane' ), 'u-jane' ), "Jane's own" );
+	kindgi_assert( ! Kindgi_Rest::owns( array( 'participantId' => 'u-ada' ), 'u-jane' ), "Ada's, refused to Jane" );
+	kindgi_assert( ! Kindgi_Rest::owns( array(), 'u-jane' ), 'no participant, refused' );
+	kindgi_assert( ! Kindgi_Rest::owns( array( 'participantId' => '' ), '' ), 'no person, refused' );
+}
+
+function test_sessions_are_sealed_under_the_signing_key_when_it_is_outside_the_database(): void {
+	$salted = hash_hmac( 'sha256', 'kindgi-session-cache', wp_salt( 'auth' ), true );
+	Kindgi_Keys::keep( Kindgi_Keys::generate() );
+	kindgi_assert_same( $salted, Kindgi_Sessions::box_key(), 'the key in the database: the salts seal them' );
+	$seed = random_bytes( 32 );
+	putenv( 'KINDGI_SITE_SECRET_KEY=' . base64_encode( $seed ) );
+	kindgi_assert_same( hash_hmac( 'sha256', 'kindgi-session-cache', $seed, true ), Kindgi_Sessions::box_key(), 'the key outside it: made from the key' );
+	kindgi_assert( Kindgi_Sessions::box_key() !== $seed, 'never the signing key itself' );
+}
+
+function test_statement_sends_at_most_20_roles(): void {
+	$claims = Kindgi_Statement::claims(
+		kindgi_test_site(),
+		array(
+			'subject' => 's',
+			'name'    => 'Ada',
+			'roles'   => array_map( fn( $i ) => "role-$i", range( 1, 30 ) ),
+		),
+		1,
+		'j'
+	);
+	kindgi_assert_same( 20, count( $claims['roles'] ), 'twenty' );
+	kindgi_assert_same( 'role-1', $claims['roles'][0], 'the first ones' );
+}
+
+function test_sodium_is_the_one_this_run_asked_for(): void {
+	$compat = getenv( 'KINDGI_SODIUM_COMPAT' );
+	if ( is_string( $compat ) && '' !== $compat ) {
+		kindgi_assert( ! extension_loaded( 'sodium' ), 'no ext/sodium on the sodium_compat run' );
+		kindgi_assert( class_exists( 'ParagonIE_Sodium_Compat' ), 'sodium_compat loaded' );
+	} else {
+		kindgi_assert( extension_loaded( 'sodium' ), 'ext/sodium' );
+	}
+}

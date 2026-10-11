@@ -21,14 +21,22 @@ final class Kindgi_Http {
 	 * @param array       $query  Query parameters (scalars).
 	 * @param array|null  $body   A JSON body.
 	 * @param string|null $token  The bearer token, if any.
+	 * @param string|null $base   Another Kindgi URL than the one set (connecting to a new one).
 	 * @return array{status: int, body: array|null, retry_after: int|null}|WP_Error
 	 */
-	public static function request( string $method, string $path, array $query = array(), ?array $body = null, ?string $token = null ) {
-		$base = Kindgi_Settings::url();
+	public static function request( string $method, string $path, array $query = array(), ?array $body = null, ?string $token = null, ?string $base = null ) {
+		$base = rtrim( null === $base ? Kindgi_Settings::url() : trim( $base ), '/' );
 		if ( '' === $base ) {
 			return new WP_Error(
 				'kindgi_not_configured',
 				__( "Kindgi's URL isn't set: an administrator sets it under Kindgi → Settings.", 'kindgi' ),
+				array( 'status' => 503 )
+			);
+		}
+		if ( ! Kindgi_Settings::url_allowed( $base ) ) {
+			return new WP_Error(
+				'kindgi_url_insecure',
+				__( "Kindgi's URL must be https://. An http:// URL works only on this computer (localhost) or from a local or development site.", 'kindgi' ),
 				array( 'status' => 503 )
 			);
 		}

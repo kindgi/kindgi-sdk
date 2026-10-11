@@ -4,9 +4,10 @@
 
 /**
  * Deleting the plugin removes what it kept: the Kindgi URL, the
- * enrollment, the signing key it made, and each person's subject, Kindgi
- * id and cached session. Kindgi keeps its own record; a site installed
- * again connects with a new code, and its staff are new people there.
+ * enrollment, the signing key it made, and each person's cached session.
+ * Each person's subject and Kindgi id stay: they say who the person is.
+ * Installed again and connected with a new code for the same site at
+ * Kindgi, the site finds the same people there, with their history.
  */
 
 defined( 'WP_UNINSTALL_PLUGIN' ) || exit;
@@ -17,9 +18,7 @@ function kindgi_uninstall_site(): void {
 	delete_option( 'kindgi_url' );
 	delete_option( 'kindgi_site' );
 	delete_option( 'kindgi_site_secret_key' );
-	foreach ( array( 'kindgi_session', 'kindgi_subject', 'kindgi_user_id' ) as $key ) {
-		delete_metadata( 'user', 0, $wpdb->get_blog_prefix() . $key, '', true );
-	}
+	delete_metadata( 'user', 0, $wpdb->get_blog_prefix() . 'kindgi_session', '', true );
 }
 
 if ( is_multisite() ) {

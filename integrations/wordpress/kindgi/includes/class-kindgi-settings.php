@@ -32,6 +32,31 @@ final class Kindgi_Settings {
 		return rtrim( trim( $url ), '/' );
 	}
 
+	/**
+	 * Whether statements and sessions may go to this URL: `https://`, or
+	 * `http://` only to this computer (a loopback host) or from a local or
+	 * development site (`wp_get_environment_type()`), never in the clear
+	 * across a network otherwise.
+	 */
+	public static function url_allowed( string $url ): bool {
+		$parts = wp_parse_url( $url );
+		if ( ! is_array( $parts ) || empty( $parts['host'] ) ) {
+			return false;
+		}
+		$scheme = strtolower( (string) ( $parts['scheme'] ?? '' ) );
+		if ( 'https' === $scheme ) {
+			return true;
+		}
+		if ( 'http' !== $scheme ) {
+			return false;
+		}
+		$host = strtolower( trim( (string) $parts['host'], '[]' ) );
+		if ( in_array( $host, array( 'localhost', '127.0.0.1', '::1' ), true ) || '.localhost' === substr( $host, -10 ) ) {
+			return true;
+		}
+		return in_array( wp_get_environment_type(), array( 'local', 'development' ), true );
+	}
+
 	/** Whether the URL comes from `wp-config.php` (the settings page then only shows it). */
 	public static function url_is_constant(): bool {
 		return defined( self::URL_CONSTANT );

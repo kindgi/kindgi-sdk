@@ -49,6 +49,8 @@ Each person acts as themselves. Kindgi's record says "approved by Jane, via Acme
    - **What they get:** each may ask the project's agents and review approvals as a `standard` reviewer.
    - **Changing it:** set `allowedRoles`, `roleMap` and `reviewerCeiling` when registering, or change them later.
 4. **Connect.** Paste the one-time code under **Kindgi → Settings**, along with the Kindgi URL this server reaches. The plugin makes its signing key and sends Kindgi the public half. Your staff can use the **Kindgi** page from then on.
+   - The URL must be `https://`. An `http://` URL works only to this computer (`localhost`) or from a local or development site (`WP_ENVIRONMENT_TYPE`).
+   - It's kept only once Kindgi takes the code, so a typo never breaks a working connection.
 
 ### The signing key
 
@@ -77,7 +79,9 @@ A site's statements are exactly as strong as the site's own login, and as whoeve
   - **Where four eyes must be real:** give the tool a required reviewer role above the site's ceiling, so that a person signed in to Kindgi directly decides.
   - **For a tool that acts outside the store** (email to customers, a payment provider, a CRM): set its required role above the site's ceiling. Approving it from the site would give whoever controls the site reach the store alone doesn't have.
 - **Pausing the site in Kindgi** ends every session it opened, and so does revoking its key. Connecting again ends them too.
-- **The cached sessions:** the plugin caches each person's session for up to 15 minutes, sealed under a key derived from `wp-config.php`'s salts. Reading the database alone doesn't yield a live session.
+- **The cached sessions:** the plugin caches each person's session for up to 15 minutes, sealed.
+  - With the signing key in `wp-config.php` or the environment, the seal's key is made from it, so reading the database alone opens no session.
+  - With the key in the database, a copy of the database carries the key itself, and the sessions with it. That's one more reason to keep the key in `wp-config.php`.
 
 ## Store actions as an agent's tools
 
@@ -97,7 +101,7 @@ To give an agent tools that act on the store (look up an order, refund it), Word
 | The signing key, when it isn't in `wp-config.php` or the environment | The `kindgi_site_secret_key` option, not autoloaded |
 | Each person's subject, Kindgi id, and sealed session | User options `kindgi_subject`, `kindgi_user_id`, `kindgi_session` |
 
-Deleting the plugin removes all of them. Kindgi keeps its own record. A site installed again connects with a new code, and its staff are new people in Kindgi.
+Deleting the plugin removes all of them except each person's subject and Kindgi id. They say who each person is, so a site installed again and connected with a new code for the same site in Kindgi finds the same people there, with their history. Kindgi keeps its own record.
 
 ## Contributing
 

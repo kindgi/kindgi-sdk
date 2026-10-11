@@ -12,14 +12,24 @@ define( 'ABSPATH', __DIR__ . '/' );
 
 $GLOBALS['kindgi_test'] = array();
 
-/** Every test starts from no options, no user options, and the site at https://acme-store.example. */
+/** Every test starts from no options, no user options, the site at https://acme-store.example, in production. */
 function kindgi_test_reset(): void {
 	$GLOBALS['kindgi_test'] = array(
 		'options'      => array(),
 		'user_options' => array(),
 		'home'         => 'https://acme-store.example',
+		'environment'  => 'production',
+		'requests'     => array(),
 	);
 	putenv( 'KINDGI_SITE_SECRET_KEY' );
+}
+
+// Some hosts have no ext/sodium; WordPress then loads its bundled
+// sodium_compat. KINDGI_SODIUM_COMPAT names a sodium_compat autoloader to
+// run the tests on that path (CI's row without the extension).
+$kindgi_compat = getenv( 'KINDGI_SODIUM_COMPAT' );
+if ( is_string( $kindgi_compat ) && '' !== $kindgi_compat ) {
+	require_once $kindgi_compat;
 }
 
 final class WP_Error {
@@ -122,6 +132,20 @@ function home_url(): string {
 	return $GLOBALS['kindgi_test']['home'];
 }
 
+/** No network in tests: each call is recorded, and answered as unreachable. */
+function wp_remote_request( string $url, array $args ) {
+	$GLOBALS['kindgi_test']['requests'][] = array( $url, $args );
+	return new WP_Error( 'http_request_failed', 'no network in tests' );
+}
+
+function wp_get_environment_type(): string {
+	return $GLOBALS['kindgi_test']['environment'];
+}
+
+function wp_salt( string $scheme = 'auth' ): string {
+	return 'acme-test-salt-' . $scheme;
+}
+
 function wp_json_encode( $value ) {
 	return json_encode( $value );
 }
@@ -161,3 +185,5 @@ require_once dirname( __DIR__ ) . '/includes/class-kindgi-keys.php';
 require_once dirname( __DIR__ ) . '/includes/class-kindgi-settings.php';
 require_once dirname( __DIR__ ) . '/includes/class-kindgi-http.php';
 require_once dirname( __DIR__ ) . '/includes/class-kindgi-sessions.php';
+require_once dirname( __DIR__ ) . '/includes/class-kindgi-api.php';
+require_once dirname( __DIR__ ) . '/includes/class-kindgi-rest.php';

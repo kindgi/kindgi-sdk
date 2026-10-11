@@ -236,7 +236,11 @@ final class Kindgi_Rest {
 		if ( is_wp_error( $conversation ) ) {
 			return $conversation;
 		}
-		$c      = $conversation['body'];
+		$c = $conversation['body'];
+		// A turn runs as the conversation's participant, with that person's memory: only theirs.
+		if ( ! self::owns( $c, (string) $conversation['session']['user_id'] ) ) {
+			return new WP_Error( 'kindgi_conversation_not_found', __( 'No conversation of yours has that id.', 'kindgi' ), array( 'status' => 404 ) );
+		}
 		$answer = Kindgi_Api::body(
 			$user,
 			'POST',
@@ -434,6 +438,11 @@ final class Kindgi_Rest {
 			$names[ $id ] = isset( $users[0] ) ? (string) $users[0]->display_name : null;
 		}
 		return $names[ $id ];
+	}
+
+	/** Whether a conversation is the person's own: they're its participant. */
+	public static function owns( array $conversation, string $user_id ): bool {
+		return '' !== $user_id && ( $conversation['participantId'] ?? null ) === $user_id;
 	}
 
 	/** The site's project, from the person's session. */

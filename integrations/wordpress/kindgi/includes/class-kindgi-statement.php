@@ -24,6 +24,9 @@ final class Kindgi_Statement {
 	/** At most this many characters of a name are sent. */
 	const NAME_MAX = 200;
 
+	/** At most this many roles are sent: a statement stays under Kindgi's 4 KB. */
+	const ROLES_MAX = 20;
+
 	/**
 	 * The claims for one person.
 	 *
@@ -42,7 +45,7 @@ final class Kindgi_Statement {
 			'exp'   => $now + self::LIFETIME,
 			'jti'   => $jti,
 			'name'  => self::name( (string) $person['name'] ),
-			'roles' => array_values( array_map( 'strval', (array) $person['roles'] ) ),
+			'roles' => array_slice( array_values( array_map( 'strval', (array) $person['roles'] ) ), 0, self::ROLES_MAX ),
 		);
 		if ( isset( $person['email'] ) && '' !== $person['email'] ) {
 			$claims['email'] = (string) $person['email'];
