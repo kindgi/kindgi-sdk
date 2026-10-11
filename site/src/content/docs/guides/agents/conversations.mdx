@@ -256,6 +256,14 @@ conversation-closed Conversation "b3135493-47bd-4f78-90ac-fe0ff3e21e8d" is close
   name as its title.
 - `participantId` is kept on the conversation. A first turn can set it too,
   with `participantId` in its input.
+- **Who opened it:** `openedBy` (`user:<id>` or `service_account:<id>`) is
+  the caller who opened it, set by the server and never from the body.
+  - `list({ openedBy: 'me' })` (`?openedBy=me`,
+    `--opened-by=me` in the CLI) lists only your own.
+  - Conversations opened before Kindgi 0.1.8 record no opener, and aren't
+    listed by it.
+  - It's a filter, not privacy: anyone who may read the project reads its
+    conversations.
 - `close` is safe to repeat: closing a closed conversation returns it as it is.
 - `list` filters by agent and by `status` (`open` or `closed`), newest first;
   `get` fetches one conversation. From the CLI:

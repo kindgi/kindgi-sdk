@@ -581,6 +581,12 @@ export interface Conversation {
    * and on those from before it was stored.
    */
   readonly projectId?: ProjectId;
+  /**
+   * Who opened it: the caller's principal (`user:<id>`,
+   * `service_account:<id>`). Absent on conversations opened before it was
+   * kept, and when the caller had no principal.
+   */
+  readonly openedBy?: string;
   /** Additional attributes (project id, matter id, etc.). */
   readonly scope: MemoryScope;
   readonly openedAt: Timestamp;

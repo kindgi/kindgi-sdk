@@ -75,6 +75,17 @@ describe('kindgi approvals', () => {
     }
   });
 
+  test('list: --decided-by=me, the approvals you decided', async () => {
+    const { calls, rec } = recorder();
+    const out = await run(['approvals', 'list', '--status=approved,rejected', '--decided-by=me'], {
+      approvals: { list: rec('list', { data: [] }) },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['list', { status: ['approved', 'rejected'], decidedBy: 'me' }]]);
+    const refused = await run(['approvals', 'list', '--decided-by=someone'], { approvals: {} });
+    expect(refused.exitCode).toBe(2);
+  });
+
   test('list refuses an unknown status', async () => {
     const out = await run(['approvals', 'list', '--status=open'], { approvals: {} });
     expect(out.exitCode).toBe(2);

@@ -32,7 +32,7 @@ const list: LeafCommand = {
   name: 'list',
   description: 'List the approvals your reviewer role can see.',
   usage:
-    'kindgi approvals list [--status=<status>[,<status>…]] [--assigned-to=me] [--order=asc|desc] [--limit=<n>] [--cursor=<c>]',
+    'kindgi approvals list [--status=<status>[,<status>…]] [--assigned-to=me] [--decided-by=me] [--order=asc|desc] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
     status: {
       type: 'string',
@@ -42,6 +42,10 @@ const list: LeafCommand = {
     'assigned-to': {
       type: 'string',
       description: '`me`: only the approvals assigned to you.',
+    },
+    'decided-by': {
+      type: 'string',
+      description: '`me`: only the approvals you decided.',
     },
     order: {
       type: 'string',
@@ -60,6 +64,7 @@ const list: LeafCommand = {
     runSdk(ctx, 'approvals list', async () => {
       const status = stringFlag(ctx, 'status');
       const assignedTo = stringFlag(ctx, 'assigned-to');
+      const decidedBy = stringFlag(ctx, 'decided-by');
       const order = stringFlag(ctx, 'order');
       const limit = integerFlag(ctx, 'limit');
       const cursor = stringFlag(ctx, 'cursor');
@@ -73,6 +78,9 @@ const list: LeafCommand = {
         }),
         ...(assignedTo !== undefined && {
           assignedTo: oneOf('assigned-to', assignedTo, ['me'] as const),
+        }),
+        ...(decidedBy !== undefined && {
+          decidedBy: oneOf('decided-by', decidedBy, ['me'] as const),
         }),
         ...(order !== undefined && { order: oneOf('order', order, ['asc', 'desc'] as const) }),
         ...(limit !== undefined && { limit }),

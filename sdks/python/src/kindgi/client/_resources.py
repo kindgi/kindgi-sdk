@@ -1733,6 +1733,7 @@ class ApprovalsResource:
         ]
         | None = None,
         assigned_to: Literal["me"] | None = None,
+        decided_by: Literal["me"] | None = None,
         order: Literal["asc", "desc"] | None = None,
         required_role: Literal["standard", "senior", "admin"] | None = None,
         created_after: str | None = None,
@@ -1755,6 +1756,7 @@ class ApprovalsResource:
                 "scopeId": scope_id,
                 "status": status,
                 "assignedTo": assigned_to,
+                "decidedBy": decided_by,
                 "order": order,
                 "requiredRole": required_role,
                 "createdAfter": created_after,
@@ -2814,11 +2816,12 @@ class ConversationsResource:
         agent_id: str | UUID | None = None,
         status: Literal["open", "closed"] | None = None,
         replays: Literal["exclude", "include", "only"] | None = None,
+        opened_by: Literal["me"] | None = None,
         timeout: float | None = None,
     ) -> _models.ConversationCollectionPage:
         """List conversations. `GET /v1/conversations`
 
-        Cursor-paginated. Fixed sort: `openedAt desc, id desc`. Filters: `?agentId=`, `?status=open|closed`, `?replays=exclude|include|only` (default `exclude`: a comparison's replay conversations are left out), and `scopeKind`/`scopeId` for one project's conversations, or every project's in an org. Conversations from before Kindgi 0.1.3 have no project and are listed only without a scope.
+        Cursor-paginated. Fixed sort: `openedAt desc, id desc`. Filters: `?agentId=`, `?status=open|closed`, `?openedBy=me` (the caller's own), `?replays=exclude|include|only` (default `exclude`: a comparison's replay conversations are left out), and `scopeKind`/`scopeId` for one project's conversations, or every project's in an org. Conversations from before Kindgi 0.1.3 have no project and are listed only without a scope.
         """
         return self._client._request(
             _OPERATIONS["conversations.list"],
@@ -2831,6 +2834,7 @@ class ConversationsResource:
                 "agentId": agent_id,
                 "status": status,
                 "replays": replays,
+                "openedBy": opened_by,
             },
             headers={},
             response=_models.ConversationCollectionPage,
@@ -8998,6 +9002,7 @@ class AsyncApprovalsResource:
         ]
         | None = None,
         assigned_to: Literal["me"] | None = None,
+        decided_by: Literal["me"] | None = None,
         order: Literal["asc", "desc"] | None = None,
         required_role: Literal["standard", "senior", "admin"] | None = None,
         created_after: str | None = None,
@@ -9020,6 +9025,7 @@ class AsyncApprovalsResource:
                 "scopeId": scope_id,
                 "status": status,
                 "assignedTo": assigned_to,
+                "decidedBy": decided_by,
                 "order": order,
                 "requiredRole": required_role,
                 "createdAfter": created_after,
@@ -10085,11 +10091,12 @@ class AsyncConversationsResource:
         agent_id: str | UUID | None = None,
         status: Literal["open", "closed"] | None = None,
         replays: Literal["exclude", "include", "only"] | None = None,
+        opened_by: Literal["me"] | None = None,
         timeout: float | None = None,
     ) -> _models.ConversationCollectionPage:
         """List conversations. `GET /v1/conversations`
 
-        Cursor-paginated. Fixed sort: `openedAt desc, id desc`. Filters: `?agentId=`, `?status=open|closed`, `?replays=exclude|include|only` (default `exclude`: a comparison's replay conversations are left out), and `scopeKind`/`scopeId` for one project's conversations, or every project's in an org. Conversations from before Kindgi 0.1.3 have no project and are listed only without a scope.
+        Cursor-paginated. Fixed sort: `openedAt desc, id desc`. Filters: `?agentId=`, `?status=open|closed`, `?openedBy=me` (the caller's own), `?replays=exclude|include|only` (default `exclude`: a comparison's replay conversations are left out), and `scopeKind`/`scopeId` for one project's conversations, or every project's in an org. Conversations from before Kindgi 0.1.3 have no project and are listed only without a scope.
         """
         return await self._client._request(
             _OPERATIONS["conversations.list"],
@@ -10102,6 +10109,7 @@ class AsyncConversationsResource:
                 "agentId": agent_id,
                 "status": status,
                 "replays": replays,
+                "openedBy": opened_by,
             },
             headers={},
             response=_models.ConversationCollectionPage,

@@ -113,6 +113,13 @@ export interface ConversationFilter extends Omit<Filter<ConversationStatus>, 'st
   readonly agent?: import('@kindgi/types').AgentId;
   readonly participantId?: string;
   /**
+   * `me`: only the conversations the caller opened. Conversations from
+   * before 0.1.8 record no opener and aren't listed by it; a runtime that
+   * predates it ignores the filter and lists them all (compare `openedBy`
+   * with the caller's `actor` from `identity.whoami()` to tell).
+   */
+  readonly openedBy?: 'me';
+  /**
    * Replay conversations (a comparison's replays, `metadata.replayOf`):
    * left out by default (`exclude`); `include` lists them with the
    * others, `only` lists just them.
@@ -164,6 +171,7 @@ export function makeConversationsClient(transport: Transport): ConversationsClie
           ...(statusParam !== undefined && { status: statusParam }),
           ...(filter?.scope !== undefined && scopeToQuery(filter.scope)),
           ...(filter?.agent !== undefined && { agentId: filter.agent as unknown as string }),
+          ...(filter?.openedBy !== undefined && { openedBy: filter.openedBy }),
           ...(filter?.replays !== undefined && { replays: filter.replays }),
         },
       });

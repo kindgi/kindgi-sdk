@@ -48,6 +48,14 @@ describe('kindgi conversations list', () => {
     expect(calls).toEqual([{}]);
   });
 
+  test('--opened-by=me: only the conversations you opened; nothing else is taken', async () => {
+    const { out, calls } = await list(['--opened-by=me']);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([{ openedBy: 'me' }]);
+    const refused = await list(['--opened-by=user:u-ada']);
+    expect(refused.out.exitCode).toBe(2);
+  });
+
   test('--status, --replays, --limit and --cursor map to one list call', async () => {
     const { out, calls } = await list([
       '--status=open',

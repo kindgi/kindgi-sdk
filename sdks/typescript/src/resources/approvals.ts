@@ -216,6 +216,11 @@ export interface ApprovalFilter extends Omit<Filter<ApprovalStatus>, 'status'> {
   readonly status?: ApprovalStatus | readonly ApprovalStatus[];
   /** `'me'`: only the approvals assigned to the caller's own reviewer row. */
   readonly assignedTo?: 'me';
+  /**
+   * `'me'`: only the approvals the caller's own reviewer row decided. A
+   * runtime before 0.1.8 ignores it: compare `decision.reviewerId` to tell.
+   */
+  readonly decidedBy?: 'me';
   /** `'asc'`: oldest first. Default `'desc'` (newest first). */
   readonly order?: 'asc' | 'desc';
   /** Only one project's approvals (`kind: 'project'`), or every project's in an org (`kind: 'org'`). */
@@ -301,6 +306,7 @@ export function makeApprovalsClient(transport: Transport): ApprovalsClient {
           ...(filter?.cursor !== undefined && { cursor: filter.cursor as unknown as string }),
           ...(statuses.length > 0 && { status: statuses.join(',') }),
           ...(filter?.assignedTo !== undefined && { assignedTo: filter.assignedTo }),
+          ...(filter?.decidedBy !== undefined && { decidedBy: filter.decidedBy }),
           ...(filter?.order !== undefined && { order: filter.order }),
           ...(filter?.scope !== undefined && scopeToQuery(filter.scope)),
           ...(filter?.requiredRole !== undefined && { requiredRole: filter.requiredRole }),

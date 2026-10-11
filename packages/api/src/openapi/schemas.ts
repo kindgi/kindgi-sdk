@@ -1495,6 +1495,16 @@ export const ApprovalDecisionRecordSchema: JsonSchema = {
     reviewerRoleAtDecision: ReviewerRoleSchema,
     decidedAt: { type: 'string', format: 'date-time' },
     rationale: { type: 'string' },
+    sessionProvider: {
+      type: 'string',
+      description:
+        "The provider of the session the reviewer decided with: `site:<id>` for a site's sign-in, an identity provider's id for a single sign-on session. Absent for an API key, and on decisions from before Kindgi 0.1.8.",
+    },
+    deciderName: {
+      type: 'string',
+      description:
+        "The reviewer's display name when they decided: a person renamed since still shows as they were. Absent on decisions from before Kindgi 0.1.8.",
+    },
   },
 };
 
@@ -3120,6 +3130,11 @@ export const ConversationSchema: JsonSchema = {
       format: 'uuid',
       description:
         "The project the conversation is in: the project of the run that opened it, or `projectId` on open (the tenant's Default project when omitted). Absent on conversations from before Kindgi 0.1.3; those are listed only without a scope.",
+    },
+    openedBy: {
+      type: 'string',
+      description:
+        "Who opened it: the caller's principal (`user:<id>`, `service_account:<id>`), set by the server, never from a request's body. Absent on conversations opened before Kindgi 0.1.8, and when the caller had no principal; those aren't listed by `?openedBy=me`.",
     },
     scope: {
       type: 'object',
