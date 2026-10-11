@@ -1,0 +1,376 @@
+---
+title: Let a store's staff ask and approve in WordPress
+description: Connect a WordPress site to a project, so its staff ask the project's agents and decide approvals in wp-admin, each as themselves.
+sidebar:
+  order: 5
+  label: Ask and approve in WordPress
+---
+
+The Kindgi plugin for WordPress adds a **Kindgi** page to wp-admin. On it,
+each person signed in to the site can:
+
+- **ask** the project's agents, in conversations of their own;
+- **approve or reject** what an agent waits on, a refund for example.
+
+Each person acts as themselves. A decision names Jane, shown as "Jane, via
+Acme store", never "the store".
+
+This page sets it up:
+- the runtime;
+- the site in Kindgi;
+- the plugin.
+
+It also covers what the site's people can and can't do in Kindgi.
+
+## How the site signs its people in
+
+- **The site vouches for its staff.** When Jane opens the page, the plugin
+  signs a short statement: "the person signed in here is Jane, with these
+  WordPress roles". The statement is signed with an Ed25519 key, lives 60
+  seconds and can be used once.
+- **Kindgi exchanges it for a session as Jane.** The plugin sends the
+  statement server to server. Kindgi checks it against the key the site
+  enrolled, and answers with a 15-minute session held to the site's one
+  project.
+- **No Kindgi token reaches the browser.** The page calls the plugin's
+  routes on the site (`/wp-json/kindgi/v1/…`), and the plugin calls Kindgi.
+- **People are matched by the site, never by email.** Kindgi knows each
+  person by their site and a random id the plugin keeps for them. It never
+  uses their WordPress user id, login name or email for that.
+
+## Turn site sign-in on
+
+Site sign-in is off by default. It needs two more settings in the runtime's
+environment:
+- [authorization enforced](../../../deploy/authorization/), which holds a
+  site's people to its project;
+- the runtime's public URL, which a site's statements carry as their
+  audience.
+
+```sh
+KINDGI_SITE_SIGN_IN=true
+KINDGI_OPENFGA_API_URL=http://openfga:8080
+KINDGI_PUBLIC_URL=https://kindgi.acme.example
+```
+
+Without either of the other two, the runtime refuses to start:
+
+```text
+KINDGI_SITE_SIGN_IN needs authorization enforced: a site's people are held to its project by it. Set KINDGI_OPENFGA_API_URL, or turn it off.
+```
+
+```text
+KINDGI_SITE_SIGN_IN needs KINDGI_PUBLIC_URL: a site's statements carry it as their audience. Set it, or turn site sign-in off.
+```
+
+## Register the site
+
+A tenant admin registers the site on the project its staff will use. The
+plugin's **Kindgi → Settings** page shows the two addresses to register:
+- the site's origin;
+- its approvals URL.
+
+```ts
+import { createClient } from '@kindgi/sdk/client';
+
+const kindgi = createClient(); // KINDGI_API_URL and KINDGI_API_TOKEN: a tenant admin's
+const { site, enrollment } = await kindgi.projects.sites.register(projectId, {
+  displayName: 'Acme store',
+  origin: 'https://acme-store.example',
+  approvalsUrl: 'https://acme-store.example/wp-admin/admin.php?page=kindgi&approval={approvalId}',
+});
+console.log(enrollment.code); // one-time, for 15 minutes
+```
+
+- **`displayName`** is how Kindgi shows the site's people: "Jane, via Acme
+  store". Only a tenant admin sets it, never the site.
+- **`origin`** must be `https://`. An `http://` origin works only for a
+  loopback address, in development.
+- **`approvalsUrl`** must be on the origin. Kindgi replaces `{approvalId}`,
+  and its emails to the site's people link there.
+
+These settings decide who may sign in and what they get. Each has a default,
+and `kindgi.projects.sites.update(projectId, siteId, { … })` changes it
+later:
+
+| Setting | Default | What it decides |
+| --- | --- | --- |
+| `allowedRoles` | `administrator`, `shop_manager` | The WordPress roles that may sign in at all. Any other role is refused. |
+| `roleMap` | Both roles: `{ ask: true, reviewer: 'standard' }` | For each allowed role: whether it may ask the project's agents (`ask`), and the reviewer role it decides approvals with (`reviewer`; none when absent). A person with several allowed roles gets the most any of them gives. |
+| `reviewerCeiling` | `standard` | The highest reviewer role the site's people can have: `standard` or `senior`. |
+| `peopleCap` | `50` | At most this many people from the site (1 to 10,000). |
+| `newPeoplePerDay` | `20` | At most this many new people a day (1 to 1,000). |
+| `vouching` | `true` | Whether Kindgi accepts the site's statements at all. |
+
+- **Every person also reads the project.**
+- **No setting gives more:** never editor or admin on the project, never a
+  reviewer `admin`, and never a tenant role. A site can't publish agents,
+  policies or approval rules.
+- **A WooCommerce `customer` isn't in the defaults,** so a store's customers
+  never become people in Kindgi.
+
+## Install and connect the plugin
+
+The plugin is in the kindgi-sdk repository, under
+[`integrations/wordpress/kindgi`](https://github.com/kindgi/kindgi-sdk/tree/main/integrations/wordpress/kindgi).
+It needs WordPress 6.4 or later and PHP 7.4 or later.
+
+1. **Install it.** Zip the folder as `kindgi.zip` and upload it under
+   **Plugins → Add New → Upload Plugin**, or copy the folder to
+   `wp-content/plugins/kindgi`. Then activate it.
+2. **Connect.** Under **Kindgi → Settings**, paste the one-time code and the
+   Kindgi URL this server reaches, then choose **Connect**. The plugin makes
+   its signing key and sends Kindgi the public half. The page says
+   "Connected: your staff can use the Kindgi page now."
+
+About the Kindgi URL:
+- **It must be `https://`.** An `http://` URL works only to this computer
+  (`localhost`), or from a local or development site
+  (`WP_ENVIRONMENT_TYPE`).
+- **It's kept only once Kindgi takes the code,** so a typo never breaks a
+  working connection.
+- **It can differ from Kindgi's public URL.** The site's statements carry
+  the public one, which Kindgi gives the plugin when it connects.
+
+### Where the signing key lives
+
+- **Preferred: in `wp-config.php`, before you connect.**
+
+  ```php
+  define( 'KINDGI_SITE_SECRET_KEY', '…' ); // php -r 'echo base64_encode(random_bytes(32)), PHP_EOL;'
+  ```
+
+  An environment variable of the same name works too. A copy of the
+  database (a backup, a staging clone) then carries neither the key nor a
+  way to open the staff's cached sessions.
+- **Without it,** the plugin keeps the key in a database option, which
+  isn't autoloaded.
+- **The site's address is part of the connection.** The plugin signs nothing
+  when the site's address isn't the one it connected as, so a staging copy
+  never vouches as production. When the site moves, connect it again with a
+  new code.
+
+## Who sees the page
+
+- **The page needs `manage_woocommerce`** when WooCommerce is active, which
+  means shop managers and administrators. Without WooCommerce, it needs
+  `edit_others_posts`: editors and administrators. The `kindgi_capability`
+  filter changes it.
+- **Seeing the page isn't signing in.** Kindgi decides from the person's
+  roles and the site's settings. On a site registered with the defaults, an
+  editor who sees the page gets "None of these roles may sign in through
+  this site".
+- **The Approvals tab** shows only to someone whose roles give a reviewer
+  role.
+
+## What the staff see
+
+**Ask:**
+- **Their own conversations** with the project's agents: the ones they
+  opened (`GET /v1/conversations?openedBy=me`). A conversation is titled
+  with its first message.
+- **The tools a turn called,** and what it waits for: "Waiting for a person
+  to approve shop.acme-refund-order."
+
+**Approvals:**
+- **Waiting for you:** the project's approvals their reviewer role may
+  decide. Each shows the tool, its arguments, who asked, when it expires and
+  the role it needs.
+- **Approve, or reject with a reason.** The page asks for the reason: "Say
+  why you reject it."
+- **Decided by you lately:** `GET /v1/approvals?decidedBy=me`.
+- **From your link:** an approval opened from Kindgi's email
+  (`?approval=<id>`).
+
+## Reviewer email
+
+With [`KINDGI_REVIEWER_EMAIL=on`](../decide-an-approval/#reviewer-email),
+Kindgi emails the site's reviewers too:
+- **At the address the site sends for them:** the person's WordPress email.
+  The `kindgi_statement_email` filter changes it, or sends none.
+- **The link opens the approval on the site's page** (its `approvalsUrl`),
+  not in the console.
+- **Nothing while the site signs nobody in:** while it's paused, not
+  vouching or unregistered.
+
+## What the record says
+
+- **A decision names the person:** `decidedBy` is `user:<id>`, the Kindgi
+  person the site made for them, shown as "Ada, via Acme store".
+- **It keeps how they signed in:** `sessionProvider` is `site:<siteId>`.
+- **It keeps the decider's name as it was** when they decided
+  (`deciderName`). Renaming or erasing the person later doesn't change
+  decisions already made.
+
+The audit record of each decision carries both.
+
+## Four eyes
+
+**By default, a person may approve a tool call they asked for.** To require
+someone else, set `separateApprover` on the agent: see
+[Ask before a tool runs](../ask-before-a-tool-runs/), under "Someone other
+than whoever asked". The `woocommerce` template's store agent sets it for its
+money tools. With it on, the person who asked sees "You asked for this;
+another reviewer decides." instead of **Approve**.
+
+**Inside one site, four eyes is one administrator's word.**
+- A site vouches for its people, so whoever controls the site can sign in as
+  any of them: as Jane to ask, and as Ada to approve. That includes its
+  administrators, its plugins and theme, and its host.
+- **Where two people must really decide,** require a reviewer role above
+  the site's ceiling. A reviewer signed in to Kindgi directly then decides:
+
+  ```ts
+  conversationPolicy: {
+    hitl: {
+      tools: {
+        overrides: {
+          'shop.acme-refund-order': { mode: 'always_ask', requiredRole: 'senior' },
+        },
+      },
+    },
+  },
+  ```
+
+- **The same goes for a tool that acts outside the store:** email to
+  customers, a payment provider, a CRM. Approving it from the site would
+  give whoever controls the site reach that the store alone doesn't have.
+
+## A site's people in Kindgi
+
+**Their sessions are limited.**
+- They last 15 minutes and are held to the site's project: they read nothing
+  above it (the tenant, orgs, teams).
+- Kindgi doesn't refresh them: the plugin signs the person in again.
+
+  ```text
+  A session limited to a project or a role is not refreshed: get a new one where you got this one
+  ```
+
+  The code is `limited-session-not-refreshable`.
+- They mint no API keys:
+
+  ```text
+  This session is limited (to project …), and a limited session mints no keys
+  ```
+
+  The code is `limited-session-cannot-mint`.
+
+**Their grants come from the site, and only from it.**
+- A route that would give one of them a grant, a team membership, a tenant
+  role, a reviewer role or an API key is refused with 403
+  `site-person-grants-managed`:
+
+  ```text
+  This person is signed in by a site: they hold only what their site's sign-in gives them
+  ```
+
+- So is a route that would take one away, since the site would give it back
+  at their next sign-in:
+
+  ```text
+  This person is signed in by a site, which gives their grants back at their next sign-in: remove the person, change their role on the site, or pause the site instead
+  ```
+
+- **To change what they get,** change the site's `roleMap`, or their role in
+  WordPress. It applies at their next sign-in, so within 15 minutes.
+- **In the people list,** a site's person shows as "Jane, via Acme store",
+  with no grants of their own: theirs come from the site.
+- **Their name follows the site.** Each sign-in shows them as the site names
+  them then, or as "A person, via Acme store" when it sends no name.
+
+## Pause, re-key or remove
+
+- **Pause the site** (`kindgi.projects.sites.pause(projectId, siteId)`).
+  It ends every session the site opened, and refuses its sign-ins until
+  `resume`. The page says "This site is paused: a tenant admin resumes it".
+- **Get a new code** (`newEnrollmentCode`). Connecting with it replaces every
+  key the site has and ends its sessions. Use it when the site moves, or its
+  key may be out.
+- **Revoke one key** (`revokeKey(projectId, siteId, kid)`). It ends the
+  sessions that key opened.
+- **Remove one person** (`kindgi.users.unregister(userId)`). Their next
+  sign-in is refused: "This person was removed: a tenant admin can let them
+  back in".
+- **When someone leaves the store,** remove them in Kindgi too. Deleting
+  their WordPress user, or taking away their roles, reaches Kindgi only at
+  their next sign-in through the site. Until then, they keep their reviewer
+  role and its emails.
+
+## When a sign-in is refused
+
+Kindgi answers 401 `site-sign-in-refused` with a reason in
+`details.reason`, and the page shows its message:
+
+```json
+{
+  "error": {
+    "code": "site-sign-in-refused",
+    "message": "This statement was already used",
+    "details": { "reason": "replayed" },
+    "requestId": "…"
+  }
+}
+```
+
+| `reason` | Message | What to do |
+| --- | --- | --- |
+| `not-verified` | The statement couldn't be verified: check the site's id, key and signature | Connect the site again with a new code. Before the signature checks out, Kindgi says nothing more: an unknown site, an unknown or retired key and a bad signature all read the same. |
+| `site-paused` | This site is paused: a tenant admin resumes it | Resume the site. |
+| `site-not-vouching` | This site doesn't sign its people in | Set `vouching` to `true`, unless the site was unregistered. |
+| `wrong-audience` | The statement's audience isn't this deployment's: expected … | The runtime's `KINDGI_PUBLIC_URL` changed since the site connected. Connect it again with a new code. |
+| `expired` | The statement has expired | Check the site's clock: Kindgi allows 30 seconds of difference. |
+| `issued-in-the-future` | The statement's `iat` is in the future | Check the site's clock. |
+| `too-long-lived` | A statement lives at most 60 s | Something other than the plugin signs the site's statements: use the plugin. |
+| `malformed` | The statement needs `iat`, `exp`, `jti` and `sub` | The same: use the plugin. |
+| `replayed` | This statement was already used | The plugin never sends one twice. A copied statement is refused. |
+| `role-not-allowed` | None of these roles may sign in through this site | Add the role to `allowedRoles`. A person who had signed in before loses what their roles gave them. |
+| `person-removed` | This person was removed: a tenant admin can let them back in | |
+| `people-cap` | This site has as many people as it may: a tenant admin can raise its cap | Raise `peopleCap` or `newPeoplePerDay`. |
+
+Too many sign-ins at once get 429, with `Retry-After`.
+
+## Give the agent the store's actions
+
+WordPress's Abilities API and the MCP Adapter plugin can expose the store's
+actions (look up an order, refund it) as
+[an MCP server's tools](../../tools/mcp-servers/):
+
+- **Register your own adapter server,** and list each ability on it. Each
+  becomes its own tool, named `<endpoint>.<ability, with / as ->`: with an
+  endpoint named `shop`, `acme/refund-order` becomes
+  `shop.acme-refund-order`. Each tool then gets its own approval rule.
+- **Never give an agent the default server's `execute-ability`.** It runs
+  any ability by name, so one approval rule would cover every action.
+- **Set `meta.mcp.public` to `false`** on every ability with side effects,
+  so that only your own server exposes it.
+- **Give read-only tools `never_ask`.** An MCP tool always counts as one
+  that changes things, so a gate asks before each one by default:
+
+  ```ts
+  conversationPolicy: {
+    hitl: {
+      tools: {
+        default: 'always_ask',
+        overrides: { 'shop.acme-order-lookup': 'never_ask' },
+      },
+      separateApprover: { overrides: { 'shop.acme-refund-order': true } },
+    },
+  },
+  ```
+
+- **Give money tools no automatic retries on a tool error.** A retry is a
+  new call, with its own approval and its own idempotency key. If the first
+  call refunded before it failed, the retry refunds again. Have the tool
+  check the store's existing refunds first.
+
+## What the plugin keeps on the site
+
+The plugin's
+[README](https://github.com/kindgi/kindgi-sdk/tree/main/integrations/wordpress/kindgi#what-the-plugin-stores)
+lists what it keeps, and how WordPress's personal-data tools cover it.
+
+Erasing a person with those tools forgets them on the site, not in Kindgi.
+Kindgi keeps its own record of the person: removing them there
+(`kindgi.users.unregister`) ends their sign-ins, and their name stays on the
+records they're part of, decisions included.
