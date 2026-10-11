@@ -145,7 +145,7 @@ kindgi eval-runs show <eval-run-id>
 
 ```json
 {
-  "runId": "b4ec86b8-aaa6-438d-8e2b-e45d0a3706a1",
+  "runId": "941582fc-9e32-41bb-b148-767712664c6b",
   …
   "suiteId": "acme.desk-checks",
   "suiteVersion": "1.0.0",
@@ -157,8 +157,8 @@ kindgi eval-runs show <eval-run-id>
     "perCase": [
       {
         …
-        "caseId": "b0eb1310-cd99-43ec-a9f1-4b56beeb23ae",
-        "runIds": ["7b3c3a87-b433-448a-8113-ac78c0ee6137"],
+        "caseId": "46b82ad4-1c2a-45f8-a593-a9c912964fd3",
+        "runIds": ["c839338c-cfc1-4bf3-b4e3-c7f24e38a473"],
         "changes": {
           "new": [{ "key": "answer", "pointer": "/appended/1/content" }],
           "kept": [],
@@ -188,7 +188,7 @@ replay run, at the `pointer` the comparison names. A replay's answer is at
 that isn't in the run's output is refused (`400 item-not-found`):
 
 ```sh
-kindgi judgments add --run=7b3c3a87-b433-448a-8113-ac78c0ee6137 --item=answer --pointer=/appended/1/content --yes
+kindgi judgments add --run=c839338c-cfc1-4bf3-b4e3-c7f24e38a473 --item=answer --pointer=/appended/1/content --yes
 ```
 
 Then rescore the proposal:
@@ -207,7 +207,7 @@ Equal isn't better: a rescore that finds the candidate better makes it
 
 ```json
 {
-  "id": "59304a9b-678e-4b12-99f3-2e7e500940d6",
+  "id": "9c8efe90-f4ac-4ce8-bb6f-5cd5ae7a043c",
   "agentId": "acme.desk",
   "fromVersion": "1.0.0",
   …
@@ -219,9 +219,9 @@ Equal isn't better: a rescore that finds the candidate better makes it
   },
   "evaluation": {
     "suiteId": "acme.desk-checks",
-    "evalRunId": "d5ef632b-7293-4992-bf25-3edb3921bcc2",
+    "evalRunId": "e6d9ec9a-0341-4d18-a3f3-d8e1289f5dc0",
     "objective": "weightedYesShare",
-    "startedAt": "2026-10-11T07:13:41.411Z",
+    "startedAt": "2026-10-11T08:09:47.089Z",
     "runStatus": "completed",
     "baseline": 1,
     "candidate": 1,
@@ -239,7 +239,7 @@ metric's `freshWeight` is the weight of those judgments, and per case,
 `candidate[].fresh` and `changes.new[].judged`:
 
 ```json
-"comparison": { "k": 10, "reads": "recorded", "baseline": "recorded", "rescoreOf": "b4ec86b8-aaa6-438d-8e2b-e45d0a3706a1", "repetitions": 1 },
+"comparison": { "k": 10, "reads": "recorded", "baseline": "recorded", "rescoreOf": "941582fc-9e32-41bb-b148-767712664c6b", "repetitions": 1 },
 …
 "weightedYesShare": { "n": 3, "delta": 0, "weight": 3, "baseline": 1, "baselineN": 3, "candidate": 1, "direction": "higher", "freshWeight": 3, "baselineWeight": 3 }
 ```
