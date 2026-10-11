@@ -9,7 +9,7 @@
 - **`PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint`** `{ url, auth, token }`, which checks:
   - the URL is `https://<host>` (`endpoint-url-invalid`);
   - its host is on the operator's allowlist (`endpoint-host-not-allowed`);
-  - its host names the deployment's own service, `packServiceName(tenantId, deploymentId)` then `-` or `.` (`endpoint-name-mismatch`; skipped when the operator's names setting is `any`);
+  - its host names the deployment's own service, `packServiceName(tenantId, deploymentId)` then `-` or `.` (`endpoint-name-mismatch`);
   - the image is in the tenant's repository (`image-not-allowed`);
   - the pack service answers as this deployment (`endpoint-unreachable`, `endpoint-info-mismatch`).
 

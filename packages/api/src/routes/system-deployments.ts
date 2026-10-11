@@ -190,12 +190,6 @@ export interface SystemDeploymentsOptions {
    * `packEndpointHostAllowed`). It's given the URL's `hostname`.
    */
   readonly endpointHostAllowed: (hostname: string) => boolean;
-  /**
-   * Check 3 (`KINDGI_PACK_ENDPOINT_NAMES`): `bound` (the default), the host
-   * must name the deployment's own service (`packServiceName`); `any` skips
-   * it, for a hand-run setup.
-   */
-  readonly endpointNames?: 'bound' | 'any';
 }
 
 const DEFAULT_LIMIT = 25;
@@ -228,7 +222,6 @@ export function systemDeploymentsRouter(
   },
 ): Hono<AppEnv> {
   const { binding, directory: tenants, authorizer } = options;
-  const names = options.endpointNames ?? 'bound';
   const r = new Hono<AppEnv>();
 
   // ---------- GET /deployments?endpoint=missing|retire ----------
@@ -280,7 +273,7 @@ export function systemDeploymentsRouter(
       { scope: DEPLOYMENTS, refuse: ['closing', 'suspended'], ...(authorizer && { authorizer }) },
       async (tenant) => {
         const target = { tenantId: tenant.id, deploymentId: ref.value.deploymentId };
-        const checked = checkEndpoint(parsed.value.url, target, options, names);
+        const checked = checkEndpoint(parsed.value.url, target, options);
         if (checked.kind === 'err') {
           // On record, so a deploy waiting for `ready` can say why at once.
           const recorded = await binding.recordProblem({ ...target, code: checked.error.code });
@@ -427,7 +420,6 @@ function checkEndpoint(
   raw: string,
   target: DeploymentRef,
   options: SystemDeploymentsOptions,
-  names: 'bound' | 'any',
 ): { kind: 'ok'; value: URL } | { kind: 'err'; error: EndpointRefusal } {
   const url = parseEndpointUrl(raw);
   if (url.kind === 'err') return url;
@@ -441,18 +433,16 @@ function checkEndpoint(
       },
     };
   }
-  if (names === 'bound') {
-    const name = packServiceName(target.tenantId, target.deploymentId);
-    if (!hostNamesPackService(host, name)) {
-      return {
-        kind: 'err',
-        error: {
-          code: 'endpoint-name-mismatch',
-          message: `${host} doesn't name this deployment's pack service, ${name}.`,
-          expected: name,
-        },
-      };
-    }
+  const name = packServiceName(target.tenantId, target.deploymentId);
+  if (!hostNamesPackService(host, name)) {
+    return {
+      kind: 'err',
+      error: {
+        code: 'endpoint-name-mismatch',
+        message: `${host} doesn't name this deployment's pack service, ${name}.`,
+        expected: name,
+      },
+    };
   }
   return url;
 }

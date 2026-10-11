@@ -127,7 +127,7 @@ function makeBinding() {
   return { binding, add, endpoints, set, outcomes, needing, retiring, suspendedPacks, key };
 }
 
-function makeApp(options: { readonly names?: 'bound' | 'any' } = {}) {
+function makeApp(options: { readonly hostAllowed?: (host: string) => boolean } = {}) {
   const deployments = makeBinding();
   const audit: SystemAccessRecord[] = [];
   const app = createApp({
@@ -167,8 +167,7 @@ function makeApp(options: { readonly names?: 'bound' | 'any' } = {}) {
     },
     systemDeployments: {
       binding: deployments.binding,
-      endpointHostAllowed: (host) => host.endsWith(RUN_TAIL),
-      ...(options.names !== undefined && { endpointNames: options.names }),
+      endpointHostAllowed: options.hostAllowed ?? ((host) => host.endsWith(RUN_TAIL)),
     },
   });
   const call = async (token: string, method: string, path: string, body?: unknown) => {
@@ -443,23 +442,30 @@ describe('PUT …/endpoint', () => {
     expect(deployments.set).toEqual([]);
   });
 
-  test('check 3 is skipped with endpointNames: any (a hand-run setup); the allowlist still holds', async () => {
-    const { call, deployments } = makeApp({ names: 'any' });
+  test('check 3 holds under a domain allowlist too: a host it admits must still name the service', async () => {
+    // `*.packs.internal`: one label in front of the domain, as the env parser reads it.
+    const { call, deployments } = makeApp({
+      hostAllowed: (host) => /^[a-z0-9-]+\.packs\.internal$/.test(host),
+    });
     deployments.add(live, 'dep-1');
-    const ok = await call(
-      ORCHESTRATOR,
-      'PUT',
-      endpointPath(live, 'dep-1'),
-      body(`https://packs${RUN_TAIL}`),
-    );
+    for (const host of [
+      'packs.packs.internal',
+      `${packServiceName(live, 'dep-2')}.packs.internal`,
+    ]) {
+      const r = await call(
+        ORCHESTRATOR,
+        'PUT',
+        endpointPath(live, 'dep-1'),
+        body(`https://${host}`),
+      );
+      expect(r.status, host).toBe(422);
+      expect(code(r), host).toBe('endpoint-name-mismatch');
+    }
+    expect(deployments.set).toEqual([]);
+    const own = `https://${packServiceName(live, 'dep-1')}.packs.internal`;
+    const ok = await call(ORCHESTRATOR, 'PUT', endpointPath(live, 'dep-1'), body(own));
     expect(ok.status).toBe(200);
-    const off = await call(
-      ORCHESTRATOR,
-      'PUT',
-      endpointPath(live, 'dep-1'),
-      body('https://packs.acme.example'),
-    );
-    expect(code(off)).toBe('endpoint-host-not-allowed');
+    expect(deployments.set).toHaveLength(1);
   });
 
   test.each([

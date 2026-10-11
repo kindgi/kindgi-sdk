@@ -1571,7 +1571,7 @@ export const SetPackEndpointBodySchema: JsonSchema = {
     url: {
       type: 'string',
       description:
-        "`https://<host>`: no user info, path, query or fragment. Its host must be on the operator's allowlist (`KINDGI_PACK_ENDPOINT_HOSTS`) and, unless the operator set `KINDGI_PACK_ENDPOINT_NAMES=any`, begin with the deployment's own service name (`packServiceName`), then `-` or `.`.",
+        "`https://<host>`: no user info, path, query or fragment. Its host must be on the operator's allowlist (`KINDGI_PACK_ENDPOINT_HOSTS`) and begin with the deployment's own service name (`packServiceName`), then `-` or `.`.",
     },
     auth: {
       type: 'string',
