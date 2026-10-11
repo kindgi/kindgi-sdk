@@ -165,7 +165,6 @@ import {
   systemTenantsRouter,
   systemWhoamiRouter,
 } from './routes/system-tenants.js';
-import { type SystemUsageBinding, systemUsageRouter } from './routes/system-usage.js';
 import { projectTeamGrantsRouter, teamProjectGrantsRouter } from './routes/team-grants.js';
 import { teamsRouter } from './routes/teams.js';
 import { tenantRouter } from './routes/tenant.js';
@@ -576,11 +575,6 @@ export interface CreateAppInput {
    * Mounted only with `systemTenantDirectory` too.
    */
   readonly systemTenantSettings?: SystemTenantSettingsBinding;
-  /**
-   * Optional. Usage across tenants, aggregated: `GET /v1/system/usage`
-   * (`system:usage:read`). Without it the route isn't mounted (404).
-   */
-  readonly systemUsage?: SystemUsageBinding;
   /**
    * Optional. The runtime's tenants, for the operator: `/v1/system/tenants`
    * (create, list, read, close, suspend, the image prefix, the admins'
@@ -1568,15 +1562,6 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       }),
     );
   }
-  if (input.systemUsage !== undefined) {
-    v1.route(
-      '/system/usage',
-      systemUsageRouter({
-        usage: input.systemUsage,
-        ...(authorizer !== undefined && { authorizer }),
-      }),
-    );
-  }
   v1.route(
     '/provenance',
     provenanceRouter(
@@ -2062,7 +2047,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     const s3 = new Hono<AppEnv>();
     s3.use('*', sigv4Middleware(input.s3Credentials));
     // A frozen tenant's artifacts are read, not written, here too.
-    s3.use('*', tenantStateGate(input.tenantStates));
+    s3.use('*', tenantStateGate(input.tenantStates, { surface: 's3' }));
     s3.route('/', s3Router(input.blobStorage));
     app.route('/s3', s3);
   }

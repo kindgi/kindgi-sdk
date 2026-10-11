@@ -55,8 +55,6 @@ const TAG_DESCRIPTIONS: Readonly<Record<string, string>> = {
     'The deployment trust list: the public keys whose signatures `POST /v1/deployments` accepts. Revoked keys stay readable for audit.',
   'system-tenants':
     "The operator's tenants on a runtime serving many: create, list, read, close and suspend them (a project too), and what the control plane sets on each (production, limits, the image prefix), plus the admins' contacts for service notices. System keys only, each route under its own scope.",
-  'system-usage':
-    "Usage across tenants, aggregated (counts, sums, first and last times): the control plane's pull for statements. System keys only.",
   'system-keys':
     "The operator's system keys (`kgi_sy_…`), on a runtime serving many tenants: each acts in no tenant, with the least system scope its service needs (sign-up, the orchestrator, billing, the license renewal), and only the full system capability mints them. A runtime serving one tenant has none.",
   'system-deployments':

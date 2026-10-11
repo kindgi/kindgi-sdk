@@ -3,7 +3,7 @@
 
 import { randomBytes, randomUUID } from 'node:crypto';
 
-import { Hono } from 'hono';
+import aws4 from 'aws4';
 import { describe, expect, test } from 'vitest';
 
 import type { TenantId } from '@kindgi/types';
@@ -15,10 +15,8 @@ import {
   createApp,
   imagePrefixesOverlap,
   parseImagePrefix,
-  tenantStateGate,
 } from '../src/index.js';
 import type {
-  AppEnv,
   ImagePrefix,
   RunHandlerBinding,
   SystemAccessRecord,
@@ -26,6 +24,7 @@ import type {
   SystemTenantDirectory,
   SystemTenantsBinding,
 } from '../src/index.js';
+import { fullAppInput } from './support/full-app.js';
 
 /**
  * `/v1/system/tenants`: the operator creates, reads, closes and suspends
@@ -149,7 +148,8 @@ const KEYS: Record<string, string[]> = {
   kgi_sy_signup: ['system:tenants', 'system:tenants:image-prefix', 'system:tenants:production'],
   kgi_sy_support: ['system:suspend'],
   kgi_sy_notices: ['system:tenants:contacts'],
-  kgi_sy_billing: ['system:usage:read'],
+  /** The orchestrator: deployments only, none of the tenant scopes. */
+  kgi_sy_orchestrator: ['system:deployments'],
 };
 
 function makeApp() {
@@ -283,7 +283,7 @@ describe('POST /v1/system/tenants', () => {
 
   test('a key without system:tenants is refused', async () => {
     const { call, code } = makeApp();
-    for (const token of ['kgi_sy_support', 'kgi_sy_notices', 'kgi_sy_billing']) {
+    for (const token of ['kgi_sy_support', 'kgi_sy_notices', 'kgi_sy_orchestrator']) {
       const r = await call(token, 'POST', '/v1/system/tenants', SIGNUP);
       expect(r.status, token).toBe(403);
       expect(code(r), token).toBe('system-scope-missing');
@@ -379,9 +379,9 @@ describe('reading, closing, suspending, the image prefix and the admins', () => 
 
 test('GET /v1/system/whoami: any system key, its own id and scopes', async () => {
   const { call } = makeApp();
-  const me = await call('kgi_sy_billing', 'GET', '/v1/system/whoami');
+  const me = await call('kgi_sy_orchestrator', 'GET', '/v1/system/whoami');
   expect(me.status).toBe(200);
-  expect(me.body).toEqual({ keyId: 'kgi_sy_billing', scopes: ['system:usage:read'] });
+  expect(me.body).toEqual({ keyId: 'kgi_sy_orchestrator', scopes: ['system:deployments'] });
 });
 
 describe('least privilege on the public surface: a create-only key', () => {
@@ -560,21 +560,82 @@ describe('a closing or suspended tenant is frozen, whatever way it comes in', ()
     expect(await codeOf(res)).not.toMatch(/^tenant-/);
   });
 
-  test('the S3 surface too: a frozen tenant reads and deletes its artifacts, never writes them', async () => {
-    const app = new Hono<AppEnv>();
-    app.use('*', async (c, next) => {
-      c.set('requestId', 'req-s3');
-      c.set('tenantId', randomUUID() as TenantId);
-      await next();
+  /** The S3-compatible surface, signed with the tenant's own S3 key, as S3 clients sign. */
+  function s3App(state: 'active' | 'suspended' | 'closing' | 'unreadable') {
+    const tenantId = randomUUID() as TenantId;
+    const S3_KEY = 'AKIAKINDGITEST000011';
+    const S3_SECRET = 'kindgi-test-secret-key-0000000000000011';
+    const blobStorage = fullAppInput().blobStorage;
+    if (blobStorage === undefined) throw new Error('fullAppInput has no blob storage');
+    const app = createApp({
+      ...createStubAppBindings(),
+      resolveToken: async () => null,
+      runHandler: {} as RunHandlerBinding,
+      blobStorage,
+      s3Credentials: {
+        async resolve(accessKeyId) {
+          return accessKeyId === S3_KEY
+            ? ({ accessKeyId, secretKey: S3_SECRET, tenantId, bucket: 'artifacts' } as never)
+            : null;
+        },
+      },
+      tenantStates: {
+        of: async () => {
+          if (state === 'unreadable') throw new Error('the database is down');
+          return state;
+        },
+      },
     });
-    app.use('/s3/*', tenantStateGate({ of: async () => 'suspended' }));
-    app.all('/s3/*', (c) => c.json({ reached: true }));
-    for (const method of ['PUT', 'POST'] as const) {
-      expect((await app.request('/s3/bucket/key', { method })).status, method).toBe(409);
-    }
-    for (const method of ['GET', 'DELETE'] as const) {
-      expect((await app.request('/s3/bucket/key', { method })).status, method).toBe(200);
-    }
+    return async (method: string, path: string, body = '') => {
+      const opts = {
+        host: 'localhost',
+        method,
+        path,
+        service: 's3',
+        region: 'us-east-1',
+        headers: { host: 'localhost' } as Record<string, string>,
+        body,
+      };
+      new aws4.RequestSigner(opts, { accessKeyId: S3_KEY, secretAccessKey: S3_SECRET }).sign();
+      const res = await app.request(`http://localhost${path}`, {
+        method,
+        headers: Object.fromEntries(Object.entries(opts.headers).map(([k, v]) => [k, String(v)])),
+        ...(body.length > 0 && { body, duplex: 'half' }),
+      } as RequestInit);
+      return {
+        status: res.status,
+        type: res.headers.get('content-type'),
+        retryAfter: res.headers.get('retry-after'),
+        code: /<Code>([^<]+)<\/Code>/.exec(await res.text())?.[1],
+      };
+    };
+  }
+
+  test.each(['closing', 'suspended'] as const)(
+    "the S3 surface too, in S3's terms: a %s tenant reads and deletes its artifacts, never writes them",
+    async (state) => {
+      const send = s3App(state);
+      const put = await send('PUT', '/s3/artifacts/report.txt', 'hello');
+      expect(put).toMatchObject({ status: 403, code: 'AllAccessDisabled' });
+      expect(put.type).toContain('application/xml');
+      for (const method of ['GET', 'DELETE'] as const) {
+        expect((await send(method, '/s3/artifacts/report.txt')).code, method).not.toBe(
+          'AllAccessDisabled',
+        );
+      }
+    },
+  );
+
+  test("on the S3 surface, a state that can't be read refuses the write with S3's 503", async () => {
+    const put = await s3App('unreadable')('PUT', '/s3/artifacts/report.txt', 'hello');
+    expect(put).toMatchObject({ status: 503, code: 'ServiceUnavailable', retryAfter: '5' });
+  });
+
+  test('on the S3 surface, an active tenant writes as before: the gate lets it through', async () => {
+    // The stub store refuses every write, so the router's own error shows it got there.
+    const put = await s3App('active')('PUT', '/s3/artifacts/report.txt', 'hello');
+    expect(put.status).not.toBe(403);
+    expect(put.code).not.toMatch(/^(AllAccessDisabled|ServiceUnavailable)$/);
   });
 });
 

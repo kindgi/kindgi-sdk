@@ -10527,68 +10527,6 @@ export const TenantLimitsResultSchema: JsonSchema = {
   },
 };
 
-export const UsageGroupSchema: JsonSchema = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['count', 'quantity', 'firstAt', 'lastAt'],
-  description:
-    "One group: the dimensions it's grouped by (only those), then its count, the sum of its quantities, and its first and last times.",
-  properties: {
-    tenantId: { type: 'string', format: 'uuid' },
-    projectId: { type: 'string' },
-    agentId: { type: 'string' },
-    kind: {
-      type: 'string',
-      enum: [
-        'run.started',
-        'run.ended',
-        'approval.requested',
-        'approval.decided',
-        'llm.inference',
-        'llm.embedding',
-        'project.production',
-      ],
-    },
-    class: {
-      type: 'string',
-      enum: ['production', 'staging', 'dry-run', 'replay', 'eval', 'child'],
-    },
-    state: { type: 'string', enum: ['on', 'off'] },
-    day: {
-      type: 'string',
-      pattern: '^\\d{4}-\\d{2}-\\d{2}$',
-      description: 'The UTC date, `YYYY-MM-DD`.',
-    },
-    count: { type: 'integer', minimum: 0, description: 'Records in the group.' },
-    quantity: {
-      type: 'number',
-      description:
-        'The sum of their quantities: milliseconds for `run.ended`, tokens for model calls.',
-    },
-    firstAt: { type: 'string', format: 'date-time' },
-    lastAt: { type: 'string', format: 'date-time' },
-  },
-};
-
-export const SystemUsagePageSchema: JsonSchema = {
-  type: 'object',
-  additionalProperties: false,
-  required: ['data', 'watermark'],
-  properties: {
-    data: { type: 'array', items: ref('UsageGroup') },
-    watermark: {
-      type: 'string',
-      format: 'date-time',
-      description:
-        "Every record at or before this time is in the answer; a later one may not be yet. Re-read a window until its watermark is past the window's end.",
-    },
-    nextCursor: {
-      type: 'string',
-      description: 'More groups: pass it as `cursor`. Absent on the last page.',
-    },
-  },
-};
-
 /**
  * Kind enum for the tenant config routes. The values `env` and `config`
  * both route to `EnvBinding`; `secret` routes to `SecretBinding`. The
@@ -12820,8 +12758,6 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ProductionAllowedBody', ProductionAllowedBodySchema],
   ['TenantProductionAllowed', TenantProductionAllowedSchema],
   ['TenantLimitsResult', TenantLimitsResultSchema],
-  ['UsageGroup', UsageGroupSchema],
-  ['SystemUsagePage', SystemUsagePageSchema],
   ['TenantConfigKind', TenantConfigKindSchema],
   ['TenantConfigEntry', TenantConfigEntrySchema],
   ['TenantConfigCollectionPage', TenantConfigCollectionPageSchema],

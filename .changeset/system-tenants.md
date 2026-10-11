@@ -33,6 +33,7 @@ The TypeScript client's `systemTenants` and `systemKeys.whoami`, and the Python 
   - **What still works:** reading, its signed exports, signing in and out, deleting, erasure in every state before purge (`POST /v1/memory/erasures`, `…/replay`, `…/{erasureId}/resume`, and the retention sweeps), unregistering, and revoking keys and sessions.
   - **Anything else** is `409 tenant-closing` or `409 tenant-suspended`, registering or changing a sign-in provider included.
   - **If the state can't be read,** a write gets `503 tenant-state-unavailable`, failing closed.
+  - **On `/s3`,** both answers are S3 error documents, which S3 clients parse: `403 AllAccessDisabled`, and `503 ServiceUnavailable` with `Retry-After`.
   - `GET /v1/tenant` carries `state`.
 - **On a runtime serving many tenants only, `POST /v1/deployments`** refuses an image outside the tenant's repository (`409 image-not-allowed`), before any registry read, and refuses a tenant without one (`409 image-prefix-unset`). A runtime serving one tenant never checks.
 - **The tenants list** carries `hasMore`.

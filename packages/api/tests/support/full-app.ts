@@ -699,10 +699,5 @@ export function fullAppInput(): CreateAppInput {
         throw new Error('not used: no system principal in the sweeps');
       },
     },
-    systemUsage: {
-      read: async () => {
-        throw new Error('not used: no system principal in the sweeps');
-      },
-    },
   };
 }

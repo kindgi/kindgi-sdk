@@ -7,6 +7,7 @@ import type { TenantId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import type { AppEnv } from '../types.js';
+import { errorXml } from '../xml.js';
 
 /** Where a tenant stands: `closing` wins over `suspended`; absent is active. */
 export interface TenantStateBinding {
@@ -60,12 +61,17 @@ const RETRY_AFTER_S = 5;
  * tenant-state-unavailable`): it fails closed. A system principal is fenced
  * elsewhere. Without `states` (a runtime serving one tenant) nothing is
  * frozen.
+ *
+ * On the S3-compatible surface (`surface: 's3'`) it answers in S3's terms,
+ * which S3 clients parse: `403 AllAccessDisabled` for a frozen tenant, and
+ * `503 ServiceUnavailable` with `Retry-After` when the state can't be read.
  */
 export function tenantStateGate(
   states: TenantStateBinding | undefined,
-  options: { readonly cacheMs?: number } = {},
+  options: { readonly cacheMs?: number; readonly surface?: 'api' | 's3' } = {},
 ): MiddlewareHandler<AppEnv> {
   const cacheMs = options.cacheMs ?? DEFAULT_CACHE_MS;
+  const s3 = options.surface === 's3';
   const cache = new Map<string, { readonly state: string | undefined; readonly at: number }>();
   const stateOf = async (lookup: TenantStateBinding, tenantId: TenantId) => {
     const key = tenantId as unknown as string;
@@ -95,22 +101,25 @@ export function tenantStateGate(
         tenantId,
       });
       c.header('Retry-After', String(RETRY_AFTER_S));
-      return answer(
-        c,
-        'tenant-state-unavailable',
-        "This workspace's state can't be read just now, so nothing was changed: try again.",
-      );
+      const message =
+        "This workspace's state can't be read just now, so nothing was changed: try again.";
+      return s3
+        ? s3Answer(c, 'ServiceUnavailable', message, 503)
+        : answer(c, 'tenant-state-unavailable', message);
     }
     if (state !== 'closing' && state !== 'suspended') return next();
-    return answer(
-      c,
-      `tenant-${state}`,
+    const message =
       state === 'closing'
         ? 'This workspace is closing: it can be read and exported until it is deleted, and nothing in it changes.'
-        : 'This workspace is suspended: it can be read and exported, and nothing in it changes until it is restored.',
-      { state },
-    );
+        : 'This workspace is suspended: it can be read and exported, and nothing in it changes until it is restored.';
+    return s3
+      ? s3Answer(c, 'AllAccessDisabled', message, 403)
+      : answer(c, `tenant-${state}`, message, { state });
   };
+}
+
+function s3Answer(c: Context<AppEnv>, code: string, message: string, status: 403 | 503): Response {
+  return c.body(errorXml(code, message), status, { 'Content-Type': 'application/xml' });
 }
 
 function answer(
