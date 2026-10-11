@@ -188,22 +188,29 @@ in:
 
 - **Status:** Active
 - **Topic:** Order created
-- **Delivery URL:** the receive URL
+- **Delivery URL:** the receive URL, at an address the store can reach (below)
 - **Secret:** the signing secret
 - **API version:** WP REST API Integration v3
 
 Save it. WooCommerce sends a test request, and Kindgi answers it without
 starting a run.
 
-The receive URL is built from the runtime's public address
-(`KINDGI_PUBLIC_URL`), and WordPress delivers only to a public one: it refuses
-private addresses (`localhost`, `host.docker.internal`, your network) and
-ports other than 80, 443 and 8080. So for a store on the internet, run
-Kindgi where the store can reach it, or put `kindgi dev` behind a tunnel with
-a public https address and set `KINDGI_PUBLIC_URL` to it before you register.
-A test store on your own machine can allow your address instead, with
-WordPress's `http_request_host_is_external` and `http_allowed_safe_ports`
-filters in a small plugin. Never on a real store.
+The receive URL is the runtime's public address (`KINDGI_PUBLIC_URL`) and a
+path, `/v1/hooks/<tenant id>/<webhook id>`. Under `kindgi dev` the address is
+`http://127.0.0.1:<port>`, which only your machine reaches, and WordPress
+delivers only to public addresses: it refuses private ones (`localhost`,
+`host.docker.internal`, your network) and ports other than 80, 443 and 8080.
+Kindgi checks each delivery's signature, not the address it came to, so give
+the store any address that reaches the runtime, with the receive URL's path:
+
+- **A store on the internet:** run Kindgi where the store can reach it, or put
+  `kindgi dev` behind a tunnel with a public https address and use
+  `https://<tunnel>/v1/hooks/…` as the delivery URL.
+- **A test store on your own machine:** allow your address with WordPress's
+  `http_request_host_is_external` and `http_allowed_safe_ports` filters in a
+  small plugin, and use your machine's address as the store sees it (from a
+  container, `http://host.docker.internal:<port>/v1/hooks/…`). Never on a
+  real store.
 
 WooCommerce never resends a delivery, and it turns a webhook off after 7
 refused deliveries in a row. `{{KINDGI}} webhooks list` and the trigger's
