@@ -9162,8 +9162,29 @@ export const DeploymentRecordSchema: JsonSchema = {
       format: 'date-time',
       description: 'Server-side ledger timestamp — when the register call succeeded.',
     },
+    endpoint: { $ref: '#/components/schemas/DeploymentEndpoint' },
     primitives: { $ref: '#/components/schemas/DeploymentPrimitiveCounts' },
     contents: { $ref: '#/components/schemas/DeploymentContents' },
+  },
+};
+
+/**
+ * A deployment's pack service, as a tenant sees it (never its URL or
+ * token). Present only when the server routes pack calls per deployment.
+ */
+export const DeploymentEndpointSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['status', 'since'],
+  description:
+    "Its pack service's status, when the server routes each pack call to the deployment that shipped the tool (`KINDGI_PACK_ROUTING=per-deployment`). Absent otherwise. `pending`: no pack service yet, and calls to its tools fail (`pack-endpoint-pending`) rather than go to another deployment. `ready`: calls go to its own pack service. `cleared`: its pack service was taken down, and calls fail (`pack-endpoint-cleared`). Carries no URL and no token.",
+  properties: {
+    status: { type: 'string', enum: ['pending', 'ready', 'cleared'] },
+    since: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When the status last changed.',
+    },
   },
 };
 
@@ -12116,6 +12137,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['RevokeSessionsResult', RevokeSessionsResultSchema],
   ['DeploymentPrimitiveCounts', DeploymentPrimitiveCountsSchema],
   ['DeploymentContents', DeploymentContentsSchema],
+  ['DeploymentEndpoint', DeploymentEndpointSchema],
   ['DeploymentRecord', DeploymentRecordSchema],
   ['DeploymentRegistrationBody', DeploymentRegistrationBodySchema],
   ['DeploymentCollectionPage', DeploymentCollectionPageSchema],

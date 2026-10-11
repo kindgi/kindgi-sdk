@@ -16245,6 +16245,30 @@
           }
         }
       },
+      "DeploymentEndpoint": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "since"
+        ],
+        "description": "Its pack service's status, when the server routes each pack call to the deployment that shipped the tool (`KINDGI_PACK_ROUTING=per-deployment`). Absent otherwise. `pending`: no pack service yet, and calls to its tools fail (`pack-endpoint-pending`) rather than go to another deployment. `ready`: calls go to its own pack service. `cleared`: its pack service was taken down, and calls fail (`pack-endpoint-cleared`). Carries no URL and no token.",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "ready",
+              "cleared"
+            ]
+          },
+          "since": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the status last changed."
+          }
+        }
+      },
       "DeploymentRecord": {
         "type": "object",
         "additionalProperties": false,
@@ -16312,6 +16336,9 @@
             "type": "string",
             "format": "date-time",
             "description": "Server-side ledger timestamp — when the register call succeeded."
+          },
+          "endpoint": {
+            "$ref": "#/components/schemas/DeploymentEndpoint"
           },
           "primitives": {
             "$ref": "#/components/schemas/DeploymentPrimitiveCounts"

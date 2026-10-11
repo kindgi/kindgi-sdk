@@ -2000,6 +2000,9 @@ function serializeDeployment(d: Deployment): Record<string, unknown> {
     signature: d.signature,
     publishedAt: d.publishedAt,
     activatedAt: d.activatedAt,
+    ...(d.endpoint !== undefined && {
+      endpoint: { status: d.endpoint.status, since: d.endpoint.since },
+    }),
     primitives: {
       tools: d.primitives.tools,
       guardrails: d.primitives.guardrails,

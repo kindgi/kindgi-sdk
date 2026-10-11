@@ -8375,6 +8375,22 @@ class DeploymentContents(BaseModel):
     flows: list[Flow2]
 
 
+class DeploymentEndpoint(BaseModel):
+    """
+    Its pack service's status, when the server routes each pack call to the deployment that shipped the tool (`KINDGI_PACK_ROUTING=per-deployment`). Absent otherwise. `pending`: no pack service yet, and calls to its tools fail (`pack-endpoint-pending`) rather than go to another deployment. `ready`: calls go to its own pack service. `cleared`: its pack service was taken down, and calls fail (`pack-endpoint-cleared`). Carries no URL and no token.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    status: Literal["pending", "ready", "cleared"]
+    since: AwareDatetime
+    """
+    When the status last changed.
+    """
+
+
 class DeploymentRecord(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -8415,6 +8431,7 @@ class DeploymentRecord(BaseModel):
     """
     Server-side ledger timestamp — when the register call succeeded.
     """
+    endpoint: DeploymentEndpoint | None = None
     primitives: DeploymentPrimitiveCounts
     contents: DeploymentContents
 

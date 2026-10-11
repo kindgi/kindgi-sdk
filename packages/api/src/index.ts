@@ -797,6 +797,11 @@ export type {
   ProposalAction,
   ProposalEvaluationOutcome,
 } from './proposal-status.js';
+export {
+  PACK_SERVICE_NAME_PREFIX,
+  hostNamesPackService,
+  packServiceName,
+} from './pack-service-name.js';
 export type {
   Deployment,
   DeploymentBinding,
@@ -809,6 +814,8 @@ export type {
   DeployedPrimitive,
   DeployedVersion,
   DeploymentContents,
+  DeploymentEndpoint,
+  DeploymentEndpointStatus,
   DeploymentPrimitiveCounts,
   DeploymentRegisterInput,
   DeploymentRegisterOutcome,
