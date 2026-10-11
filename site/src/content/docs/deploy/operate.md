@@ -333,8 +333,36 @@ The runtime logs the same at every start, one `WARN` per tool version or endpoin
 
 ### From 0.1.5 to 0.1.6
 
-The database migrates when 0.1.6 starts. What to check before you upgrade,
-and what's different after:
+The database migrates when 0.1.6 starts.
+
+#### Security fixes in 0.1.6
+
+<!-- Each line confirmed against its PR at the cut; a line whose train misses waits. #383 and T660: train D. -->
+
+- **A guardrail could run another tenant's check.** On a runtime serving
+  several tenants, a guardrail naming a pack check its own tenant had never
+  deployed could run another tenant's check of that id, if that tenant had
+  deployed one. 0.1.6 looks a pack check up in the guardrail's own tenant
+  only: such a guardrail fails with `unknown-check` every time, and under
+  `halt` its turn fails.
+- **A model provider's key could reach a tool.** Anyone who could register a
+  tool, an MCP endpoint or a webhook endpoint could name a model provider's
+  key as its secret, and so hand the key to a pack's code or to another
+  server. 0.1.6 refuses that (run `check provider-keys` first, below).
+- **Who may judge as a class was shown to every reader.** Anyone who could
+  read a judge class, a project viewer included, got the ids of the people
+  and service accounts allowed to judge as it. 0.1.6 sends those ids only to
+  an admin of the class's scope; everyone else gets their number
+  (`assertableBy.principalCount`).
+- **A malformed MCP credential could appear in the runtime's log.** An MCP
+  endpoint's credential with a line break or a NUL in its value could show
+  up in the sync log, in the error the HTTP library raised when it refused
+  the header. 0.1.6 refuses such a value before sending, and its log names
+  only the header.
+
+#### What to check, and what's different
+
+What to check before you upgrade, and what's different after:
 
 - **Run `check provider-keys` before you upgrade** (see
   [Checks you can run before upgrading](#checks-you-can-run-before-upgrading)).
