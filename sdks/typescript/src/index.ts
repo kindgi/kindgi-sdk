@@ -368,10 +368,6 @@ export type {
 } from './resources/system-keys.js';
 export type {
   SystemTenantsClient,
-  SystemUsageClient,
-  SystemUsageGroup,
-  SystemUsagePage,
-  SystemUsageQuery,
   TenantLimitsShape,
 } from './resources/system-tenants.js';
 export { SIGNED_EXPORT_ALGORITHMS, verifySignedExport } from './verify-export.js';

@@ -9731,67 +9731,6 @@ class TenantLimitsResult(BaseModel):
     limits: TenantLimits
 
 
-class UsageGroup(BaseModel):
-    """
-    One group: the dimensions it's grouped by (only those), then its count, the sum of its quantities, and its first and last times.
-    """
-
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    tenant_id: Annotated[UUID | None, Field(alias="tenantId")] = None
-    project_id: Annotated[str | None, Field(alias="projectId")] = None
-    agent_id: Annotated[str | None, Field(alias="agentId")] = None
-    kind: (
-        Literal[
-            "run.started",
-            "run.ended",
-            "approval.requested",
-            "approval.decided",
-            "llm.inference",
-            "llm.embedding",
-            "project.production",
-        ]
-        | None
-    ) = None
-    class_: Annotated[
-        Literal["production", "staging", "dry-run", "replay", "eval", "child"] | None,
-        Field(alias="class"),
-    ] = None
-    state: Literal["on", "off"] | None = None
-    day: Annotated[str | None, Field(pattern="^\\d{4}-\\d{2}-\\d{2}$")] = None
-    """
-    The UTC date, `YYYY-MM-DD`.
-    """
-    count: Annotated[int, Field(ge=0)]
-    """
-    Records in the group.
-    """
-    quantity: float
-    """
-    The sum of their quantities: milliseconds for `run.ended`, tokens for model calls.
-    """
-    first_at: Annotated[AwareDatetime, Field(alias="firstAt")]
-    last_at: Annotated[AwareDatetime, Field(alias="lastAt")]
-
-
-class SystemUsagePage(BaseModel):
-    model_config = ConfigDict(
-        extra="allow",
-        populate_by_name=True,
-    )
-    data: list[UsageGroup]
-    watermark: AwareDatetime
-    """
-    Every record at or before this time is in the answer; a later one may not be yet. Re-read a window until its watermark is past the window's end.
-    """
-    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
-    """
-    More groups: pass it as `cursor`. Absent on the last page.
-    """
-
-
 class TenantConfigEntry(BaseModel):
     model_config = ConfigDict(
         extra="allow",
