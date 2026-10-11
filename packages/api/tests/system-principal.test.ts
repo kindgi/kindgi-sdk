@@ -513,7 +513,7 @@ describe('withSystemTenantContext', () => {
   });
 });
 
-describe("w3's review: the operator's powers stay fenced in both ways", () => {
+describe("the operator's powers stay fenced in both ways", () => {
   /** A bare app: a caller set by hand, then the fence, then two routes. */
   function bare(caller: { system?: boolean; capabilities: string[] }, tenancy: 'single' | 'multi') {
     const app = new Hono<AppEnv>();
