@@ -14,8 +14,11 @@ import type {
   PackServiceSupervisor,
   PackServiceSupervisorEvent,
 } from '@kindgi/handler-runtime/pack-service';
+import type { DevLockProcesses } from './dev-lock.js';
 import type { ProjectDatabases } from './project-database.js';
 import type { ProjectOutcome } from './project.js';
+import type { ActiveDevSandbox, SandboxAvailability } from './sandbox/index.js';
+import type { StartPhases } from './start-phases.js';
 
 import type { JvmPackCode, PackCode } from './pack-code.js';
 
@@ -49,6 +52,12 @@ export interface RunningApiServer {
 export interface StartApiServerOptions {
   /** The host port the API is reached on (`127.0.0.1` only). */
   readonly port: number;
+  /**
+   * This `kindgi dev` (its lock's owner): the runtime container is labeled
+   * with it, and one another live `kindgi dev` owns isn't removed.
+   */
+  readonly owner?: string;
+  readonly ownerIsLive?: (owner: string) => Promise<boolean>;
   /**
    * `kindgi dev`'s stop (Ctrl+C, SIGTERM): a wait for the runtime ends at
    * once with `RuntimeStartStopped`, and a container it started is removed.
@@ -95,8 +104,10 @@ export interface StartApiServerOptions {
   readonly logLevels?: Readonly<Record<string, string>>;
   /** Lines the runtime writes (a container's), with the stream each came on. */
   readonly onLog?: (line: string, stream: 'stdout' | 'stderr') => void;
-  /** Progress while preparing (an image pull). */
+  /** Progress while preparing. */
   readonly onProgress?: (line: string) => void;
+  /** The start's phases (the image pull, the container, migrating, waiting for it to serve), as they happen. */
+  readonly startPhases?: StartPhases;
 }
 
 /**
@@ -150,6 +161,13 @@ export interface IndexerRunOptions {
    * line as it comes; not the indexer's own result line.
    */
   readonly onOutput?: (line: string, stream: 'stdout' | 'stderr') => void;
+  /**
+   * The sandbox the indexer child runs in (`dev/sandbox`): it imports every
+   * primitive's module, so it runs the pack's code too. Absent, none.
+   */
+  readonly sandbox?: ActiveDevSandbox;
+  /** A notice for the user from starting the indexer in its sandbox. */
+  readonly onNotice?: (line: string) => void;
 }
 
 /** The local pack service `kindgi dev` runs the pack's code in. */
@@ -169,6 +187,10 @@ export interface DevPackServiceOptions {
    */
   readonly port?: number;
   readonly token?: string;
+  /** The sandbox the pack service runs in (`dev/sandbox`); absent, none. */
+  readonly sandbox?: ActiveDevSandbox;
+  /** A notice for the user from starting the pack service (the sandbox's). */
+  readonly onNotice?: (line: string) => void;
 }
 
 /**
@@ -295,6 +317,11 @@ export type StartServicesResult =
  * to bypass Postgres, real file watchers, or the real indexer.
  */
 export interface DevRunners {
+  /**
+   * How `.kindgi/dev/dev.lock` sees processes (`osProcesses()` when
+   * absent): a test gives its own pids and start times.
+   */
+  readonly devLockProcesses?: DevLockProcesses;
   /** Boot the api-server. Resolves once the HTTP listener is bound. */
   readonly startApiServer: (opts: StartApiServerOptions) => Promise<RunningApiServer>;
   /**
@@ -319,6 +346,8 @@ export interface DevRunners {
   }) => PackBuilder;
   /** The local pack service (not yet started). */
   readonly createPackService: (opts: DevPackServiceOptions) => DevPackService;
+  /** Whether this machine can sandbox the pack service, and with what (`dev/sandbox/detect.ts`). */
+  readonly detectSandbox: () => Promise<SandboxAvailability>;
   /**
    * Check a Python pack's interpreter can run pack code (`import kindgi`),
    * with the pack's environment: a one-line description, or why not.
@@ -383,11 +412,15 @@ export interface DevRunners {
   /**
    * Whether the runtime's port on `127.0.0.1` is taken, checked before
    * anything starts. The pack's own runtime from an earlier boot doesn't
-   * count: starting the runtime replaces it. Missing: not checked.
+   * count: starting the runtime replaces it. One still running for
+   * another live `kindgi dev` (`owner`, `ownerIsLive`, as for the start)
+   * throws `RuntimeOwnedElsewhere`. Missing: not checked.
    */
   readonly runtimePortInUse?: (input: {
     readonly packDir: string;
     readonly port: number;
+    readonly owner?: string;
+    readonly ownerIsLive?: (owner: string) => Promise<boolean>;
   }) => Promise<boolean>;
   readonly startServices?: (options: {
     readonly recreate: boolean;

@@ -25,8 +25,9 @@ starts with `_`. The config is `[tool.kindgi]` in `pyproject.toml`.
 
 `.claude/skills/` holds Kindgi's skills for Python packs: getting started,
 tools, guardrails and agents in Python (`kindgi-python-*`), model providers,
-MCP servers, framework feedback. Claude Code loads them on its own; other
-coding agents can read them. `kindgi skills sync` refreshes them.
+MCP servers, framework feedback, and guiding the person in using what you
+built (`kindgi-using`). Claude Code loads them on its own; other coding
+agents can read them. `kindgi skills sync` refreshes them.
 
 When you diagnose a framework bug (something in Kindgi itself, not in this
 pack's code), append an entry to `FEEDBACK.md` at the pack root via

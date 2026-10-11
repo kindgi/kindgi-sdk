@@ -8,14 +8,20 @@
  * config (just for the pack config which we write to a tmpdir).
  */
 
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
 import { type RunCliInputs, runCli } from '../src/main.js';
-import type { RunTestsOptions, RunTestsResult, TestRunners } from '../src/test/runners.js';
+import { REAL_TEST_RUNNERS } from '../src/test/defaults.js';
+import {
+  type RunTestsOptions,
+  type RunTestsResult,
+  type TestRunners,
+  VITEST_CONFIG_FILENAMES,
+} from '../src/test/runners.js';
 
 let packDir: string;
 
@@ -128,12 +134,26 @@ describe('kindgi test — error handling', () => {
     }
   });
 
-  test('missing vitest config errors with a create-hint', async () => {
+  test('missing vitest config: the names looked for, and what an app Kindgi was added to needs', async () => {
     const fixtures = makeFixtures({ hasConfig: false });
     const out = await runCli(baseInputs(fixtures, ['test', `--path=${packDir}`]));
     expect(out.exitCode).toBe(1);
-    expect(out.stderr).toContain('vitest config');
+    expect(out.stderr).toContain(
+      `could not find a vitest config at ${packDir} (vitest.config.ts, vitest.config.mts, vitest.config.cts, vitest.config.js, vitest.config.mjs, vitest.config.cjs).`,
+    );
+    expect(out.stderr).toContain('vitest and vite in devDependencies');
+    expect(out.stderr).toContain("test.include has 'kindgi/**/*.test.ts'");
+    expect(out.stderr).not.toContain('ship one out of the box');
     expect(fixtures.state.runCalls).toBe(0);
+  });
+
+  test('a pack with kindgi.config.mts is a pack', async () => {
+    await rm(join(packDir, 'kindgi.config.ts'));
+    await writeFile(join(packDir, 'kindgi.config.mts'), 'export default {};\n', 'utf8');
+    const fixtures = makeFixtures();
+    const out = await runCli(baseInputs(fixtures, ['test', `--path=${packDir}`]));
+    expect(out.exitCode).toBe(0);
+    expect(fixtures.state.runCalls).toBe(1);
   });
 
   test('runner-binary-not-found hint points at `pnpm add -D vitest`', async () => {
@@ -170,5 +190,26 @@ describe('kindgi test — JSON output', () => {
     expect(summary.watch).toBe(false);
     expect(summary.reporter).toBe('verbose');
     expect(summary.exitCode).toBe(0);
+  });
+});
+
+// ---------- the real config probe ----------
+
+describe('kindgi test — finding the vitest config', () => {
+  test.each(VITEST_CONFIG_FILENAMES)('%s is found', async (name) => {
+    expect(await REAL_TEST_RUNNERS.hasVitestConfig({ packDir })).toBe(false);
+    await writeFile(join(packDir, name), 'export default {};\n', 'utf8');
+    expect(await REAL_TEST_RUNNERS.hasVitestConfig({ packDir })).toBe(true);
+  });
+
+  test("vitest's own names, all six", () => {
+    expect([...VITEST_CONFIG_FILENAMES].sort()).toEqual(
+      ['ts', 'mts', 'cts', 'js', 'mjs', 'cjs'].map((ext) => `vitest.config.${ext}`).sort(),
+    );
+  });
+
+  test('a folder by that name is not a config', async () => {
+    await mkdir(join(packDir, 'vitest.config.mts'));
+    expect(await REAL_TEST_RUNNERS.hasVitestConfig({ packDir })).toBe(false);
   });
 });

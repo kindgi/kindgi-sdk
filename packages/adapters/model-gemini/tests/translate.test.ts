@@ -92,6 +92,28 @@ describe('function names', () => {
     expect(() => checkFunctionName('has space')).toThrow();
   });
 
+  test("an MCP tool's id with `__` in it goes out and comes back as it is: Gemini takes dots, so nothing is encoded", () => {
+    expect(checkFunctionName('drupal.tool_api__list_content')).toBe(
+      'drupal.tool_api__list_content',
+    );
+    const r = fromGeminiResponse(
+      response({
+        candidates: [
+          {
+            content: {
+              role: 'model',
+              parts: [
+                { functionCall: { id: 'c1', name: 'drupal.tool_api__list_content', args: {} } },
+              ],
+            },
+            finishReason: 'STOP' as never,
+          },
+        ],
+      }),
+    );
+    expect(r.message.toolCalls?.map((c) => c.name)).toEqual(['drupal.tool_api__list_content']);
+  });
+
   test('tool definitions become declarations with the JSON Schema as parametersJsonSchema', () => {
     const schema = { type: 'object', properties: { q: { type: 'string' } }, required: ['q'] };
     expect(

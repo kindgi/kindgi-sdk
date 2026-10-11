@@ -67,6 +67,8 @@ export interface ResponsesCall {
   readonly reasoningEffort?: string;
   /** Warnings about the call, for the answer's `warnings`. */
   readonly warnings?: readonly ModelCallWarning[];
+  /** The tool id a call's tool name stands for (`toolIdsBySentName`). Default: undo the encoding. */
+  readonly toolIdOf?: (name: string) => string;
   /** When the call started (`Date.now()`), for `durationMs`. */
   readonly startedAt: number;
 }
@@ -124,7 +126,7 @@ export async function invokeResponses(call: ResponsesCall): Promise<ModelCallRes
   const durationMs = Date.now() - call.startedAt;
   refuseUnfinished(response, call.providerId);
 
-  const output = readOutput(response.output, input.model);
+  const output = readOutput(response.output, input.model, call.toolIdOf ?? decodeToolName);
   const usage = toFrameworkUsage(response.usage);
   const warnings = call.warnings ?? [];
   return {
@@ -292,14 +294,21 @@ interface Reading {
   phased: boolean;
   /** Something the next call couldn't send back as it came. */
   unlinkable: boolean;
+  /** The tool id a call's tool name stands for. */
+  readonly toolIdOf: (name: string) => string;
 }
 
 /**
  * The answer's text (its refusal when it has no text) and tool calls.
  * The first call carries what the next call needs back.
  */
-function readOutput(output: readonly OutputItem[], model: string): Output {
+function readOutput(
+  output: readonly OutputItem[],
+  model: string,
+  toolIdOf: (name: string) => string,
+): Output {
   const read: Reading = {
+    toolIdOf,
     text: '',
     refusal: '',
     calls: [],
@@ -359,11 +368,10 @@ function readMessage(item: OpenAI.Responses.ResponseOutputMessage, read: Reading
 }
 
 function readFunctionCall(item: OpenAI.Responses.ResponseFunctionToolCall, read: Reading): void {
-  // Decode: the wire returns the encoded name; the framework
-  // expects the canonical dotted form.
+  // The wire names the tool as it was sent; the framework expects its id.
   read.calls.push({
     id: item.call_id,
-    name: decodeToolName(item.name),
+    name: read.toolIdOf(item.name),
     arguments: parseArguments(item.arguments),
   });
   if (item.id === undefined) read.unlinkable = true;

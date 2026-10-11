@@ -5,7 +5,15 @@
 // input variants, record shapes, error shapes, TRIGGER_KINDS constant.
 // The implementation is supplied by the Kindgi runtime.
 
-import type { Cursor, LiveScope, ProjectId, Result, TenantId, TriggerId } from '@kindgi/types';
+import type {
+  Cursor,
+  LiveScope,
+  ProjectId,
+  Result,
+  TenantId,
+  TriggerId,
+  WebhookSignatureScheme,
+} from '@kindgi/types';
 
 import type { CronTriggerConfig, EventTriggerConfig, WebhookTriggerConfig } from './types.js';
 
@@ -27,16 +35,38 @@ export interface TriggerRegistryBinding {
   ): Promise<{ readonly triggerId: TriggerId; readonly unregistered: boolean }>;
 
   /**
-   * Webhook-receiver hot path. The receiver resolves the HMAC secret
-   * named by `hmacSecretName` from the tenant's secrets (`SecretBinding`
-   * in `@kindgi/api`) and verifies the request before spawning. Returns
-   * null when webhookId is unknown, the trigger is tombstoned, or
-   * `status !== 'active'`.
+   * The receiver's lookup: the webhook trigger with this routable id,
+   * paused or unregistered too (`unregistered`), so the receiver verifies
+   * a request with the trigger's own secret before it answers that the
+   * trigger is gone. `null` when the tenant has none. Optional: without
+   * it, `POST /v1/hooks/…` answers every request as an unknown trigger.
    */
-  fetchActiveByWebhookId(input: {
+  findWebhook?(input: {
     readonly tenantId: TenantId;
     readonly webhookId: string;
-  }): Promise<WebhookTriggerRecord | null>;
+  }): Promise<FoundWebhookTrigger | null>;
+
+  /**
+   * A verified delivery to an active webhook trigger: record its fire,
+   * deduped on `(trigger, dedupeKey)`, and start its run as the trigger's
+   * owner with the idempotency key `fire:<fireId>`, after the fire is
+   * committed and without waiting for the run. A delivery whose key a fire
+   * already holds starts nothing: `duplicate`, with that fire's id (its
+   * `duplicates` count goes up). An owner who lost access is the fire's own
+   * outcome (`refused`), not an error here.
+   */
+  fireWebhook?(input: FireWebhookInput): Promise<Result<WebhookFire, TriggerLifecycleError>>;
+
+  /**
+   * A delivery the receiver turned away (or took without starting
+   * anything, a paused trigger's `skipped`): recorded on the trigger's
+   * history, and, when `audit`, in the access audit as the sender's
+   * refusal. Coalesced per trigger: past the first
+   * {@link WEBHOOK_REFUSALS_RECORDED_PER_MINUTE} a minute, a refusal only
+   * counts (`WebhookTriggerRecord.suppressedRefusals`). Refusals never count
+   * toward, nor reset, the trigger's auto-pause.
+   */
+  recordWebhookRefusal?(input: WebhookRefusalInput): Promise<void>;
 
   /**
    * A trigger's fire history, newest first. Optional: without it, the
@@ -106,6 +136,89 @@ export const SCHEDULE_DEFAULTS = {
   readonly startingDeadlineSeconds: number;
 };
 
+// ---------- webhook triggers: what they start, how they're signed ----------
+
+/**
+ * A webhook trigger with no `signature` set: a hex HMAC-SHA256 of the raw
+ * body in `X-Kindgi-Signature`.
+ */
+export const DEFAULT_WEBHOOK_SIGNATURE: WebhookSignatureScheme = {
+  kind: 'hmac-sha256',
+  encoding: 'hex',
+  header: 'X-Kindgi-Signature',
+};
+
+export const WEBHOOK_BODY_LIMITS = {
+  /** A trigger's body cap when it sets none. */
+  defaultBytes: 256 * 1024,
+  /** The most a trigger may set: the receiver reads no more, whatever the trigger. */
+  maxBytes: 1024 * 1024,
+} as const;
+
+/**
+ * Accepted deliveries a minute a webhook trigger takes: `defaultPerMinute`
+ * when it sets none; a deployment caps what a trigger may set
+ * (`maxPerMinute` unless it says otherwise).
+ */
+export const WEBHOOK_RATE_LIMITS = {
+  defaultPerMinute: 600,
+  maxPerMinute: 6000,
+} as const;
+
+/** How many refusals a minute a webhook trigger's history records; the rest only count. */
+export const WEBHOOK_REFUSALS_RECORDED_PER_MINUTE = 20;
+
+/** The webhook trigger the receiver found: active, paused, or unregistered. */
+export interface FoundWebhookTrigger extends WebhookTriggerRecord {
+  readonly unregistered: boolean;
+}
+
+export interface FireWebhookInput {
+  readonly tenantId: TenantId;
+  readonly triggerId: TriggerId;
+  /**
+   * The delivery's dedupe key: `delivery:<sha256 hex>` of the delivery id
+   * and the raw body, or a fresh `delivery:<uuid>` when the trigger names
+   * no delivery-id header.
+   */
+  readonly dedupeKey: string;
+  /** The parsed body: JSON for a JSON content type, else the text. */
+  readonly event: unknown;
+}
+
+export interface WebhookFire {
+  readonly fireId: string;
+  /** A fire already held this delivery's key: nothing new was started. */
+  readonly duplicate: boolean;
+}
+
+/**
+ * Why the receiver turned a delivery away, or (`paused`) took it without
+ * starting anything.
+ */
+export type WebhookRefusalReason =
+  | 'signature-missing'
+  | 'signature-invalid'
+  | 'stale'
+  | 'secret-unavailable'
+  | 'unregistered'
+  | 'paused'
+  | 'rate-limited'
+  | 'body-too-large'
+  | 'body-not-json';
+
+export interface WebhookRefusalInput {
+  readonly tenantId: TenantId;
+  readonly triggerId: TriggerId;
+  /** `skipped` for a paused trigger's delivery; `refused` for every other reason. */
+  readonly outcome: 'refused' | 'skipped';
+  readonly reason: WebhookRefusalReason;
+  /** Also write an access-audit record: a request that failed to prove its sender. */
+  readonly audit: boolean;
+  /** Where the request came from, for the audit record (personal data, classified there). */
+  readonly clientAddress?: string;
+}
+
 // ---------- fires ----------
 
 /**
@@ -144,6 +257,10 @@ export interface TriggerFire {
   readonly missedCount?: number;
   /** A `run-now` fire, outside the schedule. */
   readonly manual?: boolean;
+  /** A webhook fire: deliveries with the same dedupe key that came after it and started nothing. */
+  readonly duplicates?: number;
+  /** When the last of those came. */
+  readonly lastDuplicateAt?: string;
 }
 
 export interface ListTriggerFiresInput {
@@ -193,16 +310,30 @@ export interface RegisterEventTriggerInput {
 export interface RegisterWebhookTriggerInput {
   readonly kind: 'webhook';
   readonly tenantId: TenantId;
+  /** The flow it starts, at an exact version. */
   readonly flowId: string;
   readonly flowVersion: string;
+  /** The trigger's project; absent → the tenant's default project. */
+  readonly projectId?: ProjectId;
+  /** Who its runs act as: the principal registering it. */
+  readonly owner: TriggerOwner;
   readonly config: WebhookTriggerConfig;
   /** Caller-supplied (uuid). The routable id a webhook receiver looks the trigger up by. */
   readonly webhookId: string;
   /**
-   * Name of the HMAC secret in the tenant's secrets store. The caller
-   * writes the secret first (`POST /v1/secrets`); this row never holds it.
+   * Name of the signing secret in the secrets store, resolved at the
+   * trigger's project. The caller writes the secret first
+   * (`POST /v1/secrets`); this row never holds it.
    */
   readonly hmacSecretName: string;
+  /** How its sender signs; absent → {@link DEFAULT_WEBHOOK_SIGNATURE}. */
+  readonly signature?: WebhookSignatureScheme;
+  /** The request header whose value, with the body, dedupes deliveries; absent → no dedupe. */
+  readonly deliveryIdHeader?: string;
+  /** The largest body it takes; absent → {@link WEBHOOK_BODY_LIMITS}`.defaultBytes`. */
+  readonly bodyLimitBytes?: number;
+  /** Accepted deliveries a minute; absent → {@link WEBHOOK_RATE_LIMITS}`.defaultPerMinute`. */
+  readonly rateLimitPerMinute?: number;
   readonly label?: string;
 }
 
@@ -240,7 +371,15 @@ export interface UpdateEventTriggerInput extends UpdateBase {
 export interface UpdateWebhookTriggerInput extends UpdateBase {
   readonly kind: 'webhook';
   readonly config?: Partial<WebhookTriggerConfig>;
-  // HMAC secret rotation flows through /v1/secrets — not here.
+  /** Another secret, by name. Rotating a secret's value goes through `/v1/secrets`. */
+  readonly hmacSecretName?: string;
+  readonly signature?: WebhookSignatureScheme;
+  /** `null` stops deduping. */
+  readonly deliveryIdHeader?: string | null;
+  /** `null` goes back to the default. */
+  readonly bodyLimitBytes?: number | null;
+  /** `null` goes back to the default. */
+  readonly rateLimitPerMinute?: number | null;
 }
 
 // ---------- records (discriminated on kind) ----------
@@ -284,9 +423,20 @@ export interface EventTriggerRecord extends FlowTriggerRecordBase {
 
 export interface WebhookTriggerRecord extends FlowTriggerRecordBase {
   readonly kind: 'webhook';
+  readonly projectId: ProjectId;
+  readonly owner: TriggerOwner;
   readonly config: WebhookTriggerConfig;
   readonly webhookId: string;
   readonly hmacSecretName: string;
+  /** How its sender signs ({@link DEFAULT_WEBHOOK_SIGNATURE} when it set none). */
+  readonly signature: WebhookSignatureScheme;
+  readonly deliveryIdHeader?: string;
+  readonly bodyLimitBytes: number;
+  readonly rateLimitPerMinute: number;
+  /** Why the runtime paused it (repeated refused or failed fires), when it did. */
+  readonly statusReason?: string;
+  /** Refusals and skipped deliveries this minute past the recorded ones, which only counted. */
+  readonly suppressedRefusals?: { readonly since: string; readonly count: number };
 }
 
 export type TriggerRecord = CronTriggerRecord | EventTriggerRecord | WebhookTriggerRecord;
@@ -298,9 +448,9 @@ export interface ListTriggersInput {
   readonly kind?: TriggerKind;
   readonly status?: 'active' | 'paused';
   /**
-   * Only the triggers in this project: schedules, which each have one (a
-   * trigger kind without a project never matches). A registry that
-   * ignores it lists more: the schedules route keeps only these.
+   * Only the triggers in this project: schedules and webhook triggers,
+   * which each have one (event triggers never match). A registry that
+   * ignores it lists more: the routes keep only these.
    */
   readonly projectId?: ProjectId;
   readonly limit?: number;

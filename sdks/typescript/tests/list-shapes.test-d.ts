@@ -258,6 +258,12 @@ describe('every list call answers with data, hasMore and nextCursor', () => {
   test('users.sessions.list', () => {
     expectTypeOf<Answer<KindgiClient['users']['sessions']['list']>>().toMatchTypeOf<WirePage>();
   });
+  test('webhooks.list', () => {
+    expectTypeOf<Answer<KindgiClient['webhooks']['list']>>().toMatchTypeOf<WirePage>();
+  });
+  test('webhooks.fires', () => {
+    expectTypeOf<Answer<KindgiClient['webhooks']['fires']>>().toMatchTypeOf<WirePage>();
+  });
   test('webhookEndpoints.list', () => {
     expectTypeOf<Answer<KindgiClient['webhookEndpoints']['list']>>().toMatchTypeOf<WirePage>();
   });

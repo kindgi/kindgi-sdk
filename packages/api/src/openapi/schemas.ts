@@ -1709,6 +1709,49 @@ export const ExportSigningKeySchema: JsonSchema = {
   },
 };
 
+export const LicenseStatusSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['mode'],
+  properties: {
+    mode: {
+      type: 'string',
+      enum: ['development', 'licensed'],
+      description: '`development`: no key needed (`KINDGI_DEV`); the other fields are absent.',
+    },
+    name: { type: 'string', description: 'Whose key: the name the banner prints.' },
+    use: { type: 'string', enum: ['production', 'non-production'] },
+    expiresAt: { type: 'string', format: 'date-time' },
+    startsUntil: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        'Until when the runtime starts with this key: `expiresAt` plus the 14-day grace.',
+    },
+    daysLeft: {
+      type: 'integer',
+      description: 'Whole days until it expires; negative once it has.',
+    },
+    standing: {
+      type: 'string',
+      enum: ['valid', 'expiring', 'grace', 'expired'],
+      description:
+        "`expiring`: 30 days or fewer left. `grace`: expired, and the runtime still starts with it (for 14 days). `expired`: past the grace too: this server runs on, but won't start with it again.",
+    },
+    renewBy: {
+      type: 'string',
+      enum: ['command', 'contact'],
+      description:
+        'Which way to the next key applies: `command`, a key this deployment renews itself (`kindgi license renew`); `contact`, a key Kindgi issued (write to Kindgi).',
+    },
+    renew: {
+      type: 'string',
+      description:
+        "How to get the next key, as the banner says it, with where the deployment keeps its key and renewer. Present from 30 days before the key expires, and only to the deployment's own token.",
+    },
+  },
+};
+
 export const ExportSigningKeyListSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -8027,12 +8070,13 @@ export const SignInEventSchema: JsonSchema = {
         'sessions-ended',
       ],
       description:
-        '`signed-in` / `signed-out`; `sign-in-refused` (with `reason`); `sign-in-link-sent` / `sign-in-link-capped` (an emailed link, for `userId`; `reason` is the limit that held); `sessions-revoked` ("sign out everywhere", or removing a person); `sessions-ended` (a changed boot token).',
+        '`signed-in` / `signed-out`; `sign-in-refused` (with `reason`); `sign-in-link-sent` / `sign-in-link-capped` (an emailed link, for `userId`; `reason` is the limit that held); `sessions-revoked` ("sign out everywhere", or removing a person; `byUserId` is the admin who did it, if not the person); `sessions-ended` (a changed boot token).',
     },
     outcome: { type: 'string', description: '`succeeded` or `denied`.' },
     userId: {
       type: 'string',
-      description: 'The person: who signed in or out, or whom a link was for. Absent on a refusal.',
+      description:
+        'The person the event is about: who signed in or out, whose sessions ended, or whom a link was for. Absent on a refusal that names no one.',
     },
     method: {
       type: 'string',
@@ -8045,6 +8089,10 @@ export const SignInEventSchema: JsonSchema = {
     },
     reason: { type: 'string', description: 'Why a sign-in was refused, or which limit held.' },
     sessionId: { type: 'string' },
+    byUserId: {
+      type: 'string',
+      description: "Who acted, when it isn't `userId`: the admin who ended this person's sessions.",
+    },
   },
 };
 
@@ -8866,6 +8914,12 @@ export const JudgingResultGroupSchema: JsonSchema = {
       minimum: 0,
       description:
         "Live judgments on the queued runs: each is one person's verdict on one item of a run's output.",
+    },
+    runsWithJudgments: {
+      type: 'integer',
+      minimum: 0,
+      description:
+        "The queued runs with at least one live judgment: the runs `judgments` and `yesShare` come from, whatever their item's state now (still `open`, closed as `judged`, or dismissed after someone judged it). Several people judging one run make several judgments but one run here. Absent from a runtime that doesn't count them.",
     },
     yesShare: {
       type: ['number', 'null'],
@@ -9798,7 +9852,7 @@ export const TeamProjectGrantSchema: JsonSchema = {
       type: 'string',
       format: 'date-time',
       description:
-        'When the team was given the role. Absent from a runtime that does not record it.',
+        'When the team was given the role. Absent from a runtime that does not record it, or for a grant from before 0.1.6.',
     },
     teamName: { type: 'string' },
     projectName: { type: 'string' },
@@ -10944,15 +10998,59 @@ export const PatchEventTriggerBodySchema: JsonSchema = {
 
 // ---------- webhook triggers (webhook kind) ----------
 
+export const WebhookSignatureSchema: JsonSchema = {
+  description:
+    "How a webhook trigger's sender signs. `hmac-sha256`: an HMAC-SHA256 of the raw body under the secret's UTF-8 bytes, in `header`, `hex` or `base64`, after an optional `prefix` (GitHub and Drupal's Webhooks module: `X-Hub-Signature-256`, hex, `sha256=`; WooCommerce: `X-WC-Webhook-Signature`, base64; Shopify: `X-Shopify-Hmac-Sha256`, base64). No timestamp is signed, so only the trigger's dedupe catches a replay. `standard-webhooks`: the Standard Webhooks format (`webhook-id`, `webhook-timestamp`, `webhook-signature: v1,<base64>` over `{id}.{timestamp}.{body}`, a `whsec_` secret), refused past `toleranceSeconds` (default 300) from the receiver's clock; it dedupes on its `webhook-id`.",
+  oneOf: [
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['kind', 'encoding', 'header'],
+      properties: {
+        kind: { type: 'string', enum: ['hmac-sha256'] },
+        encoding: { type: 'string', enum: ['hex', 'base64'] },
+        header: {
+          type: 'string',
+          minLength: 1,
+          maxLength: 100,
+          description: 'The header that carries the signature (matched case-insensitively).',
+        },
+        prefix: {
+          type: 'string',
+          minLength: 1,
+          maxLength: 32,
+          description: "Stripped from the header's value before decoding (e.g. `sha256=`).",
+        },
+      },
+    },
+    {
+      type: 'object',
+      additionalProperties: false,
+      required: ['kind'],
+      properties: {
+        kind: { type: 'string', enum: ['standard-webhooks'] },
+        toleranceSeconds: { type: 'integer', minimum: 1, maximum: 3600 },
+      },
+    },
+  ],
+};
+
 export const WebhookTriggerRecordSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
+  description:
+    'A webhook trigger: a signed request to its `receiveUrl` starts a run of its flow, as its owner. The signing secret is never on it, only its name.',
   required: [
     'triggerId',
     'webhookId',
     'flowId',
     'flowVersion',
+    'projectId',
+    'owner',
     'hmacSecretName',
+    'signature',
+    'bodyLimitBytes',
+    'rateLimitPerMinute',
     'label',
     'status',
     'lastFiredAt',
@@ -10964,24 +11062,143 @@ export const WebhookTriggerRecordSchema: JsonSchema = {
     webhookId: {
       type: 'string',
       description:
-        'Routable identifier used in the external receiver URL. Route-minted; unique per tenant.',
+        'The routable id in the receive URL. Route-minted (a random UUID); unique per tenant. Not a secret: the signature is what a request is checked by.',
+    },
+    receiveUrl: {
+      type: 'string',
+      format: 'uri',
+      description:
+        "Where the sender posts: `{public URL}/v1/hooks/{tenantId}/{webhookId}`. Absent when the deployment has no public URL configured (`KINDGI_PUBLIC_URL`); it's never taken from a request's `Host`.",
     },
     flowId: { type: 'string', minLength: 1 },
     flowVersion: { type: 'string', minLength: 1 },
+    projectId: {
+      type: 'string',
+      format: 'uuid',
+      description: "The trigger's project: its runs are this project's.",
+    },
+    owner: {
+      $ref: '#/components/schemas/TriggerOwner',
+      description:
+        'Who its runs act as: whoever registered it, until an admin takes it over (`POST …/owner`). Checked again at every delivery.',
+    },
     input: {
-      description: 'Override input; absent → the parsed request body is passed to the flow.',
+      description:
+        "The flow's input on every delivery, in place of the event. Absent: the event (the body, parsed as JSON for a JSON content type, else its text).",
     },
     hmacSecretName: {
       type: 'string',
       minLength: 1,
       description:
-        'Handle into the tenant secrets store. Plaintext HMAC secrets never touch this row — the caller writes plaintext to `/v1/secrets` first, then passes the name here.',
+        'The signing secret, by name (written with `POST /v1/secrets`). Read in the env the deployment serves.',
+    },
+    signature: { $ref: '#/components/schemas/WebhookSignature' },
+    deliveryIdHeader: {
+      type: 'string',
+      description:
+        "The header whose value, with the body, is a delivery's dedupe key (WooCommerce: `X-WC-Webhook-Delivery-ID`, which is per second, not per event, so the body counts too). Absent: deliveries aren't deduped (`standard-webhooks` dedupes on its own `webhook-id`).",
+    },
+    bodyLimitBytes: {
+      type: 'integer',
+      minimum: 1024,
+      maximum: 1048576,
+      description: 'The largest body it takes (default 262144).',
+    },
+    rateLimitPerMinute: {
+      type: 'integer',
+      minimum: 1,
+      maximum: 6000,
+      description: 'Accepted deliveries a minute (default 600); past it, `429`.',
     },
     label: { type: ['string', 'null'] },
     status: { $ref: '#/components/schemas/TriggerStatus' },
+    statusReason: {
+      type: 'string',
+      description:
+        "Why the runtime paused it (repeated refused or failed starts; a sender's failed proofs never count), when it did.",
+    },
+    suppressedRefusals: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['since', 'count'],
+      description:
+        'Refusals and skipped deliveries this minute past the 20 recorded in its history, which only counted.',
+      properties: {
+        since: { type: 'string', format: 'date-time' },
+        count: { type: 'integer', minimum: 1 },
+      },
+    },
     lastFiredAt: { type: ['string', 'null'], format: 'date-time' },
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const WebhookFireSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "One delivery to a webhook trigger and what came of it. A fire keeps the delivery's event only until its run starts; then only the run has it.",
+  required: ['fireId', 'triggerId', 'firedAt', 'outcome'],
+  properties: {
+    fireId: { type: 'string' },
+    triggerId: { type: 'string' },
+    firedAt: { type: 'string', format: 'date-time' },
+    outcome: {
+      type: 'string',
+      enum: ['pending', 'started', 'skipped', 'refused', 'failed'],
+      description:
+        "`pending` while its run starts. `skipped`: the trigger was paused, so the event was dropped. `refused`: `detail` says why. `failed`: the run couldn't start.",
+    },
+    runId: { type: 'string', format: 'uuid', description: 'The run it started.' },
+    detail: {
+      type: 'string',
+      description:
+        "Why it was refused, skipped or failed: `signature-missing`, `signature-invalid`, `stale`, `secret-unavailable`, `unregistered`, `paused`, `rate-limited`, `body-too-large`, `body-not-json`, or the owner's lost access.",
+    },
+    duplicates: {
+      type: 'integer',
+      minimum: 1,
+      description: 'Later deliveries with the same dedupe key, which started nothing.',
+    },
+    lastDuplicateAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const WebhookFirePageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'hasMore'],
+  properties: {
+    data: { type: 'array', items: { $ref: '#/components/schemas/WebhookFire' } },
+    hasMore: { type: 'boolean' },
+    nextCursor: { type: 'string' },
+  },
+};
+
+export const WebhookReceiptSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: 'What the receiver did with a delivery.',
+  properties: {
+    fireId: {
+      type: 'string',
+      description: 'The fire recorded (or, with `duplicate`, the earlier one).',
+    },
+    duplicate: {
+      type: 'boolean',
+      description: "An earlier fire holds this delivery's dedupe key: nothing new started.",
+    },
+    skipped: {
+      type: 'string',
+      enum: ['paused'],
+      description: 'The trigger is paused: no run started, and the event was dropped.',
+    },
+    received: {
+      type: 'string',
+      enum: ['ping'],
+      description: 'A WooCommerce save-time ping: answered, nothing started.',
+    },
   },
 };
 
@@ -10996,6 +11213,19 @@ export const WebhookTriggerCollectionPageSchema: JsonSchema = {
   },
 };
 
+const WebhookDeliveryProperties: Record<string, JsonSchema> = {
+  signature: { $ref: '#/components/schemas/WebhookSignature' },
+  deliveryIdHeader: {
+    type: 'string',
+    minLength: 1,
+    maxLength: 100,
+    description:
+      'The header whose value, with the body, dedupes deliveries. Not with `standard-webhooks`, which dedupes on its `webhook-id`.',
+  },
+  bodyLimitBytes: { type: 'integer', minimum: 1024, maximum: 1048576 },
+  rateLimitPerMinute: { type: 'integer', minimum: 1, maximum: 6000 },
+};
+
 export const RegisterWebhookTriggerBodySchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -11003,6 +11233,11 @@ export const RegisterWebhookTriggerBodySchema: JsonSchema = {
   properties: {
     flowId: { type: 'string', minLength: 1 },
     flowVersion: { type: 'string', minLength: 1 },
+    projectId: {
+      type: 'string',
+      format: 'uuid',
+      description: "The trigger's project; absent: the tenant's Default project.",
+    },
     config: {
       type: 'object',
       additionalProperties: false,
@@ -11014,8 +11249,9 @@ export const RegisterWebhookTriggerBodySchema: JsonSchema = {
       type: 'string',
       minLength: 1,
       description:
-        'Handle into the tenant secrets store. Caller writes plaintext to `/v1/secrets` first and passes the name here.',
+        "The signing secret, by name: written first with `POST /v1/secrets`. Never a model provider's key. For WooCommerce, use letters and digits only (it HTML-decodes the secret before signing).",
     },
+    ...WebhookDeliveryProperties,
     label: { type: 'string' },
   },
 };
@@ -11032,7 +11268,26 @@ export const PatchWebhookTriggerBodySchema: JsonSchema = {
       },
     },
     label: { type: ['string', 'null'] },
-    flowVersion: { type: 'string' },
+    flowVersion: { type: 'string', minLength: 1 },
+    hmacSecretName: { type: 'string', minLength: 1 },
+    signature: WebhookDeliveryProperties.signature as JsonSchema,
+    deliveryIdHeader: {
+      type: ['string', 'null'],
+      maxLength: 100,
+      description: '`null` stops deduping.',
+    },
+    bodyLimitBytes: {
+      type: ['integer', 'null'],
+      minimum: 1024,
+      maximum: 1048576,
+      description: '`null`: the default.',
+    },
+    rateLimitPerMinute: {
+      type: ['integer', 'null'],
+      minimum: 1,
+      maximum: 6000,
+      description: '`null`: the default.',
+    },
   },
 };
 
@@ -11571,6 +11826,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['UnregisterReviewerResult', UnregisterReviewerResultSchema],
   ['ExportSigningKey', ExportSigningKeySchema],
   ['ExportSigningKeyList', ExportSigningKeyListSchema],
+  ['LicenseStatus', LicenseStatusSchema],
   ['ExportAuditBundleBody', ExportAuditBundleBodySchema],
   ['ExportAuditBundleResult', ExportAuditBundleResultSchema],
   ['ObservationStatus', ObservationStatusSchema],
@@ -12009,7 +12265,11 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['RegisterEventTriggerBody', RegisterEventTriggerBodySchema],
   ['PatchEventTriggerBody', PatchEventTriggerBodySchema],
   ['EventTriggerUnregisterResult', EventTriggerUnregisterResultSchema],
+  ['WebhookSignature', WebhookSignatureSchema],
   ['WebhookTriggerRecord', WebhookTriggerRecordSchema],
+  ['WebhookFire', WebhookFireSchema],
+  ['WebhookFirePage', WebhookFirePageSchema],
+  ['WebhookReceipt', WebhookReceiptSchema],
   ['WebhookTriggerCollectionPage', WebhookTriggerCollectionPageSchema],
   ['RegisterWebhookTriggerBody', RegisterWebhookTriggerBodySchema],
   ['PatchWebhookTriggerBody', PatchWebhookTriggerBodySchema],

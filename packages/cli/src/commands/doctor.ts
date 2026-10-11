@@ -26,9 +26,9 @@
 
 import { spawn } from 'node:child_process';
 import { readFile, readdir, stat } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, relative, resolve } from 'node:path';
 
-import { findKindgiConfig } from '@kindgi/handler-runtime';
+import { KINDGI_CONFIG_FILENAMES, findKindgiConfig } from '@kindgi/handler-runtime';
 import {
   LOCAL_ENV_NAME,
   describeUnreadable,
@@ -50,8 +50,19 @@ import { javaMajor } from '../dev/pack-code.js';
 import { type DockerRunner, docker } from '../dev/runtime-container.js';
 import { DEFAULT_RUNTIME_IMAGE, registryOf } from '../dev/runtime-image.js';
 import { checkDocker, checkImageAccess, credentialHelperHint } from '../dev/runtime-registry.js';
+import { probeReal } from '../dev/sandbox/detect.js';
+import {
+  DEV_SANDBOX_DOCS,
+  DEV_SANDBOX_VAR,
+  type SandboxAvailability,
+  detectDevSandbox,
+  sandboxLabel,
+} from '../dev/sandbox/index.js';
 import { loadLocalEnvSettings } from '../env/project-env.js';
 import { extractKindgiError } from '../errors.js';
+import { LICENSE_GRACE_DAYS, renewAdvice, standingOf } from '../license/expiry.js';
+import { checkLicenseKey } from '../license/license-key.js';
+import { secretStoreFor } from '../license/stores.js';
 import { renderJson } from '../output.js';
 import {
   type PackageManager,
@@ -62,7 +73,11 @@ import {
   pythonBinRunner,
   usablePackageManager,
 } from '../package-manager.js';
-import { type ProviderPreset, loadProviderPresets } from '../providers/preset-loader.js';
+import {
+  type ProviderPreset,
+  loadProviderPresets,
+  presetSettingFlag,
+} from '../providers/preset-loader.js';
 import { CLI_VERSION } from '../version-info.js';
 import { probeConsole } from './console.js';
 import type { CommandResult, LeafCommand } from './types.js';
@@ -91,6 +106,7 @@ export type DoctorCheckId =
   | 'maven'
   | 'sbt'
   | 'docker'
+  | 'dev-sandbox'
   | 'registry'
   | 'project'
   | 'dependencies'
@@ -98,6 +114,7 @@ export type DoctorCheckId =
   | 'runtime'
   | 'provider'
   | 'console-sign-in'
+  | 'license'
   | 'mcp-headers'
   | 'erasures';
 
@@ -146,6 +163,12 @@ export interface DoctorSeam {
   /** The image the registry check pulls. Default: the one `kindgi dev` runs. */
   readonly image?: string;
   readonly presets?: () => Promise<Readonly<Record<string, ProviderPreset>>>;
+  /** Milliseconds since the epoch, for the license key's dates. Default: now. */
+  readonly now?: () => number;
+  /** The license signing keys trusted (tests). Default: those a released runtime trusts. */
+  readonly licensePublicKeys?: Readonly<Record<string, string>>;
+  /** Whether `kindgi dev` can sandbox the pack service here. Default: tried, as `kindgi dev` does. */
+  readonly sandbox?: () => Promise<SandboxAvailability>;
 }
 
 const TITLES: Readonly<Record<DoctorCheckId, string>> = {
@@ -157,6 +180,7 @@ const TITLES: Readonly<Record<DoctorCheckId, string>> = {
   maven: 'Maven',
   sbt: 'sbt',
   docker: 'Docker',
+  'dev-sandbox': 'Dev sandbox',
   registry: 'Runtime image',
   project: 'Project',
   dependencies: 'Dependencies',
@@ -164,6 +188,7 @@ const TITLES: Readonly<Record<DoctorCheckId, string>> = {
   runtime: 'Runtime',
   provider: 'Provider',
   'console-sign-in': 'Console sign-in',
+  license: 'License key',
   'mcp-headers': 'MCP endpoint headers',
   erasures: 'Erasures',
 };
@@ -220,14 +245,21 @@ export async function runDoctor(ctx: CommandContext, dir: string): Promise<Docto
       ? await registryCheck(run, seam.image ?? DEFAULT_RUNTIME_IMAGE, kindgi)
       : skip('registry', 'Not checked: it needs Docker running.'),
   );
+  checks.push(
+    await devSandboxCheck(
+      ctx.env,
+      seam.sandbox ?? (() => detectDevSandbox(process.platform, probeReal)),
+    ),
+  );
   checks.push(await consoleSignInCheck(ctx));
+  checks.push(await licenseKeyCheck(ctx.env, dir, ctx.cwd, seam));
   checks.push(await mcpHeadersCheck(ctx));
 
   if (config === undefined || language === undefined) {
     checks.push({
       id: 'project',
       status: 'skip',
-      message: `No Kindgi project in ${dir}: no kindgi.config.ts, no pyproject.toml with [tool.kindgi], and no kindgi.config.json.`,
+      message: `No Kindgi project in ${dir}: no ${KINDGI_CONFIG_FILENAMES.join(', ')}, no pyproject.toml with [tool.kindgi], and no kindgi.config.json.`,
       fix: createProjectFix(kindgi, pypi),
     });
     for (const id of ['dependencies', 'model-key', 'runtime', 'provider', 'erasures'] as const) {
@@ -237,7 +269,7 @@ export async function runDoctor(ctx: CommandContext, dir: string): Promise<Docto
   }
 
   const rc = await readKindgirc(dir);
-  checks.push(projectCheck(dir, language, rc));
+  checks.push(projectCheck(dir, language, basename(config.path), rc));
   checks.push(await dependenciesCheck(dir, language, tool));
   checks.push(await modelKeyCheck(ctx, dir, seam, kindgi));
   const runtime = await runtimeCheck(ctx, rc, kindgi);
@@ -317,6 +349,107 @@ const skip = (id: DoctorCheckId, message: string, fix?: string): DoctorCheck => 
   message,
   ...(fix !== undefined && { fix }),
 });
+
+// ---------- the license key ----------
+
+/** `word` as one shell word: as it is when it's plain, else single-quoted. */
+function shellWord(word: string): string {
+  return /^[A-Za-z0-9_./:@%+=,-]+$/.test(word) ? word : `'${word.replaceAll("'", "'\\''")}'`;
+}
+
+/**
+ * The license key a runtime started here would use: `KINDGI_LICENSE_KEY`,
+ * or the one in this folder's `kindgi.env`. Checked offline, as the runtime
+ * checks it; from 30 days before it expires, the exact way to the next one.
+ * No key is fine: `kindgi dev` needs none.
+ */
+async function licenseKeyCheck(
+  env: Readonly<Record<string, string | undefined>>,
+  dir: string,
+  cwd: string,
+  seam: DoctorSeam,
+): Promise<DoctorCheck> {
+  const fromEnv = env.KINDGI_LICENSE_KEY?.trim();
+  const envFile = join(dir, 'kindgi.env');
+  /** A setting from the environment, else from this folder's `kindgi.env`. */
+  const setting = async (name: string): Promise<string | undefined> => {
+    const value =
+      env[name]?.trim() ||
+      (await secretStoreFor(`env-file:${envFile}#${name}`)
+        .read()
+        .catch(() => undefined));
+    return value === undefined || value === '' ? undefined : value;
+  };
+  const key =
+    fromEnv !== undefined && fromEnv !== '' ? fromEnv : await setting('KINDGI_LICENSE_KEY');
+  if (key === undefined) {
+    return skip(
+      'license',
+      'No license key here (KINDGI_LICENSE_KEY, or kindgi.env in this folder): kindgi dev needs none. A runtime outside development reads KINDGI_LICENSE_KEY.',
+    );
+  }
+  const where = fromEnv !== undefined && fromEnv !== '' ? 'KINDGI_LICENSE_KEY' : envFile;
+  // The exact command, from where the deployment says its key and renewer
+  // are kept (`KINDGI_LICENSE_KEY_REF`, `KINDGI_LICENSE_RENEWER_REF`, as the
+  // runtime's banner reads them); a placeholder only for one that isn't set.
+  const ref = async (name: string, placeholder: string) => {
+    const value = await setting(name);
+    return value === undefined ? placeholder : shellWord(value);
+  };
+  const renewer = await ref('KINDGI_LICENSE_RENEWER_REF', '<its renewer key>');
+  const keyArg =
+    where === 'KINDGI_LICENSE_KEY'
+      ? `--key ${await ref('KINDGI_LICENSE_KEY_REF', '<where KINDGI_LICENSE_KEY is kept>')}`
+      : `--env-file ${shellWord(relative(cwd, envFile) || 'kindgi.env')}`;
+  const renew = `kindgi license renew ${keyArg} --renewer ${renewer}`;
+  const checked =
+    seam.licensePublicKeys !== undefined
+      ? checkLicenseKey(key, seam.licensePublicKeys)
+      : checkLicenseKey(key);
+  if (checked.kind === 'err') {
+    return checked.reason === 'unknown-key'
+      ? warn(
+          'license',
+          `The key in ${where} is signed with a key this CLI doesn't know yet.`,
+          'Update the Kindgi CLI, then run kindgi doctor again.',
+        )
+      : fail(
+          'license',
+          `The value in ${where} isn't a Kindgi license key (${checked.reason}).`,
+          'Paste the whole key, starting kgi_lk_: from access.kindgi.com, or the one Kindgi sent you.',
+        );
+  }
+  const { claims } = checked;
+  const what = `${claims.name}'s ${claims.use} key`;
+  const standing = standingOf(claims, (seam.now ?? Date.now)());
+  const day = (d: Date) => d.toISOString().slice(0, 10);
+  const advice = renewAdvice(claims, renew);
+  switch (standing.kind) {
+    case 'valid':
+      return pass(
+        'license',
+        `${what}, until ${day(claims.expiresAt)} (${standing.daysLeft} days).`,
+      );
+    case 'expiring':
+      return warn(
+        'license',
+        `${what} expires in ${standing.daysLeft} days (${day(claims.expiresAt)}).`,
+        advice,
+      );
+    case 'grace':
+      return warn(
+        'license',
+        `${what} expired on ${day(claims.expiresAt)}: the runtime starts with it until ${day(standing.lastStart)}.`,
+        advice,
+      );
+    case 'expired':
+      return fail(
+        'license',
+        `${what} expired on ${day(claims.expiresAt)}, more than ${LICENSE_GRACE_DAYS} days ago: the runtime won't start with it.`,
+        advice,
+      );
+  }
+}
 
 // ---------- tools ----------
 
@@ -557,6 +690,28 @@ async function pythonVersion(tool: NonNullable<DoctorSeam['tool']>): Promise<str
 
 // ---------- Docker and the runtime image ----------
 
+/** Whether `kindgi dev` runs the pack service sandboxed here, or why not. */
+async function devSandboxCheck(
+  env: Readonly<Record<string, string | undefined>>,
+  detect: () => Promise<SandboxAvailability>,
+): Promise<DoctorCheck> {
+  if (env[DEV_SANDBOX_VAR] === 'off') {
+    return skip('dev-sandbox', `Not checked: ${DEV_SANDBOX_VAR}=off.`);
+  }
+  const availability = await detect();
+  if (availability.kind === 'available') {
+    return pass(
+      'dev-sandbox',
+      `kindgi dev runs your tools' code sandboxed (${sandboxLabel(availability.engine)}): it can't read your keys or reach Docker.`,
+    );
+  }
+  return warn(
+    'dev-sandbox',
+    `kindgi dev would run your tools' code without the sandbox: ${availability.reason}. It can then read your files and keys.`,
+    `${availability.fix} (${DEV_SANDBOX_DOCS})`,
+  );
+}
+
 async function checkDockerRunning(run: DockerRunner): Promise<DoctorCheck> {
   const ready = await checkDocker(run);
   if (ready.kind === 'ok') return pass('docker', 'Docker is running.');
@@ -638,15 +793,24 @@ async function readKindgirc(dir: string): Promise<Kindgirc> {
   }
 }
 
-function projectCheck(dir: string, language: ProjectLanguage, rc: Kindgirc): DoctorCheck {
-  const kind =
+/** The project check, naming the config file `findKindgiConfig` found (`kindgi.config.mts`, …). */
+function projectCheck(
+  dir: string,
+  language: ProjectLanguage,
+  configFile: string,
+  rc: Kindgirc,
+): DoctorCheck {
+  const name =
     language === 'python'
-      ? 'A Python project (pyproject.toml)'
+      ? 'Python'
       : language === 'java'
-        ? 'A Java project (kindgi.config.json)'
+        ? 'Java'
         : language === 'scala'
-          ? 'A Scala project (kindgi.config.json)'
-          : 'A TypeScript project (kindgi.config.ts)';
+          ? 'Scala'
+          : /\.m?ts$/.test(configFile)
+            ? 'TypeScript'
+            : 'JavaScript';
+  const kind = `A ${name} project (${configFile})`;
   if (rc.malformed !== undefined) {
     return fail(
       'project',
@@ -777,14 +941,28 @@ function orList(items: readonly string[]): string {
     : `${items.slice(0, -1).join(', ')} or ${items[items.length - 1]}`;
 }
 
-/** The presets that take an LLM provider key, with the key's name, in preset order. */
-async function keyedPresets(
-  seam: DoctorSeam,
-): Promise<readonly { readonly name: string; readonly secret: string }[]> {
+/**
+ * The presets that take an LLM provider key, with the key's name and the
+ * settings the preset asks for besides (as flags), in preset order.
+ */
+async function keyedPresets(seam: DoctorSeam): Promise<
+  readonly {
+    readonly name: string;
+    readonly secret: string;
+    readonly settings: readonly string[];
+  }[]
+> {
   const presets = await (seam.presets ?? (() => loadProviderPresets()))();
   return Object.values(presets).flatMap((p) =>
-    p.secret !== undefined ? [{ name: p.name, secret: p.secret }] : [],
+    p.secret !== undefined
+      ? [{ name: p.name, secret: p.secret, settings: presetSettingFlags(p) }]
+      : [],
   );
+}
+
+/** A preset's settings as `register` takes them, to fill in: `--resource-name=<resourceName>`. */
+function presetSettingFlags(preset: ProviderPreset): readonly string[] {
+  return (preset.adapterConfig ?? []).map((s) => `${presetSettingFlag(s.key)}=<${s.key}>`);
 }
 
 /**
@@ -1098,11 +1276,16 @@ async function providerCheck(
     const listed = page.data as readonly ListedProvider[];
     const ids = listed.map((p) => p.id ?? '?');
     const models = ids.filter((id) => id !== DEV_ECHO_PROVIDER_ID);
-    const presets = (await keyedPresets(seam)).map((p) => p.name);
+    const keyed = await keyedPresets(seam);
+    // A preset that asks for settings says which: `azure-openai (with --resource-name=<…> …)`.
+    const presets = keyed.map((p) =>
+      p.settings.length > 0 ? `${p.name} (with ${p.settings.join(' ')})` : p.name,
+    );
+    const only = keyed[0];
     const register =
       presets.length > 1
         ? `Register the provider whose key you set: ${kindgi('providers', 'register', '--preset=<preset>')}, where <preset> is ${orList(presets)} (see Model key).`
-        : `Register one: ${kindgi('providers', 'register', `--preset=${presets[0] ?? 'anthropic'}`)} (its key must be set first; see Model key).`;
+        : `Register one: ${kindgi('providers', 'register', `--preset=${only?.name ?? 'anthropic'}`, ...(only?.settings ?? []))} (its key must be set first; see Model key).`;
     if (models.length > 0) {
       const registered = `${models.length === 1 ? 'A provider is' : `${models.length} providers are`} registered: ${models.join(', ')}.`;
       const allPresets = await (seam.presets ?? (() => loadProviderPresets()))();
@@ -1220,7 +1403,7 @@ function staleDefaults(
       'providers',
       'register',
       `--preset=${preset.name}`,
-      ...(preset.adapterConfig ?? []).map((s) => `--${s.key}=<${s.key}>`),
+      ...presetSettingFlags(preset),
     );
     if (!preset.metadata.models.some((m) => m.name === lands)) {
       return [
@@ -1290,12 +1473,7 @@ function presetFor(
 function reRegister(id: string, preset: ProviderPreset | undefined, kindgi: Kindgi): string {
   const register =
     preset !== undefined
-      ? kindgi(
-          'providers',
-          'register',
-          `--preset=${preset.name}`,
-          ...(preset.adapterConfig ?? []).map((s) => `--${s.key}=<${s.key}>`),
-        )
+      ? kindgi('providers', 'register', `--preset=${preset.name}`, ...presetSettingFlags(preset))
       : kindgi('providers', 'register', '--spec=@<file>');
   return `${reRegisterSteps(id, register, kindgi)}${preset === undefined ? ' (its spec with the setting fixed)' : ''}`;
 }
@@ -1312,7 +1490,7 @@ type Kindgi = (...args: string[]) => string;
 
 /**
  * In a TypeScript project, its own CLI (`pnpm exec kindgi …`,
- * `npx --no kindgi …`); in a Python project or outside one, the
+ * `npx --no -- kindgi …`); in a Python project or outside one, the
  * published CLI of this version through npx.
  */
 async function kindgiCommand(

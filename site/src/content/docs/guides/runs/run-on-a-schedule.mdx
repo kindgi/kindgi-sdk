@@ -10,9 +10,9 @@ expression gives. Its runs act as whoever made the schedule, checked again
 at every run. They land in the schedule's project, and each names the
 schedule that started it.
 
-Schedules are the one way the runtime starts runs by itself today: event
-triggers and inbound webhooks aren't served yet. To react to something outside,
-have it [start a run](../start-a-run/) with `POST /v1/runs`.
+To start a run when something happens outside instead, such as an order in
+your WooCommerce store, use a [webhook trigger](../../webhooks/start-runs-from-webhooks/),
+or have the other system [start a run](../start-a-run/) with `POST /v1/runs`.
 
 ## Create one
 
@@ -114,6 +114,48 @@ with `--cursor` (the previous page's `nextCursor`) until there's none.
 - `kindgi schedules update <schedule-id>` changes when it runs, what it runs,
   its input or its policies, with the same flags as `create`.
 - `kindgi schedules unregister <schedule-id>` removes it.
+
+## In the console
+
+A project's **Schedules** page lists its schedules, with a headline such as
+"2 schedules, 1 paused; the next fires in 19 h.". Each row says what it runs
+("the agent demo.echo-agent (its live version)", "the flow acme.refunds
+1.0.0"), its cron, when it next fires ("Next in 19 h (2026-10-12 02:00
+UTC)") or that it's paused, its last scheduled fire, and **Its runs →**.
+Times are UTC.
+
+![The Schedules page: "2 schedules, 1 paused; the next fires in 19 h.", the paused weekly report (the flow acme.refunds 1.0.0, 0 9 * * 1) with Resume, and the active nightly digest (the agent demo.echo-agent, 0 2 * * *, next in 19 h) with Pause, each with Run now and Unregister.](../../../../assets/schedules/schedules-list.png)
+
+A schedule's page has:
+- **When:** its cron in UTC and its next five times. A paused one says
+  "It doesn’t fire while paused." instead.
+- **Runs as:** whose access its runs have ("Runs as you, with your
+  access."), checked again at every fire.
+- **What it fired:** a summary ("Of its 1 fire, 1 started a run.") and its
+  recent fires in words, each linking the run it started, or saying why the
+  fire was refused.
+
+![The nightly digest's page: Active, with Pause, Run now and Unregister, its next five times from 2026-10-12 02:00 UTC, "Runs as you, with your access.", and one fire, "Started a run (run now)", linking its run.](../../../../assets/schedules/schedule-page.png)
+
+Project editors and up have, on the list and on the page:
+- **Pause** and **Resume**;
+- **Run now:** "It starts a run now, as its owner, with its usual input. Its
+  next scheduled fire doesn't change.";
+- **Unregister:** "It stops firing. The runs it started stay, with their
+  record of what started them." It can't be brought back from the console:
+  register it again.
+
+On a schedule that runs as someone else, project admins also get **Take
+over**: "Its next runs start as you, with your access. Runs already started
+keep theirs. If it's paused, it stays paused."
+
+![The Take this schedule over? dialog on a paused schedule that runs as a service account: its next runs start as you, runs already started keep theirs, and a paused one stays paused.](../../../../assets/schedules/schedule-take-over.png)
+
+A run a schedule started says so at the top of its page: "Started by the
+schedule “nightly digest” (0 2 * * *).", with **Its other runs →**, the runs
+list filtered to that schedule.
+
+![A run's page with "Started by the schedule “nightly digest” (0 2 * * *). Its other runs →" under its header.](../../../../assets/schedules/run-started-by-schedule.png)
 
 ## Improve on a schedule
 

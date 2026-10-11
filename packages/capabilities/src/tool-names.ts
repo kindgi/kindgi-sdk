@@ -47,6 +47,51 @@ export function nameToolsAsSent(
   return text.replace(pattern, (id) => renamed.get(id) ?? id);
 }
 
+/**
+ * Two of a call's tools sent under one name: the model's call to it can't
+ * be told apart, so the call isn't sent.
+ */
+export class ToolNameCollisionError extends Error {
+  constructor(
+    readonly first: string,
+    readonly second: string,
+    readonly sent: string,
+  ) {
+    super(
+      `tools "${first}" and "${second}" have the same name for the model ("${sent}"): rename one of them`,
+    );
+    this.name = 'ToolNameCollisionError';
+  }
+}
+
+/**
+ * The tool id a provider's call names, given the name the call's tools were
+ * sent under: looked up among the call's own tools, never worked out by
+ * undoing the encoding. An id can hold what the encoding writes (an MCP
+ * server names its tools as it likes: Drupal's `tool_api__list_content`,
+ * as `drupal.tool_api__list_content`, is sent as
+ * `drupal__tool_api__list_content`, and undoing `.` → `__` would give
+ * `drupal.tool_api.list_content`, a tool nobody has).
+ *
+ * Throws `ToolNameCollisionError` when two of the tools are sent under one
+ * name. A name the call didn't send (a model inventing one) is passed to
+ * `fallback`, so the caller still reports what the model asked for.
+ */
+export function toolIdsBySentName(
+  toolIds: readonly string[],
+  sentName: (id: string) => string,
+  fallback: (name: string) => string,
+): (name: string) => string {
+  const byName = new Map<string, string>();
+  for (const id of toolIds) {
+    const name = sentName(id);
+    const other = byName.get(name);
+    if (other !== undefined && other !== id) throw new ToolNameCollisionError(other, id, name);
+    byName.set(name, id);
+  }
+  return (name) => byName.get(name) ?? fallback(name);
+}
+
 function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

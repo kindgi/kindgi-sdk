@@ -21,7 +21,8 @@ A pack's code needs three kinds of values, and Kindgi keeps them apart:
   a feature flag. Your code reads them from `process.env` or `os.environ`,
   and the pack declares which ones it needs.
 
-On your machine, `kindgi dev` keeps both in the pack's env files. In a
+On your machine, `kindgi dev` keeps both in env files: your app's own, and
+Kindgi's own `.kindgi/secrets.env` for the secrets you store. In a
 deployment, secrets live in the runtime's secrets store, and the pack
 service gets the environment the pack declares.
 
@@ -33,6 +34,8 @@ service gets the environment the pack declares.
   `env.optional`.
 - [Set values per environment](per-environment-values/): the pack service's
   environment in staging or production, and `kindgi env plan`.
+- [Keep your tools' code away from your keys](dev-sandbox/): the sandbox
+  `kindgi dev` runs your pack's code in, and how to open a path a tool needs.
 
 [Give a tool a secret](../tools/give-a-tool-a-secret/) and
 [Give a tool per-project values](../tools/give-a-tool-env-values/) show the

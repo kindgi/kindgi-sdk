@@ -251,7 +251,7 @@ there when the endpoint is registered, no tools are registered, and the
 `kindgi dev` terminal says why:
 
 ```text
-    [runtime] <time> WARN  [mcp] MCP endpoint "warehouse" sync failed: mcp-auth-unresolved: MCP endpoint "warehouse": its secretRef local/INVENTORY_TOKEN did not resolve: No secret "INVENTORY_TOKEN" for env "local" in .env, .env.local at /pack
+    [runtime] 07:23:26.303 WARN  [mcp] MCP endpoint "warehouse" sync failed: mcp-auth-unresolved: MCP endpoint "warehouse": its secretRef local/INVENTORY_TOKEN did not resolve: No secret "INVENTORY_TOKEN" for env "local" in .env, .env.local, .kindgi/secrets.env at /pack endpointId=warehouse
 ```
 
 Store the secret (`kindgi secrets set INVENTORY_TOKEN --env=local --scope=tenant`),

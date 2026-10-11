@@ -22,8 +22,12 @@
  *   - `package.json`: `@kindgi/sdk` (dependency) + `@kindgi/cli`
  *     (devDependency), specs from `resolveKindgiDependencySpecs` — the
  *     project runs its own pinned `kindgi` — and `zod` (dependency, the
- *     fresh templates' range), which every primitive's schemas use. An
- *     app's own `zod` is kept; one before zod 4 is reported.
+ *     tested version, pinned as the app pins), which every primitive's
+ *     schemas use. An app's own `zod` is kept; one before zod 4 is reported.
+ *   - the tests `kindgi test` runs (`vitest-setup.ts`): `vitest.config.mts`
+ *     (`.ts` in a `"type": "module"` app) for `kindgi/**` tests, with the
+ *     app's tsconfig path aliases, and `vitest` + `vite` (devDependencies).
+ *     An app that runs vitest already keeps its own setup.
  *   - `.gitignore`: Kindgi's local-state patterns
  *   - in a pnpm app, `pnpm-workspace.yaml` (the workspace root's, or a new
  *     one): a decision for esbuild's install script, `allowBuilds.esbuild:
@@ -36,15 +40,15 @@
  * What augment mode does NOT write:
  *   - env files — `kindgi dev` reads the project's own `.env` /
  *     `.env.local`; nothing needs creating
- *   - `tsconfig.json`, `vitest.config.ts`, `.nvmrc`, `AGENTS.md`,
- *     `README.md` — the surrounding repo owns these; we don't touch them
+ *   - `tsconfig.json`, `.nvmrc`, `AGENTS.md`, `README.md` — the
+ *     surrounding repo owns these; we don't touch them
  *
  * @related packages/cli/src/init/mode-detect.ts (the branch)
  * @related packages/cli/src/commands/init.ts (the caller)
  */
 
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 
 import { KINDGI_CONFIG_FILENAMES } from '@kindgi/handler-runtime';
 import semver from 'semver';
@@ -67,6 +71,7 @@ import {
   decideAllowScripts,
   patchPackageJson,
 } from './package-json-patcher.js';
+import { TESTED_ZOD_VERSION, pinsExactly, savesExact, specAt } from './pinning.js';
 import {
   ESBUILD,
   ESBUILD_DECISION,
@@ -79,6 +84,7 @@ import {
   substitute,
   templateTarget,
 } from './template-files.js';
+import { KINDGI_TESTS_GLOB, type VitestSetup, planVitestSetup } from './vitest-setup.js';
 
 const DEFAULT_PACK_ID_FALLBACK = 'kindgi-pack';
 const DEFAULT_PACK_VERSION_FALLBACK = '0.1.0';
@@ -308,23 +314,35 @@ export async function runInitAugment(inputs: RunInitAugmentInputs): Promise<Comm
     skipped.push(...primitives.skipped);
   }
 
+  const exact = await addsExactly(pkgJson, inputs.targetDir, inputs.home);
+  const tests = await setUpTests(io, {
+    targetDir: inputs.targetDir,
+    pkg: pkgJson,
+    esmApp,
+    exact,
+    force: inputs.force,
+  });
+  created.push(...tests.created);
+  skipped.push(...tests.skipped);
+
   const patchResult = await applyAugmentPatches({
     targetDir: inputs.targetDir,
     ...(inputs.home !== undefined && { home: inputs.home }),
     pkgJsonPath,
     specs: deps.specs,
     packageManager: deps.packageManager,
-    // Every primitive's schemas are Zod. An app with Zod keeps its own.
-    extraDependencies: [ZOD_DEPENDENCY],
+    // Every primitive's schemas are Zod. An app with Zod keeps its own;
+    // one without gets the tested version.
+    extraDependencies: [zodDependency(exact), ...tests.dependencies],
   });
   if (patchResult.kind === 'err') {
     return { kind: 'error', stderr: patchResult.stderr, exitCode: 1 };
   }
   created.push(...patchResult.created);
   skipped.push(...patchResult.skipped);
-  const warnings = [...zodWarnings(pkgJson), ...patchResult.warnings];
+  const warnings = [...zodWarnings(pkgJson), ...tests.warnings, ...patchResult.warnings];
 
-  const nextSteps = augmentNextSteps(deps.packageManager, sample ? packId : undefined);
+  const nextSteps = augmentNextSteps(deps.packageManager, sample ? packId : undefined, tests.step);
 
   const summary: AugmentSummary = {
     kind: 'augment',
@@ -400,11 +418,80 @@ async function resolveProjectDeps(inputs: RunInitAugmentInputs): Promise<Project
   return { kind: 'ok', packageManager, specs: resolved.specs };
 }
 
+/** Whether what init adds to the app's dependencies is written exactly: the app pins exactly, or saves exact versions. */
+async function addsExactly(
+  pkg: Readonly<Record<string, unknown>>,
+  targetDir: string,
+  home: string | undefined,
+): Promise<boolean> {
+  return pinsExactly(pkg) || (await savesExact(targetDir, home));
+}
+
+/**
+ * The app's test setup (`planVitestSetup`): init's config written now, or
+ * kept; the dependencies it needs; what's left to the app (an app-owned
+ * setup's warning, what wasn't carried over); and the summary's step.
+ */
+async function setUpTests(
+  io: Required<AugmentIOOverrides>,
+  args: Parameters<typeof planVitestSetup>[0],
+): Promise<{
+  readonly created: readonly string[];
+  readonly skipped: readonly string[];
+  readonly dependencies: readonly WantedDependency[];
+  readonly warnings: readonly string[];
+  readonly step: AugmentTestsStep | undefined;
+}> {
+  const tests: VitestSetup = await planVitestSetup(args);
+  switch (tests.kind) {
+    case 'write':
+      await io.writeFile(tests.path, tests.contents);
+      return {
+        created: [tests.path],
+        skipped: [],
+        dependencies: tests.dependencies,
+        warnings: tests.notes,
+        step: {
+          configFile: basename(tests.path),
+          aliasPatterns: tests.aliases.map((a) => a.pattern),
+        },
+      };
+    case 'kept':
+      return {
+        created: [],
+        skipped: [tests.path],
+        dependencies: [],
+        warnings: [],
+        step: { configFile: basename(tests.path), aliasPatterns: [] },
+      };
+    case 'app-owned':
+      return {
+        created: [],
+        skipped: [],
+        dependencies: [],
+        warnings: [tests.warning],
+        step: undefined,
+      };
+  }
+}
+
+export interface AugmentTestsStep {
+  /** The vitest config `kindgi test` runs. */
+  readonly configFile: string;
+  /** The tsconfig paths copied into its `resolve.alias`. */
+  readonly aliasPatterns: readonly string[];
+}
+
 /**
  * What to run next — in the project's own package manager, with its own
- * `kindgi`. With the sample's `packId`, how to try its agent too.
+ * `kindgi`. With the sample's `packId`, how to try its agent too; with
+ * init's vitest config, how the tests run and how its aliases stay right.
  */
-export function augmentNextSteps(pm: PackageManager, samplePackId?: string): readonly string[] {
+export function augmentNextSteps(
+  pm: PackageManager,
+  samplePackId?: string,
+  tests?: AugmentTestsStep,
+): readonly string[] {
   const setSecret = binDisplay(pm, 'kindgi', [
     'secrets',
     'set',
@@ -422,14 +509,36 @@ export function augmentNextSteps(pm: PackageManager, samplePackId?: string): rea
       : [
           `Try the sample agent: ${binDisplay(pm, 'kindgi', ['runs', 'start', `--agent=${samplePackId}.echo-agent`, `--input='{"userMessage":"hi"}'`])}`,
         ]),
+    ...(tests === undefined
+      ? []
+      : [
+          `Tests: ${binDisplay(pm, 'kindgi', ['test'])} runs ${KINDGI_TESTS_GLOB} with ${tests.configFile}${
+            tests.aliasPatterns.length > 0
+              ? `, whose resolve.alias copies tsconfig.json's paths (${tests.aliasPatterns.join(', ')}): when you change those, change it to match`
+              : ''
+          }`,
+        ]),
   ];
 }
 
 /** The sample's primitive folders, as augment mode lays them out under `kindgi/`. */
 const SAMPLE_PRIMITIVE_DIRS = ['agents', 'flows', 'guardrails', 'tools'] as const;
 
-/** Zod, at the fresh templates' range (their `package.json.tmpl`). */
-export const ZOD_DEPENDENCY = { name: 'zod', spec: '^4.0.0', section: 'dependencies' } as const;
+/** The zods Kindgi works with: `@kindgi/sdk`'s range. An app's own zod outside it is reported. */
+export const ZOD_RANGE = '^4.0.0';
+
+/**
+ * Zod as init adds it: the version Kindgi is tested with, exact when the
+ * app pins exactly (or saves exact versions), else a `^` range from it, the
+ * fresh templates' (their `package.json.tmpl`).
+ */
+export function zodDependency(exact: boolean): {
+  readonly name: 'zod';
+  readonly spec: string;
+  readonly section: 'dependencies';
+} {
+  return { name: 'zod', spec: specAt(TESTED_ZOD_VERSION, exact), section: 'dependencies' };
+}
 
 const DEPENDENCY_SECTIONS = [
   'dependencies',
@@ -447,22 +556,22 @@ export function zodWarnings(pkg: Readonly<Record<string, unknown>>): readonly st
   for (const section of DEPENDENCY_SECTIONS) {
     const deps = pkg[section];
     if (deps === null || typeof deps !== 'object') continue;
-    const spec = (deps as Record<string, unknown>)[ZOD_DEPENDENCY.name];
+    const spec = (deps as Record<string, unknown>).zod;
     if (typeof spec !== 'string') continue;
-    if (semver.validRange(spec) === null || semver.intersects(spec, ZOD_DEPENDENCY.spec)) {
+    if (semver.validRange(spec) === null || semver.intersects(spec, ZOD_RANGE)) {
       return [];
     }
     return [
-      `zod: the app has zod ${spec} (${section}), left as is. Kindgi's tools, examples and skills use zod 4 — upgrade to zod ${ZOD_DEPENDENCY.spec} before writing Kindgi primitives.`,
+      `zod: the app has zod ${spec} (${section}), left as is. Kindgi's tools, examples and skills use zod 4 — upgrade to zod ${specAt(TESTED_ZOD_VERSION, false)} before writing Kindgi primitives.`,
     ];
   }
   return [];
 }
 
 /**
- * Copy the sample pack's primitives into `kindgi/<kind>/`, rendered as a
- * fresh sample pack renders them. The sample's tests stay out: the app
- * has its own test setup. A file already there is kept unless `force`.
+ * Copy the sample pack's primitives into `kindgi/<kind>/`, with their
+ * tests, rendered as a fresh sample pack renders them. A file already
+ * there is kept unless `force`.
  */
 async function writeSamplePrimitives(args: {
   readonly io: Required<AugmentIOOverrides>;
@@ -476,7 +585,6 @@ async function writeSamplePrimitives(args: {
   for (const kind of SAMPLE_PRIMITIVE_DIRS) {
     const files = await collectTemplateFiles(join(args.sampleDir, kind));
     for (const rel of files.sort()) {
-      if (/\.test\.ts(\.tmpl)?$/.test(rel)) continue;
       const dest = join(args.targetDir, 'kindgi', kind, templateTarget(rel));
       if (!args.force && (await args.io.fileExists(dest))) {
         skipped.push(dest);

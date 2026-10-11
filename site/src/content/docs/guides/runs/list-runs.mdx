@@ -37,7 +37,9 @@ Runs come newest first, 25 to a page by default (`--limit`, at most 100).
 `output`; `kindgi runs get <run-id>` has it.
 
 The CLI lists every run, including the agent turns inside flows (each one a
-run of `agent.turn`, with a `parentRunId`). The client can filter.
+run of `agent.turn`, with a `parentRunId`); `--agent=<agent-id>` lists one
+agent's turns (see below). The clients also filter by status, creation
+time, flow and version, and scope (below).
 
 ## From your app
 
@@ -189,8 +191,20 @@ for child in children.data:
 
 An agent's turn names its agent: `agent` carries the agent's id, the
 version that ran and the conversation. That goes for an agent run and for
-the turn a flow's agent step starts. `agentId` (`agent_id`) lists one
-agent's turns, at every version.
+the turn a flow's agent step starts. `kindgi runs list --agent=<agent-id>`
+lists one agent's turns, at every version, as do `agentId` (`agent_id`) in
+the clients:
+
+```sh
+kindgi runs list --agent=acme.chat-desk --table
+```
+
+```text
+ID                                    STATUS     FLOW / AGENT          CREATED
+────────────────────────────────────  ─────────  ────────────────────  ────────────────────────
+45d986f1-8a8d-4341-a786-5ddcf239bb93  completed  acme.chat-desk@0.1.0  2026-10-11T07:55:48.520Z
+95674147-b935-4a63-a74c-cbffc0fb103a  completed  acme.chat-desk@0.1.0  2026-10-11T07:55:39.011Z
+```
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -235,3 +249,47 @@ Add `agentVersion` (`agent_version`) for one version's turns, e.g. how a new
 version is doing. It needs `agentId`.
 
 [Read a run's journal](../read-the-journal/) to see what a turn did.
+
+## In the console
+
+A project's **Runs** page lists each agent run or flow run started in the
+project, newest first, with a flow's agent turns under it. It refreshes every
+5 seconds.
+
+![The Runs page filtered to Status: Failed and Started in the last hour: three failed runs of Support agent (acme.support @1.1.0), each with when it started, how long it took and its cost.](../../../../assets/runs/runs-filters.png)
+
+Its filters:
+- **Status:** Pending, Running, Waiting (a run that waits, for example on an
+  approval), Completed, Failed or Cancelled.
+- **Started:** in the last hour, 24 hours, 7 days or 30 days.
+- **An agent or a flow, and its version,** from a link that names them: a
+  flow's page links **Its runs →** and **Runs of 1.1.0 →** (the version it
+  shows), a schedule's page links **Its runs →**, and **Its failed runs** on
+  [What failed](#what-failed) names the agent or flow and its version. With
+  an agent chosen, a **Version** choice appears (**Every version**, or one).
+- **Include steps inside flows** and **Include eval replays.**
+
+Each filter shows as a chip ("Status: Failed", "Started in the last hour",
+"Flow: Refunds"). Removing an agent's or a flow's chip removes its version
+too. The page's address keeps the filters, so a link opens the same list.
+
+![The Runs page reached from a flow's "Runs of 1.1.0 →": the chips Flow: Refunds and Flow version: 1.1.0.](../../../../assets/runs/runs-flow-version.png)
+
+### What failed
+
+**What failed**, from the Runs page, groups the project's failed runs by
+cause and by version, so a bad deploy shows. Approvals people decided are
+counted apart: they aren't errors.
+
+![What failed over the last 7 days: "In the last 7 days, 7 runs failed: 7 errors (in 3 groups)." The errors as bars by version, and a table: an unregistered guardrail (unresolved-guardrail) in Support agent 1.1.0, 4 runs; a guardrail that blocked the answer (guardrail-violation) in Support agent 1.0.0, 2 runs; and a failed run (run-failed) in the flow Refunds 1.0.0, 1 run.](../../../../assets/runs/runs-what-failed.png)
+
+- **The window:** the last 24 hours, 7, 30 or 90 days.
+- **The headline:** "In the last 7 days, 7 runs failed: 7 errors (in 3
+  groups)."
+- **The errors by version:** bars of the runs that failed with an error, by
+  agent or flow version, the most first (**Show as a table** for the
+  numbers).
+- **One row per cause and version:** the cause in a run page's words, with
+  its code ("A guardrail blocked the answer." `guardrail-violation`), what
+  failed at which version, how many runs, when it was first and last seen,
+  **The latest** run, and **Its failed runs** on the Runs page.
