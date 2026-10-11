@@ -71,6 +71,8 @@ export {
   type UsageState,
 } from './routes/system-usage.js';
 export { systemKeysMintedFrom } from './routes/system-keys.js';
+export { tenantStateGate } from './middleware/tenant-state.js';
+export type { TenantStateBinding } from './middleware/tenant-state.js';
 export { systemTenantsRouter, systemWhoamiRouter } from './routes/system-tenants.js';
 export type {
   SystemTenant,

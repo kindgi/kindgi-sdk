@@ -158,6 +158,7 @@ function makeApp(tenancy: 'single' | 'multi' = 'multi') {
   const app = createApp({
     ...createStubAppBindings(),
     tenancy,
+    tenantStates: { of: async () => undefined },
     resolveToken: async (token) => {
       if (token === SINGLE_BOOT) {
         return {
@@ -635,6 +636,7 @@ describe("the operator's powers stay fenced in both ways", () => {
       createApp({
         ...createStubAppBindings(),
         tenancy: 'multi',
+        tenantStates: { of: async () => undefined },
         resolveToken: async () => null,
         runHandler: {} as RunHandlerBinding,
       } as CreateAppInput),

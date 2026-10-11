@@ -3926,7 +3926,7 @@ describe("POST /v1/deployments — the tenant's own image repository", () => {
 
   async function deploy(
     prefix: string | undefined,
-    tenancy?: 'multi',
+    tenancy: 'multi' | 'single' = 'multi',
   ): Promise<{ status: number; code?: string; details?: Record<string, unknown>; reads: number }> {
     const fixture = buildSignedDeploy();
     const { registry, calls } = counted(fixture);
@@ -3935,8 +3935,9 @@ describe("POST /v1/deployments — the tenant's own image repository", () => {
       imageRegistry: registry,
       extra: {
         imagePrefixes: { of: async () => prefix },
-        ...(tenancy !== undefined && {
+        ...(tenancy === 'multi' && {
           tenancy,
+          tenantStates: { of: async () => undefined },
           systemAccessAudit: {
             record: async () => undefined,
             begin: async () => 'a',
@@ -3975,9 +3976,8 @@ describe("POST /v1/deployments — the tenant's own image repository", () => {
     expect(await deploy('ghcr.io/acm')).toMatchObject({ status: 409, code: 'image-not-allowed' });
   });
 
-  test('no prefix: unchecked on a runtime serving one tenant, refused on one serving many', async () => {
-    expect((await deploy(undefined)).status).toBe(201);
-    expect(await deploy(undefined, 'multi')).toMatchObject({
+  test('no prefix: refused on a runtime serving many tenants', async () => {
+    expect(await deploy(undefined)).toMatchObject({
       status: 409,
       code: 'image-prefix-unset',
       reads: 0,
@@ -3989,5 +3989,10 @@ describe("POST /v1/deployments — the tenant's own image repository", () => {
       status: 409,
       code: 'image-prefix-unset',
     });
+  });
+
+  test('a runtime serving one tenant never checks: any image registers, prefix or not', async () => {
+    expect((await deploy(undefined, 'single')).status).toBe(201);
+    expect((await deploy('ghcr.io/other', 'single')).status).toBe(201);
   });
 });

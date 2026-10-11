@@ -677,6 +677,7 @@ export function fullAppInput(): CreateAppInput {
       admins: async () => [],
     },
     imagePrefixes: { of: async () => undefined },
+    tenantStates: { of: async () => undefined },
     systemTenantSettings: {
       setProductionAllowed: async () => {
         throw new Error('not used: no system principal in the sweeps');

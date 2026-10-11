@@ -3,6 +3,7 @@
 
 import { randomBytes, randomUUID } from 'node:crypto';
 
+import { Hono } from 'hono';
 import { describe, expect, test } from 'vitest';
 
 import type { TenantId } from '@kindgi/types';
@@ -14,8 +15,10 @@ import {
   createApp,
   imagePrefixesOverlap,
   parseImagePrefix,
+  tenantStateGate,
 } from '../src/index.js';
 import type {
+  AppEnv,
   ImagePrefix,
   RunHandlerBinding,
   SystemAccessRecord,
@@ -155,6 +158,7 @@ function makeApp() {
   const app = createApp({
     ...createStubAppBindings(),
     tenancy: 'multi',
+    tenantStates: { of: async () => undefined },
     resolveToken: async (token) => {
       const caps = KEYS[token];
       return caps === undefined
@@ -469,54 +473,88 @@ describe('suspending one project', () => {
   });
 });
 
-describe("a closing or suspended tenant's own requests: read, export and delete only", () => {
-  function tenantApp(state: 'active' | 'suspended' | 'closing') {
+describe('a closing or suspended tenant is frozen, whatever way it comes in', () => {
+  /** A tenant principal resolving with nothing about its state, as a session does. */
+  function tenantApp(state: 'active' | 'suspended' | 'closing' | 'unreadable') {
     const tenantId = randomUUID() as TenantId;
     const app = createApp({
       ...createStubAppBindings(),
-      resolveToken: async () => ({
-        tenantId,
-        scopes: ['tenant-admin'],
-        capabilities: [],
-        ...(state !== 'active' && { tenantState: state }),
-      }),
+      resolveToken: async () => ({ tenantId, scopes: ['tenant-admin'], capabilities: [] }),
       runHandler: {} as RunHandlerBinding,
+      tenantStates: {
+        of: async () => {
+          if (state === 'unreadable') throw new Error('the database is down');
+          return state;
+        },
+      },
     });
     return (method: string, path: string) =>
       app.request(path, {
         method,
-        headers: { authorization: 'Bearer kgi_ak_x', 'content-type': 'application/json' },
+        headers: { authorization: 'Bearer kgi_sk_x', 'content-type': 'application/json' },
         ...(method !== 'GET' && method !== 'DELETE' && { body: '{}' }),
       });
   }
+  const codeOf = async (res: Response) =>
+    ((await res.json().catch(() => ({}))) as { error?: { code?: string } }).error?.code;
 
   test.each(['closing', 'suspended'] as const)(
-    '%s: writes refused, reads and exports pass',
+    '%s: a write is refused; reads, exports, erasure, unregistering and revoking pass',
     async (state) => {
       const send = tenantApp(state);
       const write = await send('POST', '/v1/tokens');
       expect(write.status).toBe(409);
-      expect(((await write.json()) as { error: { code: string } }).error.code).toBe(
-        `tenant-${state}`,
-      );
+      expect(await codeOf(write)).toBe(`tenant-${state}`);
       for (const [method, path] of [
         ['GET', '/v1/tenant'],
         ['DELETE', `/v1/env/${randomUUID()}`],
+        ['POST', '/v1/memory/erasures'],
+        ['POST', `/v1/memory/erasures/${randomUUID()}/resume`],
+        ['POST', '/v1/memory/retrieve'],
+        ['POST', `/v1/tokens/${randomUUID()}/revoke`],
+        ['POST', `/v1/identity/users/${randomUUID()}/revoke-sessions`],
+        ['POST', `/v1/agents/${randomUUID()}/unregister`],
+        ['POST', '/v1/memory/erasures/replay'],
+        ['POST', '/v1/retention/sweep'],
+        ['POST', '/v1/retention/sweep/conversations'],
         ['POST', `/v1/provenance/${randomUUID()}/export`],
         ['POST', '/v1/auth/logout'],
       ] as const) {
         const res = await send(method, path);
-        if (res.status === 409) {
-          const body = (await res.json()) as { error: { code: string } };
-          expect(body.error.code, `${method} ${path}`).not.toMatch(/^tenant-(closing|suspended)$/);
-        }
+        expect(await codeOf(res), `${method} ${path}`).not.toMatch(/^tenant-(closing|suspended)$/);
       }
     },
   );
 
+  test("a state that can't be read refuses the write, never lets it through; a read still passes", async () => {
+    const send = tenantApp('unreadable');
+    const write = await send('POST', '/v1/tokens');
+    expect(write.status).toBe(503);
+    expect(write.headers.get('retry-after')).toBe('5');
+    expect(await codeOf(write)).toBe('tenant-state-unavailable');
+    expect((await send('GET', '/v1/tenant')).status).not.toBe(503);
+  });
+
   test('an active tenant writes as before', async () => {
     const res = await tenantApp('active')('POST', '/v1/tokens');
-    expect(res.status).not.toBe(409);
+    expect(await codeOf(res)).not.toMatch(/^tenant-/);
+  });
+
+  test('the S3 surface too: a frozen tenant reads and deletes its artifacts, never writes them', async () => {
+    const app = new Hono<AppEnv>();
+    app.use('*', async (c, next) => {
+      c.set('requestId', 'req-s3');
+      c.set('tenantId', randomUUID() as TenantId);
+      await next();
+    });
+    app.use('/s3/*', tenantStateGate({ of: async () => 'suspended' }));
+    app.all('/s3/*', (c) => c.json({ reached: true }));
+    for (const method of ['PUT', 'POST'] as const) {
+      expect((await app.request('/s3/bucket/key', { method })).status, method).toBe(409);
+    }
+    for (const method of ['GET', 'DELETE'] as const) {
+      expect((await app.request('/s3/bucket/key', { method })).status, method).toBe(200);
+    }
   });
 });
 
