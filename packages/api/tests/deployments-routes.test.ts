@@ -3178,7 +3178,7 @@ describe('POST /v1/deployments — agents are pinned, and a deploy never keeps o
     return { tools, agents, flows, deploy };
   }
 
-  test('an agent naming a tool neither the deploy brings nor its project reaches is refused, before anything registers', async () => {
+  test('an agent or flow naming a tool neither the deploy brings nor its project reaches is refused, before anything registers', async () => {
     const artifactVersion = '20261011.1';
     const publishedAt = '2026-10-11T00:00:00.000Z';
     const pack = buildSignedDeploy({
@@ -3212,7 +3212,17 @@ describe('POST /v1/deployments — agents are pinned, and a deploy never keeps o
             ],
           },
         ],
-        flows: [],
+        flows: [
+          {
+            id: 'acme.route',
+            version: '1.0.0',
+            nodes: [{ id: 'step', kind: 'tool', ref: 'acme.other-tool' }],
+            edges: [
+              { id: 'e0', from: '$start', to: 'step' },
+              { id: 'e1', from: 'step', to: '$end' },
+            ],
+          },
+        ],
       },
     });
     const asked: string[] = [];
@@ -3242,6 +3252,7 @@ describe('POST /v1/deployments — agents are pinned, and a deploy never keeps o
     expect(body.error.code).toBe('reference-out-of-scope');
     expect(body.error.details.issues).toEqual([
       expect.objectContaining({ path: '/agents/0/tools/1', kind: 'tool', id: 'acme.other-tool' }),
+      expect.objectContaining({ path: '/flows/0/nodes/step', kind: 'tool', id: 'acme.other-tool' }),
     ]);
     // What the deploy brings itself is never asked about.
     expect(asked).toEqual(['acme.other-tool']);

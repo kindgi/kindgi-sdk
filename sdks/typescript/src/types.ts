@@ -1022,8 +1022,9 @@ export interface Conversation {
   readonly participantId?: string;
   /**
    * The project the conversation is in: the project of the run that
-   * opened it, or `projectId` on open (the tenant's Default project when
-   * omitted). Absent on conversations from before 0.1.3.
+   * opened it, or `projectId` on open (when omitted, the agent's own
+   * project, or the tenant's Default project for an agent filed under
+   * none). Absent on conversations from before 0.1.3.
    */
   readonly projectId?: string;
   /** Structural scope (project id, matter id, etc.). */
@@ -1047,8 +1048,9 @@ export interface OpenConversationInput {
   readonly agentId: import('@kindgi/types').AgentId;
   readonly agentVersion: string;
   /**
-   * Put the conversation in a project (one of the tenant's): lists filter
-   * by it. Omitted: the tenant's Default project, as for a run.
+   * Put the conversation in a project (one of the tenant's, reaching the
+   * agent): lists filter by it. Omitted: the agent's own project, as for a
+   * run.
    */
   readonly projectId?: string;
   readonly scope?: Readonly<Record<string, unknown>>;

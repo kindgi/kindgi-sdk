@@ -436,6 +436,21 @@ export function flowsRouter(
     const tenantId = c.get('tenantId') as TenantId;
     const flowId = c.req.param('flowId') as FlowId;
     const version = c.req.param('version');
+
+    // Reinstating makes a version's references live again, so they're
+    // asked as at publish (`reference-scope.ts`): a version from before
+    // the check, naming what its project doesn't reach, stays retired.
+    const retired = await binding.getVersion({ tenantId, flowId, version });
+    if (retired?.unregisteredAt !== undefined && retired.projectId !== undefined) {
+      const outOfScope = await referencesOutOfScope(
+        referenceScope,
+        tenantId,
+        retired.projectId,
+        flowReferences(retired),
+      );
+      if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
+    }
+
     const outcome = await binding.reinstateVersion({ tenantId, flowId, version });
     if (outcome.kind === 'not-found') {
       c.status(statusFor('flow-not-found') as never);

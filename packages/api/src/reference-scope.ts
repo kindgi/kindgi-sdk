@@ -18,7 +18,7 @@
 
 import type { Agent } from '@kindgi/agents';
 import { type Flow, type FlowNode, isFanoutNode, isLoopNode, isSubflowNode } from '@kindgi/flow';
-import type { ProjectId, TenantId } from '@kindgi/types';
+import type { LiveScope, ProjectId, TenantId } from '@kindgi/types';
 
 import type { TriggerTarget } from '@kindgi/runtime';
 import type { Context } from 'hono';
@@ -27,7 +27,7 @@ import { blockRefs } from './block-pins.js';
 import { statusFor, toWireError } from './errors.js';
 
 /** The kinds of item a flow, agent, trigger or run can reference. */
-export type ReferenceKind = 'tool' | 'agent' | 'flow' | 'guardrail' | 'block';
+export type ReferenceKind = 'tool' | 'agent' | 'flow' | 'guardrail' | 'block' | 'check' | 'suite';
 
 export interface ItemReference {
   readonly kind: ReferenceKind;
@@ -61,6 +61,8 @@ const NOUN: Readonly<Record<ReferenceKind, string>> = {
   flow: 'flow',
   guardrail: 'guardrail',
   block: 'data block',
+  check: 'check',
+  suite: 'eval suite',
 };
 
 /**
@@ -129,7 +131,7 @@ export function flowReferences(flow: Flow): (ItemReference & { readonly path: st
       else if (node.kind === 'agent') refs.push({ path, kind: 'agent', id: node.ref });
     }
   };
-  walk(flow.nodes, '');
+  walk(flow.nodes, '/');
   return refs;
 }
 
@@ -190,4 +192,21 @@ export function outOfScopeResponse(
       requestId,
     ),
   );
+}
+
+/**
+ * Whether making `agentId` live for `scope` stays within the scope's
+ * project: a project or segment scope must reach the agent. A tenant or
+ * org scope isn't checked (other projects can't name the agent anyway).
+ */
+export async function liveScopeOutOfScope(
+  scope: ReferenceScopeBinding | undefined,
+  tenantId: TenantId,
+  agentId: string,
+  live: LiveScope,
+): Promise<ReferenceOutOfScopeError | undefined> {
+  if (live.kind !== 'project' && live.kind !== 'segment') return undefined;
+  return referencesOutOfScope(scope, tenantId, live.projectId, [
+    { path: '/scope', kind: 'agent', id: agentId },
+  ]);
 }

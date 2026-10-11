@@ -553,6 +553,20 @@ export function agentsRouter(
     const agentId = c.req.param('agentId') as AgentId;
     const version = c.req.param('version') as Semver;
 
+    // Reinstating makes a version's references live again, so they're
+    // asked as at publish (`reference-scope.ts`): a version from before
+    // the check, naming what its project doesn't reach, stays retired.
+    const retired = await binding.getVersion({ tenantId, agentId, version });
+    if (retired?.unregisteredAt !== undefined && retired.projectId !== undefined) {
+      const outOfScope = await referencesOutOfScope(
+        referenceScope,
+        tenantId,
+        retired.projectId,
+        agentReferences(retired),
+      );
+      if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
+    }
+
     const outcome = await binding.reinstateVersion({ tenantId, agentId, version });
     if (outcome.kind === 'not-found') {
       c.status(statusFor('agent-not-found') as never);

@@ -13,10 +13,13 @@ import { randomUUID } from 'node:crypto';
 
 import { describe, expect, test } from 'vitest';
 
-import type { Agent } from '@kindgi/agents';
+import type { Agent, ConversationBinding } from '@kindgi/agents';
+import type { Action, Decision, ResourceRef } from '@kindgi/authz';
 import { loadFlow } from '@kindgi/flow';
 
 import {
+  type AgentRegistryBinding,
+  type FlowRegistryBinding,
   type ReferenceScopeBinding,
   agentReferences,
   createApp,
@@ -36,6 +39,21 @@ function scope(asked: Parameters<ReferenceScopeBinding['reachable']>[0][]): Refe
     async reachable(input) {
       asked.push(input);
       return !input.ref.id.startsWith('acme.other');
+    },
+  };
+}
+
+/** A test authorizer's answer: everything allowed but `execute` on the agents in `denied`. */
+function decide(denied: ReadonlySet<string>, action: Action, resource: ResourceRef): Decision {
+  const allowed = !(action === 'execute' && resource.type === 'agent' && denied.has(resource.id));
+  return {
+    allowed,
+    reason: allowed ? 'test: granted' : 'test: not granted',
+    evidence: {
+      action,
+      relation: '',
+      resource: `${resource.type}:${resource.id}`,
+      actorSubject: '',
     },
   };
 }
@@ -110,9 +128,9 @@ describe('the helpers', () => {
     });
     if (loaded.kind !== 'ok') throw new Error(loaded.error.message);
     expect(flowReferences(loaded.value)).toEqual([
-      { path: 'nodes/score', kind: 'tool', id: 'acme.score' },
-      { path: 'nodes/match', kind: 'agent', id: 'acme.matcher' },
-      { path: 'nodes/each/body/nodes/lookup', kind: 'tool', id: 'acme.lookup' },
+      { path: '/nodes/score', kind: 'tool', id: 'acme.score' },
+      { path: '/nodes/match', kind: 'agent', id: 'acme.matcher' },
+      { path: '/nodes/each/body/nodes/lookup', kind: 'tool', id: 'acme.lookup' },
     ]);
   });
 
@@ -203,7 +221,7 @@ const ROUTES: readonly RouteCase[] = [
         { id: 'out', from: 'step', to: '$end' },
       ],
     }),
-    issuePath: 'nodes/step',
+    issuePath: '/nodes/step',
     kind: 'tool',
   },
   {
@@ -253,6 +271,26 @@ const ROUTES: readonly RouteCase[] = [
     kind: 'agent',
   },
   {
+    name: 'POST /v1/eval-suites/{suiteId}/runs: its suite',
+    path: (id) => `/v1/eval-suites/${id}/runs`,
+    body: (projectId) => ({ projectId, agentRef: { agentId: 'acme.own-agent', version: '1.0.0' } }),
+    issuePath: '/suiteId',
+    kind: 'suite',
+  },
+  {
+    name: 'POST /v1/guardrails: a pack check',
+    path: () => '/v1/guardrails',
+    body: (projectId, id) => ({
+      id: 'acme.guard',
+      kind: 'zero-llm',
+      check: id,
+      action: { 'on-violation': 'halt' },
+      projectId,
+    }),
+    issuePath: '/check',
+    kind: 'check',
+  },
+  {
     name: 'POST /v1/conversations: its agent',
     path: () => '/v1/conversations',
     body: (projectId, id) => ({ agentId: id, agentVersion: '1.0.0', title: 'Help', projectId }),
@@ -263,6 +301,16 @@ const ROUTES: readonly RouteCase[] = [
     name: 'POST /v1/agents/{agentId}/promotions: a project scope',
     path: (id) => `/v1/agents/${id}/promotions`,
     body: (projectId) => ({ version: '1.0.0', scope: { kind: 'project', projectId } }),
+    issuePath: '/scope',
+    kind: 'agent',
+  },
+  {
+    name: 'POST /v1/agents/{agentId}/promotions: a segment scope',
+    path: (id) => `/v1/agents/${id}/promotions`,
+    body: (projectId) => ({
+      version: '1.0.0',
+      scope: { kind: 'segment', projectId, path: [{ key: 'company', value: 'acme' }] },
+    }),
     issuePath: '/scope',
     kind: 'agent',
   },
@@ -304,6 +352,27 @@ describe.each(ROUTES)('$name', (route) => {
   });
 });
 
+describe('POST /v1/guardrails: a built-in check', () => {
+  test("is every project's: the binding is never asked about it", async () => {
+    const asked: Parameters<ReferenceScopeBinding['reachable']>[0][] = [];
+    const a = app(scope(asked));
+    const res = await a.request('/v1/guardrails', {
+      method: 'POST',
+      headers: auth,
+      body: JSON.stringify({
+        id: 'acme.cites',
+        kind: 'zero-llm',
+        check: 'must-cite',
+        action: { 'on-violation': 'halt' },
+        projectId: await newProject(a),
+      }),
+    });
+    const body = (await res.json().catch(() => ({}))) as { error?: { code?: string } };
+    expect(body.error?.code).not.toBe('reference-out-of-scope');
+    expect(asked).toEqual([]);
+  });
+});
+
 describe('PATCH /v1/schedules/{triggerId}: a new target', () => {
   test("is checked against the schedule's project, as at registration", async () => {
     const asked: Parameters<ReferenceScopeBinding['reachable']>[0][] = [];
@@ -340,6 +409,225 @@ describe('PATCH /v1/schedules/{triggerId}: a new target', () => {
       ref: { kind: 'flow', id: 'acme.other-flow' },
     });
   });
+});
+
+describe('POST /v1/agents/{agentId}/promotions: a tenant scope', () => {
+  test("isn't asked: no other project can name the agent anyway", async () => {
+    const asked: Parameters<ReferenceScopeBinding['reachable']>[0][] = [];
+    const a = app(scope(asked));
+    const res = await a.request('/v1/agents/acme.other-item/promotions', {
+      method: 'POST',
+      headers: auth,
+      body: JSON.stringify({ version: '1.0.0', scope: { kind: 'tenant' } }),
+    });
+    const body = (await res.json().catch(() => ({}))) as { error?: { code?: string } };
+    expect(body.error?.code).not.toBe('reference-out-of-scope');
+    expect(asked).toEqual([]);
+  });
+});
+
+describe('POST /v1/conversations: where it is filed', () => {
+  /**
+   * An app whose agent registry files `acme.desk` under `deskProject` (when
+   * given); `denied` agents are refused `execute`; the conversations it
+   * opens are recorded.
+   */
+  function conversations(opts: { deskProject?: () => string; denied?: readonly string[] }) {
+    const opened: Record<string, unknown>[] = [];
+    const asked: Parameters<ReferenceScopeBinding['reachable']>[0][] = [];
+    const deny = new Set(opts.denied ?? []);
+    const a = createApp({
+      ...fullAppInput(),
+      resolveToken: async (token) =>
+        token === TOKEN
+          ? { tenantId: '00000000-0000-4000-8000-0000000000aa' as never, userId: 'user-1' as never }
+          : null,
+      agentRegistry: {
+        getVersion: async ({ agentId }: { agentId: string }) =>
+          agentId === 'acme.desk' && opts.deskProject !== undefined
+            ? { id: agentId, version: '1.0.0', projectId: opts.deskProject() }
+            : null,
+      } as unknown as AgentRegistryBinding,
+      conversationBinding: {
+        openConversation: async (input: Record<string, unknown>) => {
+          opened.push(input);
+          return {
+            kind: 'ok',
+            value: {
+              ...input,
+              id: randomUUID(),
+              openedAt: '2026-10-11T00:00:00.000Z',
+              turnCount: 0,
+            },
+          };
+        },
+      } as unknown as ConversationBinding,
+      // The agent's own project reaches it; no other project does.
+      referenceScope: {
+        async reachable(input) {
+          asked.push(input);
+          return opts.deskProject !== undefined && input.fromProjectId === opts.deskProject();
+        },
+      },
+      ...(opts.denied !== undefined && {
+        authz: {
+          fgaApiUrl: 'http://fga.invalid',
+          authzCheckBinding: {
+            check: async (_p, action, resource) => decide(deny, action, resource),
+            checkBatch: async (_p, action, resources) =>
+              resources.map((resource) => decide(deny, action, resource)),
+          },
+        },
+      }),
+    });
+    const open = (body: Record<string, unknown>) =>
+      a.request('/v1/conversations', {
+        method: 'POST',
+        headers: auth,
+        body: JSON.stringify({
+          agentId: 'acme.desk',
+          agentVersion: '1.0.0',
+          title: 'Help',
+          ...body,
+        }),
+      });
+    return { a, open, opened, asked };
+  }
+
+  test("without a projectId, it's filed under its agent's own project, as a run is", async () => {
+    let desk = '';
+    const h = conversations({ deskProject: () => desk });
+    desk = await newProject(h.a);
+    const res = await h.open({});
+    expect(res.status, await res.clone().text()).toBe(201);
+    expect(((await res.json()) as { projectId?: string }).projectId).toBe(desk);
+    expect(h.opened).toEqual([expect.objectContaining({ projectId: desk })]);
+  });
+
+  test("a projectId that isn't the agent's project is refused, naming the agent", async () => {
+    let desk = '';
+    const h = conversations({ deskProject: () => desk });
+    desk = await newProject(h.a);
+    const other = await newProject(h.a);
+    const res = await h.open({ projectId: other });
+    const body = (await res.json()) as {
+      error: { code: string; details: { issues: { path: string; id: string }[] } };
+    };
+    expect(res.status).toBe(400);
+    expect(body.error.code).toBe('reference-out-of-scope');
+    expect(body.error.details.issues).toEqual([
+      expect.objectContaining({ path: '/agentId', id: 'acme.desk' }),
+    ]);
+    expect(h.asked.at(-1)?.fromProjectId).toBe(other);
+    expect(h.opened).toEqual([]);
+  });
+
+  test("a caller who can't run the agent is refused with the answer an unknown agent gets", async () => {
+    const bodies: string[] = [];
+    const desk = randomUUID();
+    for (const placed of [true, false]) {
+      const h = conversations({
+        ...(placed && { deskProject: () => desk }),
+        denied: ['acme.desk'],
+      });
+      const res = await h.open({});
+      expect(res.status).toBe(403);
+      const body = (await res.json()) as { error: { requestId?: string } };
+      bodies.push(JSON.stringify({ ...body, error: { ...body.error, requestId: '<id>' } }));
+      expect(h.opened).toEqual([]);
+    }
+    expect(bodies[0]).toBe(bodies[1]);
+  });
+});
+
+describe('…/versions/{version}/reinstate: a retired version comes back only with its references in reach', () => {
+  /** A registry holding one version retired before the check, naming `acme.other-tool`. */
+  function retired(kind: 'agents' | 'flows', projectId: string) {
+    const reinstated: string[] = [];
+    const record =
+      kind === 'agents'
+        ? {
+            id: 'acme.desk',
+            version: '1.0.0',
+            projectId,
+            instructions: 'Help.',
+            tools: [{ id: 'acme.other-tool', version: '1.0.0' }],
+            guardrails: [],
+            unregisteredAt: '2026-10-01T00:00:00.000Z',
+          }
+        : {
+            id: 'acme.flow',
+            version: '1.0.0',
+            projectId,
+            nodes: [{ id: 'step', kind: 'tool', ref: 'acme.other-tool' }],
+            edges: [],
+            unregisteredAt: '2026-10-01T00:00:00.000Z',
+          };
+    const registry = {
+      getVersion: async () => record,
+      reinstateVersion: async (input: Record<string, unknown>) => {
+        reinstated.push(String(input.version));
+        return {
+          kind: 'ok',
+          ...(kind === 'agents' ? { agentId: record.id } : { flowId: record.id }),
+          version: record.version,
+          wasTombstoned: true,
+        };
+      },
+    };
+    return { registry, reinstated, id: record.id };
+  }
+
+  for (const kind of ['agents', 'flows'] as const) {
+    test(`${kind}: a reference out of its project's reach keeps it retired, naming the reference`, async () => {
+      const projectId = randomUUID();
+      const { registry, reinstated, id } = retired(kind, projectId);
+      const asked: Parameters<ReferenceScopeBinding['reachable']>[0][] = [];
+      const a = createApp({
+        ...fullAppInput(),
+        resolveToken: async (token) =>
+          token === TOKEN ? { tenantId: '00000000-0000-4000-8000-0000000000aa' as never } : null,
+        ...(kind === 'agents'
+          ? { agentRegistry: registry as unknown as AgentRegistryBinding }
+          : { flowRegistry: registry as unknown as FlowRegistryBinding }),
+        referenceScope: scope(asked),
+      });
+      const res = await a.request(`/v1/${kind}/${id}/versions/1.0.0/reinstate`, {
+        method: 'POST',
+        headers: auth,
+      });
+      const body = (await res.json()) as {
+        error: { code: string; details: { issues: { path: string; id: string }[] } };
+      };
+      expect(res.status).toBe(400);
+      expect(body.error.code).toBe('reference-out-of-scope');
+      expect(body.error.details.issues).toEqual([
+        expect.objectContaining({
+          path: kind === 'agents' ? '/tools/0' : '/nodes/step',
+          id: 'acme.other-tool',
+        }),
+      ]);
+      expect(asked.map((q) => q.fromProjectId)).toEqual([projectId]);
+      expect(reinstated).toEqual([]);
+
+      // With every reference in reach, it comes back.
+      const inReach = createApp({
+        ...fullAppInput(),
+        resolveToken: async (token) =>
+          token === TOKEN ? { tenantId: '00000000-0000-4000-8000-0000000000aa' as never } : null,
+        ...(kind === 'agents'
+          ? { agentRegistry: registry as unknown as AgentRegistryBinding }
+          : { flowRegistry: registry as unknown as FlowRegistryBinding }),
+        referenceScope: { reachable: async () => true },
+      });
+      const back = await inReach.request(`/v1/${kind}/${id}/versions/1.0.0/reinstate`, {
+        method: 'POST',
+        headers: auth,
+      });
+      expect(back.status).toBe(200);
+      expect(reinstated).toEqual(['1.0.0']);
+    });
+  }
 });
 
 describe('one answer for an item that does not exist and one out of reach', () => {

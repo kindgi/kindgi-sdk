@@ -1225,6 +1225,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       input.projectBinding,
       authorizer,
       input.referenceScope,
+      input.agentRegistry,
     ),
   );
   if (publicRunTokenLimits !== undefined) {
@@ -1357,6 +1358,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         authorizer,
         input.onGuardrailWrite,
         input.checkGuardrailConfig,
+        input.referenceScope,
       ),
     );
   }
@@ -1388,6 +1390,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       agents: input.agentRegistry,
       blocks: input.blockRegistry,
       releases: input.agentReleases,
+      ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
     };
     v1.route(
       '/proposals',
@@ -1399,6 +1402,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           evalRuns: input.evalRunBinding,
           releases: input.agentReleases,
           ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
+          ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
         },
         authorizer,
         (r) => mountImproveRoute(r, improveDeps, authorizer),

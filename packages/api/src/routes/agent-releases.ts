@@ -23,8 +23,8 @@ import type {
 } from '../live-version-binding.js';
 import {
   type ReferenceScopeBinding,
+  liveScopeOutOfScope,
   outOfScopeResponse,
-  referencesOutOfScope,
 } from '../reference-scope.js';
 import type { AppEnv } from '../types.js';
 import { serializeGatePolicy } from './gate-policy-wire.js';
@@ -49,6 +49,8 @@ export function isPromotionCheck(method: string, path: string): boolean {
 export interface AgentReleaseGateDeps {
   readonly evalRuns?: EvalRunBinding;
   readonly projects?: ProjectBinding;
+  /** A project or segment scope must reach the agent (`reference-scope.ts`); absent → as named. */
+  readonly referenceScope?: ReferenceScopeBinding;
 }
 
 /**
@@ -72,13 +74,13 @@ export function mountAgentReleaseRoutes(
   /** What a project-scoped promotion's project may run (`reference-scope.ts`); absent → as named. */
   referenceScope?: ReferenceScopeBinding,
 ): void {
-  /** A project-scoped promotion of an agent that project doesn't reach: refused. */
-  const outOfScope = async (tenantId: TenantId, agentId: string, scope: LiveScope) =>
-    scope.kind === 'project'
-      ? referencesOutOfScope(referenceScope, tenantId, scope.projectId, [
-          { path: '/scope', kind: 'agent', id: agentId },
-        ])
-      : undefined;
+  /** A project or segment promotion of an agent that project doesn't reach: refused. */
+  const outOfScope = (tenantId: TenantId, agentId: string, scope: LiveScope) =>
+    liveScopeOutOfScope(referenceScope, tenantId, agentId, scope);
+  const gateDeps: AgentReleaseGateDeps = {
+    ...deps,
+    ...(referenceScope !== undefined && { referenceScope }),
+  };
   r.get('/:agentId/live', async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
@@ -154,9 +156,7 @@ export function mountAgentReleaseRoutes(
     const parsed = await readPromotionBody(c);
     if (parsed.kind === 'err') return badInput(c, requestId, parsed.message);
     const agentId = c.req.param('agentId');
-    const refused = await outOfScope(c.get('tenantId') as TenantId, agentId, parsed.value.scope);
-    if (refused !== undefined) return outOfScopeResponse(c, requestId, refused);
-    const outcome = await requestPromotion(registry, releases, deps, {
+    const outcome = await requestPromotion(registry, releases, gateDeps, {
       tenantId: c.get('tenantId') as TenantId,
       agentId,
       version: parsed.value.version,
@@ -328,6 +328,15 @@ export async function requestPromotion(
     readonly requireApproval?: GateApproval;
   } = {},
 ): Promise<PromotionRequestOutcome> {
+  // Every way a promotion is asked for comes through here (the route, a
+  // proposal's request): a project or segment scope must reach the agent.
+  const outOfScope = await liveScopeOutOfScope(
+    deps.referenceScope,
+    input.tenantId,
+    input.agentId,
+    input.scope,
+  );
+  if (outOfScope !== undefined) return { kind: 'err', error: outOfScope };
   const policy = await policyFor(releases, input.tenantId, input.agentId, input.scope);
   if (releases.promotions.request === undefined) {
     if (policy !== null) return { kind: 'gate-unsupported', policy };

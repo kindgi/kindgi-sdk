@@ -634,7 +634,7 @@ export function deploymentsRouter(
           agentReferences(agent).map((ref) => ({ ...ref, path: `/agents/${i}${ref.path}` })),
         ),
         ...validated.flows.flatMap((flow, i) =>
-          flowReferences(flow).map((ref) => ({ ...ref, path: `/flows/${i}/${ref.path}` })),
+          flowReferences(flow).map((ref) => ({ ...ref, path: `/flows/${i}${ref.path}` })),
         ),
       ].filter((ref) => !brought.has(`${ref.kind}:${ref.id}`));
       const outOfScope = await referencesOutOfScope(

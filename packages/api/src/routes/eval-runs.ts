@@ -191,8 +191,9 @@ function startRouter(
       (await deniedBy(authorizer, c, 'write', ref('project', projectId as unknown as string))) ??
       (await deniedBy(authorizer, c, 'execute', target));
     if (refused !== undefined) return refused;
-    // What it runs must be the run's project's to reach (`reference-scope.ts`).
+    // The suite and what it runs must be the run's project's to reach (`reference-scope.ts`).
     const outOfScope = await referencesOutOfScope(referenceScope, tenantId, projectId, [
+      { path: '/suiteId', kind: 'suite', id: suiteId },
       agentRef !== undefined
         ? { path: '/agentRef/agentId', kind: 'agent', id: agentRef.agentId as unknown as string }
         : { path: '/flowRef/flowId', kind: 'flow', id: flowRef?.flowId as unknown as string },
