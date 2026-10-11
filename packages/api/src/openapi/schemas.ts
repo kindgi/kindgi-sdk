@@ -9690,8 +9690,40 @@ export const ProjectSchema: JsonSchema = {
     slug: { type: 'string' },
     isDefault: { type: 'boolean' },
     description: { type: 'string' },
+    productionSince: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        "When the project was put in production; absent while it isn't. A run in a project in production is a production run, and a run anywhere else is staging.",
+    },
     createdAt: { type: 'string' },
     updatedAt: { type: 'string' },
+  },
+};
+
+export const ProjectProductionBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['production'],
+  properties: {
+    production: {
+      type: 'boolean',
+      description: '`true` puts the project in production; `false` takes it out.',
+    },
+  },
+};
+
+export const ProjectProductionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['projectId', 'productionSince'],
+  properties: {
+    projectId: { type: 'string' },
+    productionSince: {
+      type: ['string', 'null'],
+      format: 'date-time',
+      description: "When the project went into production; `null` while it isn't in production.",
+    },
   },
 };
 
@@ -9968,6 +10000,59 @@ export const TenantSchema: JsonSchema = {
     slug: { type: 'string' },
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
+    productionAllowed: {
+      type: 'boolean',
+      description:
+        "Whether the tenant may put projects in production. Absent from a runtime that doesn't gate production.",
+    },
+    productionNext: {
+      type: 'string',
+      description:
+        'Where to go to be allowed to put projects in production, for example a billing page. Only while `productionAllowed` is `false`, and only when the runtime names one.',
+    },
+    limits: ref('TenantLimits'),
+  },
+};
+
+export const TenantLimitsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "The tenant's limits that are set. A limit that isn't set is absent, and isn't enforced.",
+  properties: {
+    apiRequestsPerMinute: {
+      type: 'integer',
+      minimum: 1,
+      description: 'API requests a minute. Past it: 429 `rate-limit-exceeded`.',
+    },
+    webhookReceivesPerMinute: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "Webhook deliveries received a minute, across the tenant's triggers. Past it: 429.",
+    },
+    runsAtOnce: {
+      type: 'integer',
+      minimum: 1,
+      description: 'Runs executing at once. Past it, a new run waits as `pending`.',
+    },
+    runsPending: {
+      type: 'integer',
+      minimum: 1,
+      description: 'Runs waiting as `pending`. Past it, a new run is refused with 429.',
+    },
+    toolCallsInFlight: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "Tool calls in flight to the tenant's pack services. Past it, a call waits for a slot.",
+    },
+    approvalsPending: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        'Approvals waiting for a decision. Past it, the step that asks fails, naming the limit.',
+    },
   },
 };
 
@@ -12165,6 +12250,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ProjectAccess', ProjectAccessSchema],
   ['ProjectAccessPage', ProjectAccessPageSchema],
   ['Project', ProjectSchema],
+  ['ProjectProductionBody', ProjectProductionBodySchema],
+  ['ProjectProduction', ProjectProductionSchema],
   ['ProjectSpec', ProjectSpecSchema],
   ['ProjectPatch', ProjectPatchSchema],
   ['ProjectCollectionPage', ProjectCollectionPageSchema],
@@ -12174,6 +12261,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['UpdateProjectMembershipBody', UpdateProjectMembershipBodySchema],
   ['AddProjectMembershipResult', AddProjectMembershipResultSchema],
   ['Tenant', TenantSchema],
+  ['TenantLimits', TenantLimitsSchema],
   ['TenantConfigKind', TenantConfigKindSchema],
   ['TenantConfigEntry', TenantConfigEntrySchema],
   ['TenantConfigCollectionPage', TenantConfigCollectionPageSchema],

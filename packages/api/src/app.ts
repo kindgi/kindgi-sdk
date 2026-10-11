@@ -127,6 +127,10 @@ import { observationsRouter } from './routes/observations.js';
 import { orgsRouter } from './routes/orgs.js';
 import { policiesRouter } from './routes/policies.js';
 import { projectAccessRouter } from './routes/project-access.js';
+import {
+  type ProductionGateOptions,
+  projectProductionRouter,
+} from './routes/project-production.js';
 import { projectsRouter } from './routes/projects.js';
 import { proposalsRouter } from './routes/proposals.js';
 import { provenanceRouter } from './routes/provenance.js';
@@ -932,6 +936,14 @@ export interface CreateAppInput {
    */
   readonly projectAccess?: ProjectAccessBinding;
   /**
+   * Optional. The production gate (`PUT /v1/projects/:projectId/production`):
+   * `gate` checks the tenant's `productionAllowed` before a project goes
+   * into production (`KINDGI_PRODUCTION_GATE=on`), and `next` names where a
+   * tenant that isn't allowed goes (`KINDGI_PRODUCTION_NEXT_URL`; the
+   * refusal's `details.next`). Absent: no gate.
+   */
+  readonly production?: ProductionGateOptions;
+  /**
    * Optional. Non-sensitive per-env values. When present alongside or
    * separately from `secretsBinding`, mounts the `/v1/tenant/config`
    * sub-routes at tenant scope. The base `GET /v1/tenant` route is
@@ -1605,6 +1617,17 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ),
     );
   }
+  if (input.projectBinding !== undefined) {
+    v1.route(
+      '/projects',
+      projectProductionRouter({
+        projects: input.projectBinding,
+        tenantHierarchy: tenantHierarchyBinding,
+        ...(authorizer !== undefined && { authorizer }),
+        ...(input.production !== undefined && { production: input.production }),
+      }),
+    );
+  }
   if (input.projectBinding !== undefined && input.projectMembershipBinding !== undefined) {
     v1.route(
       '/projects',
@@ -1641,6 +1664,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(input.envBinding !== undefined && { envBinding: input.envBinding }),
       ...(secretsBinding !== undefined && { secretsBinding }),
       ...(authorizer !== undefined && { authorizer }),
+      ...(input.production?.next !== undefined && { productionNext: input.production.next }),
     }),
   );
   // ---------- env + secrets ----------

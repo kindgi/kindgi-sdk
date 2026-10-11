@@ -18,6 +18,7 @@ import type {
   ProjectCollectionPage,
   ProjectMembershipCollectionPage,
   ProjectPatch as ProjectPatchBody,
+  ProjectProduction as ProjectProductionWire,
   ProjectRole as ProjectRoleWire,
   ProjectSpec as ProjectSpecBody,
   Project as ProjectWire,
@@ -42,6 +43,8 @@ export type ProjectMembershipPage = ProjectMembershipCollectionPage;
 export type AddProjectMembershipInput = AddProjectMembershipBody;
 export type AddProjectMembershipOutcome = AddProjectMembershipResult;
 /** A role on a project, as read: `member` only on one given before it was retired. */
+/** A project's production state: `productionSince` is `null` while it isn't in production. */
+export type ProjectProductionShape = ProjectProductionWire;
 export type ProjectRoleValue = ProjectRoleWire;
 /** A role to give on a project: `member` is refused, give `viewer`. */
 export type AssignableProjectRoleValue = AssignableProjectRoleWire;
@@ -142,6 +145,21 @@ export interface ProjectsClient {
   ): Promise<ProjectShape>;
   /** @wire DELETE /v1/projects/:projectId */
   delete(projectId: string): Promise<void>;
+  /**
+   * Put the project in production (`true`), or take it out (`false`). A run
+   * in a project in production is a production run; a run anywhere else is
+   * staging. For tenant admins. Setting what's already set changes
+   * nothing. With the runtime's production gate on, a tenant that isn't
+   * allowed is refused with `403 production-not-allowed`, whose
+   * `details.next` says where to go when the runtime names it.
+   *
+   * @wire PUT /v1/projects/:projectId/production
+   */
+  setProduction(
+    projectId: string,
+    production: boolean,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<ProjectProductionShape>;
   readonly memberships: ProjectMembershipsClient;
   /** Which of the project's runs to queue for a person's judgment. */
   readonly judgingRules: JudgingRulesClient;
@@ -227,6 +245,14 @@ export function makeProjectsClient(transport: Transport): ProjectsClient {
         method: 'DELETE',
         path: `/v1/projects/${seg(projectId)}`,
         discardResponse: true,
+      });
+    },
+    async setProduction(projectId, production, options) {
+      return transport.request<ProjectProductionShape>({
+        method: 'PUT',
+        path: `/v1/projects/${seg(projectId)}/production`,
+        body: { production },
+        ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
       });
     },
     judgingRules: makeJudgingRulesClient(transport),
