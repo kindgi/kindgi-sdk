@@ -173,6 +173,47 @@ webhook-signature: v1,bj8Mj6s7ln2Gd1sDRQi8+Wax2SOFHovsdMIwvNhDrgw=
   output. Fetch the run (`runs.get`) for its output.
 - `webhook-id` is the event's id, the same on every retry.
 
+### On an agent's run
+
+When your app starts an agent's run (a turn in a conversation), the event
+is the same, with `flowId` `agent.turn` and an `agent` saying which agent
+ran:
+
+```json
+{
+  "id": "62340028-b9ea-4b3c-911a-9958ecdf64de",
+  "type": "run.finished",
+  "createdAt": "2026-10-11T06:05:07.444Z",
+  "data": {
+    "run": {
+      "id": "73628759-cb27-4813-94f7-f872bb3a78ef",
+      …
+      "flowId": "agent.turn",
+      "flowVersion": "1.1.0",
+      "status": "completed",
+      …
+      "agent": {
+        "id": "acme.order-assistant",
+        "version": "0.1.0",
+        "conversationId": "9bd2328a-5c30-4cf9-ab15-4ddc74dc898d",
+        "via": "latest"
+      }
+    }
+  }
+}
+```
+
+- `agent.id` and `agent.version` are the agent and the version that ran,
+  and `conversationId` is the conversation the turn belongs to.
+- `via` says why that version ran: `latest` (no version is live for the
+  run's scope), `live` (the version live for its scope), `explicit` (your
+  app named the version) or `conversation` (the conversation's own).
+- `usage` counts the agent's model calls, as on a flow's run.
+- These are the fields `GET /v1/runs/<run-id>` shows. In Python,
+  `parse_event` gives them as `event.data.run.agent`.
+- A flow's run has no `agent`, and neither does an event from a runtime
+  before 0.1.6.
+
 ## Improvement passes
 
 An endpoint that also lists `improvement-pass.finished` in its `events` gets
