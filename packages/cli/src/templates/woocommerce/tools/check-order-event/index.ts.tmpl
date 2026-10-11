@@ -26,13 +26,22 @@ export const MANY_OF_ONE_ITEM = 5;
 
 const Money = z.string().regex(/^-?\d+(\.\d+)?$/);
 const Country = z.string().max(2);
+/**
+ * An order number that's one token: WooCommerce's own (`1043`), or a
+ * numbering plugin's (`WC-2026-00042`, `#1043`, `INV/2026/42`). The number
+ * goes into the order reviewer's instructions, so any other is replaced by
+ * the order's id rather than passed on.
+ */
+const ORDER_NUMBER = /^[A-Za-z0-9#][A-Za-z0-9#._\/-]{0,39}$/;
 
 /** The fields of WooCommerce's order webhook body this step reads; the rest is dropped. */
 export const OrderEvent = z.object({
   id: z.number().int().positive(),
   number: z.string().min(1).max(40),
-  status: z.string().min(1).max(40),
-  currency: z.string().length(3),
+  /** A status slug, as WooCommerce and plugins register them (`processing`, `on-hold`). */
+  status: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,39}$/),
+  /** An ISO 4217 code. */
+  currency: z.string().regex(/^[A-Z]{3}$/),
   total: Money,
   date_created: z.string().max(40),
   billing: z.object({ country: Country.optional() }).optional(),
@@ -49,6 +58,13 @@ export const OrderEvent = z.object({
   customer_note: z.string().optional(),
 });
 
+/**
+ * The checked order. The order reviewer's instructions name five of its
+ * fields, `orderNumber`, `total`, `currency`, `status` and `flags`, so each
+ * is a single token by now; the rest is the step's input, which the
+ * reviewer reads as data (`agents/order-reviewer/index.test.ts` keeps the
+ * instructions to those five).
+ */
 export const CheckedOrder = z.object({
   orderId: z.number().int(),
   orderNumber: z.string(),
@@ -79,7 +95,7 @@ export function checkOrder(order: z.infer<typeof OrderEvent>): z.infer<typeof Ch
   }
   return {
     orderId: order.id,
-    orderNumber: order.number,
+    orderNumber: ORDER_NUMBER.test(order.number) ? order.number : String(order.id),
     status: order.status,
     total: order.total,
     currency: order.currency,

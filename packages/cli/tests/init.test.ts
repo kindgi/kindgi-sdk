@@ -216,6 +216,7 @@ describe('kindgi init --template=woocommerce', () => {
       'guardrails/no-customer-contact-details/index.ts',
       'agents/store-agent/index.ts',
       'agents/order-reviewer/index.ts',
+      'agents/order-reviewer/index.test.ts',
       'flows/order-review/index.ts',
       'fixtures/order-created.json',
       'README.md',
