@@ -53,8 +53,11 @@ public final class Redaction {
       "authorization", "cookie", "token", "password", "passwd", "secret", "secrets", "apikey",
       "privatekey", "passphrase", "credential", "credentials");
 
-  /** A Kindgi token: {@code kgi_} and a two-letter kind, then its body. */
-  private static final Pattern KINDGI_TOKEN = Pattern.compile("\\bkgi_([a-z]{2})_([A-Za-z0-9._~+/=-]+)");
+  /**
+   * A Kindgi token: {@code kgi_}, a kind of two or three letters ({@code bt}, {@code ak}, {@code sk},
+   * {@code pt}, {@code lk}, the license renewer's {@code lrk} and {@code lrp}), then its body.
+   */
+  private static final Pattern KINDGI_TOKEN = Pattern.compile("\\bkgi_([a-z]{2,3})_([A-Za-z0-9._~+/=-]+)");
   private static final Pattern BEARER = Pattern.compile("\\b(Bearer)\\s+[^\\s\"',;]+", Pattern.CASE_INSENSITIVE);
   private static final Pattern URL_PASSWORD =
       Pattern.compile("\\b([a-z][a-z0-9+.-]*://[^\\s:/@]+):[^\\s@/]+@", Pattern.CASE_INSENSITIVE);
