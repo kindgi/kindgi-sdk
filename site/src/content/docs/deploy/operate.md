@@ -337,7 +337,7 @@ The database migrates when 0.1.6 starts.
 
 #### Security fixes in 0.1.6
 
-<!-- Each line confirmed against its PR at the cut; a line whose train misses waits. #383 and T660: train D. -->
+<!-- Each line confirmed against its PR at the cut; a line whose train misses waits. #383 and T660: train D. T662: the release pin, or rc.1 if late. -->
 
 - **A guardrail could run another tenant's check.** On a runtime serving
   several tenants, a guardrail naming a pack check its own tenant had never
@@ -359,6 +359,13 @@ The database migrates when 0.1.6 starts.
   up in the sync log, in the error the HTTP library raised when it refused
   the header. 0.1.6 refuses such a value before sending, and its log names
   only the header.
+- **A secret with a line break could appear in a run's failure message.**
+  An HTTP tool's secret, or a model provider's key, containing a line break
+  could show up in the error the HTTP library raised when it refused the
+  header: for a tool, in the run's failure message and journal, which anyone
+  who can read the run sees; for a provider's key, in errors and the logs.
+  0.1.6 refuses such a value before sending, and names only the header or the
+  provider.
 
 #### What to check, and what's different
 
