@@ -83,6 +83,7 @@ import {
   type TenantLimitsOptions,
   createTenantLimiter,
   tenantApiRequestLimit,
+  tenantS3RequestLimit,
 } from './middleware/tenant-limits.js';
 import type { MyAccessBinding } from './my-access-binding.js';
 import { type GenerateOptions, generateOpenApiDocument } from './openapi/generate.js';
@@ -569,10 +570,11 @@ export interface CreateAppInput {
   /**
    * Optional. Enforce each tenant's own limits (`TenantSummary.limits`,
    * set through `PUT /v1/system/tenants/:tenantId/limits`): API requests a
-   * minute on every authenticated request a tenant makes, and webhook
-   * deliveries a minute across its triggers, each `429 rate-limit-exceeded`
-   * past it, with `Retry-After`. A tenant without a limit isn't limited.
-   * Without this option, nothing is.
+   * minute on every authenticated request a tenant makes, `/v1` and `/s3`
+   * counted together, and webhook deliveries a minute across its triggers.
+   * Past either, `429 rate-limit-exceeded` with `Retry-After`; on `/s3`,
+   * S3's own `503 SlowDown` with `Retry-After`, which S3 clients retry. A
+   * tenant without a limit isn't limited. Without this option, nothing is.
    */
   readonly tenantLimits?: TenantLimitsOptions;
   /**
@@ -1991,6 +1993,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   if (input.blobStorage !== undefined && input.s3Credentials !== undefined) {
     const s3 = new Hono<AppEnv>();
     s3.use('*', sigv4Middleware(input.s3Credentials));
+    // The tenant's API requests a minute count here too, once SigV4 names it.
+    if (tenantLimiter !== undefined) s3.use('*', tenantS3RequestLimit(tenantLimiter));
     s3.route('/', s3Router(input.blobStorage));
     app.route('/s3', s3);
   }

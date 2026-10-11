@@ -9,6 +9,7 @@ import type { TenantId } from '@kindgi/types';
 import { statusFor, toWireError } from '../errors.js';
 import { type RateLimitStore, createInMemoryRateLimitStore } from '../rate-limit-store.js';
 import type { AppEnv } from '../types.js';
+import { errorXml } from '../xml.js';
 
 const MINUTE_MS = 60_000;
 const DEFAULT_CACHE_MS = 60_000;
@@ -122,13 +123,18 @@ export function createTenantLimiter(
   };
 }
 
+/** Whole seconds to wait, at least 1 (`Retry-After`). */
+function retryAfterSeconds(retryAfterMs: number): number {
+  return Math.max(Math.ceil(retryAfterMs / 1000), 1);
+}
+
 /** `429 rate-limit-exceeded` for a tenant's limit, with `Retry-After` and `details.limit`. */
 export function tenantLimitReached(
   c: Context<AppEnv>,
   name: TenantRateLimitName,
   retryAfterMs: number,
 ): Response {
-  const seconds = Math.max(Math.ceil(retryAfterMs / 1000), 1);
+  const seconds = retryAfterSeconds(retryAfterMs);
   c.header('Retry-After', String(seconds));
   c.status(statusFor('rate-limit-exceeded') as never);
   return c.json(
@@ -145,16 +151,47 @@ export function tenantLimitReached(
 
 /**
  * The tenant's API requests a minute (`limits.apiRequestsPerMinute`), on
- * every authenticated request a tenant's key or session makes. A system
- * key acts in no tenant and isn't counted.
+ * every authenticated `/v1` request a tenant's key or session makes. A
+ * system key acts in no tenant and isn't counted.
  */
 export function tenantApiRequestLimit(limiter: TenantLimiter): MiddlewareHandler<AppEnv> {
+  return countApiRequest(limiter, (c, retryAfterMs) =>
+    tenantLimitReached(c, 'api-requests', retryAfterMs),
+  );
+}
+
+/**
+ * The same minute on the S3-compatible surface (`/s3`, after SigV4 names
+ * the tenant): one count for `/v1` and `/s3` together. Past it, S3's own
+ * answer to too many requests, `503 SlowDown` (an S3 error document) with
+ * `Retry-After`, which S3 clients back off from and retry.
+ */
+export function tenantS3RequestLimit(limiter: TenantLimiter): MiddlewareHandler<AppEnv> {
+  return countApiRequest(limiter, (c, retryAfterMs) => {
+    const seconds = retryAfterSeconds(retryAfterMs);
+    c.header('Retry-After', String(seconds));
+    return c.body(
+      errorXml(
+        'SlowDown',
+        `This tenant's limit on ${WHAT['api-requests']} a minute is reached: try again in ${seconds} s.`,
+      ),
+      503,
+      { 'Content-Type': 'application/xml' },
+    );
+  });
+}
+
+/** Take one from the tenant's API requests a minute; past it, `refuse` answers. */
+function countApiRequest(
+  limiter: TenantLimiter,
+  refuse: (c: Context<AppEnv>, retryAfterMs: number) => Response,
+): MiddlewareHandler<AppEnv> {
   return async (c, next) => {
     const tenantId = c.get('tenantId');
     if (tenantId === undefined || c.get('systemPrincipal') !== undefined) return next();
     const limits = await limiter.limitsOf(c, tenantId);
     const taken = await limiter.take(c, tenantId, 'api-requests', limits?.apiRequestsPerMinute);
-    if (!taken.allowed) return tenantLimitReached(c, 'api-requests', taken.retryAfterMs);
+    if (!taken.allowed) return refuse(c, taken.retryAfterMs);
     return next();
   };
 }

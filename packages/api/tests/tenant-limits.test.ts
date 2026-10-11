@@ -3,6 +3,7 @@
 
 import { randomUUID } from 'node:crypto';
 
+import aws4 from 'aws4';
 import { describe, expect, test } from 'vitest';
 
 import type { TenantLimits } from '@kindgi/platform';
@@ -12,16 +13,19 @@ import { createStubAppBindings } from '../src/testing/index.js';
 
 import { SYSTEM_TENANT_ID, createApp, createInMemoryRateLimitStore } from '../src/index.js';
 import type { RateLimitStore, RunHandlerBinding, TenantLimitsOptions } from '../src/index.js';
+import { fullAppInput } from './support/full-app.js';
 
 /**
  * A tenant's own limit on API requests a minute (`createApp`'s
  * `tenantLimits`, from `TenantSummary.limits`): `429 rate-limit-exceeded`
- * past it, with `Retry-After`; a tenant without one, and a system key, are
- * never counted.
+ * past it, with `Retry-After`; on `/s3`, counted in the same minute, S3's
+ * `503 SlowDown`. A tenant without one, and a system key, are never counted.
  */
 
 const TOKEN = 'tenant-key';
 const SYSTEM = 'kgi_sy_usage';
+const S3_KEY = 'AKIAKINDGITEST000009';
+const S3_SECRET = 'kindgi-test-secret-key-0000000000000009';
 
 function makeApp(setup: {
   readonly limits: () => TenantLimits | undefined;
@@ -75,6 +79,15 @@ function makeApp(setup: {
     },
     runHandler: {} as RunHandlerBinding,
     tenantLimits: setup.tenantLimits ?? {},
+    // The S3-compatible surface, with the tenant's own S3 key.
+    ...(fullAppInput().blobStorage !== undefined && { blobStorage: fullAppInput().blobStorage }),
+    s3Credentials: {
+      async resolve(accessKeyId) {
+        return accessKeyId === S3_KEY
+          ? ({ accessKeyId, secretKey: S3_SECRET, tenantId, bucket: 'artifacts' } as never)
+          : null;
+      },
+    },
   });
   const get = async (path = '/v1/tenant', token = TOKEN) => {
     const res = await app.request(path, { headers: { authorization: `Bearer ${token}` } });
@@ -84,7 +97,30 @@ function makeApp(setup: {
       body: (await res.json()) as Record<string, any>,
     };
   };
-  return { get };
+  /** An S3 request signed with the tenant's S3 key (aws4, as S3 clients sign). */
+  const s3 = async (method: string, path: string, body = '') => {
+    const opts = {
+      host: 'localhost',
+      method,
+      path,
+      service: 's3',
+      region: 'us-east-1',
+      headers: { host: 'localhost' } as Record<string, string>,
+      body,
+    };
+    new aws4.RequestSigner(opts, { accessKeyId: S3_KEY, secretAccessKey: S3_SECRET }).sign();
+    const res = await app.request(`http://localhost${path}`, {
+      method,
+      headers: Object.fromEntries(Object.entries(opts.headers).map(([k, v]) => [k, String(v)])),
+      ...(body.length > 0 && { body, duplex: 'half' }),
+    } as RequestInit);
+    return {
+      status: res.status,
+      retryAfter: res.headers.get('retry-after'),
+      code: /<Code>([^<]+)<\/Code>/.exec(await res.text())?.[1],
+    };
+  };
+  return { get, s3 };
 }
 
 function clock(start = Date.parse('2026-11-02T09:00:00Z')) {
@@ -142,6 +178,23 @@ describe("a tenant's API requests a minute", () => {
     expect((await get()).status).toBe(429);
     c.advance(10_000);
     expect((await get()).status).toBe(200);
+  });
+
+  test("/s3 counts in the same minute: past it, S3's 503 SlowDown with Retry-After, and /v1 is past it too", async () => {
+    const c = clock();
+    const { get, s3 } = makeApp({
+      limits: () => ({ apiRequestsPerMinute: 2 }),
+      tenantLimits: { now: c.now, store: createInMemoryRateLimitStore(c.now) },
+    });
+    expect((await get()).status).toBe(200);
+    const allowed = await s3('GET', '/s3/artifacts/report.txt');
+    expect(allowed.status).not.toBe(503);
+    const refused = await s3('PUT', '/s3/artifacts/report.txt', 'hello');
+    expect(refused).toMatchObject({ status: 503, code: 'SlowDown' });
+    expect(Number(refused.retryAfter)).toBeGreaterThanOrEqual(1);
+    expect((await get()).status).toBe(429);
+    c.advance(60_000);
+    expect((await s3('GET', '/s3/artifacts/report.txt')).status).not.toBe(503);
   });
 
   test('a store that fails counts nothing and refuses no one; a failed read keeps the last limits', async () => {
