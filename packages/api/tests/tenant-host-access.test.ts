@@ -19,7 +19,7 @@ describe('tenant host access', () => {
   });
 
   test("deployed keeps private networks and the server's own credentials open", () => {
-    for (const reach of ['private-network', 'ambient-credentials'] as const) {
+    for (const reach of ['private-network', 'server-credentials'] as const) {
       expect(deniesHostReach('deployed', reach)).toBe(false);
       expect(deniesHostReach('local', reach)).toBe(false);
     }
@@ -31,7 +31,7 @@ describe('tenant host access', () => {
       'metadata-network',
       'loopback',
       'private-network',
-      'ambient-credentials',
+      'server-credentials',
     ] as const;
     for (const reach of reaches) expect(deniesHostReach('isolated', reach)).toBe(true);
   });

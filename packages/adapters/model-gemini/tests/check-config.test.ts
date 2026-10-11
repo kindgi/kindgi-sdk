@@ -36,12 +36,12 @@ function both(
   region: string,
   config: AdapterConfig | undefined,
   hasSecretRef: boolean,
-  ambientCredentials?: boolean,
+  serverCredentials?: boolean,
 ) {
   const input = {
     metadata: metadata(region),
     ...(config !== undefined && { config }),
-    ...(ambientCredentials !== undefined && { ambientCredentials }),
+    ...(serverCredentials !== undefined && { serverCredentials }),
   };
   const problems = geminiCheckConfig({ ...input, hasSecretRef });
   let thrown: string | undefined;
@@ -142,7 +142,7 @@ describe('geminiCheckConfig agrees with the factory', () => {
   });
 });
 
-describe("a deployment that refuses the server's own credentials (ambientCredentials: false)", () => {
+describe("a deployment that refuses the server's own credentials (serverCredentials: false)", () => {
   test('Vertex without a key: the check points at secret_ref, and the factory throws the same message', () => {
     const { problems, thrown } = both('global', { project: 'acme-project' }, false, false);
     expect(problems).toHaveLength(1);

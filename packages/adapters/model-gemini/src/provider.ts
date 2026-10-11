@@ -263,7 +263,7 @@ export function parseServiceAccountKey(key: string): Record<string, string> {
  *   - `secret_ref` (optional) — a service-account key. Without one the
  *     adapter uses Application Default Credentials, the server's own,
  *     unless the deployment refuses those to tenant configuration
- *     (`ambientCredentials: false`, `KINDGI_TENANT_HOST_ACCESS=isolated`):
+ *     (`serverCredentials: false`, `KINDGI_TENANT_HOST_ACCESS=isolated`):
  *     then it's required.
  *
  * On the Gemini Developer API (`api: "developer"`):
@@ -276,7 +276,7 @@ export const geminiAdapterFactory: AdapterFactory = (input) => {
     input.metadata.id,
     apiProblem(input) ??
       developerKeyProblem(input, hasSecretRef) ??
-      ambientCredentialsProblem(input, hasSecretRef),
+      serverCredentialsProblem(input, hasSecretRef),
   );
   if (apiOf(input) === 'developer') {
     return createGeminiProvider({ metadata, apiKey: input.resolveApiKey as () => Promise<string> });
@@ -302,8 +302,8 @@ export function geminiCheckConfig(input: AdapterConfigCheckInput): readonly Adap
     const key = developerKeyProblem(input, input.hasSecretRef);
     return key !== undefined ? [key] : [];
   }
-  const ambient = ambientCredentialsProblem(input, input.hasSecretRef);
-  return [...vertexTargetProblems(input), ...(ambient !== undefined ? [ambient] : [])];
+  const server = serverCredentialsProblem(input, input.hasSecretRef);
+  return [...vertexTargetProblems(input), ...(server !== undefined ? [server] : [])];
 }
 
 /** The entry a runtime registers: the factory, and its static check. */
@@ -315,7 +315,7 @@ export const geminiAdapterEntry: AdapterFactoryEntry = {
 };
 
 /** What the checks read of a registration. */
-type Registration = Pick<AdapterFactoryInput, 'metadata' | 'config' | 'ambientCredentials'>;
+type Registration = Pick<AdapterFactoryInput, 'metadata' | 'config' | 'serverCredentials'>;
 
 function throwIf(providerId: string, problem: AdapterConfigProblem | undefined): void {
   if (problem !== undefined) throw adapterConfigError(GEMINI_ADAPTER_ID, providerId, problem);
@@ -347,11 +347,11 @@ function developerKeyProblem(
 }
 
 /** Vertex AI with no key signs in as the server: refused where the deployment says so. */
-function ambientCredentialsProblem(
+function serverCredentialsProblem(
   input: Registration,
   hasSecretRef: boolean,
 ): AdapterConfigProblem | undefined {
-  if (apiOf(input) !== 'vertex' || hasSecretRef || input.ambientCredentials !== false) {
+  if (apiOf(input) !== 'vertex' || hasSecretRef || input.serverCredentials !== false) {
     return undefined;
   }
   return {

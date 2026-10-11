@@ -122,9 +122,12 @@ controls that:
 - **`isolated`** is for a runtime whose tenants don't trust one another. It
   refuses all that `deployed` does, and also private networks (RFC 1918,
   CGNAT and IPv6 unique-local addresses) wherever configuration names a host,
-  and the runtime's own cloud credentials: a Gemini provider on Vertex AI then
-  needs a service-account key in `secret_ref`. The runtime won't start with it
-  in development mode or with `KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow`.
+  and the runtime's own cloud credentials: a model provider can't sign in as
+  the runtime. A Gemini provider on Vertex AI then needs a service-account key
+  in `secret_ref`, and Azure OpenAI's `auth: entra` and Bedrock's
+  `auth: aws-identity` are refused; use their API keys. The runtime won't start
+  with it in development mode, or with `KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow`
+  or `KINDGI_AUTH_PRIVATE_IDP_ORIGINS`.
 - **`local`** (the default in development mode) allows it. Use it only on a
   machine where everyone holding an API token may run commands anyway.
 

@@ -77,13 +77,14 @@ export interface AdapterConfigCheckInput {
    */
   readonly identities?: AdapterIdentitiesPresent;
   /**
-   * Whether the adapter may sign in with credentials the server's environment
-   * holds when the registration names no secret (Google's Application Default
-   * Credentials, for Gemini on Vertex AI). `false` under
+   * Whether the registration may sign in as the server: with credentials its
+   * environment holds (Google's Application Default Credentials, for Gemini
+   * on Vertex AI) or as the runtime's own cloud identities (`identities`:
+   * Azure OpenAI `auth: entra`, Bedrock `auth: aws-identity`). `false` under
    * `KINDGI_TENANT_HOST_ACCESS=isolated`: such a registration is refused,
-   * naming the secret it needs. Absent: allowed.
+   * naming what it needs instead. Absent: allowed.
    */
-  readonly ambientCredentials?: boolean;
+  readonly serverCredentials?: boolean;
 }
 
 /**
@@ -196,13 +197,14 @@ export interface AdapterFactoryInput {
    */
   readonly identities?: AdapterIdentities;
   /**
-   * Whether the adapter may sign in with credentials the server's environment
-   * holds when the registration names no secret (Google's Application Default
-   * Credentials, for Gemini on Vertex AI). `false` under
+   * Whether the registration may sign in as the server: with credentials its
+   * environment holds (Google's Application Default Credentials, for Gemini
+   * on Vertex AI) or as the runtime's own cloud identities (`identities`:
+   * Azure OpenAI `auth: entra`, Bedrock `auth: aws-identity`). `false` under
    * `KINDGI_TENANT_HOST_ACCESS=isolated`: such a registration is refused,
-   * naming the secret it needs. Absent: allowed.
+   * naming what it needs instead. Absent: allowed.
    */
-  readonly ambientCredentials?: boolean;
+  readonly serverCredentials?: boolean;
 }
 
 /** The runtime's cloud identities an adapter may sign in with (`AdapterFactoryInput.identities`). */
@@ -259,11 +261,12 @@ export interface AdapterFactoryRegistryOptions {
    */
   readonly identities?: AdapterIdentities;
   /**
-   * `false`: no adapter may fall back to the server's ambient credentials
-   * (`AdapterFactoryInput.ambientCredentials`). Each entry's factory and
-   * check get it, and an input can't turn it back on.
+   * `false`: no registration may sign in as the server
+   * (`AdapterFactoryInput.serverCredentials`). Each entry's factory and check
+   * are told; `identities` is withheld, so each check learns there are none;
+   * and an input can't turn either back on.
    */
-  readonly ambientCredentials?: false;
+  readonly serverCredentials?: false;
 }
 
 /**
@@ -281,7 +284,7 @@ export function createAdapterFactoryRegistry(
   options: AdapterFactoryRegistryOptions = {},
 ): AdapterFactoryRegistry {
   const entries = new Map<string, AdapterFactoryEntry>();
-  const { identities, ambientCredentials } = options;
+  const { identities, serverCredentials } = options;
 
   function register(entry: AdapterFactoryEntry): void {
     if (entries.has(entry.adapterId)) {
@@ -289,10 +292,13 @@ export function createAdapterFactoryRegistry(
         `AdapterFactoryRegistry: "${entry.adapterId}" is already registered. Duplicate adapter registration at boot indicates a wiring bug.`,
       );
     }
-    const withRuntime = identities === undefined ? entry : withIdentities(entry, identities);
     entries.set(
       entry.adapterId,
-      ambientCredentials === false ? withoutAmbientCredentials(withRuntime) : withRuntime,
+      serverCredentials === false
+        ? withoutServerCredentials(entry)
+        : identities === undefined
+          ? entry
+          : withIdentities(entry, identities),
     );
   }
 
@@ -312,14 +318,16 @@ export function createAdapterFactoryRegistry(
   };
 }
 
-/** An entry whose factory and check may not use the server's ambient credentials. */
-function withoutAmbientCredentials(entry: AdapterFactoryEntry): AdapterFactoryEntry {
+/** An entry whose factory and check may not sign in as the server: told so, and given no identities. */
+function withoutServerCredentials(entry: AdapterFactoryEntry): AdapterFactoryEntry {
+  const none = identitiesPresent(undefined);
   const { checkConfig } = entry;
   return {
     ...entry,
-    factory: (input) => entry.factory({ ...input, ambientCredentials: false }),
+    factory: ({ identities: _withheld, ...input }) =>
+      entry.factory({ ...input, serverCredentials: false }),
     ...(checkConfig !== undefined && {
-      checkConfig: (input) => checkConfig({ ...input, ambientCredentials: false }),
+      checkConfig: (input) => checkConfig({ ...input, identities: none, serverCredentials: false }),
     }),
   };
 }

@@ -18,8 +18,8 @@
  *     cloud metadata endpoints and the server's own host.
  *   - `isolated`: a server whose tenants don't trust one another. All
  *     that `deployed` refuses, plus the private networks the server sits
- *     on, and the server's own cloud credentials: a model provider
- *     registered without a key doesn't fall back to them.
+ *     on, and the server's own cloud credentials: a model provider can't
+ *     sign in as the server.
  *
  * Checks ask `deniesHostReach(level, reach)`, never compare levels, so a
  * stricter level (or a new kind of reach) is one more row or entry here.
@@ -44,15 +44,17 @@ export type HostReach =
   | 'loopback'
   /**
    * Connect to a private network address: 10.0.0.0/8, 172.16.0.0/12,
-   * 192.168.0.0/16, CGNAT 100.64.0.0/10, IPv6 unique-local fc00::/7.
+   * 192.168.0.0/16, CGNAT 100.64.0.0/10, IPv6 unique-local fc00::/7 and
+   * the deprecated site-local fec0::/10.
    */
   | 'private-network'
   /**
-   * Sign in with credentials the server's environment holds, for a
-   * registration that names no secret: Google's Application Default
-   * Credentials, for a Gemini provider on Vertex AI.
+   * Sign in as the server: with credentials its environment holds
+   * (Google's Application Default Credentials, for a Gemini provider on
+   * Vertex AI with no key) or as its own cloud identities (Azure OpenAI's
+   * `entra`, Bedrock's `aws-identity`).
    */
-  | 'ambient-credentials';
+  | 'server-credentials';
 
 const DENIED: Readonly<Record<TenantHostAccess, ReadonlySet<HostReach>>> = {
   local: new Set(),
@@ -62,7 +64,7 @@ const DENIED: Readonly<Record<TenantHostAccess, ReadonlySet<HostReach>>> = {
     'metadata-network',
     'loopback',
     'private-network',
-    'ambient-credentials',
+    'server-credentials',
   ]),
 };
 

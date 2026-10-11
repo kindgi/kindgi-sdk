@@ -164,41 +164,48 @@ describe("a registry made with the runtime's identities", () => {
   });
 });
 
-describe("a registry that refuses the server's ambient credentials", () => {
+describe("a registry that refuses the server's own credentials", () => {
   const metadata = { id: 'p', region: 'us-east-2', models: [] } as unknown as ProviderMetadata;
+  const azure = { getToken: async () => ({ token: 't' }) };
   const aws = async () => ({ accessKeyId: 'a', secretAccessKey: 's' });
 
   test('each factory and each check is told, and an input saying otherwise is overruled', () => {
     const factory = vi.fn(fakeFactory());
     const checkConfig = vi.fn(() => []);
     const entry = createAdapterFactoryRegistry([fakeEntry({ factory, checkConfig })], {
-      ambientCredentials: false,
+      serverCredentials: false,
     }).get('@acme/adapter-fake');
     entry?.factory({ metadata });
-    expect(factory).toHaveBeenLastCalledWith({ metadata, ambientCredentials: false });
-    entry?.factory({ metadata, ambientCredentials: true });
-    expect(factory).toHaveBeenLastCalledWith({ metadata, ambientCredentials: false });
-    entry?.checkConfig?.({ metadata, hasSecretRef: false, ambientCredentials: true });
+    expect(factory).toHaveBeenLastCalledWith({ metadata, serverCredentials: false });
+    entry?.factory({ metadata, serverCredentials: true });
+    expect(factory).toHaveBeenLastCalledWith({ metadata, serverCredentials: false });
+    entry?.checkConfig?.({ metadata, hasSecretRef: false, serverCredentials: true });
     expect(checkConfig).toHaveBeenLastCalledWith({
       metadata,
       hasSecretRef: false,
-      ambientCredentials: false,
+      identities: { azure: false, aws: false },
+      serverCredentials: false,
     });
   });
 
-  test("with the runtime's identities too, each factory gets both", () => {
+  test("the runtime's identities are withheld, from the registry and from an input alike", () => {
     const factory = vi.fn(fakeFactory());
-    const entry = createAdapterFactoryRegistry([fakeEntry({ factory })], {
-      identities: { aws },
-      ambientCredentials: false,
+    const checkConfig = vi.fn(() => []);
+    const entry = createAdapterFactoryRegistry([fakeEntry({ factory, checkConfig })], {
+      identities: { aws, azure },
+      serverCredentials: false,
     }).get('@acme/adapter-fake');
     entry?.factory({ metadata });
-    expect(factory).toHaveBeenLastCalledWith({
+    expect(factory).toHaveBeenLastCalledWith({ metadata, serverCredentials: false });
+    entry?.factory({ metadata, identities: { aws } });
+    expect(factory).toHaveBeenLastCalledWith({ metadata, serverCredentials: false });
+    entry?.checkConfig?.({ metadata, hasSecretRef: false, identities: { azure: true, aws: true } });
+    expect(checkConfig).toHaveBeenLastCalledWith({
       metadata,
-      identities: { aws },
-      ambientCredentials: false,
+      hasSecretRef: false,
+      identities: { azure: false, aws: false },
+      serverCredentials: false,
     });
-    expect(entry?.checkConfig).toBeUndefined();
   });
 
   test('without it, an entry is as registered and its inputs pass through', () => {
