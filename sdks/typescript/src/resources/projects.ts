@@ -32,6 +32,7 @@ import {
   makeJudgingQueueClient,
   makeJudgingRulesClient,
 } from './judging.js';
+import { type SitesClient, makeSitesClient } from './sites.js';
 
 export type ProjectShape = ProjectWire;
 export type ProjectRecordShape = ProjectShape;
@@ -148,6 +149,8 @@ export interface ProjectsClient {
   /** The runs queued for a person's judgment. */
   readonly judgingQueue: JudgingQueueClient;
   readonly teamGrants: ProjectTeamGrantsClient;
+  /** The sites that sign their own people in to the project (tenant admins). */
+  readonly sites: SitesClient;
   readonly access: ProjectAccessClient;
 }
 
@@ -231,6 +234,7 @@ export function makeProjectsClient(transport: Transport): ProjectsClient {
     },
     judgingRules: makeJudgingRulesClient(transport),
     judgingQueue: makeJudgingQueueClient(transport),
+    sites: makeSitesClient(transport),
     memberships: {
       async list(projectId, filter) {
         return transport.request<ProjectMembershipPage>({

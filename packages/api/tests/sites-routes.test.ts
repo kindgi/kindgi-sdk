@@ -1,0 +1,369 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (C) 2026 Kindgi Inc.
+
+import { randomUUID } from 'node:crypto';
+
+import { describe, expect, test } from 'vitest';
+
+import type { ProjectId, TenantId, Timestamp, UserId } from '@kindgi/types';
+
+import { createStubAppBindings } from '../src/testing/index.js';
+
+import { createApp } from '../src/index.js';
+import type {
+  RunHandlerBinding,
+  Site,
+  SiteBinding,
+  SiteEnrollOutcome,
+  SiteRegisterInput,
+  SiteSignInOutcome,
+  TokenResolver,
+} from '../src/index.js';
+
+/**
+ * The sites routes are thin: a tenant admin's settings are checked (an
+ * https origin, an approvals URL on it, a role map over allowed roles and
+ * under the ceiling) before the binding is asked, and the two public
+ * routes check a body's size and shape, pass the client's address, and
+ * map the binding's answers. Everything else is the binding's.
+ */
+
+const tenantId = randomUUID() as TenantId;
+const P1 = randomUUID();
+const ADMIN = 'kgi_ak_test_admin';
+const MEMBER = 'kgi_ak_test_member';
+const NOW = '2026-10-11T18:00:00.000Z' as Timestamp;
+const STATEMENT = 'eyJhbGciOiJFZERTQSJ9.eyJzdWIiOiJ4In0.c2ln';
+
+function makeApp(options: { enroll?: SiteEnrollOutcome; signIn?: SiteSignInOutcome } = {}) {
+  const sites = new Map<string, Site>();
+  const calls: Array<{ method: string; input: unknown }> = [];
+  const binding: SiteBinding = {
+    async register(input: SiteRegisterInput) {
+      calls.push({ method: 'register', input });
+      if (input.projectId !== P1) return { kind: 'project-not-found' };
+      const site: Site = {
+        siteId: randomUUID(),
+        tenantId: input.tenantId,
+        projectId: input.projectId,
+        displayName: input.displayName,
+        origin: input.origin,
+        approvalsUrl: input.approvalsUrl,
+        allowedRoles: input.allowedRoles ?? [],
+        roleMap: input.roleMap ?? {},
+        reviewerCeiling: input.reviewerCeiling ?? 'standard',
+        vouching: input.vouching ?? true,
+        peopleCap: input.peopleCap ?? 50,
+        newPeoplePerDay: input.newPeoplePerDay ?? 20,
+        keys: [],
+        createdAt: NOW,
+        createdBy: input.by,
+      };
+      sites.set(site.siteId, site);
+      return { kind: 'ok', site, enrollment: { code: 'enroll-once', expiresAt: NOW } };
+    },
+    list: async () => ({ data: [...sites.values()] }),
+    get: async ({ siteId }) => sites.get(siteId) ?? null,
+    async update({ siteId, patch }) {
+      const site = sites.get(siteId);
+      if (site === undefined) return { kind: 'not-found' };
+      const next = { ...site, ...patch } as Site;
+      sites.set(siteId, next);
+      return { kind: 'ok', site: next };
+    },
+    async setPaused({ siteId, paused }) {
+      const site = sites.get(siteId);
+      if (site === undefined) return { kind: 'not-found' };
+      const { pausedAt: _was, ...rest } = site;
+      const next: Site = paused ? { ...site, pausedAt: NOW } : rest;
+      sites.set(siteId, next);
+      return { kind: 'ok', site: next };
+    },
+    async unregister({ siteId }) {
+      const site = sites.get(siteId);
+      if (site === undefined) return { kind: 'not-found' };
+      return { kind: 'ok', site: { ...site, unregisteredAt: NOW } };
+    },
+    newEnrollmentCode: async ({ siteId }) =>
+      sites.has(siteId)
+        ? { kind: 'ok', enrollment: { code: 'enroll-again', expiresAt: NOW } }
+        : { kind: 'not-found' },
+    revokeKey: async ({ siteId }) => {
+      const site = sites.get(siteId);
+      return site === undefined ? { kind: 'not-found' } : { kind: 'ok', site };
+    },
+    async enroll(input) {
+      calls.push({ method: 'enroll', input });
+      return (
+        options.enroll ?? { kind: 'ok', siteId: 'site-1', audience: 'https://kindgi.acme.example' }
+      );
+    },
+    async signIn(input) {
+      calls.push({ method: 'signIn', input });
+      return (
+        options.signIn ?? {
+          kind: 'ok',
+          token: 'kgi_sk_test_site',
+          expiresAt: NOW,
+          userId: 'jane' as UserId,
+          projectId: P1 as ProjectId,
+        }
+      );
+    },
+  };
+
+  const resolveToken: TokenResolver = async (token) =>
+    token === ADMIN
+      ? { tenantId, userId: 'ada' as UserId, scopes: ['tenant-admin'] }
+      : token === MEMBER
+        ? { tenantId, userId: 'sam' as UserId, scopes: [] }
+        : null;
+
+  const app = createApp({
+    ...createStubAppBindings(),
+    resolveToken,
+    runHandler: {} as unknown as RunHandlerBinding,
+    sites: { binding, clientAddress: () => '203.0.113.7' },
+  });
+
+  const call = async (
+    token: string | undefined,
+    method: 'GET' | 'POST' | 'PATCH',
+    path: string,
+    body?: unknown,
+  ) => {
+    const res = await app.request(path, {
+      method,
+      headers: {
+        ...(token !== undefined && { authorization: `Bearer ${token}` }),
+        ...(body !== undefined && { 'content-type': 'application/json' }),
+      },
+      ...(body !== undefined && { body: typeof body === 'string' ? body : JSON.stringify(body) }),
+    });
+    const text = await res.text();
+    return {
+      status: res.status,
+      retryAfter: res.headers.get('retry-after'),
+      body: (text.length > 0 ? JSON.parse(text) : {}) as Record<string, any>,
+    };
+  };
+  return { call, calls };
+}
+
+const register = {
+  displayName: 'Acme store',
+  origin: 'https://acme-store.example',
+  approvalsUrl: 'https://acme-store.example/wp-admin/admin.php?page=kindgi&approval={approvalId}',
+};
+
+describe('the sites of a project (tenant admins)', () => {
+  test('registering gives the site, with the defaults, and its one-time code', async () => {
+    const h = makeApp();
+    const res = await h.call(ADMIN, 'POST', `/v1/projects/${P1}/sites`, register);
+    expect(res.status).toBe(201);
+    expect(res.body.enrollment).toEqual({ code: 'enroll-once', expiresAt: NOW });
+    expect(res.body.site).toMatchObject({
+      displayName: 'Acme store',
+      origin: 'https://acme-store.example',
+      allowedRoles: ['administrator', 'shop_manager'],
+      roleMap: {
+        administrator: { ask: true, reviewer: 'standard' },
+        shop_manager: { ask: true, reviewer: 'standard' },
+      },
+      reviewerCeiling: 'standard',
+      vouching: true,
+      peopleCap: 50,
+      newPeoplePerDay: 20,
+      keys: [],
+    });
+    expect(h.calls[0]?.input).toMatchObject({ projectId: P1, by: 'user:ada' });
+  });
+
+  test('a person who is not a tenant admin is refused, and the binding is never asked', async () => {
+    const h = makeApp();
+    const res = await h.call(MEMBER, 'POST', `/v1/projects/${P1}/sites`, register);
+    expect(res.status).toBe(403);
+    expect((await h.call(MEMBER, 'GET', `/v1/projects/${P1}/sites`)).status).toBe(403);
+    expect(h.calls).toEqual([]);
+  });
+
+  test.each([
+    ['an http origin that is not loopback', { origin: 'http://acme-store.example' }, 'origin'],
+    ['an origin with a path', { origin: 'https://acme-store.example/shop' }, 'origin'],
+    [
+      'an approvals URL on an origin that only starts like the site',
+      {
+        approvalsUrl:
+          'https://acme-store.example.attacker.test/wp-admin/admin.php?approval={approvalId}',
+      },
+      'approvalsUrl',
+    ],
+    [
+      'an approvals URL without the approval',
+      { approvalsUrl: 'https://acme-store.example/wp-admin/' },
+      'approvalsUrl',
+    ],
+    [
+      'a reviewer role above the ceiling',
+      { roleMap: { administrator: { ask: true, reviewer: 'senior' } } },
+      'roleMap',
+    ],
+    [
+      'an admin reviewer role',
+      { roleMap: { administrator: { ask: true, reviewer: 'admin' } } },
+      'roleMap',
+    ],
+    [
+      'a role map over a role that is not allowed',
+      { roleMap: { customer: { ask: true } } },
+      'roleMap',
+    ],
+    ['a setting a site has no such thing as', { tenantRole: 'admin' }, 'tenantRole'],
+    ['a display name with a bidirectional override', { displayName: 'Acme ‮store' }, 'displayName'],
+  ])('refuses %s (site-invalid), before the binding is asked', async (_what, change, field) => {
+    const h = makeApp();
+    const res = await h.call(ADMIN, 'POST', `/v1/projects/${P1}/sites`, { ...register, ...change });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatchObject({ code: 'site-invalid', details: { field } });
+    expect(h.calls).toEqual([]);
+  });
+
+  test('a senior reviewer is fine under a senior ceiling; http on loopback is fine', async () => {
+    const h = makeApp();
+    const res = await h.call(ADMIN, 'POST', `/v1/projects/${P1}/sites`, {
+      ...register,
+      origin: 'http://localhost:18190',
+      approvalsUrl: 'http://localhost:18190/wp-admin/admin.php?page=kindgi&approval={approvalId}',
+      reviewerCeiling: 'senior',
+      roleMap: { administrator: { ask: true, reviewer: 'senior' }, shop_manager: { ask: false } },
+    });
+    expect(res.status).toBe(201);
+  });
+
+  test("a project id that isn't one is a 400; a project that isn't there is a 404", async () => {
+    const h = makeApp();
+    expect((await h.call(ADMIN, 'POST', '/v1/projects/not-a-uuid/sites', register)).status).toBe(
+      400,
+    );
+    const missing = await h.call(ADMIN, 'POST', `/v1/projects/${randomUUID()}/sites`, register);
+    expect(missing.status).toBe(404);
+    expect(missing.body.error.code).toBe('project-not-found');
+  });
+
+  test('reads, changes, pauses, resumes, re-enrolls, revokes a key and unregisters', async () => {
+    const h = makeApp();
+    const siteId = (await h.call(ADMIN, 'POST', `/v1/projects/${P1}/sites`, register)).body.site
+      .siteId as string;
+    const base = `/v1/projects/${P1}/sites/${siteId}`;
+    expect((await h.call(ADMIN, 'GET', `/v1/projects/${P1}/sites`)).body.data).toHaveLength(1);
+    expect((await h.call(ADMIN, 'GET', base)).body.siteId).toBe(siteId);
+    expect((await h.call(ADMIN, 'PATCH', base, { vouching: false })).body.vouching).toBe(false);
+    expect((await h.call(ADMIN, 'POST', `${base}/pause`)).body.pausedAt).toBe(NOW);
+    expect((await h.call(ADMIN, 'POST', `${base}/resume`)).body.pausedAt).toBeUndefined();
+    const code = await h.call(ADMIN, 'POST', `${base}/enrollment-codes`);
+    expect(code.status).toBe(201);
+    expect(code.body).toEqual({ code: 'enroll-again', expiresAt: NOW });
+    expect((await h.call(ADMIN, 'POST', `${base}/keys/k1/revoke`)).status).toBe(200);
+    expect((await h.call(ADMIN, 'POST', `${base}/unregister`)).body.unregisteredAt).toBe(NOW);
+    expect(
+      (await h.call(ADMIN, 'GET', `/v1/projects/${P1}/sites/${randomUUID()}`)).body.error.code,
+    ).toBe('site-not-found');
+  });
+});
+
+describe('a site enrolls its key (public)', () => {
+  const key = { kty: 'OKP', crv: 'Ed25519', x: 'abc', kid: 'k1' };
+
+  test('with no bearer token: the code and key go to the binding with the client address', async () => {
+    const h = makeApp();
+    const res = await h.call(undefined, 'POST', '/v1/auth/sites/enroll', {
+      code: 'enroll-once',
+      publicKey: key,
+    });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ siteId: 'site-1', audience: 'https://kindgi.acme.example' });
+    expect(h.calls).toEqual([
+      {
+        method: 'enroll',
+        input: { code: 'enroll-once', publicKey: key, clientAddress: '203.0.113.7' },
+      },
+    ]);
+  });
+
+  test.each([
+    [{ kind: 'refused' } as const, 401, 'site-enrollment-refused'],
+    [{ kind: 'invalid-key', message: 'not Ed25519' } as const, 400, 'site-key-invalid'],
+    [{ kind: 'rate-limited', retryAfterSeconds: 30 } as const, 429, 'rate-limit-exceeded'],
+  ])('maps %o', async (enroll, status, code) => {
+    const h = makeApp({ enroll });
+    const res = await h.call(undefined, 'POST', '/v1/auth/sites/enroll', {
+      code: 'x',
+      publicKey: key,
+    });
+    expect(res.status).toBe(status);
+    expect(res.body.error.code).toBe(code);
+    if (status === 429) expect(res.retryAfter).toBe('30');
+  });
+});
+
+describe('a site signs one of its people in (public)', () => {
+  test('a session for the person, named as approvals name them', async () => {
+    const h = makeApp();
+    const res = await h.call(undefined, 'POST', '/v1/auth/site-sign-in', { statement: STATEMENT });
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({
+      token: 'kgi_sk_test_site',
+      expiresAt: NOW,
+      userId: 'jane',
+      actor: 'user:jane',
+      projectId: P1,
+    });
+    expect(h.calls).toEqual([
+      { method: 'signIn', input: { statement: STATEMENT, clientAddress: '203.0.113.7' } },
+    ]);
+  });
+
+  test('a refusal says why, in details.reason', async () => {
+    const h = makeApp({
+      signIn: { kind: 'refused', reason: 'replayed', message: 'That statement was used.' },
+    });
+    const res = await h.call(undefined, 'POST', '/v1/auth/site-sign-in', { statement: STATEMENT });
+    expect(res.status).toBe(401);
+    expect(res.body.error).toMatchObject({
+      code: 'site-sign-in-refused',
+      message: 'That statement was used.',
+      details: { reason: 'replayed' },
+    });
+  });
+
+  test("a body over 4096 bytes, or a statement that isn't a compact JWS, never reaches the binding", async () => {
+    const h = makeApp();
+    const big = await h.call(undefined, 'POST', '/v1/auth/site-sign-in', {
+      statement: `${'a'.repeat(4100)}.b.c`,
+    });
+    expect(big.status).toBe(413);
+    expect(big.body.error.code).toBe('site-request-too-large');
+    expect(
+      (await h.call(undefined, 'POST', '/v1/auth/site-sign-in', { statement: 'not a jws' })).status,
+    ).toBe(400);
+    expect((await h.call(undefined, 'POST', '/v1/auth/site-sign-in', '[1,2]')).status).toBe(400);
+    expect(h.calls).toEqual([]);
+  });
+});
+
+test('without a site binding, none of the routes is there', async () => {
+  const app = createApp({
+    ...createStubAppBindings(),
+    resolveToken: async () => ({ tenantId, userId: 'ada' as UserId, scopes: ['tenant-admin'] }),
+    runHandler: {} as unknown as RunHandlerBinding,
+  });
+  const post = (path: string) =>
+    app.request(path, {
+      method: 'POST',
+      headers: { authorization: `Bearer ${ADMIN}`, 'content-type': 'application/json' },
+      body: '{}',
+    });
+  expect((await post('/v1/auth/site-sign-in')).status).toBe(404);
+  expect((await post('/v1/auth/sites/enroll')).status).toBe(404);
+  expect((await post(`/v1/projects/${P1}/sites`)).status).toBe(404);
+});

@@ -1,0 +1,259 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (C) 2026 Kindgi Inc.
+
+import type { ProjectId, TenantId, Timestamp, UserId } from '@kindgi/types';
+
+/**
+ * Sites that sign their own people in to one project: a website (a
+ * WordPress admin, say) registered with Kindgi vouches for whoever is
+ * signed in there, so its people ask agents and decide approvals as
+ * themselves, without a Kindgi account of their own. A decision's record
+ * names the person, and that they came through the site.
+ *
+ * A site is registered for exactly one project, by a tenant admin. It
+ * proves who it is with an Ed25519 key it made itself: Kindgi only ever
+ * holds the public half, posted once with a one-time enrollment code. A
+ * person's statement, signed by the site, is exchanged for a short
+ * session limited to the site's project (`SessionCreateInput.projectId`);
+ * such a session reads nothing above the project, mints no keys and
+ * isn't refreshed.
+ *
+ * The API package doesn't check statements, keep keys or create people:
+ * the deployment's binding does all of it, in one place. Everything about
+ * a site can be done to it here except reading its keys' private halves,
+ * which Kindgi never has.
+ */
+export interface SiteBinding {
+  register(input: SiteRegisterInput): Promise<SiteRegisterOutcome>;
+  list(input: SiteListInput): Promise<SitePage>;
+  get(input: SiteGetInput): Promise<Site | null>;
+  update(input: SiteUpdateInput): Promise<SiteChangeOutcome>;
+  /** Stop or start the site's sign-ins. Pausing ends its live sessions. */
+  setPaused(input: SiteSetPausedInput): Promise<SiteChangeOutcome>;
+  /** Tombstone the site: its sign-ins stop and its live sessions end. Its people stay. */
+  unregister(input: SiteGetInput & { readonly by: string }): Promise<SiteChangeOutcome>;
+  /**
+   * A new one-time enrollment code for the site. Using it replaces every
+   * key the site has and ends its live sessions; an earlier unused code
+   * stops working. This is how a site's key is rotated.
+   */
+  newEnrollmentCode(
+    input: SiteGetInput & { readonly by: string },
+  ): Promise<SiteEnrollmentCodeOutcome>;
+  /** Revoke one of the site's keys. Its live sessions end. */
+  revokeKey(input: SiteRevokeKeyInput): Promise<SiteChangeOutcome>;
+  /**
+   * `POST /v1/auth/sites/enroll`, before anyone is signed in: the site
+   * posts its public key with a one-time code. The code is the only
+   * credential, so a wrong, used or expired one gets the same refusal.
+   */
+  enroll(input: SiteEnrollInput): Promise<SiteEnrollOutcome>;
+  /**
+   * `POST /v1/auth/site-sign-in`, before anyone is signed in: a person's
+   * statement, signed by a registered site, for a session limited to the
+   * site's project. The binding checks everything about it, in this order:
+   * a limit on failures per client address; the site (live, not paused,
+   * vouching); the signature (EdDSA only, a live key of the site, never a
+   * key named or linked in the statement); the audience; the times (no
+   * `iat` in the future, `exp` at most 60 s after it); a limit per site,
+   * counting only statements that passed so far; the statement's `jti`,
+   * used once; then the person and their grants, and the session.
+   */
+  signIn(input: SiteSignInInput): Promise<SiteSignInOutcome>;
+}
+
+/** A WordPress role (or any site role), as the site names it: `shop_manager`. */
+export type SiteRole = string;
+
+/** What a person with one of the site's roles gets in the site's project. */
+export interface SiteRoleGrant {
+  /** May start turns with the project's agents (`caller`); reading the project comes with every role. */
+  readonly ask: boolean;
+  /** The reviewer role they decide approvals with; absent: they decide none. At most the site's `reviewerCeiling`. */
+  readonly reviewer?: 'standard' | 'senior';
+}
+
+export interface Site {
+  readonly siteId: string;
+  readonly tenantId: TenantId;
+  readonly projectId: ProjectId;
+  /** Set by a tenant admin, never by the site: every person it signs in shows as "<name>, via <displayName>". */
+  readonly displayName: string;
+  /** The site's origin (`https://acme-store.example`); `http://` only for a loopback address in development. */
+  readonly origin: string;
+  /** Where an approval opens on the site; its origin is `origin`. `{approvalId}` is replaced. */
+  readonly approvalsUrl: string;
+  /** The roles that may sign in at all; any other is refused. */
+  readonly allowedRoles: readonly SiteRole[];
+  /** Role → grant. A person with several allowed roles gets the most any of them gives. */
+  readonly roleMap: Readonly<Record<SiteRole, SiteRoleGrant>>;
+  /** The highest reviewer role the site's people can have. */
+  readonly reviewerCeiling: 'standard' | 'senior';
+  /** Whether the site's statements are accepted. A site that isn't vouching only shows its page to people with their own keys. */
+  readonly vouching: boolean;
+  /** At most this many live people from the site. */
+  readonly peopleCap: number;
+  /** At most this many new people from the site per day. */
+  readonly newPeoplePerDay: number;
+  /** The site's live public keys (at most two), by id; never a private half. */
+  readonly keys: readonly SiteKey[];
+  /** The audience the site's statements carry: this deployment's public URL, given at enrollment. */
+  readonly audience?: string;
+  readonly createdAt: Timestamp;
+  readonly createdBy?: string;
+  readonly pausedAt?: Timestamp;
+  readonly unregisteredAt?: Timestamp;
+}
+
+export interface SiteKey {
+  readonly kid: string;
+  /** The key's RFC 7638 thumbprint, to compare with the one the site shows. */
+  readonly thumbprint: string;
+  readonly addedAt: Timestamp;
+}
+
+export interface SiteRegisterInput {
+  readonly tenantId: TenantId;
+  readonly projectId: ProjectId;
+  readonly displayName: string;
+  readonly origin: string;
+  readonly approvalsUrl: string;
+  readonly allowedRoles?: readonly SiteRole[];
+  readonly roleMap?: Readonly<Record<SiteRole, SiteRoleGrant>>;
+  readonly reviewerCeiling?: 'standard' | 'senior';
+  readonly vouching?: boolean;
+  readonly peopleCap?: number;
+  readonly newPeoplePerDay?: number;
+  readonly by: string;
+}
+
+export interface SiteEnrollmentCode {
+  /** Shown once: the site posts it with its public key. */
+  readonly code: string;
+  readonly expiresAt: Timestamp;
+}
+
+export type SiteRegisterOutcome =
+  | { readonly kind: 'ok'; readonly site: Site; readonly enrollment: SiteEnrollmentCode }
+  | { readonly kind: 'project-not-found' }
+  | SiteInvalid;
+
+/** A site's settings the binding refused, naming the field. */
+export interface SiteInvalid {
+  readonly kind: 'invalid';
+  readonly field: string;
+  readonly message: string;
+}
+
+export interface SiteListInput {
+  readonly tenantId: TenantId;
+  readonly projectId: ProjectId;
+  readonly limit: number;
+  readonly cursor?: string;
+  readonly includeUnregistered?: boolean;
+}
+
+export interface SitePage {
+  readonly data: readonly Site[];
+  readonly nextCursor?: string;
+}
+
+export interface SiteGetInput {
+  readonly tenantId: TenantId;
+  readonly projectId: ProjectId;
+  readonly siteId: string;
+}
+
+export interface SiteUpdateInput extends SiteGetInput {
+  readonly patch: Partial<
+    Pick<
+      SiteRegisterInput,
+      | 'displayName'
+      | 'origin'
+      | 'approvalsUrl'
+      | 'allowedRoles'
+      | 'roleMap'
+      | 'reviewerCeiling'
+      | 'vouching'
+      | 'peopleCap'
+      | 'newPeoplePerDay'
+    >
+  >;
+  readonly by: string;
+}
+
+export interface SiteSetPausedInput extends SiteGetInput {
+  readonly paused: boolean;
+  readonly by: string;
+}
+
+export interface SiteRevokeKeyInput extends SiteGetInput {
+  readonly kid: string;
+  readonly by: string;
+}
+
+export type SiteChangeOutcome =
+  | { readonly kind: 'ok'; readonly site: Site }
+  | { readonly kind: 'not-found' }
+  | SiteInvalid;
+
+export type SiteEnrollmentCodeOutcome =
+  | { readonly kind: 'ok'; readonly enrollment: SiteEnrollmentCode }
+  | { readonly kind: 'not-found' };
+
+export interface SiteEnrollInput {
+  readonly code: string;
+  /** The site's Ed25519 public key, a JWK (`kty: OKP`, `crv: Ed25519`, `x`, `kid`). */
+  readonly publicKey: Readonly<Record<string, unknown>>;
+  /** The client's address, as the deployment knows it, for the limit on failures. */
+  readonly clientAddress?: string;
+}
+
+export type SiteEnrollOutcome =
+  | {
+      readonly kind: 'ok';
+      readonly siteId: string;
+      /** What the site's statements carry as `aud`. */
+      readonly audience: string;
+    }
+  /** A wrong, used or expired code, or a paused or unregistered site: one answer for all. */
+  | { readonly kind: 'refused' }
+  /** The public key isn't an Ed25519 JWK with a `kid`. */
+  | { readonly kind: 'invalid-key'; readonly message: string }
+  | { readonly kind: 'rate-limited'; readonly retryAfterSeconds: number };
+
+export interface SiteSignInInput {
+  /** The person's statement: a compact JWS (`typ: kindgi-site+jwt`, EdDSA). */
+  readonly statement: string;
+  readonly clientAddress?: string;
+}
+
+/** Why a statement was refused. Each is audited (a statement naming no known site is logged instead). */
+export type SiteSignInRefusal =
+  | 'malformed'
+  | 'unknown-site'
+  | 'site-paused'
+  | 'site-not-vouching'
+  | 'unknown-key'
+  | 'key-retired'
+  | 'bad-signature'
+  | 'wrong-audience'
+  | 'expired'
+  | 'issued-in-the-future'
+  | 'too-long-lived'
+  | 'replayed'
+  | 'role-not-allowed'
+  | 'person-removed'
+  | 'people-cap';
+
+export type SiteSignInOutcome =
+  | {
+      readonly kind: 'ok';
+      /** A session token, limited to the site's project. Shown once. */
+      readonly token: string;
+      readonly expiresAt: Timestamp;
+      readonly userId: UserId;
+      readonly projectId: ProjectId;
+    }
+  | { readonly kind: 'refused'; readonly reason: SiteSignInRefusal; readonly message: string }
+  | { readonly kind: 'rate-limited'; readonly retryAfterSeconds: number };

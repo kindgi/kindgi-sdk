@@ -141,6 +141,8 @@ import { secretsRouter } from './routes/secrets.js';
 import { serviceAccountsRouter } from './routes/service-accounts.js';
 import { type SignInOptionsRateLimit, signInOptionsRouter } from './routes/sign-in-options.js';
 import { signingKeysRouter } from './routes/signing-keys.js';
+import { siteEnrollRouter, siteSignInRouter } from './routes/site-auth.js';
+import { sitesRouter } from './routes/sites.js';
 import { projectTeamGrantsRouter, teamProjectGrantsRouter } from './routes/team-grants.js';
 import { teamsRouter } from './routes/teams.js';
 import { tenantRouter } from './routes/tenant.js';
@@ -154,6 +156,7 @@ import { type SecretBinding, observeSecretWrites } from './secrets-binding.js';
 import type { ServiceAccountBinding } from './service-account-binding.js';
 import type { SessionStoreBinding } from './session-store-binding.js';
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from './signing-key-binding.js';
+import type { SiteBinding } from './site-binding.js';
 import type { SupervisorBinding } from './supervisor-binding.js';
 import type { TenantHostAccess } from './tenant-host-access.js';
 import type { TokenAdmin } from './token-admin.js';
@@ -827,6 +830,19 @@ export interface CreateAppInput {
     readonly clientAddress?: (request: Request) => string | undefined;
     /** Where the counts live; default this process's memory. */
     readonly rateLimitStore?: RateLimitStore;
+  };
+  /**
+   * Sites that sign their own people in to one project (`SiteBinding`).
+   * Mounts `/v1/projects/{projectId}/sites` (tenant admins) and, outside
+   * the bearer chain, `POST /v1/auth/sites/enroll` and
+   * `POST /v1/auth/site-sign-in`. Absent: none of them is mounted. A
+   * deployment wires it only with authorization enforced: a site's session
+   * is held to its project by the authorizer.
+   */
+  readonly sites?: {
+    readonly binding: SiteBinding;
+    /** Who the client is, for the binding's limit on failures per address. */
+    readonly clientAddress?: (request: Request) => string | undefined;
   };
   /**
    * The rate limit on `GET /v1/auth/sign-in-options` (unauthenticated):
@@ -1817,6 +1833,17 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         }),
       }),
     );
+  }
+  // A site enrolls its key, and signs its people in: outside the bearer
+  // chain (mounted ahead of `/v1`), since nobody is signed in yet.
+  if (input.sites !== undefined) {
+    const siteAuth = {
+      binding: input.sites.binding,
+      ...(input.sites.clientAddress !== undefined && { clientAddress: input.sites.clientAddress }),
+    };
+    app.route('/v1/auth/sites/enroll', siteEnrollRouter(siteAuth));
+    app.route('/v1/auth/site-sign-in', siteSignInRouter(siteAuth));
+    v1.route('/projects', sitesRouter(input.sites.binding, authorizer));
   }
   // Browser sessions need a way out even without identity providers
   // (which bring their own `/auth` routes, logout included).

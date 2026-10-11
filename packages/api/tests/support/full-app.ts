@@ -648,6 +648,8 @@ export function fullAppInput(): CreateAppInput {
     envBinding: noopEnvBinding,
     secretsBinding: noopSecretsBinding,
     webhookReceiver: { envName: 'test' as EnvName },
+    // Every method answers "nothing here": the drift tests only need the routes.
+    sites: { binding: new Proxy({}, { get: () => async () => null }) as never },
     publicUrl: 'https://kindgi.acme.example',
     license: { status: () => ({ mode: 'development' }) },
   };

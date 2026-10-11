@@ -320,6 +320,16 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // `POST /v1/tokens` by a session limited to a project or a role: a key
   // would outlive whatever ends the session.
   'limited-session-cannot-mint': 403,
+  // Sites that sign their own people in to one project (`SiteBinding`).
+  'site-not-found': 404,
+  'site-invalid': 400,
+  // `POST /v1/auth/sites/enroll`: a wrong, used or expired code, or a
+  // paused or unregistered site, all alike.
+  'site-enrollment-refused': 401,
+  'site-key-invalid': 400,
+  // `POST /v1/auth/site-sign-in`: a statement refused; `details.reason` says why.
+  'site-sign-in-refused': 401,
+  'site-request-too-large': 413,
   // `POST /v1/auth/token-sign-in` signed in by a session (a cookie or a
   // session token) rather than an API token: there's nothing to exchange.
   'token-sign-in-needs-an-api-token': 400,
