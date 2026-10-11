@@ -548,7 +548,7 @@ image: {
   time, from the bundles' folder and then from each kept package's own
   folder, over the layout the package manager made from the lockfile (pnpm's
   links, npm's and Yarn's hoisting). Packages are kept whole.
-- **A miss fails the build, never a run:**
+- **Most misses fail the build, naming the package:**
   - an import that isn't installed fails the image's closure step, by name;
   - every package the bundles import, lazily loaded ones included, is loaded
     on the trimmed install before indexing, which also runs there;
@@ -562,8 +562,9 @@ image: {
   … kindgi-closure: kept 36 of 59 packages (27.5 MB of 354 MB)
   … kindgi-closure: dropped 3 of the pack's own dependencies its tools don't import: next, react, react-dom
   ```
-- **At run time,** a package loaded by a name no gate could see answers with
-  what to add to `image.keep`.
+- **One kind of miss shows only at run time:** a package a dependency loads by
+  a name in a string (a plugin named in a config), which no check can see.
+  That call fails, saying what to add to `image.keep`.
 - Extensions keep what they need: `prisma()` keeps Prisma 6's generated
   `.prisma/client` when it's there.
 - Python packs keep every dependency for now: `dependencies = "loaded"` in
