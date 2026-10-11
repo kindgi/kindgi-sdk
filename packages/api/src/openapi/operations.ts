@@ -1931,6 +1931,164 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse('No system key with that id (`system-key-not-found`).'),
     },
   },
+  // ---------- system: tenant settings and usage ----------
+  {
+    method: 'put',
+    honoPath: '/v1/system/tenants/:tenantId/production-allowed',
+    openapiPath: '/v1/system/tenants/{tenantId}/production-allowed',
+    operationId: 'systemTenants.setProductionAllowed',
+    summary: 'Allow a tenant production, or stop it',
+    description:
+      "The switch the production gate reads: with it off, `PUT /v1/projects/{projectId}/production` refuses to put the tenant's projects in production (`403 production-not-allowed`), and projects already in production stay so. A tenant is allowed until it's switched off. Takes `system:tenants:production`. A closing tenant is frozen: `409 tenant-closing`.",
+    tags: ['system-tenants'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: "The tenant's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+      IdempotencyKeyParam,
+    ],
+    requestBody: { required: true, schema: ref('ProductionAllowedBody') },
+    responses: {
+      '200': { description: "The tenant's switch now.", schema: ref('TenantProductionAllowed') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:tenants:production` (`system-scope-missing`).",
+      ),
+      '404': ErrorResponse('No tenant with that id, or a purged one (`tenant-not-found`).'),
+      '409': ErrorResponse(
+        'The tenant is closing (`tenant-closing`); or an Idempotency-Key reused with another body.',
+      ),
+    },
+  },
+  {
+    method: 'put',
+    honoPath: '/v1/system/tenants/:tenantId/limits',
+    openapiPath: '/v1/system/tenants/{tenantId}/limits',
+    operationId: 'systemTenants.setLimits',
+    summary: "Set a tenant's limits",
+    description:
+      "Replaces the tenant's limits with exactly these: a limit left out isn't set, and isn't enforced. Each is a whole number from 1 to 1000000. The tenant reads them on `GET /v1/tenant`. Takes `system:tenants:limits`. A closing tenant is frozen: `409 tenant-closing`.",
+    tags: ['system-tenants'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: "The tenant's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+      IdempotencyKeyParam,
+    ],
+    requestBody: { required: true, schema: ref('TenantLimits') },
+    responses: {
+      '200': { description: "The tenant's limits now.", schema: ref('TenantLimitsResult') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:tenants:limits` (`system-scope-missing`).",
+      ),
+      '404': ErrorResponse('No tenant with that id, or a purged one (`tenant-not-found`).'),
+      '409': ErrorResponse(
+        'The tenant is closing (`tenant-closing`); or an Idempotency-Key reused with another body.',
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/system/usage',
+    openapiPath: '/v1/system/usage',
+    operationId: 'systemUsage.read',
+    summary: 'Read usage across tenants',
+    description:
+      "Usage records aggregated by the dimensions in `groupBy`: each group's count, the sum of its quantities, and its first and last times. Never a record's content. Records are counted when the counted thing happens, exactly once (`USAGE_KINDS`, each run with its class). `watermark`: every record at or before it is in the answer, so re-read a window until its watermark is past the window's end. Takes `system:usage:read`; the access record marks a read across every tenant. A runtime that doesn't count usage answers 404.",
+    tags: ['system-usage'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'from',
+        in: 'query',
+        required: true,
+        description:
+          'Records at or after this time: a time with a zone, such as `2026-11-01T00:00:00Z`.',
+        schema: { type: 'string', format: 'date-time' },
+      },
+      {
+        name: 'to',
+        in: 'query',
+        required: true,
+        description: 'Records before this time. At most 92 days after `from`.',
+        schema: { type: 'string', format: 'date-time' },
+      },
+      {
+        name: 'groupBy',
+        in: 'query',
+        required: false,
+        description:
+          'Comma-separated, each once: `tenant`, `project`, `agent`, `kind`, `class`, `state`, `day` (the UTC date). Default `tenant,kind`.',
+        schema: { type: 'string' },
+      },
+      {
+        name: 'kind',
+        in: 'query',
+        required: false,
+        description:
+          'Only these kinds, comma-separated (`run.started`, `run.ended`, `tool.call`, `approval.requested`, `approval.decided`, `llm.inference`, `llm.embedding`, `storage.bytes`, `project.production`, `deployment.agents`).',
+        schema: { type: 'string' },
+      },
+      {
+        name: 'class',
+        in: 'query',
+        required: false,
+        description:
+          'Only these run classes, comma-separated (`production`, `staging`, `dry-run`, `replay`, `eval`, `child`).',
+        schema: { type: 'string' },
+      },
+      {
+        name: 'state',
+        in: 'query',
+        required: false,
+        description:
+          'Only these states, comma-separated (`on`, `off`: a `project.production` record).',
+        schema: { type: 'string' },
+      },
+      {
+        name: 'tenantId',
+        in: 'query',
+        required: false,
+        description: 'Only this tenant.',
+        schema: { type: 'string', format: 'uuid' },
+      },
+      {
+        name: 'limit',
+        in: 'query',
+        required: false,
+        description: 'Groups a page: 1 to 10000, default 1000.',
+        schema: { type: 'integer', minimum: 1, maximum: 10000 },
+      },
+      {
+        name: 'cursor',
+        in: 'query',
+        required: false,
+        description: "The previous page's `nextCursor`.",
+        schema: { type: 'string' },
+      },
+    ],
+    responses: {
+      '200': { description: 'A page of groups.', schema: ref('SystemUsagePage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse(
+        "A window, filter, `limit` or `cursor` this route can't read (`bad-input`), naming which.",
+      ),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:usage:read` (`system-scope-missing`).",
+      ),
+    },
+  },
   // ---------- service accounts ----------
   {
     method: 'post',

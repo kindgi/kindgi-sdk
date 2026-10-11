@@ -53,6 +53,12 @@ import {
 import { type SigningKeysClient, makeSigningKeysClient } from './resources/signing-keys.js';
 import { type SupervisorClient, makeSupervisorClient } from './resources/supervisor.js';
 import { type SystemKeysClient, makeSystemKeysClient } from './resources/system-keys.js';
+import {
+  type SystemTenantsClient,
+  type SystemUsageClient,
+  makeSystemTenantsClient,
+  makeSystemUsageClient,
+} from './resources/system-tenants.js';
 import { type TeamsClient, makeTeamsClient } from './resources/teams.js';
 import { type TenantClient, makeTenantClient } from './resources/tenant.js';
 import { type TokensClient, makeTokensClient } from './resources/tokens.js';
@@ -128,6 +134,10 @@ export interface KindgiClient {
   readonly license: LicenseClient;
   /** The operator's system keys, on a runtime serving many tenants: the full system capability only. */
   readonly systemKeys: SystemKeysClient;
+  /** What the control plane sets on a tenant: production allowed, and limits. System keys only. */
+  readonly systemTenants: SystemTenantsClient;
+  /** Usage across tenants, aggregated. System keys only. */
+  readonly systemUsage: SystemUsageClient;
   readonly tokens: TokensClient;
   /** Non-human principals with their own grants; they act through API keys. */
   readonly serviceAccounts: ServiceAccountsClient;
@@ -201,6 +211,8 @@ export function createClient(options: ClientOptions): KindgiClient {
     exportSigningKeys: makeExportSigningKeysClient(transport),
     license: makeLicenseClient(transport),
     systemKeys: makeSystemKeysClient(transport),
+    systemTenants: makeSystemTenantsClient(transport),
+    systemUsage: makeSystemUsageClient(transport),
     tokens: makeTokensClient(transport),
     serviceAccounts: makeServiceAccountsClient(transport),
     mcp: makeMcpClient(transport),

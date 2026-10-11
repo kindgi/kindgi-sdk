@@ -52,6 +52,22 @@ export type {
   SystemKeyRecord,
   SystemKeysBinding,
 } from './routes/system-keys.js';
+export {
+  TENANT_LIMIT_MAX,
+  TENANT_LIMIT_NAMES,
+  type SystemTenantSettingsBinding,
+} from './routes/system-tenant-settings.js';
+export {
+  USAGE_GROUP_KEYS,
+  USAGE_STATES,
+  USAGE_WINDOW_MAX_DAYS,
+  type SystemUsageBinding,
+  type SystemUsagePage,
+  type SystemUsageQuery,
+  type UsageGroup,
+  type UsageGroupKey,
+  type UsageState,
+} from './routes/system-usage.js';
 export { createInMemoryRateLimitStore } from './rate-limit-store.js';
 export type { RateLimitStore, RateLimitTake, RateLimitTakeInput } from './rate-limit-store.js';
 export type {

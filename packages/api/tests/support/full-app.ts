@@ -657,5 +657,19 @@ export function fullAppInput(): CreateAppInput {
       list: async () => [],
       revoke: async () => null,
     },
+    systemTenantDirectory: { get: async () => null },
+    systemTenantSettings: {
+      setProductionAllowed: async () => {
+        throw new Error('not used: no system principal in the sweeps');
+      },
+      setLimits: async () => {
+        throw new Error('not used: no system principal in the sweeps');
+      },
+    },
+    systemUsage: {
+      read: async () => {
+        throw new Error('not used: no system principal in the sweeps');
+      },
+    },
   };
 }

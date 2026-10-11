@@ -74,7 +74,11 @@ import { requestIdMiddleware } from './middleware/request-id.js';
 import { requestLogMiddleware } from './middleware/request-log.js';
 import { sealedCursors } from './middleware/sealed-cursors.js';
 import { sigv4Middleware } from './middleware/sigv4.js';
-import { type SystemAccessAuditBinding, systemPrincipalFence } from './middleware/system.js';
+import {
+  type SystemAccessAuditBinding,
+  type SystemTenantDirectory,
+  systemPrincipalFence,
+} from './middleware/system.js';
 import type { MyAccessBinding } from './my-access-binding.js';
 import { type GenerateOptions, generateOpenApiDocument } from './openapi/generate.js';
 import type { PersonGrantsBinding } from './person-grants-binding.js';
@@ -147,6 +151,11 @@ import { serviceAccountsRouter } from './routes/service-accounts.js';
 import { type SignInOptionsRateLimit, signInOptionsRouter } from './routes/sign-in-options.js';
 import { signingKeysRouter } from './routes/signing-keys.js';
 import { type SystemKeysBinding, systemKeysRouter } from './routes/system-keys.js';
+import {
+  type SystemTenantSettingsBinding,
+  systemTenantSettingsRouter,
+} from './routes/system-tenant-settings.js';
+import { type SystemUsageBinding, systemUsageRouter } from './routes/system-usage.js';
 import { projectTeamGrantsRouter, teamProjectGrantsRouter } from './routes/team-grants.js';
 import { teamsRouter } from './routes/teams.js';
 import { tenantRouter } from './routes/tenant.js';
@@ -534,6 +543,24 @@ export interface CreateAppInput {
    * as on a runtime that issues no system keys.
    */
   readonly systemAccessAudit?: SystemAccessAuditBinding;
+  /**
+   * Optional. The tenants a system route can name, and each one's state:
+   * what `withSystemTenantContext` checks before a system route acts in a
+   * tenant. The tenant routes below need it.
+   */
+  readonly systemTenantDirectory?: SystemTenantDirectory;
+  /**
+   * Optional. A tenant's "production allowed" switch and its limits, set by
+   * the control plane: `PUT /v1/system/tenants/:tenantId/production-allowed`
+   * (`system:tenants:production`) and `…/limits` (`system:tenants:limits`).
+   * Mounted only with `systemTenantDirectory` too.
+   */
+  readonly systemTenantSettings?: SystemTenantSettingsBinding;
+  /**
+   * Optional. Usage across tenants, aggregated: `GET /v1/system/usage`
+   * (`system:usage:read`). Without it the route isn't mounted (404).
+   */
+  readonly systemUsage?: SystemUsageBinding;
   /**
    * Optional. Issue and accept public run tokens (`kgi_pt_…`):
    * short-lived, read-only tokens a browser uses to follow specific runs
@@ -1435,6 +1462,25 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   }
   if (input.systemKeys !== undefined) {
     v1.route('/system/keys', systemKeysRouter(input.systemKeys, authorizer));
+  }
+  if (input.systemTenantSettings !== undefined && input.systemTenantDirectory !== undefined) {
+    v1.route(
+      '/system/tenants',
+      systemTenantSettingsRouter({
+        settings: input.systemTenantSettings,
+        directory: input.systemTenantDirectory,
+        ...(authorizer !== undefined && { authorizer }),
+      }),
+    );
+  }
+  if (input.systemUsage !== undefined) {
+    v1.route(
+      '/system/usage',
+      systemUsageRouter({
+        usage: input.systemUsage,
+        ...(authorizer !== undefined && { authorizer }),
+      }),
+    );
   }
   v1.route(
     '/provenance',
