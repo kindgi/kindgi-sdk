@@ -96,6 +96,16 @@ the Bedrock console, or answered that the model "is not available for this
 account" and to contact AWS, which takes a support case. AWS's guide:
 [Request access to models](https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html).
 
+A model's lifecycle on Bedrock is AWS's own, and its dates can differ from its
+vendor's. AWS gives each model's state (Active, Legacy or end-of-life) and the
+notice it gives on its
+[model lifecycle](https://docs.aws.amazon.com/bedrock/latest/userguide/model-lifecycle-legacy.html)
+page ([this one](https://docs.aws.amazon.com/bedrock/latest/userguide/model-lifecycle.html)
+for models launched from 2026-09-07). A Legacy model keeps working until its
+end-of-life date, though an account that hasn't called it for 15 days may lose
+access. Past that date a request to it fails, so an agent that prefers or
+requires it needs a new version naming another model.
+
 ## A provider spec
 
 Anything that isn't a preset registers from a spec: a JSON file you pass with
