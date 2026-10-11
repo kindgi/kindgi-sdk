@@ -26,6 +26,7 @@ import {
   RUNTIME_PACK_DIR,
   RUNTIME_PUBLIC_TOKEN_KEY,
 } from './runtime-env.js';
+import { registryOf } from './runtime-image.js';
 import {
   credentialHelperFailure,
   credentialHelperHint,
@@ -146,9 +147,10 @@ export function runtimeContainerName(packDir: string): string {
 
 /**
  * Make sure the image is here, pulling it if not: the pull is a phase,
- * with the image's size (from its manifest, when the registry gives it)
- * and how much has come as each layer arrives. A private image needs a
- * registry login first (`kindgi auth registry`); the error says so.
+ * said at once, with how much has come as each layer arrives. The image's
+ * size comes from its manifest, read beside the pull (it never waits on
+ * the registry's answer) and given up when the pull ends. A private image
+ * needs a registry login first (`kindgi auth registry`); the error says so.
  */
 export async function ensureRuntimeImage(
   image: string,
@@ -159,22 +161,22 @@ export async function ensureRuntimeImage(
   if (present.code === null) {
     return { kind: 'error', message: `Docker isn't available: ${present.stderr}` };
   }
-  const layers = await imageLayers(image);
-  const progress = pullProgress(layers);
-  phases.begin(
-    'pull',
-    layers === undefined
-      ? `${image} (first run only)`
-      : `${image}, ${formatSize(progress.totalBytes)} in ${layers.length} layers (first run only)`,
-  );
+  phases.begin('pull', `${image} (first run only)`);
+  const progress = pullProgress();
+  const manifestRead = new AbortController();
+  void imageLayers(image, manifestRead.signal).then((layers) => {
+    if (layers !== undefined) phases.progress(progress.sized(layers));
+  });
   const pulled = await docker(['pull', image], {
     onLine: (line) => {
       const note = progress.take(line);
       if (note !== undefined) phases.progress(note);
     },
   });
+  manifestRead.abort();
   if (pulled.code === 0) {
-    phases.end(layers === undefined ? undefined : formatSize(progress.totalBytes));
+    const total = progress.totalBytes();
+    phases.end('pull', total > 0 ? formatSize(total) : undefined);
     return { kind: 'ok' };
   }
   const detail = dockerFailureDetail(pulled.stderr);
@@ -194,16 +196,21 @@ export interface ImageLayer {
   readonly size: number;
 }
 
-/** How long a registry gets to answer for the image's manifest: a pull doesn't wait on it. */
+/** How long a registry gets to answer for the image's manifest (the pull goes on meanwhile). */
 const MANIFEST_TIMEOUT_MS = 15_000;
 
 /**
  * The layers `docker pull` will fetch for this machine, from the image's
  * manifest (`docker manifest inspect --verbose`, a registry read that
- * stores nothing); `undefined` when the registry doesn't say.
+ * stores nothing); `undefined` when the registry doesn't say, or for a
+ * Docker Hub image, whose manifest reads count against its pull limit.
  */
-async function imageLayers(image: string): Promise<readonly ImageLayer[] | undefined> {
-  const signal = AbortSignal.timeout(MANIFEST_TIMEOUT_MS);
+async function imageLayers(
+  image: string,
+  stop: AbortSignal,
+): Promise<readonly ImageLayer[] | undefined> {
+  if (registryOf(image) === 'docker.io') return undefined;
+  const signal = AbortSignal.any([stop, AbortSignal.timeout(MANIFEST_TIMEOUT_MS)]);
   const platform = await docker(['version', '--format', '{{.Server.Os}}/{{.Server.Arch}}'], {
     signal,
   });
@@ -264,30 +271,39 @@ const LAYER_IN = /^([0-9a-f]{12}): (?:Download complete|Pull complete|Already ex
 /**
  * A pull's progress from its lines: without a terminal, `docker pull`
  * prints no byte counts, only a line as each layer arrives, so the bytes
- * so far are the sizes of the layers in. `take` answers a line that
- * moved it with the progress as words.
+ * so far are the sizes of the layers in, once the manifest has said them
+ * (until then, layers are counted). `take` answers a line that moved it,
+ * and `sized` the manifest's layers, with the progress as words.
  */
-export function pullProgress(layers: readonly ImageLayer[] | undefined): {
-  readonly totalBytes: number;
+export function pullProgress(): {
   take(line: string): string | undefined;
+  sized(layers: readonly ImageLayer[]): string;
+  totalBytes(): number;
 } {
   const sizes = new Map<string, number>();
-  for (const layer of layers ?? []) {
-    sizes.set(layer.digest.replace(/^sha256:/, '').slice(0, 12), layer.size);
-  }
-  const totalBytes = [...sizes.values()].reduce((sum, n) => sum + n, 0);
   const done = new Set<string>();
+  const total = (): number => [...sizes.values()].reduce((sum, n) => sum + n, 0);
+  const note = (): string => {
+    if (sizes.size === 0) return `${done.size} ${done.size === 1 ? 'layer' : 'layers'} in`;
+    if (done.size === 0) return `${formatSize(total())} in ${sizes.size} layers`;
+    let bytes = 0;
+    for (const d of done) bytes += sizes.get(d) ?? 0;
+    return `${formatSize(bytes)} of ${formatSize(total())}, ${Math.min(done.size, sizes.size)} of ${sizes.size} layers`;
+  };
   return {
-    totalBytes,
     take(line) {
       const id = LAYER_IN.exec(line.replace(/^.*\r/, ''))?.[1];
       if (id === undefined || done.has(id)) return undefined;
       done.add(id);
-      if (sizes.size === 0) return `${done.size} ${done.size === 1 ? 'layer' : 'layers'} in`;
-      let bytes = 0;
-      for (const d of done) bytes += sizes.get(d) ?? 0;
-      return `${formatSize(bytes)} of ${formatSize(totalBytes)}, ${Math.min(done.size, sizes.size)} of ${sizes.size} layers`;
+      return note();
     },
+    sized(layers) {
+      for (const layer of layers) {
+        sizes.set(layer.digest.replace(/^sha256:/, '').slice(0, 12), layer.size);
+      }
+      return note();
+    },
+    totalBytes: total,
   };
 }
 
@@ -408,7 +424,7 @@ export async function startRuntimeContainer(
   if (started.code !== 0) {
     throw new Error(`docker run failed: ${dockerFailureDetail(started.stderr)}`);
   }
-  phases.end();
+  phases.end('container');
   phases.begin('serve');
 
   // The runtime's latest lines as text (a record as its pretty line, the
@@ -429,12 +445,8 @@ export async function startRuntimeContainer(
       if (lines.length > KEPT_LINES) lines.splice(0, lines.length - KEPT_LINES);
       // The runtime's migration records are the migrating phase's start and end.
       const stage = migrationStage(line);
-      if (stage === 'start') phases.begin('migrate');
-      else if (stage === 'done') {
-        phases.end();
-        phases.begin('serve');
-      }
       if (stage === undefined) options.onLog(line, stream);
+      else migrationPhase(stage, phases);
     });
   const out = reader('stdout');
   const err = reader('stderr');
@@ -498,6 +510,12 @@ export function migrationStage(line: string): 'start' | 'done' | undefined {
   const record = parseRecord(line);
   if (record?.subsystem !== 'migrations') return undefined;
   return record.stage === 'start' || record.stage === 'done' ? record.stage : undefined;
+}
+
+/** Migrating begins at its `start` record; its `done` ends it, and waiting for it to serve goes on. */
+function migrationPhase(stage: 'start' | 'done', phases: StartPhases): void {
+  if (stage === 'start') phases.begin('migrate');
+  else if (phases.end('migrate')) phases.begin('serve');
 }
 
 /** Why waiting longer for a running container won't help, if it won't. */

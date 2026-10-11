@@ -18,8 +18,11 @@ export interface StartPhases {
   begin(phase: StartPhase, note?: string): void;
   /** What the open phase has done so far (a pull's bytes), shown on its next line. */
   progress(note: string): void;
-  /** The open phase ends: a line saying so, with how long it took. */
-  end(note?: string): void;
+  /**
+   * `phase` ends, if it's the one open: a line saying so, with how long it
+   * took. Whether it was (a stray end claims nothing).
+   */
+  end(phase: StartPhase, note?: string): boolean;
   /** No more lines: the start served, failed or was stopped. */
   close(): void;
   /** How long since the first phase began. */
@@ -82,13 +85,14 @@ export function createStartPhases(options: {
     progress(note) {
       if (open !== undefined) open.note = note;
     },
-    end(note) {
-      if (closed || open === undefined) return;
+    end(phase, note) {
+      if (closed || open?.phase !== phase) return false;
       stopTicking();
       const took = formatDuration(Date.now() - open.startedAt);
       const what = note === undefined ? '' : `: ${note}`;
       options.emit(`${INDENT}✓ ${LABELS[open.phase].done}${what} in ${took}`);
       open = undefined;
+      return true;
     },
     close() {
       closed = true;
@@ -122,7 +126,7 @@ export function formatSize(bytes: number): string {
 export const NO_START_PHASES: StartPhases = {
   begin: () => undefined,
   progress: () => undefined,
-  end: () => undefined,
+  end: () => false,
   close: () => undefined,
   elapsedMs: () => 0,
 };

@@ -26,16 +26,16 @@ describe("the runtime start's phases", () => {
     vi.useRealTimers();
   });
 
-  test('a pull says its size at once, its progress every 3s, and its time at the end', () => {
-    phases.begin('pull', 'quay.io/acme/runtime:1.0, 269 MB in 8 layers (first run only)');
+  test('a pull says itself at once, its progress every 3s, and its time at the end', () => {
+    phases.begin('pull', 'quay.io/acme/runtime:1.0 (first run only)');
     phases.progress('96.0 MB of 269 MB, 3 of 8 layers');
     vi.advanceTimersByTime(3000);
     phases.progress('180 MB of 269 MB, 6 of 8 layers');
     vi.advanceTimersByTime(3000);
     vi.advanceTimersByTime(1500);
-    phases.end('269 MB');
+    phases.end('pull', '269 MB');
     expect(lines).toEqual([
-      '  ⋯ pulling the runtime image: quay.io/acme/runtime:1.0, 269 MB in 8 layers (first run only)',
+      '  ⋯ pulling the runtime image: quay.io/acme/runtime:1.0 (first run only)',
       '  ⋯ pulling the runtime image: 96.0 MB of 269 MB, 3 of 8 layers (3s)',
       '  ⋯ pulling the runtime image: 180 MB of 269 MB, 6 of 8 layers (6s)',
       '  ✓ pulled the runtime image: 269 MB in 7.5s',
@@ -45,12 +45,12 @@ describe("the runtime start's phases", () => {
   test('container, migrating, waiting: waiting gives way to migrating without a line', () => {
     phases.begin('container');
     vi.advanceTimersByTime(400);
-    phases.end();
+    phases.end('container');
     phases.begin('serve');
     vi.advanceTimersByTime(800);
     phases.begin('migrate');
     vi.advanceTimersByTime(6100);
-    phases.end();
+    phases.end('migrate');
     phases.begin('serve');
     vi.advanceTimersByTime(1000);
     expect(lines).toEqual([
@@ -64,7 +64,7 @@ describe("the runtime start's phases", () => {
 
   test('a runtime without migration records: the whole wait is waiting', () => {
     phases.begin('container');
-    phases.end();
+    phases.end('container');
     phases.begin('serve');
     vi.advanceTimersByTime(6000);
     expect(lines.slice(1)).toEqual([
@@ -78,8 +78,15 @@ describe("the runtime start's phases", () => {
     phases.close();
     vi.advanceTimersByTime(9000);
     phases.begin('migrate');
-    phases.end();
+    expect(phases.end('migrate')).toBe(false);
     expect(lines).toEqual([]);
+  });
+
+  test("an end for a phase that isn't open claims nothing", () => {
+    phases.begin('serve');
+    expect(phases.end('migrate')).toBe(false);
+    vi.advanceTimersByTime(3000);
+    expect(lines).toEqual(['  ⋯ waiting for it to serve (3s)']);
   });
 });
 
@@ -173,9 +180,12 @@ describe('pullProgress', () => {
     'Status: Downloaded newer image for quay.io/acme/runtime:1.0',
   ];
 
+  const ARM64 = manifestLayers(VERBOSE_INDEX, 'linux/arm64') ?? [];
+
   test('the bytes in are the sizes of the layers in, each counted once', () => {
-    const progress = pullProgress(manifestLayers(VERBOSE_INDEX, 'linux/arm64'));
-    expect(progress.totalBytes).toBe(269_000_000);
+    const progress = pullProgress();
+    expect(progress.sized(ARM64)).toBe('269 MB in 3 layers');
+    expect(progress.totalBytes()).toBe(269_000_000);
     expect(PULL.map((line) => progress.take(line)).filter((n) => n !== undefined)).toEqual([
       '30.0 MB of 269 MB, 1 of 3 layers',
       '59.0 MB of 269 MB, 2 of 3 layers',
@@ -183,9 +193,15 @@ describe('pullProgress', () => {
     ]);
   });
 
+  test('sizes that come after layers did count those layers too', () => {
+    const progress = pullProgress();
+    expect(progress.take('0b9d4a6c3e21: Already exists')).toBe('1 layer in');
+    expect(progress.sized(ARM64)).toBe('30.0 MB of 269 MB, 1 of 3 layers');
+  });
+
   test("without the manifest's sizes, layers are counted", () => {
-    const progress = pullProgress(undefined);
-    expect(progress.totalBytes).toBe(0);
+    const progress = pullProgress();
+    expect(progress.totalBytes()).toBe(0);
     expect(PULL.map((line) => progress.take(line)).filter((n) => n !== undefined)).toEqual([
       '1 layer in',
       '2 layers in',
