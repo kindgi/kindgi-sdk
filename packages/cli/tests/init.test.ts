@@ -118,6 +118,7 @@ describe('kindgi init — minimal template', () => {
       '.claude/skills/kindgi-authoring-tools/SKILL.md',
       '.claude/skills/kindgi-framework-feedback/SKILL.md',
       '.claude/skills/kindgi-getting-started/SKILL.md',
+      '.claude/skills/kindgi-using/SKILL.md',
       '.gitignore',
       '.nvmrc',
       'AGENTS.md',
@@ -155,7 +156,7 @@ describe('kindgi init — minimal template', () => {
     expect(pkg.dependencies?.zod).toBeTruthy();
   });
 
-  test.each(['minimal', 'sample'])(
+  test.each(['minimal', 'sample', 'woocommerce'])(
     "the %s template decides esbuild's install script for npm and pnpm alike: off (T277)",
     async (template) => {
       await runCli(baseInputs({ argv: ['init', 'my-pack', `--template=${template}`] }));
@@ -195,6 +196,45 @@ describe('kindgi init — minimal template', () => {
     expect(out.stderr).toContain('cd my-pack');
     expect(out.stderr).toContain('pnpm install');
     expect(out.stderr).toContain('kindgi dev');
+  });
+});
+
+describe('kindgi init --template=woocommerce', () => {
+  test("scaffolds the store pack under the pack's id, with the agents' own {{ input.* }} kept", async () => {
+    const out = await runCli(baseInputs({ argv: ['init', 'acme-shop', '--template=woocommerce'] }));
+    expect(out.exitCode).toBe(0);
+    const root = join(cwd, 'acme-shop');
+    const files = await listRecursive(root);
+    for (const rel of [
+      'lib/woo.ts',
+      'tools/refund/index.ts',
+      'tools/refund/index.test.ts',
+      'tools/refund-large/index.ts',
+      'tools/refund-large/index.test.ts',
+      'lib/fake-store.ts',
+      'tools/check-order-event/index.ts',
+      'guardrails/no-customer-contact-details/index.ts',
+      'agents/store-agent/index.ts',
+      'agents/order-reviewer/index.ts',
+      'flows/order-review/index.ts',
+      'fixtures/order-created.json',
+      'README.md',
+    ]) {
+      expect(files, rel).toContain(rel);
+    }
+    for (const rel of files) {
+      const raw = await readFile(join(root, rel), 'utf8');
+      expect(raw, `${rel} still contains an unsubstituted placeholder`).not.toMatch(
+        /\{\{[A-Z_]+\}\}/,
+      );
+    }
+    const agent = await readFile(join(root, 'agents/store-agent/index.ts'), 'utf8');
+    expect(agent).toContain("'acme-shop.woo.refund': 'never_ask'");
+    expect(agent).toContain("default: 'always_ask'");
+    // A refused refund goes back to the model, which can then ask for refund-large.
+    expect(agent).toContain("retryOn: ['invalid-arguments', 'unknown-tool', 'tool-error']");
+    const reviewer = await readFile(join(root, 'agents/order-reviewer/index.ts'), 'utf8');
+    expect(reviewer).toContain('{{ input.order.orderNumber }}');
   });
 });
 
@@ -238,7 +278,7 @@ describe('kindgi init — a machine without pnpm (T280)', () => {
     );
     expect(out.exitCode).toBe(0);
     expect(out.stderr).toContain('  npm install');
-    expect(out.stderr).toContain('npx --no kindgi dev');
+    expect(out.stderr).toContain('npx --no -- kindgi dev');
     expect(out.stderr).not.toMatch(/^ {2}pnpm /m);
     // No advice to pin a pnpm this machine doesn't have.
     expect(out.stderr).not.toContain('packageManager');
@@ -260,7 +300,13 @@ describe("kindgi init — the README's commands are the Next steps' (T279)", () 
       seam: undefined,
       runner: 'pnpm exec kindgi',
     },
-    { name: 'minimal, without pnpm', argv: [], env: {}, seam: NO_PNPM, runner: 'npx --no kindgi' },
+    {
+      name: 'minimal, without pnpm',
+      argv: [],
+      env: {},
+      seam: NO_PNPM,
+      runner: 'npx --no -- kindgi',
+    },
     {
       name: 'sample, with pnpm',
       argv: ['--template=sample'],
@@ -273,7 +319,7 @@ describe("kindgi init — the README's commands are the Next steps' (T279)", () 
       argv: ['--template=sample'],
       env: {},
       seam: NO_PNPM,
-      runner: 'npx --no kindgi',
+      runner: 'npx --no -- kindgi',
     },
     // No npm project to hold the CLI: the published CLI, within its minor.
     {
@@ -417,6 +463,7 @@ describe('kindgi init — python template', () => {
       '.claude/skills/kindgi-python-authoring-guardrails/SKILL.md',
       '.claude/skills/kindgi-python-authoring-tools/SKILL.md',
       '.claude/skills/kindgi-python-getting-started/SKILL.md',
+      '.claude/skills/kindgi-using/SKILL.md',
       '.gitignore',
       'AGENTS.md',
       'README.md',
@@ -461,6 +508,7 @@ describe('kindgi init — java template', () => {
       '.claude/skills/kindgi-java-authoring-guardrails/SKILL.md',
       '.claude/skills/kindgi-java-authoring-tools/SKILL.md',
       '.claude/skills/kindgi-java-getting-started/SKILL.md',
+      '.claude/skills/kindgi-using/SKILL.md',
     ]);
     const files = all.filter((f) => !f.startsWith('.claude/'));
     expect(files).toEqual([
@@ -530,6 +578,7 @@ describe('kindgi init — scala template', () => {
       '.claude/skills/kindgi-scala-authoring-guardrails/SKILL.md',
       '.claude/skills/kindgi-scala-authoring-tools/SKILL.md',
       '.claude/skills/kindgi-scala-getting-started/SKILL.md',
+      '.claude/skills/kindgi-using/SKILL.md',
       '.gitignore',
       'AGENTS.md',
       'README.md',
@@ -614,6 +663,7 @@ describe('kindgi init — sample template', () => {
       '.claude/skills/kindgi-authoring-tools/SKILL.md',
       '.claude/skills/kindgi-framework-feedback/SKILL.md',
       '.claude/skills/kindgi-getting-started/SKILL.md',
+      '.claude/skills/kindgi-using/SKILL.md',
       '.gitignore',
       '.nvmrc',
       'AGENTS.md',
@@ -722,6 +772,14 @@ describe('kindgi init --template in an existing app (augment mode)', () => {
     const out = await runCli(baseInputs({ argv: ['init', '--template=python'] }));
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain('--template=python --new-repo');
+    expect(await readdir(cwd)).toEqual(['package.json']);
+  });
+
+  test('--template=woocommerce is refused, pointing at --new-repo', async () => {
+    await writeFile(join(cwd, 'package.json'), '{"name":"acme-app"}\n');
+    const out = await runCli(baseInputs({ argv: ['init', '--template=woocommerce'] }));
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('--template=woocommerce --new-repo');
     expect(await readdir(cwd)).toEqual(['package.json']);
   });
 

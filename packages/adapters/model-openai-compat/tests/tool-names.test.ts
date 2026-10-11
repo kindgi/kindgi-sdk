@@ -90,3 +90,71 @@ describe('the openai-compat adapter names declared tools as sent', () => {
     expect((bodies[0]?.messages as { content: string }[])[0]?.content).toBe('Mention demo.echo.');
   });
 });
+
+describe('the openai-compat adapter gives a call back its tool id', () => {
+  function answering(toolName: string) {
+    const fetch = (async () =>
+      new Response(
+        JSON.stringify({
+          id: 'c-1',
+          object: 'chat.completion',
+          created: 0,
+          model: 'llama3.1',
+          choices: [
+            {
+              index: 0,
+              message: {
+                role: 'assistant',
+                content: null,
+                tool_calls: [
+                  { id: 'call_1', type: 'function', function: { name: toolName, arguments: '{}' } },
+                ],
+              },
+              finish_reason: 'tool_calls',
+            },
+          ],
+          usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      )) as unknown as typeof globalThis.fetch;
+    return createOpenAICompatModelProvider({
+      baseURL: 'http://127.0.0.1:1/v1',
+      apiKey: 'unused',
+      clientOptions: { fetch, maxRetries: 0 },
+      metadata: {
+        id: 'ollama',
+        region: 'local',
+        models: [
+          {
+            name: 'llama3.1',
+            contextWindow: 128000,
+            features: ['tool-use'],
+            cost: { promptUsdPer1kTokens: 0, completionUsdPer1kTokens: 0 },
+          },
+        ],
+      },
+    });
+  }
+  const tool = (name: string) => ({ name, description: name, inputSchema: { type: 'object' } });
+
+  test("a tool id holding `__` (an MCP server's own name) comes back as the id", async () => {
+    const result = await answering('drupal__tool_api__list_content').invoke({
+      model: 'llama3.1',
+      messages: [{ role: 'user', content: 'list the articles' }],
+      tools: [tool('drupal.tool_api__list_content')],
+    });
+    expect(result.message.toolCalls?.map((c) => c.name)).toEqual(['drupal.tool_api__list_content']);
+  });
+
+  test('two tools sent under one name are refused before the call, naming both', async () => {
+    await expect(
+      answering('acme__lookup__order').invoke({
+        model: 'llama3.1',
+        messages: [{ role: 'user', content: 'hi' }],
+        tools: [tool('acme.lookup__order'), tool('acme.lookup.order')],
+      }),
+    ).rejects.toThrow(
+      'tools "acme.lookup__order" and "acme.lookup.order" have the same name for the model',
+    );
+  });
+});

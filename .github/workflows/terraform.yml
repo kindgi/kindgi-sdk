@@ -1,0 +1,58 @@
+name: Terraform modules
+
+# Every root module under deploy/ (the reference deployments: Cloud Run,
+# Container Apps, …) checked on the pull requests that touch one:
+# `terraform fmt -check`, `init` without a backend, `validate`, and
+# `terraform test`, whose tests run against mocked providers. No cloud
+# account and no credentials: nothing here reaches a cloud.
+
+on:
+  pull_request:
+    paths:
+      - "deploy/**"
+      - ".github/workflows/terraform.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  modules:
+    name: Terraform modules
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # Providers download once per lock file, then come from the cache.
+      TF_PLUGIN_CACHE_DIR: ${{ github.workspace }}/.terraform-plugin-cache
+      TF_IN_AUTOMATION: "1"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          # The modules need 1.11 or later (write-only arguments).
+          terraform_version: "1.16.5"
+          terraform_wrapper: false
+      - name: The provider cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.TF_PLUGIN_CACHE_DIR }}
+          key: terraform-providers-${{ hashFiles('deploy/*/.terraform.lock.hcl') }}
+      - name: fmt, init, validate and test, for each module
+        run: |
+          mkdir -p "$TF_PLUGIN_CACHE_DIR"
+          status=0
+          for dir in deploy/*/; do
+            [ -f "$dir/versions.tf" ] || continue
+            echo "::group::$dir"
+            if ! (
+              cd "$dir"
+              terraform fmt -check -recursive -diff &&
+                terraform init -backend=false -input=false -no-color &&
+                terraform validate -no-color &&
+                terraform test -no-color
+            ); then
+              echo "::error::$dir failed (fmt, init, validate or test)"
+              status=1
+            fi
+            echo "::endgroup::"
+          done
+          exit $status

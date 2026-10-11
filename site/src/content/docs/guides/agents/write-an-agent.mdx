@@ -236,7 +236,9 @@ there:
 
 Your own variables are the agent's `parameters`, and an agent that runs as a
 flow step can read the step's input as `{{ input.* }}`: both are on
-[Give an agent its input](../give-an-agent-input/).
+[Give an agent its input](../give-an-agent-input/). A parameter can't take a
+name the turn fills in (`today`, `now`, `agent`, `conversation`, `input`,
+`settings`): defining the agent refuses it.
 
 Rendering is strict. A variable that is neither built in nor declared fails
 the turn before the model is called:

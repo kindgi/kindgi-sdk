@@ -1,0 +1,28 @@
+{
+  "name": "{{PACK_NAME}}",
+  "version": "{{PACK_VERSION}}",
+  "private": true,
+  "description": "Kindgi pack — scaffolded by `kindgi init --template=woocommerce`. Governed agents for a WooCommerce store: typed store tools with approval defaults.",
+  "license": "UNLICENSED",
+  "type": "module",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@kindgi/sdk": "workspace:*",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@kindgi/cli": "workspace:*",
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.0"
+  },
+  "allowScripts": {
+    "esbuild": false
+  }
+}
