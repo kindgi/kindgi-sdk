@@ -42,13 +42,13 @@ const STATES = new Map<string, SystemTenantState>([
 
 const ORCHESTRATOR = 'kgi_sy_orchestrator';
 const SUPPORT = 'kgi_sy_support';
-const USAGE = 'kgi_sy_usage';
+const TENANTS = 'kgi_sy_tenants';
 const FULL = 'kgi_sy_full';
 const TENANT_KEY = 'kgi_ak_tenant_with_operator_powers';
 const SCOPES: Record<string, readonly string[]> = {
   [ORCHESTRATOR]: ['system:deployments'],
   [SUPPORT]: ['system:suspend'],
-  [USAGE]: ['system:usage:read'],
+  [TENANTS]: ['system:tenants'],
   [FULL]: ['kindgi:system'],
 };
 
@@ -290,7 +290,7 @@ describe('the scopes: system:deployments for the endpoint, system:suspend for th
     for (const [method, path, b] of routes) {
       // A valid body, and one that isn't: the scope is checked first either way.
       for (const sent of b === undefined ? [undefined] : [b, {}]) {
-        const r = await call(USAGE, method, path, sent);
+        const r = await call(TENANTS, method, path, sent);
         expect(r.status, `${method} ${path} ${JSON.stringify(sent)}`).toBe(403);
         expect(code(r), `${method} ${path} ${JSON.stringify(sent)}`).toBe('system-scope-missing');
       }
