@@ -1,5 +1,58 @@
 # @kindgi/env-schema
 
+## 0.1.6
+
+### Patch Changes
+
+- fdb86ae: Reviewers can be told when an approval waits for them.
+  
+  - **`approval.requested` webhook event:** an endpoint can subscribe to it like `run.finished`.
+    - **When:** sent each time an approval starts waiting (an escalation opens a new one).
+    - **What:** `data.approval` carries `approvalId`, `projectId`, `requiredRole`, `title`, `assignedTo`, `createdAt`, `expiresAt` and `url`. Never what the approval is about: no `context`, tool call or run input.
+    - **Filter:** the endpoint's `projectId` narrows it to the approval's project.
+  - **`KINDGI_REVIEWER_EMAIL`** (off by default): `on` emails reviewers through the emailed sign-in link's server.
+    - **Who:** the people the approvals list would show the approval to, only those who may read its project.
+    - **How often:** the first email goes at once, then a five-minute digest.
+    - **What:** title, project, required role and a link only.
+    - **Without the server:** turned on without `KINDGI_AUTH_EMAIL_SMTP_URL` and `KINDGI_AUTH_EMAIL_FROM`, the runtime refuses to start.
+  - **Clients:** the TypeScript and Python clients type the new event. The Python client's `parse_event` reads it.
+- 8b9e90d: Azure settings for the runtime: `KINDGI_SECRETS_BACKEND_KMS=azure` with `KINDGI_SECRETS_AZURE_KEY_ID` (an Azure Key Vault key wraps the postgres backend's DEKs), `KINDGI_IMAGE_REGISTRY_AUTH=azure` (Azure Container Registry with the server's managed identity), and `KINDGI_AZURE_CLIENT_ID` (which user-assigned identity the server uses). `parseAzureKeyId` checks the key's URL and refuses one pinned to a version. `kindgi env init --kms=azure` writes them.
+- 796c790: `KINDGI_SECRETS_AWS_REGION`, `KINDGI_SECRETS_AWS_KMS_KEY_ID` and `KINDGI_SECRETS_MANAGER=aws` say they're used from runtime 0.1.7: runtime 0.1.6 refuses `KINDGI_SECRETS_MANAGER=aws` at startup.
+- 36c31ea: **The server's AWS identity, in the env schema** (group `aws`):
+  - `KINDGI_AWS_IDENTITY`: `container`, `instance`, `web-identity` or `profile` (development only);
+  - `KINDGI_AWS_PROFILE`;
+  - `KINDGI_AWS_ROLE_ARN`, a role to assume, with `KINDGI_AWS_ROLE_SESSION_NAME` and `KINDGI_AWS_STS_REGION`.
+  
+  The runtime reads them from 0.1.7 on (0.1.6 ignores them), and then signs in to AWS only as they name, never with the AWS SDK's default chain.
+- 5bdacf1: **Only the names a pack declares reach its code.** Before the pack's code loads, the pack service (TypeScript, Python, Java and Scala) drops from its environment every variable the pack doesn't declare in `env.required` or `env.optional`. A model key or a password in a self-hosted `--env-file`, meant for something else, no longer reaches a tool or a process a tool starts.
+  
+  - **What stays:** the declared names, `KINDGI_*`, and the platform's: the process's basics, the language runtime's settings, `PORT`, proxies and certificates, and Cloud Run's, AWS's and Azure's workload identity and metadata (`PLATFORM_ENV_NAMES`, `PLATFORM_ENV_PREFIXES`). Static credentials such as `AWS_SECRET_ACCESS_KEY` aren't the platform's: a pack that needs one declares it.
+  - **What it says:** one `warn` record at start, `env-dropped`, with the names it dropped, never their values. A Python image always names `GPG_KEY`, which its base image sets.
+  - **The opt-out:** `KINDGI_PACK_ENV_FILTER=off` keeps every variable, as before. `kindgi dev` sets it, since there the pack service gets the app's env files. Any value other than `on` or `off` is a `config-invalid` start.
+  - **Java and Scala:** a JVM can't drop a variable from its own environment, so the launcher (`kindgi-pack-java`) does, keeping the names in `KINDGI_PACK_ENV_DECLARED`, which `kindgi build` now sets in the image from the pack's index. The service won't start while a variable the pack doesn't declare still reaches it, or when `KINDGI_PACK_ENV_DECLARED` isn't the index's `env`.
+  - **The skills** (tools and getting-started, every language) say so: an undeclared name works under `kindgi dev` and is unset once deployed, so declare every name the code reads.
+  - **The conformance suite** checks it for every pack service: an undeclared variable is absent in a tool, the declared ones and the platform's are there, and `off` keeps it.
+- 26882a9: Retired export keys: after the export signing key rotates, the old public keys can stay listed, so an export signed before still verifies with `kindgi exports verify --from-runtime`.
+  - **`@kindgi/crypto`:** `parseRetiredExportKeys(pemBundle)` reads one or more PEM public keys (Ed25519 or EC P-256), under the ids their signers use. A private key, another kind of block, an unreadable block or another kind of key is refused, naming the block's position. `withRetiredExportKeys(binding, keys)` lists them after the binding's own keys; the active key and `sign` stay the binding's, so a retired key never signs.
+  - **`@kindgi/env-schema`:** `KINDGI_EXPORT_SIGNING_RETIRED_PUBLIC_KEYS_PATH` (a file of PEM public keys) and `KINDGI_EXPORT_SIGNING_RETIRED_PUBLIC_KEYS` (its base64), at most one. The runtime reads them; `GET /v1/export-signing-keys` then lists the retired keys after the active one, with `active: false`. Its response shape doesn't change.
+- fdb86ae: Page cursors can be sealed. A list that hides rows the caller can't read after fetching them handed out its binding's cursor, a readable position that could name one of those rows (its id or time).
+  
+  - **What it does:** with `cursorSealer` (`createAeadCursorSealer`, AES-256-GCM), every list's cursors are sealed at the API's edge. A GET's sealed `cursor` opens to its position before any route reads it, and a JSON answer's `nextCursor` is sealed on its way out. A sealed cursor shows nothing of the row it points after.
+  - **Where it opens:** only for the tenant, caller, list and filters it was handed out for, within a day. Otherwise `400 bad-input`, and the client starts again without it. The page size may change mid-scan. A plain cursor still passes.
+  - **Keys:** each carries a `kid`. The first key seals and any listed key opens, so a key can rotate.
+  - **Approvals:** with sealed cursors, `GET /v1/approvals` continues after the last approval it fetched once the page holds every one of that window the caller may read. A window of approvals the caller can't read no longer ends the paging: the page is empty, with `hasMore` and a cursor.
+  - **Without a sealer:** cursors are the bindings' own, as before.
+  - **The runtime's key:** `@kindgi/env-schema` lists `KINDGI_PAGINATION_KEY(_PATH)` and `KINDGI_PAGINATION_PREVIOUS_KEY(_PATH)` (for `--help` and the environment reference). Without a key, a cursor from before a restart answers 400 after it, and more than one instance needs the key. Keep the previous key at least a day after rotating, and rotate yearly. A cursor sealed with a key the runtime doesn't have says so (`unknown-key`). A list's filters bind as `[name, value]` pairs.
+- 01958d4: The `secret-manager` secrets backend's settings: `KINDGI_SECRETS_MANAGER` (`azure`, `gcp` or `vault`; `aws` is read from runtime 0.1.7) picks your own secret manager, with `KINDGI_SECRETS_AZURE_VAULT_URL` (checked by `parseAzureVaultUrl`), `KINDGI_SECRETS_GCP_PROJECT_ID` (and, from runtime 0.1.7, `KINDGI_SECRETS_AWS_REGION`). `kindgi env init --secrets-backend=secret-manager --secrets-manager=<name>` writes them, and `--kms` is now for the `postgres` backend only. The secret-provider interface gains optional `providerVersion` fields, so Kindgi numbers secret versions itself whatever ids the provider uses.
+- fdb86ae: An operator can manage sign-in alone. With `identityProviderChanges: 'operator'` (the runtime's `KINDGI_AUTH_TENANT_PROVIDERS=off`), a tenant can't add, change or remove its identity providers. `POST /v1/auth/providers`, `PATCH /v1/auth/providers/{providerId}` and `POST …/unregister` answer `403 identity-providers-operator-managed`: "This deployment's operator manages sign-in (KINDGI_AUTH_TENANT_PROVIDERS=off): identity providers can't be added, changed or removed here, except with the deployment's own token (KINDGI_API_TOKEN)." The deployment's own token (the `kindgi:system` capability) still can. Reading them is the same, and the providers there keep signing people in. `GET /v1/auth/providers` says which it is: an optional `changes`, `tenant` or `operator` (absent from older servers: read it as `tenant`). The TypeScript and Python clients read the new code as forbidden. `KINDGI_AUTH_TENANT_PROVIDERS` is in the environment schema (`on` by default).
+- bbdccbb: An agent turn stops when its run is stopped. The runtime aborts a step's `abortSignal` when its run ends from outside: a cancel, or a shutdown that interrupts the runs it was executing. A turn's own work (its model call, its tool calls) listened only to the turn's abort, so a call in flight ran on until it answered.
+  
+  - **Now:** each step of a turn links the step's `abortSignal` to the turn's, so a call in flight is aborted at once, and the turn ends as aborted from outside (`agent-turn-aborted`, reason `external`).
+  - **A wall-clock timeout keeps its own reason** (`timeout`).
+  - **A cancelled turn's message stays plain:** `Agent turn cancelled`. The failure of the step its cancel aborted only restates the cancel, and is no longer appended as the turn's serialized failure. Any other words are kept.
+  - **No API change.**
+  - **`@kindgi/env-schema`** lists `KINDGI_RUN_ENDED_CHECK_MS`: how often a server stops the runs it executes that were ended from outside, so a step that writes nothing for a while, such as a long model call, stops within this time of a cancel. Default 5000 ms; at least 1000.
+
 ## 0.1.5
 
 ### Patch Changes

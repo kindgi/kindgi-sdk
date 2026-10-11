@@ -1,5 +1,101 @@
 # @kindgi/sdk
 
+## 0.1.6
+
+### Patch Changes
+
+- 9c999e0: `kindgi init` keeps a coding agent working in your project out of the files that hold keys and tokens: `.env*`, `.kindgi/secrets.env`, `.kindgi/dev/runtime.env`, and a self-hosted deployment's `kindgi.env` and `pack.env`. It merges `Read(...)` deny rules for them into `.claude/settings.json` (it never overwrites: missing rules are appended, and a file it can't read as JSON is left as it is, with what to add), and adds them to a `.cursorignore`, `.geminiignore` or `.aiderignore` the project already has. Claude Code reads the settings of the folder a session starts in, so when the pack sits below its git repository's root (a monorepo), `init` also merges the same rules, under the pack's path (`Read(./apps/agent/.env*)`, …), into the root's `.claude/settings.json`, creating it if there's none, and says so: an agent started at the repo root can't read the pack's keys either. A repository rooted at the home folder is left alone (its `.claude/settings.json` is Claude Code's user-wide settings), and `init` says what to add by hand. A settings file `init` can't read as JSON is a warning, never a failure, `--force` included. The getting-started skills tell the agent to keep its hands off those files and to list secrets by name with `kindgi secrets list`. "Your coding agent" in the docs shows the rules and the Claude Code sandbox settings that also keep the agent's shell commands out of them.
+- f0da210: **`kindgi dev` runs your pack's code sandboxed.** The tools' code, often written by a coding agent, runs as you; now it can't read your home folder (SSH keys, cloud credentials, registry tokens, other projects), the secret files in the app (`.env*`, `.kindgi`, `.git`, `kindgi.env`, `pack.env`, `.kindgirc.json`, `.npmrc`, `.pypirc`, `.netrc`), other tools' temp files, or the Docker socket and other UNIX sockets (on Linux, those under the home folder, `/tmp`, `/var/tmp` and `/run`). It can't write outside the app either (on macOS every other folder, where a program it replaced would run later outside the sandbox; on Linux the system is read-only), or write Kindgi's configuration (`kindgi.config.*`, `pyproject.toml`), which `kindgi dev` loads. On macOS the keychain, LaunchServices and Apple Events are closed; on Linux the code gets its own session, away from your terminal. It keeps the network, the app's own files, the runtime and the dependencies, and its own temp folder; a process it starts is inside too, and so is the indexer, which loads every module (and its top-level code) to list the pack.
+  
+  - **macOS:** Seatbelt (`sandbox-exec`). **Linux:** the system's bubblewrap (`bwrap`), which also hides other processes. Where neither can run (Linux without bwrap, Ubuntu 23.10+ without its AppArmor permission, a container, native Windows, or inside another sandbox), `kindgi dev` warns at start and runs your tools without it.
+  - **`KINDGI_DEV_SANDBOX`:** `on` (default), `off`, or `required` (stop rather than run without it). `dev.sandbox: false` turns it off for one project.
+  - **What runs is worked out at every start:** the runtime (Node, a Python interpreter's own paths, a JDK and the classpath), the links its paths go through (a uv-managed Python, SDKMAN's `current`), and a checkout's linked workspace packages; never a folder that holds the home folder.
+  - **With the sandbox on, `kindgi dev` starts only with one Kindgi configuration in the app**, so code can't add another by a name looked up first.
+  - **A path or a socket a tool needs:** `dev.sandbox.allowRead` and `dev.sandbox.allowUnixSockets` in the pack's config (`~/.aws` for the AWS SDK's credential chain, a local Postgres socket); `kindgi dev` names each at every start. A path that would open the whole home folder never is.
+  - **`kindgi doctor`** says whether `kindgi dev` can sandbox your tools here, and what would fix it.
+  - **The pack service supervisor** (`createPackServiceSupervisor`) takes `command` as a function called before every start, and a `cwd`.
+  - **The tools skills** tell an agent to open a path in `dev.sandbox.allowRead`, never to turn the sandbox off.
+- a2b2ae8: **Examples name current models.** The Java and Scala agent-authoring skills' `preferredModel` and `models.allow` examples use `claude-haiku-5-5` instead of `claude-haiku-4-5`, which Anthropic retires on or after 2026-10-15. The `preferredProvider`, `preferredModel` and `ModelInfo.name` docs give `anthropic` and `claude-sonnet-5-5` as their examples.
+- 307771f: Under `kindgi dev`, Kindgi keeps the secrets you store in its own file, `.kindgi/secrets.env`, instead of your app's `.env.local`. A framework like Next.js or Vite loads `.env.local` into every route of your app, so a model key stored there was readable by code that never needs it.
+  
+  - `kindgi secrets set … --env=local` writes `.kindgi/secrets.env`: owner-only, under the gitignored `.kindgi/`, read after your app's `.env` and `.env.local`, so its value wins. `--app` writes your app's env file instead, for a value both read, such as a webhook signing secret (`appEnvFile` on `POST /v1/secrets`; a runtime with a secrets store refuses it).
+  - `kindgi secrets copy [NAME…]` copies model providers' keys (or the names given) from your app's env files into `.kindgi/secrets.env`, merge-only and as written. It never edits or deletes anything in your app's files; it says, per key, that the key is still there and whether git tracks the file. `kindgi dev` gives a one-time hint when it uses a provider's key from a file your app loads.
+  - Under `kindgi dev`, the pack service's environment no longer holds a secret stored with `kindgi secrets` (a tool reads it from `ctx.secrets`, as in a deployment), nor any model provider's key, whichever env file holds it. `GET /v1/providers/{providerId}/check` carries the provider's `secretRef` by name, never its value, which is how `kindgi dev` knows the names.
+  - A command that can't read an env file says so instead of crashing: `kindgi doctor` reports the model-key check as skipped, `kindgi dev` names the file it can't read, and `kindgi providers register` asks the runtime instead.
+- 85ef97c: **A tool's secret can be optional.** A secret declared in `needsSpec.secrets` with a schema that accepts `null` (`{ type: ['string', 'null'] }`) is optional. When the env doesn't have it, or has it empty, it's left out of `ctx.secrets` and the call goes on, with the call's log line naming it. A value that is set is still checked against the schema. A revoked secret, one whose value is gone at its provider though it's still mapped, or a secrets backend that fails, still fails the call. The schema has to name `null`: an unconstrained `{}` stays required. This needs runtime 0.1.6 or later: an older runtime requires every declared secret, failing a call without one with `secret-unavailable`. The guide ("An optional secret"), the authoring skills for every pack language, and the TypeScript and Python context types say so.
+  
+  `SecretError`'s `secret-not-found` (`@kindgi/api`) gains an optional `reason`: `deleted-at-provider` when the secret is mapped but its provider has no value for it. Absent means it was never stored.
+- 5bdacf1: **Only the names a pack declares reach its code.** Before the pack's code loads, the pack service (TypeScript, Python, Java and Scala) drops from its environment every variable the pack doesn't declare in `env.required` or `env.optional`. A model key or a password in a self-hosted `--env-file`, meant for something else, no longer reaches a tool or a process a tool starts.
+  
+  - **What stays:** the declared names, `KINDGI_*`, and the platform's: the process's basics, the language runtime's settings, `PORT`, proxies and certificates, and Cloud Run's, AWS's and Azure's workload identity and metadata (`PLATFORM_ENV_NAMES`, `PLATFORM_ENV_PREFIXES`). Static credentials such as `AWS_SECRET_ACCESS_KEY` aren't the platform's: a pack that needs one declares it.
+  - **What it says:** one `warn` record at start, `env-dropped`, with the names it dropped, never their values. A Python image always names `GPG_KEY`, which its base image sets.
+  - **The opt-out:** `KINDGI_PACK_ENV_FILTER=off` keeps every variable, as before. `kindgi dev` sets it, since there the pack service gets the app's env files. Any value other than `on` or `off` is a `config-invalid` start.
+  - **Java and Scala:** a JVM can't drop a variable from its own environment, so the launcher (`kindgi-pack-java`) does, keeping the names in `KINDGI_PACK_ENV_DECLARED`, which `kindgi build` now sets in the image from the pack's index. The service won't start while a variable the pack doesn't declare still reaches it, or when `KINDGI_PACK_ENV_DECLARED` isn't the index's `env`.
+  - **The skills** (tools and getting-started, every language) say so: an undeclared name works under `kindgi dev` and is unset once deployed, so declare every name the code reads.
+  - **The conformance suite** checks it for every pack service: an undeclared variable is absent in a tool, the declared ones and the platform's are there, and `off` keeps it.
+- 8b60576: **A tool call's idempotency key.** A run's step can run more than once: resumed after an approval, retried after a failure, or run again when the runtime restarted while it ran. So a tool that changes something (a refund, an email, a payment) could do it twice, with no key to dedupe on. `ToolContext.idempotencyKey` is the same every time the same call runs, and different for every other call: pass it to the system you write to (an `Idempotency-Key` header, a client reference, a unique column), or look for it there first.
+  
+  - **What it is:** a version 5 UUID (RFC 9562) under a fixed namespace (`TOOL_IDEMPOTENCY_NAMESPACE`), over the run, the step and the tool, plus the model's call id for a call a model asked for (`toolIdempotencyKey`, `@kindgi/tools`). The pack protocol schema says how, so any runtime makes the same key.
+  - **The step:** `NodeContext.stepScope` names a step the same every time it runs (its node, a loop body's step with its iteration, a fanout branch). A model's call id alone isn't enough: it's only unique within one of its answers, so two turns of a loop can share one.
+  - **Every pack language:** the pack protocol's call context carries it (protocol 2.6.0; an older pack service ignores it). Python `ctx.idempotency_key`, Java and Scala `ctx.idempotencyKey()`. The conformance suite checks that each pack service hands it to the tool, and that a 0.1.1 service still answers a call carrying it.
+  - **Absent** outside a run, and from a runtime that can't name its steps (before 0.1.6): the call can't be deduped on it then.
+  - **The docs:** "Make a side effect happen once" in Write a tool, and the tools skills (every language). `requestId` is no longer described as an idempotency key.
+- fdb86ae: The API reference and the clients no longer offer event triggers and inbound webhooks, which the runtime doesn't serve: it fires schedules only, and `/v1/event-triggers` and `/v1/webhooks` answer 404. The OpenAPI document leaves those operations out, with the schemas only they used. The TypeScript client drops `eventTriggers` and `webhooks` (and their types), and the Python client their resources. A run's `trigger.kind` keeps `event` and `webhook`, now described as not served yet. To react to something outside, start a run with `POST /v1/runs`. The operations stay registered in `@kindgi/api`, marked `unserved`, so they come back when a runtime serves them. Outbound webhook endpoints (`/v1/webhook-endpoints`) are unchanged.
+- Updated dependencies [fdb86ae]
+- Updated dependencies [fdb86ae]
+- Updated dependencies [307771f]
+- Updated dependencies [fdb86ae]
+- Updated dependencies [540a3d3]
+- Updated dependencies [38f2feb]
+- Updated dependencies [f0da210]
+- Updated dependencies [a2b2ae8]
+- Updated dependencies [307771f]
+- Updated dependencies [307771f]
+- Updated dependencies [1703bab]
+- Updated dependencies [307771f]
+- Updated dependencies [307771f]
+- Updated dependencies [307771f]
+- Updated dependencies [fdb86ae]
+- Updated dependencies [bef2d8c]
+- Updated dependencies [fdb86ae]
+- Updated dependencies [85ef97c]
+- Updated dependencies [5bdacf1]
+- Updated dependencies [307771f]
+- Updated dependencies [307771f]
+- Updated dependencies [f0d6a12]
+- Updated dependencies [307771f]
+- Updated dependencies [edb2aba]
+- Updated dependencies [2a95199]
+- Updated dependencies [fdb86ae]
+- Updated dependencies [6a4715c]
+- Updated dependencies [fdb86ae]
+- Updated dependencies [fdb86ae]
+- Updated dependencies [26882a9]
+- Updated dependencies [307771f]
+- Updated dependencies [307771f]
+- Updated dependencies [307771f]
+- Updated dependencies [fdb86ae]
+- Updated dependencies [fdb86ae]
+- Updated dependencies [307771f]
+- Updated dependencies [307771f]
+- Updated dependencies [03151ca]
+- Updated dependencies [fdb86ae]
+- Updated dependencies [fdb86ae]
+- Updated dependencies [307771f]
+- Updated dependencies [8b60576]
+- Updated dependencies [bbdccbb]
+- Updated dependencies [fdb86ae]
+- Updated dependencies [307771f]
+  - @kindgi/client@0.1.6
+  - @kindgi/agents@0.1.6
+  - @kindgi/handler-runtime@0.1.6
+  - @kindgi/guardrails@0.1.6
+  - @kindgi/tools@0.1.6
+  - @kindgi/crypto@0.1.6
+  - @kindgi/schema@0.1.6
+  - @kindgi/flow@0.1.6
+  - @kindgi/types@0.1.6
+
 ## 0.1.5
 
 ### Patch Changes

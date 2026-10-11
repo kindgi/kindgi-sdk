@@ -1,5 +1,36 @@
 # @kindgi/compliance
 
+## 0.1.6
+
+### Patch Changes
+
+- a6ac2e9: Every secret and env write through the API is recorded in the audit log. Before, nothing was: a binding could emit these events only for one fixed tenant and project.
+  - **`/v1/secrets`:**
+    - a set → `secret-set` (`writeMode`, the new version, and `revokedValuesPurged: true` when the backend dropped a revoked secret's values to set it again);
+    - a rotation → `secret-rotated` (new and previous version), `secret-rotation-started` (asynchronous, with its `rotationId`) or `secret-rotation-failed`;
+    - a revoke → `secret-revoked` / `secret-hard-revoked` (with its `reason`).
+  - **`/v1/env`:** a set → `env-set` (its revision); a delete → `env-deleted`.
+  - **Each record:**
+    - `actor` is the caller (`user:…`, `service_account:…`, else the session, else `token:` and 16 hex of the credential's sha256);
+    - `correlationId` is the request;
+    - `projectId` is set for a project-scoped value;
+    - a refused write is recorded too, `failed`, with the code the client was answered.
+  - **Never a value,** nor anything derived from one.
+  - **Not recorded:** a revoke or delete that changed nothing.
+  - **Best effort:** a failing audit log never fails the write.
+  - **`emitLifecycleEvent`:** gains optional `actor`, `correlationId`, `writeMode`, `rotationId` and `revokedValuesPurged`, and `projectId` becomes optional.
+- eed55a1: A compliance classifier file can give a kind another kind's classification by naming it: `"secret-rotated": "secret-set"` in `byKind`, so related kinds share one policy and can't drift apart. `ComplianceClassifierSource` is the file as written; a loader resolves the names into a `ComplianceClassifierFile` (every kind with its own classification), and refuses a name that names another name, or a kind that isn't listed with a classification of its own (`default` included).
+- 6a4715c: The deprecated export-signing inputs are gone. **Breaking, for code that embeds `@kindgi/api`:**
+  - `CreateAppInput.signingKey` is removed: pass `exportSigning`, an `ExportSigningBinding` (`createEd25519ExportSigner` or `createExportSignerFromPem` from `@kindgi/crypto`, or a KMS-backed binding).
+  - `exportSignerFromSigningKeyBinding` (`@kindgi/crypto`) is removed with it.
+  - `ComplianceEvidenceGenerator.exportSigned` is removed. `@kindgi/api` builds and signs a compliance export itself, so nothing called it.
+  
+  The Kindgi runtime already passes `exportSigning`, and nothing changes for it or for the signed exports it serves.
+- Updated dependencies [307771f]
+  - @kindgi/platform@0.1.6
+  - @kindgi/audit-events@0.1.6
+  - @kindgi/types@0.1.6
+
 ## 0.1.5
 
 ### Patch Changes

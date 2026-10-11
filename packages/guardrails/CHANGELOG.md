@@ -1,5 +1,39 @@
 # @kindgi/guardrails
 
+## 0.1.6
+
+### Patch Changes
+
+- fdb86ae: **A guardrail that only names a built-in check is marked.** The CLI's indexer sets `checkBuiltIn: true` on a pack index guardrail whose check is a built-in's (`must-cite`, …), and a deployment keeps it on the guardrail (`Guardrail.checkBuiltIn`, in both specs). From runtime 0.1.6, a guardrail that names a built-in, comes with its pack's code, and lacks the mark gets one warning in the runtime's log each time the runtime loads it. Such a pack was built with a CLI from before 0.1.6. One built before 0.1.5 may also ship its own check under the built-in's id, which the built-in replaces. Nothing is refused, and the built-in still runs. Rebuilding with a current CLI silences the warning. An older runtime ignores the mark.
+  
+  `POST /v1/guardrails`' `guardrail-config-invalid` now says it covers the config of any check the guardrail names, a pack check's or a built-in's.
+- 307771f: Guardrail outcomes: what each guardrail's checks came to, passes included, counted on the server.
+  
+  - **The record:** an agent turn's guardrail gate records each check as `passed`, `violated` (the answer went through), `blocked` (a `halt` failed the turn) or `errored` (the check couldn't run). It records through `InvokeAgentBindings.guardrailOutcomes`, a `GuardrailOutcomeSink` from `@kindgi/guardrails`, before it acts on them, so a blocked turn is recorded too.
+    - **No content:** only ids, the action, the severity and an error's code. No answer, and no check's reason.
+    - **Not recorded:** replays and dry runs.
+    - **Strict:** a sink that throws fails the step with `persistence-error`, so the counts never silently miss a turn.
+    - **Without a sink,** nothing is recorded.
+  - **`categorizeOutcomes`** also answers `checks`, each guardrail's outcome in order.
+  - **`GET /v1/guardrails/{guardrailId}/outcomes`:** a guardrail's outcomes on a project's agent turns over a window. The answer has the `counts`, the same counts per agent version (`byAgentVersion`), the window's latest blocked turns (`recentBlocked`, run ids and times only) and `recordedSince`, the earliest outcome kept.
+    - **The query:** `projectId`, `from` and `to` are required, with a window of at most 90 days. `recent` is optional: 0 to 50, 10 by default.
+    - **Who:** it needs `read` on the guardrail and on the project.
+    - **Retention:** outcomes go with their run's retention, so a window can hold fewer than asked.
+  - **`GuardrailRegistryBinding.outcomes`** is optional. Without it, the route answers `501 guardrail-outcomes-not-supported`.
+  - **The clients:** TypeScript `guardrails.outcomes(id, query)`; Python `guardrails.outcomes(...)`.
+- 03151ca: **A union of types compiles.** A schema with `type: ['string', 'number', 'boolean', 'null']`, which is what Zod 4 writes for `z.union([z.string(), z.number(), z.boolean(), z.null()])`, used to be refused ("strict mode: use allowUnionTypes…"), while `.nullable()` compiled. It's standard JSON Schema, and every schema compiler now takes it: tool input and output, an agent's typed output, a guardrail check's config, flow and block schemas, and the pack service's validation. `ALLOW_UNION_TYPES` (`@kindgi/schema`) says so.
+  - A schema that strict mode still refuses (an open tuple, an unknown keyword) says how out: for a field that may hold any JSON value, `z.json()` (or `{}` in JSON Schema) compiles.
+  - The Java pack service validates a union of types too (its CHANGELOG). Python's always did.
+- Updated dependencies [a6ac2e9]
+- Updated dependencies [eed55a1]
+- Updated dependencies [a2b2ae8]
+- Updated dependencies [6a4715c]
+- Updated dependencies [03151ca]
+  - @kindgi/compliance@0.1.6
+  - @kindgi/capabilities@0.1.6
+  - @kindgi/schema@0.1.6
+  - @kindgi/types@0.1.6
+
 ## 0.1.5
 
 ### Patch Changes

@@ -1,5 +1,16 @@
 # @kindgi/capabilities
 
+## 0.1.6
+
+### Patch Changes
+
+- a2b2ae8: **Examples name current models.** The Java and Scala agent-authoring skills' `preferredModel` and `models.allow` examples use `claude-haiku-5-5` instead of `claude-haiku-4-5`, which Anthropic retires on or after 2026-10-15. The `preferredProvider`, `preferredModel` and `ModelInfo.name` docs give `anthropic` and `claude-sonnet-5-5` as their examples.
+- Updated dependencies [03151ca]
+- Updated dependencies [307771f]
+  - @kindgi/schema@0.1.6
+  - @kindgi/platform@0.1.6
+  - @kindgi/types@0.1.6
+
 ## 0.1.5
 
 ### Patch Changes

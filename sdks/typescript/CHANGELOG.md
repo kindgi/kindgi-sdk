@@ -1,5 +1,185 @@
 # @kindgi/client
 
+## 0.1.6
+
+### Patch Changes
+
+- fdb86ae: Reviewers can be told when an approval waits for them.
+  
+  - **`approval.requested` webhook event:** an endpoint can subscribe to it like `run.finished`.
+    - **When:** sent each time an approval starts waiting (an escalation opens a new one).
+    - **What:** `data.approval` carries `approvalId`, `projectId`, `requiredRole`, `title`, `assignedTo`, `createdAt`, `expiresAt` and `url`. Never what the approval is about: no `context`, tool call or run input.
+    - **Filter:** the endpoint's `projectId` narrows it to the approval's project.
+  - **`KINDGI_REVIEWER_EMAIL`** (off by default): `on` emails reviewers through the emailed sign-in link's server.
+    - **Who:** the people the approvals list would show the approval to, only those who may read its project.
+    - **How often:** the first email goes at once, then a five-minute digest.
+    - **What:** title, project, required role and a link only.
+    - **Without the server:** turned on without `KINDGI_AUTH_EMAIL_SMTP_URL` and `KINDGI_AUTH_EMAIL_FROM`, the runtime refuses to start.
+  - **Clients:** the TypeScript and Python clients type the new event. The Python client's `parse_event` reads it.
+- fdb86ae: An approval and the run waiting on it end together.
+  - **A reviewer's withdraw ends the run:** on a gate approval it cancels the run's waitpoint, and the turn fails with `hitl-withdrawn` ("The approval for … was withdrawn"), right away instead of at the approval's deadline. Every `hitl-*` failure is a person's outcome, not an error.
+  - **A run's end withdraws its open approvals:** they show `withdrawnBecause` (`run-cancelled` or `run-ended`).
+  - **A decision on an approval whose run has ended is refused before anything is recorded:** `409 run-already-terminal`, with the ended run's `runId` and `status` in `details`. A decision recorded just before the run ended stands: the answer has `waitpointResolved: false` and the run's `runStatus`.
+  - **Approvals carry `requestedBy`, `separateApprover`, `escalatedFrom` and `escalatedTo`.** `identity.whoami` returns the caller's `actor` in the same form as `requestedBy`.
+  - **The approvals list takes `runId`, and `includeDescendants`** for the runs inside it.
+- 307771f: **A reviewer's inbox in one read.** `GET /v1/approvals` takes:
+  - `status` with several values, repeated or comma-separated (`status=pending,assigned,in_review`), as `GET /v1/runs` does. One status works as before; an unknown one is `400 bad-input`.
+  - `assignedTo=me`: only the approvals assigned to the caller's own reviewer row (none when it has no row).
+  - `order=asc`: oldest first. The page's `nextCursor` continues its own order, and a cursor can't continue the other order (`400 bad-input`). The page says which order it's in (`order`); a runtime before 0.1.6 leaves it out and lists newest first.
+  
+  `HitlBinding.listApprovals` takes optional `statuses`, `assignedTo` and `order`, and says the order it applied (`order` on its result). The route keeps a page right from a binding that ignores the filters. The client takes `status` as one or a list, `assignedTo: 'me'` and `order`, and returns the page's `order`. The Python client takes one value or a list for every repeated query parameter. The CLI adds `kindgi approvals list --status=<a,b> --assigned-to=me --order=asc`.
+- 38f2feb: **Docs links name their release line.**
+  - `kindgi sso providers start` now prints its "Step by step" guide at `https://docs.kindgi.com/v0.1/guides/sso/<guide>/`, not the docs' root. The root moves on to the next release line's docs, and during a release candidate it still shows the last release's. The skills `kindgi init` installs already link this way.
+  - **`@kindgi/client`:** the new `docsUrl(path, version?)` builds `docs.kindgi.com/v<major>.<minor>/<path>` for a Kindgi version, or the root without one. It has no dependencies, and `@kindgi/client/sso-handoff` re-exports it.
+  - **`identityProviderHandoff(urls, preset?, { version })`:** the handoff takes the version whose docs its `guideUrl` names. The CLI passes its own, and a console can pass the runtime's. Without a version the link is the root, as before.
+  - `SSO_GUIDES` is gone; `docsUrl` replaces it.
+  - `check:refs` now fails a root docs link in anything a package or SDK ships from its `src/`, as it already did for skills.
+- 307771f: **A retired flow can be found and brought back.** `GET /v1/flows/{id}/versions?includeTombstoned=true` lists a flow's unregistered versions too, each with `unregisteredAt`, as tools and policies already do. It answers for a retired flow (every version unregistered) instead of `404`; only a never-registered id is `404`. `GET /v1/flows?includeRetired=true` lists retired flows too, each as its highest version with `unregisteredAt`. Both are off by default.
+  - `FlowListVersionsInput.includeTombstoned` and `FlowListInput.includeRetired` are optional; a registry that ignores them lists active versions and flows as before.
+  - The client: `flows.list({ includeRetired })` and `flows.versions.list(id, { includeTombstoned })`, rows typed `FlowVersionRow` (a `Flow` with `unregisteredAt`).
+  - The CLI: `kindgi flows list --include-retired` and `kindgi flows versions <id> --include-unregistered`; tables show `UNREGISTERED`.
+- 307771f: Guardrail outcomes: what each guardrail's checks came to, passes included, counted on the server.
+  
+  - **The record:** an agent turn's guardrail gate records each check as `passed`, `violated` (the answer went through), `blocked` (a `halt` failed the turn) or `errored` (the check couldn't run). It records through `InvokeAgentBindings.guardrailOutcomes`, a `GuardrailOutcomeSink` from `@kindgi/guardrails`, before it acts on them, so a blocked turn is recorded too.
+    - **No content:** only ids, the action, the severity and an error's code. No answer, and no check's reason.
+    - **Not recorded:** replays and dry runs.
+    - **Strict:** a sink that throws fails the step with `persistence-error`, so the counts never silently miss a turn.
+    - **Without a sink,** nothing is recorded.
+  - **`categorizeOutcomes`** also answers `checks`, each guardrail's outcome in order.
+  - **`GET /v1/guardrails/{guardrailId}/outcomes`:** a guardrail's outcomes on a project's agent turns over a window. The answer has the `counts`, the same counts per agent version (`byAgentVersion`), the window's latest blocked turns (`recentBlocked`, run ids and times only) and `recordedSince`, the earliest outcome kept.
+    - **The query:** `projectId`, `from` and `to` are required, with a window of at most 90 days. `recent` is optional: 0 to 50, 10 by default.
+    - **Who:** it needs `read` on the guardrail and on the project.
+    - **Retention:** outcomes go with their run's retention, so a window can hold fewer than asked.
+  - **`GuardrailRegistryBinding.outcomes`** is optional. Without it, the route answers `501 guardrail-outcomes-not-supported`.
+  - **The clients:** TypeScript `guardrails.outcomes(id, query)`; Python `guardrails.outcomes(...)`.
+- 307771f: A judge class's `assertableBy.principalIds` (the people and tokens it's restricted to) goes only to an admin on the class's scope. Any other reader of `GET /v1/judge-classes` and `GET /v1/judge-classes/{judgeClassId}` gets the class without it, and every reader gets the new `assertableBy.principalCount`: how many it names. The response's `assertableBy` is the new `JudgeClassAssertableByView` (TypeScript: `JudgeClassAssertableByView`); request bodies keep `JudgeClassAssertableBy`.
+- 307771f: A project's **judging rules** say which of its runs need a person's judgment, and the runs they match as they end wait in the project's **judging queue**: `client.projects.judgingRules` and `client.projects.judgingQueue` (Python: `projects.judging_rules`, `projects.judging_queue`).
+  - **A rule** matches by agent or flow, version (`live` included) and dry runs, and queues a `sample` of those runs, at most `maxOpen` waiting at once. `judgeClassId` says whose judgment it wants. Only completed runs can be judged, so `when.status` takes `completed` only for now (`failed` and `cancelled` are refused with 400).
+    - **Versions:** each change is a new version, and `versions` lists who changed what.
+    - **Preview:** `preview` answers how many of the last 100 runs a rule would have queued.
+    - **Results:** `results` groups by the rule's version and the agent's version. Each group has the runs queued and the ones `maxOpen` skipped (`skippedByCap`), plus the weighted `yes` share of their judgments and a count by class.
+  - **The queue** lists runs oldest first, without their content. It filters by state, agent, rule, judge class, `forMe` and time; `limit=0` answers only the `total`.
+    - Each item names the rules that queued it, at the version that did, and its `can` says what the caller may do.
+    - An item closes as `judged` once each of its rules has the judgment it wants.
+    - `dismiss` and `reopen` take a run out and put it back.
+  
+  Reading takes project `read`; changing rules, dismissing and reopening take project `write`, as judging does. A rule only lists runs: it never runs a model.
+- 307771f: Under `kindgi dev`, Kindgi keeps the secrets you store in its own file, `.kindgi/secrets.env`, instead of your app's `.env.local`. A framework like Next.js or Vite loads `.env.local` into every route of your app, so a model key stored there was readable by code that never needs it.
+  
+  - `kindgi secrets set … --env=local` writes `.kindgi/secrets.env`: owner-only, under the gitignored `.kindgi/`, read after your app's `.env` and `.env.local`, so its value wins. `--app` writes your app's env file instead, for a value both read, such as a webhook signing secret (`appEnvFile` on `POST /v1/secrets`; a runtime with a secrets store refuses it).
+  - `kindgi secrets copy [NAME…]` copies model providers' keys (or the names given) from your app's env files into `.kindgi/secrets.env`, merge-only and as written. It never edits or deletes anything in your app's files; it says, per key, that the key is still there and whether git tracks the file. `kindgi dev` gives a one-time hint when it uses a provider's key from a file your app loads.
+  - Under `kindgi dev`, the pack service's environment no longer holds a secret stored with `kindgi secrets` (a tool reads it from `ctx.secrets`, as in a deployment), nor any model provider's key, whichever env file holds it. `GET /v1/providers/{providerId}/check` carries the provider's `secretRef` by name, never its value, which is how `kindgi dev` knows the names.
+  - A command that can't read an env file says so instead of crashing: `kindgi doctor` reports the model-key check as skipped, `kindgi dev` names the file it can't read, and `kindgi providers register` asks the runtime instead.
+- fdb86ae: What the caller may do, in one call, so a client can hide what the caller can't do instead of offering it and answering 403. It's optional for a runtime: without a `MyAccessBinding` the route answers `501 permissions-unsupported`, and a client reads whoami's `tenantAdmin` and `reviewerRole` instead.
+  
+  **`GET /v1/identity/me/permissions`** answers for the caller as authenticated:
+  - **`tenant`:** `{admin, member?}`. `admin` is decided as the admin routes decide it.
+  - **`reviewer`:** `{role, id?, decides, canDecide}`, when the caller is a reviewer.
+    - `id`: its reviewer id, its row on the roster, which an approval assigned to it names in `assignedTo`.
+    - `decides`: the required roles it may decide, its own rank and below.
+    - `canDecide`: false when its token has a reviewer role but no user or roster row (and then there's no `id`).
+  - **`key`:** `{tokenId, role?, projectId?}`, when the caller is an API key.
+  - **`tokenCapabilities`:** the capabilities the token carries, which secret, env and signing-key writes need. A sign-in session carries none; an API key carries those it was minted with (none by default).
+  - **`projects`:** the projects the caller may read, by name. Each has its effective `role` (`owner` > `admin` > `editor` > `viewer`) and `via`, every way it holds one:
+    - `direct` or `team`, with `since` when the runtime keeps it;
+    - `org-admin`;
+    - `tenant-admin`.
+  - **`orgs` and `teams`:** the caller's own, with its role in each.
+  - **`capabilities`:** what each project role allows on the project and each object type in it, from the runtime's authorization model. A client decides an action as `capabilities[project.role][type]` holding it.
+  - **`readOnlyNotice`:** the line a console shows someone who may only view a project, when a tenant admin set one. It's in the tenant config, `kind: 'config'`, key `console.readOnlyNotice`, plain text on one line, at most 280 characters.
+  
+  **The key's limits are applied:**
+  - a `member` key is never tenant admin;
+  - a key limited to a project sees that project alone, and administers no org or team.
+  
+  **Only what the caller may see:** no project it can't read, nobody else's role. The server still checks every call. `503 authz-backend-unavailable` when the authorization store can't be read.
+  
+  **Clients:**
+  - **TypeScript:** `client.identity.me.permissions()`, typed `MyPermissions`.
+  - **Python:** `client.identity.me.permissions()`, with the `MyPermissions` models.
+- fdb86ae: Paging `GET /v1/observations` no longer skips observations recorded at the same instant as a page's last one. The next cursor was that observation's bare time, with no tie-breaker; it now carries its position (the time as stored, and its id), when the deployment gives it. A bare-time cursor a client already holds still answers as before. The binding gains `SupervisorObservationPage.next` and `SupervisorQueryObservationsInput.after` (both optional; without them the route pages as before). A cursor that is neither a position nor a time, or a position whose id isn't an id, is `400 bad-input`. The cursor descriptions of the observations and approvals pages no longer say it's a timestamp: it's opaque.
+  
+  `GET /v1/blocks/{blockId}/versions` and `GET /v1/tools/{toolId}/versions` check their cursor too: one that isn't a versions cursor the registry issues (the forms documented on `BlockListVersionsInput.cursor` and `ToolListVersionsInput.cursor`) is `400 bad-input`, instead of starting over from the first page.
+- 307771f: Who has access to a project, and how: `GET /v1/projects/{projectId}/access` lists everyone the authorization store lets in, people and service accounts, each with their effective role (the highest any way in gives) and every way in. The ways in are:
+  - `direct`, the principal's own role, with `joinedAt` when a membership stands behind it;
+  - `team`, a team's grant;
+  - `org-admin`, an admin of the project's org;
+  - `tenant-admin`.
+  
+  Reading it takes `write` on the project (its editors and admins), and emails show to its admins only. It's ordered by role (owner first), then by name, and paged by a cursor. A runtime without an authorization store answers `501 project-access-unsupported`. In TypeScript, `projects.access.list`; in Python, `projects.access.list`. The new optional `ProjectAccessBinding` is what a runtime implements.
+- 307771f: A project role to give is `owner`, `admin`, `editor` or `viewer`. `member`, an undocumented older name for `viewer`, is refused: adding or changing a project membership, or giving a service account a project role, with `member` is a `400 bad-input` that says to use `viewer`. A role given as `member` before still reads back as `member`, granting what `viewer` does. In the TypeScript client, writes take `AssignableProjectRoleValue` (memberships) and `ServiceAccountGrantInput` (service accounts); the Python client's request models take the four roles. `kindgi service-accounts` lists the four.
+- f0d6a12: Reinstating a retired tool version that declares or sends a model provider's key is refused too: `POST /v1/tools/{toolId}/versions/{version}/reinstate` answers `400 provider-key-refused`, and the version stays retired. Both clients now classify `provider-key-refused` as an invalid request and `provider-key-in-use` as a conflict, and the TypeScript client's `InvalidRequestError` carries the server's details besides `issues` as `fields` (for `provider-key-refused`: `secret` and `providerId`).
+- edb2aba: The Python client's `Kindgi()` and `AsyncKindgi()` find their settings (`KINDGI_API_URL`, `KINDGI_API_TOKEN`, or the running `kindgi dev`) when they're first used, not when they're created, as the TypeScript client does. A module-scope `kindgi = Kindgi()` no longer breaks a build step that imports the app without them, such as Django's `collectstatic` or a Docker build running `manage.py`. When they're still missing, the first request (or reading `base_url` / `token`) raises the same `ValueError`, naming what to set. Once they're set, the next use works, and the found settings are kept.
+- 2a95199: **The Python client reads `secrets.rotate`'s 202 as an async rotation.**
+  - **The bug:** every answer was validated against the sync model, so an async provider's `202 { kind: "async", rotationId, statusUrl, eventsUrl }` raised `invalid-response`.
+  - **The fix:** the client picks the model by status, as the Java client does: `201` → `SecretRotateResponseSync`, `202` → `SecretRotateResponseAsync`.
+  - **The method returns their union.** Tell them apart by `answer.kind == "async"` or `isinstance`; pyright and mypy narrow on either.
+  - **The generator** does this for any operation whose 2xx answers carry different models. `secrets.rotate` is the only one today.
+- fdb86ae: **Breaking:** the API's own OAuth sign-in flow is removed. Sign-in runs in the deployment (the runtime's browser flow), which reads the identity-provider catalog. The flow in this package was never mounted there, and its in-memory state store broke across instances.
+  - **Routes removed:** `POST /v1/auth/login/{providerId}` and `POST /v1/auth/callback/{providerId}` now answer 404.
+  - **`createApp` inputs removed:** `exchangeCode` and `oauthStateStore`.
+  - **Types removed:**
+    - `ExchangeCodeFn`, `ExchangeCodeInput`, `OAuth2ProviderConfig`;
+    - `OauthStateStore`, `OauthStateEntry`, `OauthStateTakeInput`, `createInMemoryOauthStateStore`;
+    - the OpenAPI schemas `LoginBody`, `AuthorizationResponse`, `CallbackBody`, `CallbackResult` and `OAuth2IdentityProviderConfig`.
+  - **Clients:** TypeScript `client.auth.login` and `client.auth.callback` are removed, with `LoginInput`, `LoginResult`, `CallbackInput` and `CallbackResultShape`. Python's `auth.login` and `auth.callback` are removed too.
+  - **The `oauth2` identity-provider kind is removed:** `IdentityProviderKind` is now `oidc | saml`.
+    - Registering an `oauth2` provider answers `422 identity-provider-invalid`, as a deployment already refused it.
+    - One stored before still lists, with its common fields.
+    - `GET /v1/auth/providers/{providerId}/sign-in?kind=oauth2` is now `400 bad-input`.
+  - **OIDC `allowedRedirectUris` is removed:** only the removed login route enforced it.
+    - Sending it is `400 invalid-provider-config`.
+    - A provider stored with it still loads, lists and signs people in; the field is left out of what it returns.
+  - **Unchanged:**
+    - the provider catalog;
+    - `POST /v1/auth/refresh` (`refreshToken` still rotates a provider refresh token a session holds);
+    - `POST /v1/auth/logout`;
+    - token sign-in.
+- fdb86ae: A comparison can now be rescored after people judge its new answers. A changed free-text answer is a new item that no test-set judgment covers, so a comparison had no evidence for it, and a proposal changing a reply ended `not-better`.
+  - **Judge the new answers:** a comparison's `perCase[].changes.new` lists each changed item with its replay run (`runIds`). Judge it on that replay, as you'd judge any run. The console's Judge buttons do the same.
+  - **Rescore:** `POST /v1/eval-runs/{runId}/rescore` (`kindgi eval-runs rescore <run-id> [--wait]`, client `evalRuns.rescore`) starts a new comparison that replays nothing. It scores the run's replays again, counting the judgments recorded on them since, with the comparison's class weights. The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`).
+  - **What the evidence says:** a score's `fresh` sums, a new item's `judged`, and a metric's `freshWeight` say how much came from judging the replays. A case whose replays can't be read again keeps its scores (`rescored: false`, `summary.notRescored`).
+  - **Refusals:** a runtime that can't read replays and their judgments again answers `400 dispatcher-input-invalid`. A run that isn't a completed comparison of a test set is `409 eval-run-not-rescorable`.
+  - **Bindings:** `EvalRunStartInput.suiteVersion` (optional) pins the suite version a run uses. `EvalRun.projectId` (optional) names the run's project. `createJudgedDispatcher` takes optional `evalRuns`, `runs` and `judgments` readers for rescores.
+- fdb86ae: A proposal can be rescored. After people judge its comparison's new answers on the replay runs, `POST /v1/proposals/{proposalId}/rescore` rescores the proposal's latest evaluation, as `POST /v1/eval-runs/{runId}/rescore` does. The CLI is `kindgi proposals evaluate <proposal-id> --rescore [--wait]`, and the client is `proposals.rescore`.
+  - **What it does:** the new run scores the same replays again, with the same test set version and settings, and replays nothing. It becomes the proposal's evaluation, so the proposal is `evaluating`, then `evaluated` or `not-better` as the rescore says. The run rescored stays as it was.
+  - **Rules:** it needs `publish` on the agent, as evaluating does, and takes no body fields. It's allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`. A latest evaluation that isn't a completed comparison is `409 eval-run-not-rescorable`. With `--rescore`, the CLI refuses the comparison flags.
+- 307771f: **A retired agent, tool or test set can be found and brought back, as a flow can; and an eval run says which project it's in.**
+  - `GET /v1/agents/{id}/versions` and `GET /v1/eval-suites/{id}/versions` take `?includeTombstoned=true`, listing unregistered versions too, each with `unregisteredAt` (tools' versions already did). They answer for a retired one (every version unregistered) instead of `404`; only a never-registered id is `404`.
+  - `GET /v1/agents`, `/v1/tools` and `/v1/eval-suites` take `?includeRetired=true`, listing retired ones too, each as its highest version with `unregisteredAt`. `Tool` and `EvalSuite` gain an optional `unregisteredAt` for it. Both flags are off by default, and optional on the bindings (`AgentListInput`, `ToolListInput`, `EvalSuiteListInput`: `includeRetired`; `AgentListVersionsInput`, `EvalSuiteListVersionsInput`: `includeTombstoned`).
+  - `EvalRun` gains an optional `projectId`: the project the run was started in.
+  - The client: `includeRetired` on `agents.list`, `tools.list` and `evalSuites.list`; `includeTombstoned` on `agents.versions.list` and `evalSuites.versions.list`. `tools.list` rows are typed `ToolVersionRow`.
+  - The CLI: `--include-retired` on `agents list`, `tools list` and `eval-suites list`; `--include-unregistered` on `agents versions`. **`kindgi tools versions --include-tombstoned` is now `--include-unregistered`**, as `blocks` and `flows` say. The agents table shows `UNREGISTERED`.
+- 307771f: `GET /v1/runs/failures`: a project's failed runs over a window, grouped by cause and version, from the server's counts. A console can show error groups and which version started failing without counting the pages it loaded.
+  
+  - **Each group:** the failure's `code`, the agent or flow (`subject`), the `version`, how many runs failed, when the first and the latest failed in the window (`firstSeen`, `lastSeen`), and the latest run (`exampleRunId`).
+  - **People's decisions come apart:** `hitl-*` codes (an approval rejected, cancelled or timed out), with their `reason`, are `outcomes`, never failures.
+  - **Runs that failed before their cause was recorded** come back as `unrecorded`, by subject and version only.
+  - **The query:** `projectId`, `from` and `to` are required, with a window of at most 90 days. Optionally `agentId` or `flowId` (not both), `groupBy` (`code`, `version`, or both, the default) and `limit` (1 to 200, 50 by default). It needs `read` on the project.
+  - **Not counted:** replays, eval runs' runs and dry runs. A child run counts under its own agent or flow.
+  - **`RunBinding.failureGroups`** is optional. Without it, the route answers `501 run-failures-not-supported`.
+  - **The clients:** TypeScript `runs.failures(query)`; Python `runs.failures(...)`.
+- 307771f: A failed run's `failure` carries the error's own `reason` when it gives one, e.g. `reason: "timeout"` on a turn whose approval nobody decided in time (`hitl-cancelled`), so a caller no longer reads it from the message. It's optional: a runtime from before this release doesn't send it.
+- fdb86ae: `run.finished` names the agent of an agent's run: `data.run.agent` (`id`, `version`, `conversationId`), as `GET /v1/runs/{runId}` shows it, since an agent run's `flowId` is `agent.turn`. It's optional, absent on a flow's run and from a runtime that doesn't send it yet; the Python `FinishedRun` model has it as `agent: RunAgent | None`. `kindgi runs list --table` shows an agent run by its agent (`acme.desk@1.2.0`) in a `FLOW / AGENT` column, and the flow otherwise.
+- fdb86ae: A suspended run says what it's waiting for: `GET /v1/runs/{runId}` has `waitingFor` (`approvals`, `other`). An approval shows its identity and state (`approvalId`, `status`, `requiredRole`, `title`, `createdAt`, `expiresAt`, `subjectKind`) and, for a tool call held for review, `tool: { id, version, callId }`; never the call's arguments or the approval's description, context or decision, which stay on the approval. `other` names child runs, decided approvals and waits no approval is linked to. It's optional (absent from an older runtime, and on the list). `kindgi runs resume` uses it when present, names the held call, and otherwise works the answer out as before.
+- 307771f: `GET /v1/runs` (`runs.list`) narrows by more: `status` (one or several, repeated or comma-separated), `createdAfter` and `createdBefore` (strict), `agentVersion` (with `agentId`), and `flowId` with `flowVersion` (with `flowId`). An unknown status, a bad time, an empty value, or a version without its id is a `400 bad-input`. Both clients take `status` as one status or a list. An unfiltered tenant-wide page is also much faster on a large deployment.
+- 307771f: **A project's schedules in one read, their owners named.** `GET /v1/schedules?projectId=` lists one project's schedules (a project id that isn't one is `400 bad-input`). `ListTriggersInput.projectId` is optional: the registry narrows, and the route keeps a page right from one that doesn't. Each schedule's `owner` gains an optional `displayName`, the owner's name at the time of the response: the person's display name from the directory, or the service account's name. It's absent when it can't be read (no directory, a removed account), and the id stands. The schedules router takes the directory and service-account bindings for it, and reads each owner once per response. The in-memory trigger registry narrows by project too. The client takes `projectId` on `schedules.list`; the CLI adds `kindgi schedules list --project=<id>` and an `OWNER` column.
+- fdb86ae: The message for IT that `kindgi sso providers start` prints is now `@kindgi/client/sso-handoff`. It's a new entry with no dependencies, so a browser app (the console) can show the same text. `identityProviderHandoff(urls, preset?)` returns the message, the identity provider's steps and the guide's URL. `IDENTITY_PROVIDER_PRESETS` lists Google Workspace, Microsoft Entra ID, Okta and Keycloak, with the steps in each one's console. The CLI's output doesn't change: snapshot tests of `start` for each provider check it byte for byte.
+- fdb86ae: An operator can manage sign-in alone. With `identityProviderChanges: 'operator'` (the runtime's `KINDGI_AUTH_TENANT_PROVIDERS=off`), a tenant can't add, change or remove its identity providers. `POST /v1/auth/providers`, `PATCH /v1/auth/providers/{providerId}` and `POST …/unregister` answer `403 identity-providers-operator-managed`: "This deployment's operator manages sign-in (KINDGI_AUTH_TENANT_PROVIDERS=off): identity providers can't be added, changed or removed here, except with the deployment's own token (KINDGI_API_TOKEN)." The deployment's own token (the `kindgi:system` capability) still can. Reading them is the same, and the providers there keep signing people in. `GET /v1/auth/providers` says which it is: an optional `changes`, `tenant` or `operator` (absent from older servers: read it as `tenant`). The TypeScript and Python clients read the new code as forbidden. `KINDGI_AUTH_TENANT_PROVIDERS` is in the environment schema (`on` by default).
+- 307771f: A team can have a role on a project. `POST /v1/projects/{projectId}/team-grants` gives one (`viewer`, `editor` or `admin`; a team never owns a project), and every member of the team then holds it there. Giving it takes `admin` on the project and `read` on the team. Adding a role the team already holds answers `201` with the existing grant; another is `409 team-grant-exists` (`details.role`). `PATCH` and `DELETE …/team-grants/{teamId}` change and remove it. `GET …/team-grants` lists a project's, and `GET /v1/teams/{teamId}/project-grants` a team's; each grant names its team and project. In TypeScript, `projects.teamGrants` and `teams.projectGrants`; in Python, `projects.team_grants` and `teams.project_grants`.
+  
+  Who sees who has access: listing a project's members or team grants takes `write` on the project (its editors and admins), so a viewer no longer sees who else works there. Listing a team's members or its projects takes `admin` on the team. Everyone reads their own roles through their grants.
+  
+  Re-adding a project or team member with another role is `409 membership-exists`, naming the role they hold (`details.role`), which is kept. The same role answers `201` as before. With authorization on, deleting a team takes its tuples with it (its members' roles and its project grants).
+  
+  `@kindgi/platform`:
+  - `TeamProjectRole` is new.
+  - The membership add outcomes and the hierarchy's add errors gain `membership-exists`.
+  - `TeamProjectGrant` gains `grantedAt`, and its binding an optional `get`.
+  - `TenantHierarchyBinding` gains optional `addTeamProjectGrant`, `updateTeamProjectGrantRole`, `removeTeamProjectGrant` and `deleteTeam`.
+- fdb86ae: The API reference and the clients no longer offer event triggers and inbound webhooks, which the runtime doesn't serve: it fires schedules only, and `/v1/event-triggers` and `/v1/webhooks` answer 404. The OpenAPI document leaves those operations out, with the schemas only they used. The TypeScript client drops `eventTriggers` and `webhooks` (and their types), and the Python client their resources. A run's `trigger.kind` keeps `event` and `webhook`, now described as not served yet. To react to something outside, start a run with `POST /v1/runs`. The operations stay registered in `@kindgi/api`, marked `unserved`, so they come back when a runtime serves them. Outbound webhook endpoints (`/v1/webhook-endpoints`) are unchanged.
+- 307771f: The people list (`GET /v1/identity/users`) takes `include=grants`: each person carries `grants`, the same shape as `GET /v1/identity/users/{userId}/grants`, in one read instead of one per person. In TypeScript, `users.list({ includeGrants: true })` (and `identity.users.list`); in Python, `identity.users.list(include="grants")`. A runtime that doesn't read grants (no authorization store) lists the people without them. An unknown `include` value is a `400 bad-input`. The person-grants binding gains an optional `readMany`, so a runtime can read a page of people's grants in one call; without it, the route reads each person, a few at a time.
+
 ## 0.1.5
 
 ### Patch Changes
