@@ -459,15 +459,18 @@ What to check before you upgrade, and what's different after:
     approval a run asked for without waiting on it, such as a memory fact's
     review, stays pending.
   - Deciding one whose run has ended answers `409 run-already-terminal`.
-  - **After the upgrade,** gate approvals still pending from runs that had
-    already ended are withdrawn the same way, by a pass about once a minute
+  - **After the upgrade,** gate approvals still open (pending, assigned or in
+    review) from runs that had already ended or been purged are withdrawn the
+    same way, by a pass about once a minute
     per tenant, up to 500 runs each time (in a test, 40 seconds after the
     first start). They leave the reviewer queues with a system actor in the
     audit (`hitl-decision`, `via: run-end`). Deciding one then answers
-    `409 approval-terminal`:
+    `409 approval-terminal`, for a cancelled run and for one that ended
+    otherwise:
 
     ```text
     Approval … was withdrawn: its run was cancelled
+    Approval … was withdrawn: its run ended
     ```
 
     A memory fact's review left open from before stays pending, and can
@@ -484,8 +487,6 @@ What to check before you upgrade, and what's different after:
   the caller ([The access audit](../authorization/#the-access-audit)).
   Every secret and env write through the API is in the audit log too,
   never with a value.
-- **Every `/v1` answer says `Cache-Control: no-store`,** so no browser or
-  proxy keeps one tenant's data.
 - **A turn stops when its run is stopped:** a model or tool call in flight
   is aborted at once on a cancel or a shutdown. A step that writes nothing
   for a while, such as a long model call, stops within
@@ -515,8 +516,8 @@ What to check before you upgrade, and what's different after:
   the one you choose (also in ⌘K). Its links no longer point at an address
   without the tenant while a page loads.
 - **Every `/v1` answer says `Cache-Control: no-store`,** errors included, so
-  a proxy or a browser no longer shows a kept one again: a `410` for a flow
-  since reinstated no longer outlives a reload
+  no proxy or browser keeps one tenant's data or shows a kept answer again: a
+  `410` for a flow since reinstated no longer outlives a reload
   ([Behind a load balancer or ingress](../self-host/#behind-a-load-balancer-or-ingress)).
 - **⌘K and the breadcrumbs reach every project section;** choosing Cost or
   Schedules there used to do nothing.
@@ -622,7 +623,9 @@ What to check before you upgrade, and what's different after:
 - **An MCP server's tool whose name contains `__` can't be called.** Kindgi
   names it `<endpoint id>.<tool name>`, and every model adapter turns each
   `.` into `__` for the model and back again on the way in. So a name with a
-  `__` of its own comes back wrong, and the run fails with `unresolved-tool`.
+  `__` of its own comes back wrong: the model is told the agent has no such
+  tool (`unresolved-tool`), and the turn fails if it calls it again, or the
+  model answers without it.
   Drupal's MCP Server Tool Bridge names its tools this way (`tool_api__…`).
   There's no workaround for a server whose tool names you don't choose:
   0.1.7 fixes it.
