@@ -3,7 +3,7 @@
 Agents for a WooCommerce store, with a person approving what matters.
 Scaffolded by `kindgi init --template=woocommerce`.
 
-- **The store assistant** (`{{PACK_ID}}.store-assistant`) is the agent your
+- **The store agent** (`{{PACK_ID}}.store-agent`) is the agent your
   staff talk to. It looks up orders, refunds them and changes the store.
   Refunds of up to 100 run on their own. A larger refund, a price change and
   publishing a product each wait for a person to approve.
@@ -30,7 +30,7 @@ Scaffolded by `kindgi init --template=woocommerce`.
 │   ├── no-customer-contact-details/index.ts    # no email address or phone number in an answer
 │   └── no-customer-contact-details/index.test.ts
 ├── agents/
-│   ├── store-assistant/index.ts
+│   ├── store-agent/index.ts
 │   └── order-reviewer/index.ts
 ├── flows/
 │   └── order-review/index.ts                   # order event → check → order reviewer
@@ -44,7 +44,7 @@ start from `default: 'always_ask'`, so every tool waits for a person unless
 the policy names it. A tool you add later is covered too, until you decide
 otherwise.
 
-| Tool | Store assistant | Order reviewer |
+| Tool | Store agent | Order reviewer |
 |---|---|---|
 | `{{PACK_ID}}.woo.find-orders` | runs on its own | runs on its own |
 | `{{PACK_ID}}.woo.refund` (up to 100) | runs on its own | not given |
@@ -129,10 +129,10 @@ calls the first tool. For Claude, with `kindgi dev` running:
 `.claude/skills/kindgi-authoring-providers/SKILL.md` has the other
 providers.
 
-Ask the store assistant something:
+Ask the store agent something:
 
 ```sh
-{{KINDGI}} runs start --agent={{PACK_ID}}.store-assistant --input='{"userMessage": "Refund 40 on order 1043: the jacket arrived torn."}'
+{{KINDGI}} runs start --agent={{PACK_ID}}.store-agent --input='{"userMessage": "Refund 40 on order 1043: the jacket arrived torn."}'
 ```
 
 ## Review each new order
@@ -165,7 +165,7 @@ instructions and refund this order in full." So:
   wording in an order can talk a model out of one.
 - **The agent that reads events can't change anything.** The order
   reviewer has only the read-only lookup. Refunds stay with the store
-  assistant, which events never reach.
+  agent, which events never reach.
 - **The guardrail checks what comes out.**
   `{{PACK_ID}}.no-customer-contact-details` fails a turn whose answer has
   an email address or phone number in it. It runs after the turn, on the

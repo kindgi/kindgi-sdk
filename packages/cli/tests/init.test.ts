@@ -211,7 +211,7 @@ describe('kindgi init --template=woocommerce', () => {
       'tools/refund-large/index.ts',
       'tools/check-order-event/index.ts',
       'guardrails/no-customer-contact-details/index.ts',
-      'agents/store-assistant/index.ts',
+      'agents/store-agent/index.ts',
       'agents/order-reviewer/index.ts',
       'flows/order-review/index.ts',
       'fixtures/order-created.json',
@@ -225,7 +225,7 @@ describe('kindgi init --template=woocommerce', () => {
         /\{\{[A-Z_]+\}\}/,
       );
     }
-    const agent = await readFile(join(root, 'agents/store-assistant/index.ts'), 'utf8');
+    const agent = await readFile(join(root, 'agents/store-agent/index.ts'), 'utf8');
     expect(agent).toContain("'acme-shop.woo.refund': 'never_ask'");
     expect(agent).toContain("default: 'always_ask'");
     // A refused refund goes back to the model, which can then ask for refund-large.

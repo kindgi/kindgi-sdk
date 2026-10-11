@@ -3,7 +3,7 @@
 //
 // It's the agent that sees outside input, so it can't change anything: its
 // only tool is the read-only order lookup. Refunds and store changes stay
-// with `{{PACK_ID}}.store-assistant`, which staff talk to and which the
+// with `{{PACK_ID}}.store-agent`, which staff talk to and which the
 // event never reaches. The order arrives already checked by
 // `{{PACK_ID}}.woo.check-order-event`, as the step's input (`{{ input.order.* }}`).
 import { defineAgent } from '@kindgi/sdk/define';

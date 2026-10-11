@@ -1,11 +1,11 @@
-// {{PACK_ID}}.woo.refund — the $100 limit, through the same path Kindgi
-// calls the tool by (`invokeTool`: the input schema first, then the
-// handler). The store is a fake `fetch`; no WooCommerce needed.
+// {{PACK_ID}}.woo.refund — the $100 limit, called as a run calls it
+// (`invokeToolForTest`: the input schema first, then the env values Kindgi
+// would give it, defaults included, then the handler). The store is a fake
+// `fetch`; no WooCommerce needed.
 
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
-import { invokeTool, type ToolContext } from '@kindgi/sdk/define';
-import type { TenantId } from '@kindgi/sdk/types';
+import { invokeToolForTest } from '@kindgi/sdk/define';
 
 import refund from './index.js';
 
@@ -37,14 +37,11 @@ function fakeStore(refunded: readonly number[]): Call[] {
   return calls;
 }
 
-function makeCtx(): ToolContext {
-  return {
-    tenantId: '00000000-0000-0000-0000-000000000001' as TenantId,
-    abortSignal: new AbortController().signal,
-    env: { WOO_STORE_URL: 'http://store.test', WOO_USER: 'shop-agent', WOO_REFUND_THROUGH_GATEWAY: 'false' },
-    secrets: { WOO_APP_PASSWORD: 'not-a-real-password' },
-  };
-}
+/** What `kindgi env set` and `kindgi secrets set` would give the tool. */
+const store = {
+  env: { WOO_STORE_URL: 'http://store.test', WOO_USER: 'shop-agent' },
+  secrets: { WOO_APP_PASSWORD: 'not-a-real-password' },
+};
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -53,20 +50,47 @@ afterEach(() => {
 describe('{{PACK_ID}}.woo.refund', () => {
   test('refunds 40 on an order with no refunds yet', async () => {
     const calls = fakeStore([]);
-    const result = await invokeTool(refund, { orderId: 1043, amount: 40, reason: 'Arrived torn' }, makeCtx());
+    const result = await invokeToolForTest(refund, { orderId: 1043, amount: 40, reason: 'Arrived torn' }, store);
     expect(result).toEqual({
       kind: 'ok',
       value: { refundId: 501, orderId: 1043, amount: '40.00', currency: 'USD' },
     });
     const post = calls.find((c) => c.method === 'POST');
     expect(post?.path).toBe('/wp-json/wc/v3/orders/1043/refunds');
+    // WOO_REFUND_THROUGH_GATEWAY isn't set: its default, false, applies.
     expect(post?.body).toEqual({ amount: '40.00', reason: 'Arrived torn', api_refund: false });
     expect(post?.authorization).toBe(`Basic ${Buffer.from('shop-agent:not-a-real-password').toString('base64')}`);
   });
 
+  test('refunds through the payment gateway when WOO_REFUND_THROUGH_GATEWAY is true', async () => {
+    const calls = fakeStore([]);
+    const result = await invokeToolForTest(
+      refund,
+      { orderId: 1043, amount: 40, reason: 'Arrived torn' },
+      { ...store, env: { ...store.env, WOO_REFUND_THROUGH_GATEWAY: 'true' } },
+    );
+    expect(result.kind).toBe('ok');
+    expect(calls.find((c) => c.method === 'POST')?.body).toEqual({
+      amount: '40.00',
+      reason: 'Arrived torn',
+      api_refund: true,
+    });
+  });
+
+  test("doesn't run without the store's address, and never calls the store", async () => {
+    const calls = fakeStore([]);
+    const result = await invokeToolForTest(
+      refund,
+      { orderId: 1043, amount: 40, reason: 'Arrived torn' },
+      { ...store, env: { WOO_USER: 'shop-agent' } },
+    );
+    expect(result).toMatchObject({ kind: 'err', error: { code: 'precondition-failed', reason: 'env-value-missing' } });
+    expect(calls).toEqual([]);
+  });
+
   test('refuses 240 at the input schema, before the store is called', async () => {
     const calls = fakeStore([]);
-    const result = await invokeTool(refund, { orderId: 1043, amount: 240, reason: 'Arrived torn' }, makeCtx());
+    const result = await invokeToolForTest(refund, { orderId: 1043, amount: 240, reason: 'Arrived torn' }, store);
     expect(result.kind).toBe('err');
     if (result.kind === 'err') expect(result.error.code).toBe('input-validation-failed');
     expect(calls).toEqual([]);
@@ -74,7 +98,7 @@ describe('{{PACK_ID}}.woo.refund', () => {
 
   test('refuses a refund that takes the order past 100 in total', async () => {
     const calls = fakeStore([80]);
-    const result = await invokeTool(refund, { orderId: 1043, amount: 80, reason: 'Arrived torn' }, makeCtx());
+    const result = await invokeToolForTest(refund, { orderId: 1043, amount: 80, reason: 'Arrived torn' }, store);
     expect(result.kind).toBe('err');
     if (result.kind === 'err') {
       expect(result.error.code).toBe('handler-error');
@@ -85,7 +109,7 @@ describe('{{PACK_ID}}.woo.refund', () => {
 
   test('refunds up to exactly 100 in total', async () => {
     fakeStore([60]);
-    const result = await invokeTool(refund, { orderId: 1043, amount: 40, reason: 'Arrived torn' }, makeCtx());
+    const result = await invokeToolForTest(refund, { orderId: 1043, amount: 40, reason: 'Arrived torn' }, store);
     expect(result.kind).toBe('ok');
   });
 });
