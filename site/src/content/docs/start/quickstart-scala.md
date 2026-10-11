@@ -4,7 +4,7 @@ description: Create a Scala pack with tools, an agent, a guardrail and a flow, r
 sidebar:
   order: 4.6
   label: "Quickstart: Scala"
-  badge: { text: 'Preview', variant: 'caution' }
+  badge: { text: 'Preview', variant: 'caution', class: 'kg-preview' }
 ---
 
 The same pack as the [TypeScript quickstart](../quickstart-typescript/), in
