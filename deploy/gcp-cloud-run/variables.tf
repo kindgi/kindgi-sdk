@@ -226,7 +226,7 @@ variable "database_private_network" {
 }
 
 variable "database_backup_retention" {
-  description = "How many daily backups Cloud SQL keeps. Null (the default): Cloud SQL's own default, 7. A deployment others rely on keeps more (30, say)."
+  description = "How many daily backups Cloud SQL keeps. Null (the default): Cloud SQL's own default, 7 on ENTERPRISE and 15 on ENTERPRISE_PLUS. A deployment others rely on keeps more (30, say)."
   type        = number
   default     = null
   validation {
@@ -246,7 +246,7 @@ variable "database_backup_location" {
 }
 
 variable "database_point_in_time_days" {
-  description = "How many days of transaction logs point-in-time recovery keeps: any second within them can be restored. Null (the default): Cloud SQL's own default, 7. At most 7 on ENTERPRISE and 35 on ENTERPRISE_PLUS."
+  description = "How many days of transaction logs point-in-time recovery keeps: any second within them can be restored. Null (the default): Cloud SQL's own default, 7 on ENTERPRISE and 14 on ENTERPRISE_PLUS. At most 7 on ENTERPRISE and 35 on ENTERPRISE_PLUS, checked at plan."
   type        = number
   default     = null
   validation {

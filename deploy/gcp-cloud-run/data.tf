@@ -27,6 +27,16 @@ resource "google_sql_database_instance" "kindgi" {
   deletion_protection = var.database_deletion_protection
   depends_on          = [google_project_service.apis]
 
+  lifecycle {
+    # Cloud SQL keeps at most 7 days of transaction logs on ENTERPRISE: refused at
+    # plan, not halfway through an apply. A precondition, since a variable's own
+    # validation can't read another before Terraform 1.9.
+    precondition {
+      condition     = var.database_point_in_time_days == null ? true : var.database_point_in_time_days <= (var.database_edition == "ENTERPRISE_PLUS" ? 35 : 7)
+      error_message = "database_point_in_time_days is at most 7 on ENTERPRISE (35 on ENTERPRISE_PLUS)."
+    }
+  }
+
   settings {
     edition           = var.database_edition
     tier              = var.database_tier

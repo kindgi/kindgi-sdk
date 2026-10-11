@@ -478,3 +478,28 @@ run "point_in_time_days_refuses_more_than_35" {
 
   expect_failures = [var.database_point_in_time_days]
 }
+
+run "point_in_time_days_over_7_need_enterprise_plus" {
+  command = plan
+
+  variables {
+    database_point_in_time_days = 14
+  }
+
+  expect_failures = [google_sql_database_instance.kindgi]
+}
+
+run "point_in_time_days_up_to_35_on_enterprise_plus" {
+  command = plan
+
+  variables {
+    database_edition            = "ENTERPRISE_PLUS"
+    database_tier               = "db-perf-optimized-N-2"
+    database_point_in_time_days = 14
+  }
+
+  assert {
+    condition     = google_sql_database_instance.kindgi.settings[0].backup_configuration[0].transaction_log_retention_days == 14
+    error_message = "ENTERPRISE_PLUS keeps more than 7 days of transaction logs."
+  }
+}

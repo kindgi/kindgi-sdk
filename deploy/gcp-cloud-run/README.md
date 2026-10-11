@@ -252,8 +252,8 @@ Pin each secret to a version, as above, rather than `latest`: a new version then
 ## Operating it
 
 - **Client addresses:** the server trusts one proxy, Cloud Run's front end, which appends the caller to `X-Forwarded-For` (`trusted_proxies = "1"`, `KINDGI_TRUSTED_PROXIES`), so rate limits and audit records see the caller. With an external Application Load Balancer in front, set `"2"`: it appends the client and then its own address ([Google: the X-Forwarded-For header](https://docs.cloud.google.com/load-balancing/docs/https#x-forwarded-for_header)).
-- **Backups:** Cloud SQL backs the database up daily, with point-in-time recovery. By default it keeps 7 backups and 7 days of transaction logs, in the multi-region nearest the instance.
-  - **Changing them:** `database_backup_retention`, `database_point_in_time_days` and `database_backup_location` (for example 30 backups, in `us`).
+- **Backups:** Cloud SQL backs the database up daily, with point-in-time recovery. By default it keeps 7 backups and 7 days of transaction logs on `ENTERPRISE` (the module's edition), 15 backups and 14 days on `ENTERPRISE_PLUS`, in the multi-region nearest the instance ([Google: Cloud SQL backup options](https://docs.cloud.google.com/sql/docs/postgres/backup-recovery/backup-options)).
+  - **Changing them:** `database_backup_retention`, `database_point_in_time_days` (at most 7 days on `ENTERPRISE`, checked at plan) and `database_backup_location` (for example 30 backups, in `us`).
   - **What a restore reaches:** any second within the logs' days, or one of the kept daily backups.
 - **One server instance** (`server_max_instances = 1`) until several replicas are verified. Migrations run at boot and need a direct database connection (the socket or a private IP, not a transaction pooler).
 - **Rotating a secret:** add a version, then roll a new revision of each service that reads it (`gcloud run services update <service> --update-labels=rotated=$(date +%s)`).
