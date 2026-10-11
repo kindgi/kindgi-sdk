@@ -1193,7 +1193,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_PACK_ROUTING',
     description:
-      'Used from runtime 0.1.8; earlier runtimes ignore it. How the server finds the pack service for a call. `single` (default): one pack service, `KINDGI_PACK_SERVICE_URL`, for every call. `per-deployment`: each call goes to the pack service of the deployment that shipped the tool or check, the newest such deployment with an endpoint, recorded through the system API by whatever runs the services (an orchestrator, or a script). `KINDGI_PACK_SERVICE_URL` is then refused, and a call whose deployment has no endpoint fails (`pack-endpoint-pending`): it never falls back to another service. Deployments registered before it was turned on have no routes; deploy them again.',
+      'Used from runtime 0.1.8; earlier runtimes ignore it. How the server finds the pack service for a call. `single` (default): one pack service, `KINDGI_PACK_SERVICE_URL`, for every call. `per-deployment` needs `KINDGI_TENANCY=multi`: the endpoints are recorded through the system API, which a runtime serving one tenant does not have, so the server refuses to start with it there. Each call then goes to the pack service of the deployment that shipped the tool or check, the newest such deployment with an endpoint, recorded by whatever runs the services (an orchestrator, or a script) with a `system:deployments` key. `KINDGI_PACK_SERVICE_URL` is then refused, and a call whose deployment has no endpoint fails (`pack-endpoint-pending`): it never falls back to another service. Deployments registered before it was turned on have no routes; deploy them again.',
     example: 'single',
     required: false,
     appliesTo: appliesToServer,

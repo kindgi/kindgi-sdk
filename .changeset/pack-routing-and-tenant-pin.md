@@ -13,7 +13,7 @@
   - **`GET /v1/info`** reports `indexHash`: `sha256:` and the hex SHA-256 of the service's index file, byte for byte, which is the hash a deployment signs.
 - **`@kindgi/env-schema`** (the three routing settings are used from runtime 0.1.8; earlier runtimes ignore them):
   - **`KINDGI_PACK_TENANT_ID`** (the pack service);
-  - **`KINDGI_PACK_ROUTING`:** `single` by default, or `per-deployment`;
+  - **`KINDGI_PACK_ROUTING`:** `single` by default, or `per-deployment`, which needs `KINDGI_TENANCY=multi` (the server refuses it with one tenant);
   - **`KINDGI_PACK_ENDPOINT_HOSTS`:** host names; `*.` and a domain, which matches one more label; or `*-`, a tail and a domain, which matches one more label ending with `-` and the tail. On Cloud Run, the tail form, `*-<project number>.<region>.run.app`, is the one that admits only one project's services;
   - **`KINDGI_PACK_ENDPOINT_NAMES`:** `bound` by default, or `any`.
 
