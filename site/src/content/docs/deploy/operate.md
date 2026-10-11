@@ -333,26 +333,228 @@ The runtime logs the same at every start, one `WARN` per tool version or endpoin
 
 ### From 0.1.5 to 0.1.6
 
-What's different once you rebuild your pack with 0.1.6:
+The database migrates when 0.1.6 starts.
 
-- **Variables your pack doesn't declare no longer reach it.** Before your
-  pack's code loads, its service drops every variable the pack doesn't
-  declare (`env` in `kindgi.config`, `[tool.kindgi.env]` in
-  `pyproject.toml`, `env` in `kindgi.config.json`), except Kindgi's own
-  (`KINDGI_*`) and the platform's. A key left in `pack.env` for something
-  else no longer reaches your tools. After the upgrade, look in the pack
-  service's log for a `WARN` line with `"event":"env-dropped"`. It names each
-  variable the service dropped, never its value:
+#### Security fixes in 0.1.6
 
-  ```json
-  {"time":"2026-10-10T07:01:47.789Z","level":"warn","severity":"WARNING","subsystem":"pack","message":"Dropped 2 variables the pack doesn't declare: ACME_UNDECLARED_KEY, AWS_SECRET_ACCESS_KEY (declare them in the pack's env, or set KINDGI_PACK_ENV_FILTER=off)","event":"env-dropped","kind":"env-dropped","names":["ACME_UNDECLARED_KEY","AWS_SECRET_ACCESS_KEY"]}
+<!-- Each line confirmed against its PR at the cut; a line whose train misses waits. #383 and T660: train D. -->
+
+- **A guardrail could run another tenant's check.** On a runtime serving
+  several tenants, a guardrail naming a pack check its own tenant had never
+  deployed could run another tenant's check of that id, if that tenant had
+  deployed one. 0.1.6 looks a pack check up in the guardrail's own tenant
+  only: such a guardrail fails with `unknown-check` every time, and under
+  `halt` its turn fails.
+- **A model provider's key could reach a tool.** Anyone who could register a
+  tool, an MCP endpoint or a webhook endpoint could name a model provider's
+  key as its secret, and so hand the key to a pack's code or to another
+  server. 0.1.6 refuses that (run `check provider-keys` first, below).
+- **Who may judge as a class was shown to every reader.** Anyone who could
+  read a judge class, a project viewer included, got the ids of the people
+  and service accounts allowed to judge as it. 0.1.6 sends those ids only to
+  an admin of the class's scope; everyone else gets their number
+  (`assertableBy.principalCount`).
+- **A malformed MCP credential could appear in the runtime's log.** An MCP
+  endpoint's credential with a line break or a NUL in its value could show
+  up in the sync log, in the error the HTTP library raised when it refused
+  the header. 0.1.6 refuses such a value before sending, and its log names
+  only the header.
+
+#### What to check, and what's different
+
+What to check before you upgrade, and what's different after:
+
+- **Run `check provider-keys` before you upgrade** (see
+  [Checks you can run before upgrading](#checks-you-can-run-before-upgrading)).
+  A model provider's key is now its provider's alone: a tool, an MCP
+  endpoint or a webhook endpoint that names one is refused, and so are its
+  calls, connections and deliveries
+  ([A model provider's key isn't a tool's](../../guides/tools/give-a-tool-a-secret/#a-model-providers-key-isnt-a-tools)).
+- **Expect a slower first start on a large database.** A new index on the
+  runs table is built at the first start after the upgrade, without blocking
+  writes; the more runs, the longer that start takes.
+- **Set `KINDGI_PAGINATION_KEY`.** List cursors are sealed, so they no longer
+  show which row they point after. Without a key, a cursor handed out before
+  a restart answers `400` after it, and a client starts the list again. More
+  than one instance needs the key.
+  When you rotate it, keep the old one as `KINDGI_PAGINATION_PREVIOUS_KEY`
+  for at least a day.
+- **Rebuild your packs with the 0.1.6 CLI:**
+  - **Variables your pack doesn't declare no longer reach it.** Before your
+    pack's code loads, its service drops every variable the pack doesn't
+    declare (`env` in `kindgi.config`, `[tool.kindgi.env]` in
+    `pyproject.toml`, `env` in `kindgi.config.json`), except Kindgi's own
+    (`KINDGI_*`) and the platform's. A key left in `pack.env` for something
+    else no longer reaches your tools. After the upgrade, look in the pack
+    service's log for a `WARN` line with `"event":"env-dropped"`. It names each
+    variable the service dropped, never its value:
+
+    ```json
+    {"time":"2026-10-10T07:01:47.789Z","level":"warn","severity":"WARNING","subsystem":"pack","message":"Dropped 2 variables the pack doesn't declare: ACME_UNDECLARED_KEY, AWS_SECRET_ACCESS_KEY (declare them in the pack's env, or set KINDGI_PACK_ENV_FILTER=off)","event":"env-dropped","kind":"env-dropped","names":["ACME_UNDECLARED_KEY","AWS_SECRET_ACCESS_KEY"]}
+    ```
+
+    If your code reads one of them, declare it
+    ([Declare the environment your code reads](../../guides/secrets/pack-env/)).
+    To keep the old behaviour meanwhile, set `KINDGI_PACK_ENV_FILTER=off` on
+    the pack service. A Python pack's image always names `GPG_KEY`: its base
+    image sets it, and nothing reads it.
+  - **A tool call has an idempotency key,** `ctx.idempotencyKey`, the same
+    every time the same call runs. Pass it to the system a tool writes to, so
+    a step that runs again doesn't refund or email twice
+    ([Make a side effect happen once](../../guides/tools/write-a-tool/#make-a-side-effect-happen-once)).
+    A pack built before 0.1.6 doesn't get it.
+  - **A guardrail that names a built-in check is marked** in the pack's
+    index. One from an older CLI gets a warning in the runtime's log each
+    time it loads; the built-in still runs. The CLI also warns when a pack's
+    check id doesn't start with the pack's id.
+  - **A tool whose `needsSpec` schema doesn't compile is refused** when it's
+    defined, registered or deployed, instead of being left out at load
+    ([Give a tool env values](../../guides/tools/give-a-tool-env-values/)).
+    A union of types (`type: ['string', 'null']`) now compiles everywhere.
+- **The API's own OAuth sign-in flow is removed.** Sign-in runs in the
+  runtime's browser flow, which is unchanged. `POST /v1/auth/login/…` and
+  `POST /v1/auth/callback/…` answer `404`; registering an `oauth2` identity
+  provider answers `422` (one stored before still lists); and OIDC
+  `allowedRedirectUris` is refused (one stored before still works). The
+  TypeScript and Python clients drop `auth.login` and `auth.callback`.
+  Sessions no longer hold identity-provider tokens: 0.1.6 clears the ones
+  stored.
+- **Times are strict.** Every time the API reads, list cursors included, is
+  an RFC 3339 time with its zone (`2026-10-09T12:00:00Z`), or Postgres
+  `timestamptz` text; anything else, a date alone included, answers
+  `400 bad-input`. The CLI's time flags still take a date and send it as
+  that day's start in UTC.
+- **`member` isn't a project role you can give:** use `viewer`, which it
+  always meant. A role given as `member` before still reads back as
+  `member`.
+- **Approvals and their runs end together**
+  ([Decide an approval](../../guides/approvals/decide-an-approval/)):
+  - A reviewer's **withdraw** ends the run waiting on it: its turn fails with
+    `hitl-withdrawn`, at once.
+  - A run's end withdraws the approvals it **waits on** (a tool call's or a
+    turn's), with `withdrawnBecause: run-cancelled` or `run-ended`. An
+    approval a run asked for without waiting on it, such as a memory fact's
+    review, stays pending.
+  - Deciding one whose run has ended answers `409 run-already-terminal`.
+  - **After the upgrade,** gate approvals still pending from runs that had
+    already ended are withdrawn the same way, by a pass about once a minute
+    per tenant, up to 500 runs each time. They leave the reviewer queues
+    with a system actor in the audit.
+- **Who sees whom:**
+  - listing a project's members or team grants takes `write` on the
+    project, so a viewer no longer sees who else works there;
+  - the reviewer roster is for tenant admins and reviewers;
+  - re-adding a member with another role answers `409 membership-exists`
+    and keeps the role they hold;
+  - `409 block-project-mismatch` no longer names the other project.
+- **The access audit keeps every refusal of a caller the API knows,** not
+  only the authorization model's decisions, except four that don't refuse
+  the caller ([The access audit](../authorization/#the-access-audit)).
+  Every secret and env write through the API is in the audit log too,
+  never with a value.
+- **Every `/v1` answer says `Cache-Control: no-store`,** so no browser or
+  proxy keeps one tenant's data.
+- **A turn stops when its run is stopped:** a model or tool call in flight
+  is aborted at once on a cancel or a shutdown. A step that writes nothing
+  for a while, such as a long model call, stops within
+  `KINDGI_RUN_ENDED_CHECK_MS` of a cancel (5 s by default).
+- **Cancelling a flow while it runs a loop stops the loop:** no more of its
+  steps start after the cancel.
+- **Two runtime instances starting at once no longer deadlock or race on
+  migrations:** one waits until the other's migrations finish.
+- **Paging no longer skips or repeats rows recorded in the same millisecond**
+  as a page's last row, on the lists that page by time: organizations,
+  projects, teams and their members, memory erasures, an agent's promotions,
+  a schedule's fires, cost records, observations, and the versions of agents,
+  flows, policies, test sets, blocks and tools.
+- **The sign-in options lookup limit holds across instances:** 30 lookups a
+  minute per client (`GET /v1/auth/sign-in-options`), counted in Postgres
+  rather than by each instance.
+- **Safari signs in to `kindgi dev`'s console.** Under `kindgi dev` on
+  `http://localhost` or `127.0.0.1`, the session cookie is a plain one,
+  since Safari keeps a `Secure` cookie only over `https`. A deployment's
+  console still needs `https`.
+- **The console's sign-in returns you only to a console page;** a sign-in
+  link that pointed elsewhere lands on the console's home.
+- **`kindgi dev` runs your pack's code sandboxed** (macOS Seatbelt; Linux
+  bubblewrap, which you may need to install): it can't read your keys or
+  files outside the app, write outside it, or reach Docker, and keeps the
+  network and the app's own files. On Linux, the UNIX sockets it closes are
+  those under the home folder, `/tmp`, `/var/tmp` and `/run`. A tool that
+  reads a path or a socket outside the app (`~/.aws`, a local Postgres
+  socket) needs it opened in the pack's `dev.sandbox` config. Where it can't run (Windows outside WSL, a
+  container, inside another sandbox such as a coding agent's), `kindgi dev`
+  warns and runs without it; `KINDGI_DEV_SANDBOX=required` refuses instead
+  ([Keep your tools' code away from your keys](../../guides/secrets/dev-sandbox/)).
+- **Under `kindgi dev`, Kindgi keeps the secrets you store in its own
+  file,** `.kindgi/secrets.env`, not your app's `.env.local`, and neither
+  they nor a model provider's key reach the pack service's environment
+  (`kindgi secrets copy` copies keys over;
+  [Keep local values in env files](../../guides/secrets/env-files/)).
+- **The CLI:** `kindgi tools versions --include-tombstoned` is now
+  `--include-unregistered`, as `blocks` and `flows` say.
+- **The clients:** the TypeScript client drops `eventTriggers` and
+  `webhooks` and the Python client their resources, which the runtime never
+  served (it fires schedules; start a run with `POST /v1/runs`). Python's
+  `secrets.rotate` returns its sync or async answer, and `Kindgi()` finds
+  its settings when it's first used.
+- **Embedding `@kindgi/api`:** `createApp`'s `signingKey` is gone (pass
+  `exportSigning`), and so are `refreshToken`, `exchangeCode` and
+  `oauthStateStore`. `SignInOptionsRateLimit.store` takes a `RateLimitStore`
+  (in memory by default) to share the sign-in lookup limit across instances;
+  a store that fails doesn't block sign-in.
+- **New in 0.1.6:**
+  - **Judging:** a project's judging rules queue the runs that need a
+    person's verdict, results per agent version, and comparisons and
+    proposals rescored after people judge the new answers
+    ([Judge a run's output](../../guides/evals/judge-a-runs-output/),
+    [Improve an agent](../../guides/evals/improve-an-agent/)).
+  - **What failed and why:** a project's failed runs grouped by cause and
+    version (`GET /v1/runs/failures`), a failure's `reason`, and what a
+    suspended run waits for (`waitingFor`). The runs list filters by
+    status, time and version ([List runs](../../guides/runs/list-runs/)).
+  - **Guardrail outcomes:** how often each guardrail passed, found
+    something, blocked a turn or couldn't run, by agent version
+    (`GET /v1/guardrails/{id}/outcomes`).
+  - **Approvals:** an `approval.requested` webhook event, email to
+    reviewers (`KINDGI_REVIEWER_EMAIL`), and an inbox in one read
+    (`--assigned-to=me --order=asc`)
+    ([Receive webhooks](../../guides/webhooks/receive-run-finished/)).
+  - **Access:** who has access to a project and how
+    (`GET /v1/projects/{id}/access`), a team's role on a project, what the
+    caller may do (`GET /v1/identity/me/permissions`), the people list with
+    their grants, and the tenant's sign-in history (`GET /v1/audit/sign-ins`)
+    ([Authorization](../authorization/)).
+  - **Sign-in an operator manages alone:** with
+    `KINDGI_AUTH_TENANT_PROVIDERS=off`, a tenant can't add, change or
+    remove identity providers.
+  - **Your own secret manager:** Google Secret Manager, Azure Key Vault or
+    HashiCorp Vault (`KINDGI_SECRETS_BACKEND=secret-manager`;
+    [Keep secrets in your own secret manager](../secret-manager/)), and on Azure
+    a Key Vault key for the database's secrets, Azure Container Registry
+    with the server's managed identity, and export signing with a Key Vault
+    key ([Export signed evidence](../../guides/observability/export-signed-evidence/)).
+    Retired export keys can stay listed, so older exports still verify.
+  - **A tool's secret can be optional**
+    ([An optional secret](../../guides/tools/give-a-tool-a-secret/#an-optional-secret)).
+  - **A retired agent, flow, tool or test set can be found and brought back**
+    ([Agent and tool versions](../../guides/agents/agent-and-tool-versions/)).
+  - **Schedules** list by project and name their owners.
+  - **Coding agents:** `kindgi init` keeps one out of the files that hold
+    keys ([Your coding agent](../../start/coding-agents/)).
+
+#### Known limitations in 0.1.6
+
+- **Run one runtime instance.** Several aren't supported yet: a guardrail,
+  tool or provider change reaches other instances only when they restart.
+  If you run several anyway, restart the others after such a change. A fix
+  is planned.
+- **AWS Secrets Manager comes in 0.1.7.** With
+  `KINDGI_SECRETS_MANAGER=aws`, a 0.1.6 runtime doesn't start (exit code 2):
+
+  ```text
+  KINDGI_SECRETS_MANAGER=aws is reserved: this runtime doesn't support it yet. Currently supported: azure, gcp, vault.
   ```
-
-  If your code reads one of them, declare it
-  ([Declare the environment your code reads](../../guides/secrets/pack-env/)).
-  To keep the old behaviour meanwhile, set `KINDGI_PACK_ENV_FILTER=off` on
-  the pack service. A Python pack's image always names `GPG_KEY`: its base
-  image sets it, and nothing reads it.
 
 ### Runtime 0.1.5.1
 
