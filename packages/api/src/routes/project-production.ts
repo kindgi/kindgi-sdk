@@ -124,8 +124,8 @@ export function projectProductionRouter(options: ProjectProductionRouterOptions)
               code: 'production-not-allowed',
               message:
                 next !== undefined
-                  ? `This tenant can't put projects in production yet. To be allowed: ${next}. Building and testing stay free.`
-                  : "This tenant can't put projects in production yet: ask whoever runs this Kindgi to allow it. Building and testing stay free.",
+                  ? `This tenant can't put projects in production yet. To be allowed: ${next}. Projects not in production keep working as staging.`
+                  : "This tenant can't put projects in production yet: ask whoever runs this Kindgi to allow it. Projects not in production keep working as staging.",
               projectId: projectId as unknown as string,
               ...(next !== undefined && { next }),
             },
