@@ -47,7 +47,7 @@ import type {
   UsageCounters,
 } from '@kindgi/capabilities';
 import { createAttemptCounter } from '@kindgi/capabilities/attempts';
-import { nameToolsAsSent } from '@kindgi/capabilities/tool-names';
+import { nameToolsAsSent, toolIdsBySentName } from '@kindgi/capabilities/tool-names';
 
 import { ModelProviderError, modelProviderError } from '../errors.js';
 import { type RetryableFailure, withRetries } from '../retries.js';
@@ -102,6 +102,9 @@ export function attemptPrepared<T>(): T | undefined {
   return attemptScope.getStore()?.prepared as T | undefined;
 }
 
+// A tool id on the wire: dots aren't allowed in tool names. A call's name comes back
+// through the request's own tools (`toolIdsBySentName`), since an id can hold `__`
+// itself (an MCP server names its tools as it likes); `ourName` is the fallback.
 const wireName = (name: string) => name.replace(/\./g, '__');
 const ourName = (name: string) => name.replace(/__/g, '.');
 
@@ -132,6 +135,7 @@ export function createAiSdkModelProvider(options: AiSdkModelProviderOptions): Mo
       }
       const startedAt = Date.now();
       const toolIds = input.tools?.map((t) => t.name) ?? [];
+      const toolIdOf = toolIdsBySentName(toolIds, wireName, ourName);
       const sampling = samplingFor(model, input);
       const maxOutputTokens = input.maxOutputTokens ?? model.maxOutputTokens;
       const extra = options.providerOptions?.(model);
@@ -200,7 +204,7 @@ export function createAiSdkModelProvider(options: AiSdkModelProviderOptions): Mo
         if (part.type === 'tool-call' && part.providerExecuted !== true) {
           toolCalls.push({
             id: part.toolCallId,
-            name: ourName(part.toolName),
+            name: toolIdOf(part.toolName),
             arguments: parseJson(part.input),
           });
         }

@@ -163,6 +163,54 @@ describe('a call', () => {
     });
   });
 
+  test("a tool id holding `__` (an MCP server's own name) comes back as the id", async () => {
+    const seen: LanguageModelV4CallOptions[] = [];
+    const r = await provider(
+      [
+        {
+          content: [
+            {
+              type: 'tool-call',
+              toolCallId: 'c1',
+              toolName: 'drupal__tool_api__list_content',
+              input: '{}',
+            },
+          ],
+        },
+      ],
+      seen,
+    ).invoke({
+      ...ask,
+      tools: [
+        {
+          name: 'drupal.tool_api__list_content',
+          description: 'List content.',
+          inputSchema: { type: 'object' },
+        },
+      ],
+    });
+    expect(seen[0]?.tools?.map((t) => (t as { name: string }).name)).toEqual([
+      'drupal__tool_api__list_content',
+    ]);
+    expect(r.message.toolCalls?.map((c) => c.name)).toEqual(['drupal.tool_api__list_content']);
+  });
+
+  test('two tools sent under one name are refused before the call, naming both', async () => {
+    const seen: LanguageModelV4CallOptions[] = [];
+    await expect(
+      provider([{ content: [] }], seen).invoke({
+        ...ask,
+        tools: [
+          { name: 'acme.lookup__order', description: 'a', inputSchema: { type: 'object' } },
+          { name: 'acme.lookup.order', description: 'b', inputSchema: { type: 'object' } },
+        ],
+      }),
+    ).rejects.toThrow(
+      'tools "acme.lookup__order" and "acme.lookup.order" have the same name for the model',
+    );
+    expect(seen).toEqual([]);
+  });
+
   test('tools go out with dots as `__` and come back as our names; parallel calls; the provider options', async () => {
     const seen: LanguageModelV4CallOptions[] = [];
     const r = await provider(

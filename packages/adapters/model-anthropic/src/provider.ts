@@ -12,12 +12,13 @@ import type {
 } from '@kindgi/capabilities';
 import { samplingFor } from '@kindgi/capabilities';
 import { createAttemptCounter } from '@kindgi/capabilities/attempts';
-import { nameToolsAsSent } from '@kindgi/capabilities/tool-names';
+import { nameToolsAsSent, toolIdsBySentName } from '@kindgi/capabilities/tool-names';
 import { headerValueProblem } from '@kindgi/types';
 
 import { withPromptCache } from './cache.js';
 import { type CostRates, computeCostUsd, toFrameworkUsage } from './cost.js';
 import {
+  decodeToolName,
   encodeToolName,
   fromAnthropicResponse,
   mapStopReason,
@@ -171,6 +172,8 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
       // The system prompt names the call's tools as they're sent (`acme__lookup_order`):
       // a model told to call `acme.lookup_order` calls a name it wasn't given (T311).
       const toolNames = input.tools?.map((t) => t.name) ?? [];
+      // A call names its tool by the name it was sent: back to the id by lookup.
+      const toolIdOf = toolIdsBySentName(toolNames, encodeToolName, decodeToolName);
       // Cache breakpoints on the tools, the agent's prompt and, when the call
       // can continue, the conversation so far (`withPromptCache`).
       const { system, tools, messages } = withPromptCache({
@@ -211,7 +214,7 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
       const response = counted.value;
 
       const durationMs = Date.now() - startedAt;
-      const message = fromAnthropicResponse(response);
+      const message = fromAnthropicResponse(response, toolIdOf);
       const usage = toFrameworkUsage(response.usage);
       const costUsd = computeCostUsd(response.usage, modelInfo.cost);
 
