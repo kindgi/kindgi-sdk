@@ -316,3 +316,76 @@ was wrong:
 ```
 
 It has no `usage`, and it counts in `run.finished`'s `calls`.
+
+## Cost in the console
+
+The console shows the same numbers on three pages: a project's **Cost**, a
+run's **Cost** tab, and the tenant's **Tenant costs**. Days are in UTC, and a
+failed call costs $0.
+
+### A project's cost
+
+Anyone who can read the project sees its **Cost** page: what its model calls
+cost over a range (**7 days**, **30 days**, **90 days**, **12 months** or
+**Custom**), against the range before.
+
+![A project's Cost page over 30 days: "$24.02 in the last 30 days, 78% more than the 30 days before.", "1,509 model calls · 8.4M tokens", spend by day stacked by agent, and Where it went by agent, with Support agent at $14.94 (62%), 34% more than the 30 days before.](../../../../assets/cost/cost-30d.png)
+
+- **The headline:** "$24.02 in the last 30 days, 78% more than the 30 days
+  before." and "1,509 model calls · 8.4M tokens".
+- **Spend by day (UTC), by agent:** a stacked chart, with a sentence under
+  it ("the costliest day was 8 Oct ($1.19). Support agent is 62% of it.").
+  **Show as a table** gives the numbers. Over 12 months it's by month.
+- **Where it went:** **By agent**, **By model**, **By flow** or **By kind**,
+  the costliest against the range before ("34% more (was $11.12)", "new").
+  An agent's or a model's row filters the page to it.
+- **Biggest changes:** against the range before, by dollars ("Research
+  agent new: $8.49", "Legacy summarizer −$1.81 (none now)").
+- **Per-turn caps:** each agent with a budget for one turn, and how close its
+  turns came ("Costliest turn $0.14 of $0.12; 38 turns used over 80% of it, 6
+  turns went over.").
+- **Details:** the token split, and the exact
+  [`GET /v1/cost/aggregate`](#one-customers-month) queries the page made.
+
+The range and the breakdown are in the page's address, so a link opens the
+same view.
+
+### A run's cost
+
+Every run's page has a **Cost** tab: the [run's calls](#a-runs-calls), as
+`cost.usage.query` returns them.
+
+![A flow run's Cost tab: "$0.08 over 7 model calls, its child runs included." and "The costliest call: step 2 of answer · Dev-Echo Agent (large-model), $0.05.", then each child run's calls with step, model, tokens, cost and time.](../../../../assets/cost/run-cost-flow.png)
+
+- **The total,** with a [flow's child runs](#a-flows-whole-run) included:
+  "$0.08 over 7 model calls, its child runs included."
+- **The costliest call:** "The costliest call: step 2 of answer · Dev-Echo
+  Agent (large-model), $0.05."
+- **Each model call,** grouped by the run that made it: its step, model,
+  tokens in and out, cost and how long it took. A failed call says why
+  ("Failed: upstream timeout") and costs $0.00. When a fallback answered,
+  the call says so ("A fallback provider answered").
+- **Details,** for one call: the call's id, the provider and its request
+  id, how it finished, its attempts, cache-read tokens and when it was made.
+
+![An agent turn's Cost tab with the first call's Details open: its call id, provider, provider request, finish, attempts and cache-read tokens; the second call failed with "upstream timeout" and cost $0.00.](../../../../assets/cost/run-cost-turn.png)
+
+A flow run's **Overview** tab gives the same total: "Cost: $0.08 over 7
+model calls, its child runs included. Each call →".
+
+### The tenant's costs
+
+Tenant admins see **Tenant costs**: every project's spend, laid out like a
+project's Cost page.
+
+![Tenant costs over 30 days: "$48.03 in the last 30 days, 78% more than the 30 days before.", "3,018 model calls · 16.8M tokens", spend by day stacked by project, and Where it went by project: Default and Ops, $24.02 each.](../../../../assets/cost/tenant-costs.png)
+
+- **The headline,** and **Spend by day (UTC), by project.**
+- **Where it went:** **By project**, **By org**, **By agent** or **By
+  model**. A project's row opens that project's Cost page at the same range,
+  and an agent's or a model's row filters this page.
+- **Biggest changes** and **Details,** as on a project's page.
+
+Anyone else who opens it is pointed to each project's Cost page instead. As
+with the API (see [One customer's month](#one-customers-month)), a person's
+numbers count only the projects they may read.
