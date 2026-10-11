@@ -1,6 +1,7 @@
 ---
 "@kindgi/api": patch
 "@kindgi/client": patch
+"@kindgi/env-schema": patch
 ---
 
 **Tenants, for the operator of a runtime serving many tenants:** `/v1/system/tenants`, each route under its own system scope.
@@ -35,3 +36,4 @@ The TypeScript client's `systemTenants` and `systemKeys.whoami`, and the Python 
   - `GET /v1/tenant` carries `state`.
 - **On a runtime serving many tenants only, `POST /v1/deployments`** refuses an image outside the tenant's repository (`409 image-not-allowed`), before any registry read, and refuses a tenant without one (`409 image-prefix-unset`). A runtime serving one tenant never checks.
 - **The tenants list** carries `hasMore`.
+- **`KINDGI_TENANCY`** (`single`, the default, or `multi`) in `@kindgi/env-schema`: how many tenants the runtime serves.
