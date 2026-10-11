@@ -4,8 +4,8 @@
 /**
  * Nothing of the server's environment goes out with a provider's calls, to
  * whatever base URL the provider names. Left to itself the OpenAI SDK reads
- * `OPENAI_ORG_ID` and `OPENAI_PROJECT_ID` (sent as headers) and
- * `OPENAI_ADMIN_KEY`. With them set to canaries, the requests the chat and
+ * `OPENAI_ORG_ID` and `OPENAI_PROJECT_ID` (sent as headers),
+ * `OPENAI_ADMIN_KEY`, and `OPENAI_BASE_URL` when no base URL is given. With them set to canaries, the requests the chat and
  * the embeddings providers send carry none of them.
  */
 
@@ -20,6 +20,8 @@ const SERVER_ENV = {
   OPENAI_ORG_ID: 'canary-server-org',
   OPENAI_PROJECT_ID: 'canary-server-project',
   OPENAI_ADMIN_KEY: 'canary-server-admin-key',
+  // Unreachable while every provider names its baseURL; here so an optional one can't reopen it.
+  OPENAI_BASE_URL: 'http://canary-server-base.invalid',
 } as const;
 const saved: Record<string, string | undefined> = {};
 beforeEach(() => {
