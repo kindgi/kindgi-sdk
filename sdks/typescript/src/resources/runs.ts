@@ -380,7 +380,8 @@ export interface RunFailure {
   /**
    * The error's own reason, when it gives one: for a turn that ended at
    * its approval (`hitl-cancelled`), `timeout` when nobody decided in
-   * time. Absent from an older runtime and from errors without one.
+   * time. Absent from an older runtime and from errors without one; read
+   * `code` then.
    */
   readonly reason?: string;
 }
