@@ -74,7 +74,11 @@ import { requestIdMiddleware } from './middleware/request-id.js';
 import { requestLogMiddleware } from './middleware/request-log.js';
 import { sealedCursors } from './middleware/sealed-cursors.js';
 import { sigv4Middleware } from './middleware/sigv4.js';
-import { type SystemAccessAuditBinding, systemPrincipalFence } from './middleware/system.js';
+import {
+  type SystemAccessAuditBinding,
+  type SystemTenantDirectory,
+  systemPrincipalFence,
+} from './middleware/system.js';
 import type { MyAccessBinding } from './my-access-binding.js';
 import { type GenerateOptions, generateOpenApiDocument } from './openapi/generate.js';
 import type { PersonGrantsBinding } from './person-grants-binding.js';
@@ -128,6 +132,10 @@ import { observationsRouter } from './routes/observations.js';
 import { orgsRouter } from './routes/orgs.js';
 import { policiesRouter } from './routes/policies.js';
 import { projectAccessRouter } from './routes/project-access.js';
+import {
+  type ProductionGateOptions,
+  projectProductionRouter,
+} from './routes/project-production.js';
 import { projectsRouter } from './routes/projects.js';
 import { proposalsRouter } from './routes/proposals.js';
 import { provenanceRouter } from './routes/provenance.js';
@@ -147,6 +155,16 @@ import {
   systemDeploymentsRouter,
 } from './routes/system-deployments.js';
 import { type SystemKeysBinding, systemKeysRouter } from './routes/system-keys.js';
+import {
+  type SystemTenantSettingsBinding,
+  systemTenantSettingsRouter,
+} from './routes/system-tenant-settings.js';
+import {
+  type SystemTenantsBinding,
+  systemTenantsRouter,
+  systemWhoamiRouter,
+} from './routes/system-tenants.js';
+import { type SystemUsageBinding, systemUsageRouter } from './routes/system-usage.js';
 import { projectTeamGrantsRouter, teamProjectGrantsRouter } from './routes/team-grants.js';
 import { teamsRouter } from './routes/teams.js';
 import { tenantRouter } from './routes/tenant.js';
@@ -534,7 +552,8 @@ export interface CreateAppInput {
    * under each tenant, its deployments' endpoint, problem and pack
    * suspension. Only a system principal reaches them, so on a runtime
    * serving one tenant nothing does (its server refuses per-deployment
-   * routing there). Without it the routes aren't mounted (404).
+   * routing there). Mounted only with `systemTenantDirectory` too;
+   * without them the routes aren't mounted (404).
    */
   readonly systemDeployments?: SystemDeploymentsOptions;
   /**
@@ -543,6 +562,30 @@ export interface CreateAppInput {
    * optional otherwise, where there is no system principal.
    */
   readonly systemAccessAudit?: SystemAccessAuditBinding;
+  /**
+   * Optional. The tenants a system route can name, and each one's state:
+   * what `withSystemTenantContext` checks before a system route acts in a
+   * tenant. The tenant routes below need it.
+   */
+  readonly systemTenantDirectory?: SystemTenantDirectory;
+  /**
+   * Optional. A tenant's "production allowed" switch and its limits, set by
+   * the control plane: `PUT /v1/system/tenants/:tenantId/production-allowed`
+   * (`system:tenants:production`) and `…/limits` (`system:tenants:limits`).
+   * Mounted only with `systemTenantDirectory` too.
+   */
+  readonly systemTenantSettings?: SystemTenantSettingsBinding;
+  /**
+   * Optional. Usage across tenants, aggregated: `GET /v1/system/usage`
+   * (`system:usage:read`). Without it the route isn't mounted (404).
+   */
+  readonly systemUsage?: SystemUsageBinding;
+  /**
+   * Optional. The runtime's tenants, for the operator: `/v1/system/tenants`
+   * (create, list, read, close, suspend, the image prefix, the admins'
+   * contacts). Mounted only with `systemTenantDirectory` too.
+   */
+  readonly systemTenants?: SystemTenantsBinding;
   /**
    * Optional. Issue and accept public run tokens (`kgi_pt_…`):
    * short-lived, read-only tokens a browser uses to follow specific runs
@@ -964,6 +1007,14 @@ export interface CreateAppInput {
    * store. Without it, that route answers `501 project-access-unsupported`.
    */
   readonly projectAccess?: ProjectAccessBinding;
+  /**
+   * Optional. The production gate (`PUT /v1/projects/:projectId/production`):
+   * `gate` checks the tenant's `productionAllowed` before a project goes
+   * into production (`KINDGI_PRODUCTION_GATE=on`), and `next` names where a
+   * tenant that isn't allowed goes (`KINDGI_PRODUCTION_NEXT_URL`; the
+   * refusal's `details.next`). Absent: no gate.
+   */
+  readonly production?: ProductionGateOptions;
   /**
    * Optional. Non-sensitive per-env values. When present alongside or
    * separately from `secretsBinding`, mounts the `/v1/tenant/config`
@@ -1451,8 +1502,46 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   if (input.systemKeys !== undefined) {
     v1.route('/system/keys', systemKeysRouter(input.systemKeys, authorizer));
   }
-  if (input.systemDeployments !== undefined) {
-    v1.route('/system', systemDeploymentsRouter(input.systemDeployments, authorizer));
+  if (input.systemDeployments !== undefined && input.systemTenantDirectory !== undefined) {
+    v1.route(
+      '/system',
+      systemDeploymentsRouter({
+        ...input.systemDeployments,
+        directory: input.systemTenantDirectory,
+        ...(authorizer !== undefined && { authorizer }),
+      }),
+    );
+  }
+  if (input.systemTenants !== undefined && input.systemTenantDirectory !== undefined) {
+    v1.route(
+      '/system/tenants',
+      systemTenantsRouter({
+        tenants: input.systemTenants,
+        directory: input.systemTenantDirectory,
+        ...(authorizer !== undefined && { authorizer }),
+      }),
+    );
+  }
+  // A system key's own id, scopes and expiry: the fence lets only a system principal here.
+  v1.route('/system/whoami', systemWhoamiRouter());
+  if (input.systemTenantSettings !== undefined && input.systemTenantDirectory !== undefined) {
+    v1.route(
+      '/system/tenants',
+      systemTenantSettingsRouter({
+        settings: input.systemTenantSettings,
+        directory: input.systemTenantDirectory,
+        ...(authorizer !== undefined && { authorizer }),
+      }),
+    );
+  }
+  if (input.systemUsage !== undefined) {
+    v1.route(
+      '/system/usage',
+      systemUsageRouter({
+        usage: input.systemUsage,
+        ...(authorizer !== undefined && { authorizer }),
+      }),
+    );
   }
   v1.route(
     '/provenance',
@@ -1666,6 +1755,17 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ),
     );
   }
+  if (input.projectBinding !== undefined) {
+    v1.route(
+      '/projects',
+      projectProductionRouter({
+        projects: input.projectBinding,
+        tenantHierarchy: tenantHierarchyBinding,
+        ...(authorizer !== undefined && { authorizer }),
+        ...(input.production !== undefined && { production: input.production }),
+      }),
+    );
+  }
   if (input.projectBinding !== undefined && input.projectMembershipBinding !== undefined) {
     v1.route(
       '/projects',
@@ -1702,6 +1802,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(input.envBinding !== undefined && { envBinding: input.envBinding }),
       ...(secretsBinding !== undefined && { secretsBinding }),
       ...(authorizer !== undefined && { authorizer }),
+      ...(input.production?.next !== undefined && { productionNext: input.production.next }),
     }),
   );
   // ---------- env + secrets ----------

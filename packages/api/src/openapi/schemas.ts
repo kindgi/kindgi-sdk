@@ -1301,6 +1301,163 @@ export const SystemKeyListSchema: JsonSchema = {
   properties: { data: { type: 'array', items: SystemKeySchema } },
 };
 
+export const SystemTenantSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description: 'A tenant, as the operator sees it: never its content.',
+  required: ['id', 'name', 'slug', 'state', 'createdAt', 'test', 'productionAllowed'],
+  properties: {
+    id: { type: 'string', format: 'uuid' },
+    name: { type: 'string' },
+    slug: { type: 'string' },
+    state: {
+      type: 'string',
+      enum: ['active', 'suspended', 'closing'],
+      description:
+        '`closing`: readable and exportable with its own keys for its window, nothing runs. `suspended`: the same, reversibly. `closing` wins over `suspended`.',
+    },
+    createdAt: { type: 'string', format: 'date-time' },
+    test: {
+      type: 'boolean',
+      description: 'A test tenant: left out of usage, invoices and counts.',
+    },
+    productionAllowed: { type: 'boolean' },
+    imagePrefix: {
+      type: 'string',
+      description: "The repository its deployments' images must sit at or under, `<host>/<path>`.",
+    },
+    closingAt: { type: 'string', format: 'date-time' },
+    suspendedAt: { type: 'string', format: 'date-time' },
+    suspendedReason: { type: 'string' },
+  },
+};
+
+export const CreateSystemTenantBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['name'],
+  properties: {
+    name: { type: 'string', minLength: 1, maxLength: 100 },
+    slug: {
+      type: 'string',
+      maxLength: 63,
+      pattern: '^[a-z0-9](?:-?[a-z0-9])*$',
+      description: 'Lowercase letters, digits and single hyphens; generated when absent.',
+    },
+    productionAllowed: {
+      type: 'boolean',
+      description: 'Whether it may put projects in production. Absent: allowed.',
+    },
+    test: {
+      type: 'boolean',
+      description: 'A test tenant. The full system capability only.',
+    },
+    imagePrefix: {
+      type: 'string',
+      description:
+        "The repository its deployments' images must sit in, `<host>/<path>` with no trailing slash. On a runtime serving many tenants, a tenant without one can't register a deployment.",
+    },
+    firstAdmin: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['email', 'name'],
+      description:
+        "The person made the tenant's admin and member, by email: the runtime's own sign-in finds them. Absent: the answer carries an admin key instead, which takes the full system capability.",
+      properties: {
+        email: { type: 'string', maxLength: 254, description: 'An email address.' },
+        name: { type: 'string', minLength: 1, maxLength: 100 },
+      },
+    },
+  },
+};
+
+export const CreateSystemTenantResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['tenant'],
+  properties: {
+    tenant: ref('SystemTenant'),
+    firstAdmin: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['personId'],
+      properties: { personId: { type: 'string' } },
+    },
+    adminKey: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['tokenId', 'token'],
+      description: "The tenant's first admin key, without `firstAdmin`: shown once.",
+      properties: { tokenId: { type: 'string' }, token: { type: 'string' } },
+    },
+  },
+};
+
+export const SystemTenantListSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data'],
+  properties: {
+    data: { type: 'array', items: ref('SystemTenant') },
+    nextCursor: { type: 'string' },
+  },
+};
+
+export const SetTenantSuspendedBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['suspended'],
+  properties: {
+    suspended: { type: 'boolean' },
+    reason: { type: 'string', minLength: 1, maxLength: 500 },
+  },
+};
+
+export const SetTenantImagePrefixBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['prefix'],
+  properties: {
+    prefix: { type: 'string', description: '`<host>/<path>`, with no trailing slash.' },
+  },
+};
+
+export const TenantAdminContactsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data'],
+  properties: {
+    data: {
+      type: 'array',
+      maxItems: 100,
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['userId', 'email'],
+        properties: {
+          userId: { type: 'string' },
+          email: { type: 'string' },
+          displayName: { type: 'string' },
+        },
+      },
+    },
+  },
+};
+
+export const SystemWhoamiSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['keyId', 'scopes'],
+  properties: {
+    keyId: {
+      type: 'string',
+      description: "The system key's id, or `boot` for the deployment's own token.",
+    },
+    scopes: { type: 'array', items: { type: 'string' } },
+    expiresAt: { type: 'string', format: 'date-time' },
+  },
+};
+
 export const MintTokenResultSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -9941,8 +10098,40 @@ export const ProjectSchema: JsonSchema = {
     slug: { type: 'string' },
     isDefault: { type: 'boolean' },
     description: { type: 'string' },
+    productionSince: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        "When the project was put in production; absent while it isn't. A run in a project in production is a production run, and a run anywhere else is staging.",
+    },
     createdAt: { type: 'string' },
     updatedAt: { type: 'string' },
+  },
+};
+
+export const ProjectProductionBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['production'],
+  properties: {
+    production: {
+      type: 'boolean',
+      description: '`true` puts the project in production; `false` takes it out.',
+    },
+  },
+};
+
+export const ProjectProductionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['projectId', 'productionSince'],
+  properties: {
+    projectId: { type: 'string' },
+    productionSince: {
+      type: ['string', 'null'],
+      format: 'date-time',
+      description: "When the project went into production; `null` while it isn't in production.",
+    },
   },
 };
 
@@ -10219,6 +10408,149 @@ export const TenantSchema: JsonSchema = {
     slug: { type: 'string' },
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
+    productionAllowed: {
+      type: 'boolean',
+      description:
+        "Whether the tenant may put projects in production. Absent from a runtime that doesn't gate production.",
+    },
+    productionNext: {
+      type: 'string',
+      description:
+        'Where to go to be allowed to put projects in production, for example a billing page. Only while `productionAllowed` is `false`, and only when the runtime names one.',
+    },
+    limits: ref('TenantLimits'),
+  },
+};
+
+export const TenantLimitsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "The tenant's limits that are set. A limit that isn't set is absent, and isn't enforced.",
+  properties: {
+    apiRequestsPerMinute: {
+      type: 'integer',
+      minimum: 1,
+      description: 'API requests a minute. Past it: 429 `rate-limit-exceeded`.',
+    },
+    webhookReceivesPerMinute: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "Webhook deliveries received a minute, across the tenant's triggers. Past it: 429.",
+    },
+    runsAtOnce: {
+      type: 'integer',
+      minimum: 1,
+      description: 'Runs executing at once. Past it, a new run waits as `pending`.',
+    },
+    runsPending: {
+      type: 'integer',
+      minimum: 1,
+      description: 'Runs waiting as `pending`. Past it, a new run is refused with 429.',
+    },
+    toolCallsInFlight: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "Tool calls in flight to the tenant's pack services. Past it, a call waits for a slot.",
+    },
+    approvalsPending: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        'Approvals waiting for a decision. Past it, the step that asks fails, naming the limit.',
+    },
+  },
+};
+
+export const ProductionAllowedBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['allowed'],
+  properties: {
+    allowed: {
+      type: 'boolean',
+      description: '`true` allows the tenant to put projects in production; `false` stops it.',
+    },
+  },
+};
+
+export const TenantProductionAllowedSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['tenantId', 'productionAllowed'],
+  properties: {
+    tenantId: { type: 'string', format: 'uuid' },
+    productionAllowed: { type: 'boolean' },
+  },
+};
+
+export const TenantLimitsResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['tenantId', 'limits'],
+  properties: {
+    tenantId: { type: 'string', format: 'uuid' },
+    limits: ref('TenantLimits'),
+  },
+};
+
+export const UsageGroupSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['count', 'quantity', 'firstAt', 'lastAt'],
+  description:
+    "One group: the dimensions it's grouped by (only those), then its count, the sum of its quantities, and its first and last times.",
+  properties: {
+    tenantId: { type: 'string', format: 'uuid' },
+    projectId: { type: 'string' },
+    agentId: { type: 'string' },
+    kind: {
+      type: 'string',
+      enum: [
+        'run.started',
+        'run.ended',
+        'approval.requested',
+        'approval.decided',
+        'llm.inference',
+        'llm.embedding',
+        'project.production',
+      ],
+    },
+    class: {
+      type: 'string',
+      enum: ['production', 'staging', 'dry-run', 'replay', 'eval', 'child'],
+    },
+    state: { type: 'string', enum: ['on', 'off'] },
+    day: { type: 'string', format: 'date', description: 'The UTC date, `YYYY-MM-DD`.' },
+    count: { type: 'integer', minimum: 0, description: 'Records in the group.' },
+    quantity: {
+      type: 'number',
+      description:
+        'The sum of their quantities: milliseconds for `run.ended`, tokens for model calls.',
+    },
+    firstAt: { type: 'string', format: 'date-time' },
+    lastAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const SystemUsagePageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'watermark'],
+  properties: {
+    data: { type: 'array', items: ref('UsageGroup') },
+    watermark: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        "Every record at or before this time is in the answer; a later one may not be yet. Re-read a window until its watermark is past the window's end.",
+    },
+    nextCursor: {
+      type: 'string',
+      description: 'More groups: pass it as `cursor`. Absent on the last page.',
+    },
   },
 };
 
@@ -12011,6 +12343,14 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['RecordDeploymentProblemBody', RecordDeploymentProblemBodySchema],
   ['SetPackSuspendedBody', SetPackSuspendedBodySchema],
   ['PackSuspension', PackSuspensionSchema],
+  ['SystemTenant', SystemTenantSchema],
+  ['CreateSystemTenantBody', CreateSystemTenantBodySchema],
+  ['CreateSystemTenantResult', CreateSystemTenantResultSchema],
+  ['SystemTenantList', SystemTenantListSchema],
+  ['SetTenantSuspendedBody', SetTenantSuspendedBodySchema],
+  ['SetTenantImagePrefixBody', SetTenantImagePrefixBodySchema],
+  ['TenantAdminContacts', TenantAdminContactsSchema],
+  ['SystemWhoami', SystemWhoamiSchema],
   ['ApiToken', ApiTokenSchema],
   ['ApiTokenPage', ApiTokenPageSchema],
   ['ApiKeyPrincipal', ApiKeyPrincipalSchema],
@@ -12429,6 +12769,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ProjectAccess', ProjectAccessSchema],
   ['ProjectAccessPage', ProjectAccessPageSchema],
   ['Project', ProjectSchema],
+  ['ProjectProductionBody', ProjectProductionBodySchema],
+  ['ProjectProduction', ProjectProductionSchema],
   ['ProjectSpec', ProjectSpecSchema],
   ['ProjectPatch', ProjectPatchSchema],
   ['ProjectCollectionPage', ProjectCollectionPageSchema],
@@ -12438,6 +12780,12 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['UpdateProjectMembershipBody', UpdateProjectMembershipBodySchema],
   ['AddProjectMembershipResult', AddProjectMembershipResultSchema],
   ['Tenant', TenantSchema],
+  ['TenantLimits', TenantLimitsSchema],
+  ['ProductionAllowedBody', ProductionAllowedBodySchema],
+  ['TenantProductionAllowed', TenantProductionAllowedSchema],
+  ['TenantLimitsResult', TenantLimitsResultSchema],
+  ['UsageGroup', UsageGroupSchema],
+  ['SystemUsagePage', SystemUsagePageSchema],
   ['TenantConfigKind', TenantConfigKindSchema],
   ['TenantConfigEntry', TenantConfigEntrySchema],
   ['TenantConfigCollectionPage', TenantConfigCollectionPageSchema],

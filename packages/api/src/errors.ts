@@ -277,6 +277,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'image-not-allowed': 409,
   /** A problem recorded for a deployment whose endpoint isn't pending. */
   'endpoint-not-pending': 409,
+  /** Creating a tenant with a slug another tenant has. */
+  'tenant-slug-taken': 409,
   'service-account-not-found': 404,
   /** An active service account of the tenant already has the name. */
   'service-account-name-taken': 409,
@@ -373,6 +375,10 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'org-not-found': 404,
   'team-not-found': 404,
   'project-not-found': 404,
+  /** Putting a project in production while the tenant isn't allowed to (the production gate; `details.next`). */
+  'production-not-allowed': 403,
+  /** The production route on a runtime whose project binding can't set it. */
+  'production-unsupported': 501,
   'team-membership-not-found': 404,
   'project-membership-not-found': 404,
   // Re-adding a member with another role: the role they hold is kept.

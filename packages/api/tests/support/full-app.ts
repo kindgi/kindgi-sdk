@@ -668,8 +668,38 @@ export function fullAppInput(): CreateAppInput {
         recordProblem: async () => ({ kind: 'not-found' }),
         setSuspended: async () => ({ kind: 'not-found' }),
       },
-      tenants: { get: async () => null },
       endpointHostAllowed: () => false,
+    },
+    systemTenantDirectory: { get: async () => null },
+    systemTenants: {
+      create: async () => {
+        throw new Error('not used: no system principal in the sweeps');
+      },
+      list: async () => ({ kind: 'ok', data: [] }),
+      read: async () => null,
+      close: async () => {
+        throw new Error('not used');
+      },
+      setSuspended: async () => {
+        throw new Error('not used');
+      },
+      setImagePrefix: async () => {
+        throw new Error('not used');
+      },
+      admins: async () => [],
+    },
+    systemTenantSettings: {
+      setProductionAllowed: async () => {
+        throw new Error('not used: no system principal in the sweeps');
+      },
+      setLimits: async () => {
+        throw new Error('not used: no system principal in the sweeps');
+      },
+    },
+    systemUsage: {
+      read: async () => {
+        throw new Error('not used: no system principal in the sweeps');
+      },
     },
   };
 }

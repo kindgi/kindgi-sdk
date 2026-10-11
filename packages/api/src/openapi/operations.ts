@@ -1957,6 +1957,393 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
     },
   },
+  // ---------- system: tenants ----------
+  {
+    method: 'post',
+    honoPath: '/v1/system/tenants',
+    openapiPath: '/v1/system/tenants',
+    operationId: 'systemTenants.create',
+    summary: 'Create a tenant',
+    description:
+      "Creates a tenant on a runtime serving many tenants, with its setup (its default project, its authorization store) in the same change. With `firstAdmin`, that person becomes its admin and member by email, and the runtime's own sign-in finds them; the answer carries no key. Without it, the answer carries the tenant's first admin key, shown once, and that takes the full system capability (`kindgi:system`), as does a `test` tenant. Takes `system:tenants`. An Idempotency-Key retry answers the same tenant.",
+    tags: ['system-tenants'],
+    security: 'bearer',
+    parameters: [IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('CreateSystemTenantBody') },
+    responses: {
+      '201': {
+        description: 'The tenant, and its first admin.',
+        schema: ref('CreateSystemTenantResult'),
+      },
+      ...CommonMutationErrors,
+      '400': ErrorResponse(
+        'Malformed body: a name, slug, image prefix or first admin that is refused, or an unknown field.',
+      ),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`); a system key without `system:tenants`, or without `kindgi:system` for an admin key or a test tenant (`system-scope-missing`).",
+      ),
+      '409': ErrorResponse(
+        'Another tenant has the slug (`tenant-slug-taken`); or an Idempotency-Key reused with another body.',
+      ),
+      '503': ErrorResponse(
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/system/tenants',
+    openapiPath: '/v1/system/tenants',
+    operationId: 'systemTenants.list',
+    summary: 'List tenants',
+    description:
+      "Newest first; purged tenants are left out. Takes `system:tenants`. Never a tenant's content.",
+    tags: ['system-tenants'],
+    security: 'bearer',
+    parameters: [LimitQueryParam, CursorQueryParam],
+    responses: {
+      '200': { description: 'The tenants.', schema: ref('SystemTenantList') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse('A `limit` out of range, or a `cursor` this route did not give.'),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:tenants` (`system-scope-missing`).",
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/system/tenants/:tenantId',
+    openapiPath: '/v1/system/tenants/{tenantId}',
+    operationId: 'systemTenants.get',
+    summary: 'Read a tenant',
+    description: 'Its state, switch, image prefix and dates. Takes `system:tenants`.',
+    tags: ['system-tenants'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: "The tenant's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+    ],
+    responses: {
+      '200': { description: 'The tenant.', schema: ref('SystemTenant') },
+      ...CommonAuthErrors,
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:tenants` (`system-scope-missing`).",
+      ),
+      '404': ErrorResponse('No tenant with that id, or a purged one (`tenant-not-found`).'),
+    },
+  },
+  {
+    method: 'post',
+    honoPath: '/v1/system/tenants/:tenantId/close',
+    openapiPath: '/v1/system/tenants/{tenantId}/close',
+    operationId: 'systemTenants.close',
+    summary: 'Close a tenant',
+    description:
+      'Starts the end of its contract: the tenant becomes `closing`. Its own keys and sessions still read and export it for its window; nothing runs (its running runs are cancelled), and nothing is written but deletes. One-way: the purge follows the window. A second close keeps the first. Takes `system:tenants`.',
+    tags: ['system-tenants'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: "The tenant's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+      IdempotencyKeyParam,
+    ],
+    responses: {
+      '200': { description: 'The tenant, closing.', schema: ref('SystemTenant') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:tenants` (`system-scope-missing`).",
+      ),
+      '404': ErrorResponse('No tenant with that id, or a purged one (`tenant-not-found`).'),
+      '503': ErrorResponse(
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+      ),
+    },
+  },
+  {
+    method: 'put',
+    honoPath: '/v1/system/tenants/:tenantId/suspended',
+    openapiPath: '/v1/system/tenants/{tenantId}/suspended',
+    operationId: 'systemTenants.setSuspended',
+    summary: 'Suspend a tenant, or restore it',
+    description:
+      "Reversible: a suspended tenant's own keys and sessions still read and export it; nothing runs (its running runs are cancelled), and nothing is written but deletes. Its schedules and triggers are skipped, not changed, so restoring resumes exactly what was on. Billing goes on. Takes `system:suspend`, which no other scope includes. A closing tenant is refused (`409 tenant-closing`).",
+    tags: ['system-tenants'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: "The tenant's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+      IdempotencyKeyParam,
+    ],
+    requestBody: { required: true, schema: ref('SetTenantSuspendedBody') },
+    responses: {
+      '200': { description: 'The tenant now.', schema: ref('SystemTenant') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:suspend` (`system-scope-missing`).",
+      ),
+      '404': ErrorResponse('No tenant with that id, or a purged one (`tenant-not-found`).'),
+      '409': ErrorResponse(
+        'The tenant is closing (`tenant-closing`); or an Idempotency-Key reused with another body.',
+      ),
+      '503': ErrorResponse(
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+      ),
+    },
+  },
+  {
+    method: 'put',
+    honoPath: '/v1/system/tenants/:tenantId/image-prefix',
+    openapiPath: '/v1/system/tenants/{tenantId}/image-prefix',
+    operationId: 'systemTenants.setImagePrefix',
+    summary: "Set the repository a tenant's images must sit in",
+    description:
+      "Each tenant may deploy only images at or under its own repository: `<host>/<path>`, matched on a path boundary, with no trailing slash. On a runtime serving many tenants, a tenant without one can't register a deployment. Takes `system:tenants`. A closing tenant is refused (`409 tenant-closing`).",
+    tags: ['system-tenants'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: "The tenant's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+      IdempotencyKeyParam,
+    ],
+    requestBody: { required: true, schema: ref('SetTenantImagePrefixBody') },
+    responses: {
+      '200': { description: 'The tenant now.', schema: ref('SystemTenant') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse('A prefix that is not `<host>/<path>`.'),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:tenants` (`system-scope-missing`).",
+      ),
+      '404': ErrorResponse('No tenant with that id, or a purged one (`tenant-not-found`).'),
+      '409': ErrorResponse(
+        'The tenant is closing (`tenant-closing`); or an Idempotency-Key reused with another body.',
+      ),
+      '503': ErrorResponse(
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/system/tenants/:tenantId/admins',
+    openapiPath: '/v1/system/tenants/{tenantId}/admins',
+    operationId: 'systemTenants.admins',
+    summary: "A tenant's admins' contact addresses",
+    description:
+      "For the operator's service notices (a breach, maintenance, a new sub-processor, a terms change): the tenant's active admins with a primary email, at most 100, and only their id, email and display name. Account contacts, never the tenant's content. Takes its own scope, `system:tenants:contacts`, and every read is recorded.",
+    tags: ['system-tenants'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: "The tenant's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+    ],
+    responses: {
+      '200': { description: 'The admins.', schema: ref('TenantAdminContacts') },
+      ...CommonAuthErrors,
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:tenants:contacts` (`system-scope-missing`).",
+      ),
+      '404': ErrorResponse('No tenant with that id, or a purged one (`tenant-not-found`).'),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/system/whoami',
+    openapiPath: '/v1/system/whoami',
+    operationId: 'systemKeys.whoami',
+    summary: 'Which system key this is',
+    description:
+      "A system key's own id, scopes and expiry, for a service checking its key. Any system principal; a tenant's key or session is refused (`system-principal-required`). `GET /v1/identity/whoami` is a tenant route, which refuses a system key.",
+    tags: ['system-keys'],
+    security: 'bearer',
+    responses: {
+      '200': { description: 'The key.', schema: ref('SystemWhoami') },
+      ...CommonAuthErrors,
+      '403': ErrorResponse("A tenant's key or session (`system-principal-required`)."),
+    },
+  },
+  // ---------- system: tenant settings and usage ----------
+  {
+    method: 'put',
+    honoPath: '/v1/system/tenants/:tenantId/production-allowed',
+    openapiPath: '/v1/system/tenants/{tenantId}/production-allowed',
+    operationId: 'systemTenants.setProductionAllowed',
+    summary: 'Allow a tenant production, or stop it',
+    description:
+      "The switch the production gate reads: with it off, `PUT /v1/projects/{projectId}/production` refuses to put the tenant's projects in production (`403 production-not-allowed`), and projects already in production stay so. A tenant is allowed until it's switched off. Takes `system:tenants:production`. A closing tenant is frozen: `409 tenant-closing`.",
+    tags: ['system-tenants'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: "The tenant's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+      IdempotencyKeyParam,
+    ],
+    requestBody: { required: true, schema: ref('ProductionAllowedBody') },
+    responses: {
+      '200': { description: "The tenant's switch now.", schema: ref('TenantProductionAllowed') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:tenants:production` (`system-scope-missing`).",
+      ),
+      '404': ErrorResponse('No tenant with that id, or a purged one (`tenant-not-found`).'),
+      '409': ErrorResponse(
+        'The tenant is closing (`tenant-closing`); or an Idempotency-Key reused with another body.',
+      ),
+    },
+  },
+  {
+    method: 'put',
+    honoPath: '/v1/system/tenants/:tenantId/limits',
+    openapiPath: '/v1/system/tenants/{tenantId}/limits',
+    operationId: 'systemTenants.setLimits',
+    summary: "Set a tenant's limits",
+    description:
+      "Replaces the tenant's limits with exactly these: a limit left out isn't set, and isn't enforced. Each is a whole number from 1 to 1000000. The tenant reads them on `GET /v1/tenant`. Takes `system:tenants:limits`. A closing tenant is frozen: `409 tenant-closing`.",
+    tags: ['system-tenants'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: "The tenant's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+      IdempotencyKeyParam,
+    ],
+    requestBody: { required: true, schema: ref('TenantLimits') },
+    responses: {
+      '200': { description: "The tenant's limits now.", schema: ref('TenantLimitsResult') },
+      ...CommonMutationErrors,
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:tenants:limits` (`system-scope-missing`).",
+      ),
+      '404': ErrorResponse('No tenant with that id, or a purged one (`tenant-not-found`).'),
+      '409': ErrorResponse(
+        'The tenant is closing (`tenant-closing`); or an Idempotency-Key reused with another body.',
+      ),
+    },
+  },
+  {
+    method: 'get',
+    honoPath: '/v1/system/usage',
+    openapiPath: '/v1/system/usage',
+    operationId: 'systemUsage.read',
+    summary: 'Read usage across tenants',
+    description:
+      "Usage records aggregated by the dimensions in `groupBy`: each group's count, the sum of its quantities, and its first and last times. Never a record's content. Records are counted when the counted thing happens, exactly once (`USAGE_KINDS`, each run with its class). `watermark`: every record at or before it is in the answer, so re-read a window until its watermark is past the window's end. Takes `system:usage:read`; the access record marks a read across every tenant. A runtime that doesn't count usage answers 404.",
+    tags: ['system-usage'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'from',
+        in: 'query',
+        required: true,
+        description:
+          'Records at or after this time: a time with a zone, such as `2026-11-01T00:00:00Z`.',
+        schema: { type: 'string', format: 'date-time' },
+      },
+      {
+        name: 'to',
+        in: 'query',
+        required: true,
+        description: 'Records before this time. At most 92 days after `from`.',
+        schema: { type: 'string', format: 'date-time' },
+      },
+      {
+        name: 'groupBy',
+        in: 'query',
+        required: false,
+        description:
+          'Comma-separated, each once: `tenant`, `project`, `agent`, `kind`, `class`, `state`, `day` (the UTC date). Default `tenant,kind`.',
+        schema: { type: 'string' },
+      },
+      {
+        name: 'kind',
+        in: 'query',
+        required: false,
+        description:
+          'Only these kinds, comma-separated (`run.started`, `run.ended`, `approval.requested`, `approval.decided`, `llm.inference`, `llm.embedding`, `project.production`).',
+        schema: { type: 'string' },
+      },
+      {
+        name: 'class',
+        in: 'query',
+        required: false,
+        description:
+          'Only these run classes, comma-separated (`production`, `staging`, `dry-run`, `replay`, `eval`, `child`).',
+        schema: { type: 'string' },
+      },
+      {
+        name: 'state',
+        in: 'query',
+        required: false,
+        description:
+          'Only these states, comma-separated (`on`, `off`: a `project.production` record).',
+        schema: { type: 'string' },
+      },
+      {
+        name: 'tenantId',
+        in: 'query',
+        required: false,
+        description: 'Only this tenant.',
+        schema: { type: 'string', format: 'uuid' },
+      },
+      {
+        name: 'limit',
+        in: 'query',
+        required: false,
+        description: 'Groups a page: 1 to 10000, default 1000.',
+        schema: { type: 'integer', minimum: 1, maximum: 10000 },
+      },
+      {
+        name: 'cursor',
+        in: 'query',
+        required: false,
+        description: "The previous page's `nextCursor`.",
+        schema: { type: 'string' },
+      },
+    ],
+    responses: {
+      '200': { description: 'A page of groups.', schema: ref('SystemUsagePage') },
+      ...CommonAuthErrors,
+      '400': ErrorResponse(
+        "A window, filter, `limit` or `cursor` this route can't read (`bad-input`), naming which.",
+      ),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:usage:read` (`system-scope-missing`).",
+      ),
+    },
+  },
   // ---------- system deployments (per-deployment routing) ----------
   {
     method: 'get',
@@ -7645,6 +8032,33 @@ export const OPERATIONS: readonly OperationSpec[] = [
     },
   },
   {
+    method: 'put',
+    honoPath: '/v1/projects/:projectId/production',
+    openapiPath: '/v1/projects/{projectId}/production',
+    operationId: 'projects.production.set',
+    summary: 'Put a project in production, or take it out',
+    description:
+      "A run in a project in production is a production run; a run anywhere else is staging. For tenant admins (`admin` on the tenant), both ways. Setting what's already set answers 200 unchanged and keeps the first `productionSince`. With the runtime's production gate on, putting a project in production is refused with 403 `production-not-allowed` while the tenant isn't allowed it, with `details.next` naming where to go to be allowed when the runtime names one; a project already in production stays so. 501 `production-unsupported` from a runtime whose projects can't be put in production.",
+    tags: ['projects'],
+    security: 'bearer',
+    parameters: [ProjectIdPathParam, IdempotencyKeyParam],
+    requestBody: { required: true, schema: ref('ProjectProductionBody') },
+    responses: {
+      '200': {
+        description: 'The project is now as asked.',
+        schema: ref('ProjectProduction'),
+      },
+      ...CommonMutationErrors,
+      '403': ErrorResponse(
+        "Not a tenant admin (`permission-denied`); or the tenant isn't allowed to put projects in production (`production-not-allowed`, `details.projectId`, `details.next` when the runtime names one).",
+      ),
+      '404': ErrorResponse('No project with that id under this tenant (`project-not-found`).'),
+      '501': ErrorResponse(
+        "The runtime's projects can't be put in production (`production-unsupported`).",
+      ),
+    },
+  },
+  {
     method: 'get',
     honoPath: '/v1/projects/:projectId/team-grants',
     openapiPath: '/v1/projects/{projectId}/team-grants',
@@ -7824,7 +8238,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'tenant.get',
     summary: "Fetch the caller's tenant",
     description:
-      'Returns the tenant the bearer token authenticates as. There is no `/v1/tenants` collection — tenants are the sovereignty boundary, not a listable resource under a tenant.',
+      "Returns the tenant the bearer token authenticates as. There is no `/v1/tenants` collection — tenants are the sovereignty boundary, not a listable resource under a tenant. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), and one that sets limits adds the tenant's `limits`.",
     tags: ['tenant'],
     security: 'bearer',
     responses: {

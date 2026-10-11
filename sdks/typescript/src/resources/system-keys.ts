@@ -6,6 +6,7 @@ import type {
   MintSystemKeyResult,
   RevokeSystemKeyResult,
   SystemKeyList,
+  SystemWhoami,
 } from '../generated/api.js';
 import type { Transport } from '../transport.js';
 
@@ -14,6 +15,7 @@ export type SystemKey = SystemKeyList['data'][number];
 export type SystemKeySpec = MintSystemKeyBody;
 export type MintedSystemKey = MintSystemKeyResult;
 export type RevokedSystemKey = RevokeSystemKeyResult;
+export type SystemKeyIdentity = SystemWhoami;
 
 /**
  * The operator's system keys (`kgi_sy_…`), on a runtime serving many
@@ -46,10 +48,20 @@ export interface SystemKeysClient {
    * @wire `POST /v1/system/keys/{keyId}/revoke`
    */
   revoke(keyId: string, options?: { readonly idempotencyKey?: string }): Promise<RevokedSystemKey>;
+  /**
+   * Which system key this client holds: its id, scopes and expiry. Any
+   * system key.
+   *
+   * @wire `GET /v1/system/whoami`
+   */
+  whoami(): Promise<SystemKeyIdentity>;
 }
 
 export function makeSystemKeysClient(transport: Transport): SystemKeysClient {
   return {
+    async whoami() {
+      return transport.request<SystemKeyIdentity>({ method: 'GET', path: '/v1/system/whoami' });
+    },
     async mint(spec, options) {
       return transport.request<MintedSystemKey>({
         method: 'POST',

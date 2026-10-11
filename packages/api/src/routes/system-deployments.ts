@@ -169,8 +169,6 @@ export interface SystemDeploymentsBinding {
 
 export interface SystemDeploymentsOptions {
   readonly binding: SystemDeploymentsBinding;
-  /** The tenants a system route can name, and their states. */
-  readonly tenants: SystemTenantDirectory;
   /**
    * Check 2: whether an endpoint's host name is on the operator's allowlist
    * (`KINDGI_PACK_ENDPOINT_HOSTS`, read with `@kindgi/env-schema`'s
@@ -208,10 +206,13 @@ type WireError = { readonly code: string; readonly message: string } & Readonly<
  * pack. No tenant input ever names a pack's URL.
  */
 export function systemDeploymentsRouter(
-  options: SystemDeploymentsOptions,
-  authorizer?: Authorizer,
+  options: SystemDeploymentsOptions & {
+    /** The tenants a system route can name, and their states (`systemTenantDirectory`). */
+    readonly directory: SystemTenantDirectory;
+    readonly authorizer?: Authorizer;
+  },
 ): Hono<AppEnv> {
-  const { binding, tenants } = options;
+  const { binding, directory: tenants, authorizer } = options;
   const names = options.endpointNames ?? 'bound';
   const r = new Hono<AppEnv>();
 

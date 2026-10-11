@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
@@ -1226,6 +1227,175 @@ class PackSuspension(BaseModel):
     """
     When it last changed.
     """
+
+
+class SystemTenant(BaseModel):
+    """
+    A tenant, as the operator sees it: never its content.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: UUID
+    name: str
+    slug: str
+    state: Literal["active", "suspended", "closing"]
+    """
+    `closing`: readable and exportable with its own keys for its window, nothing runs. `suspended`: the same, reversibly. `closing` wins over `suspended`.
+    """
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    test: bool
+    """
+    A test tenant: left out of usage, invoices and counts.
+    """
+    production_allowed: Annotated[bool, Field(alias="productionAllowed")]
+    image_prefix: Annotated[str | None, Field(alias="imagePrefix")] = None
+    """
+    The repository its deployments' images must sit at or under, `<host>/<path>`.
+    """
+    closing_at: Annotated[AwareDatetime | None, Field(alias="closingAt")] = None
+    suspended_at: Annotated[AwareDatetime | None, Field(alias="suspendedAt")] = None
+    suspended_reason: Annotated[str | None, Field(alias="suspendedReason")] = None
+
+
+class FirstAdmin(BaseModel):
+    """
+    The person made the tenant's admin and member, by email: the runtime's own sign-in finds them. Absent: the answer carries an admin key instead, which takes the full system capability.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    email: Annotated[str, Field(max_length=254)]
+    """
+    An email address.
+    """
+    name: Annotated[str, Field(max_length=100, min_length=1)]
+
+
+class CreateSystemTenantBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    name: Annotated[str, Field(max_length=100, min_length=1)]
+    slug: Annotated[str | None, Field(max_length=63, pattern="^[a-z0-9](?:-?[a-z0-9])*$")] = None
+    """
+    Lowercase letters, digits and single hyphens; generated when absent.
+    """
+    production_allowed: Annotated[bool | None, Field(alias="productionAllowed")] = None
+    """
+    Whether it may put projects in production. Absent: allowed.
+    """
+    test: bool | None = None
+    """
+    A test tenant. The full system capability only.
+    """
+    image_prefix: Annotated[str | None, Field(alias="imagePrefix")] = None
+    """
+    The repository its deployments' images must sit in, `<host>/<path>` with no trailing slash. On a runtime serving many tenants, a tenant without one can't register a deployment.
+    """
+    first_admin: Annotated[FirstAdmin | None, Field(alias="firstAdmin")] = None
+    """
+    The person made the tenant's admin and member, by email: the runtime's own sign-in finds them. Absent: the answer carries an admin key instead, which takes the full system capability.
+    """
+
+
+class FirstAdmin1(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    person_id: Annotated[str, Field(alias="personId")]
+
+
+class AdminKey(BaseModel):
+    """
+    The tenant's first admin key, without `firstAdmin`: shown once.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    token_id: Annotated[str, Field(alias="tokenId")]
+    token: str
+
+
+class CreateSystemTenantResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tenant: SystemTenant
+    first_admin: Annotated[FirstAdmin1 | None, Field(alias="firstAdmin")] = None
+    admin_key: Annotated[AdminKey | None, Field(alias="adminKey")] = None
+    """
+    The tenant's first admin key, without `firstAdmin`: shown once.
+    """
+
+
+class SystemTenantList(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[SystemTenant]
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+
+
+class SetTenantSuspendedBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    suspended: bool
+    reason: Annotated[str | None, Field(max_length=500, min_length=1)] = None
+
+
+class SetTenantImagePrefixBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    prefix: str
+    """
+    `<host>/<path>`, with no trailing slash.
+    """
+
+
+class Datum3(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    user_id: Annotated[str, Field(alias="userId")]
+    email: str
+    display_name: Annotated[str | None, Field(alias="displayName")] = None
+
+
+class TenantAdminContacts(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: Annotated[list[Datum3], Field(max_length=100)]
+
+
+class SystemWhoami(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    key_id: Annotated[str, Field(alias="keyId")]
+    """
+    The system key's id, or `boot` for the deployment's own token.
+    """
+    scopes: list[str]
+    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
 
 
 class ApiKeyPrincipal(BaseModel):
@@ -5349,7 +5519,7 @@ class BlobMeta(BaseModel):
     created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
 
 
-class Datum4(BaseModel):
+class Datum5(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -5399,7 +5569,7 @@ class ArtifactCollectionPage(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    data: list[Datum4]
+    data: list[Datum5]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     has_more: Annotated[bool, Field(alias="hasMore")]
 
@@ -9677,8 +9847,35 @@ class Project(BaseModel):
     slug: str
     is_default: Annotated[bool, Field(alias="isDefault")]
     description: str | None = None
+    production_since: Annotated[AwareDatetime | None, Field(alias="productionSince")] = None
+    """
+    When the project was put in production; absent while it isn't. A run in a project in production is a production run, and a run anywhere else is staging.
+    """
     created_at: Annotated[str, Field(alias="createdAt")]
     updated_at: Annotated[str, Field(alias="updatedAt")]
+
+
+class ProjectProductionBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    production: bool
+    """
+    `true` puts the project in production; `false` takes it out.
+    """
+
+
+class ProjectProduction(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    project_id: Annotated[str, Field(alias="projectId")]
+    production_since: Annotated[AwareDatetime | None, Field(alias="productionSince")]
+    """
+    When the project went into production; `null` while it isn't in production.
+    """
 
 
 class ProjectSpec(BaseModel):
@@ -9785,16 +9982,131 @@ class AddProjectMembershipResult(BaseModel):
     """
 
 
-class Tenant(BaseModel):
+class TenantLimits(BaseModel):
+    """
+    The tenant's limits that are set. A limit that isn't set is absent, and isn't enforced.
+    """
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    id: UUID
-    name: str
-    slug: str
-    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
-    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+    api_requests_per_minute: Annotated[int | None, Field(alias="apiRequestsPerMinute", ge=1)] = None
+    """
+    API requests a minute. Past it: 429 `rate-limit-exceeded`.
+    """
+    webhook_receives_per_minute: Annotated[
+        int | None, Field(alias="webhookReceivesPerMinute", ge=1)
+    ] = None
+    """
+    Webhook deliveries received a minute, across the tenant's triggers. Past it: 429.
+    """
+    runs_at_once: Annotated[int | None, Field(alias="runsAtOnce", ge=1)] = None
+    """
+    Runs executing at once. Past it, a new run waits as `pending`.
+    """
+    runs_pending: Annotated[int | None, Field(alias="runsPending", ge=1)] = None
+    """
+    Runs waiting as `pending`. Past it, a new run is refused with 429.
+    """
+    tool_calls_in_flight: Annotated[int | None, Field(alias="toolCallsInFlight", ge=1)] = None
+    """
+    Tool calls in flight to the tenant's pack services. Past it, a call waits for a slot.
+    """
+    approvals_pending: Annotated[int | None, Field(alias="approvalsPending", ge=1)] = None
+    """
+    Approvals waiting for a decision. Past it, the step that asks fails, naming the limit.
+    """
+
+
+class ProductionAllowedBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    allowed: bool
+    """
+    `true` allows the tenant to put projects in production; `false` stops it.
+    """
+
+
+class TenantProductionAllowed(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    production_allowed: Annotated[bool, Field(alias="productionAllowed")]
+
+
+class TenantLimitsResult(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tenant_id: Annotated[UUID, Field(alias="tenantId")]
+    limits: TenantLimits
+
+
+class UsageGroup(BaseModel):
+    """
+    One group: the dimensions it's grouped by (only those), then its count, the sum of its quantities, and its first and last times.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    tenant_id: Annotated[UUID | None, Field(alias="tenantId")] = None
+    project_id: Annotated[str | None, Field(alias="projectId")] = None
+    agent_id: Annotated[str | None, Field(alias="agentId")] = None
+    kind: (
+        Literal[
+            "run.started",
+            "run.ended",
+            "approval.requested",
+            "approval.decided",
+            "llm.inference",
+            "llm.embedding",
+            "project.production",
+        ]
+        | None
+    ) = None
+    class_: Annotated[
+        Literal["production", "staging", "dry-run", "replay", "eval", "child"] | None,
+        Field(alias="class"),
+    ] = None
+    state: Literal["on", "off"] | None = None
+    day: date | None = None
+    """
+    The UTC date, `YYYY-MM-DD`.
+    """
+    count: Annotated[int, Field(ge=0)]
+    """
+    Records in the group.
+    """
+    quantity: float
+    """
+    The sum of their quantities: milliseconds for `run.ended`, tokens for model calls.
+    """
+    first_at: Annotated[AwareDatetime, Field(alias="firstAt")]
+    last_at: Annotated[AwareDatetime, Field(alias="lastAt")]
+
+
+class SystemUsagePage(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    data: list[UsageGroup]
+    watermark: AwareDatetime
+    """
+    Every record at or before this time is in the answer; a later one may not be yet. Re-read a window until its watermark is past the window's end.
+    """
+    next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    More groups: pass it as `cursor`. Absent on the last page.
+    """
 
 
 class TenantConfigEntry(BaseModel):
@@ -11030,7 +11342,7 @@ class AuditSignInsListResponse(BaseModel):
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
 
-class Datum5(BaseModel):
+class Datum6(BaseModel):
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
@@ -11056,7 +11368,7 @@ class AuditAuthzListResponse(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    data: list[Datum5]
+    data: list[Datum6]
     has_more: Annotated[bool, Field(alias="hasMore")]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
 
@@ -11448,7 +11760,7 @@ class ApiToken(BaseModel):
     """
 
 
-class Datum3(BaseModel):
+class Datum4(BaseModel):
     """
     An API key. Never includes the secret. `principal` is whom it acts for; absent on a key that is a service account of its own (`service_account:<tokenId>`), as keys minted before principals are.
     """
@@ -11493,7 +11805,7 @@ class ApiTokenPage(BaseModel):
         extra="allow",
         populate_by_name=True,
     )
-    data: list[Datum3]
+    data: list[Datum4]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
     """
     Opaque cursor for the next page. Absent when `hasMore: false`.
@@ -12274,6 +12586,27 @@ class DeploymentSecretsSyncRequest(BaseModel):
     """
     Zero or more secret entries. Each entry MUST set exactly one of `ref` (validate-only) or `value` (write new version).
     """
+
+
+class Tenant(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: UUID
+    name: str
+    slug: str
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+    production_allowed: Annotated[bool | None, Field(alias="productionAllowed")] = None
+    """
+    Whether the tenant may put projects in production. Absent from a runtime that doesn't gate production.
+    """
+    production_next: Annotated[str | None, Field(alias="productionNext")] = None
+    """
+    Where to go to be allowed to put projects in production, for example a billing page. Only while `productionAllowed` is `false`, and only when the runtime names one.
+    """
+    limits: TenantLimits | None = None
 
 
 class ScheduleRecord(BaseModel):

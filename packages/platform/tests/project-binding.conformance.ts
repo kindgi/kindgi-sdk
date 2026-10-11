@@ -72,6 +72,11 @@ export function runProjectBindingConformance(
      * `org-not-found`.
      */
     readonly checksOrgs?: boolean;
+    /**
+     * The binding implements `setProduction`: a project put in production
+     * and taken out, with repeats changing nothing.
+     */
+    readonly production?: boolean;
   } = {},
 ): void {
   describe(`${label} — project CRUD`, () => {
@@ -112,6 +117,78 @@ export function runProjectBindingConformance(
       expect(gPage.items).toHaveLength(0);
     });
   });
+
+  if (options.production === true) {
+    describe(`${label} — production`, () => {
+      function setter(projects: ProjectBinding) {
+        const set = projects.setProduction?.bind(projects);
+        if (set === undefined) throw new Error('this binding has no setProduction');
+        return set;
+      }
+
+      it('puts a project in production, then takes it out', async () => {
+        const { projects } = makeBinding();
+        const id = await createProject(projects, T1, { name: 'Shop', slug: 'shop' });
+        const set = setter(projects);
+        const on = await set(T1, id, true);
+        expect(on.kind).toBe('ok');
+        const since = on.kind === 'ok' ? on.productionSince : null;
+        expect(typeof since).toBe('string');
+        expect(on.kind === 'ok' && on.changed).toBe(true);
+        expect((await projects.get(T1, id))?.productionSince).toBe(since);
+        expect((await projects.list(T1, {})).items.find((p) => p.id === id)?.productionSince).toBe(
+          since,
+        );
+
+        expect(await set(T1, id, false)).toEqual({
+          kind: 'ok',
+          productionSince: null,
+          changed: true,
+        });
+        expect((await projects.get(T1, id))?.productionSince).toBeUndefined();
+      });
+
+      it('a repeat changes nothing, and keeps the first productionSince', async () => {
+        const { projects } = makeBinding();
+        const id = await createProject(projects, T1, { name: 'Shop', slug: 'shop' });
+        const set = setter(projects);
+        const first = await set(T1, id, true);
+        const since = first.kind === 'ok' ? first.productionSince : null;
+        expect(await set(T1, id, true)).toEqual({
+          kind: 'ok',
+          productionSince: since,
+          changed: false,
+        });
+        await set(T1, id, false);
+        expect(await set(T1, id, false)).toEqual({
+          kind: 'ok',
+          productionSince: null,
+          changed: false,
+        });
+      });
+
+      it('an update keeps productionSince', async () => {
+        const { projects } = makeBinding();
+        const id = await createProject(projects, T1, { name: 'Shop', slug: 'shop' });
+        const on = await setter(projects)(T1, id, true);
+        expect(await projects.update(T1, id, { name: 'Shop, renamed' })).toEqual({ kind: 'ok' });
+        expect((await projects.get(T1, id))?.productionSince).toBe(
+          on.kind === 'ok' ? on.productionSince : 'not ok',
+        );
+      });
+
+      it("an unknown project, or another tenant's: project-not-found, nothing changed", async () => {
+        const { projects } = makeBinding();
+        const id = await createProject(projects, T1, { name: 'Shop', slug: 'shop' });
+        const set = setter(projects);
+        expect(await set(T1, 'project-missing' as ProjectId, true)).toEqual({
+          kind: 'project-not-found',
+        });
+        expect(await set(T2, id, true)).toEqual({ kind: 'project-not-found' });
+        expect((await projects.get(T1, id))?.productionSince).toBeUndefined();
+      });
+    });
+  }
 
   describe(`${label} — Default project`, () => {
     it('getDefault returns undefined before any Default is created', async () => {

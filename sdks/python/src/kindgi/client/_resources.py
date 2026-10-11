@@ -51,6 +51,43 @@ OPERATIONS: dict[str, Operation] = {
     "systemKeys.revoke": Operation(
         "systemKeys.revoke", "POST", "/v1/system/keys/{keyId}/revoke", "json", True
     ),
+    "systemTenants.list": Operation(
+        "systemTenants.list", "GET", "/v1/system/tenants", "json", False
+    ),
+    "systemTenants.create": Operation(
+        "systemTenants.create", "POST", "/v1/system/tenants", "json", True
+    ),
+    "systemTenants.get": Operation(
+        "systemTenants.get", "GET", "/v1/system/tenants/{tenantId}", "json", False
+    ),
+    "systemTenants.close": Operation(
+        "systemTenants.close", "POST", "/v1/system/tenants/{tenantId}/close", "json", True
+    ),
+    "systemTenants.setSuspended": Operation(
+        "systemTenants.setSuspended", "PUT", "/v1/system/tenants/{tenantId}/suspended", "json", True
+    ),
+    "systemTenants.setImagePrefix": Operation(
+        "systemTenants.setImagePrefix",
+        "PUT",
+        "/v1/system/tenants/{tenantId}/image-prefix",
+        "json",
+        True,
+    ),
+    "systemTenants.admins": Operation(
+        "systemTenants.admins", "GET", "/v1/system/tenants/{tenantId}/admins", "json", False
+    ),
+    "systemKeys.whoami": Operation("systemKeys.whoami", "GET", "/v1/system/whoami", "json", False),
+    "systemTenants.setProductionAllowed": Operation(
+        "systemTenants.setProductionAllowed",
+        "PUT",
+        "/v1/system/tenants/{tenantId}/production-allowed",
+        "json",
+        True,
+    ),
+    "systemTenants.setLimits": Operation(
+        "systemTenants.setLimits", "PUT", "/v1/system/tenants/{tenantId}/limits", "json", True
+    ),
+    "systemUsage.read": Operation("systemUsage.read", "GET", "/v1/system/usage", "json", False),
     "systemDeployments.list": Operation(
         "systemDeployments.list", "GET", "/v1/system/deployments", "json", False
     ),
@@ -793,6 +830,9 @@ OPERATIONS: dict[str, Operation] = {
     ),
     "projects.access.list": Operation(
         "projects.access.list", "GET", "/v1/projects/{projectId}/access", "json", False
+    ),
+    "projects.production.set": Operation(
+        "projects.production.set", "PUT", "/v1/projects/{projectId}/production", "json", True
     ),
     "projects.teamGrants.list": Operation(
         "projects.teamGrants.list", "GET", "/v1/projects/{projectId}/team-grants", "json", False
@@ -1567,6 +1607,265 @@ class SystemKeysResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.RevokeSystemKeyResult,
+            timeout=timeout,
+        )
+
+    def whoami(self, /, *, timeout: float | None = None) -> _models.SystemWhoami:
+        """Which system key this is. `GET /v1/system/whoami`
+
+        A system key's own id, scopes and expiry, for a service checking its key. Any system principal; a tenant's key or session is refused (`system-principal-required`). `GET /v1/identity/whoami` is a tenant route, which refuses a system key.
+        """
+        return self._client._request(
+            _OPERATIONS["systemKeys.whoami"],
+            path={},
+            query={},
+            headers={},
+            response=_models.SystemWhoami,
+            timeout=timeout,
+        )
+
+
+class SystemTenantsResource:
+    """`client.system_tenants` — the `systemTenants` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.SystemTenantList:
+        """List tenants. `GET /v1/system/tenants`
+
+        Newest first; purged tenants are left out. Takes `system:tenants`. Never a tenant's content.
+        """
+        return self._client._request(
+            _OPERATIONS["systemTenants.list"],
+            path={},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.SystemTenantList,
+            timeout=timeout,
+        )
+
+    def create(
+        self,
+        body: _models.CreateSystemTenantBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.CreateSystemTenantResult:
+        """Create a tenant. `POST /v1/system/tenants`
+
+        Creates a tenant on a runtime serving many tenants, with its setup (its default project, its authorization store) in the same change. With `firstAdmin`, that person becomes its admin and member by email, and the runtime's own sign-in finds them; the answer carries no key. Without it, the answer carries the tenant's first admin key, shown once, and that takes the full system capability (`kindgi:system`), as does a `test` tenant. Takes `system:tenants`. An Idempotency-Key retry answers the same tenant.
+        """
+        return self._client._request(
+            _OPERATIONS["systemTenants.create"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.CreateSystemTenantBody, body, fields),
+            response=_models.CreateSystemTenantResult,
+            timeout=timeout,
+        )
+
+    def get(
+        self, tenant_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.SystemTenant:
+        """Read a tenant. `GET /v1/system/tenants/{tenantId}`
+
+        Its state, switch, image prefix and dates. Takes `system:tenants`.
+        """
+        return self._client._request(
+            _OPERATIONS["systemTenants.get"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={},
+            response=_models.SystemTenant,
+            timeout=timeout,
+        )
+
+    def close(
+        self,
+        tenant_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.SystemTenant:
+        """Close a tenant. `POST /v1/system/tenants/{tenantId}/close`
+
+        Starts the end of its contract: the tenant becomes `closing`. Its own keys and sessions still read and export it for its window; nothing runs (its running runs are cancelled), and nothing is written but deletes. One-way: the purge follows the window. A second close keeps the first. Takes `system:tenants`.
+        """
+        return self._client._request(
+            _OPERATIONS["systemTenants.close"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.SystemTenant,
+            timeout=timeout,
+        )
+
+    def set_suspended(
+        self,
+        tenant_id: str | UUID,
+        body: _models.SetTenantSuspendedBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.SystemTenant:
+        """Suspend a tenant, or restore it. `PUT /v1/system/tenants/{tenantId}/suspended`
+
+        Reversible: a suspended tenant's own keys and sessions still read and export it; nothing runs (its running runs are cancelled), and nothing is written but deletes. Its schedules and triggers are skipped, not changed, so restoring resumes exactly what was on. Billing goes on. Takes `system:suspend`, which no other scope includes. A closing tenant is refused (`409 tenant-closing`).
+        """
+        return self._client._request(
+            _OPERATIONS["systemTenants.setSuspended"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.SetTenantSuspendedBody, body, fields),
+            response=_models.SystemTenant,
+            timeout=timeout,
+        )
+
+    def set_image_prefix(
+        self,
+        tenant_id: str | UUID,
+        body: _models.SetTenantImagePrefixBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.SystemTenant:
+        """Set the repository a tenant's images must sit in. `PUT /v1/system/tenants/{tenantId}/image-prefix`
+
+        Each tenant may deploy only images at or under its own repository: `<host>/<path>`, matched on a path boundary, with no trailing slash. On a runtime serving many tenants, a tenant without one can't register a deployment. Takes `system:tenants`. A closing tenant is refused (`409 tenant-closing`).
+        """
+        return self._client._request(
+            _OPERATIONS["systemTenants.setImagePrefix"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.SetTenantImagePrefixBody, body, fields),
+            response=_models.SystemTenant,
+            timeout=timeout,
+        )
+
+    def admins(
+        self, tenant_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.TenantAdminContacts:
+        """A tenant's admins' contact addresses. `GET /v1/system/tenants/{tenantId}/admins`
+
+        For the operator's service notices (a breach, maintenance, a new sub-processor, a terms change): the tenant's active admins with a primary email, at most 100, and only their id, email and display name. Account contacts, never the tenant's content. Takes its own scope, `system:tenants:contacts`, and every read is recorded.
+        """
+        return self._client._request(
+            _OPERATIONS["systemTenants.admins"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={},
+            response=_models.TenantAdminContacts,
+            timeout=timeout,
+        )
+
+    def set_production_allowed(
+        self,
+        tenant_id: str | UUID,
+        body: _models.ProductionAllowedBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.TenantProductionAllowed:
+        """Allow a tenant production, or stop it. `PUT /v1/system/tenants/{tenantId}/production-allowed`
+
+        The switch the production gate reads: with it off, `PUT /v1/projects/{projectId}/production` refuses to put the tenant's projects in production (`403 production-not-allowed`), and projects already in production stay so. A tenant is allowed until it's switched off. Takes `system:tenants:production`. A closing tenant is frozen: `409 tenant-closing`.
+        """
+        return self._client._request(
+            _OPERATIONS["systemTenants.setProductionAllowed"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ProductionAllowedBody, body, fields),
+            response=_models.TenantProductionAllowed,
+            timeout=timeout,
+        )
+
+    def set_limits(
+        self,
+        tenant_id: str | UUID,
+        body: _models.TenantLimits | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.TenantLimitsResult:
+        """Set a tenant's limits. `PUT /v1/system/tenants/{tenantId}/limits`
+
+        Replaces the tenant's limits with exactly these: a limit left out isn't set, and isn't enforced. Each is a whole number from 1 to 1000000. The tenant reads them on `GET /v1/tenant`. Takes `system:tenants:limits`. A closing tenant is frozen: `409 tenant-closing`.
+        """
+        return self._client._request(
+            _OPERATIONS["systemTenants.setLimits"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.TenantLimits, body, fields),
+            response=_models.TenantLimitsResult,
+            timeout=timeout,
+        )
+
+
+class SystemUsageResource:
+    """`client.system_usage` — the `systemUsage` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def read(
+        self,
+        /,
+        *,
+        from_: str,
+        to: str,
+        group_by: str | None = None,
+        kind: str | None = None,
+        class_: str | None = None,
+        state: str | None = None,
+        tenant_id: str | UUID | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.SystemUsagePage:
+        """Read usage across tenants. `GET /v1/system/usage`
+
+        Usage records aggregated by the dimensions in `groupBy`: each group's count, the sum of its quantities, and its first and last times. Never a record's content. Records are counted when the counted thing happens, exactly once (`USAGE_KINDS`, each run with its class). `watermark`: every record at or before it is in the answer, so re-read a window until its watermark is past the window's end. Takes `system:usage:read`; the access record marks a read across every tenant. A runtime that doesn't count usage answers 404.
+        """
+        return self._client._request(
+            _OPERATIONS["systemUsage.read"],
+            path={},
+            query={
+                "from": from_,
+                "to": to,
+                "groupBy": group_by,
+                "kind": kind,
+                "class": class_,
+                "state": state,
+                "tenantId": tenant_id,
+                "limit": limit,
+                "cursor": cursor,
+            },
+            headers={},
+            response=_models.SystemUsagePage,
             timeout=timeout,
         )
 
@@ -7167,6 +7466,37 @@ class ProjectsAccessResource:
         )
 
 
+class ProjectsProductionResource:
+    """`client.projects.production` — the `projects.production` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def set(
+        self,
+        project_id: str | UUID,
+        body: _models.ProjectProductionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ProjectProduction:
+        """Put a project in production, or take it out. `PUT /v1/projects/{projectId}/production`
+
+        A run in a project in production is a production run; a run anywhere else is staging. For tenant admins (`admin` on the tenant), both ways. Setting what's already set answers 200 unchanged and keeps the first `productionSince`. With the runtime's production gate on, putting a project in production is refused with 403 `production-not-allowed` while the tenant isn't allowed it, with `details.next` naming where to go to be allowed when the runtime names one; a project already in production stays so. 501 `production-unsupported` from a runtime whose projects can't be put in production.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.production.set"],
+            path={"projectId": project_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ProjectProductionBody, body, fields),
+            response=_models.ProjectProduction,
+            timeout=timeout,
+        )
+
+
 class ProjectsTeamGrantsResource:
     """`client.projects.team_grants` — the `projects.teamGrants` operations."""
 
@@ -7268,6 +7598,7 @@ class ProjectsResource:
         self.judging_queue = ProjectsJudgingQueueResource(client)
         self.memberships = ProjectsMembershipsResource(client)
         self.access = ProjectsAccessResource(client)
+        self.production = ProjectsProductionResource(client)
         self.team_grants = ProjectsTeamGrantsResource(client)
 
     def get_default(self, /, *, timeout: float | None = None) -> _models.Project:
@@ -7450,7 +7781,7 @@ class TenantResource:
     def get(self, /, *, timeout: float | None = None) -> _models.Tenant:
         """Fetch the caller's tenant. `GET /v1/tenant`
 
-        Returns the tenant the bearer token authenticates as. There is no `/v1/tenants` collection — tenants are the sovereignty boundary, not a listable resource under a tenant.
+        Returns the tenant the bearer token authenticates as. There is no `/v1/tenants` collection — tenants are the sovereignty boundary, not a listable resource under a tenant. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), and one that sets limits adds the tenant's `limits`.
         """
         return self._client._request(
             _OPERATIONS["tenant.get"],
@@ -9021,6 +9352,265 @@ class AsyncSystemKeysResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.RevokeSystemKeyResult,
+            timeout=timeout,
+        )
+
+    async def whoami(self, /, *, timeout: float | None = None) -> _models.SystemWhoami:
+        """Which system key this is. `GET /v1/system/whoami`
+
+        A system key's own id, scopes and expiry, for a service checking its key. Any system principal; a tenant's key or session is refused (`system-principal-required`). `GET /v1/identity/whoami` is a tenant route, which refuses a system key.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemKeys.whoami"],
+            path={},
+            query={},
+            headers={},
+            response=_models.SystemWhoami,
+            timeout=timeout,
+        )
+
+
+class AsyncSystemTenantsResource:
+    """`client.system_tenants` — the `systemTenants` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def list(
+        self,
+        /,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.SystemTenantList:
+        """List tenants. `GET /v1/system/tenants`
+
+        Newest first; purged tenants are left out. Takes `system:tenants`. Never a tenant's content.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemTenants.list"],
+            path={},
+            query={"limit": limit, "cursor": cursor},
+            headers={},
+            response=_models.SystemTenantList,
+            timeout=timeout,
+        )
+
+    async def create(
+        self,
+        body: _models.CreateSystemTenantBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.CreateSystemTenantResult:
+        """Create a tenant. `POST /v1/system/tenants`
+
+        Creates a tenant on a runtime serving many tenants, with its setup (its default project, its authorization store) in the same change. With `firstAdmin`, that person becomes its admin and member by email, and the runtime's own sign-in finds them; the answer carries no key. Without it, the answer carries the tenant's first admin key, shown once, and that takes the full system capability (`kindgi:system`), as does a `test` tenant. Takes `system:tenants`. An Idempotency-Key retry answers the same tenant.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemTenants.create"],
+            path={},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.CreateSystemTenantBody, body, fields),
+            response=_models.CreateSystemTenantResult,
+            timeout=timeout,
+        )
+
+    async def get(
+        self, tenant_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.SystemTenant:
+        """Read a tenant. `GET /v1/system/tenants/{tenantId}`
+
+        Its state, switch, image prefix and dates. Takes `system:tenants`.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemTenants.get"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={},
+            response=_models.SystemTenant,
+            timeout=timeout,
+        )
+
+    async def close(
+        self,
+        tenant_id: str | UUID,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.SystemTenant:
+        """Close a tenant. `POST /v1/system/tenants/{tenantId}/close`
+
+        Starts the end of its contract: the tenant becomes `closing`. Its own keys and sessions still read and export it for its window; nothing runs (its running runs are cancelled), and nothing is written but deletes. One-way: the purge follows the window. A second close keeps the first. Takes `system:tenants`.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemTenants.close"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            response=_models.SystemTenant,
+            timeout=timeout,
+        )
+
+    async def set_suspended(
+        self,
+        tenant_id: str | UUID,
+        body: _models.SetTenantSuspendedBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.SystemTenant:
+        """Suspend a tenant, or restore it. `PUT /v1/system/tenants/{tenantId}/suspended`
+
+        Reversible: a suspended tenant's own keys and sessions still read and export it; nothing runs (its running runs are cancelled), and nothing is written but deletes. Its schedules and triggers are skipped, not changed, so restoring resumes exactly what was on. Billing goes on. Takes `system:suspend`, which no other scope includes. A closing tenant is refused (`409 tenant-closing`).
+        """
+        return await self._client._request(
+            _OPERATIONS["systemTenants.setSuspended"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.SetTenantSuspendedBody, body, fields),
+            response=_models.SystemTenant,
+            timeout=timeout,
+        )
+
+    async def set_image_prefix(
+        self,
+        tenant_id: str | UUID,
+        body: _models.SetTenantImagePrefixBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.SystemTenant:
+        """Set the repository a tenant's images must sit in. `PUT /v1/system/tenants/{tenantId}/image-prefix`
+
+        Each tenant may deploy only images at or under its own repository: `<host>/<path>`, matched on a path boundary, with no trailing slash. On a runtime serving many tenants, a tenant without one can't register a deployment. Takes `system:tenants`. A closing tenant is refused (`409 tenant-closing`).
+        """
+        return await self._client._request(
+            _OPERATIONS["systemTenants.setImagePrefix"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.SetTenantImagePrefixBody, body, fields),
+            response=_models.SystemTenant,
+            timeout=timeout,
+        )
+
+    async def admins(
+        self, tenant_id: str | UUID, /, *, timeout: float | None = None
+    ) -> _models.TenantAdminContacts:
+        """A tenant's admins' contact addresses. `GET /v1/system/tenants/{tenantId}/admins`
+
+        For the operator's service notices (a breach, maintenance, a new sub-processor, a terms change): the tenant's active admins with a primary email, at most 100, and only their id, email and display name. Account contacts, never the tenant's content. Takes its own scope, `system:tenants:contacts`, and every read is recorded.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemTenants.admins"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={},
+            response=_models.TenantAdminContacts,
+            timeout=timeout,
+        )
+
+    async def set_production_allowed(
+        self,
+        tenant_id: str | UUID,
+        body: _models.ProductionAllowedBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.TenantProductionAllowed:
+        """Allow a tenant production, or stop it. `PUT /v1/system/tenants/{tenantId}/production-allowed`
+
+        The switch the production gate reads: with it off, `PUT /v1/projects/{projectId}/production` refuses to put the tenant's projects in production (`403 production-not-allowed`), and projects already in production stay so. A tenant is allowed until it's switched off. Takes `system:tenants:production`. A closing tenant is frozen: `409 tenant-closing`.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemTenants.setProductionAllowed"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ProductionAllowedBody, body, fields),
+            response=_models.TenantProductionAllowed,
+            timeout=timeout,
+        )
+
+    async def set_limits(
+        self,
+        tenant_id: str | UUID,
+        body: _models.TenantLimits | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.TenantLimitsResult:
+        """Set a tenant's limits. `PUT /v1/system/tenants/{tenantId}/limits`
+
+        Replaces the tenant's limits with exactly these: a limit left out isn't set, and isn't enforced. Each is a whole number from 1 to 1000000. The tenant reads them on `GET /v1/tenant`. Takes `system:tenants:limits`. A closing tenant is frozen: `409 tenant-closing`.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemTenants.setLimits"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.TenantLimits, body, fields),
+            response=_models.TenantLimitsResult,
+            timeout=timeout,
+        )
+
+
+class AsyncSystemUsageResource:
+    """`client.system_usage` — the `systemUsage` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def read(
+        self,
+        /,
+        *,
+        from_: str,
+        to: str,
+        group_by: str | None = None,
+        kind: str | None = None,
+        class_: str | None = None,
+        state: str | None = None,
+        tenant_id: str | UUID | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.SystemUsagePage:
+        """Read usage across tenants. `GET /v1/system/usage`
+
+        Usage records aggregated by the dimensions in `groupBy`: each group's count, the sum of its quantities, and its first and last times. Never a record's content. Records are counted when the counted thing happens, exactly once (`USAGE_KINDS`, each run with its class). `watermark`: every record at or before it is in the answer, so re-read a window until its watermark is past the window's end. Takes `system:usage:read`; the access record marks a read across every tenant. A runtime that doesn't count usage answers 404.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemUsage.read"],
+            path={},
+            query={
+                "from": from_,
+                "to": to,
+                "groupBy": group_by,
+                "kind": kind,
+                "class": class_,
+                "state": state,
+                "tenantId": tenant_id,
+                "limit": limit,
+                "cursor": cursor,
+            },
+            headers={},
+            response=_models.SystemUsagePage,
             timeout=timeout,
         )
 
@@ -14643,6 +15233,37 @@ class AsyncProjectsAccessResource:
         )
 
 
+class AsyncProjectsProductionResource:
+    """`client.projects.production` — the `projects.production` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def set(
+        self,
+        project_id: str | UUID,
+        body: _models.ProjectProductionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ProjectProduction:
+        """Put a project in production, or take it out. `PUT /v1/projects/{projectId}/production`
+
+        A run in a project in production is a production run; a run anywhere else is staging. For tenant admins (`admin` on the tenant), both ways. Setting what's already set answers 200 unchanged and keeps the first `productionSince`. With the runtime's production gate on, putting a project in production is refused with 403 `production-not-allowed` while the tenant isn't allowed it, with `details.next` naming where to go to be allowed when the runtime names one; a project already in production stays so. 501 `production-unsupported` from a runtime whose projects can't be put in production.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.production.set"],
+            path={"projectId": project_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ProjectProductionBody, body, fields),
+            response=_models.ProjectProduction,
+            timeout=timeout,
+        )
+
+
 class AsyncProjectsTeamGrantsResource:
     """`client.projects.team_grants` — the `projects.teamGrants` operations."""
 
@@ -14744,6 +15365,7 @@ class AsyncProjectsResource:
         self.judging_queue = AsyncProjectsJudgingQueueResource(client)
         self.memberships = AsyncProjectsMembershipsResource(client)
         self.access = AsyncProjectsAccessResource(client)
+        self.production = AsyncProjectsProductionResource(client)
         self.team_grants = AsyncProjectsTeamGrantsResource(client)
 
     async def get_default(self, /, *, timeout: float | None = None) -> _models.Project:
@@ -14928,7 +15550,7 @@ class AsyncTenantResource:
     async def get(self, /, *, timeout: float | None = None) -> _models.Tenant:
         """Fetch the caller's tenant. `GET /v1/tenant`
 
-        Returns the tenant the bearer token authenticates as. There is no `/v1/tenants` collection — tenants are the sovereignty boundary, not a listable resource under a tenant.
+        Returns the tenant the bearer token authenticates as. There is no `/v1/tenants` collection — tenants are the sovereignty boundary, not a listable resource under a tenant. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), and one that sets limits adds the tenant's `limits`.
         """
         return await self._client._request(
             _OPERATIONS["tenant.get"],
@@ -15912,6 +16534,8 @@ class Resources:
     signing_keys: SigningKeysResource
     tokens: TokensResource
     system_keys: SystemKeysResource
+    system_tenants: SystemTenantsResource
+    system_usage: SystemUsageResource
     system_deployments: SystemDeploymentsResource
     service_accounts: ServiceAccountsResource
     approvals: ApprovalsResource
@@ -15963,6 +16587,8 @@ class Resources:
         self.signing_keys = SigningKeysResource(client)
         self.tokens = TokensResource(client)
         self.system_keys = SystemKeysResource(client)
+        self.system_tenants = SystemTenantsResource(client)
+        self.system_usage = SystemUsageResource(client)
         self.system_deployments = SystemDeploymentsResource(client)
         self.service_accounts = ServiceAccountsResource(client)
         self.approvals = ApprovalsResource(client)
@@ -16016,6 +16642,8 @@ class AsyncResources:
     signing_keys: AsyncSigningKeysResource
     tokens: AsyncTokensResource
     system_keys: AsyncSystemKeysResource
+    system_tenants: AsyncSystemTenantsResource
+    system_usage: AsyncSystemUsageResource
     system_deployments: AsyncSystemDeploymentsResource
     service_accounts: AsyncServiceAccountsResource
     approvals: AsyncApprovalsResource
@@ -16067,6 +16695,8 @@ class AsyncResources:
         self.signing_keys = AsyncSigningKeysResource(client)
         self.tokens = AsyncTokensResource(client)
         self.system_keys = AsyncSystemKeysResource(client)
+        self.system_tenants = AsyncSystemTenantsResource(client)
+        self.system_usage = AsyncSystemUsageResource(client)
         self.system_deployments = AsyncSystemDeploymentsResource(client)
         self.service_accounts = AsyncServiceAccountsResource(client)
         self.approvals = AsyncApprovalsResource(client)

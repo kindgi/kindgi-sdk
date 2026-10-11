@@ -154,14 +154,14 @@ function makeApp(options: { readonly names?: 'bound' | 'any' } = {}) {
         audit[Number(id)] = { ...(audit[Number(id)] as SystemAccessRecord), ...outcome };
       },
     },
+    systemTenantDirectory: {
+      async get(id) {
+        const state = STATES.get(id);
+        return state === undefined ? null : { id, state };
+      },
+    },
     systemDeployments: {
       binding: deployments.binding,
-      tenants: {
-        async get(id) {
-          const state = STATES.get(id);
-          return state === undefined ? null : { id, state };
-        },
-      },
       endpointHostAllowed: (host) => host.endsWith(RUN_TAIL),
       ...(options.names !== undefined && { endpointNames: options.names }),
     },
