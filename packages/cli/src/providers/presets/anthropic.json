@@ -63,7 +63,7 @@
       {
         "name": "claude-haiku-4-5",
         "contextWindow": 200000,
-        "maxOutputTokens": 8192,
+        "maxOutputTokens": 16000,
         "features": ["tool-use", "parallel-tool-use"],
         "cost": {
           "promptUsdPer1kTokens": 0.001,

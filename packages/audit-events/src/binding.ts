@@ -38,6 +38,13 @@ export interface AuditEventBinding {
   purge(input: AuditEventPurgeInput): Promise<Result<AuditEventPurgeResult, PersistenceError>>;
 
   describe(): { readonly name: string; readonly version: string };
+
+  /**
+   * `true` when `query` honours `filter.subject`. Absent: it ignores it,
+   * so a caller filters by `actor` instead (a binding from before
+   * `subject`).
+   */
+  readonly filtersBySubject?: boolean;
 }
 
 export interface AuditEventQueryInput {

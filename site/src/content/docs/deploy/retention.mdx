@@ -63,6 +63,24 @@ under their own setting:
   closed or were skipped. A purged run's waiting item closes as `erased`.
 - **Model-call costs,** which are billing history and stay.
 
+### Webhook deliveries
+
+A [webhook trigger](../../guides/webhooks/start-runs-from-webhooks/)'s
+deliveries (its fires) are kept for 30 days, whatever the policies; they're
+what a repeated delivery is recognized by. A fire keeps the delivery's event
+only until its run starts (at most about 10 minutes after a crash). Then only
+the run has it, under `run` retention like any run's input. A skipped,
+refused or repeated delivery's body is never kept.
+
+- **The people in an event aren't Kindgi identities.** A WooCommerce order
+  names your customer, but erasing a person in Kindgi can't find them in a
+  run's input: the run's input goes with the run, under `run` retention (or
+  when the run is deleted), unless your pack maps senders to people.
+- **Where a delivery came from is personal data too.** A refused delivery's
+  address is in the [audit](#audit-events) (`evidence.clientAddress`), under the audit's
+  retention, and a request to an unknown trigger is in the server's log, under
+  your log retention.
+
 ## Set a policy
 
 A retention policy is a policy of kind `retention`, whose `spec` is

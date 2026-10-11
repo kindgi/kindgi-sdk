@@ -315,10 +315,13 @@ It's refused for yourself and for the seed user
   Copy button.
 
   ![The API keys page: one key, labelled laptop, acting as Sam Rivera with the member role, never used, expiring a month after it was made, with a Revoke button.](../../../assets/people/api-keys.png)
-- **People** (tenant admins): **Add a person**, each person's roles in words,
-  making or unmaking a tenant admin, a key for them, and removing them.
+- **People** (tenant admins): **Add a person**, each person's access in words
+  (what they were granted directly: tenant admin, a project or team role, the
+  reviewer roster), making or unmaking a tenant admin, a key for them, and
+  removing them. A search box, **People who were removed** and **Columns**
+  narrow the list.
 
-  ![The People page: the seed user and one person added by email, each with their active keys and when they were added, and an Add a person button.](../../../assets/people/people.png)
+  ![The People page: a search box, a People who were removed checkbox and a Columns button; the seed user (admin, reviewer) and Ann, added by email (no role yet), each with their access, active keys, when they were last active and when they were added; and an Add a person button.](../../../assets/people/people.png)
 - **Service accounts** (tenant admins): create one with its grants, change
   them, make it a key, unregister it.
 

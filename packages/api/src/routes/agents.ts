@@ -34,6 +34,7 @@ import {
   isPromotionWrite,
   mountAgentReleaseRoutes,
 } from './agent-releases.js';
+import { refuseUnissuedCursor } from './issued-cursor.js';
 import { liveScopeToWire } from './live-scope-wire.js';
 import { clampLimit } from './pagination.js';
 import { projectMismatch } from './project-mismatch.js';
@@ -240,6 +241,8 @@ export function agentsRouter(
     const agentId = c.req.param('agentId') as AgentId;
     const limit = clampLimit(c.req.query('limit'));
     const cursorRaw = c.req.query('cursor');
+    const refused = refuseUnissuedCursor(c, binding, 'versions', cursorRaw);
+    if (refused !== undefined) return refused;
     // `?includeTombstoned=true` lists unregistered versions too, each
     // with `unregisteredAt`. Anything else → active versions only.
     const includeTombstoned = c.req.query('includeTombstoned') === 'true';
