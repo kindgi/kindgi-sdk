@@ -38,7 +38,8 @@ text, with this page under "Set up Kindgi with your coding agent".
   (the CLI from PyPI; it needs no Node). From step 2 on, from the project's
   folder:
   - a TypeScript project: `pnpm exec kindgi` if `pnpm --version` works,
-    else `npx --no kindgi`;
+    else `npx --no -- kindgi` (the `--` passes every flag, `--help`
+    included, to Kindgi rather than to npx);
   - a Python project: `uv run kindgi` (the project's dev dependencies bring
     the CLI);
   - a Java or Scala project: `./kindgiw` (the CLI version the project pins in
@@ -75,12 +76,12 @@ running and no model key yet:
 ```json
 {
   "ok": false,
-  "cliVersion": "0.1.5",
+  "cliVersion": "0.1.6",
   "project": {
     "dir": "…/my-agents",
     "language": "node"
   },
-  "consoleUrl": "http://127.0.0.1:4000/console/",
+  "consoleUrl": "http://127.0.0.1:…/console/",
   "checks": [
     {
       "id": "node",
@@ -97,7 +98,7 @@ running and no model key yet:
     {
       "id": "runtime",
       "status": "pass",
-      "message": "The runtime answers at http://127.0.0.1:4000; its console is at http://127.0.0.1:4000/console/."
+      "message": "The runtime answers at http://127.0.0.1:…; its console is at http://127.0.0.1:…/console/."
     },
     {
       "id": "provider",

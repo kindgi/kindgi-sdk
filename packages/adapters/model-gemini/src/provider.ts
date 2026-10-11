@@ -115,6 +115,9 @@ export function createGeminiProvider(options: GeminiProviderOptions): ModelProvi
       if (cached?.key === key) return cached.client;
       const client = new GoogleGenAI({
         apiKey: key,
+        // Given, so GOOGLE_GENAI_USE_VERTEXAI / _ENTERPRISE in the server's environment can't
+        // move a Developer API provider to Vertex AI (the server's project and credentials).
+        vertexai: false,
         httpOptions: { fetch: attempts.fetch, retryOptions: { attempts: RETRY_ATTEMPTS } },
       });
       cached = { key, client };

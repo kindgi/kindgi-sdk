@@ -1159,7 +1159,12 @@ export const MintTokenBodySchema: JsonSchema = {
       description: `${ApiTokenCapabilitiesSchema.description} Default none.`,
     },
     label: { type: 'string', description: 'Optional human-readable label.' },
-    expiresAt: { type: 'string', format: 'date-time', description: 'ISO 8601 timestamp.' },
+    expiresAt: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        "ISO 8601 timestamp. Absent: the key never expires. When the minting key expires (or the key a token sign-in session was opened with), it's required and no later than that key's (`token-expiry-exceeds-minter`).",
+    },
     projectId: {
       type: 'string',
       format: 'uuid',

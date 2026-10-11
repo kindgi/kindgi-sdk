@@ -465,11 +465,14 @@ console. Its headline says where judging stands:
 
 When a proposal waits for a reviewer, "· 1 waiting for a reviewer" follows.
 The section has five tabs: **Waiting**, **Rules**, **Trends**, **Judge
-classes** and **Proposals**.
+classes** and **Proposals**. Their tables sort by a column's header, and
+**Columns** chooses which columns each shows. The tab, the filters and each
+table's view go in the page's address (`?tab=rules`), so a link opens the
+same view.
 
 ### Waiting
 
-![The Quality section's Waiting tab: the headline, the filters, "2 more wait for other judges.", and three runs of demo.echo-agent 1.0.0 queued by the Everything and Support sample rules, each needing an expert judgment, with Dismiss.](../../../../assets/quality/quality-waiting.png)
+![The Quality section's Waiting tab: the headline, the filters, "2 more wait for other judges.", the Columns menu, and three runs of demo.echo-agent 1.0.0 queued by the Everything and Support sample rules, each needing an expert judgment, with Dismiss.](../../../../assets/quality/quality-waiting.png)
 
 Each row is a run in the queue:
 - **What ran:** the agent or flow and its version, and when it finished. It
@@ -484,9 +487,11 @@ Filter it by state (**Waiting**, **Judged**, **Dismissed**, **Erased**), by
 by agent. **Dismiss** takes a run out of the queue with a reason, and
 **Reopen** puts a dismissed one back.
 
+![The Waiting tab filtered to Dismissed and Everyone's: a run of demo.echo-agent 1.0.0 queued by the Everything and Support sample rules, "Dismissed by a person (11111111…) 2026-10-11 12:23 UTC: A test order", with Reopen.](../../../../assets/quality/quality-dismissed.png)
+
 ### Rules
 
-![The Rules tab: "3 judging rules." with New rule, and the Support sample, Everything and Bot review rules, each with which runs it takes, what it wants, its cap, its open items, and History, Change and Unregister.](../../../../assets/quality/quality-rules.png)
+![The Rules tab: "3 judging rules." with New rule, a search box and the Columns menu, and the Support sample, Everything and Bot review rules, each with which runs it takes, what it wants, its cap, its open items, and History, Change and Unregister.](../../../../assets/quality/quality-rules.png)
 
 Each rule is in words:
 - **Which runs:** "Completed runs of Dev-Echo Agent", and how many it takes
@@ -506,6 +511,8 @@ changed it and when. **Unregister** stops a rule; the runs it queued stay in
 the queue.
 
 ![The New judging rule dialog, over the Rules tab.](../../../../assets/quality/quality-rule-editor.png)
+
+![Echo half: its versions, over the Rules tab: "Version 2 · a person (11111111…) · 2026-10-11 12:23 UTC" changed "Cap: No new items while 5 are open → No cap" and "Wants: any judgment → an expert judgment"; Version 1, by the same person at the same time, "Created".](../../../../assets/quality/quality-rule-history.png)
 
 ### Trends
 
@@ -531,6 +538,8 @@ numbers:
 
 **Every count** opens the counts behind a rule's trend.
 
+![A rule's trend after the rule changed, now at rule version 2: too few judgments to chart yet, 1.2.0 with too few judgments to say, the one matched run the cap kept out, and rule version 1 shown apart, never added in.](../../../../assets/quality/quality-trends-changed.png)
+
 ### Judge classes
 
 ![The Judge classes tab: "2 judge classes apply to this project's runs. An unclassified judgment counts 1." The expert class counts 3×, applies to this project, may be given only by people and is wanted by the Echo half and Support sample rules; the bot class counts the same, only services.](../../../../assets/quality/quality-classes.png)
@@ -544,6 +553,8 @@ Each [judge class](#weight-judges-by-class) that applies to the project's runs, 
 
 Project admins add, change and remove a project's classes (a tenant's
 classes: tenant admins). Removing a class names the rules that want it.
+
+![The Remove expert? dialog, over the Judge classes tab: "No new judgment can name it. Judgments that named it keep it, and still count with its weight in trends." and "2 rules want its judgment (Echo half, Support sample): change them first, or their items wait for a class nobody can give."](../../../../assets/quality/quality-class-remove.png)
 
 ### Proposals
 

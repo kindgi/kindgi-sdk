@@ -274,18 +274,20 @@ each version answered two questions and was asked for the secret once:
 A guardrail's page (**Guardrails**, then the guardrail) has **What it
 caught**: the same counts, for the project you're in, over the last 24
 hours, 7 days (the default), 30 days or 90 days. The window goes in the
-page's address (`?period=30d`), so a link opens it the same way.
+page's address (`?period=30d`), and so do the table's sort and columns, so a
+link opens it the same way.
 
-![What it caught, on acme.no-secret's page: "In the last 7 days it checked 6 answers: 4 passed, 2 blocked the answer (the turn failed).", the four windows with Last 7 days chosen, a row for each of acme.desk 2.0.0 and 2.1.0 (2 passed, 0 let through, 1 blocked, 0 couldn't run, 1 of 3 blocked), and the two runs it blocked, newest first.](../../../../assets/guardrails/what-it-caught.png)
+![The page of No secrets in answers (acme.no-secrets), with What it caught: "In the last 7 days it checked 14 answers: 11 passed, 3 blocked the answer (the turn failed).", "Counted from 2026-10-11 12:22 UTC, …", the four windows with Last 7 days chosen, the Columns menu, a row for each of acme.guarded 1.0.0 (6 passed, 0 let through, 2 blocked, 0 couldn't run, "2 of 8 blocked (25%)") and 1.1.0 (5, 0, 1, 0, "1 of 6 blocked (16.7%)"), and the three runs it blocked, newest first.](../../../../assets/guardrails/what-it-caught.png)
 
 - **The sentence** counts the answers it checked in the window, by outcome:
   "passed", "found something without stopping the turn" (`violated`),
   "blocked the answer (the turn failed)" and "couldn't run" (`errored`).
 - **By agent version:** a row for each version, with **Let through** for
   `violated` and **Couldn't run** for `errored`, and the blocked share.
-  The agent's name opens its page.
+  The agent's name opens its page. The table sorts by a column's header,
+  and **Columns** chooses which columns it shows.
 - **The latest runs it blocked:** each time opens that run's page, where
   the blocked answer stays withheld.
 - **When outcomes start later than the window**, it says from when it
-  counted ("Counted from 2026-10-11 06:15 UTC, the earliest outcome kept for
+  counted ("Counted from 2026-10-11 12:22 UTC, the earliest outcome kept for
   it here: outcomes go with their runs."), as `recordedSince` does.

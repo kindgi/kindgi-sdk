@@ -155,7 +155,7 @@ platform it was built for:
 ACR=$(terraform output -raw image_registry)
 az acr login -n "${ACR%%.*}"
 docker buildx imagetools create --tag "$ACR/runtime:0.1.6" \
-  quay.io/kindgi/runtime:0.1.6@sha256:<the release's digest>
+  quay.io/kindgi/runtime:0.1.6@sha256:66c351d9cd0396f9cdffc40480fb1e236d212459dfc4900ab5de082ce0507f11
 ```
 
 The copy keeps the release's digest. (A plain `docker pull`, `tag` and `push`

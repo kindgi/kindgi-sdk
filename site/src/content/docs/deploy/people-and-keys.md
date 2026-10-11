@@ -163,6 +163,15 @@ The secret is printed once, there: store it, because nothing shows it again.
 `--expires` takes `30d`, `12h`, `90m` or a date; a key without it doesn't
 expire.
 
+A key can't outlive the key that makes it. Made with a key that expires,
+the new key's `--expires` must be no later than that key's: a later one,
+or none, is refused (`403 token-expiry-exceeds-minter`, naming the latest
+date allowed). The same holds in a console signed in with a key. The
+deployment's token, a key without an expiry, and a console signed in
+through SSO, a social sign-in or an emailed link aren't limited this way:
+make longer-lived keys, such as the 90-day service-account key below,
+with one of those.
+
 - **For someone else** (a tenant admin only): `--for=user:<user-id>` or
   `--for=sa:<service-account-id>`.
 - **`--role=member`** (the default) takes no admin action on the tenant, even

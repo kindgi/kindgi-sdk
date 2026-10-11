@@ -12,7 +12,7 @@ description: >
   kindgi-authoring-guardrails.
 type: core
 library: "@kindgi/sdk"
-version: "0.4.5"
+version: "0.4.6"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -24,7 +24,7 @@ sources:
 
 > **Running `kindgi`:** the CLI is a devDependency of the project (`@kindgi/cli`),
 > not a global command. Run it through the project's package manager —
-> `pnpm exec kindgi …`, `npx --no kindgi …` (npm), `yarn kindgi …` or
+> `pnpm exec kindgi …`, `npx --no -- kindgi …` (npm), `yarn kindgi …` or
 > `bun run kindgi …`. Commands below are written `kindgi …` for brevity.
 
 An **agent** is a versioned LLM-powered orchestrator: instructions (a

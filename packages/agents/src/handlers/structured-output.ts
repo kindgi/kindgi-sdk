@@ -6,10 +6,13 @@
  * checking it against the agent's `output.schema`, and the repair
  * message sent back when it doesn't fit.
  *
- * The repair loop lives in `budget-check`: an invalid answer with
- * repairs left keeps the turn going, with the answer and a repair
- * message appended to the conversation sent to the model. Repairs are
- * counted from those messages, so a replayed turn counts the same.
+ * The model is told the output from the turn's start: the system message
+ * carries `outputSection` (`build-initial-messages`), so a first answer
+ * can fit. The repair loop, the fallback, lives in `budget-check`: an
+ * invalid answer with repairs left keeps the turn going, with the answer
+ * and a repair message (the same words, and what didn't fit) appended to
+ * the conversation sent to the model. Repairs are counted from those
+ * messages, so a replayed turn counts the same.
  */
 
 import type { ModelMessage } from '@kindgi/capabilities';
@@ -100,6 +103,31 @@ export function repairsSoFar(messages: readonly ModelMessage[]): number {
   return messages.filter(isRepairMessage).length;
 }
 
+/**
+ * What the model is told about a typed answer: the output's name, its JSON
+ * Schema (descriptions included), and that the answer is that JSON and
+ * nothing else. The system message and a repair say it in the same words.
+ */
+export function outputInstructions(spec: AgentOutputSpec): string {
+  const name = spec.name ?? 'output';
+  return [
+    `Your answer must be the ${name} as JSON matching this JSON Schema, and nothing else:`,
+    JSON.stringify(spec.schema),
+  ].join('\n');
+}
+
+/**
+ * The system message's part for a typed agent: the output, and that the
+ * tools it needs come first, so a typed answer never stands in for a tool
+ * call it still has to make.
+ */
+export function outputSection(spec: AgentOutputSpec): string {
+  return [
+    outputInstructions(spec),
+    'Call the tools you need first; then give your final answer as that JSON alone.',
+  ].join('\n');
+}
+
 /** The message asking the model to fix its answer. */
 export function repairMessage(spec: AgentOutputSpec, errors: readonly string[]): ModelMessage {
   const name = spec.name ?? 'output';
@@ -107,8 +135,7 @@ export function repairMessage(spec: AgentOutputSpec, errors: readonly string[]):
     role: 'user',
     content: [
       REPAIR_MARKER,
-      `Your answer must be the ${name} as JSON matching this JSON Schema, and nothing else:`,
-      JSON.stringify(spec.schema),
+      outputInstructions(spec),
       'It did not fit:',
       ...errors.map((e) => `- ${e}`),
       `Reply again with only the corrected ${name} JSON.`,

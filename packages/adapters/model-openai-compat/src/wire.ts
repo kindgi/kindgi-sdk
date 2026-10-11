@@ -129,3 +129,15 @@ function longContextOf(value: unknown): OpenAICompatCostRates['longContext'] {
     ? { thresholdTokens, promptUsdPer1kTokens, completionUsdPer1kTokens }
     : undefined;
 }
+
+/**
+ * Client options the OpenAI SDK would otherwise take from the server's
+ * environment (`OPENAI_ORG_ID`, `OPENAI_PROJECT_ID`, `OPENAI_ADMIN_KEY`):
+ * set to none, so nothing of the server's goes out with a provider's calls,
+ * to whatever base URL the provider names.
+ */
+export const SERVER_ENV_NEVER = {
+  organization: null,
+  project: null,
+  adminAPIKey: null,
+} as const;

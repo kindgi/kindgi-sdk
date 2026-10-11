@@ -101,6 +101,9 @@ const DEFAULT_MAX_TOKENS = 4096;
  * doesn't expose a streaming seam yet — a streaming adapter is a
  * separate primitive.
  */
+/** Anthropic's API: the SDK's own default, given explicitly so `ANTHROPIC_BASE_URL` can't move it. */
+const ANTHROPIC_API_URL = 'https://api.anthropic.com';
+
 export function createAnthropicProvider(options: AnthropicProviderOptions): ModelProvider {
   const metadata = options.metadata satisfies Omit<ProviderMetadata, 'models'> & {
     readonly models: readonly AnthropicModelInfo[];
@@ -147,7 +150,11 @@ export function createAnthropicProvider(options: AnthropicProviderOptions): Mode
     if (cached !== undefined && cached.key === key) return cached.client;
     const client = new Anthropic({
       apiKey: key,
-      ...(options.baseURL !== undefined && { baseURL: options.baseURL }),
+      // Never from the server's environment: left out, the SDK reads
+      // ANTHROPIC_AUTH_TOKEN (sent as a bearer beside the provider's own key,
+      // on every provider's calls) and ANTHROPIC_BASE_URL.
+      authToken: null,
+      baseURL: options.baseURL ?? ANTHROPIC_API_URL,
       ...(options.clientOptions ?? {}),
       fetch: attempts.fetch,
     });

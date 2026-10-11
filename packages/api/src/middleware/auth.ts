@@ -532,7 +532,11 @@ function csrfRefusal(
       message:
         origin === undefined
           ? 'A request signed in by the session cookie must say where it comes from (Origin)'
-          : `A request signed in by the session cookie can't come from ${origin}`,
+          : `A request signed in by the session cookie can't come from ${origin}${
+              cookie.allowedOrigins[0] !== undefined
+                ? `; open the console at ${cookie.allowedOrigins[0]}`
+                : ''
+            }`,
     },
     requestId,
   );

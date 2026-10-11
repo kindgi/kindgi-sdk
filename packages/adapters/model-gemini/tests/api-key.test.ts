@@ -67,7 +67,8 @@ describe('createGeminiProvider with a Gemini API key', () => {
     key = 'key-2';
     await call(provider);
     expect(built.map((o) => o.apiKey)).toEqual(['key-1', 'key-2']);
-    expect(built[0]?.vertexai).toBeUndefined();
+    // Said outright, so the server's GOOGLE_GENAI_USE_VERTEXAI can't move it (tests/server-env.test.ts).
+    expect(built[0]?.vertexai).toBe(false);
     expect(built[0]?.project).toBeUndefined();
     expect(built[0]?.httpOptions?.fetch).toBeTypeOf('function');
   });
@@ -105,7 +106,8 @@ describe('geminiAdapterFactory: adapter_config.api', () => {
     const provider = geminiAdapterFactory(input({ api: 'developer' }, true));
     await call(provider);
     expect(built[0]?.apiKey).toBe('key-from-the-secret');
-    expect(built[0]?.vertexai).toBeUndefined();
+    // Said outright, so the server's GOOGLE_GENAI_USE_VERTEXAI can't move it (tests/server-env.test.ts).
+    expect(built[0]?.vertexai).toBe(false);
   });
 
   test('"developer" without a secret_ref is refused', () => {
