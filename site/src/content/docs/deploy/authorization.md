@@ -52,7 +52,8 @@ docker run --rm --network kindgi openfga/openfga:v1.22.0 migrate \
 docker run -d --name kindgi-openfga --network kindgi --restart unless-stopped \
   openfga/openfga:v1.22.0 run \
   --datastore-engine postgres \
-  --datastore-uri "postgres://kindgi:$DB_PASSWORD@kindgi-db:5432/openfga?sslmode=disable"
+  --datastore-uri "postgres://kindgi:$DB_PASSWORD@kindgi-db:5432/openfga?sslmode=disable" \
+  --playground-enabled=false
 ```
 
 ```text
@@ -60,7 +61,9 @@ migration done
 ```
 
 Keep OpenFGA on the private network, with no published port: the runtime
-calls it without credentials. Back up its `openfga` database with the
+calls it without credentials unless OpenFGA requires a key
+([Require a key for OpenFGA](#require-a-key-for-openfga), from runtime 0.1.8).
+The playground is off: it's for trying OpenFGA on your own machine. Back up its `openfga` database with the
 runtime's ([Back up Postgres](../operate/#back-up-postgres)).
 
 ### An OpenFGA you already run
@@ -129,7 +132,8 @@ earlier runtime ignores the setting, and OpenFGA then refuses its calls.
 
 Use OpenFGA 1.14.0 or later with a key, with its playground off: before 1.14.0,
 the playground page shows the key to anyone who opens it
-([CVE-2026-40293](https://db.gcve.eu/vuln/CVE-2026-40293)). Make a key, run
+([OpenFGA: Playground Preshared Key Exposure](https://github.com/openfga/openfga/security/advisories/GHSA-68m9-983m-f3v5),
+CVE-2026-40293). Make a key, run
 OpenFGA with it, and give the runtime the same key:
 
 ```sh
