@@ -268,3 +268,32 @@ jobs:
       - name: The wheel's core metadata is 2.3
         run: |
           unzip -p dist/*.whl '*.dist-info/METADATA' | grep -qx 'Metadata-Version: 2.3'
+
+  wordpress:
+    name: WordPress plugin (PHP ${{ matrix.php }})
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
+    strategy:
+      fail-fast: false
+      matrix:
+        # The plugin's floor (its header's `Requires PHP`), and a current PHP.
+        php: ["7.4", "8.3"]
+    defaults:
+      run:
+        working-directory: integrations/wordpress/kindgi
+    steps:
+      - uses: actions/checkout@v5
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php }}
+          extensions: sodium, mbstring
+          tools: none
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+      - name: PHP syntax
+        run: find . -name '*.php' -print0 | xargs -0 -n1 php -l
+      - name: The plugin's tests
+        run: php tests/run.php
+      - name: A statement the plugin signs verifies as Kindgi checks it
+        run: node --test tests/statement.test.mjs
