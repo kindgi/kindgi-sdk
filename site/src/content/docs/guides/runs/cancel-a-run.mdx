@@ -110,3 +110,23 @@ it: `approvals.list({ runId, includeDescendants: true })` in TypeScript,
 
 [Decide an approval](../../approvals/decide-an-approval/) has more on
 approvals.
+
+## In the console
+
+A run's page has **Cancel run** while it's going, for project editors and
+up. Its dialog says what a cancel does before anything happens:
+
+```text
+Cancel this run?
+This stops the run and every step still going inside it. It ends as cancelled, and can't be continued.
+```
+
+- **A run waiting for an approval** adds: "If it's waiting for an approval,
+  that approval is withdrawn: it leaves the reviewers' list."
+  ([Approvals of a cancelled run](#approvals-of-a-cancelled-run)).
+- **Keep it running** closes the dialog. **Cancel the run** cancels it, and
+  the dialog says "Cancelled.".
+- **A run that finished meanwhile:** "It had already finished: there was
+  nothing to stop."
+
+![The Cancel this run? dialog over a running flow run's page: "This stops the run and every step still going inside it. It ends as cancelled, and can't be continued.", with Keep it running and Cancel the run.](../../../../assets/runs/run-cancel-dialog.png)
