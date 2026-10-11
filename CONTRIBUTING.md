@@ -246,8 +246,10 @@ The steps:
      under **Unreleased**, above the release's sections.
 7. **Docs after the release:** a fix to the release's pages goes into
    its `release-docs/X.Y.Z` branch, cut at the release's tag
-   (`site/README.md`), and onto `main` too. A docs change that merged to
-   `main` after the cut reaches the release's pages the same way.
+   (`site/README.md`), and onto `main` too. A candidate's `/next/` pages
+   build the same way, from `release-docs/X.Y.Z-rc.N`. A docs change for
+   this release that merged to `main` after the cut reaches its pages the
+   same way: its `site/` part only.
 
 The runtime image follows the same versions: the runtime's release takes
 `X.Y.Z-rc.N` and `X.Y.Z` from `release/X.Y.Z` too, and never moves
