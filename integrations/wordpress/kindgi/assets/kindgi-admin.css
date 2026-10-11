@@ -55,6 +55,15 @@
   overflow-wrap: anywhere;
 }
 
+.kindgi .kindgi-tool {
+  background: #f6f7f7;
+}
+
+.kindgi .kindgi-tool pre {
+  white-space: pre-wrap;
+  margin: 4px 0 0;
+}
+
 .kindgi .kindgi-user {
   background: #f0f6fc;
   border-color: #c5d9ed;

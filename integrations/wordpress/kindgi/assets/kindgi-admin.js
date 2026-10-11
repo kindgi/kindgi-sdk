@@ -34,7 +34,7 @@
     for (const [key, value] of Object.entries(attrs)) {
       if (!absent(value)) setAttribute(node, key, value);
     }
-    for (const child of children.flat()) {
+    for (const child of children.flat(Number.POSITIVE_INFINITY)) {
       if (absent(child)) continue;
       node.append(typeof child === 'string' ? document.createTextNode(child) : child);
     }
@@ -54,6 +54,8 @@
     me: null,
     tab: config.approval ? 'approvals' : 'ask',
     conversationId: null,
+    // A conversation to open with this agent at its first message.
+    newAgent: null,
   };
 
   // ---------- the shell: two tabs ----------
@@ -118,6 +120,7 @@
       panel.replaceChildren(notice(error));
       return;
     }
+    const nameOf = (id) => agents.agents.find((a) => a.id === id)?.name || id;
     const picker = el(
       'select',
       { id: 'kindgi-agent' },
@@ -129,20 +132,11 @@
         type: 'button',
         className: 'button button-primary',
         disabled: agents.agents.length === 0,
-        onclick: async () => {
-          const agent = agents.agents[Number(picker.value)];
-          startButton.disabled = true;
-          try {
-            const opened = await api('/conversations', {
-              method: 'POST',
-              data: { agentId: agent.id, agentVersion: agent.version },
-            });
-            state.conversationId = opened.id;
-            renderAsk();
-          } catch (error) {
-            startButton.disabled = false;
-            panel.prepend(notice(error));
-          }
+        onclick: () => {
+          // Opened at its first message, which names it.
+          state.conversationId = null;
+          state.newAgent = agents.agents[Number(picker.value)];
+          renderAsk();
         },
       },
       __('New conversation', 'kindgi'),
@@ -161,15 +155,16 @@
               className: `button-link${c.id === state.conversationId ? ' kindgi-current' : ''}`,
               onclick: () => {
                 state.conversationId = c.id;
+                state.newAgent = null;
                 renderAsk();
               },
             },
-            c.title || c.agentId,
+            c.title || nameOf(c.agentId),
           ),
           el(
             'span',
             { className: 'kindgi-muted' },
-            ` ${c.agentId} · ${when(c.lastMessageAt ?? c.openedAt)}`,
+            ` ${nameOf(c.agentId)} · ${when(c.lastMessageAt ?? c.openedAt)}`,
           ),
         ),
       ),
@@ -193,36 +188,31 @@
     );
     const main = el('div', { className: 'kindgi-main' });
     panel.replaceChildren(el('div', { className: 'kindgi-columns' }, side, main));
-    if (state.conversationId !== null) renderConversation(main, state.conversationId);
+    if (state.conversationId !== null || state.newAgent !== null) renderConversation(main);
   }
 
-  async function renderConversation(main, conversationId) {
+  /** The first line of a message, as a conversation's title. */
+  const titleOf = (text) => {
+    const line = text.split('\n', 1)[0];
+    return line.length > 80 ? `${line.slice(0, 79)}…` : line;
+  };
+
+  /** The open conversation, or a new one's empty page until its first message. */
+  async function renderConversation(main) {
     main.replaceChildren(el('p', { className: 'kindgi-muted' }, __('Loading…', 'kindgi')));
-    let messages;
-    try {
-      messages = await api(`/conversations/${encodeURIComponent(conversationId)}/messages`);
-    } catch (error) {
-      main.replaceChildren(notice(error));
-      return;
+    let messages = { messages: [] };
+    if (state.conversationId !== null) {
+      try {
+        messages = await api(`/conversations/${encodeURIComponent(state.conversationId)}/messages`);
+      } catch (error) {
+        main.replaceChildren(notice(error));
+        return;
+      }
     }
     const log = el(
       'ol',
       { className: 'kindgi-messages', 'aria-live': 'polite' },
-      messages.messages
-        .filter((m) => m.role === 'user' || m.role === 'agent' || m.toolId !== null)
-        .map((m) =>
-          el(
-            'li',
-            { className: `kindgi-message kindgi-${m.role}` },
-            m.role === 'tool' || m.text === null
-              ? el(
-                  'span',
-                  { className: 'kindgi-muted' },
-                  sprintf(__('Used %s', 'kindgi'), m.toolId ?? m.role),
-                )
-              : m.text,
-          ),
-        ),
+      messages.messages.map(message).filter((item) => item !== null),
     );
     const progress = el('div', { className: 'kindgi-progress', 'aria-live': 'polite' });
     const input = el('textarea', { id: 'kindgi-message', rows: '3', maxlength: '20000' });
@@ -238,21 +228,41 @@
           log.append(el('li', { className: 'kindgi-message kindgi-user' }, text));
           input.value = '';
           try {
-            const turn = await api(`/conversations/${encodeURIComponent(conversationId)}/turns`, {
-              method: 'POST',
-              data: { message: text },
-            });
+            if (state.conversationId === null) {
+              const agent = state.newAgent;
+              const opened = await api('/conversations', {
+                method: 'POST',
+                data: { agentId: agent.id, agentVersion: agent.version, title: titleOf(text) },
+              });
+              state.conversationId = opened.id;
+              state.newAgent = null;
+            }
+            const turn = await api(
+              `/conversations/${encodeURIComponent(state.conversationId)}/turns`,
+              { method: 'POST', data: { message: text } },
+            );
             await follow(turn.runId, progress);
           } catch (error) {
             progress.replaceChildren(notice(error));
+            send.disabled = false;
+            return;
           }
-          send.disabled = false;
-          renderConversation(main, conversationId);
+          renderAsk();
         },
       },
       __('Send', 'kindgi'),
     );
     main.replaceChildren(
+      state.conversationId === null
+        ? el(
+            'p',
+            { className: 'kindgi-muted' },
+            sprintf(
+              __('A new conversation with %s.', 'kindgi'),
+              state.newAgent.name || state.newAgent.id,
+            ),
+          )
+        : null,
       log,
       progress,
       el(
@@ -262,6 +272,43 @@
       ),
       input,
       send,
+    );
+  }
+
+  /** One message: words, the tools an agent called, or a tool's answer (its raw result a click away). */
+  function message(m) {
+    if (m.role === 'tool') {
+      return el(
+        'li',
+        { className: 'kindgi-message kindgi-tool' },
+        el(
+          'details',
+          {},
+          el(
+            'summary',
+            {},
+            sprintf(__('%s answered', 'kindgi'), m.toolId ?? __('A tool', 'kindgi')),
+          ),
+          el('pre', {}, JSON.stringify(m.result, null, 2)),
+        ),
+      );
+    }
+    if (m.role !== 'user' && m.role !== 'agent') return null;
+    const calls =
+      m.calls.length > 0
+        ? el(
+            'span',
+            { className: 'kindgi-muted' },
+            sprintf(__('Calls %s', 'kindgi'), m.calls.join(', ')),
+          )
+        : null;
+    if (m.text === '' && calls === null) return null;
+    return el(
+      'li',
+      { className: `kindgi-message kindgi-${m.role}` },
+      m.text,
+      m.text !== '' && calls ? ' ' : '',
+      calls,
     );
   }
 
@@ -385,16 +432,17 @@
     ];
   }
 
-  /** Who asked and when, the agent, the expiry, and the role it needs. */
+  /** Who asked (when Kindgi recorded it) and when, the agent, the expiry, and the role it needs. */
   function aboutCard(card) {
+    let asked = sprintf(__('Asked %s', 'kindgi'), when(card.createdAt));
+    if (card.askedByMe) asked = sprintf(__('Asked by you, %s', 'kindgi'), when(card.createdAt));
+    else if (card.askedByKnown) {
+      asked = sprintf(__('Asked by %1$s, %2$s', 'kindgi'), who(card.askedBy), when(card.createdAt));
+    }
     return el(
       'p',
       { className: 'kindgi-muted' },
-      sprintf(
-        __('Asked by %1$s, %2$s', 'kindgi'),
-        card.askedByMe ? __('you', 'kindgi') : who(card.askedBy),
-        when(card.createdAt),
-      ),
+      asked,
       card.agentId ? ` · ${sprintf(__('agent %s', 'kindgi'), card.agentId)}` : '',
       card.expiresAt ? ` · ${sprintf(__('expires %s', 'kindgi'), when(card.expiresAt))}` : '',
       ` · ${sprintf(__('needs a %s reviewer', 'kindgi'), card.requiredRole)}`,
@@ -410,6 +458,7 @@
         className: 'button-link',
         onclick: () => {
           state.conversationId = card.conversationId;
+          state.newAgent = null;
           showTab('ask');
         },
       },

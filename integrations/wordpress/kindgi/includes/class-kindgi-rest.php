@@ -42,6 +42,7 @@ final class Kindgi_Rest {
 			array(
 				'agentId'      => self::required_string( 128 ),
 				'agentVersion' => self::required_string( 64 ),
+				'title'        => self::optional_string( 200 ),
 			)
 		);
 		self::route( '/conversations/' . $id . '/messages', 'GET', 'messages' );
@@ -185,7 +186,7 @@ final class Kindgi_Rest {
 				'projectId'     => $session['project_id'],
 				// Memory kept per person: this person, whoever opens the page.
 				'participantId' => $session['user_id'],
-				'title'         => __( 'From WordPress', 'kindgi' ),
+				'title'         => '' !== trim( (string) $request['title'] ) ? trim( (string) $request['title'] ) : __( 'From WordPress', 'kindgi' ),
 			)
 		);
 		return is_wp_error( $answer ) ? $answer : self::conversation( $answer['body'] );
@@ -204,12 +205,24 @@ final class Kindgi_Rest {
 		}
 		$messages = array();
 		foreach ( self::list_of( $answer['body']['data'] ?? null ) as $m ) {
-			$content    = $m['content'] ?? null;
+			$content = $m['content'] ?? null;
+			$text    = is_string( $content ) ? $content : ( is_string( $content['text'] ?? null ) ? $content['text'] : '' );
+			$calls   = array();
+			foreach ( self::list_of( is_array( $content ) ? ( $content['toolCalls'] ?? null ) : null ) as $call ) {
+				if ( is_string( $call['name'] ?? null ) ) {
+					$calls[] = $call['name'];
+				}
+			}
 			$messages[] = array(
 				'sequence'  => (int) ( $m['sequence'] ?? 0 ),
 				'role'      => (string) ( $m['role'] ?? '' ),
-				'text'      => is_string( $content ) ? $content : ( is_string( $content['text'] ?? null ) ? $content['text'] : null ),
+				// An agent's words, or '' when its message only calls tools.
+				'text'      => 'tool' === ( $m['role'] ?? '' ) ? '' : $text,
+				// The tools an agent's message calls.
+				'calls'     => $calls,
+				// A tool's answer: which tool, and what it returned.
 				'toolId'    => is_string( $m['toolCall']['toolId'] ?? null ) ? $m['toolCall']['toolId'] : null,
+				'result'    => 'tool' === ( $m['role'] ?? '' ) ? $content : null,
 				'createdAt' => (string) ( $m['createdAt'] ?? '' ),
 			);
 		}
@@ -260,18 +273,23 @@ final class Kindgi_Rest {
 		if ( is_wp_error( $journal ) ) {
 			return $journal;
 		}
+		// The tools the agent called, by name: nothing else of the journal reaches the browser.
+		// `since` is exclusive: the next poll asks for what came after the last entry seen.
 		$steps = array();
 		$last  = (int) $request['since'];
 		foreach ( self::list_of( $journal['body']['data'] ?? null ) as $entry ) {
-			$payload = is_array( $entry['payload'] ?? null ) ? $entry['payload'] : array();
-			$steps[] = array(
-				'sequence' => (int) ( $entry['sequence'] ?? 0 ),
-				'kind'     => (string) ( $entry['kind'] ?? '' ),
-				'nodeId'   => is_string( $entry['nodeId'] ?? null ) ? $entry['nodeId'] : null,
-				'toolId'   => is_string( $payload['toolId'] ?? null ) ? $payload['toolId'] : null,
-				'at'       => (string) ( $entry['timestamp'] ?? '' ),
-			);
 			$last = max( $last, (int) ( $entry['sequence'] ?? 0 ) );
+			if ( 'step.completed' !== ( $entry['kind'] ?? '' ) ) {
+				continue;
+			}
+			foreach ( self::list_of( $entry['payload']['output']['message']['toolCalls'] ?? null ) as $call ) {
+				if ( is_string( $call['name'] ?? null ) ) {
+					$steps[] = array(
+						'toolId' => $call['name'],
+						'at'     => (string) ( $entry['timestamp'] ?? '' ),
+					);
+				}
+			}
 		}
 		$r       = $run['body'];
 		$waiting = array();
@@ -378,6 +396,8 @@ final class Kindgi_Rest {
 				: null,
 			'agentId'          => $is_tool && is_string( $ref['agentId'] ?? null ) ? $ref['agentId'] : null,
 			'conversationId'   => $is_tool && is_string( $ref['conversationId'] ?? null ) ? $ref['conversationId'] : null,
+			// Who asked, when Kindgi recorded it: a name on this site, or null for someone outside it.
+			'askedByKnown'     => null !== $asked_by,
 			'askedBy'          => self::who( $asked_by ),
 			'askedByMe'        => 'user:' . $me === $asked_by,
 			'separateApprover' => (bool) ( $a['separateApprover'] ?? false ),
