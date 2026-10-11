@@ -311,6 +311,11 @@ The start log says which it uses, with one of these lines:
   Client address: X-Forwarded-For behind trusted proxies 10.0.0.0/8, 192.168.0.0/16 (KINDGI_TRUSTED_PROXIES)
 ```
 
+**Caching:** every `/v1` answer, data and errors alike, says
+`Cache-Control: no-store`, so neither a proxy nor a browser keeps one to show
+it again, or to someone else. Outside `/v1`, the console's files and the
+docs, the runtime sets caching as before.
+
 Point the load balancer's health check at `/ready` (see [Operate](../operate/#check-health-and-logs)).
 
 ## 7. Trust your key and deploy
