@@ -10,6 +10,11 @@ Sites that sign their own people in to one project. A site, such as a store's Wo
   - Settings are checked before the binding sees them: an https origin, an approvals URL on that origin (compared as origins, not as a prefix), a role map that only names allowed roles, no reviewer role above the site's ceiling and never `admin`, and a display name without control or bidirectional characters.
 - **`POST /v1/auth/sites/enroll`, public:** a site posts its Ed25519 public key with its one-time code.
 - **`POST /v1/auth/site-sign-in`, public:** a site exchanges one of its people's statements (a compact JWS) for a session limited to the site's project.
-- **Both public routes** cap the body at 4096 bytes, pass the client's address to the binding, and leave every other check to it. Refusals are `401 site-enrollment-refused` and `401 site-sign-in-refused` (with `details.reason`), and limits are `429 rate-limit-exceeded`.
+- **Both public routes** cap the body at 4096 bytes, pass the client's address to the binding (by default the nearest `X-Forwarded-For` hop), and leave every other check to it.
+  - Enrollment takes only an Ed25519 public key, and refuses a JWK with a private part, before it looks the code up.
+  - Refusals are `401 site-enrollment-refused` and `401 site-sign-in-refused`. Before a statement's signature holds, the only reason given is `not-verified`; after it, `details.reason` says why.
+  - Limits are `429 rate-limit-exceeded`.
+- **A change to a site** is checked as the whole site it makes.
+- **`createApp` refuses `sites`** without authorization (`authz`) or without a session store with `revokeByProvider`.
 
 **The clients:** the TypeScript client gains `client.projects.sites`, `client.auth.enrollSite` and `client.auth.siteSignIn`; the Python and JVM clients gain the same operations.

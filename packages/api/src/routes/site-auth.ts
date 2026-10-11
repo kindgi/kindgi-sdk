@@ -4,7 +4,7 @@
 import { type Context, Hono } from 'hono';
 
 import { statusFor, toWireError } from '../errors.js';
-import type { SiteBinding } from '../site-binding.js';
+import type { SiteBinding, SiteSignInRefusal } from '../site-binding.js';
 import type { AppEnv } from '../types.js';
 
 /**
@@ -35,6 +35,41 @@ export const SITE_REQUEST_MAX_BYTES = 4096;
 
 const COMPACT_JWS = /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/;
 
+/** Refusals before the signature: answered as one, `not-verified`. */
+const UNVERIFIED: ReadonlySet<SiteSignInRefusal> = new Set([
+  'malformed',
+  'unknown-site',
+  'unknown-key',
+  'key-retired',
+  'bad-signature',
+]);
+
+const BASE64URL_32_BYTES = /^[A-Za-z0-9_-]{43}$/;
+const KID = /^[A-Za-z0-9._-]{1,64}$/;
+
+/**
+ * An Ed25519 public JWK, reduced to its public members (`kty`, `crv`, `x`,
+ * `kid`); a reason when it isn't one. A JWK with a private part (`d`) is
+ * refused: Kindgi only ever holds a site's public key.
+ */
+export function publicEd25519Key(raw: unknown): Readonly<Record<string, string>> | string {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    return '`publicKey` must be a JWK object';
+  }
+  const jwk = raw as Record<string, unknown>;
+  if ('d' in jwk) return 'Post the public half of the key only: this JWK has a private part (`d`)';
+  if (jwk.kty !== 'OKP' || jwk.crv !== 'Ed25519') {
+    return '`publicKey` must be an Ed25519 key: `kty: OKP`, `crv: Ed25519`';
+  }
+  if (typeof jwk.x !== 'string' || !BASE64URL_32_BYTES.test(jwk.x)) {
+    return '`publicKey.x` must be the 32-byte public key, base64url';
+  }
+  if (typeof jwk.kid !== 'string' || !KID.test(jwk.kid)) {
+    return '`publicKey.kid` must be 1 to 64 characters: letters, digits, `.`, `_` and `-`';
+  }
+  return { kty: 'OKP', crv: 'Ed25519', x: jwk.x, kid: jwk.kid };
+}
+
 export function siteEnrollRouter(options: SiteAuthRouteOptions): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   r.post('/', async (c) => {
@@ -44,13 +79,17 @@ export function siteEnrollRouter(options: SiteAuthRouteOptions): Hono<AppEnv> {
     if (typeof code !== 'string' || code.length === 0 || code.length > 200) {
       return badInput(c, '`code` must be the enrollment code you were given');
     }
-    if (publicKey === null || typeof publicKey !== 'object' || Array.isArray(publicKey)) {
-      return badInput(c, '`publicKey` must be a JWK object');
+    // The key's shape is checked before any code is looked up: a bad key
+    // never confirms a code, nor uses one up. Only the public half goes on.
+    const key = publicEd25519Key(publicKey);
+    if (typeof key === 'string') {
+      c.status(statusFor('site-key-invalid') as never);
+      return c.json(toWireError({ code: 'site-key-invalid', message: key }, c.get('requestId')));
     }
     const clientAddress = options.clientAddress?.(c.req.raw);
     const outcome = await options.binding.enroll({
       code,
-      publicKey: publicKey as Record<string, unknown>,
+      publicKey: key,
       ...(clientAddress !== undefined && { clientAddress }),
     });
     switch (outcome.kind) {
@@ -105,18 +144,25 @@ export function siteSignInRouter(options: SiteAuthRouteOptions): Hono<AppEnv> {
         });
       case 'rate-limited':
         return rateLimited(c, outcome.retryAfterSeconds);
-      case 'refused':
+      case 'refused': {
+        // Before the signature is checked the caller has proved nothing, so
+        // it learns nothing about the site: one reason and one message for
+        // all of them. After it, the caller holds the site's key.
+        const unverified = UNVERIFIED.has(outcome.reason);
         c.status(statusFor('site-sign-in-refused') as never);
         return c.json(
           toWireError(
             {
               code: 'site-sign-in-refused',
-              message: outcome.message,
-              reason: outcome.reason,
+              message: unverified
+                ? "The statement couldn't be verified: check the site's id, key and signature"
+                : outcome.message,
+              reason: unverified ? 'not-verified' : outcome.reason,
             },
             c.get('requestId'),
           ),
         );
+      }
     }
   });
   return r;

@@ -35,7 +35,43 @@ const MEMBER = 'kgi_ak_test_member';
 const NOW = '2026-10-11T18:00:00.000Z' as Timestamp;
 const STATEMENT = 'eyJhbGciOiJFZERTQSJ9.eyJzdWIiOiJ4In0.c2ln';
 
-function makeApp(options: { enroll?: SiteEnrollOutcome; signIn?: SiteSignInOutcome } = {}) {
+/** Ada is the tenant admin: `admin` on the tenant is hers alone. */
+const authz = {
+  fgaApiUrl: 'http://fga.invalid',
+  authzCheckBinding: {
+    check: async (
+      principal: { actor: { id: string } },
+      action: string,
+      resource: { type: string; id: string },
+    ) => {
+      const allowed =
+        !(action === 'admin' && resource.type === 'tenant') || principal.actor.id === 'ada';
+      return {
+        allowed,
+        reason: allowed ? 'test: granted' : 'test: not a tenant admin',
+        evidence: { action, relation: '', resource: resource.id, actorSubject: principal.actor.id },
+      };
+    },
+    checkBatch: async () => [],
+  },
+} as const;
+
+const sessionStore = {
+  create: async () => ({ sessionId: 'ses' as never, expiresAt: NOW }),
+  get: async () => null,
+  list: async () => ({ data: [] }),
+  revoke: async () => ({ revoked: false }),
+  revokeAllForUser: async () => ({ revokedCount: 0 }),
+  revokeByProvider: async () => ({ revokedCount: 0 }),
+};
+
+function makeApp(
+  options: {
+    enroll?: SiteEnrollOutcome;
+    signIn?: SiteSignInOutcome;
+    clientAddress?: false;
+  } = {},
+) {
   const sites = new Map<string, Site>();
   const calls: Array<{ method: string; input: unknown }> = [];
   const binding: SiteBinding = {
@@ -123,7 +159,12 @@ function makeApp(options: { enroll?: SiteEnrollOutcome; signIn?: SiteSignInOutco
     ...createStubAppBindings(),
     resolveToken,
     runHandler: {} as unknown as RunHandlerBinding,
-    sites: { binding, clientAddress: () => '203.0.113.7' },
+    authz: authz as never,
+    sessionStore,
+    sites: {
+      binding,
+      ...(options.clientAddress !== false && { clientAddress: () => '203.0.113.7' }),
+    },
   });
 
   const call = async (
@@ -147,7 +188,7 @@ function makeApp(options: { enroll?: SiteEnrollOutcome; signIn?: SiteSignInOutco
       body: (text.length > 0 ? JSON.parse(text) : {}) as Record<string, any>,
     };
   };
-  return { call, calls };
+  return { app, call, calls };
 }
 
 const register = {
@@ -219,6 +260,14 @@ describe('the sites of a project (tenant admins)', () => {
       'roleMap',
     ],
     ['a setting a site has no such thing as', { tenantRole: 'admin' }, 'tenantRole'],
+    [
+      'a display name with a right-to-left mark',
+      { displayName: 'Ada\u200f (admin)' },
+      'displayName',
+    ],
+    ['a display name with a zero-width space', { displayName: 'Ac\u200bme' }, 'displayName'],
+    ['a display name with a C1 control', { displayName: 'Acme\u0085store' }, 'displayName'],
+    ['a display name with a line separator', { displayName: 'Acme\u2028store' }, 'displayName'],
     ['a display name with a bidirectional override', { displayName: 'Acme ‮store' }, 'displayName'],
   ])('refuses %s (site-invalid), before the binding is asked', async (_what, change, field) => {
     const h = makeApp();
@@ -271,8 +320,73 @@ describe('the sites of a project (tenant admins)', () => {
   });
 });
 
+describe('a change is checked as the site it makes', () => {
+  const seniorSite = {
+    ...register,
+    reviewerCeiling: 'senior',
+    roleMap: { administrator: { ask: true, reviewer: 'senior' } },
+  };
+
+  test.each([
+    [
+      'an approvals URL alone, on another origin',
+      { approvalsUrl: 'https://attacker.test/a?approval={approvalId}' },
+      'approvalsUrl',
+    ],
+    [
+      'an origin alone, leaving the approvals URL on the old one',
+      { origin: 'https://other-store.example' },
+      'approvalsUrl',
+    ],
+    ['a ceiling below what the role map gives', { reviewerCeiling: 'standard' }, 'roleMap'],
+  ])('refuses %s', async (_what, patch, field) => {
+    const h = makeApp();
+    const siteId = (await h.call(ADMIN, 'POST', `/v1/projects/${P1}/sites`, seniorSite)).body.site
+      .siteId as string;
+    const res = await h.call(ADMIN, 'PATCH', `/v1/projects/${P1}/sites/${siteId}`, patch);
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatchObject({ code: 'site-invalid', details: { field } });
+  });
+
+  test('a change that keeps the site whole goes through', async () => {
+    const h = makeApp();
+    const siteId = (await h.call(ADMIN, 'POST', `/v1/projects/${P1}/sites`, seniorSite)).body.site
+      .siteId as string;
+    const res = await h.call(ADMIN, 'PATCH', `/v1/projects/${P1}/sites/${siteId}`, {
+      origin: 'https://other-store.example',
+      approvalsUrl: 'https://other-store.example/wp-admin/admin.php?approval={approvalId}',
+    });
+    expect(res.status).toBe(200);
+    expect(res.body.origin).toBe('https://other-store.example');
+  });
+});
+
+describe("createApp refuses sites it can't hold", () => {
+  const base = () => ({
+    ...createStubAppBindings(),
+    resolveToken: async () => null,
+    runHandler: {} as unknown as RunHandlerBinding,
+    sites: { binding: {} as never },
+  });
+  test('without authorization', () => {
+    expect(() => createApp({ ...base(), sessionStore })).toThrow(/needs authorization/);
+  });
+  test("without a session store that ends a site's sessions", () => {
+    const { revokeByProvider: _gone, ...store } = sessionStore;
+    expect(() => createApp({ ...base(), authz: authz as never, sessionStore: store })).toThrow(
+      /revokeByProvider/,
+    );
+    expect(() => createApp({ ...base(), authz: authz as never })).toThrow(/revokeByProvider/);
+  });
+});
+
 describe('a site enrolls its key (public)', () => {
-  const key = { kty: 'OKP', crv: 'Ed25519', x: 'abc', kid: 'k1' };
+  const key = {
+    kty: 'OKP',
+    crv: 'Ed25519',
+    x: 'q2x9W1n3tT0eZr8kN5bH7cJ4dF6gA2sL1mP0oQ9vR3u',
+    kid: 'k1',
+  };
 
   test('with no bearer token: the code and key go to the binding with the client address', async () => {
     const h = makeApp();
@@ -288,6 +402,32 @@ describe('a site enrolls its key (public)', () => {
         input: { code: 'enroll-once', publicKey: key, clientAddress: '203.0.113.7' },
       },
     ]);
+  });
+
+  test('only the public members go to the binding', async () => {
+    const h = makeApp();
+    await h.call(undefined, 'POST', '/v1/auth/sites/enroll', {
+      code: 'enroll-once',
+      publicKey: { ...key, use: 'sig', alg: 'EdDSA' },
+    });
+    expect((h.calls[0]?.input as { publicKey: unknown }).publicKey).toEqual(key);
+  });
+
+  test.each([
+    ['a private part', { ...key, d: 'q2x9W1n3tT0eZr8kN5bH7cJ4dF6gA2sL1mP0oQ9vR3u' }, /public half/],
+    ['another key type', { ...key, kty: 'EC', crv: 'P-256' }, /Ed25519/],
+    ['no kid', { kty: 'OKP', crv: 'Ed25519', x: key.x }, /kid/],
+    ['an x that is not 32 bytes', { ...key, x: 'abc' }, /32-byte/],
+  ])('refuses a key with %s before any code is looked up', async (_what, publicKey, message) => {
+    const h = makeApp();
+    const res = await h.call(undefined, 'POST', '/v1/auth/sites/enroll', {
+      code: 'enroll-once',
+      publicKey,
+    });
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('site-key-invalid');
+    expect(res.body.error.message).toMatch(message);
+    expect(h.calls).toEqual([]);
   });
 
   test.each([
@@ -321,6 +461,35 @@ describe('a site signs one of its people in (public)', () => {
     expect(h.calls).toEqual([
       { method: 'signIn', input: { statement: STATEMENT, clientAddress: '203.0.113.7' } },
     ]);
+  });
+
+  test.each(['malformed', 'unknown-site', 'unknown-key', 'key-retired', 'bad-signature'] as const)(
+    'before the signature holds, %s is answered as not-verified, with one message',
+    async (reason) => {
+      const h = makeApp({ signIn: { kind: 'refused', reason, message: `exact: ${reason}` } });
+      const res = await h.call(undefined, 'POST', '/v1/auth/site-sign-in', {
+        statement: STATEMENT,
+      });
+      expect(res.status).toBe(401);
+      expect(res.body.error.details).toEqual({ reason: 'not-verified' });
+      expect(res.body.error.message).toBe(
+        "The statement couldn't be verified: check the site's id, key and signature",
+      );
+    },
+  );
+
+  test("the client's address defaults to the nearest X-Forwarded-For hop", async () => {
+    const h = makeApp({ clientAddress: false });
+    const res = await h.app.request('/v1/auth/site-sign-in', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-forwarded-for': '198.51.100.1, 203.0.113.9',
+      },
+      body: JSON.stringify({ statement: STATEMENT }),
+    });
+    expect(res.status).toBe(200);
+    expect((h.calls[0]?.input as { clientAddress: string }).clientAddress).toBe('203.0.113.9');
   });
 
   test('a refusal says why, in details.reason', async () => {

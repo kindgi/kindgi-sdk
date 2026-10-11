@@ -71,8 +71,13 @@ export type {
   SiteSignInRefusal,
   SiteUpdateInput,
 } from './site-binding.js';
-export { SITE_DEFAULTS, checkSiteSettings, siteOrigin } from './routes/sites.js';
-export { SITE_REQUEST_MAX_BYTES } from './routes/site-auth.js';
+export {
+  SITE_DEFAULTS,
+  checkSiteSettings,
+  hasHiddenCharacters,
+  siteOrigin,
+} from './routes/sites.js';
+export { SITE_REQUEST_MAX_BYTES, publicEd25519Key } from './routes/site-auth.js';
 export type {
   Session,
   SessionCreateInput,

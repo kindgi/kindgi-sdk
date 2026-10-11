@@ -8927,7 +8927,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('EnrollSiteResult'),
       },
       '400': ErrorResponse(
-        "A malformed body, or a public key that isn't an Ed25519 JWK with a `kid` (`site-key-invalid`).",
+        "A malformed body, or a public key that isn't an Ed25519 JWK with a `kid`, or has a private part (`site-key-invalid`); it's checked before the code.",
       ),
       '401': ErrorResponse('The code was refused (`site-enrollment-refused`).'),
       '413': ErrorResponse('The body is over 4096 bytes (`site-request-too-large`).'),
@@ -8941,7 +8941,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'auth.siteSignIn',
     summary: 'A site signs one of its people in',
     description:
-      "Public: the statement is the credential. A registered site's statement that a person is signed in there, exchanged for a session limited to the site's project: it reads nothing above the project, mints no keys, isn't refreshed, and ends early when the site is paused or unregistered, or one of its keys revoked. The person is the one the site created for that `sub` (a first statement creates them; never matched by email), with the grants the site's role map gives their roles. Every refusal is `401 site-sign-in-refused`, with `details.reason`: `malformed`, `unknown-site`, `site-paused`, `site-not-vouching`, `unknown-key`, `key-retired`, `bad-signature`, `wrong-audience`, `expired`, `issued-in-the-future`, `too-long-lived`, `replayed`, `role-not-allowed`, `person-removed` or `people-cap`. Rate-limited per client and per site (`429 rate-limit-exceeded`, with `Retry-After`). The body is at most 4096 bytes.",
+      "Public: the statement is the credential. A registered site's statement that a person is signed in there, exchanged for a session limited to the site's project: it reads nothing above the project, mints no keys, isn't refreshed, and ends early when the site is paused or unregistered, or one of its keys revoked. The person is the one the site created for that `sub` (a first statement creates them; never matched by email), with the grants the site's role map gives their roles. Every refusal is `401 site-sign-in-refused`, with `details.reason`. A statement whose signature wasn't verified gets `not-verified` alone, whatever was wrong (the site, the key, the signature, the format), since its sender has proved nothing; after a verified signature: `site-paused`, `site-not-vouching`, `wrong-audience`, `expired`, `issued-in-the-future`, `too-long-lived`, `replayed`, `role-not-allowed`, `person-removed` or `people-cap`. Rate-limited per client and per site (`429 rate-limit-exceeded`, with `Retry-After`). The body is at most 4096 bytes.",
     tags: ['sites'],
     security: 'public',
     requestBody: { required: true, schema: ref('SiteSignInBody') },

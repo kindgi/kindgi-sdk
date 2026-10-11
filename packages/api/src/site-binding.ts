@@ -24,9 +24,20 @@ import type { ProjectId, TenantId, Timestamp, UserId } from '@kindgi/types';
  * which Kindgi never has.
  */
 export interface SiteBinding {
+  /**
+   * A new site, and its one-time enrollment code (at least 128 bits, stored
+   * only hashed, expiring, used up atomically). The route has checked the
+   * settings (`checkSiteSettings`).
+   */
   register(input: SiteRegisterInput): Promise<SiteRegisterOutcome>;
   list(input: SiteListInput): Promise<SitePage>;
   get(input: SiteGetInput): Promise<Site | null>;
+  /**
+   * Change a site's settings. The route has checked the patch merged into
+   * the site as it read it; the binding checks the merged settings again
+   * as it stores them, in one transaction (`checkSiteSettings`), since the
+   * site may have changed in between.
+   */
   update(input: SiteUpdateInput): Promise<SiteChangeOutcome>;
   /** Stop or start the site's sign-ins. Pausing ends its live sessions. */
   setPaused(input: SiteSetPausedInput): Promise<SiteChangeOutcome>;
@@ -35,7 +46,10 @@ export interface SiteBinding {
   /**
    * A new one-time enrollment code for the site. Using it replaces every
    * key the site has and ends its live sessions; an earlier unused code
-   * stops working. This is how a site's key is rotated.
+   * stops working. This is how a site's key is rotated. Like `register`'s,
+   * the code has at least 128 bits, is stored only hashed, expires, and is
+   * used up atomically (`UPDATE … WHERE used_at IS NULL AND expires_at >
+   * now() RETURNING`).
    */
   newEnrollmentCode(
     input: SiteGetInput & { readonly by: string },
@@ -45,19 +59,32 @@ export interface SiteBinding {
   /**
    * `POST /v1/auth/sites/enroll`, before anyone is signed in: the site
    * posts its public key with a one-time code. The code is the only
-   * credential, so a wrong, used or expired one gets the same refusal.
+   * credential, so a wrong, used or expired one gets the same refusal. The
+   * route has already checked the key's shape (before any code is looked
+   * up, so a bad key never confirms or uses up a code) and passes only its
+   * public members: `kty`, `crv`, `x`, `kid`.
    */
   enroll(input: SiteEnrollInput): Promise<SiteEnrollOutcome>;
   /**
    * `POST /v1/auth/site-sign-in`, before anyone is signed in: a person's
    * statement, signed by a registered site, for a session limited to the
    * site's project. The binding checks everything about it, in this order:
-   * a limit on failures per client address; the site (live, not paused,
-   * vouching); the signature (EdDSA only, a live key of the site, never a
-   * key named or linked in the statement); the audience; the times (no
-   * `iat` in the future, `exp` at most 60 s after it); a limit per site,
-   * counting only statements that passed so far; the statement's `jti`,
-   * used once; then the person and their grants, and the session.
+   * 1. a limit on failures per client address;
+   * 2. the site exists (by the statement's `iss`);
+   * 3. the signature: EdDSA only, against a live key of the site's (by
+   *    `kid`), never a key the statement names or links;
+   * 4. only then, the site isn't paused and is vouching; the audience; the
+   *    times (no `iat` in the future, `exp` at most 60 s after it); a limit
+   *    per site, counting only statements whose signature held; the
+   *    statement's `jti`, used once; the person and their grants.
+   * The route answers every refusal from 1 to 3 the same way
+   * (`not-verified`): before the signature the caller has proved nothing.
+   * The exact reason goes to the audit.
+   *
+   * The session is created with `projectId` the site's project and `role`
+   * `member`, read back with `get`, and refused (and revoked) if a limit
+   * didn't come back: a store that drops one would hand out an unlimited
+   * session.
    */
   signIn(input: SiteSignInInput): Promise<SiteSignInOutcome>;
 }
@@ -203,8 +230,8 @@ export type SiteEnrollmentCodeOutcome =
 
 export interface SiteEnrollInput {
   readonly code: string;
-  /** The site's Ed25519 public key, a JWK (`kty: OKP`, `crv: Ed25519`, `x`, `kid`). */
-  readonly publicKey: Readonly<Record<string, unknown>>;
+  /** The site's Ed25519 public key: only `kty: OKP`, `crv: Ed25519`, `x` and `kid` (checked by the route). */
+  readonly publicKey: Readonly<Record<string, string>>;
   /** The client's address, as the deployment knows it, for the limit on failures. */
   readonly clientAddress?: string;
 }

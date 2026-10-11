@@ -456,6 +456,8 @@ const noopSessionStore: SessionStoreBinding = {
   revokeAllForUser: async () => ({ revokedCount: 0 }),
   // Cookie sessions need a store that resolves its own tokens.
   resolveToken: async () => null,
+  // Sites need their sessions ended with them.
+  revokeByProvider: async () => ({ revokedCount: 0 }),
 };
 
 const noopIdentityProvider: IdentityProviderBinding = {
@@ -649,7 +651,19 @@ export function fullAppInput(): CreateAppInput {
     secretsBinding: noopSecretsBinding,
     webhookReceiver: { envName: 'test' as EnvName },
     // Every method answers "nothing here": the drift tests only need the routes.
+    // Sites need authorization on: everything is granted here.
     sites: { binding: new Proxy({}, { get: () => async () => null }) as never },
+    authz: {
+      fgaApiUrl: 'http://fga.invalid',
+      authzCheckBinding: {
+        check: async (_principal, action, resource) => ({
+          allowed: true,
+          reason: 'full app: granted',
+          evidence: { action, relation: '', resource: resource.id, actorSubject: '' },
+        }),
+        checkBatch: async () => [],
+      },
+    },
     publicUrl: 'https://kindgi.acme.example',
     license: { status: () => ({ mode: 'development' }) },
   };

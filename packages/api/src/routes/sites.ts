@@ -83,6 +83,16 @@ export function sitesRouter(
     if (body === undefined) return badInput(c, 'The body must be a JSON object');
     const settings = checkSiteSettings(body, { partial: true });
     if (settings.kind === 'invalid') return invalid(c, settings.field, settings.message);
+    // A change is checked as the site it makes: an approvals URL alone is
+    // checked against the site's origin, a ceiling alone against its role
+    // map. The binding checks the merged settings again as it stores them.
+    const current = await binding.get({ ...where(c), siteId: c.req.param('siteId') });
+    if (current === null) return notFound(c);
+    const merged = checkSiteSettings(
+      { ...siteSettingsOf(current), ...(settings.value as Record<string, unknown>) },
+      { partial: false },
+    );
+    if (merged.kind === 'invalid') return invalid(c, merged.field, merged.message);
     return answer(
       c,
       await binding.update({
@@ -146,6 +156,21 @@ export function sitesRouter(
   );
 
   return r;
+}
+
+/** A site's settings, as a body would give them (for checking a change against the whole site). */
+function siteSettingsOf(site: Site): Record<string, unknown> {
+  return {
+    displayName: site.displayName,
+    origin: site.origin,
+    approvalsUrl: site.approvalsUrl,
+    allowedRoles: site.allowedRoles,
+    roleMap: site.roleMap,
+    reviewerCeiling: site.reviewerCeiling,
+    vouching: site.vouching,
+    peopleCap: site.peopleCap,
+    newPeoplePerDay: site.newPeoplePerDay,
+  };
 }
 
 /** A site as the API answers it. */
@@ -231,10 +256,10 @@ export function checkSiteSettings(
     if (typeof name !== 'string' || name.trim().length === 0 || name.length > 100) {
       return no('displayName', '`displayName` must be 1 to 100 characters');
     }
-    if (hasControlOrBidi(name)) {
+    if (hasHiddenCharacters(name)) {
       return no(
         'displayName',
-        '`displayName` must not contain control or bidirectional characters',
+        '`displayName` must not contain control, format or invisible characters',
       );
     }
     out.displayName = name.trim();
@@ -379,15 +404,14 @@ export function siteOrigin(raw: unknown): string | undefined {
   return url.origin;
 }
 
-/** Control characters, and the bidirectional overrides and isolates that can disguise a name. */
-function hasControlOrBidi(text: string): boolean {
-  for (const ch of text) {
-    const c = ch.codePointAt(0) ?? 0;
-    if (c < 0x20 || c === 0x7f || (c >= 0x202a && c <= 0x202e) || (c >= 0x2066 && c <= 0x2069)) {
-      return true;
-    }
-  }
-  return false;
+/**
+ * Characters that can disguise a name: controls (C0 and C1), format
+ * characters (bidirectional marks, overrides and isolates, zero-width
+ * characters, the byte-order mark) and the line and paragraph separators.
+ * A site person's `name` is held to the same check.
+ */
+export function hasHiddenCharacters(text: string): boolean {
+  return /[\p{Cc}\p{Cf}\u2028\u2029]/u.test(text);
 }
 
 function no(field: string, message: string): { kind: 'invalid'; field: string; message: string } {

@@ -86,7 +86,7 @@ import {
   mintPublicRunToken,
   resolvePublicRunTokenConfig,
 } from './public-run-token.js';
-import type { RateLimitStore } from './rate-limit-store.js';
+import { type RateLimitStore, nearestForwardedClient } from './rate-limit-store.js';
 import type { RetentionBinding } from './retention-binding.js';
 import type { ReviewerBinding, ReviewerRegistryBinding } from './reviewer-binding.js';
 import {
@@ -836,8 +836,9 @@ export interface CreateAppInput {
    * Mounts `/v1/projects/{projectId}/sites` (tenant admins) and, outside
    * the bearer chain, `POST /v1/auth/sites/enroll` and
    * `POST /v1/auth/site-sign-in`. Absent: none of them is mounted. A
-   * deployment wires it only with authorization enforced: a site's session
-   * is held to its project by the authorizer.
+   * deployment wires it only with authorization enforced (`authz`) and a
+   * session store with `revokeByProvider`: `createApp` throws without
+   * either. `clientAddress` defaults to the nearest X-Forwarded-For hop.
    */
   readonly sites?: {
     readonly binding: SiteBinding;
@@ -1837,9 +1838,25 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // A site enrolls its key, and signs its people in: outside the bearer
   // chain (mounted ahead of `/v1`), since nobody is signed in yet.
   if (input.sites !== undefined) {
+    // A site's session is held to its project by the authorizer (on routes
+    // that take only an id, by `inKeyProject`), and ends with the site
+    // (`revokeByProvider`): without either, refuse to start.
+    if (input.authz === undefined) {
+      throw new Error(
+        'createApp: `sites` needs authorization (`authz`): without it a site session is not held to its project',
+      );
+    }
+    if (input.sessionStore?.revokeByProvider === undefined) {
+      throw new Error(
+        'createApp: `sites` needs a session store with `revokeByProvider`: a paused or revoked site must end its sessions',
+      );
+    }
     const siteAuth = {
       binding: input.sites.binding,
-      ...(input.sites.clientAddress !== undefined && { clientAddress: input.sites.clientAddress }),
+      // Default: the nearest X-Forwarded-For hop (the proxy in front wrote
+      // it), as the sign-in options limit tells clients apart.
+      clientAddress:
+        input.sites.clientAddress ?? ((request: Request) => nearestForwardedClient(request)),
     };
     app.route('/v1/auth/sites/enroll', siteEnrollRouter(siteAuth));
     app.route('/v1/auth/site-sign-in', siteSignInRouter(siteAuth));
