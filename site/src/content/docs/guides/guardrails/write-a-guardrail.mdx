@@ -260,3 +260,49 @@ uv run pytest
 
 </TabItem>
 </Tabs>
+
+## In the console
+
+A project's **Guardrails** page lists its guardrails, with a headline such
+as "5 guardrails; 1 isn't named by any agent here." Each row says:
+- **how it checks:** "A rule: no model call", with the check;
+- **what happens when it fires:** "The turn fails", or "It is recorded;
+  nothing stops";
+- **when it applies:** "In runs and in CI", or "In runs only, not in CI";
+- **how many agents name it:** "1 agent", or "No agent".
+
+![The Guardrails page: "5 guardrails; 1 isn't named by any agent here.", with No secrets in answers, Says thanks, No refund promises, No shouting and No placeholder text, each with how it checks, when it fires, where it applies and how many agents name it.](../../../../assets/guardrails/guardrails-list.png)
+
+A guardrail's page has:
+- **What it checks:** how, the check, its settings, when it fires, its
+  severity and where it applies.
+- **Agents it checks:** each agent version that names it and can run here,
+  marked "(latest)" or "(live)".
+- **What it caught:** its outcomes by agent version
+  ([Halt or record](../halt-or-record/)).
+
+![No secrets in answers' page: a rule, forbidden-substring (built in), patterns ["password"], the turn fails, critical, in runs and in CI; the agent version that names it, Guarded agent 1.0.0 (latest); and What it caught.](../../../../assets/guardrails/guardrail-page.png)
+
+A flow step runs the agent version its flow version pins, so that version is
+checked too: "Drafts agent 1.0.0 (pinned by flow acme.drafting 1.0.0)".
+
+![No shouting's page, whose agent version is one a flow pins: Drafts agent 1.0.0 (pinned by flow acme.drafting 1.0.0).](../../../../assets/guardrails/guardrail-flow-pinned.png)
+
+For guardrail admins, **Unregister**. Its dialog names the agent versions
+whose turns then fail, and how they come back:
+
+```text
+Unregister No secrets in answers?
+Guarded agent 1.0.0 (latest) names it: its turns fail, saying it isn't registered, until it's registered again or a version that doesn't name it goes live.
+There's no reinstate: registering it again brings it back.
+```
+
+- **When a flow pins one of those versions,** it adds: "The flow version
+  that pins it fails at that step too: …".
+- **Once it's done,** the dialog shows the guardrail's definition, to
+  register it again.
+- **Past 100 agents or flows,** the page and the dialog say which weren't
+  checked: "Only the first 100 agents were checked." (or the first 100
+  flows' steps).
+
+![The Unregister No secrets in answers? dialog: Guarded agent 1.0.0 (latest) names it, its turns fail until it's registered again or a version that doesn't name it goes live, and there's no reinstate.](../../../../assets/guardrails/guardrail-unregister.png)
