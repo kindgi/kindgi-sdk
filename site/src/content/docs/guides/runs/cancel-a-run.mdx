@@ -45,8 +45,8 @@ A cancel takes effect at once, wherever the run is:
   `run.cancelled`.
 - **A step running when it lands stops.** An agent turn stops waiting for its
   model and ends `cancelled`. A start that was waiting for the turn
-  (`wait: true`) answers at once with `422 agent-turn-aborted`, "Agent turn
-  cancelled".
+  (`wait: true`) answers within seconds with `422 agent-turn-aborted`,
+  "Agent turn cancelled".
 - **A step that ends as it lands keeps its end.** Its `step.completed` comes
   after `run.cancelled` in the journal: it did finish.
 
