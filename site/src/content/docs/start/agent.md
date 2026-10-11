@@ -91,7 +91,7 @@ running and no model key yet:
     {
       "id": "model-key",
       "status": "fail",
-      "message": "No model key in .env or .env.local (looked for ANTHROPIC_API_KEY, GEMINI_API_KEY, GROQ_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY).",
+      "message": "No model key in .env or .env.local or .kindgi/secrets.env (looked for ANTHROPIC_API_KEY, GEMINI_API_KEY, GROQ_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY).",
       "fix": "With kindgi dev running, set one LLM provider's key: pnpm exec kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant, or the same with GEMINI_API_KEY, GROQ_API_KEY, OPENAI_API_KEY or OPENROUTER_API_KEY (it prompts without echoing; or pipe it in with --from-stdin). Never paste a key into a chat."
     },
     {

@@ -105,7 +105,7 @@ the call is made: a key you change is used from the next turn on. A key that
 isn't set fails the turn when the model is called, not when you register:
 
 ```text
-Error [model-invocation-failed]: Model call to acme-gateway (llama3.1) failed: provider-runtime-bridge: failed to resolve secret local/ACME_GATEWAY_KEY for tenant 59381e5b-cf14-4cb7-8fb8-89dba8abfa54: No secret "ACME_GATEWAY_KEY" for env "local" in .env, .env.local at /pack
+Error [model-invocation-failed]: Model call to acme-gateway (llama3.1) failed: provider-runtime-bridge: failed to resolve secret local/ACME_GATEWAY_KEY for tenant …: No secret "ACME_GATEWAY_KEY" for env "local" in .env, .env.local, .kindgi/secrets.env at /pack
 ```
 
 Copy each model's prices from the vendor's page, divided by 1000: Kindgi's

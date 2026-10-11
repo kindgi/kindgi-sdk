@@ -239,7 +239,7 @@ Until the secret exists, the call fails and names it:
 
 ```json
   "status": "failed",
-  "failureMessage": "handler-error: Tool \"my-pack.check-token\" handler threw: secret-unavailable: tool \"my-pack.check-token\" needs secret \"HTTPBIN_TOKEN\" in env \"local\": No secret \"HTTPBIN_TOKEN\" for env \"local\" in .env, .env.local at /pack",
+  "failureMessage": "handler-error: Tool \"my-pack.check-token\" handler threw: secret-unavailable: tool \"my-pack.check-token\" needs secret \"HTTPBIN_TOKEN\" in env \"local\": No secret \"HTTPBIN_TOKEN\" for env \"local\" in .env, .env.local, .kindgi/secrets.env at /pack",
 ```
 
 Store it (here from stdin; without `--from-stdin` the command prompts for it
