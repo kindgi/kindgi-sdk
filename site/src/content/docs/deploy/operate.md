@@ -493,8 +493,10 @@ What to check before you upgrade, and what's different after:
   `KINDGI_RUN_ENDED_CHECK_MS` of a cancel (5 s by default).
 - **Cancelling a flow while it runs a loop stops the loop:** no more of its
   steps start after the cancel.
-- **Two runtime instances starting at once no longer deadlock or race on
-  migrations:** one waits until the other's migrations finish.
+- **Two runtime instances starting at once no longer deadlock or race each
+  other on migrations:** one waits until the other's migrations finish. One
+  starting beside an instance that's serving writes can still fail (see
+  [Known limitations in 0.1.6](#known-limitations-in-016)).
 - **Guardrail, tool and provider changes reach every runtime instance** on
   one database at its next turn, with no restart, whichever instance (or a
   plain SQL change) made them.
