@@ -233,6 +233,23 @@ describe('KINDGI_PACK_ENDPOINT_HOSTS', () => {
     expect(packEndpointHostAllowed('evilus-central1.run.app', allowed)).toBe(false);
   });
 
+  test("`*-<tail>.` matches one more label that ends with `-<tail>`: one Cloud Run project, not anyone's", () => {
+    const project = parsePackEndpointHosts('*-123456789012.us-central1.run.app');
+    expect(project).toEqual([
+      { kind: 'tail', tail: '123456789012', domain: 'us-central1.run.app' },
+    ]);
+    expect(
+      packEndpointHostAllowed('kp-abcdefghijklmnopqrst-123456789012.us-central1.run.app', project),
+    ).toBe(true);
+    // The same service name in someone else's project: refused.
+    expect(
+      packEndpointHostAllowed('kp-abcdefghijklmnopqrst-999999999999.us-central1.run.app', project),
+    ).toBe(false);
+    expect(packEndpointHostAllowed('kp-x123456789012.us-central1.run.app', project)).toBe(false);
+    expect(packEndpointHostAllowed('123456789012.us-central1.run.app', project)).toBe(false);
+    expect(packEndpointHostAllowed('a.kp-x-123456789012.us-central1.run.app', project)).toBe(false);
+  });
+
   test('an exact host matches only itself', () => {
     expect(packEndpointHostAllowed('pack.internal', allowed)).toBe(true);
     expect(packEndpointHostAllowed('x.pack.internal', allowed)).toBe(false);
@@ -246,6 +263,9 @@ describe('KINDGI_PACK_ENDPOINT_HOSTS', () => {
     ['*.app'],
     ['localhost'],
     ['Upper.Example.com'],
+    ['*-.us-central1.run.app'],
+    ['*-123'],
+    ['*-12_3.run.app'],
   ])('refuses %j at startup', (raw) => {
     expect(() => parsePackEndpointHosts(raw)).toThrow(
       'KINDGI_PACK_ENDPOINT_HOSTS takes host names',

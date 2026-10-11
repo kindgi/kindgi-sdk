@@ -157,14 +157,21 @@ export function parsePackRouting(raw: string | undefined): PackRouting {
 export const PACK_ENDPOINT_HOSTS_VAR = 'KINDGI_PACK_ENDPOINT_HOSTS';
 
 /**
- * One allowed host: `exact` (`pack.internal`), or `suffix`, from `*.<suffix>`,
- * which matches one more label in front of the suffix
- * (`*.us-central1.run.app` matches `kp-abc-123.us-central1.run.app`, but
- * neither `us-central1.run.app` itself nor `a.b.us-central1.run.app`).
+ * One allowed host:
+ * - `exact` (`pack.internal`);
+ * - `suffix`, from `*.<suffix>`: one more label in front of the suffix
+ *   (`*.example.internal` matches `pack-a.example.internal`, but neither
+ *   `example.internal` itself nor `a.b.example.internal`);
+ * - `tail`, from `*-<tail>.<domain>`: one more label that ends with `-<tail>`
+ *   (`*-123456789012.us-central1.run.app` matches
+ *   `kp-abc-123456789012.us-central1.run.app`). On Cloud Run, whose URLs are
+ *   `<service>-<project number>.<region>.run.app` for every project, this is
+ *   the form that admits only one project's services.
  */
 export type PackEndpointHost =
   | { readonly kind: 'exact'; readonly host: string }
-  | { readonly kind: 'suffix'; readonly suffix: string };
+  | { readonly kind: 'suffix'; readonly suffix: string }
+  | { readonly kind: 'tail'; readonly tail: string; readonly domain: string };
 
 const HOST_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 
@@ -175,7 +182,8 @@ function isHostName(name: string): boolean {
 
 /**
  * Parse `KINDGI_PACK_ENDPOINT_HOSTS`: comma-separated host names, lowercase,
- * with no scheme, port or path, each exact or `*.` and a suffix of at least
+ * with no scheme, port or path, each exact, `*.` and a domain, or `*-`, a tail
+ * and a domain (`*-123456789012.us-central1.run.app`); a domain has at least
  * two labels. Unset or blank: none, so every endpoint is refused. Throws on
  * anything else, so a typo fails at startup rather than refusing every
  * endpoint later.
@@ -184,11 +192,22 @@ export function parsePackEndpointHosts(raw: string | undefined): readonly PackEn
   if (raw === undefined || raw.trim() === '') return [];
   return raw.split(',').map((entry) => {
     const item = entry.trim();
+    if (item.startsWith('*-')) {
+      const dot = item.indexOf('.');
+      const tail = dot < 0 ? '' : item.slice(2, dot);
+      const domain = dot < 0 ? '' : item.slice(dot + 1);
+      if (HOST_LABEL.test(tail) && isHostName(domain)) {
+        return { kind: 'tail' as const, tail, domain };
+      }
+      throw new Error(
+        `${PACK_ENDPOINT_HOSTS_VAR} takes host names, \`*.\` and a domain, or \`*-\`, a tail and a domain, comma-separated: lowercase, with no scheme, port or path (for example \`*-123456789012.us-central1.run.app\`). Got "${item}".`,
+      );
+    }
     const suffix = item.startsWith('*.') ? item.slice(2) : undefined;
     const name = suffix ?? item;
     if (!isHostName(name)) {
       throw new Error(
-        `${PACK_ENDPOINT_HOSTS_VAR} takes host names, or \`*.\` and a domain, comma-separated: lowercase, with no scheme, port or path (for example \`*.us-central1.run.app\`). Got "${item}".`,
+        `${PACK_ENDPOINT_HOSTS_VAR} takes host names, \`*.\` and a domain, or \`*-\`, a tail and a domain, comma-separated: lowercase, with no scheme, port or path (for example \`*-123456789012.us-central1.run.app\`). Got "${item}".`,
       );
     }
     return suffix === undefined
@@ -205,9 +224,11 @@ export function packEndpointHostAllowed(
   const name = host.toLowerCase();
   return allowed.some((entry) => {
     if (entry.kind === 'exact') return name === entry.host;
-    if (!name.endsWith(`.${entry.suffix}`)) return false;
-    const first = name.slice(0, name.length - entry.suffix.length - 1);
-    return HOST_LABEL.test(first);
+    const domain = entry.kind === 'suffix' ? entry.suffix : entry.domain;
+    if (!name.endsWith(`.${domain}`)) return false;
+    const first = name.slice(0, name.length - domain.length - 1);
+    if (!HOST_LABEL.test(first)) return false;
+    return entry.kind === 'suffix' || first.endsWith(`-${entry.tail}`);
   });
 }
 

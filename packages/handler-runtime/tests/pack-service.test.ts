@@ -891,6 +891,39 @@ describe('pack service — pinned to one tenant (KINDGI_PACK_TENANT_ID)', () => 
     expect(pinnedEvents).toContainEqual({ kind: 'tenant-mismatch', via: 'context' });
   });
 
+  test('tenant ids compare without regard to case (UUIDs), so a pin set in capitals still serves', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'kindgi-pack-pinned-upper-'));
+    try {
+      const upperIndex = await writePack(root, INDEX);
+      const started = await startPackService({
+        indexPath: upperIndex,
+        moduleRoot: root,
+        token: TOKEN,
+        port: 0,
+        tenantId: 'T-1',
+      });
+      if (started.kind === 'err') throw new Error(started.problems.join('; '));
+      try {
+        const res = await invoke(
+          call('pack.echo', { message: 'hi' }),
+          { 'kindgi-tenant-id': 't-1' },
+          started.value.port,
+        );
+        expect(res.status).toBe(200);
+        const other = await invoke(
+          call('pack.echo', { message: 'hi' }),
+          { 'kindgi-tenant-id': 't-2' },
+          started.value.port,
+        );
+        expect(other.status).toBe(421);
+      } finally {
+        await started.value.stop(0);
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
   test('the token is still checked first: a wrong token is 401, not 421', async () => {
     const res = await invoke(
       call('pack.echo', { message: 'x' }),

@@ -146,6 +146,9 @@ export function createPackService(options: PackServiceOptions): PackService {
   const importModule =
     options.importModule ?? ((p: string) => import(pathToFileURL(p).href) as Promise<unknown>);
   const expectedToken = Buffer.from(options.token);
+  // Tenant ids are UUIDs: compared without regard to case, so an orchestrator
+  // that sets one in capitals doesn't refuse every call.
+  const pinnedTenant = options.tenantId?.toLowerCase();
 
   // Every version of a tool the pack holds, side by side: one agent version
   // may pin tool@1 while another pins tool@2 (keyed by id and version).
@@ -386,9 +389,9 @@ export function createPackService(options: PackServiceOptions): PackService {
     const message = parsed.value;
     // The header matched (refuseRequest); a tool call's own context must too.
     if (
-      options.tenantId !== undefined &&
+      pinnedTenant !== undefined &&
       message.kind === 'invoke' &&
-      message.ctx.tenantId !== options.tenantId
+      String(message.ctx.tenantId).toLowerCase() !== pinnedTenant
     ) {
       return MISDIRECTED;
     }
@@ -444,9 +447,11 @@ export function createPackService(options: PackServiceOptions): PackService {
     if (route === undefined) return { status: 404, body: { error: `No route ${req.url ?? '/'}` } };
     if (req.method !== route.method) return { status: 405, body: { error: `Use ${route.method}` } };
     if (route.auth && !authorized(req)) return { status: 401, body: { error: 'Bad pack token' } };
-    if (route.name === 'invoke' && options.tenantId !== undefined) {
+    if (route.name === 'invoke' && pinnedTenant !== undefined) {
       const named = req.headers[PACK_HEADERS.tenantId];
-      if (typeof named !== 'string' || named !== options.tenantId) return misdirected('header');
+      if (typeof named !== 'string' || named.toLowerCase() !== pinnedTenant) {
+        return misdirected('header');
+      }
     }
     return undefined;
   }
