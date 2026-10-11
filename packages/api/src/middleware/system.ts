@@ -11,6 +11,7 @@ import { refused } from '../routes/denied.js';
 import {
   FULL_SYSTEM_CAPABILITY,
   SYSTEM_PRINCIPAL_ALLOWED_ROUTES,
+  type SystemPrincipal,
   type SystemScope,
   holdsSystemScope,
   isSystemCapability,
@@ -122,46 +123,74 @@ export function systemPrincipalFence(
       if (tenancy === 'multi') dropSystemCapabilities(c);
       return next();
     }
-    const method = c.req.method;
-    const path = c.req.path;
-    const allowed =
-      isSystemPath(path) ||
-      SYSTEM_PRINCIPAL_ALLOWED_ROUTES.some((r) => r.method === method && r.path === path);
-    let refusal: Response | undefined;
-    if (allowed) {
-      await next();
-    } else {
-      refusal = deny(
-        c,
-        authorizer,
-        'system-key-on-tenant-route',
-        `A system key acts in no tenant: it reaches /v1/system/* only, not ${method} ${path}. Use a key of the tenant.`,
-      );
-    }
-    if (audit !== undefined) {
-      const scope = c.get('systemScopeUsed');
-      const tenantId = c.get('systemTargetTenant');
-      try {
-        await audit.record({
-          requestId: c.get('requestId'),
-          keyId: system.keyId,
-          method,
-          path,
-          status: refusal?.status ?? c.res.status,
-          ...(scope !== undefined && { scope }),
-          ...(tenantId !== undefined && { tenantId }),
-        });
-      } catch (cause) {
-        c.get('log').error('could not record a system request in the access record', {
-          err: cause,
-          keyId: system.keyId,
-          method,
-          path,
-        });
-      }
-    }
+    const refusal = await admitSystemRequest(c, next, authorizer);
+    if (audit !== undefined) await recordSystemRequest(c, audit, system, refusal);
     return refusal;
   };
+}
+
+/**
+ * Lets a system principal's request through to `/v1/system/*`, or to a
+ * listed route when it holds that route's scope; else its refusal. The
+ * listed route's scope is checked here too, so the list means what it
+ * says, and the route checks again.
+ */
+async function admitSystemRequest(
+  c: Context<AppEnv>,
+  next: () => Promise<void>,
+  authorizer: Authorizer | undefined,
+): Promise<Response | undefined> {
+  const { method, path } = c.req;
+  if (isSystemPath(path)) {
+    await next();
+    return undefined;
+  }
+  const listed = SYSTEM_PRINCIPAL_ALLOWED_ROUTES.find(
+    (r) => r.method === method && r.path === path,
+  );
+  if (listed === undefined) {
+    return deny(
+      c,
+      authorizer,
+      'system-key-on-tenant-route',
+      `A system key acts in no tenant: it reaches /v1/system/* only, not ${method} ${path}. Use a key of the tenant.`,
+    );
+  }
+  const refusal = systemScopeRefusal(c, listed.scope, authorizer);
+  if (refusal !== undefined) return refusal;
+  c.set('systemScopeUsed', holdsFullSystem(c) ? FULL_SYSTEM_CAPABILITY : listed.scope);
+  await next();
+  return undefined;
+}
+
+/** The access record of one system request: a failed write is logged, never thrown. */
+async function recordSystemRequest(
+  c: Context<AppEnv>,
+  audit: SystemAccessAuditBinding,
+  system: SystemPrincipal,
+  refusal: Response | undefined,
+): Promise<void> {
+  const { method, path } = c.req;
+  const scope = c.get('systemScopeUsed');
+  const tenantId = c.get('systemTargetTenant');
+  try {
+    await audit.record({
+      requestId: c.get('requestId'),
+      keyId: system.keyId,
+      method,
+      path,
+      status: refusal?.status ?? c.res.status,
+      ...(scope !== undefined && { scope }),
+      ...(tenantId !== undefined && { tenantId }),
+    });
+  } catch (cause) {
+    c.get('log').error('could not record a system request in the access record', {
+      err: cause,
+      keyId: system.keyId,
+      method,
+      path,
+    });
+  }
 }
 
 /** A tenant's key or session on a runtime serving many tenants: no operator's powers. */
@@ -236,6 +265,10 @@ function systemScopeRefusal(
     );
   }
   return undefined;
+}
+
+function holdsFullSystem(c: Context<AppEnv>): boolean {
+  return (c.get('capabilities') ?? []).includes(FULL_SYSTEM_CAPABILITY);
 }
 
 function principalRequired(c: Context<AppEnv>, authorizer: Authorizer | undefined): Response {

@@ -22818,7 +22818,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body.",
+            "description": "`keyId` is not a system key id (a UUID).",
             "content": {
               "application/json": {
                 "schema": {
@@ -22884,10 +22884,11 @@
             "name": "keyId",
             "in": "path",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "format": "uuid"
             },
             "required": true,
-            "description": "The system key's id."
+            "description": "The system key's id (a UUID)."
           },
           {
             "name": "Idempotency-Key",

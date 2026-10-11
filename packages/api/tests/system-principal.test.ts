@@ -247,11 +247,22 @@ describe('the fence: a system principal reaches /v1/system/* and the license onl
       status: 200,
       scope: 'system:license',
     });
-    // Any other scope doesn't read it.
-    const other = await mintSystemKey(['system:tenants']);
+    // Any other scope is refused at the fence: the allowed list names its scope.
+    const other = await mintSystemKey(['system:usage:read']);
     const refused = await call(other.token, 'GET', '/v1/license');
     expect(refused.status).toBe(403);
-    expect(code(refused)).toBe('license-operator-only');
+    expect(code(refused)).toBe('system-scope-missing');
+    expect((refused.body.error as { details?: unknown }).details).toMatchObject({
+      scope: 'system:license',
+    });
+    // The full capability reads it, and its record names the scope it used.
+    const full = await call(MULTI_BOOT, 'GET', '/v1/license');
+    expect(full.status).toBe(200);
+    expect(audit.at(-1)).toMatchObject({
+      keyId: 'boot',
+      path: '/v1/license',
+      scope: 'kindgi:system',
+    });
   });
 
   test("a tenant's requests pass untouched and aren't on the system access record", async () => {
@@ -348,6 +359,9 @@ describe('/v1/system/keys', () => {
     const missing = await call(MULTI_BOOT, 'POST', `/v1/system/keys/${randomUUID()}/revoke`);
     expect(missing.status).toBe(404);
     expect(code(missing)).toBe('system-key-not-found');
+    const malformed = await call(MULTI_BOOT, 'POST', '/v1/system/keys/not-a-key/revoke');
+    expect(malformed.status).toBe(400);
+    expect(code(malformed)).toBe('bad-input');
   });
 
   test("a key can't outlive the full system key minting it", async () => {

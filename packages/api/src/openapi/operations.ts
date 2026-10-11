@@ -1917,8 +1917,8 @@ export const OPERATIONS: readonly OperationSpec[] = [
         name: 'keyId',
         in: 'path',
         required: true,
-        description: "The system key's id.",
-        schema: { type: 'string' },
+        description: "The system key's id (a UUID).",
+        schema: { type: 'string', format: 'uuid' },
       },
       IdempotencyKeyParam,
     ],
@@ -1928,6 +1928,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '403': ErrorResponse(
         "A tenant's key or session (`system-principal-required`), or a scoped system key (`system-scope-missing`).",
       ),
+      '400': ErrorResponse('`keyId` is not a system key id (a UUID).'),
       '404': ErrorResponse('No system key with that id (`system-key-not-found`).'),
     },
   },

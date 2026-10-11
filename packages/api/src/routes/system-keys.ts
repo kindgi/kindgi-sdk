@@ -11,9 +11,11 @@ import { requireFullSystem } from '../middleware/system.js';
 import { FULL_SYSTEM_CAPABILITY, isSystemScope } from '../system.js';
 import type { AppEnv } from '../types.js';
 import { parseTimeInput } from './time-input.js';
+import { refuseMalformedUuidParam } from './uuid-param.js';
 
 /** A system key, as stored: never its secret. */
 export interface SystemKeyRecord {
+  /** A UUID. */
   readonly id: string;
   readonly label?: string;
   /** Its system scopes, or `kindgi:system` for all of them. */
@@ -57,7 +59,9 @@ type WireError = { readonly code: string; readonly message: string } & Readonly<
  * (sign-up, the orchestrator, billing, the license renewal), each with the
  * least scope it needs. Only the full system capability (`kindgi:system`:
  * the deployment's own token, or a full system key) mints, lists or revokes
- * them; a scoped key never mints any key.
+ * them; a scoped key never mints any key. A runtime serving one tenant has
+ * no system principal, so there they can't be reached: its own token is
+ * that tenant's.
  */
 export function systemKeysRouter(
   binding: SystemKeysBinding,
@@ -88,7 +92,7 @@ export function systemKeysRouter(
   r.get('/', async (c) => c.json({ data: (await binding.list()).map(toWire) }));
 
   // ---------- POST /:keyId/revoke ----------
-  r.post('/:keyId/revoke', async (c) => {
+  r.post('/:keyId/revoke', refuseMalformedUuidParam('keyId', 'a system key id'), async (c) => {
     const keyId = c.req.param('keyId');
     const revoked = await binding.revoke(keyId);
     if (revoked === null) {
