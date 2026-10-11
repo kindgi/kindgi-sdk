@@ -145,7 +145,7 @@ A key limited to a project sees that project alone. A `member` key is never
 a tenant admin. You only see what you may read: no project you can't read,
 no one else's role.
 
-The console hides actions by it. The server still checks every call.
+The console hides actions by it ([The console, by role](../authorization/#the-console-by-role)). The server still checks every call.
 
 On a runtime without an authorization store it answers
 `501 permissions-unsupported`. In the clients it's
@@ -315,13 +315,6 @@ It's refused for yourself and for the seed user
   Copy button.
 
   ![The API keys page: one key, labelled laptop, acting as Sam Rivera with the member role, never used, expiring a month after it was made, with a Revoke button.](../../../assets/people/api-keys.png)
-- **People** (tenant admins): **Add a person**, each person's access in words
-  (what they were granted directly: tenant admin, a project or team role, the
-  reviewer roster), making or unmaking a tenant admin, a key for them, and
-  removing them. A search box, **People who were removed** and **Columns**
-  narrow the list.
-
-  ![The People page: a search box, a People who were removed checkbox and a Columns button; the seed user (admin, reviewer) and Ann, added by email (no role yet), each with their access, active keys, when they were last active and when they were added; and an Add a person button.](../../../assets/people/people.png)
 - **Service accounts** (tenant admins): create one with its grants, change
   them, make it a key, unregister it.
 
@@ -329,6 +322,78 @@ It's refused for yourself and for the seed user
 
 A project you have no role on shows **No access**, with the projects you can
 open.
+
+### People
+
+**People**, for tenant admins, lists the tenant's people: each one's access
+in words, such as "reads the tenant's settings, viewer on Support, member
+of team Support crew, standard reviewer", their active keys, when they were
+last active, and when they were added. Access is what each was granted
+directly: what a team's role gives on a project isn't listed there yet. A
+search box, sorting, **People who were removed** and **Columns** narrow and
+order the list, and the page's address keeps them.
+
+![The People page: "8 people in this tenant", a People who were removed checkbox, Columns and Add a person; each person with their email, their access in words (the seed user: tenant admin, owner on Support and Billing, admin of team Support crew, admin reviewer; Ada Lovelace: reads the tenant's settings, viewer on Support, member of team Support crew, standard reviewer; Sam Rivera: reads the tenant's settings), their active keys, when they were last active and when they were added.](../../../assets/people/people.png)
+
+**Add a person** adds someone with their access in one step ("Give them
+their access now, in the same step."): a name, an email (optional; "One
+person per email in this tenant."), project roles, teams, a reviewer tier,
+and tenant admin.
+
+![The Add a person dialog: a name and an email, a viewer role on Billing, the team Support crew as a member, no reviewer role, and the Tenant admin checkbox, with an Add button.](../../../assets/people/add-person.png)
+
+Each part is a step of its own. When they all work, the person's page
+opens. When one doesn't, the dialog says how each went:
+
+- **They weren't added,** such as for an email someone has: "Sam Rivera
+  wasn't added.", each step with why ("Someone in this tenant already has
+  that email.") or "not tried: they weren't added", and **Change and try
+  again**.
+- **They were added, but not everything was given:** the steps that failed
+  say why, with **Try again what failed**.
+- **It isn't known whether they were added,** because the runtime didn't
+  answer: it says so and offers **Look in People**, rather than adding them
+  again.
+
+A person's page says what they may do and changes it in place, each part
+where you may:
+
+- **Projects and teams:** change a role, **Take away** one, or **Give
+  access** to another project or team, with a role. Each project role says
+  what it gives, such as "Also changes it: registers and runs agents,
+  judges, publishes." for an editor.
+- **Reviewer:** their tier, or none; **Take off the roster**.
+- **Tenant admin:** making or unmaking one. "A tenant always keeps one
+  admin: removing the only one is refused."
+
+Taking something away asks first: "Take Ada Lovelace off Support? From
+their next request on, they can't work in Support. Their other access, and
+what they did there, stay." The page also lists their keys, with **Make a
+key for** them, where they're signed in, their sign-ins, and **Remove from
+the tenant**.
+
+![Ada Lovelace's page as a tenant admin: "1 active key acts as Ada Lovelace" with Make a key for Ada Lovelace; What they may do: Support (viewer) and Support crew (member), each with Take away; Reviewer: Standard, with Take off the roster; Tenant admin: No, with Make tenant admin; Give access (a project, a role); then Signed in, Their keys (ada-laptop, expiring in 3 days, with Revoke), Sign-ins, and Remove from the tenant.](../../../assets/people/person.png)
+
+### What needs you
+
+A tenant admin's home in the tenant starts with what needs a look, such as
+"8 people in 3 projects and 1 team. 3 people have no project of their own;
+1 key expires this week.", or "Nothing needs you right now.":
+
+- **No project of their own:** people who aren't a tenant admin and have no
+  project role given them directly. A project they reach through a team or
+  as an org admin isn't counted yet.
+- **Keys:** those that expire this week, or have gone unused for 90 days,
+  with **All keys**.
+- **Recently refused:** requests the [access audit](../authorization/#the-access-audit)
+  recorded as denied, with **All refused requests**. "Someone refused may be
+  missing access they need."
+
+![The tenant's home as a tenant admin. What needs you: "8 people in 3 projects and 1 team. 3 people have no project of their own; 1 key expires this week."; No project of their own: Ben Okafor, Sam Rivera and Eddie Park; Keys: "ada-laptop expires in 3 d"; Recently refused: a person refused admin on the tenant, just now. Below: the projects, and the tenant's sections.](../../../assets/people/tenant-home.png)
+
+It counts everyone, and never says all is clear before it has read
+everything: while a read is still coming in, it says "Still reading…", and
+one that failed is named ("… couldn't be read").
 
 ## Recorded
 
