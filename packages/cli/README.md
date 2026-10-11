@@ -213,6 +213,12 @@ One command runs the whole loop on your machine:
   `kindgi auth registry --username <robot name>` (see
   [The runtime image's registry](#the-runtime-images-registry)). `kindgi dev`
   says so when a pull is refused.
+- **Starting:** `kindgi dev` says what the start is doing as it happens,
+  and how long each step took: pulling the image (its size, then how much
+  has come as each layer arrives), starting the container, migrating the
+  database, and waiting for the runtime to serve. A step still going says
+  so every 3 seconds. Migrating shows with a runtime that reports it (0.1.7
+  and later); with an earlier one, that time counts as waiting.
 
 ### Env files
 

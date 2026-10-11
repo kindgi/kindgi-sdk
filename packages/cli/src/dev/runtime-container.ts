@@ -19,7 +19,7 @@ import { type ChildProcess, spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 
 import { lineReader } from './lines.js';
-import { textLines } from './log-view.js';
+import { parseRecord, textLines } from './log-view.js';
 import {
   RUNTIME_EXPORT_SIGNING_KEY,
   RUNTIME_GOOGLE_CREDENTIALS,
@@ -32,6 +32,7 @@ import {
   isRegistryAuthFailure,
   registryLoginCommand,
 } from './runtime-registry.js';
+import { NO_START_PHASES, type StartPhases, formatSize } from './start-phases.js';
 
 export type RuntimeNetwork = 'alias' | 'host-network';
 
@@ -51,6 +52,10 @@ export interface DockerRunOptions {
    * registry token) goes here, never in the arguments or the environment.
    */
   readonly stdin?: string;
+  /** Each line as it comes, from either stream (a pull's progress). */
+  readonly onLine?: (line: string) => void;
+  /** Ends the command (a registry that doesn't answer); it then reports no exit code. */
+  readonly signal?: AbortSignal;
 }
 
 /** Runs one `docker` command to completion: `docker` below, or a fake in tests. */
@@ -67,17 +72,27 @@ export function docker(
   return new Promise((resolve) => {
     const child = spawn('docker', args, {
       stdio: [options.stdin === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
+      ...(options.signal !== undefined && { signal: options.signal }),
     });
     let stdout = '';
     let stderr = '';
+    const onLine = options.onLine;
+    const outLines = onLine === undefined ? undefined : lineReader(onLine);
+    const errLines = onLine === undefined ? undefined : lineReader(onLine);
     child.stdout?.on('data', (chunk: Buffer) => {
       stdout += chunk.toString();
+      outLines?.push(chunk.toString());
     });
     child.stderr?.on('data', (chunk: Buffer) => {
       stderr += chunk.toString();
+      errLines?.push(chunk.toString());
     });
     child.once('error', (err) => resolve({ code: null, stdout, stderr: err.message }));
-    child.once('close', (code) => resolve({ code, stdout, stderr }));
+    child.once('close', (code) => {
+      outLines?.end();
+      errLines?.end();
+      resolve({ code, stdout, stderr });
+    });
     if (options.stdin !== undefined) {
       // `docker` may exit without reading it (a bad flag, or no `docker`
       // at all): the write's EPIPE is reported by the exit, not thrown.
@@ -130,21 +145,38 @@ export function runtimeContainerName(packDir: string): string {
 }
 
 /**
- * Make sure the image is here, pulling it if not. A private image needs
- * a registry login first (`kindgi auth registry`); the error says so.
+ * Make sure the image is here, pulling it if not: the pull is a phase,
+ * with the image's size (from its manifest, when the registry gives it)
+ * and how much has come as each layer arrives. A private image needs a
+ * registry login first (`kindgi auth registry`); the error says so.
  */
 export async function ensureRuntimeImage(
   image: string,
-  onProgress: (line: string) => void,
+  phases: StartPhases = NO_START_PHASES,
 ): Promise<{ readonly kind: 'ok' } | { readonly kind: 'error'; readonly message: string }> {
   const present = await docker(['image', 'inspect', '--format', '{{.Id}}', image]);
   if (present.code === 0) return { kind: 'ok' };
   if (present.code === null) {
     return { kind: 'error', message: `Docker isn't available: ${present.stderr}` };
   }
-  onProgress(`Pulling the Kindgi runtime image ${image} (first run only)...`);
-  const pulled = await docker(['pull', image]);
-  if (pulled.code === 0) return { kind: 'ok' };
+  const layers = await imageLayers(image);
+  const progress = pullProgress(layers);
+  phases.begin(
+    'pull',
+    layers === undefined
+      ? `${image} (first run only)`
+      : `${image}, ${formatSize(progress.totalBytes)} in ${layers.length} layers (first run only)`,
+  );
+  const pulled = await docker(['pull', image], {
+    onLine: (line) => {
+      const note = progress.take(line);
+      if (note !== undefined) phases.progress(note);
+    },
+  });
+  if (pulled.code === 0) {
+    phases.end(layers === undefined ? undefined : formatSize(progress.totalBytes));
+    return { kind: 'ok' };
+  }
   const detail = dockerFailureDetail(pulled.stderr);
   const helper = credentialHelperFailure(pulled.stderr);
   const auth =
@@ -154,6 +186,109 @@ export async function ensureRuntimeImage(
         ? `\n  The runtime image is in private preview: request access at contact@kindgi.com, log in with the pull credentials you receive (${registryLoginCommand(image)}), then run kindgi dev again.`
         : '';
   return { kind: 'error', message: `Couldn't pull ${image}: ${detail}${auth}` };
+}
+
+/** A layer of an image, as its manifest lists it. */
+export interface ImageLayer {
+  readonly digest: string;
+  readonly size: number;
+}
+
+/** How long a registry gets to answer for the image's manifest: a pull doesn't wait on it. */
+const MANIFEST_TIMEOUT_MS = 15_000;
+
+/**
+ * The layers `docker pull` will fetch for this machine, from the image's
+ * manifest (`docker manifest inspect --verbose`, a registry read that
+ * stores nothing); `undefined` when the registry doesn't say.
+ */
+async function imageLayers(image: string): Promise<readonly ImageLayer[] | undefined> {
+  const signal = AbortSignal.timeout(MANIFEST_TIMEOUT_MS);
+  const platform = await docker(['version', '--format', '{{.Server.Os}}/{{.Server.Arch}}'], {
+    signal,
+  });
+  if (platform.code !== 0) return undefined;
+  const manifest = await docker(['manifest', 'inspect', '--verbose', image], { signal });
+  if (manifest.code !== 0) return undefined;
+  return manifestLayers(manifest.stdout, platform.stdout.trim());
+}
+
+/**
+ * The layers for `platform` (`linux/arm64`) in `docker manifest inspect
+ * --verbose`'s output: one entry per platform for an index (attestations,
+ * `unknown/unknown`, are skipped), or one manifest.
+ */
+export function manifestLayers(json: string, platform: string): readonly ImageLayer[] | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return undefined;
+  }
+  const entries = (Array.isArray(parsed) ? parsed : [parsed]).filter(isObject);
+  const [os, architecture] = platform.split('/');
+  // One manifest is this machine's; an index's entries name theirs.
+  const entry =
+    entries.length === 1
+      ? entries[0]
+      : entries.find((e) => {
+          const p =
+            isObject(e.Descriptor) && isObject(e.Descriptor.platform) ? e.Descriptor.platform : {};
+          return p.os === os && p.architecture === architecture;
+        });
+  return entry === undefined ? undefined : layersOf(entry);
+}
+
+/** A verbose manifest entry's layers, when each has a digest and a size. */
+function layersOf(entry: Readonly<Record<string, unknown>>): readonly ImageLayer[] | undefined {
+  const manifest = entry.SchemaV2Manifest ?? entry.OCIManifest;
+  const layers = isObject(manifest) ? manifest.layers : undefined;
+  if (!Array.isArray(layers) || layers.length === 0) return undefined;
+  const out: ImageLayer[] = [];
+  for (const layer of layers) {
+    if (!isObject(layer) || typeof layer.digest !== 'string' || typeof layer.size !== 'number') {
+      return undefined;
+    }
+    out.push({ digest: layer.digest, size: layer.size });
+  }
+  return out;
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+/** A pull's line saying a layer is in: its 12-character id. */
+const LAYER_IN = /^([0-9a-f]{12}): (?:Download complete|Pull complete|Already exists)\s*$/;
+
+/**
+ * A pull's progress from its lines: without a terminal, `docker pull`
+ * prints no byte counts, only a line as each layer arrives, so the bytes
+ * so far are the sizes of the layers in. `take` answers a line that
+ * moved it with the progress as words.
+ */
+export function pullProgress(layers: readonly ImageLayer[] | undefined): {
+  readonly totalBytes: number;
+  take(line: string): string | undefined;
+} {
+  const sizes = new Map<string, number>();
+  for (const layer of layers ?? []) {
+    sizes.set(layer.digest.replace(/^sha256:/, '').slice(0, 12), layer.size);
+  }
+  const totalBytes = [...sizes.values()].reduce((sum, n) => sum + n, 0);
+  const done = new Set<string>();
+  return {
+    totalBytes,
+    take(line) {
+      const id = LAYER_IN.exec(line.replace(/^.*\r/, ''))?.[1];
+      if (id === undefined || done.has(id)) return undefined;
+      done.add(id);
+      if (sizes.size === 0) return `${done.size} ${done.size === 1 ? 'layer' : 'layers'} in`;
+      let bytes = 0;
+      for (const d of done) bytes += sizes.get(d) ?? 0;
+      return `${formatSize(bytes)} of ${formatSize(totalBytes)}, ${Math.min(done.size, sizes.size)} of ${sizes.size} layers`;
+    },
+  };
 }
 
 export interface RuntimeContainerOptions {
@@ -173,6 +308,8 @@ export interface RuntimeContainerOptions {
   readonly onLog: (line: string, stream: 'stdout' | 'stderr') => void;
   /** A stop while it starts: the container is stopped and removed, and the wait throws `RuntimeStartStopped`. */
   readonly signal?: AbortSignal;
+  /** Where the start's phases are told: the container, migrating, waiting for it to serve. */
+  readonly phases?: StartPhases;
 }
 
 export interface RunningRuntimeContainer {
@@ -264,11 +401,15 @@ export async function startRuntimeContainer(
   wait: { readonly timeoutMs?: number; readonly fetch?: typeof fetch } = {},
 ): Promise<RunningRuntimeContainer> {
   const name = runtimeContainerName(options.packDir);
+  const phases = options.phases ?? NO_START_PHASES;
+  phases.begin('container');
   await docker(['rm', '--force', name]);
   const started = await docker(runtimeRunArgs(name, options));
   if (started.code !== 0) {
     throw new Error(`docker run failed: ${dockerFailureDetail(started.stderr)}`);
   }
+  phases.end();
+  phases.begin('serve');
 
   // The runtime's latest lines as text (a record as its pretty line, the
   // JSON boot record as its banner lines), enough for the boot wait and a
@@ -286,7 +427,14 @@ export async function startRuntimeContainer(
       if (line.startsWith(DOCKER_DAEMON_ERROR)) return;
       lines.push(...textLines(line));
       if (lines.length > KEPT_LINES) lines.splice(0, lines.length - KEPT_LINES);
-      options.onLog(line, stream);
+      // The runtime's migration records are the migrating phase's start and end.
+      const stage = migrationStage(line);
+      if (stage === 'start') phases.begin('migrate');
+      else if (stage === 'done') {
+        phases.end();
+        phases.begin('serve');
+      }
+      if (stage === undefined) options.onLog(line, stream);
     });
   const out = reader('stdout');
   const err = reader('stderr');
@@ -339,6 +487,17 @@ export async function startRuntimeContainer(
     await pauseUnlessStopped(250, options.signal);
   }
   return { name, baseUrl, banner: lines.join('\n'), stop };
+}
+
+/**
+ * Whether a runtime line is one of its migration records: `start` before
+ * it applies the database's migrations, `done` after. A runtime that
+ * writes none (older images) never shows a migrating phase.
+ */
+export function migrationStage(line: string): 'start' | 'done' | undefined {
+  const record = parseRecord(line);
+  if (record?.subsystem !== 'migrations') return undefined;
+  return record.stage === 'start' || record.stage === 'done' ? record.stage : undefined;
 }
 
 /** Why waiting longer for a running container won't help, if it won't. */

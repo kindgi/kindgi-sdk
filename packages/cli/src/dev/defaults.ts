@@ -485,9 +485,8 @@ export async function publishIndexReal(stagedPath: string, indexPath: string): P
 export async function startApiServerContainerReal(
   opts: StartApiServerOptions,
 ): Promise<RunningApiServer> {
-  const progress = opts.onProgress ?? (() => undefined);
   const network = await detectRuntimeNetwork();
-  const image = await ensureRuntimeImage(opts.runtimeImage, progress);
+  const image = await ensureRuntimeImage(opts.runtimeImage, opts.startPhases);
   if (image.kind === 'error') throw new Error(image.message);
 
   const googleCredentials = opts.googleCredentialsPath;
@@ -538,6 +537,7 @@ export async function startApiServerContainerReal(
     }),
     onLog: opts.onLog ?? (() => undefined),
     ...(opts.signal !== undefined && { signal: opts.signal }),
+    ...(opts.startPhases !== undefined && { phases: opts.startPhases }),
   });
   try {
     const project = await fetch(`${runtime.baseUrl}/v1/projects/default`, {
@@ -612,6 +612,7 @@ export async function attachToRuntimeReal(
   );
   progress(`Waiting for the Kindgi runtime at ${baseUrl}.`);
   progress(`  Start it with the settings in ${envFile} as its environment.`);
+  opts.startPhases?.begin('serve');
   const deadline = Date.now() + 10 * 60_000;
   let project: Response | undefined;
   for (;;) {
