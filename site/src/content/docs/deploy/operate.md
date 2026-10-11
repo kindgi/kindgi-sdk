@@ -505,6 +505,10 @@ What to check before you upgrade, and what's different after:
 - **The console has a new look,** light or dark: it follows your system, or
   the one you choose (also in ⌘K). Its links no longer point at an address
   without the tenant while a page loads.
+- **Every `/v1` answer says `Cache-Control: no-store`,** errors included, so
+  a proxy or a browser no longer shows a kept one again: a `410` for a flow
+  since reinstated no longer outlives a reload
+  ([Behind a load balancer or ingress](../self-host/#behind-a-load-balancer-or-ingress)).
 - **⌘K and the breadcrumbs reach every project section;** choosing Cost or
   Schedules there used to do nothing.
 - **A record opened under another project's address moves to its own
