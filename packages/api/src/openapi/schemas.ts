@@ -1273,6 +1273,22 @@ export const MintSystemKeyResultSchema: JsonSchema = {
   },
 };
 
+export const RevokeSystemKeyResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    'The revoked system key, and the keys revoked with it because they were minted from it.',
+  required: [...(SystemKeySchema.required as readonly string[]), 'alsoRevoked'],
+  properties: {
+    ...(SystemKeySchema.properties as Record<string, JsonSchema>),
+    alsoRevoked: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'The ids of the keys minted from it, however deep, revoked with it.',
+    },
+  },
+};
+
 export const SystemKeyListSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
@@ -11823,6 +11839,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['MintSystemKeyBody', MintSystemKeyBodySchema],
   ['MintSystemKeyResult', MintSystemKeyResultSchema],
   ['SystemKeyList', SystemKeyListSchema],
+  ['RevokeSystemKeyResult', RevokeSystemKeyResultSchema],
   ['ApiToken', ApiTokenSchema],
   ['ApiTokenPage', ApiTokenPageSchema],
   ['ApiKeyPrincipal', ApiKeyPrincipalSchema],

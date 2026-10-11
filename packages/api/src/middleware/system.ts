@@ -34,14 +34,36 @@ export interface SystemAccessRecord {
   readonly tenantId?: string;
 }
 
+/** A state-changing request's attempt, recorded before it acts. */
+export type SystemAccessAttempt = Omit<SystemAccessRecord, 'status' | 'scope' | 'tenantId'>;
+
+/** What became of an attempt. */
+export interface SystemAccessOutcome {
+  readonly status: number;
+  readonly scope?: string;
+  readonly tenantId?: string;
+}
+
 /**
  * Where the runtime keeps the record of every request a system principal
  * makes (key, scope, route, target tenant): the record the access
  * procedure points to.
+ *
+ * - **A state-changing request** (`POST`, `PUT`, `PATCH`, `DELETE`) is
+ *   recorded **before** it acts: `begin` returns the attempt's id, and
+ *   `finish` adds its outcome. If `begin` fails, nothing is done (`503
+ *   access-record-unavailable`). If the process stops between the two, the
+ *   attempt stays on record, never silence.
+ * - **A read, and a refusal before any route code,** is recorded once
+ *   answered (`record`).
  */
 export interface SystemAccessAuditBinding {
   record(entry: SystemAccessRecord): Promise<void>;
+  begin(attempt: SystemAccessAttempt): Promise<string>;
+  finish(id: string, outcome: SystemAccessOutcome): Promise<void>;
 }
+
+const STATE_CHANGING: ReadonlySet<string> = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 const SYSTEM_PREFIX = '/v1/system/';
 
@@ -123,8 +145,32 @@ export function systemPrincipalFence(
       if (tenancy === 'multi') dropSystemCapabilities(c);
       return next();
     }
-    const refusal = await admitSystemRequest(c, next, authorizer);
-    if (audit !== undefined) await recordSystemRequest(c, audit, system, refusal);
+    let attemptId: string | undefined;
+    const proceed = async (): Promise<Response | undefined> => {
+      // A state-changing request is on record before it acts, or it doesn't act.
+      if (audit !== undefined && STATE_CHANGING.has(c.req.method)) {
+        try {
+          attemptId = await audit.begin(attemptOf(c, system));
+        } catch (cause) {
+          c.get('log').error('could not record a system request before acting on it', {
+            err: cause,
+            keyId: system.keyId,
+            method: c.req.method,
+            path: c.req.path,
+          });
+          return answer(
+            c,
+            'access-record-unavailable',
+            "The operator's access record can't be written just now, so nothing was done: try again.",
+            {},
+          );
+        }
+      }
+      await next();
+      return undefined;
+    };
+    const refusal = await admitSystemRequest(c, proceed, authorizer);
+    if (audit !== undefined) await recordSystemRequest(c, audit, system, refusal, attemptId);
     return refusal;
   };
 }
@@ -137,14 +183,11 @@ export function systemPrincipalFence(
  */
 async function admitSystemRequest(
   c: Context<AppEnv>,
-  next: () => Promise<void>,
+  proceed: () => Promise<Response | undefined>,
   authorizer: Authorizer | undefined,
 ): Promise<Response | undefined> {
   const { method, path } = c.req;
-  if (isSystemPath(path)) {
-    await next();
-    return undefined;
-  }
+  if (isSystemPath(path)) return proceed();
   const listed = SYSTEM_PRINCIPAL_ALLOWED_ROUTES.find(
     (r) => r.method === method && r.path === path,
   );
@@ -159,30 +202,44 @@ async function admitSystemRequest(
   const refusal = systemScopeRefusal(c, listed.scope, authorizer);
   if (refusal !== undefined) return refusal;
   c.set('systemScopeUsed', holdsFullSystem(c) ? FULL_SYSTEM_CAPABILITY : listed.scope);
-  await next();
-  return undefined;
+  return proceed();
 }
 
-/** The access record of one system request: a failed write is logged, never thrown. */
+function attemptOf(c: Context<AppEnv>, system: SystemPrincipal): SystemAccessAttempt {
+  return {
+    requestId: c.get('requestId'),
+    keyId: system.keyId,
+    method: c.req.method,
+    path: c.req.path,
+  };
+}
+
+/**
+ * The access record of one system request: the attempt's outcome when it
+ * began one, else the whole record. A failed write is logged, never thrown:
+ * an action taken can't be undone, and its attempt is already on record.
+ */
 async function recordSystemRequest(
   c: Context<AppEnv>,
   audit: SystemAccessAuditBinding,
   system: SystemPrincipal,
   refusal: Response | undefined,
+  attemptId: string | undefined,
 ): Promise<void> {
   const { method, path } = c.req;
   const scope = c.get('systemScopeUsed');
   const tenantId = c.get('systemTargetTenant');
+  const outcome: SystemAccessOutcome = {
+    status: refusal?.status ?? c.res.status,
+    ...(scope !== undefined && { scope }),
+    ...(tenantId !== undefined && { tenantId }),
+  };
   try {
-    await audit.record({
-      requestId: c.get('requestId'),
-      keyId: system.keyId,
-      method,
-      path,
-      status: refusal?.status ?? c.res.status,
-      ...(scope !== undefined && { scope }),
-      ...(tenantId !== undefined && { tenantId }),
-    });
+    if (attemptId !== undefined) {
+      await audit.finish(attemptId, outcome);
+    } else {
+      await audit.record({ ...attemptOf(c, system), ...outcome });
+    }
   } catch (cause) {
     c.get('log').error('could not record a system request in the access record', {
       err: cause,

@@ -16,6 +16,7 @@ import {
   OPERATIONS,
   SYSTEM_TENANT_ID,
   createApp,
+  systemKeysMintedFrom,
   systemPrincipalFence,
   withSystemTenantContext,
 } from '../src/index.js';
@@ -41,6 +42,12 @@ import type {
  */
 
 const tenantId = randomUUID() as TenantId;
+/** An access record that keeps nothing. */
+const NO_AUDIT = {
+  record: async () => undefined,
+  begin: async () => 'a',
+  finish: async () => undefined,
+};
 const HOUR = 60 * 60 * 1000;
 
 /** System keys in memory, resolving as system principals. */
@@ -67,10 +74,13 @@ function makeSystemKeys() {
     async revoke(id) {
       const k = keys.get(id);
       if (k === undefined) return null;
-      const revoked = { ...k, revokedAt: k.revokedAt ?? new Date() };
-      keys.set(id, revoked);
-      const { secret: _secret, ...r } = revoked;
-      return r;
+      const alsoRevoked = systemKeysMintedFrom([...keys.values()], id);
+      for (const each of [id, ...alsoRevoked]) {
+        const key = keys.get(each);
+        if (key !== undefined) keys.set(each, { ...key, revokedAt: key.revokedAt ?? new Date() });
+      }
+      const { secret: _secret, ...r } = keys.get(id) as SystemKeyRecord & { secret: string };
+      return { key: r, alsoRevoked };
     },
   };
   const resolve = (token: string): TokenResolution | null => {
@@ -143,6 +153,8 @@ function makeApp(tenancy: 'single' | 'multi' = 'multi') {
   const system = makeSystemKeys();
   const tenant = makeTenantKeys();
   const audit: SystemAccessRecord[] = [];
+  /** Make the access record fail: before acting, or after. */
+  const failing = { begin: false, finish: false };
   const app = createApp({
     ...createStubAppBindings(),
     tenancy,
@@ -170,6 +182,15 @@ function makeApp(tenancy: 'single' | 'multi' = 'multi') {
     systemAccessAudit: {
       async record(entry) {
         audit.push(entry);
+      },
+      async begin(attempt) {
+        if (failing.begin) throw new Error('the access record is down');
+        audit.push({ ...attempt, status: 0 });
+        return String(audit.length - 1);
+      },
+      async finish(id, outcome) {
+        if (failing.finish) throw new Error('the process stopped');
+        audit[Number(id)] = { ...(audit[Number(id)] as SystemAccessRecord), ...outcome };
       },
     },
     license: { status: () => ({ mode: 'licensed', name: 'Acme', use: 'production' }) },
@@ -201,7 +222,7 @@ function makeApp(tenancy: 'single' | 'multi' = 'multi') {
     expect(r.status, JSON.stringify(r.body)).toBe(201);
     return r.body as { id: string; token: string };
   };
-  return { app, call, code, audit, mintSystemKey, tenant };
+  return { app, call, code, audit, failing, mintSystemKey, tenant, system };
 }
 
 describe('the fence: a system principal reaches /v1/system/* and the license only', () => {
@@ -452,7 +473,21 @@ describe('withSystemTenantContext', () => {
       await next();
     });
     if (fence) {
-      app.use('*', systemPrincipalFence({ audit: { record: async (e) => void audit.push(e) } }));
+      app.use(
+        '*',
+        systemPrincipalFence({
+          audit: {
+            record: async (e) => void audit.push(e),
+            begin: async (attempt) => {
+              audit.push({ ...attempt, status: 0 });
+              return String(audit.length - 1);
+            },
+            finish: async (id, outcome) => {
+              audit[Number(id)] = { ...(audit[Number(id)] as SystemAccessRecord), ...outcome };
+            },
+          },
+        }),
+      );
     }
     app.put(path, (c) =>
       withSystemTenantContext(
@@ -529,7 +564,7 @@ describe("the operator's powers stay fenced in both ways", () => {
       c.set('capabilities', caller.capabilities);
       await next();
     });
-    app.use('*', systemPrincipalFence({ tenancy, audit: { record: async () => undefined } }));
+    app.use('*', systemPrincipalFence({ tenancy, audit: NO_AUDIT }));
     app.get('/v1/caps', (c) => c.json({ capabilities: c.get('capabilities') }));
     // A system route someone forgot to gate: the fence alone keeps tenants out.
     app.get('/v1/system/ungated', (c) => c.json({ reached: true }));
@@ -612,7 +647,7 @@ describe('every /v1/system/* operation, from OPERATIONS: a principal first, then
     return createApp({
       ...fullAppInput(),
       tenancy: 'multi',
-      systemAccessAudit: { record: async () => undefined },
+      systemAccessAudit: NO_AUDIT,
       resolveToken: async (token) => {
         if (token === TENANT_KEY) {
           return { tenantId, scopes: ['tenant-admin'], capabilities: ['kindgi:system'] };
@@ -652,5 +687,110 @@ describe('every /v1/system/* operation, from OPERATIONS: a principal first, then
       }
     }
     expect(wrong).toEqual([]);
+  });
+});
+
+describe('revoking a system key revokes what it minted', () => {
+  test('a full key and every key minted from it, however deep, stop together', async () => {
+    const { call, mintSystemKey } = makeApp();
+    const full = await mintSystemKey(['kindgi:system']);
+    const inHour = new Date(Date.now() + HOUR).toISOString();
+    const mint = async (token: string, body: Record<string, unknown>) => {
+      const r = await call(token, 'POST', '/v1/system/keys', body);
+      expect(r.status, JSON.stringify(r.body)).toBe(201);
+      return r.body as { id: string; token: string };
+    };
+    const scoped = await mint(full.token, { scopes: ['system:license'] });
+    const fullChild = await mint(full.token, { scopes: ['kindgi:system'], expiresAt: inHour });
+    const grandchild = await mint(fullChild.token, {
+      scopes: ['system:license'],
+      expiresAt: inHour,
+    });
+    const unrelated = await mintSystemKey(['system:license']);
+
+    const revoked = await call(MULTI_BOOT, 'POST', `/v1/system/keys/${full.id}/revoke`);
+    expect(revoked.status).toBe(200);
+    expect([...(revoked.body.alsoRevoked as string[])].sort()).toEqual(
+      [scoped.id, fullChild.id, grandchild.id].sort(),
+    );
+    for (const key of [full, scoped, fullChild, grandchild]) {
+      expect((await call(key.token, 'GET', '/v1/license')).status, key.id).toBe(401);
+    }
+    expect((await call(unrelated.token, 'GET', '/v1/license')).status).toBe(200);
+  });
+
+  test('systemKeysMintedFrom walks the chain, and a cycle ends it', () => {
+    const keys = [
+      { id: 'a', mintedBy: 'boot' },
+      { id: 'b', mintedBy: 'a' },
+      { id: 'c', mintedBy: 'b' },
+      { id: 'd', mintedBy: 'boot' },
+      { id: 'x', mintedBy: 'y' },
+      { id: 'y', mintedBy: 'x' },
+    ];
+    expect(systemKeysMintedFrom(keys, 'a')).toEqual(['b', 'c']);
+    expect(systemKeysMintedFrom(keys, 'd')).toEqual([]);
+    expect([...systemKeysMintedFrom(keys, 'x')]).toEqual(['y']);
+  });
+});
+
+describe('a full key minted by a system key must expire', () => {
+  test('refused without expiresAt; allowed with it; the deployment token needs none', async () => {
+    const { call, code, mintSystemKey } = makeApp();
+    const full = await mintSystemKey(['kindgi:system']);
+    const refused = await call(full.token, 'POST', '/v1/system/keys', {
+      scopes: ['kindgi:system'],
+    });
+    expect(refused.status).toBe(403);
+    expect(code(refused)).toBe('system-key-expiry-required');
+    const withExpiry = await call(full.token, 'POST', '/v1/system/keys', {
+      scopes: ['kindgi:system'],
+      expiresAt: new Date(Date.now() + 6 * HOUR).toISOString(),
+    });
+    expect(withExpiry.status).toBe(201);
+    // A scoped key needs no expiry; the deployment's own token mints a full one without.
+    expect(
+      (await call(full.token, 'POST', '/v1/system/keys', { scopes: ['system:license'] })).status,
+    ).toBe(201);
+    expect(
+      (await call(MULTI_BOOT, 'POST', '/v1/system/keys', { scopes: ['kindgi:system'] })).status,
+    ).toBe(201);
+  });
+});
+
+describe('a state-changing system request is on record before it acts', () => {
+  test('when the record cannot be written, nothing is done: 503', async () => {
+    const { call, code, failing, system } = makeApp();
+    failing.begin = true;
+    const r = await call(MULTI_BOOT, 'POST', '/v1/system/keys', { scopes: ['system:license'] });
+    expect(r.status).toBe(503);
+    expect(code(r)).toBe('access-record-unavailable');
+    expect(system.keys.size).toBe(0);
+    // A read doesn't wait on it.
+    failing.begin = false;
+    expect((await call(MULTI_BOOT, 'GET', '/v1/system/keys')).status).toBe(200);
+  });
+
+  test('when it stops after acting, the attempt stays on record, never silence', async () => {
+    const { call, audit, failing } = makeApp();
+    failing.finish = true;
+    const r = await call(MULTI_BOOT, 'POST', '/v1/system/keys', { scopes: ['system:license'] });
+    expect(r.status).toBe(201);
+    expect(audit).toEqual([
+      expect.objectContaining({
+        keyId: 'boot',
+        method: 'POST',
+        path: '/v1/system/keys',
+        status: 0,
+      }),
+    ]);
+  });
+
+  test('the attempt gets its outcome: status, scope', async () => {
+    const { call, audit } = makeApp();
+    await call(MULTI_BOOT, 'POST', '/v1/system/keys', { scopes: ['system:license'] });
+    expect(audit).toEqual([
+      expect.objectContaining({ method: 'POST', status: 201, scope: 'kindgi:system' }),
+    ]);
   });
 });

@@ -44,8 +44,44 @@ export interface SystemKeysBinding {
   ): Promise<{ readonly record: SystemKeyRecord; readonly token: string }>;
   /** Every system key, newest first, revoked ones too. */
   list(): Promise<readonly SystemKeyRecord[]>;
-  /** Revokes the key; `null` when there's no key with that id. Revoking twice keeps the first time. */
-  revoke(id: string): Promise<SystemKeyRecord | null>;
+  /**
+   * Revokes the key **and every key minted from it**, along `mintedBy`
+   * (`systemKeysMintedFrom`), in one change: a leaked key's children stop
+   * with it. `null` when there's no key with that id. Revoking twice keeps
+   * the first time.
+   */
+  revoke(id: string): Promise<{
+    readonly key: SystemKeyRecord;
+    /** The ids revoked with it, because they were minted from it. */
+    readonly alsoRevoked: readonly string[];
+  } | null>;
+}
+
+/**
+ * The keys minted from `id`, however deep, along `mintedBy`: what revoking
+ * `id` revokes too. For a binding's `revoke`; a cycle (which minting never
+ * makes) ends the walk.
+ */
+export function systemKeysMintedFrom(
+  keys: readonly Pick<SystemKeyRecord, 'id' | 'mintedBy'>[],
+  id: string,
+): readonly string[] {
+  const children = new Map<string, string[]>();
+  for (const key of keys) {
+    const siblings = children.get(key.mintedBy) ?? [];
+    siblings.push(key.id);
+    children.set(key.mintedBy, siblings);
+  }
+  const found: string[] = [];
+  const seen = new Set<string>([id]);
+  const queue = [...(children.get(id) ?? [])];
+  for (let next = queue.shift(); next !== undefined; next = queue.shift()) {
+    if (seen.has(next)) continue;
+    seen.add(next);
+    found.push(next);
+    queue.push(...(children.get(next) ?? []));
+  }
+  return found;
 }
 
 const MAX_LABEL_LENGTH = 100;
@@ -76,7 +112,8 @@ export function systemKeysRouter(
     if (body.kind === 'err') return fail(c, body.error);
     const parsed = parseMintBody(body.value);
     if (parsed.kind === 'err') return fail(c, parsed.error);
-    const refused = expiryRefusal(c, parsed.value.expiresAt);
+    const refused =
+      expiryRefusal(c, parsed.value.expiresAt) ?? fullKeyExpiryRefusal(c, parsed.value);
     if (refused !== undefined) return fail(c, refused);
     const minted = await binding.mint({
       ...parsed.value,
@@ -101,7 +138,7 @@ export function systemKeysRouter(
         message: `No system key with id "${keyId}".`,
       });
     }
-    return c.json(toWire(revoked));
+    return c.json({ ...toWire(revoked.key), alsoRevoked: revoked.alsoRevoked });
   });
 
   return r;
@@ -121,6 +158,22 @@ function expiryRefusal(c: Context<AppEnv>, expiresAt: Date | undefined): WireErr
     code: 'token-expiry-exceeds-minter',
     message: `A system key can't outlive the key minting it: set expiresAt no later than ${latest}`,
     latestExpiresAt: latest,
+  };
+}
+
+/**
+ * A full key (`kindgi:system`) minted by another system key must expire:
+ * only the deployment's own token mints one that never does, so a chain of
+ * full keys always ends (`403 system-key-expiry-required`).
+ */
+function fullKeyExpiryRefusal(c: Context<AppEnv>, body: ParsedMintBody): WireError | undefined {
+  const minter = c.get('systemPrincipal')?.keyId ?? 'boot';
+  if (minter === 'boot' || body.expiresAt !== undefined) return undefined;
+  if (!body.scopes.includes(FULL_SYSTEM_CAPABILITY)) return undefined;
+  return {
+    code: 'system-key-expiry-required',
+    message:
+      "A full system key minted by another system key must expire: set expiresAt. Only the deployment's own token mints one that never does.",
   };
 }
 

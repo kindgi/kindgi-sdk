@@ -4,14 +4,16 @@
 import type {
   MintSystemKeyBody,
   MintSystemKeyResult,
+  RevokeSystemKeyResult,
   SystemKeyList,
-  SystemKey as SystemKeyWire,
 } from '../generated/api.js';
 import type { Transport } from '../transport.js';
 
-export type SystemKey = SystemKeyWire;
+/** A system key, as listed: never its secret. */
+export type SystemKey = SystemKeyList['data'][number];
 export type SystemKeySpec = MintSystemKeyBody;
 export type MintedSystemKey = MintSystemKeyResult;
+export type RevokedSystemKey = RevokeSystemKeyResult;
 
 /**
  * The operator's system keys (`kgi_sy_…`), on a runtime serving many
@@ -38,11 +40,12 @@ export interface SystemKeysClient {
    */
   list(): Promise<readonly SystemKey[]>;
   /**
-   * Revokes a system key: it stops working on the next request.
+   * Revokes a system key and every key minted from it (`alsoRevoked`): they
+   * stop working on the next request.
    *
    * @wire `POST /v1/system/keys/{keyId}/revoke`
    */
-  revoke(keyId: string, options?: { readonly idempotencyKey?: string }): Promise<SystemKey>;
+  revoke(keyId: string, options?: { readonly idempotencyKey?: string }): Promise<RevokedSystemKey>;
 }
 
 export function makeSystemKeysClient(transport: Transport): SystemKeysClient {
@@ -63,7 +66,7 @@ export function makeSystemKeysClient(transport: Transport): SystemKeysClient {
       return page.data;
     },
     async revoke(keyId, options) {
-      return transport.request<SystemKey>({
+      return transport.request<RevokedSystemKey>({
         method: 'POST',
         path: `/v1/system/keys/${encodeURIComponent(keyId)}/revoke`,
         body: {},

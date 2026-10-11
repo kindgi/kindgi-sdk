@@ -42,7 +42,7 @@ describe('systemKeys — wire round-trip', () => {
   });
 
   it('revoke: POST /v1/system/keys/{keyId}/revoke, the key id path-encoded', async () => {
-    const revoked = { ...KEY, revokedAt: '2026-10-12T10:00:00.000Z' };
+    const revoked = { ...KEY, revokedAt: '2026-10-12T10:00:00.000Z', alsoRevoked: [] };
     const stub = jsonFetch(revoked);
     const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
     expect(await client.systemKeys.revoke('a/b')).toEqual(revoked);

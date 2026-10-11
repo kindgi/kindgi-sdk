@@ -1525,17 +1525,17 @@ class SystemKeysResource:
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
-    ) -> _models.SystemKey:
+    ) -> _models.RevokeSystemKeyResult:
         """Revoke a system key. `POST /v1/system/keys/{keyId}/revoke`
 
-        Revokes one of the operator's system keys (`kgi_sy_…`): it stops working on the next request. Revoking a revoked key keeps the first time. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) revokes them.
+        Revokes one of the operator's system keys (`kgi_sy_…`) and every key minted from it, however deep (`alsoRevoked`): they stop working on the next request. Revoking a revoked key keeps the first time. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) revokes them.
         """
         return self._client._request(
             _OPERATIONS["systemKeys.revoke"],
             path={"keyId": key_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            response=_models.SystemKey,
+            response=_models.RevokeSystemKeyResult,
             timeout=timeout,
         )
 
@@ -8853,17 +8853,17 @@ class AsyncSystemKeysResource:
         *,
         idempotency_key: str | None = None,
         timeout: float | None = None,
-    ) -> _models.SystemKey:
+    ) -> _models.RevokeSystemKeyResult:
         """Revoke a system key. `POST /v1/system/keys/{keyId}/revoke`
 
-        Revokes one of the operator's system keys (`kgi_sy_…`): it stops working on the next request. Revoking a revoked key keeps the first time. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) revokes them.
+        Revokes one of the operator's system keys (`kgi_sy_…`) and every key minted from it, however deep (`alsoRevoked`): they stop working on the next request. Revoking a revoked key keeps the first time. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) revokes them.
         """
         return await self._client._request(
             _OPERATIONS["systemKeys.revoke"],
             path={"keyId": key_id},
             query={},
             headers={"Idempotency-Key": idempotency_key},
-            response=_models.SystemKey,
+            response=_models.RevokeSystemKeyResult,
             timeout=timeout,
         )
 

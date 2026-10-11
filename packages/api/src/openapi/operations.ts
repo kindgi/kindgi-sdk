@@ -1877,10 +1877,13 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'Malformed request body: no scopes, one that is not a system scope, a scope twice, `kindgi:system` beside another, a past `expiresAt`, or an empty label.',
       ),
       '403': ErrorResponse(
-        "A tenant's key or session (`system-principal-required`); a scoped system key (`system-scope-missing`, `details.scope` `kindgi:system`); a key that would outlive the key minting it (`token-expiry-exceeds-minter`, its `details.latestExpiresAt` the latest allowed).",
+        "A tenant's key or session (`system-principal-required`); a scoped system key (`system-scope-missing`, `details.scope` `kindgi:system`); a key that would outlive the key minting it (`token-expiry-exceeds-minter`, its `details.latestExpiresAt` the latest allowed); a full key minted by another system key without `expiresAt` (`system-key-expiry-required`: only the deployment's own token mints one that never expires).",
       ),
       '409': ErrorResponse(
         "Idempotency-Key reused with a different body (`idempotency-key-body-mismatch`), or a retry of a request that succeeded: its answer carried a secret, which isn't kept (`idempotency-key-replay-withheld`).",
+      ),
+      '503': ErrorResponse(
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`): a request that changes something is recorded before it acts.",
       ),
     },
   },
@@ -1909,7 +1912,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemKeys.revoke',
     summary: 'Revoke a system key',
     description:
-      "Revokes one of the operator's system keys (`kgi_sy_…`): it stops working on the next request. Revoking a revoked key keeps the first time. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) revokes them.",
+      "Revokes one of the operator's system keys (`kgi_sy_…`) and every key minted from it, however deep (`alsoRevoked`): they stop working on the next request. Revoking a revoked key keeps the first time. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) revokes them.",
     tags: ['system-keys'],
     security: 'bearer',
     parameters: [
@@ -1923,13 +1926,19 @@ export const OPERATIONS: readonly OperationSpec[] = [
       IdempotencyKeyParam,
     ],
     responses: {
-      '200': { description: 'Revoked.', schema: ref('SystemKey') },
+      '200': {
+        description: 'Revoked, with every key minted from it.',
+        schema: ref('RevokeSystemKeyResult'),
+      },
       ...CommonMutationErrors,
       '403': ErrorResponse(
         "A tenant's key or session (`system-principal-required`), or a scoped system key (`system-scope-missing`).",
       ),
       '400': ErrorResponse('`keyId` is not a system key id (a UUID).'),
       '404': ErrorResponse('No system key with that id (`system-key-not-found`).'),
+      '503': ErrorResponse(
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+      ),
     },
   },
   // ---------- service accounts ----------
