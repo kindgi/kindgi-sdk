@@ -2047,7 +2047,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
         in: 'query',
         required: false,
         description:
-          'Only these kinds, comma-separated (`run.started`, `run.ended`, `tool.call`, `approval.requested`, `approval.decided`, `llm.inference`, `llm.embedding`, `storage.bytes`, `project.production`, `deployment.agents`).',
+          'Only these kinds, comma-separated (`run.started`, `run.ended`, `approval.requested`, `approval.decided`, `llm.inference`, `llm.embedding`, `project.production`).',
         schema: { type: 'string' },
       },
       {

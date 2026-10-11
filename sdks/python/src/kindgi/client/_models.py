@@ -9748,14 +9748,11 @@ class UsageGroup(BaseModel):
         Literal[
             "run.started",
             "run.ended",
-            "tool.call",
             "approval.requested",
             "approval.decided",
             "llm.inference",
             "llm.embedding",
-            "storage.bytes",
             "project.production",
-            "deployment.agents",
         ]
         | None
     ) = None
@@ -9774,7 +9771,7 @@ class UsageGroup(BaseModel):
     """
     quantity: float
     """
-    The sum of their quantities: milliseconds for `run.ended` and `tool.call`, bytes for `storage.bytes`, tokens for model calls.
+    The sum of their quantities: milliseconds for `run.ended`, tokens for model calls.
     """
     first_at: Annotated[AwareDatetime, Field(alias="firstAt")]
     last_at: Annotated[AwareDatetime, Field(alias="lastAt")]

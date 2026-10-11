@@ -10189,14 +10189,11 @@ export const UsageGroupSchema: JsonSchema = {
       enum: [
         'run.started',
         'run.ended',
-        'tool.call',
         'approval.requested',
         'approval.decided',
         'llm.inference',
         'llm.embedding',
-        'storage.bytes',
         'project.production',
-        'deployment.agents',
       ],
     },
     class: {
@@ -10209,7 +10206,7 @@ export const UsageGroupSchema: JsonSchema = {
     quantity: {
       type: 'number',
       description:
-        'The sum of their quantities: milliseconds for `run.ended` and `tool.call`, bytes for `storage.bytes`, tokens for model calls.',
+        'The sum of their quantities: milliseconds for `run.ended`, tokens for model calls.',
     },
     firstAt: { type: 'string', format: 'date-time' },
     lastAt: { type: 'string', format: 'date-time' },

@@ -18419,14 +18419,11 @@
             "enum": [
               "run.started",
               "run.ended",
-              "tool.call",
               "approval.requested",
               "approval.decided",
               "llm.inference",
               "llm.embedding",
-              "storage.bytes",
-              "project.production",
-              "deployment.agents"
+              "project.production"
             ]
           },
           "class": {
@@ -18459,7 +18456,7 @@
           },
           "quantity": {
             "type": "number",
-            "description": "The sum of their quantities: milliseconds for `run.ended` and `tool.call`, bytes for `storage.bytes`, tokens for model calls."
+            "description": "The sum of their quantities: milliseconds for `run.ended`, tokens for model calls."
           },
           "firstAt": {
             "type": "string",
@@ -23566,7 +23563,7 @@
               "type": "string"
             },
             "required": false,
-            "description": "Only these kinds, comma-separated (`run.started`, `run.ended`, `tool.call`, `approval.requested`, `approval.decided`, `llm.inference`, `llm.embedding`, `storage.bytes`, `project.production`, `deployment.agents`)."
+            "description": "Only these kinds, comma-separated (`run.started`, `run.ended`, `approval.requested`, `approval.decided`, `llm.inference`, `llm.embedding`, `project.production`)."
           },
           {
             "name": "class",

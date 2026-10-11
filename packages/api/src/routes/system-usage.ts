@@ -65,7 +65,7 @@ export interface UsageGroup {
   readonly day?: string;
   /** Records in the group. */
   readonly count: number;
-  /** The sum of their quantities (milliseconds for `run.ended` and `tool.call`, bytes for `storage.bytes`). */
+  /** The sum of their quantities (milliseconds for `run.ended`, tokens for model calls). */
   readonly quantity: number;
   /** The earliest record's time. */
   readonly firstAt: string;
