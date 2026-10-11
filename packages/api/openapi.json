@@ -390,6 +390,7 @@
           "identity-provider-already-registered": 409,
           "identity-provider-invalid": 422,
           "identity-providers-operator-managed": 403,
+          "license-operator-only": 403,
           "invalid-provider-config": 400,
           "auth-not-session-token": 400,
           "cookie-session-not-refreshable": 400,
@@ -3622,6 +3623,11 @@
             "type": "string",
             "format": "date-time"
           },
+          "startsUntil": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Until when the runtime starts with this key: `expiresAt` plus the 14-day grace."
+          },
           "daysLeft": {
             "type": "integer",
             "description": "Whole days until it expires; negative once it has."
@@ -3636,9 +3642,17 @@
             ],
             "description": "`expiring`: 30 days or fewer left. `grace`: expired, and the runtime still starts with it (for 14 days). `expired`: past the grace too: this server runs on, but won't start with it again."
           },
+          "renewBy": {
+            "type": "string",
+            "enum": [
+              "command",
+              "contact"
+            ],
+            "description": "Which way to the next key applies: `command`, a key this deployment renews itself (`kindgi license renew`); `contact`, a key Kindgi issued (write to Kindgi)."
+          },
           "renew": {
             "type": "string",
-            "description": "How to get the next key, as the banner says it. Present from 30 days before the key expires."
+            "description": "How to get the next key, as the banner says it, with where the deployment keeps its key and renewer. Present from 30 days before the key expires, and only to the deployment's own token."
           }
         }
       },
@@ -30695,9 +30709,19 @@
                 }
               }
             }
+          },
+          "403": {
+            "description": "Not the deployment's own token, nor an admin of the one tenant it serves (`license-operator-only`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
           }
         },
-        "description": "Whose key, which use, until when and how many days are left, and from 30 days before it expires how to get the next one, as the runtime's startup banner says it. Never the key itself. `mode: development` when the runtime runs with `KINDGI_DEV` and needs no key. Any authenticated caller may read it. A deployment that doesn't report it answers 404.",
+        "description": "Whose key, which use, until when and how many days are left, and from 30 days before it expires how to get the next one, as the runtime's startup banner says it. Never the key itself. `mode: development` when the runtime runs with `KINDGI_DEV` and needs no key. The license is the deployment's: its own token (`KINDGI_API_TOKEN`) reads all of it, `renew` with where the deployment keeps its key included. Where the deployment serves exactly one tenant, that tenant's admins read the countdown only (`mode`, `standing`, `expiresAt`, `startsUntil`, `daysLeft`, `renewBy`): never whose key it is or where it's kept. Anyone else is refused. A deployment that doesn't report it answers 404.",
         "security": [
           {
             "bearerAuth": []

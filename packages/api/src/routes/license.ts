@@ -3,7 +3,12 @@
 
 import { Hono } from 'hono';
 
+import { ref } from '@kindgi/authz';
+import type { TenantId } from '@kindgi/types';
+
+import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
+import { hasCapability, refused } from './denied.js';
 
 /**
  * Where the deployment's license key stands, as its startup banner says
@@ -18,6 +23,8 @@ export interface LicenseStatus {
   readonly use?: 'production' | 'non-production';
   /** ISO 8601. */
   readonly expiresAt?: string;
+  /** ISO 8601: until when the runtime starts with this key (`expiresAt` plus the 14-day grace). */
+  readonly startsUntil?: string;
   /** Whole days until it expires; negative once it has. */
   readonly daysLeft?: number;
   /**
@@ -26,22 +33,93 @@ export interface LicenseStatus {
    * runs on but won't start with it again.
    */
   readonly standing?: 'valid' | 'expiring' | 'grace' | 'expired';
-  /** How to get the next key, as the banner says it; present from 30 days before it expires. */
+  /**
+   * Which of the banner's two ways to the next key applies: `command`, a
+   * key this deployment renews itself (`kindgi license renew`); `contact`,
+   * a key Kindgi issued (write to Kindgi).
+   */
+  readonly renewBy?: 'command' | 'contact';
+  /**
+   * How to get the next key, as the banner says it, with where the
+   * deployment keeps its key and renewer; present from 30 days before it
+   * expires. Only the deployment's own token reads it.
+   */
   readonly renew?: string;
 }
 
 /** The deployment's license status, worked out on each read (the days left move). */
 export interface LicenseStatusBinding {
   status(): LicenseStatus | Promise<LicenseStatus>;
+  /**
+   * The one tenant this deployment serves, or `null` when it serves none
+   * or several: the deployment's own record of its tenants, never anything
+   * a request carries. Asked on each read, so a second tenant closes the
+   * tenant admins' view at once. Without it, only the deployment's own
+   * token reads the license.
+   */
+  soleTenant?(): TenantId | null | Promise<TenantId | null>;
+}
+
+/** The refusal of a caller who may not read the license. */
+export const LICENSE_OPERATOR_ONLY_MESSAGE =
+  "The license is this deployment's: read it with the deployment's own token (KINDGI_API_TOKEN). A tenant admin reads its standing only where the deployment serves that one tenant.";
+
+/**
+ * What a tenant admin reads: the countdown and which way to the next key,
+ * never whose key it is or where the deployment keeps it. Named field by
+ * field, so a field added to `LicenseStatus` stays the operator's until
+ * it's named here.
+ */
+export function tenantAdminLicenseView(status: LicenseStatus): LicenseStatus {
+  const { mode, standing, expiresAt, startsUntil, daysLeft, renewBy } = status;
+  return {
+    mode,
+    ...(standing !== undefined && { standing }),
+    ...(expiresAt !== undefined && { expiresAt }),
+    ...(startsUntil !== undefined && { startsUntil }),
+    ...(daysLeft !== undefined && { daysLeft }),
+    ...(renewBy !== undefined && { renewBy }),
+  };
 }
 
 /**
- * `GET /v1/license`: where the deployment's license key stands. Any signed-in
- * caller may read it: the console warns everyone who uses it, from 30 days
- * before the key expires, so someone renews it in time.
+ * `GET /v1/license`: where the deployment's license key stands. The
+ * license is the deployment's, not a tenant's:
+ * - the deployment's own token (`kindgi:system`) reads all of it, `renew`
+ *   with the secret references included;
+ * - on a deployment serving exactly one tenant, that tenant's admins read
+ *   the countdown (`tenantAdminLicenseView`), for the console's warning;
+ * - anyone else, and every tenant of a deployment serving several, is
+ *   refused (`403 license-operator-only`, recorded).
+ *
+ * With an authorizer, "tenant admin" is its `admin` on the tenant; without
+ * one, any caller of the tenant, as for every tenant setting there.
  */
-export function licenseRouter(binding: LicenseStatusBinding): Hono<AppEnv> {
+export function licenseRouter(
+  binding: LicenseStatusBinding,
+  authorizer?: Authorizer,
+): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
-  r.get('/', async (c) => c.json(await binding.status()));
+  r.get('/', async (c) => {
+    if (hasCapability(c, 'kindgi:system')) return c.json(await binding.status());
+    const tenantId = c.get('tenantId') as unknown as string;
+    const sole = binding.soleTenant === undefined ? null : await binding.soleTenant();
+    const onlyThisTenant = sole !== null && (sole as unknown as string) === tenantId;
+    if (
+      onlyThisTenant &&
+      (authorizer === undefined || (await authorizer.can(c, 'admin', ref('tenant', tenantId))))
+    ) {
+      return c.json(tenantAdminLicenseView(await binding.status()));
+    }
+    return refused(c, authorizer, {
+      action: 'read',
+      resource: ref('tenant', tenantId),
+      message: LICENSE_OPERATOR_ONLY_MESSAGE,
+      // Who the caller is, in a tenant whose admins may read it; else what
+      // the deployment allows.
+      failing: onlyThisTenant ? 'actor' : 'scope',
+      code: 'license-operator-only',
+    });
+  });
   return r;
 }

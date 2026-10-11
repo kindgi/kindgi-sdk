@@ -1147,7 +1147,7 @@ describe('the license key', () => {
       /^octo's non-production key expires in 12 days \(\d{4}-\d{2}-\d{2}\)\.$/,
     );
     expect(check?.fix).toBe(
-      'kindgi license renew --env-file kindgi.env --renewer <its renewer key>, or sign in at https://access.kindgi.com for a new key',
+      'Renew it: from this deployment (kindgi license renew --env-file kindgi.env --renewer <its renewer key>), or sign in at https://access.kindgi.com',
     );
   });
 
@@ -1156,7 +1156,7 @@ describe('the license key', () => {
     const expiring = await licenseOf({
       KINDGI_LICENSE_KEY: key({ ...issued, exp: NOW / 1000 + 3 * DAY }),
     });
-    expect(expiring?.fix).toBe('Write to contact@kindgi.com for the next key');
+    expect(expiring?.fix).toBe('Renew it: contact@kindgi.com');
     const grace = await licenseOf({
       KINDGI_LICENSE_KEY: key({ ...issued, exp: NOW / 1000 - 2 * DAY }),
     });

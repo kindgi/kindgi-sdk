@@ -1337,6 +1337,10 @@ class LicenseStatus(BaseModel):
     """
     use: Literal["production", "non-production"] | None = None
     expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
+    starts_until: Annotated[AwareDatetime | None, Field(alias="startsUntil")] = None
+    """
+    Until when the runtime starts with this key: `expiresAt` plus the 14-day grace.
+    """
     days_left: Annotated[int | None, Field(alias="daysLeft")] = None
     """
     Whole days until it expires; negative once it has.
@@ -1345,9 +1349,13 @@ class LicenseStatus(BaseModel):
     """
     `expiring`: 30 days or fewer left. `grace`: expired, and the runtime still starts with it (for 14 days). `expired`: past the grace too: this server runs on, but won't start with it again.
     """
+    renew_by: Annotated[Literal["command", "contact"] | None, Field(alias="renewBy")] = None
+    """
+    Which way to the next key applies: `command`, a key this deployment renews itself (`kindgi license renew`); `contact`, a key Kindgi issued (write to Kindgi).
+    """
     renew: str | None = None
     """
-    How to get the next key, as the banner says it. Present from 30 days before the key expires.
+    How to get the next key, as the banner says it, with where the deployment keeps its key and renewer. Present from 30 days before the key expires, and only to the deployment's own token.
     """
 
 

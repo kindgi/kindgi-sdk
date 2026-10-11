@@ -44,12 +44,13 @@ export function isSelfServe(subject: string): boolean {
 }
 
 /**
- * How to get the next key: renew it from the deployment (`renewCommand`),
- * or sign in at access.kindgi.com, for a self-serve key; for a key Kindgi
- * issued, write to contact@kindgi.com.
+ * How to get the next key, in the runtime's startup banner's words, so
+ * `kindgi doctor`, the banner and the console say the same: for a
+ * self-serve key, renew it from the deployment (`renewCommand`) or sign in
+ * at access.kindgi.com; for a key Kindgi issued, write to Kindgi.
  */
 export function renewAdvice(claims: LicenseClaims, renewCommand: string): string {
   return isSelfServe(claims.subject)
-    ? `${renewCommand}, or sign in at https://access.kindgi.com for a new key`
-    : 'Write to contact@kindgi.com for the next key';
+    ? `Renew it: from this deployment (${renewCommand}), or sign in at https://access.kindgi.com`
+    : 'Renew it: contact@kindgi.com';
 }

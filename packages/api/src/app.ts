@@ -501,9 +501,11 @@ export interface CreateAppInput {
   readonly exportSigning?: ExportSigningBinding;
   /**
    * Optional. Where the deployment's license key stands, worked out on
-   * each read: `GET /v1/license`, which the console reads to warn from 30
-   * days before the key expires. Without it the route isn't mounted
-   * (404), as on a deployment that doesn't report it.
+   * each read: `GET /v1/license`. The deployment's own token reads all of
+   * it; where the deployment serves one tenant (`soleTenant`), that
+   * tenant's admins read the countdown the console warns with, from 30
+   * days before the key expires; anyone else is refused. Without it the
+   * route isn't mounted (404), as on a deployment that doesn't report it.
    */
   readonly license?: LicenseStatusBinding;
   /**
@@ -1348,7 +1350,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     v1.route('/improvement-passes', improvementPassesRouter(input.improvementPasses, authorizer));
   }
   v1.route('/export-signing-keys', exportSigningKeysRouter(exportSigning));
-  if (input.license !== undefined) v1.route('/license', licenseRouter(input.license));
+  if (input.license !== undefined) {
+    v1.route('/license', licenseRouter(input.license, authorizer));
+  }
   v1.route(
     '/provenance',
     provenanceRouter(
