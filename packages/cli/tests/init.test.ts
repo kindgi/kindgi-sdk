@@ -156,7 +156,7 @@ describe('kindgi init — minimal template', () => {
     expect(pkg.dependencies?.zod).toBeTruthy();
   });
 
-  test.each(['minimal', 'sample'])(
+  test.each(['minimal', 'sample', 'drupal'])(
     "the %s template decides esbuild's install script for npm and pnpm alike: off (T277)",
     async (template) => {
       await runCli(baseInputs({ argv: ['init', 'my-pack', `--template=${template}`] }));
@@ -196,6 +196,54 @@ describe('kindgi init — minimal template', () => {
     expect(out.stderr).toContain('cd my-pack');
     expect(out.stderr).toContain('pnpm install');
     expect(out.stderr).toContain('kindgi dev');
+  });
+});
+
+describe('kindgi init --template=drupal', () => {
+  test("scaffolds the site pack under the pack's id, with the agents' own {{ input.* }} kept", async () => {
+    const out = await runCli(baseInputs({ argv: ['init', 'acme-journal', '--template=drupal'] }));
+    expect(out.exitCode).toBe(0);
+    const root = join(cwd, 'acme-journal');
+    const files = await listRecursive(root);
+    for (const rel of [
+      'lib/drupal.ts',
+      'scripts/connect-drupal.mjs',
+      'tools/check-content-event/index.ts',
+      'tools/check-content-event/index.test.ts',
+      'guardrails/no-contact-details/index.ts',
+      'agents/content-agent/index.ts',
+      'agents/content-reviewer/index.ts',
+      'flows/content-review/index.ts',
+      'fixtures/node-updated.json',
+      'README.md',
+    ]) {
+      expect(files, rel).toContain(rel);
+    }
+    for (const rel of files) {
+      const raw = await readFile(join(root, rel), 'utf8');
+      expect(raw, `${rel} still contains an unsubstituted placeholder`).not.toMatch(
+        /\{\{[A-Z_]+\}\}/,
+      );
+    }
+    const agent = await readFile(join(root, 'agents/content-agent/index.ts'), 'utf8');
+    expect(agent).toContain("default: 'always_ask'");
+    expect(agent).toContain(
+      "Object.fromEntries(READ_TOOLS.map((id) => [id, 'never_ask' as const]))",
+    );
+    const lib = await readFile(join(root, 'lib/drupal.ts'), 'utf8');
+    // The writes wait for a person: they're not among the tools that run on their own.
+    expect(lib).toMatch(
+      /export const WRITE_TOOLS = \[drupalTool\('update_content'\), drupalTool\('set_moderation_state'\)\]/,
+    );
+    expect(lib.slice(lib.indexOf('READ_TOOLS = ['), lib.indexOf('] as const;'))).not.toMatch(
+      /update_content|set_moderation_state/,
+    );
+    const reviewer = await readFile(join(root, 'agents/content-reviewer/index.ts'), 'utf8');
+    expect(reviewer).toContain('{{ input.event.nodeId }}');
+    const pkg = JSON.parse(await readFile(join(root, 'package.json'), 'utf8')) as {
+      scripts?: Record<string, string>;
+    };
+    expect(pkg.scripts?.['connect-drupal']).toBe('node scripts/connect-drupal.mjs');
   });
 });
 
@@ -727,6 +775,14 @@ describe('kindgi init --template in an existing app (augment mode)', () => {
     const out = await runCli(baseInputs({ argv: ['init', '--template=python'] }));
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain('--template=python --new-repo');
+    expect(await readdir(cwd)).toEqual(['package.json']);
+  });
+
+  test('--template=drupal is refused, pointing at --new-repo', async () => {
+    await writeFile(join(cwd, 'package.json'), '{"name":"acme-app"}\n');
+    const out = await runCli(baseInputs({ argv: ['init', '--template=drupal'] }));
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain('--template=drupal --new-repo');
     expect(await readdir(cwd)).toEqual(['package.json']);
   });
 

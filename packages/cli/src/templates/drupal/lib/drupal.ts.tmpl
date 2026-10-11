@@ -1,0 +1,60 @@
+// What this pack knows about your Drupal site, in one place.
+//
+// The agents use the site's own tools, through its MCP Server: Kindgi
+// registers each one as `<endpoint id>.<tool name>` when you connect the
+// site (`scripts/connect-drupal.mjs`), at version 1.0.0. The tool names are
+// the MCP Server Tool Bridge's: `tool_api__` and the id of the mapping you
+// made on the site (README.md, "Connect your site").
+
+/** The MCP endpoint's id in Kindgi: the prefix of every site tool's id. */
+export const DRUPAL_ENDPOINT = 'drupal';
+
+/** A site tool's id in Kindgi, from its bridge mapping's id. */
+export function drupalTool(mapping: string): string {
+  return `${DRUPAL_ENDPOINT}.tool_api__${mapping}`;
+}
+
+/** The tools that only read. They run without a person. */
+export const READ_TOOLS = [
+  drupalTool('list_content'),
+  drupalTool('load_content'),
+  drupalTool('get_fields'),
+  drupalTool('list_by_state'),
+  drupalTool('get_moderation_state'),
+] as const;
+
+/**
+ * The tools that change the site. Each waits for a person: they're not in
+ * any agent's `never_ask` list, and `default: 'always_ask'` covers them.
+ *
+ * A repeat of either is harmless, which is why a resumed or retried call
+ * can't do damage: `update_content` is a patch (the same fields, set
+ * again), and `set_moderation_state` moves to a state (the same state,
+ * again). Neither creates or deletes anything. Keep it that way: a tool
+ * that creates content would create it twice on a retry, so add one only
+ * with a way to find what an earlier try made.
+ */
+export const WRITE_TOOLS = [drupalTool('update_content'), drupalTool('set_moderation_state')] as const;
+
+/** Every site tool, at the version Kindgi gives a remote tool. */
+export const SITE_TOOLS = [...READ_TOOLS, ...WRITE_TOOLS].map((id) => ({ id, version: '^1.0.0' }));
+
+/**
+ * Phrases the house style doesn't allow, matched in code (case-insensitive,
+ * whole words), so a review can't be talked out of one.
+ */
+export const HOUSE_STYLE_PHRASES = [
+  'guaranteed',
+  'miracle',
+  'money back',
+  'click here',
+  'best in the world',
+] as const;
+
+/** The house-style phrases in `text`, each once, in the list's order. */
+export function houseStyleFindings(text: string): string[] {
+  const plain = text.replace(/<[^>]*>/g, ' ').toLowerCase();
+  return HOUSE_STYLE_PHRASES.filter((phrase) =>
+    new RegExp(`\\b${phrase.replace(/ /g, '\\s+')}\\b`).test(plain),
+  );
+}

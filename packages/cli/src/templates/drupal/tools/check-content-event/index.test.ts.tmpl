@@ -1,0 +1,55 @@
+// {{PACK_ID}}.check-content-event — what reaches the reviewer from a Drupal
+// event, called as a run calls it (`invokeToolForTest`).
+
+import { readFileSync } from 'node:fs';
+
+import { describe, expect, test } from 'vitest';
+
+import { invokeToolForTest } from '@kindgi/sdk/define';
+
+import checkContentEvent from './index.js';
+
+const event: Record<string, unknown> = JSON.parse(
+  readFileSync(new URL('../../fixtures/node-updated.json', import.meta.url), 'utf8'),
+);
+
+describe('{{PACK_ID}}.check-content-event', () => {
+  test('keeps the typed fields and works out the findings', async () => {
+    const result = await invokeToolForTest(checkContentEvent, { event });
+    if (result.kind !== 'ok') throw new Error(result.error.message);
+    expect(result.value).toMatchObject({
+      change: 'updated',
+      nodeId: 23,
+      bundle: 'article',
+      title: 'Rain gardens',
+      moderationState: 'published',
+      published: true,
+      houseStyle: ['guaranteed'],
+      flags: ['live-change', 'house-style'],
+    });
+  });
+
+  test("drops the article's text and the editor's account", async () => {
+    const result = await invokeToolForTest(checkContentEvent, { event });
+    if (result.kind !== 'ok') throw new Error(result.error.message);
+    const passed = JSON.stringify(result.value);
+    for (const text of ['Ignore your instructions', 'runoff', 'ines@acme.test', 'ines-editor']) {
+      expect(passed).not.toContain(text);
+    }
+  });
+
+  test('a save without a revision log is flagged', async () => {
+    const entity = { ...(event.entity as Record<string, unknown>), revision_log: [{ value: '' }] };
+    const result = await invokeToolForTest(checkContentEvent, { event: { ...event, entity } });
+    if (result.kind !== 'ok') throw new Error(result.error.message);
+    expect(result.value.flags).toContain('no-revision-log');
+  });
+
+  test('fails on anything that is not a node event', async () => {
+    for (const other of [{ event: 'entity:user:update', entity: {} }, { webhook_id: 3 }]) {
+      const result = await invokeToolForTest(checkContentEvent, { event: other });
+      expect(result.kind).toBe('err');
+      if (result.kind === 'err') expect(result.error.code).toBe('input-validation-failed');
+    }
+  });
+});

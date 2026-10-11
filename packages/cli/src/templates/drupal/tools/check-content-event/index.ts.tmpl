@@ -1,0 +1,102 @@
+// {{PACK_ID}}.check-content-event — the first step of
+// `{{PACK_ID}}.content-review`: it checks the event Drupal sent when an
+// article was saved, and hands the reviewer only what it needs.
+//
+// The event comes from outside (Drupal's Webhooks module posts it), and
+// whoever edits an article writes part of it, so the reviewer must never
+// take it as instructions. This step is where that's enforced, before any
+// model sees the event:
+//   - the input schema is a Drupal node event: Kindgi checks the event
+//     against it before the handler runs, and anything else fails the run;
+//   - the handler passes on typed fields only. The article's text, and the
+//     editor's account (name, email address), don't reach the reviewer;
+//   - the house-style findings are worked out here, in code, so no wording
+//     in an article can talk a model out of one.
+// Guardrails can't do this job: an agent's guardrails check its answer
+// after the turn, once its tools have run.
+import { defineTool } from '@kindgi/sdk/define';
+import type { ToolId } from '@kindgi/sdk/types';
+import { z } from 'zod';
+
+import { houseStyleFindings } from '../../lib/drupal.js';
+
+/** A field as Drupal's serializer writes it: a list of `{ value }`. */
+const one = <T extends z.ZodType>(value: T) => z.array(z.object({ value })).length(1);
+const atMostOne = <T extends z.ZodType>(value: T) => z.array(z.object({ value })).max(1);
+
+/** The fields of the Webhooks module's entity event this step reads; the rest is dropped. */
+export const NodeEvent = z.object({
+  event: z.enum(['entity:node:create', 'entity:node:update']),
+  entity: z.object({
+    nid: one(z.number().int().positive()),
+    vid: one(z.number().int().positive()),
+    type: z.array(z.object({ target_id: z.string().min(1).max(64) })).length(1),
+    status: one(z.boolean()),
+    changed: one(z.string().max(40)),
+    title: one(z.string()),
+    moderation_state: atMostOne(z.string().max(64)).optional(),
+    revision_log: atMostOne(z.string().nullable()).optional(),
+    body: atMostOne(z.string().nullable()).optional(),
+  }),
+});
+
+export const CheckedEvent = z.object({
+  change: z.enum(['created', 'updated']),
+  nodeId: z.number().int(),
+  revisionId: z.number().int(),
+  bundle: z.string(),
+  /** The title, cut to 120 characters: a name for the review, not text to act on. */
+  title: z.string(),
+  /** `''` on a site whose workflow doesn't cover this content type. */
+  moderationState: z.string(),
+  published: z.boolean(),
+  changedAt: z.string(),
+  /** The house-style phrases the text has (`lib/drupal.ts`). */
+  houseStyle: z.array(z.string()),
+  /** What an editor should look at: `live-change`, `house-style`, `no-revision-log`. */
+  flags: z.array(z.string()),
+});
+
+/** The checked event and its flags; exported for the tests. */
+export function checkEvent(event: z.infer<typeof NodeEvent>): z.infer<typeof CheckedEvent> {
+  const node = event.entity;
+  const published = node.status[0].value;
+  const change = event.event === 'entity:node:create' ? 'created' : 'updated';
+  const houseStyle = houseStyleFindings(`${node.title[0].value} ${node.body?.[0]?.value ?? ''}`);
+  const flags: string[] = [];
+  if (published && change === 'updated') flags.push('live-change');
+  if (houseStyle.length > 0) flags.push('house-style');
+  if (change === 'updated' && (node.revision_log?.[0]?.value ?? '').trim() === '') {
+    flags.push('no-revision-log');
+  }
+  return {
+    change,
+    nodeId: node.nid[0].value,
+    revisionId: node.vid[0].value,
+    bundle: node.type[0].target_id,
+    title: node.title[0].value.slice(0, 120),
+    moderationState: node.moderation_state?.[0]?.value ?? '',
+    published,
+    changedAt: node.changed[0].value,
+    houseStyle,
+    flags,
+  };
+}
+
+const defined = defineTool({
+  id: '{{PACK_ID}}.check-content-event' as ToolId,
+  description:
+    "Check a Drupal node event and keep its typed fields and house-style findings: no article text and no editor account. Calls nothing.",
+  version: '{{PACK_VERSION}}',
+  input: z.object({ event: NodeEvent }),
+  output: CheckedEvent,
+  effects: [],
+  mutating: false,
+  handler: async ({ event }) => checkEvent(event),
+});
+
+if (defined.kind === 'err') {
+  throw new Error(`{{PACK_ID}}.check-content-event failed to compile: ${defined.error.message}`);
+}
+
+export default defined.value;
