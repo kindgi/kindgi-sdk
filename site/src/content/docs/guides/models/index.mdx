@@ -96,6 +96,18 @@ the Bedrock console, or answered that the model "is not available for this
 account" and to contact AWS, which takes a support case. AWS's guide:
 [Request access to models](https://docs.aws.amazon.com/bedrock/latest/userguide/model-access.html).
 
+A model's lifecycle on Bedrock is AWS's own, and its dates can differ from its
+vendor's. In each Region, a model is Active, Legacy or end-of-life, and
+`GetFoundationModel` gives its state (`modelLifecycle`). For a model launched
+before 2026-09-07, such as Claude Haiku 4.5, the dates are on
+[Model lifecycle (Legacy)](https://docs.aws.amazon.com/bedrock/latest/userguide/model-lifecycle-legacy.html).
+For one launched since, they're on its model card
+([Model lifecycle](https://docs.aws.amazon.com/bedrock/latest/userguide/model-lifecycle.html)
+explains). A Legacy model keeps working until its end-of-life date. But an
+account that hasn't called it for 15 days may lose access, and in its last
+months it may cost more. Past that date a request to it fails, so an agent
+that prefers or requires it needs a new version naming another model.
+
 ## A provider spec
 
 Anything that isn't a preset registers from a spec: a JSON file you pass with
