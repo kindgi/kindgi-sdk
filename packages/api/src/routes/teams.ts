@@ -18,6 +18,7 @@ import type {
 import type { Cursor, OrgId, TeamId, TenantId, UserId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
+import type { IdentityDirectoryBinding } from '../identity-directory-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
 import {
@@ -60,6 +61,11 @@ export function teamsRouter(
   membershipBinding: TeamMembershipBinding,
   tenantHierarchy: TenantHierarchyBinding,
   authorizer?: Authorizer,
+  /**
+   * Optional. The tenant's people: a member added to a team must be one of
+   * them, as a project's (`projectsRouter`). Without it, an id is taken as given.
+   */
+  directory?: IdentityDirectoryBinding,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -350,6 +356,24 @@ export function teamsRouter(
           requestId,
         ),
       );
+    }
+    // The person named must be one of the tenant's, still here, as for a
+    // project's member: an unknown or malformed id is refused, never added.
+    if (directory !== undefined) {
+      const user = await directory.getUser({ tenantId, userId: b.userId as unknown as UserId });
+      if (user === null || user.unregisteredAt !== undefined) {
+        c.status(statusFor('identity-user-not-found') as never);
+        return c.json(
+          toWireError(
+            {
+              code: 'identity-user-not-found',
+              message: `User "${b.userId}" is not a member of this tenant`,
+              userId: b.userId,
+            },
+            requestId,
+          ),
+        );
+      }
     }
     const exists = (role: string) => {
       c.status(statusFor('membership-exists') as never);

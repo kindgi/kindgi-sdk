@@ -9680,7 +9680,7 @@ export const TeamProjectGrantSchema: JsonSchema = {
       type: 'string',
       format: 'date-time',
       description:
-        'When the team was given the role. Absent from a runtime that does not record it.',
+        'When the team was given the role. Absent from a runtime that does not record it, or for a grant from before 0.1.6.',
     },
     teamName: { type: 'string' },
     projectName: { type: 'string' },

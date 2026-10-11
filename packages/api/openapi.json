@@ -17269,7 +17269,7 @@
           "grantedAt": {
             "type": "string",
             "format": "date-time",
-            "description": "When the team was given the role. Absent from a runtime that does not record it."
+            "description": "When the team was given the role. Absent from a runtime that does not record it, or for a grant from before 0.1.6."
           },
           "teamName": {
             "type": "string"
@@ -41037,7 +41037,7 @@
             }
           },
           "404": {
-            "description": "No team with that id under this tenant.",
+            "description": "No team with that id under this tenant (`team-not-found`), or the person named is not a member of this tenant (`identity-user-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -41067,7 +41067,7 @@
             }
           }
         },
-        "description": "Adding a role the member already holds answers 201 with the existing record; another role, 409 `membership-exists` naming the role they hold (`details.role`), which is kept: use PATCH to change it.",
+        "description": "Someone who is not a person of this tenant, or was removed from it, is refused with 404 `identity-user-not-found`. Adding a role the member already holds answers 201 with the existing record; another role, 409 `membership-exists` naming the role they hold (`details.role`), which is kept: use PATCH to change it.",
         "parameters": [
           {
             "name": "teamId",

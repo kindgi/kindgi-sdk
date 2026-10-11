@@ -1523,6 +1523,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         input.teamMembershipBinding,
         tenantHierarchyBinding,
         authorizer,
+        input.identityDirectory,
       ),
     );
   }
