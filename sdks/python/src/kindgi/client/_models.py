@@ -9108,7 +9108,7 @@ class TeamProjectGrant(BaseModel):
     """
     granted_at: Annotated[AwareDatetime | None, Field(alias="grantedAt")] = None
     """
-    When the team was given the role. Absent from a runtime that does not record it.
+    When the team was given the role. Absent from a runtime that does not record it, or for a grant from before 0.1.6.
     """
     team_name: Annotated[str | None, Field(alias="teamName")] = None
     project_name: Annotated[str | None, Field(alias="projectName")] = None

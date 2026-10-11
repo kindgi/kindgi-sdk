@@ -6331,7 +6331,7 @@ class TeamsMembershipsResource:
     ) -> _models.AddTeamMembershipResult:
         """Add a user to a team. `POST /v1/teams/{teamId}/memberships`
 
-        Adding a role the member already holds answers 201 with the existing record; another role, 409 `membership-exists` naming the role they hold (`details.role`), which is kept: use PATCH to change it.
+        Someone who is not a person of this tenant, or was removed from it, is refused with 404 `identity-user-not-found`. Adding a role the member already holds answers 201 with the existing record; another role, 409 `membership-exists` naming the role they hold (`details.role`), which is kept: use PATCH to change it.
         """
         return self._client._request(
             _OPERATIONS["teams.memberships.add"],
@@ -13595,7 +13595,7 @@ class AsyncTeamsMembershipsResource:
     ) -> _models.AddTeamMembershipResult:
         """Add a user to a team. `POST /v1/teams/{teamId}/memberships`
 
-        Adding a role the member already holds answers 201 with the existing record; another role, 409 `membership-exists` naming the role they hold (`details.role`), which is kept: use PATCH to change it.
+        Someone who is not a person of this tenant, or was removed from it, is refused with 404 `identity-user-not-found`. Adding a role the member already holds answers 201 with the existing record; another role, 409 `membership-exists` naming the role they hold (`details.role`), which is kept: use PATCH to change it.
         """
         return await self._client._request(
             _OPERATIONS["teams.memberships.add"],

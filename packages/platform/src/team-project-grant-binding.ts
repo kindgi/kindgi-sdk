@@ -25,7 +25,7 @@ export interface TeamProjectGrant {
   readonly teamId: TeamId;
   readonly projectId: ProjectId;
   readonly role: ProjectRole;
-  /** When the team was given the project. Absent from a binding that doesn't record it. */
+  /** When the team was given the project. Absent from a binding that doesn't record it, or for a grant from before 0.1.6. */
   readonly grantedAt?: Timestamp;
 }
 

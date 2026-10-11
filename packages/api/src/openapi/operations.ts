@@ -6617,7 +6617,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'teams.memberships.add',
     summary: 'Add a user to a team',
     description:
-      'Adding a role the member already holds answers 201 with the existing record; another role, 409 `membership-exists` naming the role they hold (`details.role`), which is kept: use PATCH to change it.',
+      'Someone who is not a person of this tenant, or was removed from it, is refused with 404 `identity-user-not-found`. Adding a role the member already holds answers 201 with the existing record; another role, 409 `membership-exists` naming the role they hold (`details.role`), which is kept: use PATCH to change it.',
     tags: ['teams'],
     security: 'bearer',
     parameters: [
@@ -6634,7 +6634,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Membership added.', schema: ref('AddTeamMembershipResult') },
       ...CommonMutationErrors,
-      '404': ErrorResponse('No team with that id under this tenant.'),
+      '404': ErrorResponse(
+        'No team with that id under this tenant (`team-not-found`), or the person named is not a member of this tenant (`identity-user-not-found`).',
+      ),
       '409': ErrorResponse(
         'A member already, with another role (`membership-exists`, `details.role`); or an Idempotency-Key reused with another body.',
       ),
