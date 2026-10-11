@@ -270,10 +270,22 @@ describe('defineAgent — hitl.separateApprover', () => {
   test.each([
     ['true', true],
     ['false', false],
-    ['per tool', { overrides: { 'acme.woo.refund-large': true, 'acme.woo.find-orders': false } }],
-    ['a default and overrides', { default: true, overrides: { 'acme.woo.find-orders': false } }],
+    ['per tool', { overrides: { 'citations.verify': true } }],
+    ['a default and overrides', { default: true, overrides: { 'citations.verify': false } }],
   ])('%s is accepted', (_what, value) => {
     expect(withFourEyes(value).kind).toBe('ok');
+  });
+
+  test("an override for a tool the agent doesn't have is refused: the real one would have no four eyes", () => {
+    const r = withFourEyes({ overrides: { citations_verify: true } });
+    expect(r.kind).toBe('err');
+    if (r.kind === 'err') {
+      expect(r.error.issues).toContainEqual({
+        path: '/conversationPolicy/hitl/separateApprover/overrides/citations_verify',
+        message:
+          "hitl.separateApprover names citations_verify, which isn't one of this agent's tools",
+      });
+    }
   });
 
   test.each([
