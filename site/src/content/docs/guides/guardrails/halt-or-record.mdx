@@ -170,3 +170,101 @@ scope={"when": "always", "agents": ["my-pack.echo-agent"]},
   the guardrail but isn't in its scope isn't checked.
 - `when` is `always`, `runtime-only` or `ci-only`. A `ci-only` guardrail
   doesn't run in an agent's turn.
+
+## How a guardrail is doing
+
+From Kindgi 0.1.6, every check a guardrail runs on an agent's turn is
+recorded with its outcome. One request counts them over a window, for a
+project:
+
+```sh
+curl -s -H "authorization: Bearer $KINDGI_API_TOKEN" \
+  "$KINDGI_URL/v1/guardrails/acme.no-secret/outcomes?projectId=a1e2b238-ae0b-4f03-b012-07875b9e5ee0&from=2026-10-11T06:02:19Z&to=2026-10-11T06:05:22Z"
+```
+
+The clients call it `guardrails.outcomes`. `from` and `to` are the window, at
+most 90 days; `recent` (0 to 50, 10 by default) is how many blocked turns to
+name. Reading it takes `read` on the guardrail and on the project.
+
+### What each outcome means
+
+- **`passed`:** the check ran and found nothing.
+- **`violated`:** the check found something, and the answer went through:
+  `log-only`, `noop`, or an action handed back
+  ([A recorded violation](#a-recorded-violation)).
+- **`blocked`:** the check found something, and its `halt` failed the turn
+  ([A halted turn](#a-halted-turn)).
+- **`errored`:** the check couldn't run: no such check, a bad
+  configuration, or a judge that couldn't be routed
+  ([When the check can't run](#when-the-check-cant-run)). A `halt`
+  guardrail's error fails the turn too, and is counted here, not as
+  `blocked`.
+
+A turn the guardrail's [scope](#which-agents-it-covers) didn't cover wasn't
+checked, so it isn't counted. Neither are replays and dry runs.
+
+### By agent version
+
+`byAgentVersion` has the same counts for each version of each agent, the
+most checked first, so you can see whether a new version trips the guardrail
+more or less than the last. `recentBlocked` names the latest blocked turns,
+newest first, by run id and time only: a blocked answer stays behind its
+run's page.
+
+Outcomes go with their run's retention. `recordedSince` is the earliest one
+kept for the guardrail in the project, so a window that starts before it
+holds fewer than you asked for. A guardrail that's no longer registered keeps
+its outcomes.
+
+### From the API
+
+That guardrail halts on `SECRET`, on an agent at versions 2.0.0 and 2.1.0;
+each version answered two questions and was asked for the secret once:
+
+```json
+{
+  "guardrailId": "acme.no-secret",
+  "from": "2026-10-11T06:02:19.000Z",
+  "to": "2026-10-11T06:05:22.000Z",
+  "counts": {
+    "passed": 4,
+    "violated": 0,
+    "blocked": 2,
+    "errored": 0
+  },
+  "byAgentVersion": [
+    {
+      "agentId": "acme.desk",
+      "agentVersion": "2.0.0",
+      "passed": 2,
+      "violated": 0,
+      "blocked": 1,
+      "errored": 0
+    },
+    {
+      "agentId": "acme.desk",
+      "agentVersion": "2.1.0",
+      "passed": 2,
+      "violated": 0,
+      "blocked": 1,
+      "errored": 0
+    }
+  ],
+  "recentBlocked": [
+    {
+      "runId": "4566d55d-6d49-43d2-be14-2b1419611f71",
+      "at": "2026-10-11T06:04:20.202Z",
+      "agentId": "acme.desk",
+      "agentVersion": "2.1.0"
+    },
+    {
+      "runId": "2e462cfd-7597-4c72-9fb7-1152141e46ee",
+      "at": "2026-10-11T06:04:05.906Z",
+      "agentId": "acme.desk",
+      "agentVersion": "2.0.0"
+    }
+  ],
+  "recordedSince": "2026-10-11T06:03:57.454Z"
+}
+```
+
