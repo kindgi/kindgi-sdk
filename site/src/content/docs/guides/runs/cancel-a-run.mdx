@@ -27,16 +27,33 @@ The run's status becomes `cancelled`, and the journal ends with
 ```
 
 That run was waiting for an approval. A run can be cancelled while it runs
-too: no further step starts, and the run ends `cancelled`. Cancelling a
-flow's run cancels the agent turns inside it. In 0.1.5, a flow cancelled while
-it runs a loop can still start a few more of the loop's steps before it stops
-([Known limitations](../../../deploy/operate/#known-limitations-in-015)).
+too, and cancelling a flow's run cancels the agent turns inside it: see
+[what a cancel stops](#what-a-cancel-stops).
 
 A run that already ended can't be cancelled:
 
 ```text
 Error [conflict]: Cannot cancel run: already cancelled
 ```
+
+## What a cancel stops
+
+A cancel takes effect at once, wherever the run is:
+
+- **No step starts after it.** A flow between two steps, or in the middle of
+  a loop, starts nothing more, and its journal records no start after
+  `run.cancelled`.
+- **A step running when it lands stops.** An agent turn stops waiting for its
+  model and ends `cancelled`. A start that was waiting for the turn
+  (`wait: true`) answers at once with `422 agent-turn-aborted`, "Agent turn
+  cancelled".
+- **A step that ends as it lands keeps its end.** Its `step.completed` comes
+  after `run.cancelled` in the journal: it did finish.
+
+{/* The journal's tail after a flow cancelled mid-loop, and the waiting start's 422: captures from the release head follow. */}
+
+The step that was running the loop has no end of its own: `run.cancelled`
+ends it, as it ends a run waiting for an approval.
 
 ## From your app
 
