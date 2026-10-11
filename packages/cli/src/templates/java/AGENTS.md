@@ -29,3 +29,9 @@ The config is `kindgi.config.json`.
 When you diagnose a framework bug (something in Kindgi itself, not in this
 pack's code), append an entry to `FEEDBACK.md` at the pack root with
 `kindgi feedback write`.
+
+When the person asks how to use what you built (where something is in
+Kindgi's console, what an agent did, what it cost, who has access), answer
+from `kindgi`'s read-only commands and give the console link beside it: see
+`.claude/skills/kindgi-using/SKILL.md`. Deciding approvals, erasing, adding
+people and rating answers stay with the person.
