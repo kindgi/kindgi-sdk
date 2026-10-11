@@ -295,7 +295,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_USAGE_METERING',
     description:
-      "Whether the server counts usage. `on`: it records each run when it's created (with its class: `production`, `staging`, `dry-run`, `replay`, `eval` or `child`) and when it ends, each tool call, approval and model call, each project put in production or taken out, and daily estimates of what's stored and which agents are deployed. Each is counted exactly once, in the same transaction as what it counts. `/v1/cost/*` reads a tenant's own counts. Unset or `off`: model calls are counted as before, and nothing else.",
+      "Whether the server counts usage. `on`: it records each run when it's created (with its class: `production`, `staging`, `dry-run`, `replay`, `eval` or `child`) and when it ends, each approval asked for and decided, each model call, and each project put in production or taken out. Each is counted exactly once, in the same transaction as what it counts. `/v1/cost/*` reads a tenant's own counts. Unset or `off`: model calls are counted as before, and nothing else.",
     example: 'on',
     required: false,
     appliesTo: appliesToServer,
