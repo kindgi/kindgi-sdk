@@ -23,7 +23,7 @@ description: >
   kindgi-getting-started.
 type: core
 library: "@kindgi/sdk"
-version: "0.9.11"
+version: "0.9.12"
 sdk_version: "0.0.0"
 pack_languages: [node, python, java, scala]
 sources:
@@ -149,9 +149,10 @@ The Claude 5.5 and GPT-6 models take no `temperature` (`"sampling": false`:
 the call goes without it, with a `sampling-unsupported` warning), and a
 model's `thinking` says how it thinks; thinking counts against
 `maxOutputTokens` and bills as output.
-The preset carries the models, context windows, output limits and current
-prices (`kindgi providers presets` lists the presets and when their prices
-were checked); `--max-output-tokens=<n>` sets another output limit. In a pack it refuses until the key is in the pack's env files —
+The preset carries the models, context windows, default output caps (what
+a call asks for when its agent sets no `maxOutputTokens`; not the model's own
+limit) and current prices (`kindgi providers presets` lists the presets and
+when their prices were checked); `--max-output-tokens=<n>` sets another cap. In a pack it refuses until the key is in the pack's env files —
 step 1. That's all for Anthropic; go to step 4. The rest of this path is
 the same registration by hand, for a spec of your own.
 
@@ -175,9 +176,15 @@ models = ["claude-sonnet-5-5"]
 ```
 In a Java or Scala pack's `kindgi.config.json`, the same keys:
 `"providers": [{"preset": "anthropic", "models": ["claude-sonnet-5-5"]}]`.
-- A preset entry takes `models`, `project`, `secret` (the key's name, in place
-  of the preset's) and `maxOutputTokens`, spelled the same in `pyproject.toml`
-  and `kindgi.config.json`;
+- A preset entry takes `models`, the settings its preset asks for (`project`
+  for `gemini`; `resourceName` and `deployments` for `azure-openai`; `region`
+  for `bedrock`), `secret` (the key's name, in place of the preset's) and
+  `maxOutputTokens`, spelled the same in `pyproject.toml` and
+  `kindgi.config.json`. Its own settings are required and another preset's
+  are refused. `deployments` is a map of model to deployment
+  (`{ "gpt-6.1-sol": "gpt-6-1-sol" }`, a `[tool.kindgi.providers.deployments]`
+  table in `pyproject.toml`, model names quoted), not the `--deployments` flag's
+  `model=deployment,…`, and it names exactly the models the entry registers;
   a `spec` entry is a `--spec` body. A
   key is always a secret's name (`secret_ref`); a credential in
   `adapter_config` is refused.

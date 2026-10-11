@@ -102,6 +102,7 @@ interface SignIn {
   readonly clientAddress?: string;
   readonly reason?: string;
   readonly sessionId?: string;
+  readonly byUserId?: string;
 }
 interface Page {
   readonly data: readonly SignIn[];
@@ -175,5 +176,64 @@ describe('GET /v1/audit/sign-ins', () => {
     const bad = await get(a, '?kind=authz-decision');
     expect(bad.status).toBe(400);
     expect((await get(a, '?order=sideways')).status).toBe(400);
+  });
+});
+
+describe('GET /v1/audit/sign-ins?userId=: the events about the person', () => {
+  const revoked = (id: string, second: number, actor: string, person: string): AuditEvent => ({
+    ...event(id, second, 'sessions-revoked', actor, { userId: person, revokedCount: 2 }),
+    subject: `user:${person}`,
+  });
+  const HISTORY: AuditEvent[] = [
+    event('h1', 1, 'signed-in', 'user:u-cy', { method: 'google', sessionId: 's-cy' }),
+    // An admin ended Cy's sessions.
+    revoked('h2', 2, 'user:u-admin', 'u-cy'),
+    // Dee signed out everywhere herself.
+    revoked('h3', 3, 'user:u-dee', 'u-dee'),
+    {
+      ...event('h4', 4, 'sign-in-link-sent', 'user:system', { personId: 'u-cy' }),
+      subject: 'user:u-cy',
+    },
+  ];
+
+  async function appWith(filtersBySubject: boolean) {
+    const inner = createInMemoryAuditEventBinding();
+    await inner.append(HISTORY);
+    // A binding from before `subject` doesn't say it filters by it.
+    const { filtersBySubject: _, ...before } = inner;
+    const auditEvents = filtersBySubject ? inner : before;
+    return createApp({
+      ...createStubAppBindings(),
+      resolveToken,
+      runHandler: {} as RunHandlerBinding,
+      auditEvents,
+    });
+  }
+  const ids = async (a: ReturnType<typeof createApp>, userId: string) =>
+    ((await (await get(a, `?userId=${userId}`)).json()) as Page).data;
+
+  test('an admin who ended a person’s sessions: on the person’s history, saying who; not on the admin’s', async () => {
+    const a = await appWith(true);
+    const cy = await ids(a, 'u-cy');
+    expect(cy.map((e) => e.id)).toEqual(['h1', 'h2', 'h4']);
+    expect(cy.find((e) => e.id === 'h2')).toMatchObject({
+      kind: 'sessions-revoked',
+      userId: 'u-cy',
+      byUserId: 'u-admin',
+    });
+    expect(await ids(a, 'u-admin')).toEqual([]);
+  });
+
+  test('a person who signed out everywhere themselves: once, with no byUserId', async () => {
+    const dee = await ids(await appWith(true), 'u-dee');
+    expect(dee.map((e) => e.id)).toEqual(['h3']);
+    expect(dee[0]?.userId).toBe('u-dee');
+    expect(dee[0]?.byUserId).toBeUndefined();
+  });
+
+  test('a binding that doesn’t filter by subject: the events the person is the actor of, as before', async () => {
+    const a = await appWith(false);
+    expect((await ids(a, 'u-admin')).map((e) => e.id)).toEqual(['h2']);
+    expect((await ids(a, 'u-cy')).map((e) => e.id)).toEqual(['h1']);
   });
 });

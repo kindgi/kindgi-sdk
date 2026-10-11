@@ -96,6 +96,61 @@ export interface MCPEndpointSecretRef {
   readonly name: string;
 }
 
+/** How an endpoint signs in, beyond the plain bearer `secretRef` sends. */
+export const MCP_AUTH_SCHEMES = ['basic', 'oauth2-client-credentials'] as const;
+export type MCPAuthScheme = (typeof MCP_AUTH_SCHEMES)[number];
+
+/** How a client authenticates to an OAuth 2 token endpoint (RFC 6749 §2.3.1). */
+export const MCP_OAUTH_CLIENT_AUTH = ['client_secret_basic', 'client_secret_post'] as const;
+export type MCPOAuthClientAuth = (typeof MCP_OAUTH_CLIENT_AUTH)[number];
+
+/**
+ * HTTP Basic: `Authorization: Basic base64(<username>:<secret>)`, the secret
+ * resolved from `secretRef` (a WordPress Application Password, for one).
+ */
+export interface MCPBasicAuth {
+  readonly scheme: 'basic';
+  /** The user name. Not a secret; no `:`. */
+  readonly username: string;
+  /** The password. */
+  readonly secretRef: MCPEndpointSecretRef;
+}
+
+/**
+ * OAuth 2 client credentials: the runtime asks `tokenUrl` for an access
+ * token as `clientId` with the secret `secretRef` names, sends it as the
+ * endpoint's bearer, and asks again before it expires (Drupal's Simple OAuth,
+ * for one).
+ */
+export interface MCPOAuth2ClientCredentialsAuth {
+  readonly scheme: 'oauth2-client-credentials';
+  /** The token endpoint: https, or http to a loopback host. */
+  readonly tokenUrl: string;
+  readonly clientId: string;
+  /** The client secret. */
+  readonly secretRef: MCPEndpointSecretRef;
+  /** The scopes to ask for, space-separated, sent as-is. Absent: none asked. */
+  readonly scope?: string;
+  /** An `audience` parameter, for identity providers that need one. Absent: none sent. */
+  readonly audience?: string;
+  /** How the client authenticates to the token endpoint. Default `client_secret_basic`. */
+  readonly clientAuth?: MCPOAuthClientAuth;
+}
+
+export type MCPEndpointAuth = MCPBasicAuth | MCPOAuth2ClientCredentialsAuth;
+
+/**
+ * The secrets an endpoint names, by name: its bearer `secretRef`, and its
+ * `auth`'s password or client secret.
+ */
+export function mcpEndpointSecretNames(
+  endpoint: Pick<MCPEndpoint, 'secretRef' | 'auth'>,
+): readonly string[] {
+  return [endpoint.secretRef?.name, endpoint.auth?.secretRef.name].filter(
+    (name): name is string => name !== undefined,
+  );
+}
+
 /**
  * Wire shape for a registered MCP endpoint. Secrets never appear —
  * `secretRef` names a secret the runtime resolves inside the
@@ -119,6 +174,14 @@ export interface MCPEndpoint {
    * resolved through the tenant's secrets store when the runtime connects.
    */
   readonly secretRef?: MCPEndpointSecretRef;
+  /**
+   * How the endpoint signs in when it isn't a plain bearer: `basic` (a user
+   * name and a password secret) or `oauth2-client-credentials` (a token the
+   * runtime fetches and refreshes). Each names its secret by reference. Not
+   * with `secretRef`, and not on a `stdio` endpoint. Absent: `secretRef`'s
+   * bearer, or no credential.
+   */
+  readonly auth?: MCPEndpointAuth;
   /**
    * Optional pass-through to the MCP client's server-info instructions
    * slot. Purely informational.

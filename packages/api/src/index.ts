@@ -18,6 +18,7 @@ export {
 } from './middleware/auth.js';
 export type { SessionCookieOptions, TokenResolution, TokenResolver } from './middleware/auth.js';
 export type { SignInOptionsRateLimit } from './routes/sign-in-options.js';
+export type { LicenseStatus, LicenseStatusBinding } from './routes/license.js';
 export { WRITE_AUDIT_KINDS } from './routes/write-audit.js';
 export type { WriteAuditKind } from './routes/write-audit.js';
 export { createInMemoryRateLimitStore } from './rate-limit-store.js';
@@ -369,11 +370,19 @@ export type {
   ProviderUnregisterInput,
   ProviderUnregisterOutcome,
 } from './provider-binding.js';
-export { MCP_TRANSPORTS } from './mcp-endpoint-binding.js';
+export {
+  MCP_AUTH_SCHEMES,
+  MCP_OAUTH_CLIENT_AUTH,
+  MCP_TRANSPORTS,
+  mcpEndpointSecretNames,
+} from './mcp-endpoint-binding.js';
 export type {
+  MCPAuthScheme,
+  MCPBasicAuth,
   MCPClientProbeBinding,
   MCPClientProbeInput,
   MCPEndpoint,
+  MCPEndpointAuth,
   MCPEndpointConfig,
   MCPEndpointGetInput,
   MCPEndpointListInput,
@@ -387,6 +396,8 @@ export type {
   MCPHttpSseConfig,
   MCPListPromptsOutcome,
   MCPListResourcesOutcome,
+  MCPOAuth2ClientCredentialsAuth,
+  MCPOAuthClientAuth,
   MCPPromptArgument,
   MCPPromptDescriptor,
   MCPPromptMessage,

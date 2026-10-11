@@ -111,14 +111,17 @@ describe('OpenAPI — generated document', () => {
     const unserved = OPERATIONS.filter((o) => o.unserved !== undefined);
     expect(unserved.map((o) => o.operationId).sort()).toEqual(
       ['register', 'list', 'get', 'update', 'pause', 'resume', 'unregister']
-        .flatMap((verb) => [`eventTriggers.${verb}`, `webhooks.${verb}`])
+        .map((verb) => `eventTriggers.${verb}`)
         .sort(),
     );
     for (const op of unserved) {
       expect(doc.paths[op.openapiPath]?.[op.method], op.operationId).toBeUndefined();
     }
     const schemas = Object.keys(doc.components.schemas);
-    expect(schemas.filter((n) => /EventTrigger|WebhookTrigger/.test(n))).toEqual([]);
+    expect(schemas.filter((n) => /EventTrigger/.test(n))).toEqual([]);
+    // Webhook triggers are served (inbound events, with their receiver).
+    expect(schemas).toContain('WebhookTriggerRecord');
+    expect(doc.paths['/v1/hooks/{tenantId}/{webhookId}']?.post).toBeDefined();
     // A schema a served operation uses too stays.
     expect(schemas).toContain('TriggerStatus');
     expect(doc.tags.map((t) => t.name)).not.toContain('event-triggers');

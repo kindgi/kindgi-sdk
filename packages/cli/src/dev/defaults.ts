@@ -537,6 +537,8 @@ export async function startApiServerContainerReal(
     }),
     onLog: opts.onLog ?? (() => undefined),
     ...(opts.signal !== undefined && { signal: opts.signal }),
+    ...(opts.owner !== undefined && { owner: opts.owner }),
+    ...(opts.ownerIsLive !== undefined && { ownerIsLive: opts.ownerIsLive }),
     ...(opts.startPhases !== undefined && { phases: opts.startPhases }),
   });
   try {

@@ -4,6 +4,7 @@
 import { describe, expect, test } from 'vitest';
 
 import { defineAgent } from '../src/define.js';
+import { AUTO_INJECTED_VARS } from '../src/prompt.js';
 
 const baseCapabilities = [{ needs: [{ feature: 'structured-output' as const }] }];
 
@@ -136,16 +137,22 @@ describe('defineAgent — rejections', () => {
     }
   });
 
-  test('rejects a parameter named the same as an auto-injected var', () => {
-    const r = defineAgent({
-      ...baseSpec,
-      parameters: [{ name: 'today', type: 'date' }],
-    });
-    expect(r.kind).toBe('err');
-    if (r.kind === 'err') {
-      expect(r.error.issues.some((i) => i.path === '/parameters/0/name')).toBe(true);
-    }
-  });
+  test.each([...AUTO_INJECTED_VARS])(
+    'rejects a parameter named %s, an auto-injected var the render would replace',
+    (name) => {
+      const r = defineAgent({
+        ...baseSpec,
+        parameters: [{ name, type: 'string' }],
+      });
+      expect(r.kind).toBe('err');
+      if (r.kind === 'err') {
+        expect(r.error.issues).toContainEqual({
+          path: '/parameters/0/name',
+          message: `"${name}" is a reserved auto-injected variable — do not declare it as a parameter`,
+        });
+      }
+    },
+  );
 
   test('rejects duplicate parameter names', () => {
     const r = defineAgent({
