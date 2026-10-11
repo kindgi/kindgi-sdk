@@ -1,0 +1,27 @@
+// {{PACK_ID}}.content-reviewer — what its instructions may name. The event
+// is outside input, and an editor writes its title, so the instructions
+// interpolate only fields the check types and works out itself; the title
+// reaches the reviewer in its message, as data. Liquid itself lists every
+// variable the instructions use, filter arguments and tags included.
+
+import { Liquid } from 'liquidjs';
+import { describe, expect, test } from 'vitest';
+
+import reviewer from './index.js';
+
+/** The checked event's fields that no editor writes (`check-content-event`). */
+const TYPED = ['change', 'nodeId', 'revisionId', 'moderationState', 'flags', 'houseStyle'];
+
+describe('{{PACK_ID}}.content-reviewer', () => {
+  test("its instructions interpolate the event's typed fields only", () => {
+    const instructions = reviewer.instructions;
+    if (typeof instructions !== 'string') throw new Error('expected inline instructions');
+    const paths = new Liquid().globalVariableSegmentsSync(instructions);
+    expect(paths.length).toBeGreaterThan(0);
+    for (const path of paths) {
+      expect(path.slice(0, 2), path.join('.')).toEqual(['input', 'event']);
+      expect(TYPED, path.join('.')).toContain(path[2]);
+    }
+    expect(instructions).not.toMatch(/\{%/);
+  });
+});

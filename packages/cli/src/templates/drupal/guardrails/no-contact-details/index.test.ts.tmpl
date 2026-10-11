@@ -1,0 +1,29 @@
+// {{PACK_ID}}.no-contact-details — what the check fails on.
+
+import { describe, expect, test } from 'vitest';
+
+import { check, hasPhoneNumber } from './index.js';
+
+async function verdict(output: string): Promise<boolean> {
+  const config = { minPhoneDigits: 9 };
+  // The check reads only the answer; the rest of the trace is the minimum.
+  const trace = { output, toolCalls: [], toolResults: [], modelCalls: [] };
+  const outcome = await check.evaluate(config, trace as unknown as Parameters<typeof check.evaluate>[1], {});
+  return outcome.passed;
+}
+
+describe('{{PACK_ID}}.no-contact-details', () => {
+  test('fails an answer with an email address or a phone number', async () => {
+    expect(await verdict('Questions go to ines@acme.test, the article says.')).toBe(false);
+    expect(await verdict('Call her on +1 (555) 010-0199.')).toBe(false);
+  });
+
+  test('passes node ids, revision ids and dates', async () => {
+    expect(await verdict('Rain gardens (node 23, revision 44) changed 2026-10-11 06:51: draft, waiting for an editor.')).toBe(true);
+  });
+
+  test('counts digits, not separators', () => {
+    expect(hasPhoneNumber('555 0100', 9)).toBe(false);
+    expect(hasPhoneNumber('020 7946 0958', 9)).toBe(true);
+  });
+});
