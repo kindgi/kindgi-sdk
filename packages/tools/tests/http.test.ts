@@ -326,6 +326,50 @@ describe("defineTool({spec: http}) — a header value fetch can't send", () => {
     },
   );
 
+  test.each(['\ncanary-SECRET-lead', '\r\ncanary-SECRET-lead'])(
+    'bearer auth: a secret that starts with a line break (%j) is refused as sent, after `Bearer `',
+    async (secret) => {
+      vi.unstubAllGlobals();
+      const tool = buildTool({
+        urlTemplate: NOWHERE,
+        authorization: { kind: 'bearer', secretRef: { envName: 'production', name: 'acme-key' } },
+      });
+      if (tool.kind !== 'ok') throw new Error('build failed');
+      const invoked = await invokeTool(
+        tool.value,
+        input,
+        makeCtx({ resolveSecret: async () => secret }),
+      );
+      expect(invoked.kind === 'err' && invoked.error.message).toBe(
+        'Tool "github.get-issue" handler threw: http-tool "github.get-issue": its secret production/acme-key for the header "Authorization" has a line break, which a header can\'t carry: store the secret without it',
+      );
+      expect(everything(invoked)).not.toContain('canary');
+    },
+  );
+
+  test('header auth: a secret that starts with a line break goes out, trimmed by fetch, never quoted', async () => {
+    vi.unstubAllGlobals();
+    const tool = buildTool({
+      urlTemplate: NOWHERE,
+      authorization: {
+        kind: 'header',
+        headerName: 'X-API-Key',
+        secretRef: { envName: 'production', name: 'k' },
+      },
+    });
+    if (tool.kind !== 'ok') throw new Error('build failed');
+    const invoked = await invokeTool(
+      tool.value,
+      input,
+      makeCtx({ resolveSecret: async () => '\ncanary-SECRET-lead' }),
+    );
+    // Sent (nothing listens on port 9, so the call fails to connect), not refused.
+    expect(invoked.kind === 'err' && invoked.error.message).not.toContain(
+      "which a header can't carry",
+    );
+    expect(everything(invoked)).not.toContain('canary');
+  });
+
   test("a header filled from the input that fetch can't send fails by its name, never quoted", async () => {
     vi.unstubAllGlobals();
     const tool = buildTool({

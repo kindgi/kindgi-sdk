@@ -9,6 +9,10 @@
  * request refuses any other control character. A secret sent in a header is
  * checked with this first, so a bad one is refused by the header's name and
  * never quoted into an error, a log or a run.
+ *
+ * Check the value **as it's sent**: `Bearer ` and a secret that starts with a
+ * line break make that break an inner one, which fetch refuses
+ * (`bearerValueProblem`).
  */
 
 /** Leading and trailing HTTP whitespace, which fetch trims before it checks. */
@@ -24,4 +28,13 @@ export function headerValueProblem(value: string): string | undefined {
     if ((code < 0x20 && code !== 0x09) || code === 0x7f) return 'a control character';
   }
   return undefined;
+}
+
+/**
+ * Why fetch can't send `Bearer <token>` in `Authorization`, or `undefined`
+ * when it can: the token checked as it's sent, after `Bearer `, where a
+ * leading line break is an inner one.
+ */
+export function bearerValueProblem(token: string): string | undefined {
+  return headerValueProblem(`Bearer ${token}`);
 }

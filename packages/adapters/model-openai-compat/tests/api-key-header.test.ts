@@ -57,6 +57,39 @@ describe("an API key fetch can't send", () => {
     },
   );
 
+  test.each([
+    ['chat-completions', '\ncanary-SECRET-lead'],
+    ['responses', '\r\ncanary-SECRET-lead'],
+  ] as const)(
+    '%s: a key that starts with a line break is refused as sent, after `Bearer `',
+    async (api, key) => {
+      const provider = createOpenAICompatModelProvider({
+        baseURL: NOWHERE,
+        apiKey: key,
+        metadata: { id: 'acme-compat', region: 'local', models: [model] },
+        api,
+        clientOptions: { maxRetries: 0 },
+      });
+      const text = await failure(provider.invoke(call));
+      expect(text).toContain(
+        '@kindgi/adapter-model-openai-compat: provider "acme-compat": its API key has a line break, which a header can\'t carry: store the secret without it',
+      );
+      expect(text).not.toContain('canary');
+    },
+  );
+
+  test('embeddings: a key that starts with a line break is refused as sent', async () => {
+    const provider = createOpenAICompatEmbeddingProvider({
+      baseURL: NOWHERE,
+      model: 'nomic-embed-text',
+      apiKey: '\ncanary-SECRET-lead',
+      clientOptions: { maxRetries: 0 },
+    });
+    const text = await failure(provider.embed('refund policy'));
+    expect(text).toContain("the API key has a line break, which a header can't carry");
+    expect(text).not.toContain('canary');
+  });
+
   test('embeddings: the same, before a client is built', async () => {
     const provider = createOpenAICompatEmbeddingProvider({
       baseURL: NOWHERE,

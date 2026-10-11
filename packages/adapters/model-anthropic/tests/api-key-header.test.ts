@@ -51,6 +51,15 @@ describe("an API key fetch can't send", () => {
     }
   });
 
+  test('a key that starts with a line break goes out as fetch trims it (sent raw, in `x-api-key`), never quoted', async () => {
+    for (const key of ['\ncanary-SECRET-lead', '\r\ncanary-SECRET-lead']) {
+      const text = await failure(provider(key).invoke(call));
+      // Sent (nothing listens on port 9, so the call fails to connect), not refused.
+      expect(text).not.toContain("which a header can't carry");
+      expect(text).not.toContain('canary');
+    }
+  });
+
   test('checked on every call, before a client is reused: a key rotated to a bad one is refused', async () => {
     const keys = ['sk-good', CANARY];
     const p = provider(async () => keys.shift() ?? 'sk-good');

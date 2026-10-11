@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { headerValueProblem } from '@kindgi/types';
+import { bearerValueProblem, headerValueProblem } from '@kindgi/types';
 
 import { type ToolSpecSynthesizerOptions, registerToolSpecSynthesizer } from './spec-registry.js';
 import type { HttpAuthSpec, HttpRequestBodySpec, HttpToolSpec, ToolContext } from './types.js';
@@ -227,8 +227,12 @@ function applyAuth(
   resolvedSecret: string,
 ): void {
   // Checked by the header's name before fetch, whose own error would quote
-  // the secret into the call's failure message, and so into the run.
-  const problem = headerValueProblem(resolvedSecret);
+  // the secret into the call's failure message, and so into the run. As it's
+  // sent: after `Bearer `, a leading line break is an inner one.
+  const problem =
+    auth.kind === 'bearer'
+      ? bearerValueProblem(resolvedSecret)
+      : headerValueProblem(resolvedSecret);
   if (problem !== undefined) {
     const header = auth.kind === 'bearer' ? 'Authorization' : auth.headerName;
     throw new Error(
