@@ -64,7 +64,7 @@ pnpm exec kindgi runs start --flow=my-pack.echo-flow --input='{"name":"Ada"}' --
 ## `kindgi init`
 
 ```sh
-kindgi init [<pack-name>] [--template=minimal|sample|python] [--path=<dir>]
+kindgi init [<pack-name>] [--template=minimal|sample|woocommerce|python] [--path=<dir>]
             [--force] [--link-local] [--new-repo] [--pack-id=<id>]
 ```
 
@@ -115,7 +115,7 @@ devDependency) at the running CLI's own version, or linked from a checkout
 | Flag | Purpose |
 |---|---|
 | `<pack-name>` | The pack id: lowercase kebab-case, optionally dot-namespaced (`my-pack`, `acme.legal-basics`). |
-| `--template=<name>` | `minimal` (the default: the folders, no examples), `sample` (three tools, a guardrail, an agent and a flow), or `python` (the sample as a Python pack). |
+| `--template=<name>` | `minimal` (the default: the folders, no examples), `sample` (three tools, a guardrail, an agent and a flow), `woocommerce` (agents for a WooCommerce store: typed store tools, approvals for large refunds and store changes, and a review of each new order), or `python` (the sample as a Python pack). |
 | `--path=<dir>` | Where to scaffold. Default: `<pack-name>` under the current directory (for a dot-namespaced id, its last segment). |
 | `--force` | Write into a non-empty directory. Default: refuse. |
 | `--link-local` | Link `@kindgi/*` from the checkout the CLI runs from. |
@@ -213,6 +213,12 @@ One command runs the whole loop on your machine:
   `kindgi auth registry --username <robot name>` (see
   [The runtime image's registry](#the-runtime-images-registry)). `kindgi dev`
   says so when a pull is refused.
+- **Starting:** `kindgi dev` says what the start is doing as it happens,
+  and how long each step took: pulling the image (its size, then how much
+  has come as each layer arrives), starting the container, migrating the
+  database, and waiting for the runtime to serve. A step still going says
+  so every 3 seconds. Migrating shows with a runtime that reports it (0.1.7
+  and later); with an earlier one, that time counts as waiting.
 
 ### Env files
 
@@ -272,9 +278,10 @@ A turn the fallback answers carries a `fallback-provider` warning, which
 `kindgi runs start` prints. `kindgi providers unregister dev-echo` removes it
 for good.
 
-A preset's models carry their own output limit (Gemini 3.8 Flash: 65,536
-tokens, thinking included). `--max-output-tokens=<n>` registers them with a lower
-or different cap.
+A preset's models carry a default output cap, what a call asks for when its
+agent sets none (Gemini 3.8 Flash: 65,536 tokens, thinking included; the Claude
+models: 16,000). `--max-output-tokens=<n>` registers them with a lower or
+different cap.
 
 **Declared in the config**, `kindgi dev` registers them itself. Each project
 and git worktree has its own dev database, so this registers them in every
@@ -295,7 +302,7 @@ export default {
 In `pyproject.toml`, each one is a `[[tool.kindgi.providers]]` table with
 the same keys. A preset takes:
 - `models`;
-- `project`;
+- the settings its preset asks for, each required: `project` for `gemini`, `resourceName` and `deployments` for `azure-openai`, `region` for `bedrock`. Another preset's setting is refused. `deployments` is a map of model to deployment (`{ 'gpt-6.1-sol': 'gpt-6-1-sol' }`, a `[tool.kindgi.providers.deployments]` table in `pyproject.toml`);
 - `secret`: the key's name, in place of the preset's own;
 - `maxOutputTokens`.
 
@@ -434,11 +441,15 @@ kindgi test [--watch] [--reporter <name>] [--path <dir>] [-- <vitest-args>...]
 ```
 
 Runs the pack's tests with the pack's own vitest (the CLI bundles none, so the
-pack chooses its vitest version). The templates include a `vitest.config.ts`
-and a first test. `--watch` runs vitest in watch mode; everything after `--`
-goes to vitest as is. The CLI refuses to run without a `vitest.config.*` at
-the pack root, and uses `pnpm exec vitest` in a pnpm project, else
-`npx --no-install vitest`.
+pack chooses its vitest version). A pack from `kindgi init <name>` has a
+`vitest.config.ts` and a first test. In an app Kindgi was added to, `kindgi
+init` writes `vitest.config.mts` (`.ts` in a `"type": "module"` app), which
+runs `kindgi/**/*.test.ts` with the app's tsconfig `paths` as
+`resolve.alias`, and adds `vitest` and `vite`, unless the app runs vitest
+already. `--watch` runs vitest in watch mode; everything after `--` goes to
+vitest as is. The CLI refuses to run without a `vitest.config.*` (`.ts`,
+`.mts`, `.cts`, `.js`, `.mjs` or `.cjs`) at the pack root, and uses
+`pnpm exec vitest` in a pnpm project, else `npx --no-install vitest`.
 
 ## `kindgi build`
 

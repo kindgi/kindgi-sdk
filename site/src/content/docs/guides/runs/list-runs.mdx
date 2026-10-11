@@ -249,3 +249,47 @@ Add `agentVersion` (`agent_version`) for one version's turns, e.g. how a new
 version is doing. It needs `agentId`.
 
 [Read a run's journal](../read-the-journal/) to see what a turn did.
+
+## In the console
+
+A project's **Runs** page lists each agent run or flow run started in the
+project, newest first, with a flow's agent turns under it. It refreshes every
+5 seconds.
+
+![The Runs page filtered to Status: Failed and Started in the last hour: three failed runs of Support agent (acme.support @1.1.0), each with when it started, how long it took and its cost.](../../../../assets/runs/runs-filters.png)
+
+Its filters:
+- **Status:** Pending, Running, Waiting (a run that waits, for example on an
+  approval), Completed, Failed or Cancelled.
+- **Started:** in the last hour, 24 hours, 7 days or 30 days.
+- **An agent or a flow, and its version,** from a link that names them: a
+  flow's page links **Its runs →** and **Runs of 1.1.0 →** (the version it
+  shows), a schedule's page links **Its runs →**, and **Its failed runs** on
+  [What failed](#what-failed) names the agent or flow and its version. With
+  an agent chosen, a **Version** choice appears (**Every version**, or one).
+- **Include steps inside flows** and **Include eval replays.**
+
+Each filter shows as a chip ("Status: Failed", "Started in the last hour",
+"Flow: Refunds"). Removing an agent's or a flow's chip removes its version
+too. The page's address keeps the filters, so a link opens the same list.
+
+![The Runs page reached from a flow's "Runs of 1.1.0 →": the chips Flow: Refunds and Flow version: 1.1.0.](../../../../assets/runs/runs-flow-version.png)
+
+### What failed
+
+**What failed**, from the Runs page, groups the project's failed runs by
+cause and by version, so a bad deploy shows. Approvals people decided are
+counted apart: they aren't errors.
+
+![What failed over the last 7 days: "In the last 7 days, 7 runs failed: 7 errors (in 3 groups)." The errors as bars by version, and a table: an unregistered guardrail (unresolved-guardrail) in Support agent 1.1.0, 4 runs; a guardrail that blocked the answer (guardrail-violation) in Support agent 1.0.0, 2 runs; and a failed run (run-failed) in the flow Refunds 1.0.0, 1 run.](../../../../assets/runs/runs-what-failed.png)
+
+- **The window:** the last 24 hours, 7, 30 or 90 days.
+- **The headline:** "In the last 7 days, 7 runs failed: 7 errors (in 3
+  groups)."
+- **The errors by version:** bars of the runs that failed with an error, by
+  agent or flow version, the most first (**Show as a table** for the
+  numbers).
+- **One row per cause and version:** the cause in a run page's words, with
+  its code ("A guardrail blocked the answer." `guardrail-violation`), what
+  failed at which version, how many runs, when it was first and last seen,
+  **The latest** run, and **Its failed runs** on the Runs page.

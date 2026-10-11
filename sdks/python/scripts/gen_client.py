@@ -222,6 +222,9 @@ def operations(source: dict[str, Any]) -> tuple[dict[str, Any], list[Operation]]
             if op is None:
                 continue
             op_id: str = op["operationId"]
+            if op.get("x-kindgi-sender-only"):
+                # An outside sender's path (the inbound webhook receiver), not a client's.
+                continue
             params: list[Param] = []
             for raw in [*item.get("parameters", []), *op.get("parameters", [])]:
                 p = deref(doc, raw) if "$ref" in raw else raw

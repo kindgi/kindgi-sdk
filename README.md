@@ -54,6 +54,8 @@ All `@kindgi/*` packages share one version.
 | Package | Description |
 |---|---|
 | [`@kindgi/adapter-model-anthropic`](./packages/adapters/model-anthropic) | Anthropic ModelProvider for @kindgi/capabilities. |
+| [`@kindgi/adapter-model-azure-openai`](./packages/adapters/model-azure-openai) | Azure OpenAI ModelProvider for @kindgi/capabilities: your Azure OpenAI deployments (Responses or Chat Completions) by API key or the runtime's Entra identity. |
+| [`@kindgi/adapter-model-bedrock`](./packages/adapters/model-bedrock) | Amazon Bedrock ModelProvider for @kindgi/capabilities: Claude, Nova, Llama, Mistral and OpenAI's models on Bedrock's Converse API, by the runtime's AWS identity or a Bedrock API key. |
 | [`@kindgi/adapter-model-gemini`](./packages/adapters/model-gemini) | Gemini ModelProvider for @kindgi/capabilities, on Vertex AI. |
 | [`@kindgi/adapter-model-in-process`](./packages/adapters/model-in-process) | In-process ModelProvider for @kindgi/capabilities. |
 | [`@kindgi/adapter-model-openai-compat`](./packages/adapters/model-openai-compat) | OpenAI-compatible ModelProvider for @kindgi/capabilities. |
@@ -65,7 +67,7 @@ All `@kindgi/*` packages share one version.
 | [`@kindgi/authz`](./packages/authz) | Kindgi™ authorization shape. |
 | [`@kindgi/blob-binding`](./packages/blob-binding) | Kindgi™ blob storage binding contract. |
 | [`@kindgi/capabilities`](./packages/capabilities) | Capability declarations + provider router for Kindgi™. |
-| [`@kindgi/cli`](./packages/cli) | Command-line interface for Kindgi™ — the sovereign AI OS. |
+| [`@kindgi/cli`](./packages/cli) | Command-line interface for Kindgi™. |
 | [`@kindgi/compliance`](./packages/compliance) | Kindgi™ compliance evidence contract. |
 | [`@kindgi/crypto`](./packages/crypto) | Kindgi™ cryptographic primitives. |
 | [`@kindgi/dev-echo-provider`](./packages/dev-echo-provider) | Deterministic dev-only ModelProvider — no LLM key, no network, no cost. |
@@ -92,7 +94,7 @@ All `@kindgi/*` packages share one version.
 | [`@kindgi/testing`](./packages/testing) | Test helpers for Kindgi apps and packages. |
 | [`@kindgi/tools`](./packages/tools) | Tool authoring shape + registry + invocation for Kindgi. |
 | [`@kindgi/types`](./packages/types) | Foundational TypeScript types shared across Kindgi. |
-| [`@kindgi/client`](./sdks/typescript) | TypeScript client SDK for Kindgi™ — the sovereign AI OS. |
+| [`@kindgi/client`](./sdks/typescript) | TypeScript client SDK for Kindgi™. |
 <!-- packages:end -->
 
 ## Python

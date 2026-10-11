@@ -285,3 +285,45 @@ No flow "acme.no-such-flow" is registered in this tenant.
 A request that times out on your side may have started the run anyway.
 [Retry a start safely](../retry-a-start-safely/) shows how to retry without
 starting it twice.
+
+### In the console
+
+A failed run's page says what happened in a sentence, then the runtime's
+own words and the code:
+
+```text
+The turn ran out of its budget.
+Agent turn steps budget exceeded (limit 1, observed 1)
+Code budget-exceeded
+```
+
+![A failed agent run's page: the agent acme.tight at 1.0.0, Failed, then its message and tool call, and the failure: "The turn ran out of its budget.", "Agent turn steps budget exceeded (limit 1, observed 1)" and "Code budget-exceeded".](../../../../assets/runs/run-failure.png)
+
+A run that ended at its approval didn't go wrong: someone, or the
+approval's deadline, decided. Its page says which, not in red: "A reviewer
+rejected it.", "Its approval was withdrawn.", "No one decided its approval
+in time." or "Its approval was closed before anyone decided.", then "It
+ended at its approval: a review outcome, not an error.", the reviewer's
+rationale and the code
+([Decide an approval](../../approvals/decide-an-approval/)).
+
+![A rejected run's page: "A reviewer rejected it.", "It ended at its approval: a review outcome, not an error.", "Reviewer rejected the session-HITL gate: not this week" and "Code hitl-rejected".](../../../../assets/runs/run-review-outcome.png)
+
+## Run it again
+
+A finished run's page has **Run again** for whoever may run its agent or
+flow. A step inside a flow has none. The dialog, **Run again, for real**,
+says what the new run is and does, for that run:
+
+```text
+The agent demo.echo-agent at 1.0.0, its version then, with the same input.
+The turn's parameters aren't kept with the run: add them under `parameters` if it had any.
+This is a new, live run: every tool it calls acts for real again (a refund would be issued again).
+What the agent remembers about cust-9 is read, and may be added to.
+It starts a new conversation; the original one is left as it was.
+It starts as you, with your access, not as whoever started the original.
+```
+
+The input is the run's, and you can change it before **Start the run**.
+
+![The Run again, for real dialog over a finished run's page: the six lines above, the input as the run had it, and the buttons Don't run it and Start the run.](../../../../assets/runs/run-again-dialog.png)

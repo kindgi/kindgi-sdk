@@ -44,6 +44,14 @@ agent that uses it, a flow around both) loads each one in turn.
 | `kindgi-authoring-providers` | Connecting a model: Anthropic, Gemini, OpenAI-compatible endpoints |
 | `kindgi-authoring-mcp-servers` | Giving the coding agent an MCP server |
 | `kindgi-framework-feedback` | Reporting a problem in Kindgi itself |
+| `kindgi-using` | Guiding you in using what was built: the CLI's answer and the console page beside it |
+
+Your coding agent also guides you in using what it built. Ask it to show
+you around Kindgi's console or to find something (the answers an agent
+gave, who has access, what waits for a decision), and with
+`kindgi-using` it answers with the CLI's answer and the console page side
+by side. Deciding approvals, erasing, people, keys and making a version
+live stay yours: it gives you the page and the clicks.
 
 A pack gets the skills for its language, plus the shared ones.
 
@@ -90,6 +98,12 @@ works the way you would: write, run, look, fix.
 
 It runs the CLI the project pins: `pnpm exec kindgi` in a TypeScript
 project, `uv run kindgi` in a Python one.
+
+There's one `kindgi dev` per pack. When yours is already running, a
+`kindgi dev` the agent starts exits with code 3 and says where yours is:
+its process, the console and the API. Nothing of yours is touched: the
+agent uses yours (with `--json`, it gets the same as
+`{ "running": { … } }`).
 
 ## What stays with you
 

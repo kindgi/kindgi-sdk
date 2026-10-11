@@ -289,6 +289,122 @@ describe('defineTool({spec: http}) — authorization / secret resolution', () =>
   });
 });
 
+describe("defineTool({spec: http}) — a header value fetch can't send", () => {
+  /** Pasted with its second line: fetch's own error would quote it. */
+  const CANARY = 'canary-SECRET-one\nline-two';
+  /** Nothing listens here, and nothing is meant to reach it: the header is refused first. */
+  const NOWHERE = 'http://127.0.0.1:9/repos/{owner}/{repo}/issues/{number}';
+  const input = { owner: 'a', repo: 'b', number: 1 };
+  /** Everything an invocation's failure carries, as a log or a run would. */
+  const everything = (invoked: unknown) => {
+    const cause = (invoked as { error?: { cause?: unknown } }).error?.cause;
+    return `${JSON.stringify(invoked)} ${cause instanceof Error ? `${cause.message} ${cause.stack}` : ''}`;
+  };
+
+  test.each([
+    ['header', { kind: 'header', headerName: 'X-API-Key' }, 'X-API-Key'],
+    ['bearer', { kind: 'bearer' }, 'Authorization'],
+  ] as const)(
+    "%s auth: a secret with a line break inside fails by the header's name, never quoted, with real fetch",
+    async (_kind, auth, header) => {
+      vi.unstubAllGlobals(); // the real fetch, whose own error quotes the value
+      const tool = buildTool({
+        urlTemplate: NOWHERE,
+        authorization: { ...auth, secretRef: { envName: 'production', name: 'acme-key' } },
+      });
+      if (tool.kind !== 'ok') throw new Error('build failed');
+      const invoked = await invokeTool(
+        tool.value,
+        input,
+        makeCtx({ resolveSecret: async () => CANARY }),
+      );
+      expect(invoked.kind === 'err' && invoked.error.code).toBe('handler-error');
+      expect(invoked.kind === 'err' && invoked.error.message).toBe(
+        `Tool "github.get-issue" handler threw: http-tool "github.get-issue": its secret production/acme-key for the header "${header}" has a line break, which a header can't carry: store the secret without it`,
+      );
+      expect(everything(invoked)).not.toContain('canary');
+    },
+  );
+
+  test.each(['\ncanary-SECRET-lead', '\r\ncanary-SECRET-lead'])(
+    'bearer auth: a secret that starts with a line break (%j) is refused as sent, after `Bearer `',
+    async (secret) => {
+      vi.unstubAllGlobals();
+      const tool = buildTool({
+        urlTemplate: NOWHERE,
+        authorization: { kind: 'bearer', secretRef: { envName: 'production', name: 'acme-key' } },
+      });
+      if (tool.kind !== 'ok') throw new Error('build failed');
+      const invoked = await invokeTool(
+        tool.value,
+        input,
+        makeCtx({ resolveSecret: async () => secret }),
+      );
+      expect(invoked.kind === 'err' && invoked.error.message).toBe(
+        'Tool "github.get-issue" handler threw: http-tool "github.get-issue": its secret production/acme-key for the header "Authorization" has a line break, which a header can\'t carry: store the secret without it',
+      );
+      expect(everything(invoked)).not.toContain('canary');
+    },
+  );
+
+  test('header auth: a secret that starts with a line break goes out, trimmed by fetch, never quoted', async () => {
+    vi.unstubAllGlobals();
+    const tool = buildTool({
+      urlTemplate: NOWHERE,
+      authorization: {
+        kind: 'header',
+        headerName: 'X-API-Key',
+        secretRef: { envName: 'production', name: 'k' },
+      },
+    });
+    if (tool.kind !== 'ok') throw new Error('build failed');
+    const invoked = await invokeTool(
+      tool.value,
+      input,
+      makeCtx({ resolveSecret: async () => '\ncanary-SECRET-lead' }),
+    );
+    // Sent (nothing listens on port 9, so the call fails to connect), not refused.
+    expect(invoked.kind === 'err' && invoked.error.message).not.toContain(
+      "which a header can't carry",
+    );
+    expect(everything(invoked)).not.toContain('canary');
+  });
+
+  test("a header filled from the input that fetch can't send fails by its name, never quoted", async () => {
+    vi.unstubAllGlobals();
+    const tool = buildTool({
+      urlTemplate: NOWHERE,
+      headers: [{ name: 'X-Trace', value: 'trace-{repo}' }],
+    });
+    if (tool.kind !== 'ok') throw new Error('build failed');
+    const invoked = await invokeTool(tool.value, { ...input, repo: 'b\u0000canary' }, makeCtx());
+    expect(invoked.kind === 'err' && invoked.error.message).toBe(
+      'Tool "github.get-issue" handler threw: http-tool "github.get-issue": the header "X-Trace", filled from its input, has a control character, which a header can\'t carry',
+    );
+    expect(everything(invoked)).not.toContain('canary');
+  });
+
+  test('a secret with only a trailing newline is sent as before: fetch trims it', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, { number: 1, title: 't' }));
+    const tool = buildTool({
+      authorization: {
+        kind: 'header',
+        headerName: 'X-API-Key',
+        secretRef: { envName: 'production', name: 'k' },
+      },
+    });
+    if (tool.kind !== 'ok') throw new Error('build failed');
+    const invoked = await invokeTool(
+      tool.value,
+      input,
+      makeCtx({ resolveSecret: async () => 'sk-abc\n' }),
+    );
+    expect(invoked.kind).toBe('ok');
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(new Headers(init.headers).get('X-API-Key')).toBe('sk-abc');
+  });
+});
+
 // -----------------------------------------------------------------------------
 // Request body
 // -----------------------------------------------------------------------------

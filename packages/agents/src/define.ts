@@ -13,6 +13,7 @@ import { BUILT_IN_TOOL_PREFIX, pickVersion } from '@kindgi/tools';
 import type { Result, Semver } from '@kindgi/types';
 
 import type { InvalidAgentError } from './errors.js';
+import { AUTO_INJECTED_VARS } from './prompt.js';
 import { MAX_REMEMBER_DAYS, REMEMBER_TOOL_ID } from './remember.js';
 import type {
   Agent,
@@ -534,7 +535,9 @@ function isTypeList(types: unknown): types is readonly string[] {
 }
 
 const VALID_PARAM_TYPES = new Set(['string', 'number', 'boolean', 'date']);
-const AUTO_INJECTED_NAMES = new Set(['today', 'now', 'agent', 'conversation', 'settings']);
+// Every variable the render fills in (`AUTO_INJECTED_VARS`): a parameter of the
+// same name would be replaced at render, so declaring one is refused.
+const AUTO_INJECTED_NAMES: ReadonlySet<string> = new Set(AUTO_INJECTED_VARS);
 
 /** An agent's or a prompt block's declared parameters: the problems, none when they're valid. */
 export function validatePromptParameters(parameters?: readonly PromptParameter[]): Issue[] {

@@ -14,7 +14,7 @@ description: >
   primitive.
 type: core
 library: "@kindgi/sdk"
-version: "0.3.8"
+version: "0.3.9"
 sdk_version: "0.0.0"
 pack_languages: [node]
 ---
@@ -69,7 +69,9 @@ pnpm install          # or the app's own package manager
 ```
 
 This adds `kindgi.config.ts` and a `kindgi/` folder beside the app's code,
-and never creates env files: `kindgi dev` reads the app's own `.env` /
+and `vitest.config.mts` for the tests `kindgi test` runs (`kindgi/**/*.test.ts`,
+with the app's tsconfig path aliases) unless the app runs vitest already. It
+never creates env files: `kindgi dev` reads the app's own `.env` /
 `.env.local`. A package a tool imports must be in the app's `dependencies`,
 not `devDependencies`: the deployed pack installs production dependencies
 only (see `kindgi-authoring-tools`).
@@ -79,12 +81,16 @@ Either way, `init` adds `@kindgi/sdk` and `@kindgi/cli` to the project's
 one. (`npx @kindgi/cli` is the scoped package; a bare `npx kindgi` would
 fetch an unrelated package.)
 
-Two templates:
+Three templates:
 
 - `--template=minimal` (default) — folder structure only, no example
   primitives. Right when you know what you want to build.
 - `--template=sample` — worked kitchen-sink example (echo tool + agent
   + guardrail + flow). Right for exploring the primitive kinds.
+- `--template=woocommerce` — agents for a WooCommerce store: typed store
+  tools, approvals for large refunds and store changes, and a flow that
+  checks each order event before an agent sees it. Its README explains
+  each choice.
 
 ## Boot the dev harness
 
@@ -96,6 +102,11 @@ pnpm exec kindgi dev
 needs on first run), indexes the pack, registers every primitive, and
 re-registers on every save. The banner prints the API URL, the seeded
 bearer token, and (if the console is bundled) the `/console/` URL.
+
+One `kindgi dev` per pack. When one is already running (the person's
+terminal, say), `kindgi dev` exits with code 3 and prints where it is
+(its pid, the console and the API): use that one. Don't start another,
+and don't stop theirs.
 
 Until a model provider is registered, agents answer with `dev-echo`, a
 stand-in that calls the agent's first tool with `{"message": <userMessage>}`

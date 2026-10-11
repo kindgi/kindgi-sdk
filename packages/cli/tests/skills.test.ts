@@ -142,6 +142,7 @@ describe('kindgi skills sync', () => {
       'kindgi-python-authoring-guardrails',
       'kindgi-python-authoring-tools',
       'kindgi-python-getting-started',
+      'kindgi-using',
     ]);
   });
 
@@ -167,6 +168,7 @@ describe('kindgi skills sync', () => {
       'kindgi-scala-authoring-guardrails',
       'kindgi-scala-authoring-tools',
       'kindgi-scala-getting-started',
+      'kindgi-using',
     ]);
   });
 
@@ -192,6 +194,7 @@ describe('kindgi skills sync', () => {
       'kindgi-java-authoring-guardrails',
       'kindgi-java-authoring-tools',
       'kindgi-java-getting-started',
+      'kindgi-using',
     ]);
   });
 });
