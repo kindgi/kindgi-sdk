@@ -606,6 +606,13 @@ What to check before you upgrade, and what's different after:
   ```text
   KINDGI_SECRETS_MANAGER=aws is reserved: this runtime doesn't support it yet. Currently supported: azure, gcp, vault.
   ```
+- **An MCP server's tool whose name contains `__` can't be called.** Kindgi
+  names it `<endpoint id>.<tool name>`, and every model adapter turns each
+  `.` into `__` for the model and back again on the way in. So a name with a
+  `__` of its own comes back wrong, and the run fails with `unresolved-tool`.
+  Drupal's MCP Server Tool Bridge names its tools this way (`tool_api__…`).
+  There's no workaround for a server whose tool names you don't choose:
+  0.1.7 fixes it.
 
 ### Runtime 0.1.5.1
 
