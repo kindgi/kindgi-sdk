@@ -14,11 +14,21 @@ name: AI SDK candidate
 #
 # Two jobs. `bump` moves the pins and resolves the lockfile without
 # running any candidate code (no install, scripts off), and uploads the
-# files the candidates changed (each moved adapter `package.json` and
-# `pnpm-lock.yaml`) as `ai-sdk-candidate-bump`. `candidate` installs exactly
-# those files, frozen, and runs the adapters' tests on them: its artifact,
-# `ai-sdk-candidate`, holds `result.json`. A pin bump proposes the first
-# artifact's files, which the tests ran on and candidate code never wrote.
+# files the candidates changed (each moved adapter `package.json`,
+# `pnpm-lock.yaml`, and `pnpm-workspace.yaml` when pnpm changed it) as
+# `ai-sdk-candidate-bump`. `candidate` installs exactly those files, frozen,
+# and runs the adapters' tests on them: its artifact, `ai-sdk-candidate`,
+# holds `result.json`. A pin bump proposes the first artifact's files, which
+# the tests ran on and candidate code never wrote.
+#
+# A release younger than pnpm's `minimumReleaseAge` (a day by default) is
+# what this workflow is for. Resolving it, pnpm adds it, and any same-day
+# release it brings, to `minimumReleaseAgeExclude` in `pnpm-workspace.yaml`;
+# a frozen install without those entries fails
+# (`ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION`), so the bump keeps that file.
+#
+# `candidate` runs the candidate's code (the adapters' tests import it), so
+# it saves no cache: a later run that restored it would get that store.
 #
 # An optional `request_id` (8 to 64 lowercase hex characters, validated
 # too) goes in the run's name, so a caller that lost the dispatch's answer
@@ -75,7 +85,7 @@ jobs:
       - name: Keep the files the candidates changed
         run: |
           mkdir -p .ai-sdk-candidate-bump
-          git diff --name-only -- pnpm-lock.yaml 'packages/adapters/*/package.json' |
+          git diff --name-only -- pnpm-lock.yaml pnpm-workspace.yaml 'packages/adapters/*/package.json' |
             while IFS= read -r file; do
               mkdir -p ".ai-sdk-candidate-bump/$(dirname "$file")"
               cp "$file" ".ai-sdk-candidate-bump/$file"
@@ -100,10 +110,11 @@ jobs:
         with:
           persist-credentials: false
       - uses: pnpm/action-setup@v4
+      # No `cache: pnpm`: this job runs the candidate's code, and the cache
+      # would be saved after it, under main's lockfile key.
       - uses: actions/setup-node@v5
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: pnpm
       - name: Validate the candidates
         run: node scripts/ai-sdk-candidate.mjs validate
       # This run's own bump artifact (no run-id: the same run).
