@@ -54,7 +54,7 @@ async function inputsOf(entry: string): Promise<readonly string[]> {
 test('the pattern takes every relative form, and only those', () => {
   for (const ref of [
     "'../migrations/'",
-    '"./prompt.md"',
+    '"./prompt.txt"',
     "'planted/'",
     '`./${name}.json`',
     "'.'",
