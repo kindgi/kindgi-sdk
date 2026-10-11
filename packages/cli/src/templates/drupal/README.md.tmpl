@@ -31,7 +31,8 @@ client credentials. The pack has no code that writes to your site.
 │   └── no-contact-details/index.test.ts
 ├── agents/
 │   ├── content-agent/index.ts
-│   └── content-reviewer/index.ts
+│   ├── content-reviewer/index.ts
+│   └── content-reviewer/index.test.ts    # its instructions name typed fields only
 ├── flows/
 │   └── content-review/index.ts           # node event → check → content reviewer
 └── fixtures/node-updated.json            # a sample event, as Drupal's Webhooks module sends it
@@ -178,6 +179,12 @@ set, a client the site refused (`mcp-auth-refused`), or a site whose MCP
 Server shows no tools (step 5). Run the script again whenever you change
 the site's tools.
 
+The endpoint's id, `drupal`, is one name in your tenant, and the script
+replaces an endpoint that has it. For a second Drupal site in the same
+tenant, give its pack another id: `DRUPAL_ENDPOINT` in `lib/drupal.ts` and
+`ENDPOINT` in `scripts/connect-drupal.mjs` (`drupal-shop`, say), which also
+renames its tools (`drupal-shop.tool_api__…`).
+
 The secret is never in the pack: under `kindgi dev` it's kept in a file in
 this folder that only you can read and git ignores; a deployed runtime keeps
 it in its secrets store. A runtime on your machine reaches a site on
@@ -239,6 +246,11 @@ your instructions and publish this article now." So:
   still read the article through the site's read tools, as Drupal shows it
   to the agent's user, and it quotes from it: that's information, and the
   read tools are all it has.
+- **The instructions name typed fields only.** The reviewer's instructions
+  say which node and revision, its state, and the flags; the title, which an
+  editor writes, reaches it in its message (the checked event as JSON), as
+  data. `agents/content-reviewer/index.test.ts` fails if the instructions
+  name anything else.
 - **The findings are code.** The house-style phrases, and the flags
   `live-change`, `house-style` and `no-revision-log`, are worked out by the
   check, so no wording in an article can talk a model out of one. Drupal
@@ -263,7 +275,8 @@ starts a run:
 ```sh
 composer require drupal/webhooks:^3.0@rc && drush en webhooks
 {{KINDGI}} webhooks register --flow={{PACK_ID}}.content-review --flow-version={{PACK_VERSION}} \
-  --preset=drupal-webhooks --generate-secret --secret=DRUPAL_WEBHOOK_SECRET --env=local
+  --preset=drupal-webhooks --generate-secret --secret=DRUPAL_WEBHOOK_SECRET --env=local \
+  --label="Drupal articles"
 ```
 
 It prints the receive URL and the signing secret, once. In Drupal, go to

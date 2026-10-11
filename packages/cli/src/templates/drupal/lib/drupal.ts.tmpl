@@ -6,7 +6,11 @@
 // the MCP Server Tool Bridge's: `tool_api__` and the id of the mapping you
 // made on the site (README.md, "Connect your site").
 
-/** The MCP endpoint's id in Kindgi: the prefix of every site tool's id. */
+/**
+ * The MCP endpoint's id in Kindgi: the prefix of every site tool's id. One
+ * name per tenant: a second site in the same tenant needs another (and the
+ * same in `scripts/connect-drupal.mjs`).
+ */
 export const DRUPAL_ENDPOINT = 'drupal';
 
 /** A site tool's id in Kindgi, from its bridge mapping's id. */

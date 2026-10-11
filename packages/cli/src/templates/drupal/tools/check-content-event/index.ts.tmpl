@@ -36,7 +36,8 @@ export const NodeEvent = z.object({
     status: one(z.boolean()),
     changed: one(z.string().max(40)),
     title: one(z.string()),
-    moderation_state: atMostOne(z.string().max(64)).optional(),
+    /** A workflow state's machine name: Drupal's, never an editor's text. */
+    moderation_state: atMostOne(z.string().regex(/^[a-z0-9_]*$/).max(64)).optional(),
     /** Sent when the account that saved may view the revision or edit the article; a save from drush or cron (anonymous) has none. */
     revision_log: atMostOne(z.string().nullable()).optional(),
     body: atMostOne(z.string().nullable()).optional(),
@@ -48,10 +49,13 @@ export const CheckedEvent = z.object({
   nodeId: z.number().int(),
   revisionId: z.number().int(),
   bundle: z.string(),
-  /** The title, cut to 120 characters: a name for the review, not text to act on. */
+  /**
+   * The title, cut to 120 characters. An editor writes it, so it's data: it
+   * reaches the reviewer in its message, never in its instructions.
+   */
   title: z.string(),
   /** `''` on a site whose workflow doesn't cover this content type. */
-  moderationState: z.string(),
+  moderationState: z.string().regex(/^[a-z0-9_]*$/),
   published: z.boolean(),
   changedAt: z.string(),
   /** The house-style phrases the text has (`lib/drupal.ts`). */
