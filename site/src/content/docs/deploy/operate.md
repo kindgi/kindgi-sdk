@@ -461,8 +461,17 @@ What to check before you upgrade, and what's different after:
   - Deciding one whose run has ended answers `409 run-already-terminal`.
   - **After the upgrade,** gate approvals still pending from runs that had
     already ended are withdrawn the same way, by a pass about once a minute
-    per tenant, up to 500 runs each time. They leave the reviewer queues
-    with a system actor in the audit.
+    per tenant, up to 500 runs each time (in a test, 40 seconds after the
+    first start). They leave the reviewer queues with a system actor in the
+    audit (`hitl-decision`, `via: run-end`). Deciding one then answers
+    `409 approval-terminal`:
+
+    ```text
+    Approval … was withdrawn: its run was cancelled
+    ```
+
+    A memory fact's review left open from before stays pending, and can
+    still be decided.
 - **Who sees whom:**
   - listing a project's members or team grants takes `write` on the
     project, so a viewer no longer sees who else works there;
