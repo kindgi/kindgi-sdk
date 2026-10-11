@@ -335,8 +335,9 @@ resource "google_cloud_run_v2_service" "server" {
 
       # The pack service: its internal URL, the shared token, and a Google
       # ID token per call (KINDGI_PACK_SERVICE_AUTH). Without a pack image
-      # there's no pack service, and so no URL: each deployment is a
-      # service of its own (KINDGI_PACK_ROUTING=per-deployment).
+      # there's no pack service, and so none of the three: each deployment
+      # is a service of its own (KINDGI_PACK_ROUTING=per-deployment), whose
+      # endpoint carries its own token and auth, and the server refuses them.
       dynamic "env" {
         for_each = local.pack ? [google_cloud_run_v2_service.pack[0].uri] : []
         content {
@@ -344,18 +345,24 @@ resource "google_cloud_run_v2_service" "server" {
           value = env.value
         }
       }
-      env {
-        name = "KINDGI_PACK_SERVICE_TOKEN"
-        value_source {
-          secret_key_ref {
-            secret  = google_secret_manager_secret.shared["pack_service_token"].secret_id
-            version = "latest"
+      dynamic "env" {
+        for_each = local.pack ? [google_secret_manager_secret.shared["pack_service_token"].secret_id] : []
+        content {
+          name = "KINDGI_PACK_SERVICE_TOKEN"
+          value_source {
+            secret_key_ref {
+              secret  = env.value
+              version = "latest"
+            }
           }
         }
       }
-      env {
-        name  = "KINDGI_PACK_SERVICE_AUTH"
-        value = "google-id-token"
+      dynamic "env" {
+        for_each = local.pack ? ["google-id-token"] : []
+        content {
+          name  = "KINDGI_PACK_SERVICE_AUTH"
+          value = env.value
+        }
       }
 
       # Reading deployments' images from Artifact Registry with the
@@ -487,6 +494,14 @@ resource "google_cloud_run_v2_service" "server" {
         && length(var.pack_bucket_readers) == 0 && length(var.pack_run_invokers) == 0
       )
       error_message = "The pack_* settings configure the one pack service, which exists only with pack_image: set pack_image, or unset them."
+    }
+    precondition {
+      condition = local.pack || (
+        lookup(var.server_env, "KINDGI_PACK_ROUTING", "") == "per-deployment"
+        && lookup(var.server_env, "KINDGI_PACK_ENDPOINT_HOSTS", "") != ""
+        && lookup(var.server_env, "KINDGI_TENANCY", "") == "multi"
+      )
+      error_message = "Without pack_image there's no pack service, so the server must route each deployment to its own: set server_env's KINDGI_PACK_ROUTING = \"per-deployment\", KINDGI_PACK_ENDPOINT_HOSTS, and KINDGI_TENANCY = \"multi\" (per-deployment routing serves many tenants)."
     }
     precondition {
       condition     = !local.kms || var.secrets_aad_key_version != null

@@ -421,8 +421,12 @@ run "with_a_pack_image_the_server_calls_the_one_pack_service" {
     error_message = "The server calls the pack service at its URL."
   }
   assert {
-    condition     = length(google_secret_manager_secret_iam_member.pack_reads_token) == 1
-    error_message = "The pack service reads the shared pack token."
+    condition     = length(google_secret_manager_secret_iam_member.pack_reads_token) == 1 && length(google_secret_manager_secret.shared) == 1
+    error_message = "The shared pack token exists, and the pack service reads it."
+  }
+  assert {
+    condition     = length(setintersection(toset([for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.name]), toset(["KINDGI_PACK_SERVICE_TOKEN", "KINDGI_PACK_SERVICE_AUTH"]))) == 2
+    error_message = "The server calls the pack service with the shared token and an ID token."
   }
 }
 
@@ -431,6 +435,11 @@ run "without_a_pack_image_there_is_no_pack_service" {
 
   variables {
     pack_image = ""
+    server_env = {
+      KINDGI_PACK_ROUTING        = "per-deployment"
+      KINDGI_PACK_ENDPOINT_HOSTS = "*.a.run.app"
+      KINDGI_TENANCY             = "multi"
+    }
   }
 
   assert {
@@ -446,8 +455,8 @@ run "without_a_pack_image_there_is_no_pack_service" {
     error_message = "No pack service, so no KINDGI_PACK_SERVICE_URL: each deployment is a service of its own."
   }
   assert {
-    condition     = length(setintersection(toset([for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.name]), toset(["KINDGI_PACK_SERVICE_TOKEN", "KINDGI_PACK_SERVICE_AUTH"]))) == 2
-    error_message = "The pack token and the ID-token auth stay: they're how the server calls each deployment's service."
+    condition     = length(setintersection(toset([for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.name]), toset(["KINDGI_PACK_SERVICE_TOKEN", "KINDGI_PACK_SERVICE_AUTH"]))) == 0 && length(google_secret_manager_secret.shared) == 0
+    error_message = "No shared pack token or its auth: each deployment's endpoint carries its own, and the server refuses these under per-deployment routing."
   }
   assert {
     condition     = output.pack_service_url == null && output.service_accounts.pack == null
@@ -473,10 +482,25 @@ run "connector_mode_without_a_pack_service_needs_no_public_pack_ingress" {
     pack_image    = ""
     network_mode  = "connector"
     vpc_connector = "projects/acme-app-dev/locations/northamerica-northeast2/connectors/acme"
+    server_env = {
+      KINDGI_PACK_ROUTING        = "per-deployment"
+      KINDGI_PACK_ENDPOINT_HOSTS = "*.a.run.app"
+      KINDGI_TENANCY             = "multi"
+    }
   }
 
   assert {
     condition     = length(google_cloud_run_v2_service.pack) == 0
     error_message = "Connector mode plans without a pack service, whatever pack_ingress says."
   }
+}
+
+run "without_a_pack_image_the_routing_settings_are_required" {
+  command = plan
+
+  variables {
+    pack_image = ""
+  }
+
+  expect_failures = [google_cloud_run_v2_service.server]
 }

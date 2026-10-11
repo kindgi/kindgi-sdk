@@ -70,9 +70,11 @@ locals {
     }, local.kms ? {
     secrets_aad_key = "${var.name_prefix}-secrets-aad-key" # 32 random bytes, base64: KINDGI_SECRETS_AAD_KEY (secrets_backend = "postgres" only)
   } : {})
-  shared_secrets = {
+  # Only with the one pack service: under per-deployment routing each
+  # endpoint carries its own token, and the server refuses this one.
+  shared_secrets = local.pack ? {
     pack_service_token = "${var.name_prefix}-pack-service-token" # KINDGI_PACK_SERVICE_TOKEN, both services
-  }
+  } : {}
 }
 
 resource "google_secret_manager_secret" "server" {
