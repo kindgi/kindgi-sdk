@@ -25,7 +25,7 @@
 
 import { spawn } from 'node:child_process';
 import { readFile, readdir, stat } from 'node:fs/promises';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, relative, resolve } from 'node:path';
 
 import { findKindgiConfig } from '@kindgi/handler-runtime';
 import {
@@ -242,7 +242,7 @@ export async function runDoctor(ctx: CommandContext, dir: string): Promise<Docto
     ),
   );
   checks.push(await consoleSignInCheck(ctx));
-  checks.push(await licenseKeyCheck(ctx.env, dir, seam));
+  checks.push(await licenseKeyCheck(ctx.env, dir, ctx.cwd, seam));
 
   if (config === undefined || language === undefined) {
     checks.push({
@@ -350,16 +350,22 @@ const skip = (id: DoctorCheckId, message: string, fix?: string): DoctorCheck => 
 async function licenseKeyCheck(
   env: Readonly<Record<string, string | undefined>>,
   dir: string,
+  cwd: string,
   seam: DoctorSeam,
 ): Promise<DoctorCheck> {
   const fromEnv = env.KINDGI_LICENSE_KEY?.trim();
   const envFile = join(dir, 'kindgi.env');
+  /** A setting from the environment, else from this folder's `kindgi.env`. */
+  const setting = async (name: string): Promise<string | undefined> => {
+    const value =
+      env[name]?.trim() ||
+      (await secretStoreFor(`env-file:${envFile}#${name}`)
+        .read()
+        .catch(() => undefined));
+    return value === undefined || value === '' ? undefined : value;
+  };
   const key =
-    fromEnv !== undefined && fromEnv !== ''
-      ? fromEnv
-      : await secretStoreFor(`env-file:${envFile}#KINDGI_LICENSE_KEY`)
-          .read()
-          .catch(() => undefined);
+    fromEnv !== undefined && fromEnv !== '' ? fromEnv : await setting('KINDGI_LICENSE_KEY');
   if (key === undefined) {
     return skip(
       'license',
@@ -367,10 +373,15 @@ async function licenseKeyCheck(
     );
   }
   const where = fromEnv !== undefined && fromEnv !== '' ? 'KINDGI_LICENSE_KEY' : envFile;
-  const renew =
+  // The exact command, from where the deployment says its key and renewer
+  // are kept (`KINDGI_LICENSE_KEY_REF`, `KINDGI_LICENSE_RENEWER_REF`, as the
+  // runtime's banner reads them); a placeholder only for one that isn't set.
+  const renewer = (await setting('KINDGI_LICENSE_RENEWER_REF')) ?? '<its renewer key>';
+  const keyArg =
     where === 'KINDGI_LICENSE_KEY'
-      ? 'kindgi license renew --key <where KINDGI_LICENSE_KEY is kept> --renewer <its renewer key>'
-      : 'kindgi license renew --env-file kindgi.env --renewer <its renewer key>';
+      ? `--key ${(await setting('KINDGI_LICENSE_KEY_REF')) ?? '<where KINDGI_LICENSE_KEY is kept>'}`
+      : `--env-file ${relative(cwd, envFile) || 'kindgi.env'}`;
+  const renew = `kindgi license renew ${keyArg} --renewer ${renewer}`;
   const checked =
     seam.licensePublicKeys !== undefined
       ? checkLicenseKey(key, seam.licensePublicKeys)

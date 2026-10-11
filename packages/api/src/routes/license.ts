@@ -65,6 +65,20 @@ export const LICENSE_OPERATOR_ONLY_MESSAGE =
   "The license is this deployment's: read it with the deployment's own token (KINDGI_API_TOKEN). A tenant admin reads its standing only where the deployment serves that one tenant.";
 
 /**
+ * What the deployment's own token reads: every field of `LicenseStatus`,
+ * named, so nothing a binding adds leaves outside the schema.
+ */
+export function operatorLicenseView(status: LicenseStatus): LicenseStatus {
+  const { name, use, renew } = status;
+  return {
+    ...tenantAdminLicenseView(status),
+    ...(name !== undefined && { name }),
+    ...(use !== undefined && { use }),
+    ...(renew !== undefined && { renew }),
+  };
+}
+
+/**
  * What a tenant admin reads: the countdown and which way to the next key,
  * never whose key it is or where the deployment keeps it. Named field by
  * field, so a field added to `LicenseStatus` stays the operator's until
@@ -101,7 +115,9 @@ export function licenseRouter(
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   r.get('/', async (c) => {
-    if (hasCapability(c, 'kindgi:system')) return c.json(await binding.status());
+    if (hasCapability(c, 'kindgi:system')) {
+      return c.json(operatorLicenseView(await binding.status()));
+    }
     const tenantId = c.get('tenantId') as unknown as string;
     const sole = binding.soleTenant === undefined ? null : await binding.soleTenant();
     const onlyThisTenant = sole !== null && (sole as unknown as string) === tenantId;

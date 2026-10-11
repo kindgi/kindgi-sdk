@@ -20,6 +20,8 @@
  * answer's status, and what to check.
  */
 
+import { bearerValueProblem } from '@kindgi/types';
+
 import type { SecretStore } from './stores.js';
 
 /** How a cloud store reaches its API and its identity: injected in tests. */
@@ -229,6 +231,14 @@ async function call(
   init: { readonly method: string; readonly body?: string },
   token: string,
 ): Promise<Response> {
+  // From the gcloud or az output, or a metadata server: never quoted into
+  // fetch's error, which would print it.
+  const problem = bearerValueProblem(token);
+  if (problem !== undefined) {
+    throw new CloudSecretError(
+      `The cloud access token can't be sent in a header: it has ${problem}. Check what gcloud, az or the metadata server gave.`,
+    );
+  }
   return deps.fetch(url, {
     method: init.method,
     headers: {

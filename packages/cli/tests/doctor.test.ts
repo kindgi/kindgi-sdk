@@ -113,10 +113,12 @@ async function doctor(
     /** `providers.check` per provider id: its issues (default none), or an error it throws. */
     checks?: Record<string, { path: string; message: string }[]> | Error;
     json?: boolean;
+    /** More of doctor's arguments (`--path`). */
+    args?: string[];
   } = {},
 ) {
   const out = await runCli({
-    argv: ['doctor', ...(options.json === false ? [] : ['--json'])],
+    argv: ['doctor', ...(options.args ?? []), ...(options.json === false ? [] : ['--json'])],
     env: options.env ?? {},
     cwd: dir,
     home,
@@ -1148,6 +1150,42 @@ describe('the license key', () => {
     );
     expect(check?.fix).toBe(
       'Renew it: from this deployment (kindgi license renew --env-file kindgi.env --renewer <its renewer key>), or sign in at https://access.kindgi.com',
+    );
+  });
+
+  test('the exact renew command, from where the deployment keeps its key and renewer (the environment)', async () => {
+    const check = await licenseOf({
+      KINDGI_LICENSE_KEY: key({ exp: NOW / 1000 + 12 * DAY }),
+      KINDGI_LICENSE_KEY_REF: 'gcp:projects/acme/secrets/kindgi-license-key',
+      KINDGI_LICENSE_RENEWER_REF: ' gcp:projects/acme/secrets/kindgi-license-renewer ',
+    });
+    expect(check?.fix).toBe(
+      'Renew it: from this deployment (kindgi license renew --key gcp:projects/acme/secrets/kindgi-license-key --renewer gcp:projects/acme/secrets/kindgi-license-renewer), or sign in at https://access.kindgi.com',
+    );
+  });
+
+  test('the exact renew command, from kindgi.env', async () => {
+    await writeFile(
+      join(dir, 'kindgi.env'),
+      `KINDGI_LICENSE_KEY=${key({ exp: NOW / 1000 + 12 * DAY })}\nKINDGI_LICENSE_RENEWER_REF=file:/etc/kindgi/renewer.key\n`,
+    );
+    expect((await licenseOf())?.fix).toBe(
+      'Renew it: from this deployment (kindgi license renew --env-file kindgi.env --renewer file:/etc/kindgi/renewer.key), or sign in at https://access.kindgi.com',
+    );
+  });
+
+  test('with --path: the env file named from where doctor ran', async () => {
+    await mkdir(join(dir, 'deploy'));
+    await writeFile(
+      join(dir, 'deploy', 'kindgi.env'),
+      `KINDGI_LICENSE_KEY=${key({ exp: NOW / 1000 + 12 * DAY })}\nKINDGI_LICENSE_RENEWER_REF=file:/etc/kindgi/renewer.key\n`,
+    );
+    const { report } = await doctor({
+      args: ['--path', 'deploy'],
+      seam: { ...seam(), now: () => NOW, licensePublicKeys },
+    });
+    expect(report?.checks.find((c) => c.id === 'license')?.fix).toBe(
+      `Renew it: from this deployment (kindgi license renew --env-file ${join('deploy', 'kindgi.env')} --renewer file:/etc/kindgi/renewer.key), or sign in at https://access.kindgi.com`,
     );
   });
 

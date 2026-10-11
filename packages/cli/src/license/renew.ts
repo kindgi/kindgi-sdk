@@ -89,10 +89,19 @@ export async function renewLicense(input: RenewInput, deps: RenewDeps = {}): Pro
   }
   const { res, body } = asked;
   if (!res.ok) {
+    // The service's own refusals name their code; any other error answer
+    // (a 5xx, a proxy's page) refuses nothing: the next run may succeed.
+    if (typeof body.error !== 'string') {
+      return {
+        kind: 'failed',
+        renewerId,
+        message: `${origin} answered ${res.status}. The key in ${input.key.describe} is unchanged; try again later.`,
+      };
+    }
     return {
       kind: 'refused',
       status: res.status,
-      error: typeof body.error === 'string' ? body.error : `http-${res.status}`,
+      error: body.error,
       message:
         typeof body.message === 'string' ? body.message : `${origin} answered ${res.status}.`,
       renewerId,
@@ -171,8 +180,26 @@ async function ask(
     const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
     return { kind: 'answered', res, body };
   } catch (cause) {
-    return { kind: 'unreachable', reason: cause instanceof Error ? cause.message : String(cause) };
+    return { kind: 'unreachable', reason: networkReason(cause) };
   }
+}
+
+/**
+ * What stopped a request, as exactly as the error says it. fetch's own
+ * `fetch failed` says nothing; its cause does (`connect ECONNREFUSED …`,
+ * `getaddrinfo ENOTFOUND …`, a certificate's), or just its code.
+ */
+export function networkReason(err: unknown): string {
+  const said: string[] = [];
+  let at: unknown = err;
+  for (let depth = 0; at instanceof Error && depth < 4; depth++) {
+    if (at.name === 'TimeoutError') return 'no answer in time';
+    const code = (at as { code?: unknown }).code;
+    const text = at.message !== '' ? at.message : typeof code === 'string' ? code : '';
+    if (text !== '' && text !== 'fetch failed') said.push(text);
+    at = at.cause;
+  }
+  return said.at(-1) ?? (err instanceof Error && err.message !== '' ? err.message : String(err));
 }
 
 /**
@@ -181,7 +208,13 @@ async function ask(
  */
 function whyNotWritten(renewed: LicenseKeyCheck, current: LicenseClaims): string | undefined {
   if (renewed.kind === 'err') {
-    return `it isn't a key a released runtime accepts (${renewed.reason}): update the CLI, then try again`;
+    if (renewed.reason === 'unknown-key') {
+      return "it's signed with a key this CLI doesn't know yet (unknown-key): update the CLI, then try again";
+    }
+    if (renewed.reason === 'malformed') {
+      return 'the answer held no license key (malformed): a page from a proxy or another server, perhaps';
+    }
+    return `it isn't a key a released runtime accepts (${renewed.reason})`;
   }
   const next = renewed.claims;
   if (next.subject !== current.subject) return `it's for ${next.name}, not ${current.name}`;

@@ -94,6 +94,17 @@ describe('Google Secret Manager', () => {
     expect(c.seen.at(-1)?.headers.authorization).toBe('Bearer ya29.gcloud');
   });
 
+  test("a token that can't go in a header (a line break inside): refused, never quoted, nothing sent", async () => {
+    const c = cloud({}, {}, { gcloud: 'ya29.\nSECRETPART' });
+    const err = await secretStoreFor(GCP_REF, { cloud: c.deps })
+      .read()
+      .catch((e: unknown) => e);
+    expect((err as Error).message).toBe(
+      "The cloud access token can't be sent in a header: it has a line break. Check what gcloud, az or the metadata server gave.",
+    );
+    expect(c.seen.filter((s) => s.url.startsWith(SM))).toEqual([]);
+  });
+
   test('refused: the status, the reason, and the role it needs; no identity at all: said', async () => {
     const c = cloud({
       [GCP_METADATA]: () => ({ status: 200, body: { access_token: 't' } }),

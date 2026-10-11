@@ -23,7 +23,7 @@
 
 import type { CommandContext } from '../context.js';
 import { UsageError } from '../errors.js';
-import { LICENSE_WARN_DAYS } from '../license/expiry.js';
+import { LICENSE_WARN_DAYS, isSelfServe } from '../license/expiry.js';
 import type { LicenseClaims } from '../license/license-key.js';
 import {
   KINDGI_ACCESS_ORIGIN,
@@ -210,12 +210,12 @@ const renew: LeafCommand = {
         return { kind: 'error', stderr: `${outcome.message}\n`, exitCode: 1 };
       const now = (ctx.licenseDeps?.renew?.now ?? Date.now)();
       const daysLeft = Math.floor((outcome.claims.expiresAt.getTime() - now) / DAY_MS);
-      // A production key is renewed when Kindgi extends the contract term;
-      // a self-serve one, in its last 30 days.
-      const nextKey =
-        outcome.claims.use === 'production'
-          ? 'write to contact@kindgi.com to extend the term'
-          : `sign in at ${origin} for a new key`;
+      // A key Kindgi issued is renewed when Kindgi extends its term; a
+      // self-serve one, in its last 30 days. By its subject, as `kindgi
+      // doctor` and the runtime's banner tell them apart (`isSelfServe`).
+      const nextKey = isSelfServe(outcome.claims.subject)
+        ? `sign in at ${origin} for a new key`
+        : 'write to contact@kindgi.com to extend the term';
       const lines = [
         `${outcome.kind}: ${describeKey(outcome.claims)} (renewer ${outcome.renewerId})`,
         ...(outcome.kind === 'renewed'

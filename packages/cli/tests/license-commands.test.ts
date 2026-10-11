@@ -242,13 +242,15 @@ describe('kindgi license renew', () => {
     );
   });
 
-  test("a production key's warning says to extend the term with Kindgi, not to sign in", async () => {
-    const soon = licenseKey({
-      sub: 'acme-prod',
-      name: 'Acme Corp',
-      use: 'production',
-      exp: NOW / 1000 + 10 * DAY,
-    });
+  // By the key's subject, as `kindgi doctor` and the runtime's banner say it:
+  // a key Kindgi issued (any use) is extended with Kindgi; a self-serve one
+  // (`gh-…`, `dom-…`, any use) comes from signing in.
+  test.each([
+    ['Kindgi issued, production', 'acme-prod', 'production', 'contact'],
+    ['Kindgi issued, non-production', 'acme-eval', 'non-production', 'contact'],
+    ['self-serve, production (a company domain)', 'dom-acme.example', 'production', 'sign in'],
+  ])("a key %s: the warning's next step", async (_label, sub, use, next) => {
+    const soon = licenseKey({ sub, name: 'Acme Corp', use, exp: NOW / 1000 + 10 * DAY });
     const { dir, renewer } = await enrolled(soon);
     const out = await cli(
       dir,
@@ -256,11 +258,13 @@ describe('kindgi license renew', () => {
       { ...deps, fetchImpl: service(renewer, () => Response.json({ licenseKey: soon })) },
     );
     expect(out.exitCode).toBe(0);
-    expect(out.stdout).toMatch(/^unchanged: Acme Corp's production key, until /);
+    expect(out.stdout).toMatch(new RegExp(`^unchanged: Acme Corp's ${use} key, until `));
     expect(out.stdout).toContain(
-      '⚠ It expires in 10 days. If renew keeps answering unchanged, write to contact@kindgi.com to extend the term.',
+      next === 'contact'
+        ? '⚠ It expires in 10 days. If renew keeps answering unchanged, write to contact@kindgi.com to extend the term.'
+        : '⚠ It expires in 10 days. If renew keeps answering unchanged, sign in at https://access.kindgi.com for a new key.',
     );
-    expect(out.stdout).not.toContain('sign in');
+    expect(out.stdout).not.toContain(next === 'contact' ? 'sign in' : 'contact@kindgi.com');
   });
 
   // The Cloud Run and Azure modules alert on this line from a scheduled job's

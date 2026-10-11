@@ -18,6 +18,8 @@
 import { createHash, createHmac } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 
+import { headerValueProblem } from '@kindgi/types';
+
 import { type CloudDeps, CloudSecretError } from './cloud.js';
 import type { SecretStore } from './stores.js';
 
@@ -208,11 +210,12 @@ export async function awsCredentials(deps: CloudDeps, region: string): Promise<A
 }
 
 async function fromEnv(deps: CloudDeps): Promise<AwsCredentials | undefined> {
-  const accessKeyId = deps.env.AWS_ACCESS_KEY_ID;
-  const secretAccessKey = deps.env.AWS_SECRET_ACCESS_KEY;
-  if (!accessKeyId || !secretAccessKey) return undefined;
-  const sessionToken = deps.env.AWS_SESSION_TOKEN;
-  return { accessKeyId, secretAccessKey, ...(sessionToken ? { sessionToken } : {}) };
+  return asCredentials(
+    deps.env.AWS_ACCESS_KEY_ID,
+    deps.env.AWS_SECRET_ACCESS_KEY,
+    deps.env.AWS_SESSION_TOKEN,
+    'the environment (AWS_ACCESS_KEY_ID, AWS_SESSION_TOKEN)',
+  );
 }
 
 /** STS AssumeRoleWithWebIdentity (unsigned), regionally. */
@@ -260,7 +263,13 @@ async function fromContainer(deps: CloudDeps): Promise<AwsCredentials | undefine
   const tokenFile = deps.env.AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE;
   const token = tokenFile
     ? (await readFile(tokenFile, 'utf8')).trim()
-    : deps.env.AWS_CONTAINER_AUTHORIZATION_TOKEN;
+    : deps.env.AWS_CONTAINER_AUTHORIZATION_TOKEN?.trim();
+  const tokenProblem = token ? headerValueProblem(token) : undefined;
+  if (tokenProblem !== undefined) {
+    throw new CloudSecretError(
+      `The container's authorization token (${tokenFile ? 'AWS_CONTAINER_AUTHORIZATION_TOKEN_FILE' : 'AWS_CONTAINER_AUTHORIZATION_TOKEN'}) can't be sent in a header: it has ${tokenProblem}.`,
+    );
+  }
   const res = await deps.fetch(url, {
     headers: token ? { authorization: token } : {},
     signal: AbortSignal.timeout(5000),
@@ -322,11 +331,32 @@ async function fromAwsCli(deps: CloudDeps): Promise<AwsCredentials | undefined> 
   }
 }
 
+/**
+ * Credentials as found, trimmed: a trailing newline would sign one request
+ * and send another (a 403 that blames the role). The key id and the session
+ * token go into headers, so one fetch can't send is refused by where it
+ * came from (`from`), never quoted.
+ */
 function asCredentials(
-  accessKeyId: string | undefined,
-  secretAccessKey: string | undefined,
-  sessionToken: string | undefined,
+  rawAccessKeyId: string | undefined,
+  rawSecretAccessKey: string | undefined,
+  rawSessionToken: string | undefined,
+  from = "AWS's answer",
 ): AwsCredentials | undefined {
+  const accessKeyId = rawAccessKeyId?.trim();
+  const secretAccessKey = rawSecretAccessKey?.trim();
+  const sessionToken = rawSessionToken?.trim();
   if (!accessKeyId || !secretAccessKey) return undefined;
+  for (const [what, value] of [
+    ['access key id', accessKeyId],
+    ['session token', sessionToken],
+  ] as const) {
+    const problem = value ? headerValueProblem(value) : undefined;
+    if (problem !== undefined) {
+      throw new CloudSecretError(
+        `The AWS ${what} from ${from} can't be sent in a header: it has ${problem}.`,
+      );
+    }
+  }
   return { accessKeyId, secretAccessKey, ...(sessionToken ? { sessionToken } : {}) };
 }

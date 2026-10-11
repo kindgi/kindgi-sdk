@@ -176,6 +176,58 @@ describe('where the credentials come from, the first that answers', () => {
     expect(c.seen).toEqual([]);
   });
 
+  test('trimmed: a trailing newline would sign one request and send another', async () => {
+    const c = aws(
+      {},
+      {
+        AWS_ACCESS_KEY_ID: 'AKIAENV\n',
+        AWS_SECRET_ACCESS_KEY: ' env-secret\n',
+        AWS_SESSION_TOKEN: 'env-session\r\n',
+      },
+    );
+    expect(await awsCredentials(c.deps, 'us-east-2')).toEqual({
+      accessKeyId: 'AKIAENV',
+      secretAccessKey: 'env-secret',
+      sessionToken: 'env-session',
+    });
+  });
+
+  test.each([
+    [
+      'the session token',
+      { ...ENV_CREDS, AWS_SESSION_TOKEN: 'env-ses\nsion-SECRETPART' },
+      'session token',
+    ],
+    ['the access key id', { ...ENV_CREDS, AWS_ACCESS_KEY_ID: 'AKIA\nSECRETPART' }, 'access key id'],
+  ])(
+    '%s with a line break inside: refused by where it came from, never quoted, nothing sent',
+    async (_label, env, what) => {
+      const c = aws({}, env);
+      const err = await awsCredentials(c.deps, 'us-east-2').catch((e: unknown) => e);
+      expect(err).toBeInstanceOf(Error);
+      expect((err as Error).message).toBe(
+        `The AWS ${what} from the environment (AWS_ACCESS_KEY_ID, AWS_SESSION_TOKEN) can't be sent in a header: it has a line break.`,
+      );
+      expect((err as Error).message).not.toContain('SECRETPART');
+      expect(c.seen).toEqual([]);
+    },
+  );
+
+  test("the container's authorization token with a line break: refused by its name, nothing sent", async () => {
+    const c = aws(
+      {},
+      {
+        AWS_CONTAINER_CREDENTIALS_FULL_URI: 'http://169.254.170.23/v1/credentials',
+        AWS_CONTAINER_AUTHORIZATION_TOKEN: 'pod\nSECRETPART',
+      },
+    );
+    const err = await awsCredentials(c.deps, 'us-east-2').catch((e: unknown) => e);
+    expect((err as Error).message).toBe(
+      "The container's authorization token (AWS_CONTAINER_AUTHORIZATION_TOKEN) can't be sent in a header: it has a line break.",
+    );
+    expect(c.seen).toEqual([]);
+  });
+
   test('a web identity: the token file to regional STS, for the role', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'kindgi-aws-'));
     writeFileSync(join(dir, 'token'), 'eyJ.irsa\n');

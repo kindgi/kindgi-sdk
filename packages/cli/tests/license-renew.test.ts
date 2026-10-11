@@ -10,6 +10,7 @@
 
 import { createPublicKey, generateKeyPairSync, sign, verify } from 'node:crypto';
 import { chmodSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { type AddressInfo, createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -167,7 +168,7 @@ describe('a renewal', () => {
       'bad-signature',
     ],
     ['a kid this CLI doesn’t know', () => licenseKey({ kid: 'lk-2099-1' }), 'update the CLI'],
-    ['not a key', () => 'surprise', 'malformed'],
+    ['not a key', () => 'surprise', 'the answer held no license key (malformed)'],
   ])('an answer %s is never written', async (_label, answer, why) => {
     const key = licenseKey();
     const d = deployment(key);
@@ -197,12 +198,99 @@ describe('a renewal', () => {
     );
 
     const down = (async () => {
-      throw new TypeError('fetch failed');
+      throw new TypeError('fetch failed', {
+        cause: Object.assign(new Error('connect ECONNREFUSED 127.0.0.1:443'), {
+          code: 'ECONNREFUSED',
+        }),
+      });
     }) as unknown as typeof fetch;
     const unreachable = await renewLicense(d.input, deps(down));
     expect(unreachable.kind === 'failed' && unreachable.message).toContain(
-      "https://access.kindgi.com couldn't be reached (fetch failed)",
+      "https://access.kindgi.com couldn't be reached (connect ECONNREFUSED 127.0.0.1:443). The key in",
     );
+    expect(unreachable.kind === 'failed' && unreachable.message).toContain(
+      'is unchanged; try again later.',
+    );
+  });
+
+  test.each([
+    [
+      'a refused connection, the cause in its code alone',
+      new TypeError('fetch failed', {
+        cause: Object.assign(new AggregateError([], ''), { code: 'ECONNREFUSED' }),
+      }),
+      '(ECONNREFUSED)',
+    ],
+    [
+      'an unknown host',
+      new TypeError('fetch failed', {
+        cause: Object.assign(new Error('getaddrinfo ENOTFOUND access.kindgi.invalid'), {
+          code: 'ENOTFOUND',
+        }),
+      }),
+      '(getaddrinfo ENOTFOUND access.kindgi.invalid)',
+    ],
+    [
+      'no answer in time',
+      new DOMException('The operation was aborted due to timeout', 'TimeoutError'),
+      '(no answer in time)',
+    ],
+    ['a fetch failure with no cause', new TypeError('fetch failed'), '(fetch failed)'],
+  ])('unreachable, %s: says why', async (_label, thrown, why) => {
+    const d = deployment(licenseKey());
+    const down = (async () => {
+      throw thrown;
+    }) as unknown as typeof fetch;
+    const out = await renewLicense(d.input, deps(down));
+    expect(out.kind).toBe('failed');
+    expect(out.kind === 'failed' && out.message).toContain(`couldn't be reached ${why}`);
+  });
+
+  test('unreachable through the real fetch: a closed port says the connection was refused', async () => {
+    const closed = await new Promise<number>((done) => {
+      const server = createServer();
+      server.listen(0, '127.0.0.1', () => {
+        const { port } = server.address() as AddressInfo;
+        server.close(() => done(port));
+      });
+    });
+    const d = deployment(licenseKey());
+    const out = await renewLicense(
+      { ...d.input, origin: `http://127.0.0.1:${closed}` },
+      { now: () => NOW, publicKeys },
+    );
+    expect(out.kind).toBe('failed');
+    expect(out.kind === 'failed' && out.message).toMatch(/couldn't be reached \([^)]*ECONNREFUSED/);
+  });
+
+  test("an error answer without the service's own code (a 5xx, a proxy's page): failed, try again; nothing written", async () => {
+    const key = licenseKey();
+    const d = deployment(key);
+    const html = (async () =>
+      new Response('<html><body>502 Bad Gateway</body></html>', {
+        status: 503,
+        headers: { 'content-type': 'text/html' },
+      })) as unknown as typeof fetch;
+    const out = await renewLicense(d.input, deps(html));
+    expect(out).toMatchObject({ kind: 'failed' });
+    expect(out.kind === 'failed' && out.message).toMatch(
+      /^https:\/\/access\.kindgi\.com answered 503\. The key in .+ is unchanged; try again later\.$/,
+    );
+    expect(readFileSync(d.env, 'utf8')).toContain(`KINDGI_LICENSE_KEY=${key}\n`);
+  });
+
+  test("the service's own refusal keeps its code and words", async () => {
+    const d = deployment(licenseKey());
+    const s = service(d.renewer, () => ({
+      status: 429,
+      body: { error: 'rate-limited', message: 'Too many renewals; try in an hour.' },
+    }));
+    expect(await renewLicense(d.input, deps(s.fetchImpl))).toMatchObject({
+      kind: 'refused',
+      status: 429,
+      error: 'rate-limited',
+      message: 'Too many renewals; try in an hour.',
+    });
   });
 
   test('signed for this service only: another origin is refused by it', async () => {

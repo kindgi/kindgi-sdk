@@ -157,6 +157,17 @@ describe("GET /v1/license: the deployment's own token", () => {
     expect(second.body.renew).toContain(`--key ${KEY_REF} --renewer ${RENEWER_REF}`);
   });
 
+  test('nothing outside the schema: a field the binding adds stays out', async () => {
+    const { get } = makeApp({
+      status: () => ({ ...expiring(12), licensee: 'Acme Corp' }) as LicenseStatus,
+    });
+    const answer = await get(SYSTEM);
+    expect(Object.keys(answer.body).sort()).toEqual(
+      [...ADMIN_FIELDS, 'name', 'renew', 'use'].sort(),
+    );
+    expect(answer.text).not.toContain('Acme Corp');
+  });
+
   test('on a deployment serving several tenants too', async () => {
     const { get } = makeApp(
       { status: () => expiring(10), soleTenant: () => null },
