@@ -1184,7 +1184,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_PACK_TENANT_ID',
     description:
-      "The one tenant this pack service serves. It needs a runtime that sends the `kindgi-tenant-id` header on its pack calls, 0.1.8 or later: with an earlier runtime, every call is refused. Set: the service refuses, with 421 (`pack-tenant-mismatch`), a call whose `kindgi-tenant-id` header is missing or names another tenant, and a tool call whose context names another tenant, before any pack code runs. The server sends the header on every call, from the deployment it routed the call to. An orchestrator that runs a pack service per tenant sets it. Unset: no check. It's a backstop for a misrouted call to an honest pack, not a boundary: the server's routing is.",
+      "The one tenant this pack service serves: the tenant's id, a UUID, checked at startup. It needs a runtime that sends the `kindgi-tenant-id` header on its pack calls, 0.1.8 or later: with an earlier runtime, every call is refused. Set: the service refuses, with 421 (`pack-tenant-mismatch`), a call to `/v1/invoke` or `/v1/info` whose `kindgi-tenant-id` header is missing or names another tenant, and a tool call whose context names another tenant, before any pack code runs. The health probes stay open. The server sends the header on every call, from the deployment it routed the call to. An orchestrator that runs a pack service per tenant sets it. Unset: no check. It's a backstop for a misrouted call to an honest pack, not a boundary: the server's routing is.",
     example: '',
     required: false,
     appliesTo: appliesToPackService,

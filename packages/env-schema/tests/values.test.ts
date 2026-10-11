@@ -180,21 +180,37 @@ describe('parsePublicUrl (T219)', () => {
 });
 
 describe('parsePackTenantId', () => {
-  test('without its surrounding whitespace; unset or blank is undefined (no pin)', () => {
-    expect(parsePackTenantId('t-1')).toBe('t-1');
+  test('a tenant id, without its surrounding whitespace; unset or blank is undefined (no pin)', () => {
     expect(parsePackTenantId(' 4fc847d5-95b4-4c68-bf9d-618a241c9771\n')).toBe(
       '4fc847d5-95b4-4c68-bf9d-618a241c9771',
+    );
+    expect(parsePackTenantId('4FC847D5-95B4-4C68-BF9D-618A241C9771')).toBe(
+      '4FC847D5-95B4-4C68-BF9D-618A241C9771',
     );
     expect(parsePackTenantId(undefined)).toBeUndefined();
     expect(parsePackTenantId(' ')).toBeUndefined();
   });
 
-  test.each([['two words'], ['caf\u00e9'], ['nul\u0000']])(
-    "refuses %j, which a header can't carry",
+  test.each([
+    ['t-1'],
+    ['acme'],
+    ['two words'],
+    ['caf\u00e9'],
+    ['nul\u0000'],
+    ['4fc847d5-95b4-4c68-bf9d-618a241c977'],
+    ['4fc847d5-95b4-4c68-bf9d-618a241c9771x'],
+    ['{4fc847d5-95b4-4c68-bf9d-618a241c9771}'],
+    ['4fc847d595b44c68bf9d618a241c9771'],
+  ])('refuses %j at startup: not a tenant id, so it would refuse every call', (raw) => {
+    expect(() => parsePackTenantId(raw)).toThrow(
+      "KINDGI_PACK_TENANT_ID must be the tenant's id, a UUID",
+    );
+  });
+
+  test.each([['00000000-0000-4000-8000-000000000000'], [' 00000000-0000-4000-8000-000000000000 ']])(
+    'refuses %j, the id no tenant has',
     (raw) => {
-      expect(() => parsePackTenantId(raw)).toThrow(
-        'KINDGI_PACK_TENANT_ID may hold only printable ASCII',
-      );
+      expect(() => parsePackTenantId(raw)).toThrow('the id no tenant has');
     },
   );
 });

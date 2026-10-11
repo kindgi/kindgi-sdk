@@ -944,24 +944,54 @@ describe('pack service — pinned to one tenant (KINDGI_PACK_TENANT_ID)', () => 
     const bytes = await readFile(join(pinnedDir, 'index.json'));
     const expected = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
     const res = await fetch(url('/v1/info', pinned.port), {
-      headers: { 'kindgi-pack-token': TOKEN },
+      headers: { 'kindgi-pack-token': TOKEN, 'kindgi-tenant-id': 't-1' },
     });
     expect(res.status).toBe(200);
     expect(((await res.json()) as Record<string, unknown>).indexHash).toBe(expected);
   });
 
-  test('the process reads KINDGI_PACK_TENANT_ID: trimmed, and refused when a header could not carry it', () => {
+  test.each([
+    ['no header', {}],
+    ['another tenant in the header', { 'kindgi-tenant-id': 't-2' }],
+  ])(
+    'info is pinned too: %s is 421, and tells nothing of what the pack holds',
+    async (_, headers: Record<string, string>) => {
+      const res = await fetch(url('/v1/info', pinned.port), {
+        headers: { 'kindgi-pack-token': TOKEN, ...headers },
+      });
+      expect(res.status).toBe(421);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body).toEqual({
+        error: 'This pack service serves another tenant',
+        code: 'pack-tenant-mismatch',
+      });
+    },
+  );
+
+  test('the probes stay open on a pinned service: the platform checks them without a tenant', async () => {
+    for (const path of ['/healthz', '/readyz']) {
+      const res = await fetch(url(path, pinned.port));
+      expect(res.status, path).toBe(200);
+    }
+  });
+
+  test("the process reads KINDGI_PACK_TENANT_ID: trimmed, and refused at startup unless it's a tenant's id", () => {
     const ok = readPackServiceConfig([], {
       KINDGI_PACK_SERVICE_TOKEN: 't',
-      KINDGI_PACK_TENANT_ID: ' t-1\n',
+      KINDGI_PACK_TENANT_ID: ' 4fc847d5-95b4-4c68-bf9d-618a241c9771\n',
     });
-    expect(ok).toMatchObject({ kind: 'ok', value: { tenantId: 't-1' } });
+    expect(ok).toMatchObject({
+      kind: 'ok',
+      value: { tenantId: '4fc847d5-95b4-4c68-bf9d-618a241c9771' },
+    });
     const unset = readPackServiceConfig([], { KINDGI_PACK_SERVICE_TOKEN: 't' });
     expect(unset.kind === 'ok' && 'tenantId' in unset.value).toBe(false);
-    const bad = readPackServiceConfig([], {
-      KINDGI_PACK_SERVICE_TOKEN: 't',
-      KINDGI_PACK_TENANT_ID: 'two words',
-    });
-    expect(bad).toMatchObject({ kind: 'err' });
+    for (const raw of ['two words', 'acme', '00000000-0000-4000-8000-000000000000']) {
+      const bad = readPackServiceConfig([], {
+        KINDGI_PACK_SERVICE_TOKEN: 't',
+        KINDGI_PACK_TENANT_ID: raw,
+      });
+      expect(bad, raw).toMatchObject({ kind: 'err' });
+    }
   });
 });

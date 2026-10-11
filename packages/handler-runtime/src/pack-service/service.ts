@@ -83,10 +83,10 @@ export interface PackServiceOptions {
   readonly importModule?: (absolutePath: string) => Promise<unknown>;
   /**
    * The one tenant this service serves (`KINDGI_PACK_TENANT_ID`). Set: a call
-   * whose `kindgi-tenant-id` header is missing or names another tenant, or a
-   * tool call whose context names another, is refused with 421 before any
-   * pack code runs. A backstop for a misrouted call: the server's routing is
-   * the boundary.
+   * to `/v1/invoke` or `/v1/info` whose `kindgi-tenant-id` header is missing
+   * or names another tenant, or a tool call whose context names another, is
+   * refused with 421 before any pack code runs. A backstop for a misrouted
+   * call: the server's routing is the boundary.
    */
   readonly tenantId?: string;
   /** `sha256:<hex>` of the index file's bytes, reported by `/v1/info`. */
@@ -447,7 +447,9 @@ export function createPackService(options: PackServiceOptions): PackService {
     if (route === undefined) return { status: 404, body: { error: `No route ${req.url ?? '/'}` } };
     if (req.method !== route.method) return { status: 405, body: { error: `Use ${route.method}` } };
     if (route.auth && !authorized(req)) return { status: 401, body: { error: 'Bad pack token' } };
-    if (route.name === 'invoke' && pinnedTenant !== undefined) {
+    // Every route the token opens (`/v1/invoke`, `/v1/info`): a misrouted
+    // call gets nothing, not even what the pack holds. The probes stay open.
+    if (route.auth && pinnedTenant !== undefined) {
       const named = req.headers[PACK_HEADERS.tenantId];
       if (typeof named !== 'string' || named.toLowerCase() !== pinnedTenant) {
         return misdirected('header');

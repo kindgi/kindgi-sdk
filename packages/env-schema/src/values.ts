@@ -122,18 +122,33 @@ export function parsePackServiceToken(raw: string | undefined): string | undefin
 /** The tenant a pack service serves: it refuses calls for any other (`KINDGI_PACK_TENANT_ID`). */
 export const PACK_TENANT_ID_VAR = 'KINDGI_PACK_TENANT_ID';
 
+const TENANT_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The id no tenant has: a request the operator makes in no tenant carries
+ * it (`SYSTEM_TENANT_ID` in `@kindgi/api`). No pack call does, so a pack
+ * service pinned to it would refuse every call.
+ */
+const NO_TENANT_ID = '00000000-0000-4000-8000-000000000000';
+
 /**
  * `KINDGI_PACK_TENANT_ID` as the pack service reads it, without surrounding
  * whitespace: it's compared with the `kindgi-tenant-id` header, which never
- * carries any. Unset or blank: `undefined` (no tenant pin). Throws on
- * whitespace, a control character or a non-ASCII character inside.
+ * carries any. Unset or blank: `undefined` (no tenant pin). Throws unless
+ * it's a tenant's id, a UUID, so a typo fails at startup instead of
+ * refusing every call; and throws on the id no tenant has.
  */
 export function parsePackTenantId(raw: string | undefined): string | undefined {
   const id = raw?.trim();
   if (id === undefined || id === '') return undefined;
-  if (!/^[\x21-\x7e]+$/.test(id)) {
+  if (!TENANT_UUID.test(id)) {
     throw new Error(
-      `${PACK_TENANT_ID_VAR} may hold only printable ASCII without spaces (it's compared with a header). Got a value with other characters.`,
+      `${PACK_TENANT_ID_VAR} must be the tenant's id, a UUID such as 3f2b8c1e-4a5d-4e6f-9a0b-1c2d3e4f5a6b. Got a value that isn't one.`,
+    );
+  }
+  if (id.toLowerCase() === NO_TENANT_ID) {
+    throw new Error(
+      `${PACK_TENANT_ID_VAR} is ${NO_TENANT_ID}, the id no tenant has: no pack call carries it. Set the tenant's own id.`,
     );
   }
   return id;
@@ -216,7 +231,11 @@ export function parsePackEndpointHosts(raw: string | undefined): readonly PackEn
   });
 }
 
-/** Whether `host` is one `KINDGI_PACK_ENDPOINT_HOSTS` allows (compared lowercase). */
+/**
+ * Whether `host` is one `KINDGI_PACK_ENDPOINT_HOSTS` allows (compared
+ * lowercase). Pass the URL's `hostname` (`new URL(endpoint).hostname`), not
+ * its `host`: a port makes it no host name, so it's refused.
+ */
 export function packEndpointHostAllowed(
   host: string,
   allowed: readonly PackEndpointHost[],
