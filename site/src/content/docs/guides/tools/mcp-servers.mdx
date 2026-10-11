@@ -436,12 +436,16 @@ the header, never its value, and shows the `auth` that sends it by reference:
 Which names count:
 - `Authorization`, `Proxy-Authorization` and `Cookie`;
 - a name with a part, between `-` or `_`, of `token`, `secret`, `password`,
-  `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session` or
-  `auth` (`X-Auth-Token`, `X-Session-Id`, `X-Client-Secret`);
-- a name with the parts `api-key`, `access-key`, `private-key`, `auth-key` or
-  `subscription-key` (`X-Api-Key`, `Ocp-Apim-Subscription-Key`).
+  `passwd`, `apikey`, `credential`, `credentials`, `signature`, `session`,
+  `auth`, `authorization` or `authentication` (`X-Auth-Token`,
+  `X-Session-Id`, `X-Client-Secret`, `X-Authorization`);
+- a name with the parts `api-key`, `access-key`, `private-key`, `auth-key`,
+  `subscription-key`, `functions-key`, `application-key`, `app-key`,
+  `master-key`, `client-key` or `partner-key` (`X-Api-Key`,
+  `Ocp-Apim-Subscription-Key`, `x-functions-key`, `DD-APPLICATION-KEY`).
 
-`X-Tenant`, `X-Request-Id`, `X-Region` or `X-Key-Id` are plain headers. A
+`X-Tenant`, `X-Request-Id`, `X-Region`, `X-Key-Id`, `X-Idempotency-Key` or
+`X-Cache-Key` are plain headers: a lone `key` doesn't count. A
 name that's refused but isn't a secret costs only this: store its value as a
 secret too.
 

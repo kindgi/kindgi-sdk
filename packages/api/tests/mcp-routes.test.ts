@@ -646,6 +646,14 @@ describe('API — mcp endpoints register + get', () => {
         'X-Client-Secret',
         'X-Credentials',
         'Password',
+        'X-Authorization',
+        'X-Authentication',
+        'x-functions-key',
+        'DD-APPLICATION-KEY',
+        'X-App-Key',
+        'X-Master-Key',
+        'x-ms-client-key',
+        'X-Partner-Key',
       ]) {
         for (const transport of ['streamable-http', 'http-sse']) {
           const res = await post(app, withHeaders({ 'X-Region': 'eu', [name]: value }, transport));
@@ -686,6 +694,9 @@ describe('API — mcp endpoints register + get', () => {
         'X-Tokenizer': 'cl100k',
         'X-Key-Id': 'k-1',
         'X-Api-Version': '2',
+        'X-Idempotency-Key': 'i-1',
+        'X-Cache-Key': 'c-1',
+        'X-Partition-Key': 'p-1',
       };
       expect((await post(app, withHeaders(plain))).status).toBe(201);
       expect((await read(app, 'acme.shop')).config).toEqual({ ...http.config, headers: plain });

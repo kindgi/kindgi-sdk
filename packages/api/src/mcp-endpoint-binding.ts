@@ -196,14 +196,26 @@ const CREDENTIAL_PARTS = new Set([
   'signature',
   'session',
   'auth',
+  'authorization',
+  'authentication',
 ]);
-/** Two adjacent parts that do (`X-Api-Key`, `Ocp-Apim-Subscription-Key`). */
+/**
+ * Two adjacent parts that do (`X-Api-Key`, `Ocp-Apim-Subscription-Key`,
+ * `x-functions-key`). A lone `key` doesn't: `X-Idempotency-Key`,
+ * `X-Cache-Key` and `X-Partition-Key` are plain.
+ */
 const CREDENTIAL_PAIRS: readonly (readonly [string, string])[] = [
   ['api', 'key'],
   ['access', 'key'],
   ['private', 'key'],
   ['auth', 'key'],
   ['subscription', 'key'],
+  ['functions', 'key'],
+  ['application', 'key'],
+  ['app', 'key'],
+  ['master', 'key'],
+  ['client', 'key'],
+  ['partner', 'key'],
 ];
 
 /**
