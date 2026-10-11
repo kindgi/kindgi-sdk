@@ -41,6 +41,8 @@ resource "google_sql_database_instance" "kindgi" {
     backup_configuration {
       enabled                        = true
       point_in_time_recovery_enabled = true
+      # null: Cloud SQL's default, the nearest multi-region.
+      location = var.database_backup_location
     }
 
     database_flags {
