@@ -126,6 +126,8 @@ async function trim(options: Options, io: Io): Promise<number> {
     return 1;
   }
   await writeClosure(closure, root, out);
+  for (const name of closure.skipped)
+    io.out(`${name} (an extension's keep) isn't installed, so it isn't kept`);
   for (const line of formatClosureReport(await closureReport(closure, root, dirname(bundleDir))))
     io.out(line);
   return 0;

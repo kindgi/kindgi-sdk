@@ -2,19 +2,21 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * Computed imports in a pack's own code: `require(name)` or
- * `import(name)` whose argument isn't a literal. In an image that carries
- * only what the pack loads (`image.dependencies: 'loaded'`), the package
- * such a call loads is invisible to the closure, so the build names each
- * one (file:line) and asks for `image.keep`.
+ * Computed imports in a pack's own code: `require(name)`, `import(name)`,
+ * or `require` passed around (`const r = require; r(name)`). In an image
+ * that carries only what the pack loads (`image.dependencies: 'loaded'`),
+ * the package such a call loads is invisible to the closure, so the build
+ * names each one (file:line) and asks for `image.keep`.
  *
- * esbuild leaves these calls as they are without a warning (0.24, for a
- * Node bundle), so the pack's sources are scanned: the files esbuild read
- * outside `node_modules`. It reads source text, line by line, skipping
- * comment lines; a call it can't tell is a literal counts as computed.
+ * esbuild knows them: it leaves each such call as it is, with a note at
+ * debug level. A `'loaded'` pack build raises those notes to warnings
+ * (`COMPUTED_IMPORT_LOG_OVERRIDE`), and they're read from the build's
+ * warnings here. Two residual forms esbuild can't see either, a
+ * `createRequire` alias and `module.require`, are left to the run-time
+ * hint.
  */
 
-import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 
 export interface ComputedImport {
   /** Absolute path. */
@@ -25,49 +27,47 @@ export interface ComputedImport {
   readonly text: string;
 }
 
-/** A `require(` or `import(` call that isn't a member (`x.require(`) or part of a name. */
-const CALL = /(?<![\w$.])(require|import)\s*\(\s*/g;
+/** esbuild's notes for a call it can't bundle because its argument is computed. */
+const COMPUTED_IMPORT_NOTES = [
+  'unsupported-require-call',
+  'unsupported-dynamic-import',
+  'indirect-require',
+] as const;
 
-/** Computed `require(…)` / `import(…)` calls in `files`, in file and line order. */
-export async function findComputedImports(files: readonly string[]): Promise<ComputedImport[]> {
-  const found: ComputedImport[] = [];
-  for (const file of [...files].sort()) {
-    const lines = (await readFile(file, 'utf8')).split('\n');
-    for (const [i, line] of lines.entries()) {
-      const trimmed = line.trim();
-      if (trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*')) continue;
-      if (hasComputedCall(line)) found.push({ file, line: i + 1, text: trimmed });
-    }
-  }
-  return found;
+/** The pack build's `logOverride` with `'loaded'`: those notes, as warnings. */
+export const COMPUTED_IMPORT_LOG_OVERRIDE: Readonly<Record<string, 'warning'>> = Object.fromEntries(
+  COMPUTED_IMPORT_NOTES.map((id) => [id, 'warning']),
+);
+
+/** The subset of an esbuild message this reads. */
+export interface BuildMessage {
+  readonly id?: string;
+  readonly location?: {
+    readonly file: string;
+    readonly line: number;
+    readonly lineText: string;
+  } | null;
 }
 
-/** Whether a line calls `require` or `import` with an argument that isn't a string literal. */
-export function hasComputedCall(line: string): boolean {
-  for (const match of line.matchAll(CALL)) {
-    const rest = line.slice((match.index ?? 0) + match[0].length);
-    if (!startsWithLiteral(rest)) return true;
+/**
+ * The computed imports among a build's warnings: file (resolved against
+ * the build's working folder), line, and the line's text, in file and
+ * line order, each site once. Calls inside `node_modules` aren't the
+ * pack's (they're externals, not bundled).
+ */
+export function computedImportsFrom(
+  warnings: readonly BuildMessage[],
+  workingDir: string,
+): ComputedImport[] {
+  const sites = new Map<string, ComputedImport>();
+  for (const warning of warnings) {
+    const at = warning.location;
+    if (at == null || !(COMPUTED_IMPORT_NOTES as readonly (string | undefined)[]).includes(warning.id)) continue;
+    const file = resolve(workingDir, at.file);
+    if (/[\\/]node_modules[\\/]/.test(file)) continue;
+    sites.set(`${file}:${at.line}`, { file, line: at.line, text: at.lineText.trim() });
   }
-  return false;
-}
-
-/** Whether the call's argument is one string literal: closed, then `)` or `,` (import attributes). */
-function startsWithLiteral(rest: string): boolean {
-  const quote = rest[0];
-  if (quote !== "'" && quote !== '"' && quote !== '`') return false;
-  const close = closingQuote(rest, quote);
-  if (close === -1) return false;
-  // A template literal with `${…}` is computed.
-  if (quote === '`' && rest.slice(1, close).includes('${')) return false;
-  const next = rest.slice(close + 1).trimStart()[0];
-  return next === ')' || next === ',';
-}
-
-/** Where the string that opens `rest` closes, past escaped quotes; -1 if not on this line. */
-function closingQuote(rest: string, quote: string): number {
-  for (let i = 1; i < rest.length; i++) {
-    if (rest[i] === '\\') i++;
-    else if (rest[i] === quote) return i;
-  }
-  return -1;
+  return [...sites.values()].sort((a, b) =>
+    a.file === b.file ? a.line - b.line : a.file < b.file ? -1 : 1,
+  );
 }

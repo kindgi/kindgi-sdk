@@ -241,8 +241,8 @@ With a `prisma.config.ts`, name it too:
 
   A package your code loads by a name no import shows (a plugin named in a
   config string) goes in `keep: ['pino-pretty']`. Most misses fail the build,
-  naming the package. One a dependency loads by a name in a string, which no
-  check can see, fails that call at run time, saying what to add to `keep`.
+  naming the package. What no check can see, such as a package loaded by a
+  name in a string, fails that call at run time, saying what to add to `keep`.
   `'all'` is the default.
 
 The build ends with the image and a check of what's in it:

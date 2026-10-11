@@ -26,10 +26,9 @@ import { createScalaPackBuilder } from '../dev/scala-builder.js';
 import {
   REQUIRE_BANNER,
   collectPackEntries,
-  localSourceInputs,
   nodeModulesExternalPlugin,
 } from './bundle.js';
-import { findComputedImports } from './computed-imports.js';
+import { COMPUTED_IMPORT_LOG_OVERRIDE, computedImportsFrom } from './computed-imports.js';
 import { loadEsbuild } from '../esbuild-loader.js';
 import { readPnpmVersion } from '../package-manager.js';
 import { renderContainerfile } from './containerfile.js';
@@ -198,6 +197,8 @@ export async function esbuildBundleReal(
       { in: opts.configPath, out: 'kindgi.config' },
     ],
     plugins: [externals],
+    // Only what the pack loads: esbuild's notes on computed imports, as warnings.
+    ...(loaded && { logOverride: COMPUTED_IMPORT_LOG_OVERRIDE }),
   });
   // Resolved from the CLI's own package, whose dependency it is.
   const cliRoot = await cliPackageRoot();
@@ -236,9 +237,7 @@ export async function esbuildBundleReal(
     emitted: outputs.map(([p]) => p).sort(),
     totalBytes: outputs.reduce((sum, [, o]) => sum + o.bytes, 0),
     externals: [...externalPackages].sort(),
-    computedImports: await findComputedImports(
-      await localSourceInputs(opts.packDir, pack.metafile?.inputs ?? {}),
-    ),
+    computedImports: loaded ? computedImportsFrom(pack.warnings, opts.packDir) : [],
     bundleMap,
   };
 }

@@ -218,6 +218,7 @@ describe('computeClosure', () => {
       keepIfInstalled: ['.prisma/client'],
     });
     expect(closure.missing).toEqual([]);
+    expect(closure.skipped).toEqual(['.prisma/client']);
     expect(closure.packages.map((p) => p.name)).toEqual(['pg-types', 'pg']);
   });
 

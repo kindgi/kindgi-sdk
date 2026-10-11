@@ -553,8 +553,8 @@ image: {
   - every package the bundles import, lazily loaded ones included, is loaded
     on the trimmed install before indexing, which also runs there;
   - a `require(x)` / `import(x)` with a computed name in the pack's own code
-    fails `kindgi build`, by file and line, until `image.keep` names what it
-    loads (or `dependencies` is `'all'`).
+    fails `kindgi build`, by file and line (esbuild reports each one), until
+    `image.keep` names what it loads (or `dependencies` is `'all'`).
 - **The build says what it kept,** and which of the pack's own dependencies its
   tools don't import. A Next.js app whose tools import `@kindgi/sdk` and `zod`:
 
@@ -562,9 +562,10 @@ image: {
   … kindgi-closure: kept 36 of 59 packages (27.5 MB of 354 MB)
   … kindgi-closure: dropped 3 of the pack's own dependencies its tools don't import: next, react, react-dom
   ```
-- **One kind of miss shows only at run time:** a package a dependency loads by
-  a name in a string (a plugin named in a config), which no check can see.
-  That call fails, saying what to add to `image.keep`.
+- **What no check can see reaches a run:** a package loaded by a name in a
+  string (a plugin named in a config), through a `createRequire` alias or
+  `module.require`, or a dependency's own undeclared one. That call fails,
+  saying what to add to `image.keep`.
 - Extensions keep what they need: `prisma()` keeps Prisma 6's generated
   `.prisma/client` when it's there.
 - Python packs keep every dependency for now: `dependencies = "loaded"` in

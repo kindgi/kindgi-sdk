@@ -91,6 +91,8 @@ export interface Closure {
   readonly links: readonly ClosureLink[];
   /** Externals or keeps Node can't resolve: the build fails on these, naming each. */
   readonly missing: readonly MissingPackage[];
+  /** `keepIfInstalled` names that aren't installed: skipped, and said. */
+  readonly skipped: readonly string[];
 }
 
 interface Resolved {
@@ -103,6 +105,7 @@ export async function computeClosure(inputs: ClosureInputs): Promise<Closure> {
   const kept = new Map<string, KeptPackage>();
   const links = new Map<string, ClosureLink>();
   const missing: MissingPackage[] = [];
+  const skipped: string[] = [];
   const queue: KeptPackage[] = [];
   const add = (resolved: Resolved, name: string, reason: string): void => {
     for (const link of resolved.links) links.set(link.path, link);
@@ -129,6 +132,7 @@ export async function computeClosure(inputs: ClosureInputs): Promise<Closure> {
   for (const name of sortedUnique(inputs.keepIfInstalled ?? [])) {
     const resolved = await resolveKeep(name, inputs, [...kept.keys()].sort());
     if (resolved !== undefined) add(resolved, name, 'keep');
+    else skipped.push(name);
   }
   await keepDependencies(queue, inputs.root, add);
 
@@ -136,6 +140,7 @@ export async function computeClosure(inputs: ClosureInputs): Promise<Closure> {
     packages: [...kept.values()].sort((a, b) => compare(a.dir, b.dir)),
     links: [...links.values()].sort((a, b) => compare(a.path, b.path)),
     missing,
+    skipped,
   };
 }
 

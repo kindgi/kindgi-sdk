@@ -7,58 +7,48 @@
  * packs, which can't ask for it yet.
  */
 
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { describe, expect, test } from 'vitest';
 
-import { afterEach, beforeEach, describe, expect, test } from 'vitest';
-
-import { findComputedImports, hasComputedCall } from '../src/build/computed-imports.js';
+import { computedImportsFrom } from '../src/build/computed-imports.js';
 import {
   closureSummary,
   computedImportsCheck,
   pythonTrimmingRefusal,
 } from '../src/commands/build.js';
 
-describe('hasComputedCall', () => {
-  test.each([
-    ["import x from 'pg';", false],
-    ["const pg = require('pg');", false],
-    ['const pg = require("pg");', false],
-    ["const m = await import('sharp');", false],
-    ['const m = await import(`./plugins/a.js`);', false],
-    ['const m = require(name);', true],
-    ['const m = await import(name);', true],
-    ['const m = await import(`@acme/${name}`);', true],
-    ["const m = require('a' + name);", true],
-    ["const m = await import('./data.json', { with: { type: 'json' } });", false],
-    ["const m = require('it\\'s');", false],
-    ['const r = require.resolve(name);', false],
-    ['loader.import(name);', false],
-    ['myrequire(name);', false],
-    ["const a = require('a'), b = require(name);", true],
-  ])('%s → %s', (line, computed) => {
-    expect(hasComputedCall(line)).toBe(computed);
-  });
-});
-
-describe('findComputedImports', () => {
-  let dir: string;
-  beforeEach(async () => {
-    dir = await mkdtemp(join(tmpdir(), 'kindgi-computed-'));
-  });
-  afterEach(async () => {
-    await rm(dir, { recursive: true, force: true });
+describe('computedImportsFrom', () => {
+  const at = (file: string, line: number, lineText: string) => ({
+    file,
+    line,
+    lineText,
+    column: 0,
   });
 
-  test("each call by file and line; comment lines aren't code", async () => {
-    await writeFile(
-      join(dir, 'b.ts'),
-      '// require(name) in a comment\n/* import(name) */\n * import(name)\nexport const load = (n: string) => import(n);\n',
-    );
-    await writeFile(join(dir, 'a.ts'), "import pg from 'pg';\nexport default pg;\n");
-    expect(await findComputedImports([join(dir, 'b.ts'), join(dir, 'a.ts')])).toEqual([
-      { file: join(dir, 'b.ts'), line: 4, text: 'export const load = (n: string) => import(n);' },
+  test("esbuild's computed-import notes, by file and line, once each; nothing else", () => {
+    expect(
+      computedImportsFrom(
+        [
+          {
+            id: 'unsupported-dynamic-import',
+            location: at('tools/load.ts', 4, '  return import(name);'),
+          },
+          { id: 'indirect-require', location: at('tools/a.ts', 2, 'const r = require; r(n);') },
+          {
+            id: 'unsupported-require-call',
+            location: at('tools/load.ts', 4, '  return import(name);'),
+          },
+          {
+            id: 'unsupported-require-call',
+            location: at('node_modules/x/index.js', 1, 'require(n)'),
+          },
+          { id: 'empty-import-meta', location: at('tools/b.ts', 1, 'import.meta') },
+          { id: 'unsupported-dynamic-import', location: null },
+        ],
+        '/app',
+      ),
+    ).toEqual([
+      { file: '/app/tools/a.ts', line: 2, text: 'const r = require; r(n);' },
+      { file: '/app/tools/load.ts', line: 4, text: 'return import(name);' },
     ]);
   });
 });

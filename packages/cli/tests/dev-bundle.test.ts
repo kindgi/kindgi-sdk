@@ -320,22 +320,53 @@ describe("the dev bundler's externals", () => {
     }
   });
 
-  test("a computed import in the pack's own code is reported, by file and line", async () => {
+  test("'loaded': esbuild names each computed import in the pack's own code, and nothing that only looks like one", async () => {
     await put(
       'tools/plugin.ts',
-      'export async function load(name: string) {\n  return import(name);\n}\n',
+      [
+        'export async function load(name: string) {',
+        '  return import(name);',
+        '}',
+        'export function req(name: string) { return require(name); }',
+        'const r = require;',
+        'export function indirect(name: string) { return r(name); }',
+        "export const text = 'require(name) and import(name) in a string';",
+        '// import(name) in a comment',
+        '/* require(name) in a block comment */',
+        'export const loader = { import: (n: string) => n };',
+        'export const viaMethod = loader.import("x");',
+        'export const wrapped = () => import(',
+        "  'acme-clock'",
+        ');',
+        "export const annotated = () => import(/* chunk */ 'acme-clock');",
+        '',
+      ].join('\n'),
     );
     try {
-      const bundle = await esbuildBundleReal({
+      const options = {
         packDir: dir,
-        outputDir: join(dir, '.kindgi', 'build-computed', 'dist'),
         discoveryPatterns: PATTERNS,
         configPath: join(dir, 'kindgi.config.ts'),
         nodeMajor: 22,
+      };
+      const loaded = await esbuildBundleReal({
+        ...options,
+        outputDir: join(dir, '.kindgi', 'build-computed', 'dist'),
+        dependencies: 'loaded',
       });
-      expect(bundle.computedImports?.map((c) => [c.file.slice(dir.length + 1), c.line])).toEqual([
-        ['tools/plugin.ts', 2],
+      expect(
+        loaded.computedImports?.map((c) => [c.file.slice(dir.length + 1), c.line, c.text]),
+      ).toEqual([
+        ['tools/plugin.ts', 2, 'return import(name);'],
+        ['tools/plugin.ts', 4, 'export function req(name: string) { return require(name); }'],
+        ['tools/plugin.ts', 5, 'const r = require;'],
       ]);
+      // 'all' doesn't ask esbuild for them.
+      const all = await esbuildBundleReal({
+        ...options,
+        outputDir: join(dir, '.kindgi', 'build-computed-all', 'dist'),
+      });
+      expect(all.computedImports).toEqual([]);
     } finally {
       await rm(join(dir, 'tools/plugin.ts'), { force: true });
     }
