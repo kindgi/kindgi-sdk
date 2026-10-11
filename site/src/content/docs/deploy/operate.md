@@ -561,8 +561,9 @@ What to check before you upgrade, and what's different after:
     ([Judge a run's output](../../guides/evals/judge-a-runs-output/),
     [Improve an agent](../../guides/evals/improve-an-agent/)).
   - **What failed and why:** a project's failed runs grouped by cause and
-    version (`GET /v1/runs/failures`), a failure's `reason`, and what a
-    suspended run waits for (`waitingFor`). The runs list filters by
+    version (`GET /v1/runs/failures`) and a failure's `reason`
+    ([See why runs failed](../../guides/runs/see-why-runs-failed/)), and
+    what a suspended run waits for (`waitingFor`). The runs list filters by
     status, time and version ([List runs](../../guides/runs/list-runs/)).
   - **Guardrail outcomes:** how often each guardrail passed, found
     something, blocked a turn or couldn't run, by agent version
@@ -576,13 +577,19 @@ What to check before you upgrade, and what's different after:
     ([Decide an approval](../../guides/approvals/decide-an-approval/#in-the-console-your-inbox)).
     A project gets pages for its failed runs
     ([What failed](../../guides/runs/list-runs/#what-failed)),
-    [schedules](../../guides/runs/run-on-a-schedule/#in-the-console), flows,
-    guardrails and members, each with a page of its own, plus
+    [schedules](../../guides/runs/run-on-a-schedule/#in-the-console),
+    [flows](../../guides/flows/write-a-flow/#in-the-console),
+    [guardrails](../../guides/guardrails/write-a-guardrail/#in-the-console) and
+    [members](../authorization/#in-the-console-members), each with a page of
+    its own, plus
     [Quality](../../guides/evals/judge-a-runs-output/#in-the-console) for
     judging, and [costs](../../guides/observability/cost-per-run/#cost-in-the-console)
-    for the project and each run. The tenant gets **Teams**, **Webhooks**,
+    for the project and each run. The tenant gets
+    [Teams](../authorization/#in-the-console-teams),
+    [Webhooks](../../guides/webhooks/receive-run-finished/#in-the-console),
     [Sign-in](../../guides/sso/#from-the-console), **My access** and its own
-    costs. A page or action shows only to the roles that can use it.
+    costs. A page or action shows only to the roles that can use it
+    ([The console, by role](../authorization/#the-console-by-role)).
   - **Access:** who has access to a project and how
     (`GET /v1/projects/{id}/access`), a team's role on a project, what the
     caller may do (`GET /v1/identity/me/permissions`), the people list with
@@ -629,6 +636,20 @@ What to check before you upgrade, and what's different after:
   Drupal's MCP Server Tool Bridge names its tools this way (`tool_api__…`).
   There's no workaround for a server whose tool names you don't choose:
   0.1.7 fixes it.
+- **A runtime starting while another serves the same database can fail to
+  start.** Each start applies row-level security to every tenant table
+  again, under locks that a write in flight can deadlock with. So a new
+  revision starting while the old one still serves, or a second instance,
+  can stop at start (exit code 1):
+
+  ```text
+  kindgi-runtime: fatal: Error: migration failed for … (…/migrations/): Migration step "enable-rls" failed: deadlock detected
+  ```
+
+  Starting it again serves. While it happens, the runtime that's serving can
+  answer some writes with `500 internal-server-error`, "Tenant-scoped query
+  failed: deadlock detected", and keeps serving (in our test, some project
+  creations). This isn't new in 0.1.6, and a fix is planned for 0.1.7.
 
 ### Runtime 0.1.5.1
 
