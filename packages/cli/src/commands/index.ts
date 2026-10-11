@@ -27,6 +27,7 @@ import { initCommand } from './init.js';
 import { judgeClassesCommand } from './judge-classes.js';
 import { judgmentsCommand } from './judgments.js';
 import { keyCommand } from './key.js';
+import { licenseCommand } from './license.js';
 import { mcpCommand, mcpLaunchCommand } from './mcp.js';
 import { memoryCommand } from './memory.js';
 import { observationsCommand } from './observations.js';
@@ -48,6 +49,7 @@ import { toolsCommand } from './tools.js';
 import type { Command } from './types.js';
 import { upgradeCommand } from './upgrade.js';
 import { versionCommand } from './version.js';
+import { webhooksCommand } from './webhooks.js';
 
 export const ROOT_COMMANDS: readonly Command[] = [
   authCommand,
@@ -62,6 +64,7 @@ export const ROOT_COMMANDS: readonly Command[] = [
   secretsCommand,
   ssoCommand,
   keyCommand,
+  licenseCommand,
   mcpCommand,
   mcpLaunchCommand,
   projectsCommand,
@@ -77,6 +80,7 @@ export const ROOT_COMMANDS: readonly Command[] = [
   artifactsCommand,
   flowsCommand,
   schedulesCommand,
+  webhooksCommand,
   approvalsCommand,
   reviewersCommand,
   observationsCommand,

@@ -42,7 +42,7 @@ workspace:** (the choice lasts five minutes).
 **Email me a sign-in link** sends a link to your address. The page answers the
 same for any email:
 
-![Check your email: if pat@acme-live.example can sign in here, a sign-in link is on its way. It works once and lasts 10 minutes.](../../../../assets/sso/sign-in-check-your-email.png)
+![The sign-in page for sam@acme-mail.example: Continue with Google, Continue with Microsoft and Continue with GitHub, then Check your email: if sam@acme-mail.example can sign in here, a sign-in link is on its way. It works once and lasts 10 minutes.](../../../../assets/sso/sign-in-check-your-email.png)
 
 The link opens a page that says which email it signs you in as. Nothing
 happens until you choose **Continue as** your email: mail scanners open links

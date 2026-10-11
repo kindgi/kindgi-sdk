@@ -16,7 +16,7 @@
  * Webhooks library.
  */
 
-import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
+import { type KeyObject, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 
 import type { Result } from '@kindgi/types';
 
@@ -52,7 +52,7 @@ export function generateWebhookSecret(): string {
  * base64) of at least {@link WEBHOOK_SECRET_MIN_BYTES} bytes.
  */
 export function isStrongWebhookSecret(secret: string): boolean {
-  const key = parseSecret(secret);
+  const key = parseWebhookSecret(secret);
   return key !== null && key.length >= WEBHOOK_SECRET_MIN_BYTES;
 }
 
@@ -86,7 +86,7 @@ export function signWebhook(input: SignWebhookInput): Result<string, MalformedKe
   const content = signedContent(input.id, String(input.timestamp), input.body);
   const signatures: string[] = [];
   for (const secret of secrets) {
-    const key = parseSecret(secret);
+    const key = parseWebhookSecret(secret);
     if (key === null) return malformedKey('webhook secret must be `whsec_` + base64 key bytes');
     signatures.push(`${SIGNATURE_VERSION},${hmac(key, content).toString('base64')}`);
   }
@@ -142,6 +142,18 @@ export type VerifyWebhookResult =
  * constant-time. On `ok`, deduplicate on `id` — delivery is at least once.
  */
 export function verifyWebhook(input: VerifyWebhookInput): VerifyWebhookResult {
+  return verifyWebhookWith(input, input.secret);
+}
+
+/**
+ * {@link verifyWebhook} with the secret as given, or as the key already
+ * decoded from it (a `KeyObject`, which a receiver can keep without holding
+ * the secret as a string). Within the package.
+ */
+export function verifyWebhookWith(
+  input: Omit<VerifyWebhookInput, 'secret'>,
+  secret: string | KeyObject,
+): VerifyWebhookResult {
   const id = readHeader(input.headers, WEBHOOK_HEADERS.id);
   const timestampRaw = readHeader(input.headers, WEBHOOK_HEADERS.timestamp);
   const signatureHeader = readHeader(input.headers, WEBHOOK_HEADERS.signature);
@@ -155,7 +167,7 @@ export function verifyWebhook(input: VerifyWebhookInput): VerifyWebhookResult {
   if (Math.abs(nowSeconds - timestamp) > tolerance) {
     return { kind: 'err', reason: 'timestamp-out-of-tolerance' };
   }
-  const key = parseSecret(input.secret);
+  const key = typeof secret === 'string' ? parseWebhookSecret(secret) : secret;
   if (key === null) return { kind: 'err', reason: 'invalid-secret' };
 
   const expected = hmac(key, signedContent(id, timestampRaw, input.body));
@@ -176,12 +188,12 @@ function signedContent(id: string, timestamp: string, body: string | Uint8Array)
   return Buffer.concat([prefix, bodyBytes]);
 }
 
-function hmac(key: Buffer, content: Buffer): Buffer {
+function hmac(key: Buffer | KeyObject, content: Buffer): Buffer {
   return createHmac('sha256', key).update(content).digest();
 }
 
-/** Key bytes of a `whsec_…` (or bare base64) secret; `null` when malformed. */
-function parseSecret(secret: string): Buffer | null {
+/** Key bytes of a `whsec_…` (or bare base64) secret; `null` when malformed. Within the package. */
+export function parseWebhookSecret(secret: string): Buffer | null {
   const encoded = secret.startsWith(WEBHOOK_SECRET_PREFIX)
     ? secret.slice(WEBHOOK_SECRET_PREFIX.length)
     : secret;
@@ -190,7 +202,8 @@ function parseSecret(secret: string): Buffer | null {
   return key.length === 0 ? null : key;
 }
 
-function readHeader(headers: WebhookRequestHeaders, name: string): string | undefined {
+/** A header's first value (`name` in lower case, matched case-insensitively); `undefined` when absent or empty. */
+export function readHeader(headers: WebhookRequestHeaders, name: string): string | undefined {
   if (typeof (headers as { get?: unknown }).get === 'function') {
     const value = (headers as { get(name: string): string | null }).get(name);
     return value === null || value.length === 0 ? undefined : value;

@@ -311,9 +311,13 @@ export type {
   UpdateScheduleInput,
 } from './resources/schedules.js';
 export type {
+  ApprovalRequestedEvent,
   CreateWebhookEndpointInput,
+  FinishedRun,
+  ImprovementPassFinishedEvent,
   ListWebhookDeliveriesFilter,
   ListWebhookEndpointsFilter,
+  RequestedApproval,
   RunFinishedEvent,
   UnregisterWebhookEndpointResult,
   UpdateWebhookEndpointInput,
@@ -329,6 +333,19 @@ export type {
   WebhookTestEvent,
 } from './resources/webhook-endpoints.js';
 export type {
+  ListWebhookFiresFilter,
+  ListWebhookTriggersFilter,
+  RegisterWebhookTriggerInput,
+  UnregisterWebhookTriggerResult,
+  UpdateWebhookTriggerInput,
+  WebhookFire,
+  WebhookFirePage,
+  WebhookSignature,
+  WebhookTrigger,
+  WebhookTriggerPage,
+  WebhooksClient,
+} from './resources/webhooks.js';
+export type {
   ListSigningKeysFilter,
   RevokeSigningKeyResult,
   SigningKeyPage,
@@ -340,6 +357,7 @@ export type {
   ExportSigningKey,
   ExportSigningKeysClient,
 } from './resources/export-signing-keys.js';
+export type { LicenseClient, LicenseStatus } from './resources/license.js';
 export { SIGNED_EXPORT_ALGORITHMS, verifySignedExport } from './verify-export.js';
 export { docsUrl } from './docs-links.js';
 export type {
@@ -561,7 +579,10 @@ export type {
   McpAgentExposure,
   McpEndpoint,
   McpEndpointConfig,
+  McpBasicAuth,
+  McpEndpointAuth,
   McpEndpointSecretRef,
+  McpOAuth2ClientCredentialsAuth,
   McpServerInfo,
   McpTransport,
   MessageRole,
