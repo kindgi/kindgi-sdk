@@ -194,6 +194,81 @@ In each approval:
 }
 ```
 
+### What a run waits for
+
+From a run, `kindgi runs resume <run-id>` says what it waits for, and how
+it goes on:
+
+```sh
+kindgi runs resume 45d986f1-8a8d-4341-a786-5ddcf239bb93
+```
+
+```text
+Run 45d986f1-8a8d-4341-a786-5ddcf239bb93 waits for approval b3fcf729-0137-430e-92a3-2ff10f4a6bde ("HITL review required for Chat desk"), for a standard reviewer or above. It continues once the approval is decided: kindgi approvals complete b3fcf729-0137-430e-92a3-2ff10f4a6bde --decision=approve (or --decision=reject).
+```
+
+That sentence goes to stderr. Its standard output is the same answer as
+JSON, for a script:
+
+```json
+{
+  "kind": "approval",
+  "runId": "45d986f1-8a8d-4341-a786-5ddcf239bb93",
+  "status": "suspended",
+  "approvals": [
+    {
+      "id": "b3fcf729-0137-430e-92a3-2ff10f4a6bde",
+      "title": "HITL review required for Chat desk",
+      "requiredRole": "standard",
+      "status": "pending"
+    }
+  ],
+  "alsoWaitsOn": []
+}
+```
+
+Its exit code says which:
+
+| Exit | The run |
+| --- | --- |
+| `0` | isn't waiting: `Run … is completed: it isn't waiting, so there's nothing to resume.` |
+| `3` | waits for an approval, named as above |
+| `4` | waits on the runtime: a queued start, a child run, a retry, a lease |
+
+Once the approval is decided, the run goes on by itself.
+
+From your app, `kindgi.runs.get(runId)` answers the same for a suspended run,
+as `waitingFor` (runtime 0.1.6 and later): `approvals`, the ones still to be
+decided, and `other`, the rest (a child run to finish, an approval already
+decided, a wait no approval is linked to). The CLI's answer is `runs resume`;
+the API's is `waitingFor`:
+
+```json
+{
+  "id": "45d986f1-8a8d-4341-a786-5ddcf239bb93",
+  …
+  "status": "suspended",
+  …
+  "waitingFor": {
+    "approvals": [
+      {
+        "approvalId": "b3fcf729-0137-430e-92a3-2ff10f4a6bde",
+        "status": "pending",
+        "requiredRole": "standard",
+        "title": "HITL review required for Chat desk",
+        "createdAt": "2026-10-11T07:55:48.728Z",
+        "expiresAt": "2026-10-12T07:55:48.703Z",
+        "subjectKind": "agent-turn:session-hitl-gate"
+      }
+    ],
+    "other": []
+  }
+}
+```
+
+`kindgi.approvals.list({ waitTokenIds: [...] })` (`wait_token_id=[...]` in
+Python, `?waitTokenId=` over HTTP) lists the approvals behind given waits.
+
 ### In the console: your Inbox
 
 A reviewer's **Inbox** lists every open approval they may
