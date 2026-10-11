@@ -241,6 +241,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'role-exceeds-principal': 403,
   /** A key limited to one project, on a request that names another. */
   'key-project-mismatch': 403,
+  /** Mint: a key that would outlive the key minting it (a later or absent `expiresAt`). */
+  'token-expiry-exceeds-minter': 403,
   'service-account-not-found': 404,
   /** An active service account of the tenant already has the name. */
   'service-account-name-taken': 409,

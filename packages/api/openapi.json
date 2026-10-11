@@ -355,6 +355,7 @@
           "principal-not-found": 404,
           "role-exceeds-principal": 403,
           "key-project-mismatch": 403,
+          "token-expiry-exceeds-minter": 403,
           "service-account-not-found": 404,
           "service-account-name-taken": 409,
           "service-account-unregistered": 409,
@@ -2312,7 +2313,7 @@
           "expiresAt": {
             "type": "string",
             "format": "date-time",
-            "description": "ISO 8601 timestamp."
+            "description": "ISO 8601 timestamp. Absent: the key never expires. When the minting key expires (or the key a token sign-in session was opened with), it's required and no later than that key's (`token-expiry-exceeds-minter`)."
           },
           "projectId": {
             "type": "string",
@@ -22082,7 +22083,7 @@
             }
           },
           "403": {
-            "description": "Not a tenant admin where one is needed, or a capability the caller does not hold (`permission-denied`); an `admin` key for a principal that isn't a tenant admin (`role-exceeds-principal`); a key limited to a project minting for another (`key-project-mismatch`).",
+            "description": "Not a tenant admin where one is needed, or a capability the caller does not hold (`permission-denied`); an `admin` key for a principal that isn't a tenant admin (`role-exceeds-principal`); a key limited to a project minting for another (`key-project-mismatch`); a key that would outlive the key minting it, with an `expiresAt` later than that key's or none (`token-expiry-exceeds-minter`, its `details.latestExpiresAt` the latest allowed).",
             "content": {
               "application/json": {
                 "schema": {
@@ -22122,7 +22123,7 @@
             }
           }
         },
-        "description": "An API key acts for one principal (`for`: a person or a service account; default the caller), with that principal's grants. Its `role` is a ceiling under them and its `projectId` a limit. Returns the plaintext token exactly once. A person or a service account's key mints its own keys; only a tenant admin mints for someone else, or an `admin` key. A caller can only grant capabilities it holds, and a key limited to a project mints only keys limited to it. Only mounted when the deployment supplies a `TokenAdmin`.",
+        "description": "An API key acts for one principal (`for`: a person or a service account; default the caller), with that principal's grants. Its `role` is a ceiling under them and its `projectId` a limit. Returns the plaintext token exactly once. A person or a service account's key mints its own keys; only a tenant admin mints for someone else, or an `admin` key. A caller can only grant capabilities it holds, and a key limited to a project mints only keys limited to it. A key that expires mints only keys that expire no later than it, and a session opened by token sign-in mints as the key it was opened with. Only mounted when the deployment supplies a `TokenAdmin`.",
         "parameters": [
           {
             "name": "Idempotency-Key",
