@@ -145,9 +145,16 @@ async function doctor(
 }
 
 async function tsProject(
-  options: { installed?: boolean; rc?: object; envLocal?: string; kindgiSecrets?: string } = {},
+  options: {
+    installed?: boolean;
+    rc?: object;
+    envLocal?: string;
+    kindgiSecrets?: string;
+    /** The config's name; default `kindgi.config.ts`. */
+    config?: string;
+  } = {},
 ) {
-  await writeFile(join(dir, 'kindgi.config.ts'), 'export default {};\n');
+  await writeFile(join(dir, options.config ?? 'kindgi.config.ts'), 'export default {};\n');
   await writeFile(join(dir, 'package.json'), '{"name":"acme-pack"}\n');
   if (options.installed === true)
     await mkdir(join(dir, 'node_modules', '@kindgi', 'sdk'), { recursive: true });
@@ -192,6 +199,10 @@ describe('outside a project', () => {
     ]);
     expect(check('console-sign-in')).toMatchObject({ status: 'skip' });
     expect(check('console-sign-in')?.message).toContain('no runtime to ask');
+    // Every config name looked for, `.mts` (a CommonJS app's) among them.
+    expect(check('project')?.message).toContain(
+      'no kindgi.config.ts, kindgi.config.mts, kindgi.config.mjs, kindgi.config.js, kindgi.config.cjs,',
+    );
     expect(check('node')).toMatchObject({ status: 'pass', message: 'Node 22.12.0.' });
     expect(check('python')).toMatchObject({ status: 'skip' });
     expect(check('python')?.message).toContain('Python 3.12.4 is installed');
@@ -313,6 +324,7 @@ describe('a TypeScript project', () => {
     expect(out.exitCode).toBe(1);
     expect(report?.project).toEqual({ dir, language: 'node' });
     expect(check('project')).toMatchObject({ status: 'pass' });
+    expect(check('project')?.message).toContain('A TypeScript project (kindgi.config.ts)');
     expect(check('project')?.message).toContain("kindgi dev hasn't run here yet");
     expect(check('dependencies')).toMatchObject({
       status: 'fail',
@@ -326,6 +338,20 @@ describe('a TypeScript project', () => {
     expect(check('runtime')).toMatchObject({ status: 'skip' });
     expect(check('provider')).toMatchObject({ status: 'skip' });
     expect(check('python')?.message).toContain('Not needed (a TypeScript project)');
+  });
+
+  test('the project check names the config file it found: `.mts` in a CommonJS app', async () => {
+    await tsProject({ config: 'kindgi.config.mts' });
+    const { check } = await doctor();
+    expect(check('project')).toMatchObject({ status: 'pass' });
+    expect(check('project')?.message).toContain('A TypeScript project (kindgi.config.mts)');
+    expect(check('project')?.message).not.toContain('kindgi.config.ts)');
+  });
+
+  test('a JavaScript config is named as one', async () => {
+    await tsProject({ config: 'kindgi.config.mjs' });
+    const { check } = await doctor();
+    expect(check('project')?.message).toContain('A JavaScript project (kindgi.config.mjs)');
   });
 
   test('the key is named with its file, never its value', async () => {
@@ -786,7 +812,7 @@ describe('a registration whose default model the preset no longer gives: a warni
       "Install them: npm install (the project names pnpm, which isn't installed here)",
     );
     expect(check('model-key')?.fix).toMatch(
-      /^With kindgi dev running, set one LLM provider's key: npx --no kindgi secrets set ANTHROPIC_API_KEY /,
+      /^With kindgi dev running, set one LLM provider's key: npx --no -- kindgi secrets set ANTHROPIC_API_KEY /,
     );
   });
 

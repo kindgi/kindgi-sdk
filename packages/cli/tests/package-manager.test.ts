@@ -70,7 +70,7 @@ describe('detectPackageManager', () => {
 describe('binCommand — runs the project-local bin, never downloads', () => {
   test.each([
     ['pnpm', 'pnpm', ['exec', 'kindgi', 'dev']],
-    ['npm', 'npx', ['--no', 'kindgi', 'dev']],
+    ['npm', 'npx', ['--no', '--', 'kindgi', 'dev']],
     ['yarn', 'yarn', ['kindgi', 'dev']],
     ['bun', 'bun', ['run', 'kindgi', 'dev']],
   ] as const)('%s', (pm, command, args) => {

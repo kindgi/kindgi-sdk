@@ -239,7 +239,7 @@ describe('kindgi init — a machine without pnpm (T280)', () => {
     );
     expect(out.exitCode).toBe(0);
     expect(out.stderr).toContain('  npm install');
-    expect(out.stderr).toContain('npx --no kindgi dev');
+    expect(out.stderr).toContain('npx --no -- kindgi dev');
     expect(out.stderr).not.toMatch(/^ {2}pnpm /m);
     // No advice to pin a pnpm this machine doesn't have.
     expect(out.stderr).not.toContain('packageManager');
@@ -261,7 +261,13 @@ describe("kindgi init — the README's commands are the Next steps' (T279)", () 
       seam: undefined,
       runner: 'pnpm exec kindgi',
     },
-    { name: 'minimal, without pnpm', argv: [], env: {}, seam: NO_PNPM, runner: 'npx --no kindgi' },
+    {
+      name: 'minimal, without pnpm',
+      argv: [],
+      env: {},
+      seam: NO_PNPM,
+      runner: 'npx --no -- kindgi',
+    },
     {
       name: 'sample, with pnpm',
       argv: ['--template=sample'],
@@ -274,7 +280,7 @@ describe("kindgi init — the README's commands are the Next steps' (T279)", () 
       argv: ['--template=sample'],
       env: {},
       seam: NO_PNPM,
-      runner: 'npx --no kindgi',
+      runner: 'npx --no -- kindgi',
     },
     // No npm project to hold the CLI: the published CLI, within its minor.
     {

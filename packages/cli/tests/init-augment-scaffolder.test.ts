@@ -18,12 +18,18 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 import { defaultTemplatesRoot } from '../src/commands/init.js';
 import { detectSkillDrift } from '../src/commands/skills.js';
 import {
-  ZOD_DEPENDENCY,
   derivePackId,
   renderAugmentConfig,
   runInitAugment,
+  zodDependency,
   zodWarnings,
 } from '../src/init/augment-scaffolder.js';
+import {
+  TESTED_VITEST_VERSION,
+  TESTED_VITE_VERSION,
+  TESTED_ZOD_VERSION,
+} from '../src/init/pinning.js';
+import { renderVitestConfig } from '../src/init/vitest-setup.js';
 
 let root: string;
 let skillsRoot: string;
@@ -386,7 +392,7 @@ describe('runInitAugment — end-to-end', () => {
 describe('runInitAugment — the sample template', () => {
   const templatesRoot = defaultTemplatesRoot();
 
-  test('adds the sample primitives under kindgi/, rendered for the pack, without the sample tests', async () => {
+  test('adds the sample primitives under kindgi/ with their tests, rendered for the pack', async () => {
     await writePkgJson(root, { name: 'my-app', version: '1.0.0', type: 'module' });
     const result = await runInitAugment({
       targetDir: root,
@@ -407,14 +413,16 @@ describe('runInitAugment — the sample template', () => {
     ]) {
       expect(await exists(join(root, 'kindgi', file)), file).toBe(true);
     }
-    expect(await exists(join(root, 'kindgi', 'tools', 'echo', 'index.test.ts'))).toBe(false);
+    // The sample's test runs under the vitest config init adds.
+    const sampleTest = await fileContents(join(root, 'kindgi', 'tools', 'echo', 'index.test.ts'));
+    expect(sampleTest).toContain("describe('my-app.echo'");
     const agent = await fileContents(join(root, 'kindgi', 'agents', 'echo-agent', 'index.ts'));
     expect(agent).toContain('my-app.echo-agent');
     expect(agent).not.toContain('{{PACK_ID}}');
 
     // The sample's schemas are Zod; an app without it gets it.
     const pkg = JSON.parse(await fileContents(join(root, 'package.json')));
-    expect(pkg.dependencies.zod).toBe('^4.0.0');
+    expect(pkg.dependencies.zod).toBe(`^${TESTED_ZOD_VERSION}`);
     if (result.kind === 'ok') {
       expect(result.rendered.stderr).toContain('--agent=my-app.echo-agent');
     }
@@ -458,7 +466,7 @@ describe('runInitAugment — the sample template', () => {
     await runInitAugment({ targetDir: root, skillsRoot, force: false, templatesRoot });
     expect(await exists(join(root, 'kindgi', 'tools', 'echo', 'index.ts'))).toBe(false);
     const pkg = JSON.parse(await fileContents(join(root, 'package.json')));
-    expect(pkg.dependencies?.zod).toBe('^4.0.0');
+    expect(pkg.dependencies?.zod).toBe(`^${TESTED_ZOD_VERSION}`);
   });
 });
 
@@ -475,9 +483,9 @@ describe('runInitAugment — Zod', () => {
     return { result, summary, written };
   }
 
-  test("an app without Zod gets the fresh templates' range", async () => {
+  test("an app without Zod gets the fresh templates' range, from the tested version", async () => {
     const { summary, written } = await initWith({});
-    expect(written.dependencies.zod).toBe('^4.0.0');
+    expect(written.dependencies.zod).toBe(`^${TESTED_ZOD_VERSION}`);
     expect(summary.created.join('\n')).toContain('+zod');
     expect(summary.warnings).toEqual([]);
   });
@@ -485,8 +493,30 @@ describe('runInitAugment — Zod', () => {
   test('the range is the one the fresh templates use', async () => {
     for (const template of ['minimal', 'sample']) {
       const raw = await fileContents(join(defaultTemplatesRoot(), template, 'package.json.tmpl'));
-      expect(JSON.parse(raw).dependencies.zod, template).toBe(ZOD_DEPENDENCY.spec);
+      expect(JSON.parse(raw).dependencies.zod, template).toBe(zodDependency(false).spec);
     }
+  });
+
+  test('an app that pins every dependency exactly gets zod exactly', async () => {
+    const { written } = await initWith({
+      dependencies: { next: '16.4.0', react: '19.3.0', '@acme/ui': 'workspace:*' },
+      devDependencies: { typescript: '5.9.3' },
+    });
+    expect(written.dependencies.zod).toBe(TESTED_ZOD_VERSION);
+  });
+
+  test('one range among exact pins: a range', async () => {
+    const { written } = await initWith({
+      dependencies: { next: '16.4.0' },
+      devDependencies: { typescript: '^5.9.3' },
+    });
+    expect(written.dependencies.zod).toBe(`^${TESTED_ZOD_VERSION}`);
+  });
+
+  test('an app whose .npmrc saves exact versions gets zod exactly, whatever it has', async () => {
+    await writeFile(join(root, '.npmrc'), 'registry=https://registry.example\nsave-exact=true\n');
+    const { written } = await initWith({ dependencies: { next: '^16.4.0' } });
+    expect(written.dependencies.zod).toBe(TESTED_ZOD_VERSION);
   });
 
   test('an app on zod 4 keeps its own, without a warning', async () => {
@@ -510,6 +540,167 @@ describe('runInitAugment — Zod', () => {
     expect(zodWarnings({ dependencies: { zod: 'catalog:' } })).toEqual([]);
     expect(zodWarnings({ dependencies: { zod: '>=3.20.0' } })).toEqual([]);
     expect(zodWarnings({ peerDependencies: { zod: '3.22.4' } })).toHaveLength(1);
+  });
+});
+
+describe('runInitAugment — the tests kindgi test runs', () => {
+  async function initWith(pkg: Record<string, unknown>, force = false) {
+    await writePkgJson(root, { name: 'my-app', version: '1.0.0', ...pkg });
+    const result = await runInitAugment({ targetDir: root, skillsRoot, force });
+    if (result.kind !== 'ok') throw new Error(result.stderr);
+    const summary = JSON.parse(result.rendered.stdout) as {
+      created: string[];
+      skipped: string[];
+      warnings: string[];
+      nextSteps: string[];
+    };
+    const written = JSON.parse(await fileContents(join(root, 'package.json')));
+    return { result, summary, written };
+  }
+
+  test('a CommonJS app gets vitest.config.mts for kindgi/ tests, and vitest + vite', async () => {
+    const { summary, written } = await initWith({});
+    const config = await fileContents(join(root, 'vitest.config.mts'));
+    expect(config).toContain("include: ['kindgi/**/*.test.ts'],");
+    expect(config).toContain('passWithNoTests: true,');
+    expect(config).not.toContain('alias');
+    expect(summary.created).toContain(join(root, 'vitest.config.mts'));
+    expect(written.devDependencies.vitest).toBe(`^${TESTED_VITEST_VERSION}`);
+    expect(written.devDependencies.vite).toBe(`^${TESTED_VITE_VERSION}`);
+    expect(summary.warnings).toEqual([]);
+    expect(summary.nextSteps).toContain(
+      'Tests: npx --no -- kindgi test runs kindgi/**/*.test.ts with vitest.config.mts',
+    );
+  });
+
+  test('a "type": "module" app gets vitest.config.ts', async () => {
+    await initWith({ type: 'module' });
+    expect(await exists(join(root, 'vitest.config.ts'))).toBe(true);
+    expect(await exists(join(root, 'vitest.config.mts'))).toBe(false);
+  });
+
+  test("the app's tsconfig paths become aliases, and the summary says to keep them in step", async () => {
+    await writeFile(
+      join(root, 'tsconfig.json'),
+      '{\n  // Next.js\n  "compilerOptions": { "paths": { "@/*": ["./*"] }, },\n}\n',
+    );
+    const { summary } = await initWith({});
+    const config = await fileContents(join(root, 'vitest.config.mts'));
+    expect(config).toContain('{ find: /^@\\/(.*)$/, replacement: `${root}/$1` },');
+    expect(summary.nextSteps.at(-1)).toBe(
+      "Tests: npx --no -- kindgi test runs kindgi/**/*.test.ts with vitest.config.mts, whose resolve.alias copies tsconfig.json's paths (@/*): when you change those, change it to match",
+    );
+  });
+
+  test('an app that pins exactly gets vitest and vite exactly', async () => {
+    const { written } = await initWith({ dependencies: { next: '16.4.0' } });
+    expect(written.devDependencies.vitest).toBe(TESTED_VITEST_VERSION);
+    expect(written.devDependencies.vite).toBe(TESTED_VITE_VERSION);
+  });
+
+  test("an app's own vitest.config is left as is, and init says what kindgi test needs from it", async () => {
+    const mine =
+      "import { defineConfig } from 'vitest/config';\nexport default defineConfig({});\n";
+    await writeFile(join(root, 'vitest.config.ts'), mine);
+    const { summary, written } = await initWith({ devDependencies: { vitest: '^4.1.0' } });
+    expect(await fileContents(join(root, 'vitest.config.ts'))).toBe(mine);
+    expect(await exists(join(root, 'vitest.config.mts'))).toBe(false);
+    expect(written.devDependencies.vitest).toBe('^4.1.0');
+    expect(written.devDependencies.vite).toBeUndefined();
+    expect(summary.warnings).toHaveLength(1);
+    expect(summary.warnings[0]).toContain("the app's own vitest.config.ts is left as is");
+    expect(summary.warnings[0]).toContain("'kindgi/**/*.test.ts'");
+    expect(summary.nextSteps.join('\n')).not.toContain('Tests:');
+  });
+
+  test('an app on vitest without a vitest.config gets none (it would narrow its own tests); init says what to add', async () => {
+    await writeFile(join(root, 'vite.config.ts'), 'export default {};\n');
+    const { summary } = await initWith({ devDependencies: { vitest: '^5.0.0' } });
+    expect(await exists(join(root, 'vitest.config.mts'))).toBe(false);
+    expect(summary.warnings).toHaveLength(1);
+    expect(summary.warnings[0]).toContain('without a vitest.config.*');
+    expect(summary.warnings[0]).toContain('vitest.config.mts');
+  });
+
+  test('a vite app without vitest gets the config: vitest reads it over vite.config', async () => {
+    await writeFile(join(root, 'vite.config.ts'), 'export default {};\n');
+    const { summary, written } = await initWith({ devDependencies: { vite: '^8.0.0' } });
+    expect(await exists(join(root, 'vitest.config.mts'))).toBe(true);
+    expect(written.devDependencies.vite).toBe('^8.0.0');
+    expect(summary.warnings).toEqual([]);
+  });
+
+  test("an app on a vite vitest can't take is told before it installs", async () => {
+    const { summary, written } = await initWith({ devDependencies: { vite: '^5.4.0' } });
+    expect(written.devDependencies.vite).toBe('^5.4.0');
+    expect(summary.warnings).toHaveLength(1);
+    expect(summary.warnings[0]).toContain('vite: the app has vite ^5.4.0');
+    expect(summary.warnings[0]).toContain(`vitest ${TESTED_VITEST_VERSION}`);
+  });
+
+  test("init's own config: kept on a later run, read again with --force", async () => {
+    await initWith({});
+    await writeFile(
+      join(root, 'tsconfig.json'),
+      '{ "compilerOptions": { "paths": { "~/*": ["./src/*"] } } }',
+    );
+    const { summary } = await initWith({}, true);
+    const config = await fileContents(join(root, 'vitest.config.mts'));
+    expect(config).toContain('{ find: /^~\\/(.*)$/, replacement: `${root}/src/$1` },');
+    expect(summary.warnings).toEqual([]);
+  });
+
+  test('the fresh templates pin the same vitest and vite', async () => {
+    for (const template of ['minimal', 'sample']) {
+      const raw = await fileContents(join(defaultTemplatesRoot(), template, 'package.json.tmpl'));
+      const devDependencies = JSON.parse(raw).devDependencies;
+      expect(devDependencies.vitest, template).toBe(`^${TESTED_VITEST_VERSION}`);
+      expect(devDependencies.vite, template).toBe(`^${TESTED_VITE_VERSION}`);
+    }
+  });
+});
+
+describe('renderVitestConfig', () => {
+  /** The `alias` array as rollup's alias plugin applies it: the first match, `$1` filled in. */
+  function aliasesOf(config: string, root: string): (id: string) => string | undefined {
+    const body = /alias: \[\n([\s\S]*?)\n {4}\],/.exec(config)?.[1];
+    if (body === undefined) throw new Error('no alias array');
+    const entries = new Function('root', `return [${body}];`)(root) as {
+      find: RegExp;
+      replacement: string;
+    }[];
+    return (id) => {
+      const entry = entries.find((e) => e.find.test(id));
+      return entry === undefined ? undefined : id.replace(entry.find, entry.replacement);
+    };
+  }
+
+  test('each alias resolves as TypeScript does, from the folder the config is in', () => {
+    const resolveId = aliasesOf(
+      renderVitestConfig([
+        { pattern: 'config', target: 'src/config.ts' },
+        { pattern: '@/ui/*', target: '../ui/src/*' },
+        { pattern: '@/*', target: '*' },
+        { pattern: '$lib/*.js', target: 'src/lib/*.ts' },
+      ]),
+      '/app',
+    );
+    expect(resolveId('@/lib/orders')).toBe('/app/lib/orders');
+    expect(resolveId('@/ui/button')).toBe('/app/../ui/src/button');
+    expect(resolveId('config')).toBe('/app/src/config.ts');
+    expect(resolveId('config/x')).toBeUndefined();
+    expect(resolveId('$lib/db.js')).toBe('/app/src/lib/db.ts');
+    expect(resolveId('@kindgi/sdk/define')).toBeUndefined();
+    expect(resolveId('zod')).toBeUndefined();
+  });
+
+  test('without aliases: no resolve block, no node imports', () => {
+    const config = renderVitestConfig([]);
+    expect(config).not.toContain('resolve');
+    expect(config).not.toContain('node:');
+    expect(config.split('\n')[0]).toBe(
+      '// The vitest config for the tests beside your Kindgi primitives, added by',
+    );
   });
 });
 

@@ -13,18 +13,16 @@ import { type ChildProcess, spawn } from 'node:child_process';
 import { stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import type { RunTestsOptions, RunTestsResult, TestRunners } from './runners.js';
-
-const VITEST_CONFIGS = [
-  'vitest.config.ts',
-  'vitest.config.mjs',
-  'vitest.config.js',
-  'vitest.config.cjs',
-] as const;
+import {
+  type RunTestsOptions,
+  type RunTestsResult,
+  type TestRunners,
+  VITEST_CONFIG_FILENAMES,
+} from './runners.js';
 
 export const REAL_TEST_RUNNERS: TestRunners = {
   hasVitestConfig: async ({ packDir }) => {
-    for (const name of VITEST_CONFIGS) {
+    for (const name of VITEST_CONFIG_FILENAMES) {
       const abs = join(packDir, name);
       try {
         const s = await stat(abs);
