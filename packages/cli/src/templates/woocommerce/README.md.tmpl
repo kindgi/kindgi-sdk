@@ -33,6 +33,7 @@ Scaffolded by `kindgi init --template=woocommerce`.
 │   └── no-customer-contact-details/index.test.ts
 ├── agents/
 │   ├── store-agent/index.ts
+│   ├── store-agent/index.test.ts               # what it's told about the tools that wait
 │   ├── order-reviewer/index.ts
 │   └── order-reviewer/index.test.ts            # what its instructions may take from an order
 ├── flows/
@@ -60,6 +61,15 @@ A call that waits shows in the console's approvals inbox, and in
 (`{{KINDGI}} approvals complete <approval-id> --decision=approve`). A
 rejection (`--decision=reject --rationale=…`) means the tool never runs.
 The audit records the decision, and the agent says the change wasn't made.
+
+The agent doesn't see the approval itself: a call that waited comes back
+with its result once a person decided. So its instructions say what that
+means: `{"status": "rejected", "rationale": …}` is a reviewer declining,
+`{"status": "failed", "error": …}` is a change that was approved but didn't
+go through (the store refused it, say), and any other result is a change
+that was approved and made. The order may have changed while the call
+waited, so they also say to look it up again before stating its totals. `agents/store-agent/index.test.ts` keeps them
+naming every tool the approval policy holds back.
 
 ### Why refunds are two tools
 
