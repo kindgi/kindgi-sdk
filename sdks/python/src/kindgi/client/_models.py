@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-from datetime import date
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
@@ -9761,7 +9760,7 @@ class UsageGroup(BaseModel):
         Field(alias="class"),
     ] = None
     state: Literal["on", "off"] | None = None
-    day: date | None = None
+    day: Annotated[str | None, Field(pattern="^\\d{4}-\\d{2}-\\d{2}$")] = None
     """
     The UTC date, `YYYY-MM-DD`.
     """

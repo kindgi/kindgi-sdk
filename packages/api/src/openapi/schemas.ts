@@ -10201,7 +10201,11 @@ export const UsageGroupSchema: JsonSchema = {
       enum: ['production', 'staging', 'dry-run', 'replay', 'eval', 'child'],
     },
     state: { type: 'string', enum: ['on', 'off'] },
-    day: { type: 'string', format: 'date', description: 'The UTC date, `YYYY-MM-DD`.' },
+    day: {
+      type: 'string',
+      pattern: '^\\d{4}-\\d{2}-\\d{2}$',
+      description: 'The UTC date, `YYYY-MM-DD`.',
+    },
     count: { type: 'integer', minimum: 0, description: 'Records in the group.' },
     quantity: {
       type: 'number',

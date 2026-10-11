@@ -18446,7 +18446,7 @@
           },
           "day": {
             "type": "string",
-            "format": "date",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
             "description": "The UTC date, `YYYY-MM-DD`."
           },
           "count": {
