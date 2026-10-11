@@ -234,6 +234,20 @@
     "kindgi-scala-getting-started": {
       "pages": ["start/install", "start/quickstart-scala", "start/existing-app", "start/java-app"],
       "samples": "fragments"
+    },
+    "kindgi-using": {
+      "pages": [
+        "deploy/people-and-keys",
+        "guides/agents/give-an-agent-memory",
+        "guides/approvals/decide-an-approval",
+        "guides/evals/judge-a-runs-output",
+        "guides/observability/cost-per-run",
+        "guides/runs/list-runs",
+        "guides/runs/read-the-journal",
+        "guides/runs/run-on-a-schedule",
+        "start/coding-agents"
+      ],
+      "samples": "none"
     }
   }
 }
