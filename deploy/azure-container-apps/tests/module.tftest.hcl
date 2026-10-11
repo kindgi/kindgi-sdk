@@ -171,6 +171,12 @@ run "new_vnet_shape_meets_the_contract" {
     condition     = alltrue([for s in azurerm_container_app.server.secret : s.value == null]) && alltrue([for s in azurerm_container_app.pack.secret : s.value == null])
     error_message = "C-SEC-1: every container-app secret is a Key Vault reference, never a value."
   }
+  # The database's admin password goes in write-only (`administrator_password_wo`),
+  # so it's never in state: the stored argument stays unset.
+  assert {
+    condition     = azurerm_postgresql_flexible_server.kindgi.administrator_password == null
+    error_message = "C-SEC-1: the database admin password is write-only, never the stored administrator_password."
+  }
   # The platform-managed infrastructure group has a name you can find.
   assert {
     condition     = azurerm_container_app_environment.kindgi.infrastructure_resource_group_name == "acme-kindgi-dev-kindgi-infra"
