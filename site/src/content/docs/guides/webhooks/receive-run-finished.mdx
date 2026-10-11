@@ -287,13 +287,15 @@ signature and do that.
 Tenant admins have a **Webhooks** page: every endpoint the tenant sends to,
 and how its deliveries went. Times are UTC.
 
-![The Webhooks page: "2 endpoints; 1 is failing (its last delivery isn't getting through).", Order system (a run finished, signed with dev/hooks-signing, "Of its 1 delivery, 1 was delivered.") and Old CRM ("Of its 1 delivery, 0 were delivered and 1 is still being sent.").](../../../../assets/webhooks/webhooks-list.png)
+![The Webhooks page: "2 endpoints; 1 is failing (its last delivery isn't getting through).", a search box and the Columns menu, Order system (a run finished, signed with dev/hooks-signing, "Of its 1 delivery, 1 was delivered.") and Old CRM ("Of its 1 delivery, 0 were delivered and 1 is still being sent.").](../../../../assets/webhooks/webhooks-list.png)
 
 - **The headline** counts the endpoints and the failing ones: "2 endpoints; 1
   is failing (its last delivery isn't getting through)."
 - **Each endpoint** says what it sends ("a run finished"), the secret it
   signs with, by name only, and how its recent deliveries went: "Of its 1
   delivery, 1 was delivered."
+- **The list** has a search box, sorts by a column's header, and
+  **Columns** chooses which columns it shows.
 
 An endpoint's page says what it sends and how it signs: "Sends a run
 finished, signed with the secret dev/hooks-signing (its value stays in the
@@ -307,9 +309,10 @@ secrets store)." Then each delivery, newest first, as a story:
 The other reasons it gives are "it didn't answer in time", "its host name
 doesn't resolve", "its address is one webhooks may not go to", "its TLS
 certificate wasn't accepted" and "the connection failed". **All**,
-**Failed**, **Being sent** and **Delivered** filter the list.
+**Failed**, **Being sent** and **Delivered** filter the list, and it sorts
+by a column's header.
 
-![An endpoint's page: what it sends and its secret by name, Send a test and Unregister, "Of its 2 deliveries, 2 were delivered.", the All, Failed, Being sent and Delivered filters, and two deliveries: a test and a run finished (Completed, Open the run), each "Delivered after 1 attempt" with Send again.](../../../../assets/webhooks/webhook-endpoint.png)
+![An endpoint's page: what it sends and its secret by name, Send a test and Unregister, "Of its 2 deliveries, 2 were delivered.", the All, Failed, Being sent and Delivered filters, the Columns menu, and two deliveries: a test and a run finished (Completed, Open the run), each "Delivered after 1 attempt" with Send again.](../../../../assets/webhooks/webhook-endpoint.png)
 
 - **Send a test** queues a test event ("Queued: follow it below."), which
   shows in the list as "a test".

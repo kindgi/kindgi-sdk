@@ -118,24 +118,27 @@ with `--cursor` (the previous page's `nextCursor`) until there's none.
 ## In the console
 
 A project's **Schedules** page lists its schedules, with a headline such as
-"2 schedules, 1 paused; the next fires in 19 h.". Each row says what it runs
+"2 schedules, 1 paused; the next fires in 14 h.". Each row says what it runs
 ("the agent demo.echo-agent (its live version)", "the flow acme.refunds
-1.0.0"), its cron, when it next fires ("Next in 19 h (2026-10-12 02:00
+1.0.0"), its cron, when it next fires ("Next in 14 h (2026-10-12 02:00
 UTC)") or that it's paused, its last scheduled fire, and **Its runs →**.
-Times are UTC.
+Times are UTC. The list has a search box, sorts by a column's header, and
+**Columns** chooses which columns it shows.
 
-![The Schedules page: "2 schedules, 1 paused; the next fires in 19 h.", the paused weekly report (the flow acme.refunds 1.0.0, 0 9 * * 1) with Resume, and the active nightly digest (the agent demo.echo-agent, 0 2 * * *, next in 19 h) with Pause, each with Run now and Unregister.](../../../../assets/schedules/schedules-list.png)
+![The Schedules page: "2 schedules, 1 paused; the next fires in 14 h.", a search box and the Columns menu, the active nightly digest (the agent demo.echo-agent, 0 2 * * *, next in 14 h) with Pause, and the paused weekly report (the flow acme.refunds 1.0.0, 0 9 * * 1) with Resume, each with Run now and Unregister.](../../../../assets/schedules/schedules-list.png)
 
 A schedule's page has:
 - **When:** its cron in UTC and its next five times. A paused one says
   "It doesn’t fire while paused." instead.
 - **Runs as:** whose access its runs have ("Runs as you, with your
   access."), checked again at every fire.
-- **What it fired:** a summary ("Of its 1 fire, 1 started a run.") and its
-  recent fires in words, each linking the run it started, or saying why the
-  fire was refused.
+- **What it fired:** a summary ("Of its 2 fires, 2 started a run.") and a
+  table of its fires, newest first: when it fired, the time it was for
+  ("run now" for one started by hand), what happened ("Started a run (run
+  now)") or why the fire was refused, and the run it started. It sorts by a
+  column's header, and **Columns** chooses which columns it shows.
 
-![The nightly digest's page: Active, with Pause, Run now and Unregister, its next five times from 2026-10-12 02:00 UTC, "Runs as you, with your access.", and one fire, "Started a run (run now)", linking its run.](../../../../assets/schedules/schedule-page.png)
+![The nightly digest's page: Active, with Pause, Run now and Unregister, "Starts the agent demo.echo-agent (its live version). Next in 13 h (2026-10-12 02:00 UTC).", its next five times from 2026-10-12 02:00 UTC, "Runs as you, with your access.", and What it fired: "Of its 2 fires, 2 started a run.", with the Columns menu and two fires, each "Started a run (run now)" and linking its run.](../../../../assets/schedules/schedule-fires.png)
 
 Project editors and up have, on the list and on the page:
 - **Pause** and **Resume**;
@@ -150,6 +153,11 @@ over**: "Its next runs start as you, with your access. Runs already started
 keep theirs. If it's paused, it stays paused."
 
 ![The Take this schedule over? dialog on a paused schedule that runs as a service account: its next runs start as you, runs already started keep theirs, and a paused one stays paused.](../../../../assets/schedules/schedule-take-over.png)
+
+After it, the page says "Runs as you, with your access.", and a paused
+schedule stays paused:
+
+![The weekly report's page after Take over: Paused, with Resume, Run now and Unregister, "Starts the flow acme.refunds 1.0.0. Paused.", "It doesn’t fire while paused.", "Runs as you, with your access.", and "It hasn’t fired yet. Its runs →".](../../../../assets/schedules/schedule-page.png)
 
 A run a schedule started says so at the top of its page: "Started by the
 schedule “nightly digest” (0 2 * * *).", with **Its other runs →**, the runs
