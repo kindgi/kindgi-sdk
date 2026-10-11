@@ -42,6 +42,13 @@ describe('toolIdempotencyKey', () => {
     expect(toolIdempotencyKey(input)).toBe(expected);
   });
 
+  test('beyond ASCII, a part is its own UTF-8, never a \\u escape (another key)', () => {
+    const input = { runId: RUN, stepScope: 'notify/branch-é', toolId: 'acme.mail.send' };
+    // Python's default `json.dumps` writes "notify/branch-\u00e9": this key, which isn't the call's.
+    expect(toolIdempotencyKey(input)).not.toBe('8680f8f9-077a-5815-ba0b-602d3abed6b3');
+    expect(toolIdempotencyKey(input)).toBe('873f6e4e-cd72-5604-ac09-ab1496cfeb8a');
+  });
+
   test('a version 5 UUID of the RFC variant', () => {
     expect(toolIdempotencyKey({ runId: RUN, stepScope: 's', toolId: 't' })).toMatch(
       /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,

@@ -17,9 +17,12 @@ const NAMESPACE_BYTES = Buffer.from(TOOL_IDEMPOTENCY_NAMESPACE.replaceAll('-', '
  * failure, a re-run after a crash), different for every other call.
  *
  * It's a name-based UUID (RFC 9562 version 5, SHA-1) under
- * `TOOL_IDEMPOTENCY_NAMESPACE`, over the UTF-8 bytes of the compact JSON
- * array `[runId, stepScope, toolId]`, with `callId` appended for a call a
- * model asked for. `stepScope` is the step's own (`NodeContext.stepScope`):
+ * `TOOL_IDEMPOTENCY_NAMESPACE`, over the UTF-8 bytes of the JSON array
+ * `[runId, stepScope, toolId]` (with `callId` appended for a call a model
+ * asked for) as `JSON.stringify` writes it: no whitespace, and characters
+ * beyond ASCII as themselves, never as `\u` escapes. Python's `json.dumps`
+ * escapes them unless `ensure_ascii=False`, and an escaped part is another
+ * key. `stepScope` is the step's own (`NodeContext.stepScope`):
  * it tells two loop iterations or two fanout branches apart, which a
  * model's call id alone doesn't (it's only unique within one answer).
  */

@@ -47,7 +47,7 @@
         "idempotencyKey": {
           "type": "string",
           "format": "uuid",
-          "description": "The call's idempotency key (protocol 2.6.0): the same every time this call runs (a resume after a wait, a retry after a failure, a re-run after a crash), different for every other call. A tool that changes something passes it to the system it writes to, or looks for it there first. A version 5 UUID (RFC 9562, SHA-1) under the namespace a70d5bff-e713-4322-b2ea-9d5c4926a861, over the UTF-8 bytes of the compact JSON array [runId, stepScope, toolId] with the model's call id appended for a call a model asked for; stepScope is the step's own (its node id, a loop body's step with its iteration, a fanout branch). Absent from a runtime that can't name its steps."
+          "description": "The call's idempotency key (protocol 2.6.0): the same every time this call runs (a resume after a wait, a retry after a failure, a re-run after a crash), different for every other call. A tool that changes something passes it to the system it writes to, or looks for it there first. A version 5 UUID (RFC 9562, SHA-1) under the namespace a70d5bff-e713-4322-b2ea-9d5c4926a861, over the UTF-8 bytes of the JSON array [runId, stepScope, toolId] (with the model's call id appended for a call a model asked for) as JSON.stringify writes it: no whitespace, and characters beyond ASCII as themselves, never as \\u escapes (Python: json.dumps(parts, separators=(',', ':'), ensure_ascii=False)); stepScope is the step's own (its node id, a loop body's step with its iteration, a fanout branch). Absent from a runtime that can't name its steps."
         },
         "env": {
           "type": "object",
