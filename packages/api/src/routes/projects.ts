@@ -105,7 +105,10 @@ export function projectsRouter(
     role: ProjectRole,
   ): Promise<
     | { readonly kind: 'done'; readonly outcome: ProjectMembershipUpdateRoleOutcome }
-    | { readonly kind: 'refused'; readonly error: ReturnType<typeof membershipNotKeptInStepError> }
+    | {
+        readonly kind: 'refused';
+        readonly error: { readonly code: string; readonly message: string };
+      }
   > {
     if (authorizer === undefined) {
       return {
@@ -122,6 +125,9 @@ export function projectsRouter(
       userId,
       role,
     });
+    if (res.kind === 'err' && res.error.code === 'site-person-grants-managed') {
+      return { kind: 'refused', error: { code: res.error.code, message: res.error.message } };
+    }
     if (res.kind === 'err') throw new Error(res.error.message, { cause: res.error });
     return { kind: 'done', outcome: res.value };
   }
@@ -482,6 +488,10 @@ export function projectsRouter(
       c.status(statusFor('membership-exists') as never);
       return c.json(toWireError(membershipExistsError(role), requestId));
     };
+    const managed = (message: string) => {
+      c.status(statusFor('site-person-grants-managed') as never);
+      return c.json(toWireError({ code: 'site-person-grants-managed', message }, requestId));
+    };
     const projectGone = () => {
       c.status(statusFor('project-not-found') as never);
       return c.json(
@@ -508,6 +518,7 @@ export function projectsRouter(
       if (res.kind === 'err') {
         if (res.error.code === 'project-not-found') return projectGone();
         if (res.error.code === 'membership-exists') return exists(res.error.role);
+        if (res.error.code === 'site-person-grants-managed') return managed(res.error.message);
         throw new Error(res.error.message, { cause: res.error });
       }
     } else {

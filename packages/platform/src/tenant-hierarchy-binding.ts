@@ -88,6 +88,14 @@ export type AddTeamMemberError =
       readonly message: string;
       readonly role: TeamRole;
     }
+  | {
+      /**
+       * A person a site signs in (`createdBy: site:<id>`): they hold only
+       * the grants their site's sign-in writes, never one given here.
+       */
+      readonly code: 'site-person-grants-managed';
+      readonly message: string;
+    }
   | { readonly code: 'add-failed'; readonly message: string; readonly cause?: unknown };
 
 export type AddProjectMemberError =
@@ -101,6 +109,14 @@ export type AddProjectMemberError =
       readonly code: 'membership-exists';
       readonly message: string;
       readonly role: ProjectRole;
+    }
+  | {
+      /**
+       * A person a site signs in (`createdBy: site:<id>`): they hold only
+       * the grants their site's sign-in writes, never one given here.
+       */
+      readonly code: 'site-person-grants-managed';
+      readonly message: string;
     }
   | { readonly code: 'add-failed'; readonly message: string; readonly cause?: unknown };
 
@@ -165,7 +181,12 @@ export interface DeleteTeamParams {
 
 /** A membership change that couldn't be written (the row and its tuple both left as they were). */
 export interface MembershipWriteError {
-  readonly code: 'write-failed';
+  /**
+   * `write-failed`: the row and its tuple couldn't be changed together.
+   * `site-person-grants-managed`: the person is one a site signs in, who
+   * holds only the grants their site's sign-in writes.
+   */
+  readonly code: 'write-failed' | 'site-person-grants-managed';
   readonly message: string;
   readonly cause?: unknown;
 }

@@ -153,6 +153,10 @@ export function reviewersRouter(
       role: parsed.value.role,
       ...(parsed.value.displayName !== undefined && { displayName: parsed.value.displayName }),
     });
+    if (outcome.kind === 'refused') {
+      c.status(statusFor(outcome.code) as never);
+      return c.json(toWireError({ code: outcome.code, message: outcome.message }, requestId));
+    }
     c.status(201);
     return c.json(serializeReviewer(outcome.reviewer));
   });

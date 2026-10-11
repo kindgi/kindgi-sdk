@@ -2153,7 +2153,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '201': { description: 'Reviewer registered.', schema: ref('Reviewer') },
       ...CommonMutationErrors,
       '403': ErrorResponse(
-        'With authorization enforced, the caller is not an admin of the tenant.',
+        "With authorization enforced, the caller is not an admin of the tenant; or the person is one a site signs in, whose reviewer role is their site's to give (`site-person-grants-managed`).",
       ),
     },
   },
@@ -5871,7 +5871,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '200': { description: "The person's grants, after.", schema: ref('PersonGrants') },
       ...CommonMutationErrors,
-      '403': ErrorResponse('Not a tenant admin.'),
+      '403': ErrorResponse(
+        "Not a tenant admin; or the person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
+      ),
       '404': ErrorResponse('No user with that id under this tenant (`identity-user-not-found`).'),
       '409': ErrorResponse(
         'The person was removed from the tenant (`identity-user-unregistered`), or an idempotency conflict.',
@@ -6666,6 +6668,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Membership added.', schema: ref('AddTeamMembershipResult') },
       ...CommonMutationErrors,
+      '403': ErrorResponse(
+        "The person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
+      ),
       '404': ErrorResponse(
         'No team with that id under this tenant (`team-not-found`), or the person named is not a member of this tenant (`identity-user-not-found`).',
       ),
@@ -6736,6 +6741,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '204': { description: 'Role updated. No body.' },
       ...CommonMutationErrors,
+      '403': ErrorResponse(
+        "The person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
+      ),
       '404': ErrorResponse(
         'No membership for that (team, user) pair, or no such team under this tenant.',
       ),
@@ -7364,6 +7372,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
         schema: ref('AddProjectMembershipResult'),
       },
       ...CommonMutationErrors,
+      '403': ErrorResponse(
+        "The person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
+      ),
       '404': ErrorResponse(
         'No project with that id under this tenant (`project-not-found`), or the person named is not a member of this tenant (`identity-user-not-found`).',
       ),
@@ -7555,6 +7566,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '204': { description: 'Role updated. No body.' },
       ...CommonMutationErrors,
+      '403': ErrorResponse(
+        "The person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
+      ),
       '404': ErrorResponse(
         'No membership for that (project, user) pair, or no such project under this tenant.',
       ),

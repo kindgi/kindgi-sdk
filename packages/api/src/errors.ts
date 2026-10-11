@@ -330,6 +330,9 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // `POST /v1/auth/site-sign-in`: a statement refused; `details.reason` says why.
   'site-sign-in-refused': 401,
   'site-request-too-large': 413,
+  // A grant, membership or reviewer role given to a person a site signs in:
+  // they hold only what their site's sign-in writes.
+  'site-person-grants-managed': 403,
   // `POST /v1/auth/token-sign-in` signed in by a session (a cookie or a
   // session token) rather than an API token: there's nothing to exchange.
   'token-sign-in-needs-an-api-token': 400,

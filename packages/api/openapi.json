@@ -409,6 +409,7 @@
           "site-key-invalid": 400,
           "site-sign-in-refused": 401,
           "site-request-too-large": 413,
+          "site-person-grants-managed": 403,
           "token-sign-in-needs-an-api-token": 400,
           "redirect-uri-not-allowed": 400,
           "redirect-uri-mismatch": 400,
@@ -24049,7 +24050,7 @@
             }
           },
           "403": {
-            "description": "With authorization enforced, the caller is not an admin of the tenant.",
+            "description": "With authorization enforced, the caller is not an admin of the tenant; or the person is one a site signs in, whose reviewer role is their site's to give (`site-person-grants-managed`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -39998,7 +39999,7 @@
             }
           },
           "403": {
-            "description": "Not a tenant admin.",
+            "description": "Not a tenant admin; or the person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -42187,6 +42188,16 @@
               }
             }
           },
+          "403": {
+            "description": "The person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No team with that id under this tenant (`team-not-found`), or the person named is not a member of this tenant (`identity-user-not-found`).",
             "content": {
@@ -42347,6 +42358,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -44116,6 +44137,16 @@
               }
             }
           },
+          "403": {
+            "description": "The person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "No project with that id under this tenant (`project-not-found`), or the person named is not a member of this tenant (`identity-user-not-found`).",
             "content": {
@@ -44825,6 +44856,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The person is one a site signs in, who holds only the grants their site's sign-in writes (`site-person-grants-managed`).",
             "content": {
               "application/json": {
                 "schema": {

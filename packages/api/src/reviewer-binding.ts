@@ -97,10 +97,17 @@ export interface ReviewerPage {
   readonly nextCursor?: Cursor;
 }
 
-export type ReviewerRegisterOutcome = {
-  readonly kind: 'ok';
-  readonly reviewer: ReviewerRecord;
-};
+export type ReviewerRegisterOutcome =
+  | {
+      readonly kind: 'ok';
+      readonly reviewer: ReviewerRecord;
+    }
+  | {
+      /** A person a site signs in: their reviewer role is their site's to give. */
+      readonly kind: 'refused';
+      readonly code: 'site-person-grants-managed';
+      readonly message: string;
+    };
 
 export type ReviewerUnregisterOutcome = {
   readonly unregistered: boolean;
