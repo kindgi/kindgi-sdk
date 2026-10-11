@@ -50,6 +50,7 @@ Today's engine for sending the requests is the [AI SDK](https://ai-sdk.dev)'s pr
 - `providerOptions?(model)`: provider options on every call (Azure: `{ azure: { store: false } }`);
 - `cost(model, usage)`: the adapter's cost formula;
 - `attempts?`: HTTP attempts in all on a retryable failure (default 3);
+- `fetch?`: the fetch each attempt goes through, for an endpoint the registration chose: the runtime's (`AdapterFactoryInput.fetch`, which refuses the hosts its deployment forbids). Default: the global `fetch`;
 - `beforeAttempt?(signal)`: run before each HTTP attempt, inside the retries, with the call's abort signal. An adapter signs in here (a token, a key, the runtime's identity) when its library would report a failure as a plain error, and throws a `ModelProviderError`. What it returns is that attempt's own: the adapter's code the library calls during the attempt (a credential provider, a fetch wrapper) reads it with `attemptPrepared()`, and calls running at once never see each other's;
 - `explain?(error)`: a sentence after a failed call's message, where the vendor's words don't say what to check (Bedrock's 403). The kind, status and attempts stay as they are.
 

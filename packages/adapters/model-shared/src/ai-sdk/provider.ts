@@ -63,6 +63,12 @@ export interface AiSdkModelProviderOptions {
   /** HTTP attempts in all on a retryable failure (408, 409, 429, 5xx, network). Default 3. */
   readonly attempts?: number;
   /**
+   * The fetch each HTTP attempt goes through, counted. For an endpoint the registration
+   * chose, the runtime's (`AdapterFactoryInput.fetch`, which refuses the hosts its deployment
+   * forbids). Default: the global `fetch`.
+   */
+  readonly fetch?: typeof globalThis.fetch;
+  /**
    * Run before each HTTP attempt, inside the retries, with the call's abort signal: where an
    * adapter signs in (the runtime's identity, a key) itself, so a failure is typed by the adapter
    * rather than by its library. What it returns is this attempt's own (`attemptPrepared()`), for
@@ -96,7 +102,7 @@ const ourName = (name: string) => name.replace(/__/g, '.');
 export function createAiSdkModelProvider(options: AiSdkModelProviderOptions): ModelProvider {
   const { metadata } = options;
   const models = new Map(metadata.models.map((m) => [m.name, m] as const));
-  const counter = createAttemptCounter();
+  const counter = createAttemptCounter(options.fetch);
   const built = new Map<string, LanguageModelV4>();
   const lm = (name: string) => {
     let model = built.get(name);
