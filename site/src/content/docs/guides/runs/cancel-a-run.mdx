@@ -50,10 +50,46 @@ A cancel takes effect at once, wherever the run is:
 - **A step that ends as it lands keeps its end.** Its `step.completed` comes
   after `run.cancelled` in the journal: it did finish.
 
-{/* The journal's tail after a flow cancelled mid-loop, and the waiting start's 422: captures from the release head follow. */}
+Here a flow running a loop over 2,000 orders, each answered by an agent,
+was cancelled twice. The first time, the turn for order A-1012 was running:
+the cancel stopped it, and the journal ends at the cancel:
 
-The step that was running the loop has no end of its own: `run.cancelled`
-ends it, as it ends a run waiting for an approval.
+```json
+{"sequence": 77, "kind": "step.started", "nodeId": "answer", "payload": {"input": "A-1012", …}, …}
+{"sequence": 78, "kind": "run.cancelled", "payload": {}, …}
+```
+
+The second time, the turn for A-1030 finished as the cancel landed. Its end
+follows `run.cancelled`, and nothing starts after it:
+
+```json
+{"sequence": 185, "kind": "step.started", "nodeId": "answer", "payload": {"input": "A-1030", …}, …}
+{"sequence": 186, "kind": "run.cancelled", "payload": {}, …}
+{"sequence": 187, "kind": "step.completed", "nodeId": "answer", "payload": {"output": {"text": "You said: \"A-1030\"", …}, …}, …}
+{"sequence": 188, "kind": "edge.evaluated", "payload": {"to": "$end", "from": "answer", "edgeId": "b1", "decision": true, …}, …}
+{"sequence": 189, "kind": "iteration.completed", "nodeId": "each", "payload": {…, "iteration": 30, …}, …}
+```
+
+A step that was running when the run was cancelled, such as the loop itself
+or A-1012's step, has no end of its own: `run.cancelled` ends it, as it ends
+a run waiting for an approval.
+
+An agent turn started with `wait: true`, and cancelled while its model call
+ran, answers the waiting start with:
+
+```json
+{
+  "error": {
+    "code": "agent-turn-aborted",
+    "message": "Agent turn cancelled",
+    "details": {
+      "reason": "external",
+      "runId": "8619fb26-6370-48df-b9bc-01bcd91602b6"
+    },
+    "requestId": "req-fb51fd31-fe44-4a44-ad97-88baa95a23e4"
+  }
+}
+```
 
 ## From your app
 
