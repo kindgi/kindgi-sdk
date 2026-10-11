@@ -663,6 +663,7 @@ function validateConversationPolicy(policy?: ConversationPolicy): Issue[] {
         message: 'hitl.defaultReviewerRole must be one of: standard, senior, admin',
       });
     }
+    out.push(...validateSeparateApprover(h.separateApprover));
     const MODES: ReadonlySet<string> = new Set(['never_ask', 'ask_on_first_use', 'always_ask']);
     if (h.tools?.default !== undefined && !MODES.has(h.tools.default)) {
       out.push({
@@ -687,6 +688,49 @@ function validateConversationPolicy(policy?: ConversationPolicy): Issue[] {
           out.push({
             path: `/conversationPolicy/hitl/tools/overrides/${toolId}/requiredRole`,
             message: 'override requiredRole must be one of: standard, senior, admin',
+          });
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/** `hitl.separateApprover`: a boolean, or `{ default?: boolean, overrides?: { [toolId]: boolean } }`. */
+function validateSeparateApprover(value: unknown): Issue[] {
+  if (value === undefined || typeof value === 'boolean') return [];
+  const at = '/conversationPolicy/hitl/separateApprover';
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return [
+      { path: at, message: 'hitl.separateApprover must be true, false, or { default, overrides }' },
+    ];
+  }
+  const out: Issue[] = [];
+  const { default: all, overrides, ...rest } = value as Record<string, unknown>;
+  for (const key of Object.keys(rest)) {
+    out.push({
+      path: `${at}/${key}`,
+      message: 'hitl.separateApprover takes only default and overrides',
+    });
+  }
+  if (all !== undefined && typeof all !== 'boolean') {
+    out.push({
+      path: `${at}/default`,
+      message: 'hitl.separateApprover.default must be true or false',
+    });
+  }
+  if (overrides !== undefined) {
+    if (overrides === null || typeof overrides !== 'object' || Array.isArray(overrides)) {
+      out.push({
+        path: `${at}/overrides`,
+        message: 'hitl.separateApprover.overrides maps tool ids to true or false',
+      });
+    } else {
+      for (const [toolId, four] of Object.entries(overrides)) {
+        if (typeof four !== 'boolean') {
+          out.push({
+            path: `${at}/overrides/${toolId}`,
+            message: 'a separateApprover override must be true or false',
           });
         }
       }

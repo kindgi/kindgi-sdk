@@ -149,6 +149,40 @@ status_agent = Agent(
 An agent without `hitl.tools` has no tool gates, unless your tenant has
 [approval rules](../approval-rules-for-every-agent/).
 
+### Someone other than whoever asked
+
+**A tool call's approval names who asked:** the person the turn runs for, in
+`requestedBy` (`user:<id>`, or `service_account:<id>` for an app's key). It
+stays the same when someone else's decision resumes the turn.
+
+**By default, that person may approve it too.** `hitl.separateApprover`
+makes the approval need someone else (four eyes):
+
+- **`true`** applies to every gated tool.
+- **Per tool,** set `overrides`, keyed by tool id as in `tools`. An optional
+  `default` covers the tools you don't name.
+
+```ts
+conversationPolicy: {
+  hitl: {
+    tools: { overrides: { 'acme-ops.post-update': 'always_ask' } },
+    separateApprover: { overrides: { 'acme-ops.post-update': true } },
+  },
+},
+```
+
+(In Python, `conversation_policy` takes the same keys, `"separateApprover"`
+included.)
+
+**When four eyes is on:**
+- The person who asked isn't offered **Approve**.
+- The API refuses their approve with `separate-approver-required`.
+- They may still reject their own request.
+- A turn that's already waiting keeps the rule it parked with.
+
+**The money and store-changing tools of the `woocommerce` template** turn
+it on.
+
 ## Become a reviewer
 
 Approvals are decided by **reviewers**. Under `kindgi dev` you're one already,

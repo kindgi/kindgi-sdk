@@ -249,6 +249,18 @@ export interface HitlEnqueueInput {
   readonly subjectKind: string;
   readonly subjectRef: Readonly<Record<string, unknown>>;
   readonly requiredRole?: 'standard' | 'senior' | 'admin';
+  /**
+   * Who asked: the person the turn runs for (`user:<id>`,
+   * `service_account:<id>` or `system:<id>`), the same when another
+   * person's decision resumes it. Absent when the turn runs for no one.
+   */
+  readonly requestedBy?: string;
+  /**
+   * Four eyes: the person who asked (`requestedBy`) may not approve it.
+   * From the agent's `conversationPolicy.hitl.separateApprover`; absent =
+   * `false`.
+   */
+  readonly separateApprover?: boolean;
   readonly title?: string;
   readonly description?: string;
   readonly context?: Readonly<Record<string, unknown>>;

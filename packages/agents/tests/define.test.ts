@@ -259,3 +259,49 @@ describe('defineAgent — hitl.onTimeout', () => {
     }
   });
 });
+
+describe('defineAgent — hitl.separateApprover', () => {
+  const withFourEyes = (separateApprover: unknown) =>
+    defineAgent({
+      ...baseSpec,
+      conversationPolicy: { hitl: { separateApprover } },
+    } as unknown as Parameters<typeof defineAgent>[0]);
+
+  test.each([
+    ['true', true],
+    ['false', false],
+    ['per tool', { overrides: { 'acme.woo.refund-large': true, 'acme.woo.find-orders': false } }],
+    ['a default and overrides', { default: true, overrides: { 'acme.woo.find-orders': false } }],
+  ])('%s is accepted', (_what, value) => {
+    expect(withFourEyes(value).kind).toBe('ok');
+  });
+
+  test.each([
+    ['a string', 'yes', '/conversationPolicy/hitl/separateApprover'],
+    ['a list', ['acme.pay'], '/conversationPolicy/hitl/separateApprover'],
+    [
+      'a default that is not a boolean',
+      { default: 'on' },
+      '/conversationPolicy/hitl/separateApprover/default',
+    ],
+    [
+      'overrides that are not a map',
+      { overrides: ['acme.pay'] },
+      '/conversationPolicy/hitl/separateApprover/overrides',
+    ],
+    [
+      'an override that is not a boolean',
+      { overrides: { 'acme.pay': 'always' } },
+      '/conversationPolicy/hitl/separateApprover/overrides/acme.pay',
+    ],
+    [
+      'an unknown key',
+      { tools: { 'acme.pay': true } },
+      '/conversationPolicy/hitl/separateApprover/tools',
+    ],
+  ])('%s is refused, at its path', (_what, value, path) => {
+    const r = withFourEyes(value);
+    expect(r.kind).toBe('err');
+    if (r.kind === 'err') expect(r.error.issues.map((i) => i.path)).toContain(path);
+  });
+});
