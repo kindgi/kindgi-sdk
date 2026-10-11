@@ -85,13 +85,14 @@ function makeBinding() {
   const retiring: SystemDeploymentToRetire[] = [];
   const binding: SystemDeploymentsBinding = {
     async listNeedingEndpoint({ cursor, limit }) {
+      if (cursor !== undefined && !/^\d+$/.test(cursor)) return { kind: 'cursor-unreadable' };
       const start = cursor === undefined ? 0 : Number(cursor);
       const data = needing.slice(start, start + limit);
       const next = start + limit < needing.length ? String(start + limit) : undefined;
-      return { data, ...(next !== undefined && { nextCursor: next }) };
+      return { kind: 'ok', data, ...(next !== undefined && { nextCursor: next }) };
     },
     async listToRetire() {
-      return { data: retiring };
+      return { kind: 'ok', data: retiring };
     },
     async setEndpoint(input) {
       set.push(input);
@@ -232,6 +233,18 @@ describe('GET /v1/system/deployments', () => {
     const data = r.body.data as Record<string, unknown>[];
     expect(data[0]).toMatchObject({ packId: 'acme.aperture', projectId: project });
     expect('projectId' in (data[1] as object)).toBe(false);
+  });
+
+  test('a cursor the binding never gave: 400, start again without it', async () => {
+    const { call } = makeApp();
+    const r = await call(
+      ORCHESTRATOR,
+      'GET',
+      '/v1/system/deployments?endpoint=missing&cursor=forged',
+    );
+    expect(r.status).toBe(400);
+    expect(code(r)).toBe('bad-input');
+    expect((r.body.error as { message: string }).message).toContain('start again without it');
   });
 
   test('retire: each entry with its reason', async () => {
@@ -598,6 +611,34 @@ describe('PUT …/endpoint/problem', () => {
 });
 
 describe('PUT …/suspended (the pack)', () => {
+  test("a closing tenant's pack: 409 tenant-closing; a suspended tenant's pack can still be suspended or restored", async () => {
+    const { call, deployments } = makeApp();
+    deployments.add(closing, 'dep-c');
+    deployments.add(suspended, 'dep-s');
+    const refused = await call(
+      SUPPORT,
+      'PUT',
+      `/v1/system/tenants/${closing}/deployments/dep-c/suspended`,
+      {
+        suspended: true,
+      },
+    );
+    expect(refused.status).toBe(409);
+    expect(code(refused)).toBe('tenant-closing');
+    expect(deployments.suspendedPacks.has(deployments.key(closing, 'dep-c'))).toBe(false);
+    for (const on of [true, false]) {
+      const r = await call(
+        SUPPORT,
+        'PUT',
+        `/v1/system/tenants/${suspended}/deployments/dep-s/suspended`,
+        {
+          suspended: on,
+        },
+      );
+      expect(r.status, String(on)).toBe(200);
+    }
+  });
+
   test('suspends and restores, with a reason for the record', async () => {
     const { call, deployments } = makeApp();
     deployments.add(live, 'dep-1');

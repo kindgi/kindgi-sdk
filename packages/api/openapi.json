@@ -25624,7 +25624,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "description": "The tenant is closing (`tenant-closing`): closing is one-way, and its deployments already list to retire.",
             "content": {
               "application/json": {
                 "schema": {
@@ -25654,7 +25654,7 @@
             }
           }
         },
-        "description": "Suspended, the pack's calls fail closed (`pack-suspended`), never going to an older deployment of the same tool version; its endpoint can't be set again; and it lists to retire as `pack-suspended`. Restored, it lists as needing a pack service again. Nothing is deleted. Takes `system:suspend`, which the orchestrator's key doesn't hold; `system:deployments` is refused.",
+        "description": "Suspended, the pack's calls fail closed (`pack-suspended`), never going to an older deployment of the same tool version; its endpoint can't be set again; and it lists to retire as `pack-suspended`. Restored, it lists as needing a pack service again. Nothing is deleted. Refused for a closing tenant; a suspended tenant's pack can still be suspended or restored. Takes `system:suspend`, which the orchestrator's key doesn't hold; `system:deployments` is refused.",
         "parameters": [
           {
             "name": "tenantId",

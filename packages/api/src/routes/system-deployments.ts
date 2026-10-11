@@ -68,11 +68,19 @@ export interface SystemDeploymentToRetire extends SystemDeploymentEntry {
   readonly reason: SystemDeploymentRetireReason;
 }
 
-export interface SystemDeploymentPage<T> {
-  readonly data: readonly T[];
-  /** Absent on the last page. */
-  readonly nextCursor?: string;
-}
+/**
+ * One page across tenants, or `cursor-unreadable` for a cursor the binding
+ * never issued (stale or tampered): the route answers it `400`, as every
+ * system list does.
+ */
+export type SystemDeploymentPage<T> =
+  | {
+      readonly kind: 'ok';
+      readonly data: readonly T[];
+      /** Absent on the last page. */
+      readonly nextCursor?: string;
+    }
+  | { readonly kind: 'cursor-unreadable' };
 
 /**
  * How the server calls a deployment's pack service:
@@ -242,6 +250,9 @@ export function systemDeploymentsRouter(
       want === 'missing'
         ? await binding.listNeedingEndpoint(page)
         : await binding.listToRetire(page);
+    if (result.kind === 'cursor-unreadable') {
+      return fail(c, badInput('`cursor` is not one this route gave: start again without it').error);
+    }
     return c.json({
       data: result.data.map((entry) => ({
         ...entryToWire(entry),
@@ -376,7 +387,9 @@ export function systemDeploymentsRouter(
       c,
       tenants,
       ref.value.tenantId,
-      { scope: SUSPEND, ...(authorizer && { authorizer }) },
+      // Closing is one-way: its deployments already list to retire, and the
+      // only system write that still reaches it is retiring them.
+      { scope: SUSPEND, refuse: ['closing'], ...(authorizer && { authorizer }) },
       async (tenant) => {
         const result = await binding.setSuspended({
           tenantId: tenant.id,

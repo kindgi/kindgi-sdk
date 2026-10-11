@@ -2530,7 +2530,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemDeployments.setSuspended',
     summary: "Suspend a deployment's pack, or restore it",
     description:
-      "Suspended, the pack's calls fail closed (`pack-suspended`), never going to an older deployment of the same tool version; its endpoint can't be set again; and it lists to retire as `pack-suspended`. Restored, it lists as needing a pack service again. Nothing is deleted. Takes `system:suspend`, which the orchestrator's key doesn't hold; `system:deployments` is refused.",
+      "Suspended, the pack's calls fail closed (`pack-suspended`), never going to an older deployment of the same tool version; its endpoint can't be set again; and it lists to retire as `pack-suspended`. Restored, it lists as needing a pack service again. Nothing is deleted. Refused for a closing tenant; a suspended tenant's pack can still be suspended or restored. Takes `system:suspend`, which the orchestrator's key doesn't hold; `system:deployments` is refused.",
     tags: ['system-deployments'],
     security: 'bearer',
     parameters: [SystemTenantIdPathParam, SystemDeploymentIdPathParam, IdempotencyKeyParam],
@@ -2544,6 +2544,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ),
       '404': ErrorResponse(
         'No such tenant (`tenant-not-found`), or no such deployment in it (`deployment-not-found`).',
+      ),
+      '409': ErrorResponse(
+        'The tenant is closing (`tenant-closing`): closing is one-way, and its deployments already list to retire.',
       ),
       '503': ErrorResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",

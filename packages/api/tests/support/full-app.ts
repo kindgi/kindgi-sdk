@@ -659,8 +659,8 @@ export function fullAppInput(): CreateAppInput {
     },
     systemDeployments: {
       binding: {
-        listNeedingEndpoint: async () => ({ data: [] }),
-        listToRetire: async () => ({ data: [] }),
+        listNeedingEndpoint: async () => ({ kind: 'ok', data: [] }),
+        listToRetire: async () => ({ kind: 'ok', data: [] }),
         setEndpoint: async () => {
           throw new Error('not used: no system principal in the sweeps');
         },
