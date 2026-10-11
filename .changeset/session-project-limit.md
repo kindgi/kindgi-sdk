@@ -8,7 +8,7 @@ A session can carry an API key's limits. A session store's `create` takes, and i
 
 A session limited to a project is held tighter than a key above its project. It takes no action on the tenant, an org or a team, reading included, so it can't read the tenant's settings. A key limited to a project keeps its rule, since its holder is its principal.
 
-Such a session also:
+A session with either limit also:
 - mints no keys (`403 limited-session-cannot-mint`);
 - isn't refreshed (`400 limited-session-not-refreshable`), so no copy of it comes back without its limits.
 

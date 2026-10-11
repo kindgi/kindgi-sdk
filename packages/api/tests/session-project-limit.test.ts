@@ -35,6 +35,8 @@ const P1 = randomUUID();
 const P2 = randomUUID();
 const EXPIRES = '2099-01-01T00:00:00.000Z' as Timestamp;
 const LIMITED_KEY = 'kgi_ak_test_limited';
+const RUN_IN_P1 = randomUUID();
+const RUN_IN_P2 = randomUUID();
 
 const noProviders: IdentityProviderBinding = {
   list: async () => ({ data: [] }),
@@ -68,8 +70,17 @@ function makeApp() {
   };
 
   // Everything is granted: what's refused below is the caller's own limit.
+  // `inProject` answers for the two runs, so a route that takes only a
+  // run's id is checked against the run's own project.
+  const runProject: Record<string, string> = {
+    [RUN_IN_P1]: P1,
+    [RUN_IN_P2]: P2,
+    'acme.agent-p1': P1,
+    'acme.agent-p2': P2,
+  };
   const asked: string[] = [];
   const authzCheckBinding: AuthzCheckBinding = {
+    inProject: async (_principal, resource, projectId) => runProject[resource.id] === projectId,
     check: async (principal, action, resource) => {
       asked.push(`${action} ${resource.type}`);
       return {
@@ -116,8 +127,35 @@ function makeApp() {
         }
       : null;
 
+  const stubs = createStubAppBindings();
+  const run = (runId: string) => ({
+    runId,
+    tenantId,
+    projectId: runProject[runId],
+    flowId: 'acme.flow',
+    flowVersion: '1.0.0',
+    status: 'completed',
+    input: {},
+    dryRun: false,
+    createdAt: EXPIRES,
+    updatedAt: EXPIRES,
+  });
   const app = createApp({
-    ...createStubAppBindings(),
+    ...stubs,
+    kernelBinding: {
+      ...stubs.kernelBinding,
+      run: {
+        ...stubs.kernelBinding.run,
+        getRun: async (_tenant: TenantId, runId: string) =>
+          runProject[runId] !== undefined ? run(runId) : null,
+      } as never,
+    },
+    // No agent is registered: a caller let through gets a 404.
+    agentRegistry: new Proxy({}, { get: () => async () => null }) as never,
+    // Neither exists: a caller let through gets a 404, a caller held back a 403.
+    orgBinding: { get: async () => undefined } as never,
+    teamBinding: { get: async () => undefined } as never,
+    teamMembershipBinding: {} as never,
     resolveToken,
     runHandler: {} as unknown as RunHandlerBinding,
     sessionStore,
@@ -188,11 +226,46 @@ describe('a session limited to a project', () => {
     );
   });
 
+  test.each([
+    ['an org', '/v1/orgs/acme-org'],
+    ['a team', '/v1/teams/acme-team'],
+  ])('reads not even %s, where a key limited the same way may', async (_what, path) => {
+    const h = makeApp();
+    const refused = await h.call(await h.session(limited), 'GET', path);
+    expect(refused.status).toBe(403);
+    expect((refused.body as ErrorBody).error.message).toContain('this session is limited');
+    expect((await h.call(LIMITED_KEY, 'GET', path)).status).toBe(404);
+  });
+
+  test("reads a run in its own project by the run's id, and not one in another", async () => {
+    const h = makeApp();
+    const token = await h.session(limited);
+    const own = await h.call(token, 'GET', `/v1/runs/${RUN_IN_P1}`);
+    expect(own.status).toBe(200);
+    expect(own.body).toMatchObject({ id: RUN_IN_P1, projectId: P1 });
+    expect((await h.call(token, 'GET', `/v1/runs/${RUN_IN_P2}`)).status).toBe(403);
+  });
+
+  test("is asked about an agent's own project, by the agent's id", async () => {
+    // An agent isn't a project, an org or a team: the store says which
+    // project it's in (`inProject`), as it does for a key's limit.
+    const h = makeApp();
+    const token = await h.session(limited);
+    expect((await h.call(token, 'GET', '/v1/agents/acme.agent-p1')).status).toBe(404);
+    expect((await h.call(token, 'GET', '/v1/agents/acme.agent-p2')).status).toBe(403);
+  });
+
   test('mints no key, even one limited to its own project', async () => {
     const h = makeApp();
     const res = await h.call(await h.session(limited), 'POST', '/v1/tokens', { projectId: P1 });
     expect(res.status).toBe(403);
     expect((res.body as ErrorBody).error.code).toBe('limited-session-cannot-mint');
+    expect(h.minted).toEqual([]);
+
+    // Nor does a session limited only by its role.
+    const roleOnly = await h.call(await h.session({ role: 'member' }), 'POST', '/v1/tokens', {});
+    expect(roleOnly.status).toBe(403);
+    expect((roleOnly.body as ErrorBody).error.code).toBe('limited-session-cannot-mint');
     expect(h.minted).toEqual([]);
 
     // A session without limits mints its person's own key, as before.
