@@ -17,7 +17,8 @@ import { defineConfig } from 'tsup';
  *   readSse) is bundled.
  */
 export default defineConfig({
-  entry: ['src/index.ts'],
+  // `sso-handoff` has no dependencies, so a browser app can take it alone.
+  entry: ['src/index.ts', 'src/sso-handoff.ts'],
   format: ['esm', 'cjs'],
   // Types are bundled by a separate dts-bundle-generator pass in the
   // build script — rollup-plugin-dts (tsup's dts step) can't resolve

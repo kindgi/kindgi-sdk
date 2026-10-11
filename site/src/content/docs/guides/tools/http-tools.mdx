@@ -233,6 +233,14 @@ check_token = http_tool(
 - `secretRef` names the secret and the environment it lives in. Under
   `kindgi dev`, `local` is the pack's `.env` and `.env.local`; any other name
   is that environment's file, `.env.<name>`.
+- A secret a header can't carry, such as a value pasted with a line break
+  inside it, fails the call by its header's name, never showing the value:
+
+  ```json
+  "message":"Tool \"acme.probe\" handler threw: http-tool \"acme.probe\": its secret local/K for the header \"X-Api-Key\" has a line break, which a header can't carry: store the secret without it"
+  ```
+
+  A trailing line break is fine: it's dropped, as HTTP drops it.
 
 Until the secret exists, the call fails and names it:
 

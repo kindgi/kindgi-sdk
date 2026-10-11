@@ -541,6 +541,49 @@ describe('a failed sign-in is auth, once, never retried', () => {
     }
   });
 
+  /** Everything an error carries, as a log would keep it: message, stack and causes. */
+  const everything = (error: unknown): string => {
+    const parts: string[] = [];
+    for (let c: unknown = error; c instanceof Error; c = c.cause)
+      parts.push(c.message, c.stack ?? '');
+    return parts.join('\n');
+  };
+
+  test("a key a header can't carry (a line break inside): auth, never quoted, no request sent", async () => {
+    const sent: Sent[] = [];
+    const err = await build(GOOD, {
+      fetch: capturingFetch(sent),
+      resolveApiKey: async () => 'canary-SECRET-one\nline-two',
+    })
+      .invoke(ask())
+      .catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(ModelProviderError);
+    expect(err).toMatchObject({
+      kind: 'auth',
+      message:
+        "The key secret_ref names has a line break, which a header can't carry: store the secret without it.",
+    });
+    expect(everything(err)).not.toContain('canary');
+    expect(sent).toEqual([]);
+  });
+
+  test("a token a header can't carry, inside it or leading (after `Bearer `): auth, never quoted, no request sent", async () => {
+    for (const token of [
+      'canary-TOKEN-one\nline-two',
+      '\ncanary-TOKEN-lead',
+      '\r\ncanary-TOKEN-lead',
+    ]) {
+      const sent: Sent[] = [];
+      const err = await entraWith(async () => ({ token }), sent)
+        .invoke(ask())
+        .catch((e: unknown) => e);
+      expect(err, JSON.stringify(token)).toMatchObject({ kind: 'auth' });
+      expect((err as Error).message).toContain("with a line break, which a header can't carry");
+      expect(everything(err)).not.toContain('canary');
+      expect(sent).toEqual([]);
+    }
+  });
+
   test('the key can’t be read, or is empty or blank: auth, no request sent', async () => {
     for (const resolveApiKey of [
       async () => {

@@ -6,7 +6,7 @@ import type { TupleEnqueueHook } from '@kindgi/authz';
 import { pickVersion } from '@kindgi/tools';
 import type { Cursor, ProjectId, TenantId, ToolId } from '@kindgi/types';
 
-import type { AgentRegistryBinding } from './agent-binding.js';
+import type { AgentRegistryBinding, AgentVersionRecord } from './agent-binding.js';
 import type { BlockRegistryBinding } from './block-binding.js';
 import { resolveBlockPins } from './block-pins.js';
 import { type DeployedVersionOutcome, deployVersion } from './deploy-versions.js';
@@ -112,17 +112,33 @@ export async function publishDeployedAgent(
   input: PublishDeployedAgentInput,
 ): Promise<DeployedVersionOutcome> {
   const { agents, tenantId, projectId, agent, pins, enqueueTuples } = input;
+  const existing = await activeAgentVersions(agents, tenantId, agent.id);
+  // An agent never moves, even by a deploy that writes nothing (an
+  // unchanged or reused version): one of another project is refused. A
+  // registry that doesn't record the project refuses only a write.
+  const held = existing[0];
+  if (held !== undefined) {
+    const record = await agents.getVersion({ tenantId, agentId: agent.id, version: held.version });
+    if (record?.projectId !== undefined && record.projectId !== projectId) {
+      throw new PublishRefused('agent', `${agent.id}@${agent.version}`, {
+        kind: 'project-mismatch',
+        agentId: agent.id,
+        version: agent.version,
+        projectId: record.projectId,
+      });
+    }
+  }
   return deployVersion<Agent>({
     label: `agent "${agent.id as unknown as string}"`,
     definition: agent,
     pins,
     pinsDigest: pinsDigest(pins),
-    existing: await activeAgentVersions(agents, tenantId, agent.id),
+    existing,
     publish: async (version) => {
       const outcome = await agents.publish({ tenantId, projectId, agent: version, enqueueTuples });
       if (outcome.kind === 'ok') return 'ok';
       if (outcome.kind === 'already-registered') return 'taken';
-      throw new PublishRefused('agent', `${agent.id}@${version.version}`, outcome.kind);
+      throw new PublishRefused('agent', `${agent.id}@${version.version}`, outcome);
     },
   });
 }
@@ -132,8 +148,8 @@ export async function activeAgentVersions(
   agents: AgentRegistryBinding,
   tenantId: TenantId,
   agentId: AgentId,
-): Promise<readonly Agent[]> {
-  const versions: Agent[] = [];
+): Promise<readonly AgentVersionRecord[]> {
+  const versions: AgentVersionRecord[] = [];
   let cursor: Cursor | undefined;
   do {
     const page = await agents.listVersions({

@@ -98,7 +98,7 @@ describe('reads the project env files', () => {
   });
 });
 
-describe('writes land in the highest-precedence file; nothing else changes', () => {
+describe("writes land in Kindgi's own file, which wins; nothing else changes", () => {
   const set = (
     b: ReturnType<typeof createDotenvSecretBinding>,
     name: string,
@@ -106,13 +106,13 @@ describe('writes land in the highest-precedence file; nothing else changes', () 
     writeMode: 'create-new' | 'add-version' = 'add-version',
   ) => b.set({ scope: SCOPE, envName: LOCAL, name, value, writeMode, enqueueTuples: HOOK });
 
-  test('set writes .env.local and leaves the host .env byte-identical', async () => {
+  test("set writes .kindgi/secrets.env and leaves the app's .env byte-identical", async () => {
     const hostEnv = '# app config\nDATABASE_URL="postgres://app"\nKEY=from-env\n';
     await put('.env', hostEnv);
     const b = createDotenvSecretBinding({ packDir: dir });
     expect((await set(b, 'KEY', 'override')).kind).toBe('ok');
     expect(await read('.env')).toBe(hostEnv);
-    expect(await read('.env.local')).toBe('KEY=override\n');
+    expect(await read('.kindgi/secrets.env')).toBe('KEY=override\n');
     expect(await resolved(b, 'KEY')).toBe('override');
   });
 
@@ -129,10 +129,20 @@ describe('writes land in the highest-precedence file; nothing else changes', () 
     expect(await resolved(b, 'TRICKY')).toBe(value);
   });
 
-  test('with dev.envFiles, the last file is the write target', async () => {
+  test("with dev.envFiles, a secret still goes to Kindgi's file; appEnvFile, to the last of them", async () => {
     const b = createDotenvSecretBinding({ packDir: dir, localEnvFiles: ['.env', '.env.dev'] });
     await set(b, 'K', 'v');
-    expect(await read('.env.dev')).toBe('K=v\n');
+    expect(await read('.kindgi/secrets.env')).toBe('K=v\n');
+    await b.set({
+      scope: SCOPE,
+      envName: LOCAL,
+      name: 'SHARED',
+      value: 's',
+      writeMode: 'create-new',
+      appEnvFile: true,
+      enqueueTuples: HOOK,
+    });
+    expect(await read('.env.dev')).toBe('SHARED=s\n');
   });
 
   test.each([

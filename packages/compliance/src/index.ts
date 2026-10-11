@@ -52,6 +52,7 @@ export type {
 export type {
   Classification,
   ComplianceClassifierFile,
+  ComplianceClassifierSource,
   LoadedClassifier,
 } from './classifier.js';
 

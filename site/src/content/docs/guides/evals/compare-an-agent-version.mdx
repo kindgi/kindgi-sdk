@@ -29,6 +29,10 @@ Under `kindgi dev`, saving the agent's file with `version: '0.2.0'` is
 enough: the test set keeps its copies of the 0.1.0 runs. On a runtime you
 deploy to, deploy the new version first.
 
+**Who may start one:** an editor of the test set's project (or anyone who
+may execute the test set), who may write to the project the run lands in
+and run its agent or flow.
+
 ```sh
 kindgi eval-runs start acme.article-picks --project=<project-id> --agent=acme-ops.article-picker --agent-version=0.2.0 --wait
 ```
@@ -245,6 +249,10 @@ the same tool with the same arguments.
 - **A replay never waits for an approval.** Where the past run's conversation
   was approved or rejected, the replay follows that decision; where there's
   no decision, the case says `approvalSkipped`.
+- **A replay runs for the past turn's end user.** An agent whose memory is
+  per end user (`same-user`) is offered the same tools as the past turn,
+  `kindgi_remember` included, which stores nothing in a replay. A replay's
+  conversation is never recalled later as an earlier conversation.
 
 **The replay runs** are ordinary runs, marked with `replayOf` (the past run)
 and `evalRunId`. Lists of runs leave them out: `kindgi runs list

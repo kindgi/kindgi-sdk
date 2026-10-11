@@ -371,6 +371,12 @@ To change a gate, publish a new version of the policy;
 to the one before. `kindgi agents gate-policy acme.order-desk --tenant` shows
 the policy that applies to a scope.
 
+With [authorization](../../../deploy/authorization/) on, publishing a gate
+policy takes `admin` on the tenant, and reading one takes `read` on its
+scope: its project (a segment's too), its org, or the tenant for a
+tenant-wide one. A policy you can't read is left out of lists, and answers
+`404 gate-policy-not-found`, as if it weren't there.
+
 With `onlyRestrictedClasses`, a comparison that counted every class is
 refused with
 `` The policy counts only restricted judge classes; the comparison counted every class. Re-run it with `classWeights: 'restricted-only'`. ``,

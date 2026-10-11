@@ -163,11 +163,11 @@ describe('kindgi memory facts (T238)', () => {
       'get',
       'fact-1',
       '--revision=2',
-      '--as-of=2026-10-06T00:00:00Z',
+      '--as-of=2026-10-06T02:00:00+02:00',
     ]);
-    expect(calls).toEqual([['read', 'fact-1', { version: 2, asOf: '2026-10-06T00:00:00Z' }]]);
-    const listed = await memory(['list', '--as-of=2026-10-06T00:00:00Z']);
-    expect(listed.calls).toEqual([['list', { asOf: '2026-10-06T00:00:00Z' }]]);
+    expect(calls).toEqual([['read', 'fact-1', { version: 2, asOf: '2026-10-06T00:00:00.000Z' }]]);
+    const listed = await memory(['list', '--as-of=2026-10-06']);
+    expect(listed.calls).toEqual([['list', { asOf: '2026-10-06T00:00:00.000Z' }]]);
   });
 
   test('supersede <fact-id> --input, with --expect-version', async () => {

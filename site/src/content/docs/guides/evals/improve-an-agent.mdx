@@ -67,8 +67,12 @@ minutes) and prints it:
 - **`proposed`**, with the proposal it wrote, which a reviewer decides
   (`kindgi proposals request <proposal-id>`, then the approval);
 - **`nothing-found`**, with why: no candidate beat the current version by
-  more than the noise (with the best one's numbers on the hold-out part), or
-  the best one is a change an existing proposal already holds;
+  more than the noise (with the best one's numbers on the hold-out part); the
+  best one is a change an existing proposal already holds; or nothing could
+  be measured, because no candidate's output had an item the test set's
+  judgments cover (a changed free-text answer is a new item no one has
+  judged), and then the reason also says if the pass ran out of budget
+  before comparing the rest;
 - **`failed`**, with the reason.
 
 A pass is `running`, then `completed`, `failed` or `cancelled`. Here a pass

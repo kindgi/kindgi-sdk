@@ -5,6 +5,7 @@ import type {
   ListPage,
   ServiceAccount,
   ServiceAccountGrant,
+  ServiceAccountGrantInput,
   ServiceAccountGrantTarget,
 } from '@kindgi/client';
 
@@ -26,11 +27,11 @@ import type { Command, LeafCommand } from './types.js';
  * keys: `kindgi tokens create --for=sa:<id>`. Tenant admins only.
  */
 
-const PROJECT_ROLES = ['viewer', 'editor', 'owner', 'admin', 'member'] as const;
+const PROJECT_ROLES = ['viewer', 'editor', 'owner', 'admin'] as const;
 type ProjectRole = (typeof PROJECT_ROLES)[number];
 
 /** `--project=<project-id>:<role>`, repeatable: project grants. */
-function projectGrants(ctx: CommandContext): ServiceAccountGrant[] {
+function projectGrants(ctx: CommandContext): ServiceAccountGrantInput[] {
   return listFlag(ctx, 'project').map((raw) => {
     const colon = raw.lastIndexOf(':');
     const projectId = raw.slice(0, colon);
@@ -94,7 +95,7 @@ const create: LeafCommand = {
     runSdk(ctx, 'service-accounts create', async () => {
       const name = requiredPositional(ctx, 0, 'name');
       const description = stringFlag(ctx, 'description');
-      const grants: ServiceAccountGrant[] = [
+      const grants: ServiceAccountGrantInput[] = [
         ...(ctx.options['tenant-admin'] === true ? [{ kind: 'tenant-admin' } as const] : []),
         ...(ctx.options['tenant-member'] === true ? [{ kind: 'tenant-member' } as const] : []),
         ...projectGrants(ctx),
@@ -159,7 +160,7 @@ function targetFlags(ctx: CommandContext): ServiceAccountGrantTarget {
 }
 
 /** A grant: `--tenant-admin`, `--tenant-member`, or `--project=<id>` with `--role`. */
-function grantFlags(ctx: CommandContext): ServiceAccountGrant {
+function grantFlags(ctx: CommandContext): ServiceAccountGrantInput {
   const target = targetFlags(ctx);
   if (target.kind !== 'project') return target;
   const role = stringFlag(ctx, 'role');

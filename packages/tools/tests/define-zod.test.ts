@@ -164,6 +164,28 @@ describe('defineTool — Zod-optional authoring surface', () => {
     if (bad.kind === 'err') expect(bad.error.code).toBe('input-validation-failed');
   });
 
+  test('a Zod union of scalars (type: [...] on the wire) in input and output compiles and validates', async () => {
+    const Value = z.union([z.string(), z.number(), z.boolean(), z.null()]);
+    const r = defineTool({
+      id: 'test.zod-scalar-union' as ToolId,
+      description: 'Echoes a scalar of any type.',
+      version: '1.0.0',
+      input: z.object({ value: Value }),
+      output: z.object({ value: Value }),
+      handler: async (input) => ({ value: input.value }),
+    });
+    if (r.kind !== 'ok') throw new Error(r.error.message);
+    expect(r.value.input).toMatchObject({
+      properties: { value: { type: ['string', 'number', 'boolean', 'null'] } },
+    });
+    for (const value of ['a', 1, true, null]) {
+      const out = await invokeTool(r.value, { value }, ctx());
+      expect(out, String(value)).toEqual({ kind: 'ok', value: { value } });
+    }
+    const bad = await invokeTool(r.value, { value: [1] }, ctx());
+    expect(bad.kind === 'err' && bad.error.code).toBe('input-validation-failed');
+  });
+
   test('unrepresentable Zod construct surfaces as invalid-schema at author time', () => {
     // z.function() has no direct JSON Schema representation.
     const r = defineTool({

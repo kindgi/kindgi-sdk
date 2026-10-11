@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/adapter-model-shared",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Shared plumbing for Kindgi's model adapters: retries with counted attempts, typed errors, the reasoning state across a pause, usage onto Kindgi's counters. Today's engine is the AI SDK's provider packages, behind one module.",
   "license": "Apache-2.0",
   "repository": {

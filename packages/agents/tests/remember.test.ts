@@ -202,27 +202,17 @@ describe('the remember tool in a turn', () => {
     });
   });
 
-  test('without an end user, same-user is the user the run acts for', async () => {
-    const turn = await rememberTurn({
-      policy: { types: ['preference'], scope: 'same-user', keepDays: 7 },
-      args: { type: 'preference', content: 'Likes short answers' },
-      principal: user('alice'),
-    });
-    expect(turn.writes[0]).toMatchObject({
-      scope: { tenantId, projectId, userId: 'alice' },
-      subjects: [{ kind: 'user', id: 'alice' }],
-      keepDays: 7,
-    });
-  });
-
-  test('with neither, nothing is stored and the model is told why', async () => {
-    const turn = await rememberTurn({
-      policy: { types: ['preference'], scope: 'same-user' },
-      args: { type: 'preference', content: 'Likes short answers' },
-    });
-    expect(turn.writes).toEqual([]);
-    expect(outputOf(turn)).toMatchObject({ status: 'not-remembered' });
-    expect(outputOf(turn).reason).toContain('no one to remember it for');
+  test('without an end user, same-user memory is not offered, even for a run acting for a user', async () => {
+    for (const principal of [user('alice'), undefined]) {
+      const turn = await rememberTurn({
+        policy: { types: ['preference'], scope: 'same-user', keepDays: 7 },
+        args: { type: 'preference', content: 'Likes short answers' },
+        ...(principal !== undefined && { principal }),
+      });
+      expect(turn.definitions.map((d) => d.name)).not.toContain(REMEMBER_TOOL_ID);
+      // A model that calls it anyway stores nothing.
+      expect(turn.writes).toEqual([]);
+    }
   });
 
   test("the model can't choose the scope: arguments outside the schema are refused", async () => {
@@ -308,7 +298,7 @@ describe('the remember tool in a turn', () => {
 describe('replay', () => {
   test('the tool changes memory: a replay never runs it live', async () => {
     const ctx = {
-      input: { agent: { id: 'acme.desk', version: '1.0.0', memory: {} } },
+      input: { agent: { id: 'acme.desk', version: '1.0.0', memory: {} }, participantId: 'end-7' },
       bindings: {},
     } as unknown as TurnContext;
     const tools = withRememberTool(
@@ -352,6 +342,13 @@ describe('where a remembered fact goes', () => {
     expect(rememberTarget('tenant', run)).toMatchObject({
       subjects: [{ kind: 'participant', id: 'end-7' }],
     });
+  });
+
+  test('same-user without an end user is refused, never kept for the user the run acts for', () => {
+    const { participantId: _none, ...noParticipant } = run;
+    const target = rememberTarget('same-user', noParticipant);
+    expect(target.kind).toBe('refused');
+    expect(target.kind === 'refused' && target.reason).toContain('names no end user');
   });
 
   test('same-project without a project is refused', () => {

@@ -40,6 +40,17 @@ const client = {
           flowId: 'agent.turn',
           createdAt: '2026-10-03T11:00:00.000Z',
         },
+        {
+          id: 'run-3',
+          status: 'completed',
+          flowId: 'agent.turn',
+          agent: {
+            id: 'acme.desk',
+            version: '1.2.0',
+            conversationId: 'c0ffee00-0000-4000-8000-000000000003',
+          },
+          createdAt: '2026-10-03T12:00:00.000Z',
+        },
       ],
       hasMore: true,
       nextCursor: 'c-2',
@@ -80,14 +91,16 @@ function run(...argv: string[]) {
 }
 
 describe('--table', () => {
-  test('runs list: a row per run; the next page cursor on stderr', async () => {
+  test('runs list: a row per run, an agent run by its agent; the next page cursor on stderr', async () => {
     const out = await run('runs', 'list', '--table');
     expect(out.exitCode).toBe(0);
+    // run-22 is an agent run from a runtime that doesn't name the agent yet: its flow, `agent.turn`.
     expect(out.stdout.split('\n')).toEqual([
-      'ID      STATUS     FLOW         CREATED',
-      '──────  ─────────  ───────────  ────────────────────────',
-      'run-1   completed  acme.review  2026-10-03T10:00:00.000Z',
-      'run-22  failed     agent.turn   2026-10-03T11:00:00.000Z',
+      'ID      STATUS     FLOW / AGENT     CREATED',
+      '──────  ─────────  ───────────────  ────────────────────────',
+      'run-1   completed  acme.review      2026-10-03T10:00:00.000Z',
+      'run-22  failed     agent.turn       2026-10-03T11:00:00.000Z',
+      'run-3   completed  acme.desk@1.2.0  2026-10-03T12:00:00.000Z',
       '',
     ]);
     expect(out.stderr).toBe('Next page: --cursor=c-2\n');

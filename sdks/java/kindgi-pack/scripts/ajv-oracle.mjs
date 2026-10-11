@@ -6,7 +6,7 @@
 // schema and value of the corpus (src/test/resources/ajv/corpus.json, plus
 // the derived schemas in src/test/resources/derive/golden.json) through
 // Ajv, configured as the TypeScript pack service configures it (Ajv 2020,
-// strict, allErrors, ajv-formats), and writes Ajv's verdicts and issues to
+// strict, allErrors, allowUnionTypes, ajv-formats), and writes Ajv's verdicts and issues to
 // src/test/resources/ajv/oracle.json. The Java test (AjvOracleTest) requires
 // the same verdicts and the same issues.
 //
@@ -32,7 +32,7 @@ const corpus = JSON.parse(readFileSync(join(resources, 'corpus.json'), 'utf8'));
 // one in strict mode, and corpus cases name them with "schemaFrom".
 const derived = JSON.parse(readFileSync(join(resources, '..', 'derive', 'golden.json'), 'utf8'));
 for (const [name, schema] of Object.entries(derived)) {
-  const ajv = new Ajv2020({ strict: true, allErrors: true });
+  const ajv = new Ajv2020({ strict: true, allErrors: true, allowUnionTypes: true });
   addFormats(ajv);
   try {
     ajv.compile(schema);
@@ -45,7 +45,7 @@ const oraclePath = join(resources, 'oracle.json');
 
 const cases = [];
 for (const entry of corpus.cases) {
-  const ajv = new Ajv2020({ strict: true, allErrors: true });
+  const ajv = new Ajv2020({ strict: true, allErrors: true, allowUnionTypes: true });
   addFormats(ajv);
   const schema = entry.schemaFrom ? derived[entry.schemaFrom] : entry.schema;
   if (!schema) throw new Error(`${entry.name}: no derived schema ${entry.schemaFrom}`);

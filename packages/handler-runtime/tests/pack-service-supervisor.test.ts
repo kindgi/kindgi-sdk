@@ -10,7 +10,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -156,6 +156,53 @@ function alive(pid: number): boolean {
   }
 }
 
+describe('createPackServiceSupervisor — a command worked out at every start', () => {
+  test('a function command is called before each start, and its argv runs', async () => {
+    const index = await writePack({
+      'cwd.mjs': 'export async function handler() { return { cwd: process.cwd() }; }',
+    });
+    let calls = 0;
+    const running = await supervisor({}, [], [], {
+      command: async () => {
+        calls += 1;
+        return [process.execPath, entrypoint];
+      },
+    });
+    expect((await running.supervisor.start(index)).kind).toBe('ok');
+    expect((await running.supervisor.start(index)).kind).toBe('ok');
+    expect(calls).toBe(2);
+  });
+
+  test('its rejection fails that start, with its message; the serving child keeps serving', async () => {
+    const index = await writePack({
+      'cwd.mjs': 'export async function handler() { return { cwd: process.cwd() }; }',
+    });
+    let fail = false;
+    const running = await supervisor({}, [], [], {
+      command: async () => {
+        if (fail) throw new Error('no sandbox for this start');
+        return [process.execPath, entrypoint];
+      },
+    });
+    expect((await running.supervisor.start(index)).kind).toBe('ok');
+    fail = true;
+    expect(await running.supervisor.start(index)).toEqual({
+      kind: 'err',
+      error: { problems: ['no sandbox for this start'] },
+    });
+    expect(await output(running, 'cwd')).toMatchObject({ cwd: expect.any(String) });
+  });
+
+  test('cwd: the child runs there', async () => {
+    const index = await writePack({
+      'cwd.mjs': 'export async function handler() { return { cwd: process.cwd() }; }',
+    });
+    const running = await supervisor({}, [], [], { cwd: dir });
+    expect((await running.supervisor.start(index)).kind).toBe('ok');
+    expect(await output(running, 'cwd')).toEqual({ cwd: await realpath(dir) });
+  });
+});
+
 describe('createPackServiceSupervisor — children', () => {
   test('pack code sees exactly the environment it is given — not the service token', async () => {
     process.env.PARENT_SENTINEL = 'must-not-leak';
@@ -164,17 +211,25 @@ describe('createPackServiceSupervisor — children', () => {
         'env.mjs':
           'export async function handler() { return { names: Object.keys(process.env).sort() }; }',
       });
-      const running = await supervisor({ DATABASE_URL: 'postgres://pack-db' });
+      // As `kindgi dev` gives it: the app's env files, with the filter off
+      // (an undeclared name like this one reaches the pack's code).
+      const running = await supervisor({
+        DATABASE_URL: 'postgres://pack-db',
+        KINDGI_PACK_ENV_FILTER: 'off',
+      });
       expect((await running.supervisor.start(index)).kind).toBe('ok');
       const { names } = (await output(running, 'env')) as { names: string[] };
       expect(names).toContain('DATABASE_URL');
       expect(names).not.toContain('PARENT_SENTINEL');
       // The token authenticates the service's callers; the service takes
-      // it out of the environment before it loads the pack's code. The one
-      // KINDGI_ name left is the supervisor's: the service writes JSON
-      // records for it to read.
+      // it out of the environment before it loads the pack's code. The
+      // KINDGI_ names left are the supervisor's: the service writes JSON
+      // records for it to read, and keeps every name.
       expect(names).not.toContain('KINDGI_PACK_SERVICE_TOKEN');
-      expect(names.filter((n) => n.startsWith('KINDGI_'))).toEqual(['KINDGI_LOG_FORMAT']);
+      expect(names.filter((n) => n.startsWith('KINDGI_'))).toEqual([
+        'KINDGI_LOG_FORMAT',
+        'KINDGI_PACK_ENV_FILTER',
+      ]);
     } finally {
       Reflect.deleteProperty(process.env, 'PARENT_SENTINEL');
     }
