@@ -14,6 +14,9 @@ import type {
 } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
+import type { Authorizer } from '../middleware/authorize.js';
+import { withholdFromReplay } from '../middleware/idempotency.js';
+import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
 import type { AppEnv } from '../types.js';
 import {
   WEBHOOK_DELIVERY_STATUSES,
@@ -30,6 +33,7 @@ import {
 } from '../webhook-endpoint-binding.js';
 import { clampLimit } from './pagination.js';
 import { parseSecretRef } from './secret-ref.js';
+import { tenantAdminAccess } from './tenant-access.js';
 
 const MAX_URL_LENGTH = 2048;
 const MAX_DESCRIPTION_LENGTH = 500;
@@ -41,8 +45,22 @@ const MAX_FLOW_ID_LENGTH = 200;
  * the platform sends signed events to, read their delivery log, redeliver
  * and send a test event. See `WebhookEndpointBinding`.
  */
-export function webhookEndpointsRouter(binding: WebhookEndpointBinding): Hono<AppEnv> {
+export function webhookEndpointsRouter(
+  binding: WebhookEndpointBinding,
+  authorizer?: Authorizer,
+  options: { readonly providerKeys?: ProviderKeys } = {},
+): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+  // A model provider's key is never a webhook endpoint's signing secret.
+  const providerKey = (tenantId: TenantId, name: string | undefined) =>
+    refuseProviderKeys(
+      options.providerKeys,
+      tenantId,
+      name === undefined ? [] : [name],
+      'a webhook endpoint',
+    );
+  // Deliveries carry every project's runs: all of it is an admin's.
+  r.use('*', tenantAdminAccess(authorizer));
 
   // ---------- POST / (create) ----------
   r.post('/', async (c) => {
@@ -55,6 +73,11 @@ export function webhookEndpointsRouter(binding: WebhookEndpointBinding): Hono<Ap
     const { url, events, filter, secretRef, description } = parsed.value;
     if (url === undefined || events === undefined || secretRef === undefined) {
       return badInput(c, requestId, '`url`, `events` and `secretRef` are required');
+    }
+    const refusal = await providerKey(tenantId, secretRef.name);
+    if (refusal !== undefined) {
+      c.status(statusFor(refusal.code) as never);
+      return c.json(toWireError(refusal, requestId));
     }
 
     const outcome = await binding.create({
@@ -71,8 +94,12 @@ export function webhookEndpointsRouter(binding: WebhookEndpointBinding): Hono<Ap
   });
 
   // ---------- POST /generate-secret ----------
-  // A strong signing secret to store before registering; nothing is kept.
-  r.post('/generate-secret', (c) => c.json({ secret: generateWebhookSecret() }));
+  // A strong signing secret to store before registering; nothing is kept,
+  // and an Idempotency-Key repeat doesn't get it.
+  r.post('/generate-secret', (c) => {
+    withholdFromReplay(c);
+    return c.json({ secret: generateWebhookSecret() });
+  });
 
   // ---------- GET / (list) ----------
   r.get('/', async (c) => {
@@ -110,6 +137,11 @@ export function webhookEndpointsRouter(binding: WebhookEndpointBinding): Hono<Ap
     const parsed = parseEndpointBody(body.value, 'update');
     if (parsed.kind === 'err') return wireError(c, requestId, parsed.code, parsed.message);
     const { url, events, filter, secretRef, description } = parsed.value;
+    const refusal = await providerKey(tenantId, secretRef?.name);
+    if (refusal !== undefined) {
+      c.status(statusFor(refusal.code) as never);
+      return c.json(toWireError(refusal, requestId));
+    }
 
     const outcome = await binding.update({
       tenantId,

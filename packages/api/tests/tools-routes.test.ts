@@ -8,7 +8,7 @@ import { describe, expect, test } from 'vitest';
 import type { ToolManifest } from '@kindgi/tools';
 import type { Cursor, ProjectId, TenantId } from '@kindgi/types';
 
-import { createStubAppBindings } from '@kindgi/testing';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type { RunHandlerBinding, TokenResolver, ToolRegistryBinding } from '../src/index.js';
@@ -445,6 +445,38 @@ describe('API — tools register', () => {
     expect(body.error.details?.issues).toBeTruthy();
   });
 
+  test("a needsSpec schema that wouldn't compile → 400 validation-failed, naming where", async () => {
+    const { app } = makeApp();
+    const res = await app.request('/v1/tools', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        projectId: randomUUID(),
+        id: 'acme.sign',
+        description: 'Signs a receipt.',
+        version: '0.1.0',
+        input: { type: 'object' },
+        output: { type: 'object' },
+        needsSpec: { env: { RETRIES: { type: 'string', default: 3 } } },
+      }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      error: { code: string; message: string; details?: { issues?: unknown[] } };
+    };
+    expect(body.error).toMatchObject({
+      code: 'validation-failed',
+      message:
+        'Tool "acme.sign": needsSpec.env.RETRIES\'s default must be a string: env values are strings.',
+    });
+    expect(body.error.details?.issues).toEqual([
+      {
+        path: '/needsSpec/env/RETRIES/default',
+        message: 'must be a string: env values are strings',
+      },
+    ]);
+  });
+
   test('non-JSON body → 400 bad-input', async () => {
     const { app } = makeApp();
     const res = await app.request('/v1/tools', {
@@ -665,6 +697,39 @@ describe('API — tools versions', () => {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
     expect(res.status).toBe(404);
+  });
+
+  const enc = (v: string) => Buffer.from(v, 'utf8').toString('base64url');
+  test.each([
+    [
+      'a position',
+      200,
+      enc(
+        JSON.stringify({
+          p: '2026-10-09 12:00:00.123456+00',
+          i: '6f1c2a4e-3b5d-4c7e-8f90-1a2b3c4d5e6f',
+        }),
+      ),
+    ],
+    ['a bare time, from before', 200, enc('2026-10-09T12:00:00.123Z')],
+    ['not base64 of anything', 400, 'not-a-cursor'],
+    ['a position whose time and id are not', 400, enc(JSON.stringify({ p: 'x', i: 'y' }))],
+    ['broken JSON', 400, enc('{"p":')],
+  ])('GET /:toolId/versions with %s as the cursor → %i', async (_name, status, cursor) => {
+    const { app, binding } = makeApp();
+    await binding.publish({
+      tenantId,
+      projectId: randomUUID() as ProjectId,
+      tool: toolBody({ version: '1.0.0' }) as unknown as ToolManifest,
+      enqueueTuples: () => [],
+    });
+    const res = await app.request(`/v1/tools/acme.verify-citation/versions?cursor=${cursor}`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(res.status).toBe(status);
+    if (status === 400) {
+      expect(((await res.json()) as { error: { code: string } }).error.code).toBe('bad-input');
+    }
   });
 
   test('GET /:toolId/versions/:version → 200 exact version', async () => {

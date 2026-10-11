@@ -21,8 +21,10 @@ import {
   MCP_TRANSPORTS,
 } from '../mcp-endpoint-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
 import { type TenantHostAccess, deniesHostReach, stdioRefusal } from '../tenant-host-access.js';
 import type { AppEnv } from '../types.js';
+import { refused } from './denied.js';
 import { clampLimit } from './pagination.js';
 import { parseScopeParams, scopeResourceRef } from './scope-params.js';
 import { parseSecretRef } from './secret-ref.js';
@@ -45,7 +47,7 @@ export function mcpRouter(
   binding: MCPEndpointRegistryBinding,
   clientProbe: MCPClientProbeBinding | undefined,
   authorizer: Authorizer | undefined,
-  options: { readonly hostAccess: TenantHostAccess },
+  options: { readonly hostAccess: TenantHostAccess; readonly providerKeys?: ProviderKeys },
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -133,8 +135,15 @@ export function mcpRouter(
       ...(scopeParsed.scope !== undefined && { scope: scopeParsed.scope }),
       ...(scopeParsed.inherit !== undefined && { inherit: scopeParsed.inherit }),
     });
+    // Only what the caller may read (T243 A), as `GET …/:id` asks.
+    const visible =
+      authorizer === undefined
+        ? page.data
+        : await authorizer.filterByCan(c, 'read', page.data, (a) =>
+            ref('mcp_endpoint', a.endpointId as unknown as string),
+          );
     return c.json({
-      data: page.data.map(serializeEndpoint),
+      data: visible.map(serializeEndpoint),
       hasMore: page.nextCursor !== undefined,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });
@@ -199,14 +208,28 @@ export function mcpRouter(
       );
     }
 
+    // A model provider's key is never an MCP endpoint's.
+    const refusal = await refuseProviderKeys(
+      options.providerKeys,
+      tenantId,
+      validation.value.secretRef === undefined ? [] : [validation.value.secretRef.name],
+      'an MCP endpoint',
+    );
+    if (refusal !== undefined) {
+      c.status(statusFor(refusal.code) as never);
+      return c.json(toWireError(refusal, requestId));
+    }
+
     if (validation.value.transport === 'stdio' && deniesHostReach(options.hostAccess, 'exec')) {
-      c.status(statusFor('host-access-denied') as never);
-      return c.json(
-        toWireError(
-          { code: 'host-access-denied', message: stdioRefusal(validation.value.endpointId) },
-          requestId,
-        ),
-      );
+      // The deployment rules it out: recorded, as every refusal the API
+      // decides itself is.
+      return refused(c, authorizer, {
+        action: 'admin',
+        resource: ref('mcp_endpoint', validation.value.endpointId),
+        message: stdioRefusal(validation.value.endpointId),
+        failing: 'scope',
+        code: 'host-access-denied',
+      });
     }
 
     // Policy/config: register requires an explicit scope. Wire
@@ -624,6 +647,7 @@ function serializeEndpoint(e: MCPEndpoint): Record<string, unknown> {
     ...(e.secretRef !== undefined && { secretRef: e.secretRef }),
     ...(e.instructions !== undefined && { instructions: e.instructions }),
     ...(e.metadata !== undefined && { metadata: e.metadata }),
+    ...(e.sendTraceparent !== undefined && { sendTraceparent: e.sendTraceparent }),
   };
 }
 
@@ -636,6 +660,7 @@ const REGISTER_BODY_FIELDS = new Set([
   'secretRef',
   'instructions',
   'metadata',
+  'sendTraceparent',
   'scopeKind',
   'scopeId',
 ]);
@@ -736,6 +761,24 @@ function validateMCPEndpoint(
       },
     };
   }
+  if (b.sendTraceparent !== undefined && typeof b.sendTraceparent !== 'boolean') {
+    return {
+      kind: 'err',
+      error: {
+        message: `endpoint "${b.endpointId}" sendTraceparent must be true or false`,
+        reason: 'invalid-send-traceparent',
+      },
+    };
+  }
+  if (b.sendTraceparent === true && b.transport === 'stdio') {
+    return {
+      kind: 'err',
+      error: {
+        message: `endpoint "${b.endpointId}" sendTraceparent needs an HTTP transport: a stdio server gets no headers`,
+        reason: 'invalid-send-traceparent',
+      },
+    };
+  }
 
   const value: MCPEndpoint = {
     endpointId: b.endpointId,
@@ -747,6 +790,7 @@ function validateMCPEndpoint(
     ...(b.metadata !== undefined && {
       metadata: b.metadata as Readonly<Record<string, unknown>>,
     }),
+    ...(b.sendTraceparent !== undefined && { sendTraceparent: b.sendTraceparent }),
   };
   return { kind: 'ok', value };
 }

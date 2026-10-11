@@ -5,10 +5,10 @@ import { randomUUID } from 'node:crypto';
 
 import { describe, expect, test } from 'vitest';
 
-import type { Fact, MemoryScope, Retention } from '@kindgi/memory';
-import type { Cursor, FactId, ProjectId, TenantId, Timestamp } from '@kindgi/types';
+import type { MemoryScope, Retention } from '@kindgi/memory';
+import type { ProjectId, TenantId } from '@kindgi/types';
 
-import { createStubAppBindings } from '@kindgi/testing';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type {
@@ -17,6 +17,7 @@ import type {
   RunHandlerBinding,
   TokenResolver,
 } from '../src/index.js';
+import { inMemoryMemory } from './support/in-memory-memory.js';
 
 /**
  * Memory route tests.
@@ -50,124 +51,8 @@ const runHandler: RunHandlerBinding = {
   }),
 };
 
-interface StoredFact extends Fact {
-  readonly _superseded?: boolean;
-}
-
-/** In-memory `MemoryBinding` adapter. Deterministic cursors on `createdAt`. */
 function makeInMemoryBinding(options: { readonly hasEmbeddings?: boolean } = {}): MemoryBinding {
-  const hasEmbeddings = options.hasEmbeddings ?? false;
-  const store = new Map<string, StoredFact>();
-  let seq = 0;
-
-  function scopeMatches(actual: MemoryScope, wanted: Partial<MemoryScope>): boolean {
-    const a = actual as unknown as Readonly<Record<string, unknown>>;
-    for (const [k, v] of Object.entries(wanted)) {
-      if (v === undefined) continue;
-      if (a[k] !== v) return false;
-    }
-    return true;
-  }
-
-  function paginate(
-    rows: readonly StoredFact[],
-    limit: number,
-    cursor: Cursor | undefined,
-  ): { data: readonly Fact[]; nextCursor?: Cursor } {
-    let startAt = 0;
-    if (cursor !== undefined) {
-      const cur = cursor as unknown as string;
-      startAt = rows.findIndex((r) => (r.id as unknown as string) > cur);
-      if (startAt < 0) startAt = rows.length;
-    }
-    const slice = rows.slice(startAt, startAt + limit);
-    const last = slice[slice.length - 1];
-    const hasMore = startAt + slice.length < rows.length;
-    return {
-      data: slice,
-      ...(hasMore &&
-        last !== undefined && {
-          nextCursor: last.id as unknown as string as unknown as Cursor,
-        }),
-    };
-  }
-
-  return {
-    async listFacts({ limit, cursor, type, scope }) {
-      const all = [...store.values()]
-        .filter((f) => !f._superseded)
-        .filter((f) => (type === undefined ? true : f.type === type))
-        .filter((f) => (scope === undefined ? true : scopeMatches(f.scope, scope)))
-        .sort((a, b) => (a.id as unknown as string).localeCompare(b.id as unknown as string));
-      return paginate(all, limit, cursor);
-    },
-    async getFact({ factId }) {
-      const f = store.get(factId as unknown as string);
-      return f ?? null;
-    },
-    async writeFact(input) {
-      if (input.type === 'semantic-only' && !hasEmbeddings) {
-        return {
-          kind: 'embedding-unavailable',
-          message:
-            'Type "semantic-only" declares semantic indexing but no embedding registry is bound',
-        };
-      }
-      seq += 1;
-      const idString = `fact-${String(seq).padStart(4, '0')}`;
-      const now = new Date().toISOString() as Timestamp;
-      const fact: StoredFact = {
-        id: idString as FactId,
-        type: input.type,
-        scope: input.scope,
-        version: 1,
-        createdAt: now,
-        content: input.content,
-        ...(input.retention !== undefined && { retention: input.retention }),
-        ...(input.contentHash !== undefined && { contentHash: input.contentHash }),
-      };
-      store.set(idString, fact);
-      return { kind: 'ok', fact };
-    },
-    async supersedeFact({ factId }) {
-      const existing = store.get(factId as unknown as string);
-      if (existing === undefined) return { superseded: false };
-      // Idempotent — no-op if already superseded.
-      store.set(factId as unknown as string, { ...existing, _superseded: true });
-      return { superseded: true };
-    },
-    async retrieve({ intent }) {
-      if ((intent.mode === 'semantic' || intent.mode === 'both') && !hasEmbeddings) {
-        return {
-          kind: 'embedding-unavailable',
-          message: 'Semantic retrieval requires an embedding registry',
-        };
-      }
-      const rows = [...store.values()].filter((f) => !f._superseded);
-      const typed = intent.type === undefined ? rows : rows.filter((f) => f.type === intent.type);
-      const scoped =
-        intent.scope === undefined
-          ? typed
-          : typed.filter((f) => scopeMatches(f.scope, intent.scope as Partial<MemoryScope>));
-
-      if (intent.mode === 'list') {
-        const limited = scoped.slice(0, intent.limit ?? scoped.length);
-        return { kind: 'ok', results: limited.map((fact) => ({ fact })) };
-      }
-
-      const query = intent.query ?? '';
-      const matches = scoped
-        .map((fact) => {
-          const haystack =
-            typeof fact.content === 'string' ? fact.content : JSON.stringify(fact.content);
-          const score = haystack.toLowerCase().includes(query.toLowerCase()) ? 1 : 0;
-          return { fact, score };
-        })
-        .filter((h) => h.score > 0)
-        .slice(0, intent.limit ?? scoped.length);
-      return { kind: 'ok', results: matches };
-    },
-  };
+  return inMemoryMemory(options).binding;
 }
 
 function makeApp(bindingOptions: { readonly hasEmbeddings?: boolean } = {}) {
@@ -370,58 +255,168 @@ describe('API — memory write fact', () => {
   });
 });
 
-describe('API — memory supersede fact', () => {
-  test('supersede known fact → 200 { superseded: true }', async () => {
-    const { app } = makeApp();
-    const write = await app.request('/v1/memory/facts', {
+describe('API — memory supersede, delete, verify and history', () => {
+  const auth = { authorization: `Bearer ${TOKEN}` };
+  const json = { ...auth, 'content-type': 'application/json' };
+  async function written(app: ReturnType<typeof makeApp>['app']) {
+    const res = await app.request('/v1/memory/facts', {
       method: 'POST',
-      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
-      body: JSON.stringify(writeBody()),
+      headers: json,
+      body: JSON.stringify(writeBody({ content: 'Support hours are 9 to 5.' })),
     });
-    const wrote = (await write.json()) as { id: string };
+    return (await res.json()) as { id: string; version: number };
+  }
 
-    const res = await app.request(`/v1/memory/facts/${wrote.id}/supersede`, {
+  test('supersede writes the next revision under the same id; reads see only it, history sees both', async () => {
+    const { app } = makeApp();
+    const v1 = await written(app);
+    const res = await app.request(`/v1/memory/facts/${v1.id}/supersede`, {
       method: 'POST',
-      headers: { authorization: `Bearer ${TOKEN}` },
+      headers: json,
+      body: JSON.stringify({ content: 'Support hours are 8 to 6.', expectVersion: 1 }),
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { factId: string; superseded: boolean };
-    expect(body.factId).toBe(wrote.id);
-    expect(body.superseded).toBe(true);
+    expect(await res.json()).toMatchObject({
+      id: v1.id,
+      version: 2,
+      supersedes: v1.id,
+      content: 'Support hours are 8 to 6.',
+    });
+    const listed = (await (await app.request('/v1/memory/facts', { headers: auth })).json()) as {
+      data: { id: string; content: string }[];
+    };
+    expect(listed.data.map((f) => f.content)).toEqual(['Support hours are 8 to 6.']);
+    const got = await (await app.request(`/v1/memory/facts/${v1.id}`, { headers: auth })).json();
+    expect(got).toMatchObject({ version: 2 });
+    const old = await (
+      await app.request(`/v1/memory/facts/${v1.id}?version=1`, { headers: auth })
+    ).json();
+    expect(old).toMatchObject({ version: 1, invalidationReason: 'superseded' });
+    const history = (await (
+      await app.request(`/v1/memory/facts/${v1.id}/revisions`, { headers: auth })
+    ).json()) as { data: { version: number }[] };
+    expect(history.data.map((r) => r.version)).toEqual([2, 1]);
   });
 
-  test('supersede twice on same id is idempotent — both return 200 { superseded: true }', async () => {
+  test('a stale expectVersion: 409 fact-changed with the current revision; no content: 400', async () => {
     const { app } = makeApp();
-    const write = await app.request('/v1/memory/facts', {
-      method: 'POST',
-      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
-      body: JSON.stringify(writeBody()),
+    const v1 = await written(app);
+    const supersede = (body: unknown) =>
+      app.request(`/v1/memory/facts/${v1.id}/supersede`, {
+        method: 'POST',
+        headers: json,
+        body: JSON.stringify(body),
+      });
+    expect((await supersede({ content: 'b', expectVersion: 1 })).status).toBe(200);
+    const stale = await supersede({ content: 'c', expectVersion: 1 });
+    expect(stale.status).toBe(409);
+    expect(await stale.json()).toMatchObject({
+      error: { code: 'fact-changed', details: { currentVersion: 2 } },
     });
-    const wrote = (await write.json()) as { id: string };
-
-    const first = await app.request(`/v1/memory/facts/${wrote.id}/supersede`, {
-      method: 'POST',
-      headers: { authorization: `Bearer ${TOKEN}` },
-    });
-    expect(first.status).toBe(200);
-    const second = await app.request(`/v1/memory/facts/${wrote.id}/supersede`, {
-      method: 'POST',
-      headers: { authorization: `Bearer ${TOKEN}` },
-    });
-    expect(second.status).toBe(200);
-    const body = (await second.json()) as { superseded: boolean };
-    expect(body.superseded).toBe(true);
+    expect((await supersede({ expectVersion: 2 })).status).toBe(400);
   });
 
-  test('supersede unknown id → 404 fact-not-found', async () => {
+  test('delete tombstones it: gone from reads, kept in history; deleting again is 404', async () => {
     const { app } = makeApp();
-    const res = await app.request('/v1/memory/facts/fact-nope/supersede', {
+    const v1 = await written(app);
+    const del = await app.request(`/v1/memory/facts/${v1.id}`, { method: 'DELETE', headers: auth });
+    expect(del.status).toBe(200);
+    expect(await del.json()).toMatchObject({ id: v1.id, invalidationReason: 'deleted' });
+    expect((await app.request(`/v1/memory/facts/${v1.id}`, { headers: auth })).status).toBe(404);
+    const history = (await (
+      await app.request(`/v1/memory/facts/${v1.id}/revisions`, { headers: auth })
+    ).json()) as { data: unknown[] };
+    expect(history.data).toHaveLength(1);
+    expect(
+      (await app.request(`/v1/memory/facts/${v1.id}`, { method: 'DELETE', headers: auth })).status,
+    ).toBe(404);
+  });
+
+  test('legal hold refuses a supersede and a delete: 409 legal-hold', async () => {
+    const { app } = makeApp();
+    const res = await app.request('/v1/memory/facts', {
       method: 'POST',
-      headers: { authorization: `Bearer ${TOKEN}` },
+      headers: json,
+      body: JSON.stringify(writeBody({ retention: { legalHold: true } })),
     });
-    expect(res.status).toBe(404);
-    const body = (await res.json()) as { error: { code: string } };
-    expect(body.error.code).toBe('fact-not-found');
+    const held = (await res.json()) as { id: string };
+    const del = await app.request(`/v1/memory/facts/${held.id}`, {
+      method: 'DELETE',
+      headers: auth,
+    });
+    expect(del.status).toBe(409);
+    expect(((await del.json()) as { error: { code: string } }).error.code).toBe('legal-hold');
+  });
+
+  test('verify writes a revision marked verified, by the caller', async () => {
+    const { app } = makeApp();
+    const v1 = await written(app);
+    const res = await app.request(`/v1/memory/facts/${v1.id}/verify`, {
+      method: 'POST',
+      headers: auth,
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ id: v1.id, version: 2, trust: 'verified' });
+  });
+
+  test('unknown id: 404 for supersede, delete and verify', async () => {
+    const { app } = makeApp();
+    for (const [method, path, body] of [
+      ['POST', '/v1/memory/facts/fact-nope/supersede', { content: 'x' }],
+      ['DELETE', '/v1/memory/facts/fact-nope', undefined],
+      ['POST', '/v1/memory/facts/fact-nope/verify', undefined],
+    ] as const) {
+      const res = await app.request(path, {
+        method,
+        headers: json,
+        ...(body !== undefined && { body: JSON.stringify(body) }),
+      });
+      expect(res.status, path).toBe(404);
+    }
+  });
+
+  test('a binding without delete, verify or history: 501 memory-operation-unsupported', async () => {
+    const { deleteFact: _d, verifyFact: _v, listRevisions: _l, ...partial } = makeInMemoryBinding();
+    const app = createApp({
+      ...createStubAppBindings(),
+      resolveToken,
+      runHandler,
+      memory: partial,
+    });
+    for (const [method, path] of [
+      ['DELETE', '/v1/memory/facts/f-1'],
+      ['POST', '/v1/memory/facts/f-1/verify'],
+      ['GET', '/v1/memory/facts/f-1/revisions'],
+    ] as const) {
+      const res = await app.request(path, { method, headers: auth });
+      expect(res.status, path).toBe(501);
+    }
+  });
+
+  test('a write records who asserted it, and takes subjects and validity times', async () => {
+    const { app } = makeApp();
+    const res = await app.request('/v1/memory/facts', {
+      method: 'POST',
+      headers: json,
+      body: JSON.stringify({
+        ...writeBody({ scope: { projectId: randomUUID() as ProjectId, participantId: 'p-7' } }),
+        subjects: [{ kind: 'participant', id: 'p-7' }],
+        validFrom: '2026-10-01T00:00:00Z',
+      }),
+    });
+    expect(res.status).toBe(201);
+    expect(await res.json()).toMatchObject({
+      trust: 'asserted',
+      attributedTo: { kind: expect.any(String) },
+      subjects: [{ kind: 'participant', id: 'p-7' }],
+      validFrom: '2026-10-01T00:00:00.000Z',
+    });
+    const noProject = await app.request('/v1/memory/facts', {
+      method: 'POST',
+      headers: json,
+      body: JSON.stringify(writeBody({ scope: { participantId: 'p-7' } })),
+    });
+    expect(noProject.status).toBe(400);
   });
 });
 
@@ -473,7 +468,7 @@ describe('API — memory retrieve', () => {
     expect(body.results[0]?.score).toBeUndefined();
   });
 
-  test('semantic mode without embedding binding → 400 bad-input', async () => {
+  test('semantic mode without embeddings → 422 semantic-unavailable (never an empty success)', async () => {
     const { app } = makeApp({ hasEmbeddings: false });
     await app.request('/v1/memory/facts', {
       method: 'POST',
@@ -486,9 +481,9 @@ describe('API — memory retrieve', () => {
       headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
       body: JSON.stringify(intent),
     });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(422);
     const body = (await res.json()) as { error: { code: string; message: string } };
-    expect(body.error.code).toBe('bad-input');
+    expect(body.error.code).toBe('semantic-unavailable');
     expect(body.error.message).toMatch(/embedding|semantic/i);
   });
 

@@ -84,3 +84,76 @@ describe('authorize(): a denial', () => {
     expect(await res.json()).toEqual({ ok: true });
   });
 });
+
+describe('a check the authorization model has no relation for (T243 A)', () => {
+  /** An authorizer whose PDP allows everything, and records what it was asked. */
+  function allowing() {
+    const asked: string[] = [];
+    const allowed: Decision = {
+      allowed: true,
+      reason: 'test: allowed',
+      evidence: { action: 'read', relation: '', resource: '', actorSubject: '' },
+    };
+    const binding = {
+      check: async (_p: unknown, action: string, r: { type: string; id: string }) => {
+        asked.push(`${action} ${r.type}`);
+        return allowed;
+      },
+      checkBatch: async (_p: unknown, action: string, rs: readonly { type: string }[]) =>
+        rs.map((r) => {
+          asked.push(`${action} ${r.type}`);
+          return allowed;
+        }),
+    } as unknown as AuthzCheckBinding;
+    const authorizer = createAuthorizer(binding);
+    const r = new Hono<AppEnv>();
+    r.use('*', async (c, next) => {
+      c.set('tenantId' as never, tenantId as never);
+      c.set('requestId' as never, 'req-authz-2' as never);
+      c.set('principal' as never, userPrincipal('u-1' as UserId, tenantId) as never);
+      return next();
+    });
+    return { authorizer, r, asked };
+  }
+
+  test('is refused before the PDP, naming the pair: write on a tenant, execute on a project', async () => {
+    const { authorizer, r, asked } = allowing();
+    r.post(
+      '/tenant',
+      authorizer.authorize('write', () => ref('tenant', tenantId)),
+      (c) => c.json({ ok: true }),
+    );
+    r.post(
+      '/projects/:id/resume',
+      authorizer.authorize('execute', (c) => ref('project', c.req.param('id') ?? '')),
+      (c) => c.json({ ok: true }),
+    );
+    for (const path of ['/tenant', '/projects/p1/resume']) {
+      const res = await r.request(path, { method: 'POST' });
+      expect(res.status, path).toBe(403);
+      const body = (await res.json()) as { error: { details: { reason: string } } };
+      expect(body.error.details.reason).toContain('a bug in the route');
+    }
+    expect(asked).toEqual([]);
+  });
+
+  test('a defined pair reaches the PDP', async () => {
+    const { authorizer, r, asked } = allowing();
+    r.post(
+      '/tenant',
+      authorizer.authorize('admin', () => ref('tenant', tenantId)),
+      (c) => c.json({ ok: true }),
+    );
+    expect((await r.request('/tenant', { method: 'POST' })).status).toBe(200);
+    expect(asked).toEqual(['admin tenant']);
+  });
+
+  test('filterByCan drops such rows without asking the PDP', async () => {
+    const { authorizer, r, asked } = allowing();
+    r.get('/rows', async (c) =>
+      c.json(await authorizer.filterByCan(c, 'execute', ['p1', 'p2'], (id) => ref('project', id))),
+    );
+    expect(await (await r.request('/rows')).json()).toEqual([]);
+    expect(asked).toEqual([]);
+  });
+});

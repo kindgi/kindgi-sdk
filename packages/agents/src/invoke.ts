@@ -95,6 +95,8 @@ export async function invokeAgent(
       ...(input.parent !== undefined && { parent: input.parent }),
       // A replay's run says so, and which eval run and past run it is for.
       ...(input.replay !== undefined && { replay: input.replay }),
+      ...(input.idempotencyKey !== undefined && { idempotencyKey: input.idempotencyKey }),
+      ...(input.trigger !== undefined && { trigger: input.trigger }),
       ...(input.dryRun === true && { options: { dryRun: true } }),
       // Authorization — carry principal + authz into the run so every
       // tool invocation inside the agent's turn is checked.
@@ -289,6 +291,7 @@ export type {
   ModelInvocationError,
   OutputSchemaViolationError,
   RunSnapshotError,
+  SemanticUnavailableError,
   ToolInvocationError,
   UnresolvedToolError,
 } from './handlers/errors.js';

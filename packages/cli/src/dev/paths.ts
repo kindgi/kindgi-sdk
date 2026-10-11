@@ -38,3 +38,21 @@ export function devStagedPackIndexPath(packDir: string): string {
 export function devBundleMapPath(packDir: string): string {
   return join(packDir, '.kindgi', 'dev', 'bundle-map.json');
 }
+
+/**
+ * Where `kindgi dev` keeps a JVM pack's build files: the classpath its build
+ * resolved, the `@argfile` that passes it to \`java`, and the launcher
+ * (`kindgi-pack-java`) extracted from the pack's own kindgi-pack jar.
+ */
+export function devJvmDir(packDir: string, language: 'java' | 'scala'): string {
+  return join(packDir, '.kindgi', 'dev', language);
+}
+
+/**
+ * Where the sandboxed indexer writes the index (`kindgi dev`'s sandbox):
+ * the one folder in `.kindgi` it may write. `kindgi dev` moves the index
+ * from here to where it's read, outside the sandbox.
+ */
+export function devIndexerDir(packDir: string): string {
+  return join(packDir, '.kindgi', 'dev', 'indexer');
+}

@@ -12,10 +12,10 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, test } from 'vitest';
 
-import { collectTemplateFiles, templateTarget } from '../src/init/template-files.js';
+import { collectTemplateFiles, javaPackageOf, templateTarget } from '../src/init/template-files.js';
 
 const TEMPLATES = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'templates');
-const TEMPLATE_NAMES = ['minimal', 'python', 'sample'];
+const TEMPLATE_NAMES = ['java', 'minimal', 'python', 'sample'];
 
 describe('templateTarget', () => {
   test('strips .tmpl and restores the dot of a stored dotfile', () => {
@@ -25,6 +25,23 @@ describe('templateTarget', () => {
     expect(templateTarget('tools/greet/index.ts')).toBe('tools/greet/index.ts');
     expect(templateTarget('.nvmrc')).toBe('.nvmrc');
     expect(templateTarget('my-gitignore')).toBe('my-gitignore');
+  });
+
+  test("the java template's __PACKAGE__ folder becomes the package's path", () => {
+    expect(templateTarget('src/main/java/__PACKAGE__/tools/Echo.java.tmpl', 'acme/billing')).toBe(
+      'src/main/java/acme/billing/tools/Echo.java',
+    );
+    expect(templateTarget('src/main/java/__PACKAGE__/tools/Echo.java.tmpl')).toBe(
+      'src/main/java/__PACKAGE__/tools/Echo.java',
+    );
+  });
+
+  test('a pack id as a Java package: lowercase segments, no hyphens, no keywords, no leading digit', () => {
+    expect(javaPackageOf('acme.billing')).toBe('acme.billing');
+    expect(javaPackageOf('my-pack')).toBe('mypack');
+    expect(javaPackageOf('acme.new')).toBe('acme.new_');
+    expect(javaPackageOf('acme.2fa-tools')).toBe('acme._2fatools');
+    expect(javaPackageOf('acme.-')).toBe('acme.pack');
   });
 });
 

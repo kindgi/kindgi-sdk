@@ -7,6 +7,7 @@ import { defineConfig } from 'astro/config';
 import starlightLlmsTxt from 'starlight-llms-txt';
 import starlightOpenAPI, { createOpenAPISidebarGroup } from 'starlight-openapi';
 import { createStarlightTypeDocPlugin } from 'starlight-typedoc';
+import { docsVersion, versionedPages } from './scripts/versioned-pages.mjs';
 
 // Each released minor line is built from its git tag under its own base
 // (`/v0.1/`), the newest also at the root. Content links are relative, so a
@@ -17,6 +18,11 @@ const preview = process.env.PUBLIC_KINDGI_DOCS_PREVIEW === '1';
 // Only the latest release's docs (served at the root) are indexed: an older
 // line or a preview would compete with them in search results.
 const indexed = base === '/' && !preview;
+// The git ref this build describes (a release's tag, else `main`) and its
+// version: hand-written pages' repository links and `{{kindgi.version}}`
+// follow them (scripts/versioned-pages.mjs; code blocks in ec.config.mjs).
+const ref = process.env.KINDGI_DOCS_REF ?? 'main';
+const version = docsVersion();
 
 // The guides, one collapsible group per area, in reading order.
 const guideAreas = [
@@ -30,6 +36,7 @@ const guideAreas = [
   ['Guardrails', 'guardrails'],
   ['Approvals', 'approvals'],
   ['Secrets and env', 'secrets'],
+  ['Sign-in', 'sso'],
   ['Cost and provenance', 'observability'],
   ['Evals', 'evals'],
 ];
@@ -53,6 +60,8 @@ export default defineConfig({
   // flag in prose into an en dash.
   markdown: { processor: satteri({ features: { smartPunctuation: false } }) },
   integrations: [
+    // Before Starlight, so its search index reads the fixed pages.
+    versionedPages({ ref, version }),
     starlight({
       title: 'Kindgi',
       description:
@@ -60,7 +69,18 @@ export default defineConfig({
       favicon: '/favicon.svg',
       social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/kindgi/kindgi-sdk' }],
       editLink: { baseUrl: 'https://github.com/kindgi/kindgi-sdk/edit/main/site/' },
-      customCss: ['./src/styles/kindgi.css'],
+      // The fonts are served from the site itself (Fontsource), so a page asks no
+      // other host for them.
+      customCss: [
+        '@fontsource/ibm-plex-sans/400.css',
+        '@fontsource/ibm-plex-sans/500.css',
+        '@fontsource/ibm-plex-sans/600.css',
+        '@fontsource/ibm-plex-mono/400.css',
+        '@fontsource/ibm-plex-mono/500.css',
+        '@fontsource/ibm-plex-serif/500.css',
+        '@fontsource/ibm-plex-serif/600.css',
+        './src/styles/kindgi.css',
+      ],
       components: {
         // The version menu and the "not the latest" notice.
         ThemeSelect: './src/components/ThemeSelect.astro',
@@ -141,21 +161,7 @@ export default defineConfig({
           },
         }),
       ],
-      head: [
-        ...(indexed ? [] : [{ tag: 'meta', attrs: { name: 'robots', content: 'noindex' } }]),
-        { tag: 'link', attrs: { rel: 'preconnect', href: 'https://fonts.googleapis.com' } },
-        {
-          tag: 'link',
-          attrs: { rel: 'preconnect', href: 'https://fonts.gstatic.com', crossorigin: true },
-        },
-        {
-          tag: 'link',
-          attrs: {
-            rel: 'stylesheet',
-            href: 'https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:wght@500;600&display=swap',
-          },
-        },
-      ],
+      head: [...(indexed ? [] : [{ tag: 'meta', attrs: { name: 'robots', content: 'noindex' } }])],
       sidebar: [
         { label: 'Start', items: [{ autogenerate: { directory: 'start' } }] },
         { label: 'Tutorials', items: [{ autogenerate: { directory: 'tutorials' } }] },

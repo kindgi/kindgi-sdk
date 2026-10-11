@@ -44,7 +44,7 @@ your code when they need it, and records every step.
 - **Model providers** are registered per tenant: a vendor's API, or a model
   you serve inside your own network. An agent states what it needs; Kindgi
   picks a model that fits.
-- **The console**, at `/console` on any runtime, shows each run on one page
+- **The console**, at `/console/` on any runtime, shows each run on one page
   (what it did and cost, its journal, and where an agent's answer came from),
   the agents, tools and conversations, project by project; reviewers approve
   or reject there.
@@ -61,8 +61,10 @@ The same runtime image runs everywhere:
   [Deploy](../../deploy/).
 - **Kindgi Cloud:** we operate the runtime for you (private preview).
 
-:::note[Private preview]
+:::note[Access to the runtime image]
 The runtime image is in private preview: request access at contact@kindgi.com.
+You get its pull credentials, a robot name and a token, and log in once with
+`kindgi auth registry` (see [Install](../../start/install/#access-to-the-runtime-image)).
 :::
 
 ## What stays yours

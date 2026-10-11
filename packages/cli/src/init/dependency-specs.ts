@@ -231,3 +231,59 @@ export async function resolveKindgiPythonSource(
   }
   return { kind: 'local-checkout', path: python };
 }
+
+/**
+ * Where a Java or Scala pack gets `com.kindgi:kindgi-pack` (and
+ * kindgi-pack-scala): from Maven Central at the CLI's version (`published`;
+ * the Release workflow publishes them there before the CLI reaches npm), or —
+ * from a Kindgi checkout — the checkout's `sdks/java` and `sdks/scala`, which
+ * install them into the local Maven and Ivy repositories.
+ */
+export type KindgiJavaSource =
+  | { readonly kind: 'published'; readonly version: string }
+  | { readonly kind: 'local-checkout'; readonly path: string; readonly version: string }
+  | { readonly kind: 'error'; readonly message: string };
+
+/** What a Java or Scala pack's "preview" means, said wherever one is made. */
+export const JVM_PREVIEW =
+  'Java and Scala support is in preview: tested and supported, but the API may still change in 0.1.6 without the usual deprecation period.';
+
+/**
+ * The resolver an sbt build needs for kindgi-pack: none from Maven Central;
+ * the local Maven repository for a checkout's (`./mvnw install` puts it there).
+ */
+export function sbtLocalResolver(source: KindgiJavaSource): string | undefined {
+  return source.kind === 'local-checkout' ? 'resolvers += Resolver.mavenLocal' : undefined;
+}
+
+export async function resolveKindgiJavaSource(
+  input: Pick<ResolveDependencySpecsInput, 'cli' | 'sdkRoot' | 'realpath' | 'exists'> = {},
+): Promise<KindgiJavaSource> {
+  const realpath = input.realpath ?? fsRealpath;
+  const exists = input.exists ?? pathExists;
+  const cli = input.cli ?? resolveCliPackage();
+  if (cli === undefined) {
+    return {
+      kind: 'error',
+      message: 'Cannot locate the @kindgi/cli package.json — broken install.',
+    };
+  }
+  if ((await realpath(cli.root)).split(sep).includes('node_modules')) {
+    return { kind: 'published', version: cli.version };
+  }
+  const sdkRootRaw = input.sdkRoot ?? resolveSdkPackageRoot();
+  if (sdkRootRaw === undefined) {
+    return {
+      kind: 'error',
+      message: 'Cannot resolve @kindgi/sdk from the CLI checkout — run the checkout install first.',
+    };
+  }
+  const java = join(await realpath(sdkRootRaw), '..', '..', 'sdks', 'java');
+  if (!(await exists(join(java, 'pom.xml')))) {
+    return {
+      kind: 'error',
+      message: `No Java SDK at ${java} — the Kindgi checkout is incomplete.`,
+    };
+  }
+  return { kind: 'local-checkout', path: java, version: cli.version };
+}

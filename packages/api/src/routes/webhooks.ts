@@ -9,6 +9,7 @@ import type { Context } from 'hono';
 import type { Cursor, TenantId, TriggerId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
+import type { Authorizer } from '../middleware/authorize.js';
 import type {
   RegisterWebhookTriggerInput,
   TriggerRegistryBinding,
@@ -17,6 +18,7 @@ import type {
 } from '../trigger-binding.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
+import { triggerAccess } from './trigger-access.js';
 
 /**
  * Webhook triggers — fire a flow run when an HMAC-signed request
@@ -33,9 +35,16 @@ import { clampLimit } from './pagination.js';
  * carries `hmacSecretName`, a handle into the tenant secrets store the
  * caller wrote to first via `POST /v1/secrets`. Rotation flows through
  * `POST /v1/secrets/:name/rotate` — trigger row untouched.
+ *
+ * With an authorizer (T243 A), the trigger's flow decides who may see or
+ * change it (`trigger-access.ts`).
  */
-export function webhooksRouter(binding: TriggerRegistryBinding): Hono<AppEnv> {
+export function webhooksRouter(
+  binding: TriggerRegistryBinding,
+  authorizer?: Authorizer,
+): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+  const access = triggerAccess(binding, 'webhook', authorizer);
 
   // ---------- POST / (register) ----------
   r.post('/', async (c) => {
@@ -52,6 +61,9 @@ export function webhooksRouter(binding: TriggerRegistryBinding): Hono<AppEnv> {
     if (flowId.kind === 'err') return bad(c, requestId, flowId.message);
     if (flowVersion.kind === 'err') return bad(c, requestId, flowVersion.message);
     if (hmacSecretName.kind === 'err') return bad(c, requestId, hmacSecretName.message);
+
+    const refused = await access.onRegister(c, flowId.value);
+    if (refused !== undefined) return refused;
 
     const rawConfig = (body.config ?? {}) as Record<string, unknown>;
     // Route mints the webhookId — a random UUID, returned so the caller
@@ -100,7 +112,9 @@ export function webhooksRouter(binding: TriggerRegistryBinding): Hono<AppEnv> {
       ...(statusFilter !== undefined && { status: statusFilter }),
     });
     return c.json({
-      data: page.data.map((row) => serializeWebhook(row as WebhookTriggerRecord)),
+      data: (await access.visible(c, page.data as readonly WebhookTriggerRecord[])).map(
+        serializeWebhook,
+      ),
       hasMore: page.nextCursor !== undefined,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });
@@ -111,6 +125,8 @@ export function webhooksRouter(binding: TriggerRegistryBinding): Hono<AppEnv> {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const triggerId = c.req.param('triggerId') as TriggerId;
+    const refused = await access.onTrigger(c, triggerId, ['read']);
+    if (refused !== undefined) return refused;
 
     const rec = await binding.get({ tenantId, triggerId });
     if (rec === null || rec.kind !== 'webhook') return notFound(c, requestId, triggerId);
@@ -122,6 +138,8 @@ export function webhooksRouter(binding: TriggerRegistryBinding): Hono<AppEnv> {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const triggerId = c.req.param('triggerId') as TriggerId;
+    const refused = await access.onTrigger(c, triggerId, ['write', 'execute']);
+    if (refused !== undefined) return refused;
 
     const parsed = await parseJsonObject(c, requestId);
     if (parsed.kind === 'err') return parsed.response;
@@ -162,6 +180,8 @@ export function webhooksRouter(binding: TriggerRegistryBinding): Hono<AppEnv> {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const triggerId = c.req.param('triggerId') as TriggerId;
+    const refused = await access.onTrigger(c, triggerId, ['write']);
+    if (refused !== undefined) return refused;
     const result = await binding.pause({ tenantId, triggerId });
     if (result.kind === 'err') return lifecycleError(c, requestId, result.error, triggerId);
     return c.json(serializeWebhook(result.value as WebhookTriggerRecord));
@@ -172,6 +192,8 @@ export function webhooksRouter(binding: TriggerRegistryBinding): Hono<AppEnv> {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
     const triggerId = c.req.param('triggerId') as TriggerId;
+    const refused = await access.onTrigger(c, triggerId, ['write']);
+    if (refused !== undefined) return refused;
     const result = await binding.resume({ tenantId, triggerId });
     if (result.kind === 'err') return lifecycleError(c, requestId, result.error, triggerId);
     return c.json(serializeWebhook(result.value as WebhookTriggerRecord));
@@ -181,6 +203,8 @@ export function webhooksRouter(binding: TriggerRegistryBinding): Hono<AppEnv> {
   r.post('/:triggerId/unregister', async (c) => {
     const tenantId = c.get('tenantId') as TenantId;
     const triggerId = c.req.param('triggerId') as TriggerId;
+    const refused = await access.onTrigger(c, triggerId, ['write']);
+    if (refused !== undefined) return refused;
     const outcome = await binding.unregister({ tenantId, triggerId });
     return c.json({
       triggerId: triggerId as unknown as string,

@@ -1,0 +1,345 @@
+{
+  "Bean": {
+    "additionalProperties": false,
+    "properties": {
+      "age": {
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "name": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "name"
+    ],
+    "type": "object"
+  },
+  "Drawing": {
+    "additionalProperties": false,
+    "properties": {
+      "focus": {
+        "oneOf": [
+          {
+            "oneOf": [
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "kind": {
+                    "const": "circle"
+                  },
+                  "radius": {
+                    "exclusiveMinimum": 0,
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "radius"
+                ],
+                "type": "object"
+              },
+              {
+                "additionalProperties": false,
+                "properties": {
+                  "height": {
+                    "exclusiveMinimum": 0,
+                    "type": "number"
+                  },
+                  "kind": {
+                    "const": "rect"
+                  },
+                  "width": {
+                    "exclusiveMinimum": 0,
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "width",
+                  "height"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "shapes": {
+        "items": {
+          "oneOf": [
+            {
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "const": "circle"
+                },
+                "radius": {
+                  "exclusiveMinimum": 0,
+                  "type": "number"
+                }
+              },
+              "required": [
+                "kind",
+                "radius"
+              ],
+              "type": "object"
+            },
+            {
+              "additionalProperties": false,
+              "properties": {
+                "height": {
+                  "exclusiveMinimum": 0,
+                  "type": "number"
+                },
+                "kind": {
+                  "const": "rect"
+                },
+                "width": {
+                  "exclusiveMinimum": 0,
+                  "type": "number"
+                }
+              },
+              "required": [
+                "kind",
+                "width",
+                "height"
+              ],
+              "type": "object"
+            }
+          ]
+        },
+        "type": "array"
+      }
+    },
+    "required": [
+      "shapes"
+    ],
+    "type": "object"
+  },
+  "Greet": {
+    "additionalProperties": false,
+    "properties": {
+      "name": {
+        "maxLength": 100,
+        "minLength": 1,
+        "type": "string"
+      },
+      "title": {
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "required": [
+      "name"
+    ],
+    "type": "object"
+  },
+  "Invoice": {
+    "additionalProperties": false,
+    "properties": {
+      "contact": {
+        "format": "email",
+        "type": "string"
+      },
+      "currency": {
+        "enum": [
+          "EUR",
+          "USD",
+          "gbp"
+        ],
+        "type": "string"
+      },
+      "discount": {
+        "minimum": 0,
+        "type": "number"
+      },
+      "due": {
+        "format": "date",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "id": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "issuedAt": {
+        "format": "date-time",
+        "type": "string"
+      },
+      "lines": {
+        "items": {
+          "additionalProperties": false,
+          "description": "A line of an invoice.",
+          "properties": {
+            "item": {
+              "description": "What was bought.",
+              "minLength": 1,
+              "pattern": "\\S",
+              "type": "string"
+            },
+            "note": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "price": {
+              "exclusiveMaximum": 100000,
+              "minimum": 0,
+              "type": "number"
+            },
+            "quantity": {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "item",
+            "quantity",
+            "price"
+          ],
+          "type": "object"
+        },
+        "minItems": 1,
+        "type": "array"
+      },
+      "link": {
+        "format": "uri",
+        "type": "string"
+      },
+      "metadata": {},
+      "month": {
+        "maximum": 12,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "priority": {
+        "oneOf": [
+          {
+            "enum": [
+              "low",
+              "high"
+            ],
+            "type": "string"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "reference": {
+        "pattern": "^[A-Z]{2}[0-9]+$",
+        "type": "string"
+      },
+      "tags": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array",
+        "uniqueItems": true
+      },
+      "totals": {
+        "additionalProperties": {
+          "type": "integer"
+        },
+        "type": "object"
+      }
+    },
+    "required": [
+      "id",
+      "lines",
+      "currency",
+      "tags",
+      "totals",
+      "issuedAt",
+      "contact",
+      "link",
+      "reference",
+      "month",
+      "discount",
+      "metadata"
+    ],
+    "type": "object"
+  },
+  "Line": {
+    "additionalProperties": false,
+    "description": "A line of an invoice.",
+    "properties": {
+      "item": {
+        "description": "What was bought.",
+        "minLength": 1,
+        "pattern": "\\S",
+        "type": "string"
+      },
+      "note": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "price": {
+        "exclusiveMaximum": 100000,
+        "minimum": 0,
+        "type": "number"
+      },
+      "quantity": {
+        "exclusiveMinimum": 0,
+        "type": "integer"
+      }
+    },
+    "required": [
+      "item",
+      "quantity",
+      "price"
+    ],
+    "type": "object"
+  },
+  "Open": {
+    "properties": {
+      "id": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "id"
+    ],
+    "type": "object"
+  },
+  "WithDefaults": {
+    "additionalProperties": false,
+    "properties": {
+      "max_items": {
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "minLength": {
+        "default": 1,
+        "type": "integer"
+      },
+      "mode": {
+        "default": "plain",
+        "type": "string"
+      },
+      "strict": {
+        "default": true,
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "max_items"
+    ],
+    "type": "object"
+  }
+}

@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { KindgiApiError } from '../src/errors.js';
 import { createTransport } from '../src/transport.js';
-import { errorFetch, jsonFetch, recordingFetch } from './support/recording-fetch.js';
+import { errorFetch, hangingFetch, jsonFetch, recordingFetch } from './support/recording-fetch.js';
 
 describe('createTransport', () => {
   it('strips trailing slash from apiUrl before path join', async () => {
@@ -148,5 +148,109 @@ describe('createTransport', () => {
       idempotencyKey: 'idem-nope',
     });
     expect(stub.calls[0]?.headers['idempotency-key']).toBeUndefined();
+  });
+});
+
+describe('createTransport: the timeout', () => {
+  const AUTH = { kind: 'apiToken' as const, token: 'tk' };
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  /** The error a request ends with. */
+  async function failure(promise: Promise<unknown>): Promise<KindgiApiError> {
+    const error = await promise.then(
+      () => undefined,
+      (e: unknown) => e,
+    );
+    expect(error).toBeInstanceOf(KindgiApiError);
+    return error as KindgiApiError;
+  }
+
+  it('is 30 s by default: a network error that names it', async () => {
+    vi.useFakeTimers();
+    const stub = hangingFetch();
+    const transport = createTransport({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    let settled = false;
+    const request = transport.request({ method: 'GET', path: '/v1/health' });
+    request
+      .catch(() => undefined)
+      .finally(() => {
+        settled = true;
+      });
+    await vi.advanceTimersByTimeAsync(29_999);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    const e = await failure(request);
+    expect(e.error).toMatchObject({
+      code: 'network',
+      timeoutMs: 30_000,
+      message: "No answer within 30 s, the client's timeout (timeoutMs).",
+    });
+  });
+
+  it('ClientOptions.timeoutMs sets it for every request', async () => {
+    const stub = hangingFetch();
+    const transport = createTransport({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+      timeoutMs: 20,
+    });
+    const e = await failure(transport.request({ method: 'GET', path: '/v1/health' }));
+    expect(e.error).toMatchObject({ code: 'network', timeoutMs: 20 });
+    expect(e.message).toBe("No answer within 0.02 s, the client's timeout (timeoutMs).");
+  });
+
+  it("a request's own timeoutMs wins over the client's", async () => {
+    const stub = hangingFetch();
+    const transport = createTransport({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+      timeoutMs: 60_000,
+    });
+    const e = await failure(
+      transport.request({ method: 'GET', path: '/v1/health', timeoutMs: 15 }),
+    );
+    expect(e.error).toMatchObject({ code: 'network', timeoutMs: 15 });
+  });
+
+  it('a timeout that is not a positive number of milliseconds is refused', async () => {
+    for (const timeoutMs of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(() =>
+        createTransport({ apiUrl: 'https://api.example.com', auth: AUTH, timeoutMs }),
+      ).toThrow(
+        `ClientOptions.timeoutMs must be a positive number of milliseconds. Got ${timeoutMs}.`,
+      );
+    }
+    const transport = createTransport({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: hangingFetch().fetch,
+    });
+    await expect(
+      transport.request({ method: 'GET', path: '/v1/health', timeoutMs: 0 }),
+    ).rejects.toThrow('timeoutMs must be a positive number of milliseconds. Got 0.');
+  });
+
+  it("a network failure that isn't the timeout carries no timeoutMs", async () => {
+    const transport = createTransport({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: async () => {
+        throw new Error('connection refused');
+      },
+    });
+    const e = await failure(transport.request({ method: 'GET', path: '/v1/health' }));
+    expect(e.error).toEqual(
+      expect.objectContaining({ code: 'network', message: 'connection refused' }),
+    );
+    expect(e.error).not.toHaveProperty('timeoutMs');
   });
 });

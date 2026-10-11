@@ -4,6 +4,7 @@
 import { readFile } from 'node:fs/promises';
 
 import type { CommandContext } from '../context.js';
+import { UsageError } from '../errors.js';
 import { integerFlag, readJsonInput, requiredPositional, runSdk, stringFlag } from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
 
@@ -16,7 +17,7 @@ type Kind = (typeof KINDS)[number];
  */
 function requiredBlockVersion(ctx: CommandContext): string {
   const version = stringFlag(ctx, 'block-version');
-  if (version === undefined) throw new Error('--block-version=<semver> is required');
+  if (version === undefined) throw new UsageError('--block-version=<semver> is required');
   return version;
 }
 
@@ -44,7 +45,7 @@ const list: LeafCommand = {
     runSdk(ctx, 'blocks list', async () => {
       const kind = stringFlag(ctx, 'kind');
       if (kind !== undefined && !(KINDS as readonly string[]).includes(kind)) {
-        throw new Error(`--kind must be one of ${KINDS.join(', ')}, got "${kind}"`);
+        throw new UsageError(`--kind must be one of ${KINDS.join(', ')}, got "${kind}"`);
       }
       const projectId = stringFlag(ctx, 'project');
       const name = stringFlag(ctx, 'name');
@@ -136,7 +137,7 @@ const publish: LeafCommand = {
   run: (ctx) =>
     runSdk(ctx, 'blocks publish', async () => {
       const projectId = stringFlag(ctx, 'project');
-      if (projectId === undefined) throw new Error('--project=<id> is required');
+      if (projectId === undefined) throw new UsageError('--project=<id> is required');
       const prompt = stringFlag(ctx, 'prompt');
       const settings = stringFlag(ctx, 'settings');
       if (prompt === undefined && settings === undefined) {
@@ -148,7 +149,7 @@ const publish: LeafCommand = {
         return await ctx.client().blocks.publish(block, { projectId });
       }
       if (prompt !== undefined && settings !== undefined) {
-        throw new Error('Give one of --prompt or --settings');
+        throw new UsageError('Give one of --prompt or --settings');
       }
       const blockId = requiredPositional(ctx, 0, 'block-id');
       const version = requiredBlockVersion(ctx);

@@ -36,6 +36,30 @@ export function errorFetch(
   return recordingFetch([{ status, body }]);
 }
 
+/**
+ * A server that never answers: each call waits until its request is
+ * aborted (the client's timeout), then rejects with the abort's reason.
+ */
+export function hangingFetch(): FetchStub {
+  const calls: RecordedRequest[] = [];
+  const stub: typeof fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+    const url =
+      typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
+    const body = typeof init?.body === 'string' ? init.body : undefined;
+    calls.push({
+      url,
+      method: init?.method ?? 'GET',
+      headers: normalizeHeaders(init?.headers),
+      ...(body !== undefined && { body }),
+    });
+    return new Promise<Response>((_resolve, reject) => {
+      const signal = init?.signal;
+      signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+    });
+  };
+  return { fetch: stub, calls };
+}
+
 export function recordingFetch(
   responses: readonly { status: number; body: string; headers?: Record<string, string> }[],
 ): FetchStub {

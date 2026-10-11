@@ -4,9 +4,16 @@
 import type { Principal } from '@kindgi/authz';
 import type { ProviderRegistry, TenantPolicy, UsageSink } from '@kindgi/capabilities';
 import type { EmbeddingProviderRegistry } from '@kindgi/embedding';
-import type { MemoryQueryBinding } from '@kindgi/memory';
+import type { GuardrailOutcomeSink } from '@kindgi/guardrails';
+import type { MemoryQueryBinding, MemoryRememberBinding } from '@kindgi/memory';
 import type { PolicyRegistry } from '@kindgi/policy-contract';
-import type { ParentRunRef, RunBinding, RunReplayRef } from '@kindgi/runtime';
+import type {
+  ParentRunRef,
+  RunBinding,
+  RunIdempotencyKey,
+  RunReplayRef,
+  RunTriggerRef,
+} from '@kindgi/runtime';
 import type { ToolRegistry, ToolSecretRef } from '@kindgi/tools';
 import type {
   AgentVersionVia,
@@ -80,6 +87,10 @@ export interface InvokeAgentInput {
    * is refused when that isn't wired), and only a read-only tool can run.
    */
   readonly replay?: RunReplayRef;
+  /** Start the turn's run at most once per key (`RunIdempotencyKey`). */
+  readonly idempotencyKey?: RunIdempotencyKey;
+  /** Set when a trigger starts the turn; its run records it (`RunTriggerRef`). */
+  readonly trigger?: RunTriggerRef;
   readonly participantId?: string;
   readonly abortSignal?: AbortSignal;
   /**
@@ -143,6 +154,12 @@ export interface InvokeAgentBindings extends GuardrailsBindings {
    */
   readonly memoryBinding: MemoryQueryBinding;
   /**
+   * Where an agent that declares `memory.remember` stores what it
+   * remembers (the `kindgi_remember` tool). Absent: the tool still
+   * shows, and a call answers that this host can't remember.
+   */
+  readonly memoryWriter?: MemoryRememberBinding;
+  /**
    * Caller-plugged conversation store. Every open / get / list /
    * close / delete / appendMessage / readMessages inside the agent
    * runtime routes through this binding — the runtime never touches
@@ -197,6 +214,13 @@ export interface InvokeAgentBindings extends GuardrailsBindings {
    * that made it goes on. Absent: calls aren't recorded.
    */
   readonly usage?: UsageSink;
+  /**
+   * Where the turn records what each guardrail's check came to (passed,
+   * violated, blocked or errored), before it acts on them: a blocked turn
+   * is recorded before it fails. Replays and dry runs aren't recorded.
+   * Absent: outcomes aren't recorded.
+   */
+  readonly guardrailOutcomes?: GuardrailOutcomeSink;
   /**
    * Declarative HTTP tools: optional secret resolver populated
    * from the deployment's tenant-scoped `SecretBinding`. When present,

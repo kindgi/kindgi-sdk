@@ -1,0 +1,17 @@
+package {{SCALA_PACKAGE}}.tools
+
+import com.kindgi.pack.scaladsl._
+import jakarta.validation.constraints.Size
+
+/** {{PACK_ID}}.greet — greets a named recipient. */
+object Greet {
+  final case class Input(
+      @Size(min = 1, max = 100) name: String,
+      @Size(min = 1, max = 50) greeting: String = "Hello")
+  final case class Output(message: String)
+
+  val tool: Tool[Input, Output] = Tool[Input, Output]("{{PACK_ID}}.greet")
+    .description("Formats a greeting for the named recipient.")
+    .readOnly
+    .handler((in, _) => Output(s"${in.greeting}, ${in.name}!"))
+}

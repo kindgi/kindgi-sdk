@@ -13,6 +13,7 @@ import {
 
 import type { TurnContext } from './context.js';
 import { throwAgentTurnFailure } from './errors.js';
+import type { ReplayOverrides } from './replay.js';
 
 /** The block versions a turn runs, by kind then id, as `setup` journals them. */
 export interface PinnedBlockVersions {
@@ -90,7 +91,14 @@ export async function resolveTurnBlocks(
     versions[ref.kind][ref.id] = version;
     loaded.set(ref, block);
   }
-  return turnBlocks(refs, loaded, versions);
+  return turnBlocks(refs, loaded, versions, await replayOverrides(ctx));
+}
+
+/** A replay's block content in place of the pinned content (a comparison's overrides), if any. */
+async function replayOverrides(ctx: TurnContext): Promise<ReplayOverrides | undefined> {
+  const replay = ctx.input.replay;
+  if (replay === undefined || ctx.bindings.replay?.overrides === undefined) return undefined;
+  return ctx.bindings.replay.overrides({ tenantId: ctx.input.tenantId, replay });
 }
 
 function blockRefs(ctx: TurnContext): Ref[] {
@@ -139,6 +147,7 @@ function turnBlocks(
   refs: readonly Ref[],
   loaded: ReadonlyMap<Ref, BlockDefinition>,
   versions: PinnedBlockVersions,
+  overrides?: ReplayOverrides,
 ): TurnBlocks {
   const settings: Record<string, Readonly<Record<string, unknown>>> = {};
   let prompt: TurnBlocks['prompt'];
@@ -146,18 +155,23 @@ function turnBlocks(
   for (const ref of refs) {
     const block = loaded.get(ref) as BlockDefinition;
     if (block.kind === 'prompt') {
-      prompt = { id: block.id, version: block.version, content: block.content };
-    } else if (ref.role === 'model-settings') {
-      const issues = settingsSchemaIssues(block.content.values, MODEL_SETTINGS_SCHEMA);
+      const template = overrides?.prompts?.[block.id]?.template;
+      const content = template === undefined ? block.content : { ...block.content, template };
+      prompt = { id: block.id, version: block.version, content };
+      continue;
+    }
+    const values = overrides?.settings?.[block.id] ?? block.content.values;
+    if (ref.role === 'model-settings') {
+      const issues = settingsSchemaIssues(values, MODEL_SETTINGS_SCHEMA);
       if (issues.length > 0) {
         fail(
           ref,
-          `${describe(ref)} version ${block.version} isn't model settings: ${issues.map((i) => `${i.path} ${i.message}`).join('; ')}`,
+          `${describe(ref)} version ${block.version}${overrides?.settings?.[block.id] !== undefined ? " (with the replay's values)" : ''} isn't model settings: ${issues.map((i) => `${i.path} ${i.message}`).join('; ')}`,
         );
       }
-      modelSettings = block.content.values as ModelSettings;
+      modelSettings = values as ModelSettings;
     } else {
-      settings[block.id] = block.content.values;
+      settings[block.id] = values;
     }
   }
   return {

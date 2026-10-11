@@ -18,6 +18,7 @@ import { refuseWritesWhenReadOnly } from '../registry-read-only.js';
 import type { ToolRegistryBinding } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
+import { projectMismatch } from './project-mismatch.js';
 import { parseScopeParams } from './scope-params.js';
 
 /**
@@ -115,6 +116,10 @@ export function flowsRouter(
 
     const cursorRaw = c.req.query('cursor');
     const nameRaw = c.req.query('name');
+    // `?includeRetired=true` lists retired flows too (no active version),
+    // each as its highest version with `unregisteredAt`. Anything else →
+    // active flows only (the default).
+    const includeRetired = c.req.query('includeRetired') === 'true';
 
     const scopeParsed = parseScopeParams(c.req.query(), { tenantId });
     if (scopeParsed.kind === 'err') {
@@ -131,9 +136,17 @@ export function flowsRouter(
       ...(nameRaw !== undefined && nameRaw.length > 0 && { nameFilter: nameRaw }),
       ...(scopeParsed.scope !== undefined && { scope: scopeParsed.scope }),
       ...(scopeParsed.inherit !== undefined && { inherit: scopeParsed.inherit }),
+      ...(includeRetired && { includeRetired: true }),
     });
+    // Only what the caller may read (T243 A), as `GET …/:id` asks.
+    const visible =
+      authorizer === undefined
+        ? page.data
+        : await authorizer.filterByCan(c, 'read', page.data, (a) =>
+            ref('flow', a.id as unknown as string),
+          );
     return c.json({
-      data: page.data.map(serializeGraph),
+      data: visible.map(serializeGraph),
       hasMore: page.nextCursor !== undefined,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });
@@ -185,12 +198,17 @@ export function flowsRouter(
     const flowId = c.req.param('flowId') as FlowId;
     const limit = clampLimit(c.req.query('limit'));
     const cursorRaw = c.req.query('cursor');
+    // `?includeTombstoned=true` lists unregistered versions too, each
+    // with `unregisteredAt`. Anything else → active versions only.
+    const includeTombstoned = c.req.query('includeTombstoned') === 'true';
 
-    // Confirm the id exists at all — an empty versions list from the
-    // binding is ambiguous (no versions vs. unknown id), so we do a
-    // preliminary `get` to flip an unknown id to a `404`.
-    const latest = await binding.get({ tenantId, flowId });
-    if (latest === null) {
+    // Confirm the id exists at all: an empty versions list from the
+    // binding is ambiguous (no versions vs. unknown id). A retired flow
+    // (every version unregistered) still has its head row, so it answers
+    // 200, with its versions under `includeTombstoned`; a never-registered
+    // id is 404. As tools and policies do.
+    const exists = await binding.headExists({ tenantId, flowId });
+    if (!exists) {
       c.status(statusFor('flow-not-found') as never);
       return c.json(
         toWireError(
@@ -209,6 +227,7 @@ export function flowsRouter(
       flowId,
       limit,
       ...(cursorRaw !== undefined && cursorRaw.length > 0 && { cursor: cursorRaw as Cursor }),
+      ...(includeTombstoned && { includeTombstoned: true }),
     });
     return c.json({
       data: page.data.map(serializeGraph),
@@ -333,6 +352,9 @@ export function flowsRouter(
           requestId,
         ),
       );
+    }
+    if (outcome.kind === 'project-mismatch') {
+      return projectMismatch(c, 'flow', outcome.flowId as unknown as string, outcome.projectId);
     }
     if (outcome.kind === 'project-not-found') {
       // Caller supplied a `projectId` that does not resolve within
@@ -464,6 +486,7 @@ function serializeGraph(g: FlowVersionRecord): Record<string, unknown> {
   return {
     id: g.id as unknown as string,
     version: g.version,
+    ...(g.projectId !== undefined && { projectId: g.projectId as unknown as string }),
     ...(g.name !== undefined && { name: g.name }),
     ...(g.description !== undefined && { description: g.description }),
     nodes: g.nodes,

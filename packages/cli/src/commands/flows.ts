@@ -4,6 +4,7 @@
 import type { FlowsClient } from '@kindgi/client';
 
 import type { CommandContext } from '../context.js';
+import { UsageError } from '../errors.js';
 import {
   type TableSpec,
   integerFlag,
@@ -44,6 +45,7 @@ const FLOWS_TABLE: TableSpec<FlowPage, Flow> = {
     { header: 'VERSION', get: (f) => f.version },
     { header: 'NAME', get: (f) => f.name ?? '' },
     { header: 'NODES', get: (f) => String(f.nodes.length) },
+    { header: 'UNREGISTERED', get: (f) => f.unregisteredAt ?? '' },
   ],
 };
 
@@ -51,9 +53,14 @@ const list: LeafCommand = {
   kind: 'leaf',
   name: 'list',
   description: 'List registered flows (the latest version of each).',
-  usage: 'kindgi flows list [--name=<prefix>] [--limit=<n>] [--cursor=<c>]',
+  usage: 'kindgi flows list [--name=<prefix>] [--include-retired] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
     name: { type: 'string', description: 'Only flows whose id starts with this.' },
+    'include-retired': {
+      type: 'boolean',
+      description:
+        'Include retired flows (every version unregistered), each as its highest version with `unregisteredAt`.',
+    },
     ...PAGE_FLAGS,
   },
   run: (ctx) =>
@@ -62,7 +69,11 @@ const list: LeafCommand = {
       'flows list',
       async () => {
         const name = stringFlag(ctx, 'name');
-        return await ctx.client().flows.list({ ...page(ctx), ...(name !== undefined && { name }) });
+        return await ctx.client().flows.list({
+          ...page(ctx),
+          ...(name !== undefined && { name }),
+          ...(ctx.options['include-retired'] === true && { includeRetired: true }),
+        });
       },
       FLOWS_TABLE,
     ),
@@ -104,7 +115,7 @@ const publish: LeafCommand = {
   run: (ctx) =>
     runSdk(ctx, 'flows publish', async () => {
       const specText = stringFlag(ctx, 'spec');
-      if (specText === undefined) throw new Error('--spec=<json-or-@file> is required');
+      if (specText === undefined) throw new UsageError('--spec=<json-or-@file> is required');
       const spec = (await readJsonInput(specText)) as FlowSpec;
       const projectId = await projectIdFlag(ctx);
       return await ctx.client().flows.define(spec, { projectId });
@@ -129,15 +140,25 @@ const versions: LeafCommand = {
   kind: 'leaf',
   name: 'versions',
   description: 'List the registered versions of a flow.',
-  usage: 'kindgi flows versions <flow-id> [--limit=<n>] [--cursor=<c>]',
-  optionSpec: PAGE_FLAGS,
+  usage: 'kindgi flows versions <flow-id> [--include-unregistered] [--limit=<n>] [--cursor=<c>]',
+  optionSpec: {
+    'include-unregistered': {
+      type: 'boolean',
+      description:
+        "Include unregistered versions (each with `unregisteredAt`), a retired flow's too.",
+    },
+    ...PAGE_FLAGS,
+  },
   run: (ctx) =>
     runSdk(
       ctx,
       'flows versions',
       async () => {
         const flowId = requiredPositional(ctx, 0, 'flow-id') as never;
-        return await ctx.client().flows.versions.list(flowId, page(ctx));
+        return await ctx.client().flows.versions.list(flowId, {
+          ...page(ctx),
+          ...(ctx.options['include-unregistered'] === true && { includeTombstoned: true }),
+        });
       },
       FLOWS_TABLE,
     ),

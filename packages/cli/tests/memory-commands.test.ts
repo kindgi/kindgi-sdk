@@ -1,7 +1,10 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-/** `kindgi memory facts list / get / write` (T238), through the client's `memory.facts`. */
+/**
+ * `kindgi memory facts list / get / revisions / write / supersede /
+ * delete / verify` (T238, T273), through the client's `memory.facts`.
+ */
 
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -48,10 +51,28 @@ async function memory(argv: readonly string[]) {
       ({
         identity: { whoami: record('whoami', { tenantId: 't-1', scopes: [] }) },
         memory: {
+          search: record('search', [{ fact: FACT, score: 2 / 61 }]),
           facts: {
             list: record('list', { data: [FACT], hasMore: false, items: [FACT] }),
             read: record('read', FACT),
             write: record('write', FACT),
+            supersede: record('supersede', { ...FACT, version: 2 }),
+            delete: record('delete', {
+              ...FACT,
+              invalidatedAt: '2026-10-07T00:00:00Z',
+              invalidatedBy: 'user:u-1',
+              invalidationReason: 'deleted',
+            }),
+            verify: record('verify', { ...FACT, version: 2, trust: 'verified' }),
+            revisions: record('revisions', [
+              { ...FACT, version: 2, content: { tone: 'warm' } },
+              {
+                ...FACT,
+                invalidatedAt: '2026-10-07T00:00:00Z',
+                invalidatedBy: 'user:u-1',
+                invalidationReason: 'superseded',
+              },
+            ]),
           },
         },
       }) as never,
@@ -137,23 +158,96 @@ describe('kindgi memory facts (T238)', () => {
     expect([...missing.calls, ...notObject.calls, ...badScope.calls]).toEqual([]);
   });
 
-  test('help names the whole path and lists only list, get and write', async () => {
+  test('get one revision, or as it stood then; list as it stood then', async () => {
+    const { calls } = await memory([
+      'get',
+      'fact-1',
+      '--revision=2',
+      '--as-of=2026-10-06T02:00:00+02:00',
+    ]);
+    expect(calls).toEqual([['read', 'fact-1', { version: 2, asOf: '2026-10-06T00:00:00.000Z' }]]);
+    const listed = await memory(['list', '--as-of=2026-10-06']);
+    expect(listed.calls).toEqual([['list', { asOf: '2026-10-06T00:00:00.000Z' }]]);
+  });
+
+  test('supersede <fact-id> --input, with --expect-version', async () => {
+    const { out, calls } = await memory([
+      'supersede',
+      'fact-1',
+      '--input={"content":{"tone":"warm"},"subjects":[{"kind":"user","id":"u-1"}]}',
+      '--expect-version=1',
+    ]);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([
+      [
+        'supersede',
+        'fact-1',
+        { content: { tone: 'warm' }, subjects: [{ kind: 'user', id: 'u-1' }], expectVersion: 1 },
+      ],
+    ]);
+    expect(JSON.parse(out.stdout).version).toBe(2);
+  });
+
+  test('supersede needs --input with content', async () => {
+    const missing = await memory(['supersede', 'fact-1']);
+    expect(missing.out.stderr).toContain('--input=<json-or-@file> is required');
+    const noContent = await memory(['supersede', 'fact-1', '--input={"subjects":[]}']);
+    expect(noContent.out.stderr).toContain('--input needs `content`');
+    // Usage errors.
+    expect([missing.out.exitCode, noContent.out.exitCode]).toEqual([2, 2]);
+    expect([...missing.calls, ...noContent.calls]).toEqual([]);
+  });
+
+  test('delete and verify, with and without --expect-version', async () => {
+    const deleted = await memory(['delete', 'fact-1']);
+    expect(deleted.out.exitCode, deleted.out.stderr).toBe(0);
+    expect(deleted.calls).toEqual([['delete', 'fact-1']]);
+    expect(JSON.parse(deleted.out.stdout).invalidationReason).toBe('deleted');
+    const verified = await memory(['verify', 'fact-1', '--expect-version=1']);
+    expect(verified.calls).toEqual([['verify', 'fact-1', { expectVersion: 1 }]]);
+    expect(JSON.parse(verified.out.stdout).trust).toBe('verified');
+    const bad = await memory(['delete', 'fact-1', '--expect-version=one']);
+    expect(bad.out.stderr).toContain('--expect-version must be an integer');
+    expect(bad.calls).toEqual([]);
+  });
+
+  test('revisions --table: newest first, why each one ended', async () => {
+    const { out, calls } = await memory(['revisions', 'fact-1', '--table']);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['revisions', 'fact-1']]);
+    const rows = out.stdout.trim().split('\n').slice(2);
+    expect(rows[0]).toMatch(/^2 .*current/);
+    expect(rows[1]).toContain('superseded 2026-10-07T00:00:00Z by user:u-1');
+  });
+
+  test('help names the whole path and every command', async () => {
     const { out } = await memory(['--help']);
     expect(out.exitCode).toBe(0);
     expect(out.stdout).toContain('Usage: kindgi memory facts <subcommand>');
-    expect(out.stdout).toMatch(/^ {2}write /m);
-    expect(out.stdout).not.toMatch(/^ {2}(supersede|retrieve) /m);
+    for (const name of ['write', 'supersede', 'delete', 'verify', 'revisions', 'retrieve']) {
+      expect(out.stdout).toMatch(new RegExp(`^ {2}${name} `, 'm'));
+    }
   });
 
-  test('supersede and retrieve say why they are not available', async () => {
-    const supersede = await memory(['supersede', 'fact-1']);
-    expect(supersede.out.exitCode).toBe(2);
-    expect(supersede.out.stderr).toContain(
-      "Command 'kindgi memory facts supersede' is not available: the Kindgi runtime doesn't supersede memory facts yet",
-    );
-    const retrieve = await memory(['retrieve', '--query={"mode":"list"}']);
-    expect(retrieve.out.exitCode).toBe(2);
-    expect(retrieve.out.stderr).toContain("the Kindgi runtime doesn't search memory yet");
-    expect(retrieve.out.stderr).toContain('kindgi memory facts list --type=<type> --scope=<json>');
+  test('retrieve --query searches, and --table shows the hits best first', async () => {
+    const { out, calls } = await memory([
+      'retrieve',
+      '--query={"mode":"both","query":"refund","limit":5}',
+      '--table',
+    ]);
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['search', { mode: 'both', query: 'refund', limit: 5 }]]);
+    expect(out.stdout).toContain('fact-1');
+    expect(out.stdout).toContain('0.0328');
+  });
+
+  test('retrieve needs --query, an object', async () => {
+    const missing = await memory(['retrieve']);
+    expect(missing.out.stderr).toContain('--query=<json-or-@file> is required');
+    const bad = await memory(['retrieve', '--query=[1]']);
+    expect(bad.out.stderr).toContain('--query must be a JSON object');
+    // Usage errors.
+    expect([missing.out.exitCode, bad.out.exitCode]).toEqual([2, 2]);
+    expect([...missing.calls, ...bad.calls]).toEqual([]);
   });
 });

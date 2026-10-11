@@ -80,6 +80,14 @@ export interface ConversationsClient {
   close(id: ThreadId, options?: { readonly idempotencyKey?: string }): Promise<Conversation>;
 
   /**
+   * Unregister a conversation: a tombstone. From then on no read, list or
+   * recall of earlier conversations returns it, and it takes no more
+   * turns; the retention sweep removes it after the tenant's grace.
+   * Returns it with `unregisteredAt`.
+   */
+  unregister(id: ThreadId, options?: { readonly idempotencyKey?: string }): Promise<Conversation>;
+
+  /**
    * Paginated message history — `sequence asc` (natural conversation
    * reading order), distinct from most list endpoints which use
    * `createdAt desc`. Consumers wanting the raw fact rows can query
@@ -166,6 +174,17 @@ export function makeConversationsClient(transport: Transport): ConversationsClie
       return transport.request<Conversation>({
         method: 'POST',
         path: `/v1/conversations/${encodeURIComponent(id as unknown as string)}/close`,
+        body: {},
+        ...(options?.idempotencyKey !== undefined && {
+          idempotencyKey: options.idempotencyKey,
+        }),
+      });
+    },
+
+    async unregister(id, options) {
+      return transport.request<Conversation>({
+        method: 'POST',
+        path: `/v1/conversations/${encodeURIComponent(id as unknown as string)}/unregister`,
         body: {},
         ...(options?.idempotencyKey !== undefined && {
           idempotencyKey: options.idempotencyKey,

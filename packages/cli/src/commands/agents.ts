@@ -13,6 +13,7 @@ import type {
 import type { AgentId } from '@kindgi/types';
 
 import type { CommandContext } from '../context.js';
+import { UsageError } from '../errors.js';
 import {
   type TableSpec,
   integerFlag,
@@ -56,6 +57,7 @@ const AGENTS_TABLE: TableSpec<AgentCollectionPage, Agent> = {
     { header: 'ID', get: (a) => a.id },
     { header: 'VERSION', get: (a) => a.version },
     { header: 'NAME', get: (a) => a.name },
+    { header: 'UNREGISTERED', get: (a) => a.unregisteredAt ?? '' },
   ],
 };
 
@@ -63,9 +65,14 @@ const list: LeafCommand = {
   kind: 'leaf',
   name: 'list',
   description: 'List registered agents (the latest version of each).',
-  usage: 'kindgi agents list [--name=<prefix>] [--limit=<n>] [--cursor=<c>]',
+  usage: 'kindgi agents list [--name=<prefix>] [--include-retired] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
     name: { type: 'string', description: 'Only agents whose id starts with this.' },
+    'include-retired': {
+      type: 'boolean',
+      description:
+        'Include retired agents (every version unregistered), each as its highest version with `unregisteredAt`.',
+    },
     ...PAGE_FLAGS,
   },
   run: (ctx) =>
@@ -74,9 +81,11 @@ const list: LeafCommand = {
       'agents list',
       async () => {
         const name = stringFlag(ctx, 'name');
-        return await ctx
-          .client()
-          .agents.list({ ...page(ctx), ...(name !== undefined && { name }) });
+        return await ctx.client().agents.list({
+          ...page(ctx),
+          ...(name !== undefined && { name }),
+          ...(ctx.options['include-retired'] === true && { includeRetired: true }),
+        });
       },
       AGENTS_TABLE,
     ),
@@ -117,7 +126,7 @@ const publish: LeafCommand = {
   run: (ctx) =>
     runSdk(ctx, 'agents publish', async () => {
       const specText = stringFlag(ctx, 'spec');
-      if (specText === undefined) throw new Error('--spec=<json-or-@file> is required');
+      if (specText === undefined) throw new UsageError('--spec=<json-or-@file> is required');
       const spec = (await readJsonInput(specText)) as AgentDefinitionSpec;
       const projectId = await projectIdFlag(ctx);
       const agentId = await ctx.client().agents.define(spec, { projectId });
@@ -131,7 +140,7 @@ function pinSwaps(values: readonly string[], flag: string): Record<string, strin
   for (const value of values) {
     const at = value.indexOf('=');
     if (at <= 0 || at === value.length - 1) {
-      throw new Error(`--${flag} takes <block-id>=<version>, got '${value}'`);
+      throw new UsageError(`--${flag} takes <block-id>=<version>, got '${value}'`);
     }
     pins[value.slice(0, at)] = value.slice(at + 1);
   }
@@ -173,11 +182,11 @@ const derive: LeafCommand = {
     runSdk(ctx, 'agents derive', async () => {
       const agentId = requiredPositional(ctx, 0, 'agent-id');
       const from = stringFlag(ctx, 'from');
-      if (from === undefined) throw new Error('--from=<semver> is required');
+      if (from === undefined) throw new UsageError('--from=<semver> is required');
       const prompts = pinSwaps(listFlag(ctx, 'prompt'), 'prompt');
       const settings = pinSwaps(listFlag(ctx, 'setting'), 'setting');
       if (Object.keys(prompts).length + Object.keys(settings).length === 0) {
-        throw new Error(
+        throw new UsageError(
           'Name at least one pin to swap: --prompt=<id>=<version> or --setting=<id>=<version>',
         );
       }
@@ -212,15 +221,25 @@ const versions: LeafCommand = {
   kind: 'leaf',
   name: 'versions',
   description: 'List the registered versions of an agent.',
-  usage: 'kindgi agents versions <agent-id> [--limit=<n>] [--cursor=<c>]',
-  optionSpec: PAGE_FLAGS,
+  usage: 'kindgi agents versions <agent-id> [--include-unregistered] [--limit=<n>] [--cursor=<c>]',
+  optionSpec: {
+    'include-unregistered': {
+      type: 'boolean',
+      description:
+        "Include unregistered versions (each with `unregisteredAt`), a retired agent's too.",
+    },
+    ...PAGE_FLAGS,
+  },
   run: (ctx) =>
     runSdk(
       ctx,
       'agents versions',
       async () => {
         const agentId = requiredPositional(ctx, 0, 'agent-id') as never;
-        return await ctx.client().agents.versions.list(agentId, page(ctx));
+        return await ctx.client().agents.versions.list(agentId, {
+          ...page(ctx),
+          ...(ctx.options['include-unregistered'] === true && { includeTombstoned: true }),
+        });
       },
       AGENTS_TABLE,
     ),
@@ -258,8 +277,9 @@ export function scopeFrom(ctx: CommandContext, required: boolean): LiveScope | u
   const projectId = stringFlag(ctx, 'project');
   const segments = segmentsFlag(ctx);
   const named = [tenant, orgId !== undefined, projectId !== undefined].filter(Boolean).length;
-  if (named > 1) throw new Error('Give one of --tenant, --org or --project');
-  if (segments.length > 0 && projectId === undefined) throw new Error('--segment needs --project');
+  if (named > 1) throw new UsageError('Give one of --tenant, --org or --project');
+  if (segments.length > 0 && projectId === undefined)
+    throw new UsageError('--segment needs --project');
   if (tenant) return { kind: 'tenant' };
   if (orgId !== undefined) return { kind: 'org', orgId };
   if (projectId !== undefined) {
@@ -267,7 +287,7 @@ export function scopeFrom(ctx: CommandContext, required: boolean): LiveScope | u
       ? { kind: 'segment', projectId, path: [...segments] }
       : { kind: 'project', projectId };
   }
-  if (required) throw new Error(`Name the scope: ${SCOPE_USAGE}`);
+  if (required) throw new UsageError(`Name the scope: ${SCOPE_USAGE}`);
   return undefined;
 }
 
@@ -319,7 +339,7 @@ const live: LeafCommand = {
       const projectId = stringFlag(ctx, 'project');
       const segments = segmentsFlag(ctx);
       if (segments.length > 0 && projectId === undefined) {
-        throw new Error('--segment needs --project');
+        throw new UsageError('--segment needs --project');
       }
       return await ctx.client().agents.live.resolve(agentId, {
         ...(projectId !== undefined && { projectId }),

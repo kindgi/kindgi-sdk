@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { RunBinding } from '@kindgi/runtime';
-import type { ListScope, ProjectId, Result, Semver, TenantId } from '@kindgi/types';
+import type { ListScope, ProjectId, Result, ScopeSegment, Semver, TenantId } from '@kindgi/types';
 
 import type { AgentError } from './errors.js';
 import type {
@@ -51,12 +51,31 @@ export interface AppendMessageInput {
    * assistant response for a turn omits this flag (counts as a turn).
    */
   readonly isIntermediate?: boolean;
+  /**
+   * What the conversation-recall index keeps with the message, from the
+   * turn (the conversation row has neither): the user the turn acts for,
+   * and the run's segment path. A user's message and an agent's final
+   * answer are indexed; tool messages and tool-call turns are not.
+   * Absent: indexed without them.
+   */
+  readonly recall?: {
+    readonly userId?: string;
+    readonly segments?: readonly ScopeSegment[];
+  };
 }
 
 export interface ReadMessagesInput {
   readonly tenantId: TenantId;
   readonly conversationId: ConversationId;
   readonly sinceSequence?: number;
+  /** Only messages before this sequence. */
+  readonly beforeSequence?: number;
+  /**
+   * Only the newest `last` messages (after the other bounds), oldest
+   * first: a turn's history window. A binding that ignores it returns
+   * them all, and the caller keeps the newest.
+   */
+  readonly last?: number;
   readonly limit?: number;
 }
 
@@ -67,7 +86,14 @@ export interface ReadMessagesInput {
  * opaque wire cursor.
  */
 export interface ConversationPageCursor {
-  /** ISO 8601 `openedAt` timestamp of the last row from the previous page. */
+  /**
+   * `openedAt` of the last row from the previous page. As a binding's
+   * `ConversationPage.next` gives it, the stored value exactly (Postgres
+   * keeps microseconds: `opened_at::text`); a cursor from before carries
+   * the row's ISO 8601 `openedAt`. A binding compares it as given, never
+   * through a JS `Date`, which keeps milliseconds and would skip the rows
+   * opened earlier in the same millisecond.
+   */
   readonly openedAt: string;
   readonly id: ConversationId;
 }
@@ -102,6 +128,13 @@ export interface ListConversationsPageInput {
 export interface ConversationPage {
   readonly data: readonly Conversation[];
   readonly hasMore: boolean;
+  /**
+   * Where the next page starts: the last row's position as stored
+   * (`openedAt` to the microsecond, and `id`). Set when `hasMore`. Absent
+   * from a binding that doesn't give it: the caller then uses the last
+   * row's `openedAt` and `id`.
+   */
+  readonly next?: ConversationPageCursor;
 }
 
 /**
@@ -152,7 +185,24 @@ export interface ConversationBinding {
     runBinding?: RunBinding,
   ): Promise<Result<Conversation, AgentError>>;
 
-  deleteConversation(tenantId: TenantId, id: ConversationId): Promise<Result<void, AgentError>>;
+  /**
+   * Unregister a conversation: a tombstone (`unregisteredAt`). From then
+   * on no read, list or recall returns it, and no message can be added;
+   * the retention sweep removes it after the tenant's grace. Optional: a
+   * binding without it can't unregister (the route answers 501).
+   */
+  unregisterConversation?(
+    tenantId: TenantId,
+    id: ConversationId,
+  ): Promise<Result<Conversation, AgentError>>;
+
+  /**
+   * @deprecated Removed with the conversation-recall index: deleting a
+   * row left its messages behind. Unregister instead
+   * (`unregisterConversation`). Optional only so a runtime built before
+   * it still compiles; the next release drops it.
+   */
+  deleteConversation?(tenantId: TenantId, id: ConversationId): Promise<Result<void, AgentError>>;
 
   appendMessage(input: AppendMessageInput): Promise<Result<ConversationMessage, AgentError>>;
 

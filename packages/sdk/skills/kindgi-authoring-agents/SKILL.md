@@ -12,7 +12,7 @@ description: >
   kindgi-authoring-guardrails.
 type: core
 library: "@kindgi/sdk"
-version: "0.4.3"
+version: "0.4.5"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -125,10 +125,10 @@ export default defined.value;
   capability-based selection when the preferred provider is
   unregistered or filtered out.
 - **`preferredModel`** — optional soft hint at the model level: set to
-  a `ModelInfo.name` (e.g. `'gemini-2.5-pro'`), the router prefers
+  a `ModelInfo.name` (e.g. `'gemini-3.8-flash'`), the router prefers
   `(provider, model)` tuples whose model matches. To require a model
   rather than prefer it, add a hard requirement to the capability:
-  `capabilities: [{ needs: [{ feature: 'tool-use' }, { models: { allow: ['gemini-2.5-pro'] } }] }]`.
+  `capabilities: [{ needs: [{ feature: 'tool-use' }, { models: { allow: ['gemini-3.8-flash'] } }] }]`.
 - **`conversationPolicy`** — optional. Absent = each turn loads the
   conversation's full history and no HITL gates apply. `historyLimit`
   caps how many prior messages are loaded; `hitl` configures approval
@@ -160,6 +160,34 @@ export default defined.value;
   retries the turn fails as before, with `toolRetries` on the error. A
   tenant's `tool-errors` policy can lower these (fewer retries, fewer
   kinds), never raise them.
+- **`retrieval`** — what the agent reads from memory before each turn.
+  Empty = no memory. Each intent is
+  `{ types: ['acme.preference'], scope, mode?, limit? }`, with `scope`
+  one of `'same-user'`, `'same-conversation'`, `'same-project'`,
+  `'tenant'` (always within what the run may see), and `mode` absent
+  (newest first), `'keyword'`, `'semantic'` or `'both'`. Retrieved facts
+  reach the model as data in a `<memory>` block, never as instructions.
+  `semantic`/`both` need embeddings on the runtime
+  (`KINDGI_MEMORY_EMBEDDINGS`): without them a `semantic` intent fails
+  the turn (`semantic-unavailable`). `{ source: 'conversations', scope:
+  'same-user' }` recalls this agent's earlier conversations: the people's
+  own words only, unless `roles: ['user', 'agent']` (its own earlier
+  answers come back marked unverified). `same-segment`/`same-project`
+  recall other people's conversations, and publishing warns.
+  `same-user` memory (facts, recall or `remember`) is the run's end user's:
+  pass `participantId` on every run. A run without one reads and keeps
+  none (its result warns `memory-needs-participant`), never the memory of
+  the user a key acts for, who may serve many people.
+- **`memory`** — `{ remember: { types, scope, keepDays? } }` gives the
+  turn the built-in tool `kindgi_remember` (name it exactly so in the
+  instructions; built-ins have no dots). The model picks the type, the
+  text, an optional `key` and an expiry; never the scope. A fact wider
+  than one person, or text that reads like an instruction, waits for a
+  person's approval. Remembering is a tool call, so use a model with
+  reliable tool calling. `{ instructionTypes: ['acme.policy'] }` turns a
+  retrieved, verified fact of those types into an instruction
+  ("Policies (verified)"). See
+  https://docs.kindgi.com/v0.1/guides/agents/give-an-agent-memory/.
 
 ## What a turn receives
 

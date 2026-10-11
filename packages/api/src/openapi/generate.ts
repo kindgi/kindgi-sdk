@@ -49,6 +49,8 @@ const DEFAULT_SERVERS: readonly OpenApiServer[] = [
 const TAG_DESCRIPTIONS: Readonly<Record<string, string>> = {
   system: 'Health + spec discovery.',
   runs: 'Run lifecycle (start, list, get, cancel, resume, journal, stream).',
+  'export-signing-keys':
+    'The public keys this deployment signs its exports with (audit bundles, provenance, compliance evidence): what a verifier pins.',
   'signing-keys':
     'The deployment trust list: the public keys whose signatures `POST /v1/deployments` accepts. Revoked keys stay readable for audit.',
   tokens:
@@ -69,7 +71,7 @@ const TAG_DESCRIPTIONS: Readonly<Record<string, string>> = {
   proposals:
     'Supervisor fix-proposal lifecycle (draft, dry-run, submit-review, apply, rollback, withdraw — caller-plugged binding wraps the supervisor).',
   provenance:
-    'Causal DAG readback + signed exports (list, get, export — signing is caller-plugged via `SigningKeyBinding`).',
+    "Causal DAG readback + signed exports (list, get, export), signed with the deployment's export key.",
   artifacts:
     'Blob storage (list metadata, multipart upload, streaming download, HEAD, delete). Caller-plugged via `BlobStorageBinding` (from `@kindgi/blob-binding`).',
   capabilities:
@@ -89,18 +91,20 @@ const TAG_DESCRIPTIONS: Readonly<Record<string, string>> = {
     "Data blocks: versioned prompts and settings an agent version pins when it's published (list, get, versions, publish, unregister, reinstate). A version never changes, nor does a block's kind; a settings block's values satisfy its schema and the latest version's. A block belongs to one project and is authorized through it: `read` on the project to read, `write` to publish, unregister or reinstate. Caller-plugged via `BlockRegistryBinding`.",
   judgments:
     "Judgments: yes or no, with an optional reason, about one item of a finished run's output, optionally recorded under a judge class (list, get, create, unregister). Each judgment keeps copies of what was judged (the run's input and output, and the item) so they outlive the run's own retention. Who judged comes from the authenticated caller, never the body; an app judging for one of its users passes that user's opaque id as `participantId`. One live judgment per run, item key, caller and participant: judging again supersedes the earlier one, which stays as history. Caller-plugged via `JudgmentRegistryBinding`.",
+  judging:
+    "A project's judging rules (which runs to queue for a person's judgment when they end) and the queue they fill. Rules only list runs; nothing here starts a model.",
   'judge-classes':
     'Judge classes (list, get, create, update, unregister): the deployment\'s named kinds of judge ("expert", "user", ...), each with a weight, scoped to the tenant, a project, or an agent in a project. A judgment may name a class; an unclassified judgment counts with weight 1. Caller-plugged via `JudgmentRegistryBinding`.',
   'eval-runs':
     'Eval-run data plane (start, list, get, cancel, events SSE). Dispatches an eval run against a registered suite. Dispatch is per-`EvalKind`; kinds without a registered dispatcher return `422 dispatcher-not-registered`. `result` is kind-specific opaque JSON on the wire — for `accuracy` it is `{ passCount, totalCount, meanScore, perCase[] }`. SSE events mirror run streaming: per-case progress followed by a terminal frame carrying the aggregate. Caller-plugged via `EvalRunBinding`.',
-  auth: 'OAuth 2.0 / OIDC identity providers + session lifecycle. Layers browser-based auth on top of the static bearer-token surface: bearer tokens continue to work byte-shape-identical; session tokens use the `kgi_sk_*` prefix so the same middleware routes both flavors. Providers are caller-plugged via `IdentityProviderBinding` (no baked-in list). Sessions persist via `SessionStoreBinding`. Code exchange is caller-supplied via `exchangeCode`. PKCE (S256) is mandatory. `clientSecretRef` is a REFERENCE — the plaintext secret never crosses the wire.',
+  auth: 'OIDC and SAML identity providers + session lifecycle. Layers browser-based auth on top of the static bearer-token surface: bearer tokens continue to work byte-shape-identical; session tokens use the `kgi_sk_*` prefix so the same middleware routes both flavors. Providers are caller-plugged via `IdentityProviderBinding` (no baked-in list); sign-in runs in the deployment, which reads them. Sessions persist via `SessionStoreBinding`. `clientSecretRef` is a REFERENCE — the plaintext secret never crosses the wire.',
   identity:
     'Tenant-scoped identity directory (list, get, list-active-sessions, revoke-sessions, whoami) — part of the admin control plane. Caller-plugged via `IdentityDirectoryBinding` — deployments plug in their own user store (LDAP, SCIM, or bespoke). Registry-only over HTTP: the framework does NOT own user persistence. The directory is flat; groups, roles, invitations, directory sync and impersonation are not part of this surface. `primaryEmail` may be redacted per tenant policy — the routes treat it as opaque. Provider access-token / refresh-token NEVER cross the wire, even to admins.',
   mcp: "MCP-endpoint catalog (list, get, register, unregister). Tenants declare the remote MCP servers (`stdio` / `http-sse` / `streamable-http`) they want the runtime to consume. The runtime discovers each endpoint's tools and registers them into `ToolRegistryBinding` under the same tenant — remote MCP tools become native Kindgi tools without a recompile. Secrets never cross the wire: `secretRef` names a secret in the deployment's store, resolved at the endpoint's tenant scope. A deployment refuses `stdio` endpoints unless `KINDGI_TENANT_HOST_ACCESS=local`. Caller-plugged via `MCPEndpointRegistryBinding`.",
   deployments:
     'Signed pack deployments (register, list, get). The single wire surface that lands a signed OCI image + index.json into the platform. Register runs a six-step atomic transaction: Ed25519 signature verify over the canonical `{imageDigest, artifactVersion, indexHash, tenantId, publishedAt}` envelope, tenant-scoped trust-list check via `SigningKeyRegistryBinding`, image pullability + `/app/index.json` sha256 match via `ImageRegistryBinding`, per-primitive manifest validation, registry upserts (tools + guardrails + agents + flows), append-only deployment ledger row via `DeploymentBinding`. All-or-nothing rollback on any failure; digest-based idempotency (redeploying the same image returns the existing record). Records are immutable — rollback = re-register the previous digest.',
   compliance:
-    'Compliance-evidence readback + signed exports (list, get, export). Reads are a classification lens over `AuditEventBinding`; only classifier-marked `exportable` kinds appear on the wire. Signed export is caller-plugged via `SigningKeyBinding` — deployments without a signing key get `404 signing-not-configured`. Bundle envelope matches `provenance.export` + audit-bundle byte-for-byte so verifiers reuse one `verifyEd25519` wrapper across all three surfaces. Redaction happens when evidence is generated, not at the export boundary — records are stored already redacted.',
+    'Compliance-evidence readback + signed exports (list, get, export). Reads are a classification lens over `AuditEventBinding`; only classifier-marked `exportable` kinds appear on the wire. A signed export is signed with the export signing key of the deployment (`exportSigning`); a deployment without one answers `404 signing-not-configured`. It is the same envelope as the audit-bundle and provenance exports, so one verifier reads all three. Redaction happens when evidence is generated, not at the export boundary — records are stored already redacted.',
   audit:
     'PDP decision audit stream (list). Every route-level authz `check()` emits one `AuditEvent` (kind `authz-decision`) via the `AuditEventBinding`; this route pages through them, tenant-scoped, with `?actorSubject=` / `?onBehalfOf=` / `?action=` / `?resource=` / `?outcome=` / `?runId=` / `?from=` / `?to=` filters. Admin@tenant only. This view is a filtered projection of the tenant audit events.',
   orgs: 'Multi-tenant hierarchy — Org CRUD (list, create, get, patch, delete). Optional structural subdivision within a tenant; small tenants ignore Orgs entirely. Caller-plugged via `OrgBinding` from `@kindgi/platform`.',
@@ -111,6 +115,8 @@ const TAG_DESCRIPTIONS: Readonly<Record<string, string>> = {
   tenant:
     'Sovereignty boundary readback + tenant-scoped config (get tenant; list + upsert entries routed to the env / secrets bindings). There is no `/v1/tenants` collection — the caller\'s tenant is implicit from the bearer token. `PATCH /config` routes writes to `SecretBinding` when `sensitive: true` OR `kind: "secret"`; else to `EnvBinding`. `GET /config` merges both bindings at tenant scope; secret values are ALWAYS redacted here. The `/config` sub-routes mount when at least one of `envBinding` / `secretsBinding` is wired. Prefer `/v1/env/*` + `/v1/secrets/*` for new callers.',
   env: 'Non-sensitive per-env values (`/v1/env/*`). Every route requires `envName` + `scopeKind` (+ `scopeId` for org / project); `value` is present on every read path (env is non-sensitive by definition). Writes require the `env:write` capability. Caller-plugged via `EnvBinding` (`@kindgi/env-inmemory` is an in-memory implementation for development and tests).',
+  schedules:
+    "Run an agent or a flow on a schedule: a cron expression in a timezone. Each occurrence is one fire, which starts one run as the schedule's owner (re-checked at every fire), through the same path as `POST /v1/runs`; a run a schedule started names it (`Run.trigger`). After a gap, `catchUp` runs once for the latest missed occurrence (or skips them), never once per missed one; `overlap` skips an occurrence while the previous run is still going. `GET …/fires` is the schedule's history; `run-now` fires it outside the schedule. Mounted when the deployment fires schedules.",
   'webhook-endpoints':
     'Outbound webhooks: endpoints the platform sends signed events to (`run.finished` when a top-level run completes, fails or is cancelled), their delivery log, redelivery and a test event. Signed in the Standard Webhooks format with a secret the endpoint references by name (`secretRef`); delivered at least once, so receivers deduplicate on `webhook-id`. Event bodies are under `webhooks`. Not to be confused with `/v1/webhooks`, which are inbound triggers. Caller-plugged via `WebhookEndpointBinding`.',
   secrets:
@@ -121,9 +127,12 @@ export function generateOpenApiDocument(opts: GenerateOptions = {}): Record<stri
   const info: OpenApiInfo = { ...DEFAULT_INFO, ...opts.info };
   const servers = opts.servers ?? DEFAULT_SERVERS;
 
-  const paths = buildPaths(OPERATIONS);
+  // What the runtime doesn't serve yet stays out, with the schemas only it uses.
+  const served = OPERATIONS.filter((o) => o.unserved === undefined);
+  const paths = buildPaths(served);
+  const unservedOnly = schemasOnlyUnserved(OPERATIONS);
   const components = {
-    schemas: Object.fromEntries(COMPONENT_SCHEMAS),
+    schemas: Object.fromEntries(COMPONENT_SCHEMAS.filter(([name]) => !unservedOnly.has(name))),
     securitySchemes: {
       bearerAuth: {
         type: 'http',
@@ -140,7 +149,7 @@ export function generateOpenApiDocument(opts: GenerateOptions = {}): Record<stri
       },
     },
   };
-  const tags = uniqueTags(OPERATIONS).map((name) => ({
+  const tags = uniqueTags(served).map((name) => ({
     name,
     ...(TAG_DESCRIPTIONS[name] !== undefined && { description: TAG_DESCRIPTIONS[name] }),
   }));
@@ -154,6 +163,41 @@ export function generateOpenApiDocument(opts: GenerateOptions = {}): Record<stri
     paths,
     webhooks: buildOutboundWebhooks(),
   };
+}
+
+/**
+ * The component schemas only unserved operations reach: reachable from
+ * them and not from a served operation or the outbound webhooks. A schema
+ * nothing reaches (a shared type the clients use) is kept.
+ */
+function schemasOnlyUnserved(operations: readonly OperationSpec[]): ReadonlySet<string> {
+  const byName = new Map<string, JsonSchema>(COMPONENT_SCHEMAS);
+  const reach = (roots: readonly unknown[]): Set<string> => {
+    const seen = new Set<string>();
+    const stack: unknown[] = [...roots];
+    while (stack.length > 0) {
+      const x = stack.pop();
+      if (Array.isArray(x)) stack.push(...x);
+      else if (x !== null && typeof x === 'object') {
+        const ref = (x as { $ref?: unknown }).$ref;
+        if (typeof ref === 'string' && ref.startsWith('#/components/schemas/')) {
+          const name = ref.slice('#/components/schemas/'.length);
+          if (!seen.has(name)) {
+            seen.add(name);
+            stack.push(byName.get(name));
+          }
+        }
+        stack.push(...Object.values(x));
+      }
+    }
+    return seen;
+  };
+  const servedReach = reach([
+    ...operations.filter((o) => o.unserved === undefined),
+    buildOutboundWebhooks(),
+  ]);
+  const unservedReach = reach(operations.filter((o) => o.unserved !== undefined));
+  return new Set([...unservedReach].filter((name) => !servedReach.has(name)));
 }
 
 /**
@@ -211,6 +255,16 @@ function buildOutboundWebhooks(): Record<string, unknown> {
       'run.finished',
       'A top-level run completed, failed or was cancelled',
       'RunFinishedEvent',
+    ),
+    'improvement-pass.finished': event(
+      'improvement-pass.finished',
+      'An improvement pass completed, failed or was cancelled',
+      'ImprovementPassFinishedEvent',
+    ),
+    'approval.requested': event(
+      'approval.requested',
+      "An approval was asked for: a reviewer's decision is waiting",
+      'ApprovalRequestedEvent',
     ),
     'webhook.test': event(
       'webhook.test',

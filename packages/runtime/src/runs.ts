@@ -18,9 +18,10 @@ import type {
   ScopeSegment,
   TenantId,
   Timestamp,
+  TriggerId,
 } from '@kindgi/types';
 
-import type { RunAgentRef } from './inputs.js';
+import type { RunAgentRef, RunTriggerRef } from './inputs.js';
 import type { RunStatus } from './types.js';
 
 /**
@@ -66,6 +67,13 @@ export interface KernelRunRecord {
    * when it is a flow run. Absent when it was started without one.
    */
   readonly segments?: readonly ScopeSegment[];
+  /** Set on a run a trigger started (`RunTriggerRef`). */
+  readonly trigger?: RunTriggerRef;
+  /**
+   * When an erasure cleared the run's content (its input, output, failure
+   * message and journal payloads). Absent on every other run.
+   */
+  readonly contentErasedAt?: Timestamp;
   /**
    * The W3C trace id of the request that started the run
    * (`RunFlowInput.traceId`). Absent for a run no request started, and on
@@ -92,6 +100,12 @@ export type RunListScope =
  * `{ createdAt, id }` internally.
  */
 export interface RunListCursor {
+  /**
+   * The last run's `createdAt`, as the binding's `nextCursor` carries it:
+   * as stored (Postgres keeps microseconds). A binding compares it as given,
+   * never through a JS `Date`, which keeps milliseconds and would skip the
+   * runs created earlier in the same millisecond.
+   */
   readonly createdAt: Timestamp;
   readonly id: RunId;
 }
@@ -118,6 +132,20 @@ export interface ListRunsInput {
   readonly replays?: 'exclude' | 'include' | 'only';
   /** Only the replays of this eval run. */
   readonly evalRunId?: string;
+  /** Only the runs this trigger started (`RunTriggerRef.triggerId`). */
+  readonly triggerId?: TriggerId;
+  /** Only runs in one of these statuses. */
+  readonly statuses?: readonly RunStatus[];
+  /** Only runs created strictly after this time. */
+  readonly createdAfter?: Timestamp;
+  /** Only runs created strictly before this time. */
+  readonly createdBefore?: Timestamp;
+  /** With `agentId`: only the turns that ran this version. Turns from before versions were recorded never match. */
+  readonly agentVersion?: string;
+  /** Only runs of this flow (an agent's turns run `agent.turn`). */
+  readonly flowId?: string;
+  /** With `flowId`: only runs of this version. */
+  readonly flowVersion?: string;
 }
 
 export interface ListRunsPage {

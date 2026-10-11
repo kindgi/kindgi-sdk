@@ -13,7 +13,7 @@ import { spawn } from 'node:child_process';
 import { readFile, stat } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
-import type { PackLanguage } from '@kindgi/handler-runtime';
+import { type PackLanguage, isJvmLanguage } from '@kindgi/handler-runtime';
 
 import { CLI_VERSION } from './version-info.js';
 
@@ -23,7 +23,7 @@ export type PackageManager = 'pnpm' | 'npm' | 'yarn' | 'bun';
  * How a pack runs its bins: through its package manager, or — a Python
  * pack, which has no npm project to install the CLI into — from `PATH`.
  */
-export type BinRunner = PackageManager | 'path' | 'uv' | 'poetry' | 'venv';
+export type BinRunner = PackageManager | 'path' | 'uv' | 'poetry' | 'venv' | 'kindgiw';
 
 /**
  * How this CLI was installed: from npm (`@kindgi/cli`), or from PyPI
@@ -235,7 +235,12 @@ export async function usablePackageManager(
   return { pm: 'npm', declared: pm };
 }
 
-/** The pack's `BinRunner`: `pythonBinRunner`'s for a Python pack, else the manager that runs here. */
+/**
+ * The pack's `BinRunner`: `pythonBinRunner`'s for a Python pack; for a JVM
+ * pack (Java, Scala), which has no npm or Python environment, its `kindgiw` (the CLI
+ * version it pins), else the published CLI through npx; else the manager
+ * that runs here.
+ */
 export async function detectBinRunner(
   dir: string,
   language: PackLanguage,
@@ -243,6 +248,8 @@ export async function detectBinRunner(
   env: Readonly<Record<string, string | undefined>> = process.env,
 ): Promise<BinRunner> {
   if (language === 'python') return await pythonBinRunner(dir, env, io);
+  // A JVM pack (Java, Scala) runs the CLI its kindgiw pins; without the wrapper, the published one.
+  if (isJvmLanguage(language)) return (await io.exists(join(dir, 'kindgiw'))) ? 'kindgiw' : 'path';
   return (await usablePackageManager(dir, io)).pm;
 }
 
@@ -287,6 +294,11 @@ export function binCommand(
     case 'venv':
       // The PyPI CLI's script in the app's own (activated) environment.
       return { command: bin, args: [...args] };
+    case 'kindgiw':
+      // A Java pack's wrapper: the CLI version its kindgi.config.json pins.
+      return bin === 'kindgi'
+        ? { command: './kindgiw', args: [...args] }
+        : { command: bin, args: [...args] };
     case 'path':
       // No npm project to install the CLI into (a Python pack): the published
       // CLI through npx, within this CLI's minor (as Python packs pin
@@ -306,6 +318,11 @@ export function binDisplay(runner: BinRunner, bin: string, args: readonly string
 
 export function installCommand(pm: PackageManager): string {
   return `${pm} install`;
+}
+
+/** How a project runs one of its package.json scripts: `pnpm typecheck`, `npm run typecheck`. */
+export function scriptCommand(pm: PackageManager, script: string): string {
+  return pm === 'npm' || pm === 'bun' ? `${pm} run ${script}` : `${pm} ${script}`;
 }
 
 /**

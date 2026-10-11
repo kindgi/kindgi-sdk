@@ -27,7 +27,22 @@ export type InvokeAgentError =
   | UnresolvedGuardrailError
   | OutputSchemaViolationError
   | TenantPolicyUnavailableError
-  | RunSnapshotError;
+  | RunSnapshotError
+  | SemanticUnavailableError;
+
+/**
+ * A retrieval intent searches by meaning (`mode: 'semantic'`) and the
+ * runtime has no embeddings. The turn fails rather than retrieve nothing
+ * without a word; the operator turns embeddings on
+ * (`KINDGI_MEMORY_EMBEDDINGS`), or the agent asks for `both` (which runs
+ * its keyword half without them).
+ */
+export interface SemanticUnavailableError {
+  readonly code: 'semantic-unavailable';
+  readonly message: string;
+  /** The intent's position in the agent's `retrieval`. */
+  readonly intent: number;
+}
 
 /**
  * A turn being resumed can't be rebuilt from its snapshot:

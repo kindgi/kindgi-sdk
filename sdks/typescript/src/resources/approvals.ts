@@ -14,7 +14,6 @@ import { KindgiApiError, notYetWired } from '../errors.js';
 import { type ListPage, type WirePage, listPage } from '../list-page.js';
 import type { ScopeRef } from '../scope-wire.js';
 import { scopeToQuery } from '../scope-wire.js';
-import { singleStatusQuery } from '../status-query.js';
 import type { Transport } from '../transport.js';
 import type {
   Approval,
@@ -29,6 +28,7 @@ import type {
   ReviewerSpec,
   UnregisterReviewerResult,
 } from '../types.js';
+import { verifySignedExport } from '../verify-export.js';
 
 /**
  * Approvals resource — human-in-the-loop approval queue.
@@ -58,10 +58,16 @@ import type {
  */
 export interface ApprovalsClient {
   /**
+   * Role-scoped. `filter.status` takes one status or several (the open
+   * ones: `['pending', 'assigned', 'in_review']`), `filter.assignedTo:
+   * 'me'` the caller's own, and `filter.order: 'asc'` oldest first. The
+   * page's `order` says which order it's in: a runtime before 0.1.6 lists
+   * newest first and leaves it out.
+   *
    * @wire `GET /v1/approvals` — see
-   *   `@kindgi/api/openapi.json#/paths/~1v1~1approvals/get`. Role-scoped.
+   *   `@kindgi/api/openapi.json#/paths/~1v1~1approvals/get`.
    */
-  list(filter?: ApprovalFilter): Promise<ListPage<Approval>>;
+  list(filter?: ApprovalFilter): Promise<ApprovalPage>;
 
   /**
    * @wire `GET /v1/approvals/{approvalId}` — see
@@ -192,20 +198,26 @@ export interface AuditClient {
   list(filter?: Filter): Promise<ListPage<AuditBundleMeta>>;
 
   /**
-   * Verify a bundle's Ed25519 signature client-side.
-   *
-   * @unwired The SDK does not ship an Ed25519 verifier; the method
-   *   throws `not-yet-wired` (as does `provenance.verify`).
+   * Verify a bundle where it's read (Web Crypto's Ed25519; no request):
+   * its signature over the bytes shipped, and that it was signed with
+   * `publicKey`, a key you trust (a `publicKeyPem` from
+   * `exportSigningKeys.list()`, or one you pinned). `verifySignedExport`
+   * does the same with several keys, and returns the signed body.
    */
   verify(bundle: AuditBundle, publicKey: string): Promise<AuditVerifyResult>;
 }
 
 export interface ApprovalFilter extends Omit<Filter<ApprovalStatus>, 'status'> {
   /**
-   * One status. `GET /v1/approvals` filters by a single `?status=`;
-   * passing several is rejected client-side with `invalid-request`.
+   * One status, or several (sent comma-separated: the open ones are
+   * `['pending', 'assigned', 'in_review']`). A runtime before 0.1.6 takes
+   * one, and answers several with `400 bad-input`.
    */
-  readonly status?: ApprovalStatus;
+  readonly status?: ApprovalStatus | readonly ApprovalStatus[];
+  /** `'me'`: only the approvals assigned to the caller's own reviewer row. */
+  readonly assignedTo?: 'me';
+  /** `'asc'`: oldest first. Default `'desc'` (newest first). */
+  readonly order?: 'asc' | 'desc';
   /** Only one project's approvals (`kind: 'project'`), or every project's in an org (`kind: 'org'`). */
   readonly scope?: ScopeRef;
   /** Filter by required reviewer role. Caller must have rank ≥ value (else 403). */
@@ -217,6 +229,19 @@ export interface ApprovalFilter extends Omit<Filter<ApprovalStatus>, 'status'> {
    * `waitTokenId`; a run's journal names its open waits). At most 50.
    */
   readonly waitTokenIds?: readonly string[];
+  /** Only the approvals this run asked for. */
+  readonly runId?: string;
+  /** With `runId`: also those its child runs asked for, at any depth (a flow's agent steps). */
+  readonly includeDescendants?: boolean;
+}
+
+/**
+ * A page of approvals: the list's page, and the order it's in (`asc`
+ * oldest first, `desc` newest first). Absent from a runtime before 0.1.6,
+ * which lists newest first.
+ */
+export interface ApprovalPage extends ListPage<Approval> {
+  readonly order?: 'asc' | 'desc';
 }
 
 export interface ReviewerFilter extends Filter {
@@ -250,8 +275,8 @@ export interface CompleteTokenInput {
 export interface AuditExportInput {
   /** Approval to export a bundle for. */
   readonly approvalId: ApprovalId;
-  /** Signing key id from the deployment's `signingKey` binding. */
-  readonly signingKeyId: string;
+  /** Sign with this key (one of `exportSigningKeys.list()`). Absent: the deployment's active key. */
+  readonly signingKeyId?: string;
   /** Hydrate conversation messages tied to the approval's run. Default `false`. */
   readonly includeMessages?: boolean;
   readonly idempotencyKey?: string;
@@ -260,14 +285,23 @@ export interface AuditExportInput {
 export function makeApprovalsClient(transport: Transport): ApprovalsClient {
   return {
     async list(filter) {
-      const statusParam = singleStatusQuery('approvals.list', filter?.status);
-      const page = await transport.request<WirePage<Approval>>({
+      const statuses =
+        filter?.status === undefined
+          ? []
+          : typeof filter.status === 'string'
+            ? [filter.status]
+            : filter.status;
+      const page = await transport.request<
+        WirePage<Approval> & { readonly order?: 'asc' | 'desc' }
+      >({
         method: 'GET',
         path: '/v1/approvals',
         query: {
           ...(filter?.limit !== undefined && { limit: filter.limit }),
           ...(filter?.cursor !== undefined && { cursor: filter.cursor as unknown as string }),
-          ...(statusParam !== undefined && { status: statusParam }),
+          ...(statuses.length > 0 && { status: statuses.join(',') }),
+          ...(filter?.assignedTo !== undefined && { assignedTo: filter.assignedTo }),
+          ...(filter?.order !== undefined && { order: filter.order }),
           ...(filter?.scope !== undefined && scopeToQuery(filter.scope)),
           ...(filter?.requiredRole !== undefined && { requiredRole: filter.requiredRole }),
           ...(filter?.createdAfter !== undefined && {
@@ -275,9 +309,14 @@ export function makeApprovalsClient(transport: Transport): ApprovalsClient {
           }),
           ...(filter?.waitTokenIds !== undefined &&
             filter.waitTokenIds.length > 0 && { waitTokenId: filter.waitTokenIds }),
+          ...(filter?.runId !== undefined && { runId: filter.runId }),
+          ...(filter?.includeDescendants !== undefined && {
+            includeDescendants: String(filter.includeDescendants),
+          }),
         },
       });
-      return listPage(page);
+      const result = listPage(page);
+      return page.order === undefined ? result : Object.assign(result, { order: page.order });
     },
 
     async get(id) {
@@ -389,7 +428,7 @@ export function makeApprovalsClient(transport: Transport): ApprovalsClient {
           method: 'POST',
           path: `/v1/approvals/${encodeURIComponent(input.approvalId as unknown as string)}/audit-bundle`,
           body: {
-            signingKeyId: input.signingKeyId,
+            ...(input.signingKeyId !== undefined && { signingKeyId: input.signingKeyId }),
             ...(input.includeMessages !== undefined && {
               includeMessages: input.includeMessages,
             }),
@@ -416,13 +455,9 @@ export function makeApprovalsClient(transport: Transport): ApprovalsClient {
         );
       },
 
-      async verify(_bundle, _publicKey) {
-        throw new KindgiApiError(
-          notYetWired(
-            'approvals.audit.verify',
-            'client-side verifier requires the crypto module reachability from the SDK bundle — not yet vendored (same constraint as provenance.verify + webhooks.verify)',
-          ),
-        );
+      async verify(bundle, publicKey) {
+        const checked = await verifySignedExport(bundle, { trustedKeys: [publicKey] });
+        return checked.valid ? { valid: true } : { valid: false, issues: checked.issues ?? [] };
       },
     },
   };

@@ -47,9 +47,14 @@ export function decodeToolName(name: string): string {
  *     merge into a single user message (matching the framework's
  *     dispatch-tools handler which appends one tool message per call
  *     after an assistant `tool_use` turn).
+ *
+ * `systemParts` keeps the system messages apart, in order, so each can be
+ * its own block: the first (the agent's prompt) is the stable one a cache
+ * breakpoint goes on (`withPromptCache`).
  */
 export function toAnthropicMessages(messages: readonly ModelMessage[]): {
   readonly system: string | undefined;
+  readonly systemParts: readonly string[];
   readonly messages: readonly Anthropic.MessageParam[];
 } {
   const systemParts: string[] = [];
@@ -100,6 +105,7 @@ export function toAnthropicMessages(messages: readonly ModelMessage[]): {
 
   return {
     system: systemParts.length > 0 ? systemParts.join('\n\n') : undefined,
+    systemParts,
     messages: out,
   };
 }

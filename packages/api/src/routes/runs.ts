@@ -4,7 +4,7 @@
 import { Hono } from 'hono';
 
 import type { AgentId } from '@kindgi/agents';
-import type { KernelRunRecord, ListRunsInput, RunBinding } from '@kindgi/runtime';
+import type { KernelRunRecord, ListRunsInput, RunBinding, RunStatus } from '@kindgi/runtime';
 import type {
   FlowId,
   ListScope,
@@ -13,9 +13,11 @@ import type {
   ScopeSegment,
   Semver,
   TenantId,
+  Timestamp,
+  TriggerId,
 } from '@kindgi/types';
 
-import { ref } from '@kindgi/authz';
+import { type Principal, denyPayload, ref } from '@kindgi/authz';
 
 import { type WireErrorBody, statusFor, toWireError } from '../errors.js';
 import type { EventBusBinding, EventPayload, Subscription } from '../event-bus-binding.js';
@@ -25,12 +27,17 @@ import type {
   RunHandlerOutcome,
   RunTrace,
 } from '../handler-binding.js';
+import type { HitlBinding } from '../hitl-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { MintPublicRunTokenResult } from '../public-run-token.js';
+import { type RunFailure, runFailure } from '../run-failure.js';
+import { runWaitingFor } from '../run-waiting-for.js';
 import type { AppEnv } from '../types.js';
+import { deniedBy } from './denied.js';
 import { liveScopeToWire } from './live-scope-wire.js';
 import type { DecodedCursor } from './pagination.js';
-import { clampLimit, decodeCursor } from './pagination.js';
+import { clampLimit, decodeCursor, isCursorTime } from './pagination.js';
+import { runFailuresHandler } from './run-failures.js';
 import { parseListScope } from './scope-params.js';
 import { parseSegmentsBody } from './segments.js';
 import {
@@ -47,6 +54,11 @@ const KERNEL_RUN_CHANNEL_PREFIX = 'kernel:run:';
 /** Options for `runsRouter`. */
 export interface RunsRouterOptions {
   /**
+   * The approvals, for a suspended run's `waitingFor` (the approvals linked
+   * to its open waits). Absent: those waits are `unattributed`.
+   */
+  readonly hitl?: HitlBinding;
+  /**
    * Optional push-based event bus. When present, `GET /:runId/stream`
    * subscribes on `kernel:run:<runId>` and delivers events
    * push-mode. When absent, the route polls the run's journal every
@@ -60,6 +72,16 @@ export interface RunsRouterOptions {
   readonly publicRunTokens?: {
     readonly mint: (tenantId: TenantId, runIds: readonly RunId[]) => MintPublicRunTokenResult;
   };
+  /**
+   * Whether the tenant has the agent or flow a run names. With an
+   * authorizer, starting a run needs `execute` on an existing target; one
+   * that doesn't exist is left to the run handler's 404. Absent: the
+   * check always runs.
+   */
+  readonly targetExists?: (
+    tenantId: TenantId,
+    target: { readonly kind: 'agent' | 'flow'; readonly id: string },
+  ) => Promise<boolean>;
 }
 
 /** How far up the parent chain a public token's grant reaches. */
@@ -88,58 +110,55 @@ export function runsRouter(
   // Each check resolves the run's project (by run id) and asks the
   // authorizer about that project:
   //
-  // POST /              — no route-level check; `execute` on the agent
-  //                       or flow is up to the run handler binding.
+  // POST /              — execute on the agent or flow it names (an
+  //                       existing one; a missing one is the handler's 404)
   // GET /:runId         — read on the run's project
   // POST /:runId/cancel — write on the run's project
-  // POST /:runId/resume — execute on the run's project
+  // POST /:runId/resume — write on the run's project
   // GET /:runId/journal — read on the run's project
   // GET /:runId/stream  — read on the run's project
-  // GET /               — list; tenant-scoped, the scope filter narrows
-  //                       further (rows are not filtered per permission)
+  // GET /               — list; rows filtered to `read` on their project
   if (authorizer !== undefined) {
+    // A run that isn't there is the handler's 404: `read` on the tenant
+    // (which every reader has) lets it through without masking it. An id
+    // that isn't a run id is never looked up (its uuid cast would fail
+    // the query as a 500): the route's own 400 answers it.
     const projectFromRun = async (c: import('hono').Context<AppEnv>) => {
       const tenantId = c.get('tenantId') as TenantId;
       const runId = c.req.param('runId') ?? '';
-      if (runId.length === 0) return ref('tenant', tenantId as unknown as string);
-      const row = await runBinding.getRun(tenantId, runId as RunId);
-      if (row === null) {
-        // Fall back to tenant so the underlying handler surfaces
-        // 404 rather than the middleware masking it as 403.
-        return ref('tenant', tenantId as unknown as string);
-      }
-      return ref('project', row.projectId as unknown as string);
+      const row = UUID_RE.test(runId) ? await runBinding.getRun(tenantId, runId as RunId) : null;
+      return row === null
+        ? ref('tenant', tenantId as unknown as string)
+        : ref('project', row.projectId as unknown as string);
     };
+    const onRunProject =
+      (action: 'read' | 'write') =>
+      async (c: import('hono').Context<AppEnv>, next: import('hono').Next) => {
+        const resource = await projectFromRun(c);
+        const mw = authorizer.authorize(
+          resource.type === 'tenant' ? 'read' : action,
+          () => resource,
+        );
+        return mw(c, next);
+      };
     r.use('/:runId', async (c, next) => {
       if (c.req.method !== 'GET') return next();
-      const mw = authorizer.authorize('read', projectFromRun);
-      return mw(c, next);
+      return onRunProject('read')(c, next);
     });
-    r.use('/:runId/journal', async (c, next) => {
-      const mw = authorizer.authorize('read', projectFromRun);
-      return mw(c, next);
-    });
-    r.use('/:runId/stream', async (c, next) => {
-      const mw = authorizer.authorize('read', projectFromRun);
-      return mw(c, next);
-    });
+    r.use('/:runId/journal', onRunProject('read'));
+    r.use('/:runId/stream', onRunProject('read'));
     // Progress: `read` for API tokens. A public run token has no
     // principal; the handlers check that its grant covers the run.
     const progressAuth = async (c: import('hono').Context<AppEnv>, next: import('hono').Next) => {
       if (c.get('tokenKind') === 'public-run') return next();
-      const mw = authorizer.authorize('read', projectFromRun);
-      return mw(c, next);
+      return onRunProject('read')(c, next);
     };
     r.use('/:runId/progress', progressAuth);
     r.use('/:runId/progress/stream', progressAuth);
-    r.use('/:runId/cancel', async (c, next) => {
-      const mw = authorizer.authorize('write', projectFromRun);
-      return mw(c, next);
-    });
-    r.use('/:runId/resume', async (c, next) => {
-      const mw = authorizer.authorize('execute', projectFromRun);
-      return mw(c, next);
-    });
+    r.use('/:runId/cancel', onRunProject('write'));
+    // As cancel: changing a run is `write` on its project (a project has
+    // no `execute`; asking for it refused everyone, T243 A).
+    r.use('/:runId/resume', onRunProject('write'));
   }
 
   // ---------- POST / (start a run — agent | flow) ----------
@@ -162,11 +181,46 @@ export function runsRouter(
       return c.json(toWireError(parsed.error, requestId));
     }
 
+    const target =
+      parsed.value.kind === 'agent'
+        ? { kind: 'agent' as const, id: parsed.value.agentId as unknown as string }
+        : { kind: 'flow' as const, id: parsed.value.flowId as unknown as string };
+    if ((await options.targetExists?.(tenantId, target)) !== false) {
+      const refused = await deniedBy(authorizer, c, 'execute', ref(target.kind, target.id));
+      if (refused !== undefined) return refused;
+    }
+    // A run filed under a project the caller names needs `write` on it:
+    // the run lands there, readable by that project's viewers (T307).
+    // Unnamed, the runtime files it under the conversation's, the agent's
+    // or the flow's own project, so a caller who may only run it needs no
+    // more, and the refusal says so.
+    if (authorizer !== undefined && parsed.value.projectId !== undefined) {
+      const named = ref('project', parsed.value.projectId as unknown as string);
+      const decision = await authorizer.check(c, 'write', named);
+      if (!decision.allowed) {
+        const deny = denyPayload('write', named.type, named.id, decision.reason);
+        c.status(403);
+        return c.json(
+          toWireError(
+            {
+              code: deny.code,
+              message: `Permission denied: naming project ${named.id} needs write on it; omit \`projectId\` to run in the ${target.kind}'s own project`,
+              action: deny.action,
+              resource: deny.resource,
+              reason: deny.reason,
+            },
+            requestId,
+          ),
+        );
+      }
+    }
+
     const trace = c.get('trace');
     const invocation = await invokeFromBody(
       binding,
       tenantId,
       parsed.value,
+      c.get('principal') as Principal | undefined,
       trace !== undefined ? { traceId: trace.traceId, spanId: trace.spanId } : undefined,
     );
 
@@ -199,19 +253,33 @@ export function runsRouter(
     });
   });
 
+  // ---------- GET /failures ----------
+  // Before `/:runId`, which would read `failures` as a run id.
+  r.get('/failures', runFailuresHandler(runBinding, authorizer));
+
   // ---------- GET /:runId ----------
   r.get('/:runId', refuseMalformedRunId, async (c) => {
     const requestId = c.get('requestId');
     const runId = c.req.param('runId') as RunId;
 
-    const loaded = await runBinding.getRun(c.get('tenantId') as TenantId, runId);
+    const tenantId = c.get('tenantId') as TenantId;
+    const loaded = await runBinding.getRun(tenantId, runId);
     if (loaded === null) {
       c.status(statusFor('run-not-found') as never);
       return c.json(
         toWireError({ code: 'run-not-found', message: `No run with id ${runId}` }, requestId),
       );
     }
-    return c.json(serializeRun(loaded, { output: true }));
+    // A suspended run says what it waits for (left out when that can't be read).
+    const waitingFor = await runWaitingFor(
+      { runBinding, ...(options.hitl !== undefined && { hitl: options.hitl }) },
+      tenantId,
+      { id: loaded.runId, status: loaded.status },
+    );
+    return c.json({
+      ...serializeRun(loaded, { output: true }),
+      ...(waitingFor !== undefined && { waitingFor }),
+    });
   });
 
   // ---------- GET /:runId/progress ----------
@@ -245,7 +313,7 @@ export function runsRouter(
     const rawCursor = c.req.query('cursor');
     if (rawCursor !== undefined && rawCursor.length > 0) {
       const decoded = decodeCursor(rawCursor);
-      if (decoded === null) {
+      if (decoded === null || !isCursorTime(decoded.createdAt)) {
         c.status(statusFor('bad-input') as never);
         return c.json(
           toWireError({ code: 'bad-input', message: '`cursor` is malformed' }, requestId),
@@ -261,7 +329,7 @@ export function runsRouter(
         toWireError({ code: 'scope-invalid', message: scopeParsed.message }, requestId),
       );
     }
-    const listFilter = parseRunListFilter(c.req.query());
+    const listFilter = parseRunListFilter(c.req.query(), c.req.queries('status'));
     if (listFilter.kind === 'err') {
       c.status(statusFor('bad-input') as never);
       return c.json(toWireError({ code: 'bad-input', message: listFilter.message }, requestId));
@@ -277,8 +345,14 @@ export function runsRouter(
         filter: listFilter.value,
       }),
     );
+    const visible =
+      authorizer === undefined
+        ? page.data
+        : await authorizer.filterByCan(c, 'read', page.data, (row) =>
+            ref('project', row.projectId as unknown as string),
+          );
     return c.json({
-      data: page.data.map((row) => serializeRun(row, { output: includeOutput })),
+      data: visible.map((row) => serializeRun(row, { output: includeOutput })),
       hasMore: page.nextCursor !== undefined,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });
@@ -631,10 +705,13 @@ function invokeFromBody(
   binding: RunHandlerBinding,
   tenantId: TenantId,
   body: ParsedStartRunBody,
+  principal: Principal | undefined,
   trace?: RunTrace,
 ): Promise<RunHandlerOutcome> {
   const common = {
     tenantId,
+    // Whom the run acts for: the authenticated caller, never the body.
+    ...(principal !== undefined && { principal }),
     ...(trace !== undefined && { trace }),
     ...(body.projectId !== undefined && { projectId: body.projectId }),
     input: body.input,
@@ -678,6 +755,7 @@ function serializeRun(
     updatedAt: row.updatedAt as unknown as string,
     completedAt: row.completedAt ?? undefined,
     failureMessage: row.failureMessage ?? undefined,
+    ...withFailure(row),
     ...(opts.output && row.output !== undefined && { output: row.output }),
     ...(row.parentRunId != null && { parentRunId: row.parentRunId as unknown as string }),
     ...(row.parentNodeId != null && { parentNodeId: row.parentNodeId as unknown as string }),
@@ -694,13 +772,32 @@ function serializeRun(
     }),
     ...(row.replayOf != null && { replayOf: row.replayOf as unknown as string }),
     ...(row.evalRunId != null && { evalRunId: row.evalRunId }),
+    ...(row.trigger !== undefined && {
+      trigger: {
+        triggerId: row.trigger.triggerId as unknown as string,
+        kind: row.trigger.kind,
+        fireId: row.trigger.fireId,
+        ...(row.trigger.scheduledFor !== undefined && {
+          scheduledFor: row.trigger.scheduledFor as unknown as string,
+        }),
+      },
+    }),
     ...(row.versions != null && { versions: row.versions }),
+    ...(row.contentErasedAt !== undefined && {
+      contentErasedAt: row.contentErasedAt as unknown as string,
+    }),
     ...(row.segments !== undefined &&
       row.segments.length > 0 && {
         segments: row.segments.map(({ key, value }) => ({ key, value })),
       }),
     ...(row.traceId != null && { traceId: row.traceId }),
   };
+}
+
+/** `failure` on a failed run's wire row: its error, decoded once, here. */
+function withFailure(row: KernelRunRecord): { readonly failure?: RunFailure } {
+  const failure = runFailure(row);
+  return failure !== undefined ? { failure } : {};
 }
 
 /** A run's progress: status and timing, no data. */
@@ -762,6 +859,13 @@ function listRunsInput(input: {
     ...(filter.agentId !== undefined && { agentId: filter.agentId }),
     replays: filter.replays,
     ...(filter.evalRunId !== undefined && { evalRunId: filter.evalRunId }),
+    ...(filter.triggerId !== undefined && { triggerId: filter.triggerId }),
+    ...(filter.statuses !== undefined && { statuses: filter.statuses }),
+    ...(filter.createdAfter !== undefined && { createdAfter: filter.createdAfter }),
+    ...(filter.createdBefore !== undefined && { createdBefore: filter.createdBefore }),
+    ...(filter.agentVersion !== undefined && { agentVersion: filter.agentVersion }),
+    ...(filter.flowId !== undefined && { flowId: filter.flowId }),
+    ...(filter.flowVersion !== undefined && { flowVersion: filter.flowVersion }),
   };
 }
 
@@ -771,19 +875,128 @@ interface RunListFilter {
   readonly agentId?: string;
   readonly replays: 'exclude' | 'include' | 'only';
   readonly evalRunId?: string;
+  readonly triggerId?: TriggerId;
+  readonly statuses?: readonly RunStatus[];
+  readonly createdAfter?: Timestamp;
+  readonly createdBefore?: Timestamp;
+  readonly agentVersion?: string;
+  readonly flowId?: string;
+  readonly flowVersion?: string;
   readonly includeOutput: boolean;
+}
+
+/** Every run status: a `Record` over the type, so a new status fails the build here. */
+const RUN_STATUSES: Readonly<Record<RunStatus, true>> = {
+  pending: true,
+  running: true,
+  suspended: true,
+  completed: true,
+  failed: true,
+  cancelled: true,
+};
+
+type Parsed<T> = { kind: 'ok'; value: T } | { kind: 'err'; message: string };
+
+/** `?status=`, repeated or comma-separated (`status=failed&status=cancelled`, `status=failed,cancelled`), de-duplicated. */
+function parseStatuses(raw: readonly string[] | undefined): Parsed<RunStatus[] | undefined> {
+  if (raw === undefined || raw.length === 0) return { kind: 'ok', value: undefined };
+  const given = raw.flatMap((v) => v.split(',')).map((s) => s.trim());
+  const unknown = given.filter((s) => !Object.hasOwn(RUN_STATUSES, s));
+  if (unknown.length > 0) {
+    const named = unknown.join(', ') || '(empty)';
+    return {
+      kind: 'err',
+      message: `Unknown \`status\` value(s): ${named}. Expected one or more of: ${Object.keys(RUN_STATUSES).join(', ')}`,
+    };
+  }
+  return { kind: 'ok', value: [...new Set(given as RunStatus[])] };
+}
+
+/** `?createdAfter=` / `?createdBefore=`: strict bounds, as ISO times, after before before. */
+function parseCreatedBounds(
+  createdAfter: string | undefined,
+  createdBefore: string | undefined,
+): Parsed<{ readonly createdAfter?: Timestamp; readonly createdBefore?: Timestamp }> {
+  const iso = (raw: string | undefined) =>
+    raw === undefined || Number.isNaN(Date.parse(raw))
+      ? undefined
+      : (new Date(Date.parse(raw)).toISOString() as Timestamp);
+  const after = iso(createdAfter);
+  const before = iso(createdBefore);
+  if (createdAfter !== undefined && after === undefined) {
+    return { kind: 'err', message: '`createdAfter` must be a date-time' };
+  }
+  if (createdBefore !== undefined && before === undefined) {
+    return { kind: 'err', message: '`createdBefore` must be a date-time' };
+  }
+  if (after !== undefined && before !== undefined && after >= before) {
+    return { kind: 'err', message: '`createdAfter` must be earlier than `createdBefore`' };
+  }
+  return {
+    kind: 'ok',
+    value: {
+      ...(after !== undefined && { createdAfter: after }),
+      ...(before !== undefined && { createdBefore: before }),
+    },
+  };
+}
+
+/** The narrowing filters: `status`, the creation bounds, the agent's version, and the flow with its version. */
+function parseRunNarrowing(
+  query: Readonly<Record<string, string>>,
+  status: readonly string[] | undefined,
+): Parsed<
+  Pick<
+    RunListFilter,
+    'statuses' | 'createdAfter' | 'createdBefore' | 'agentVersion' | 'flowId' | 'flowVersion'
+  >
+> {
+  const { agentId, agentVersion, flowId, flowVersion } = query;
+  const statuses = parseStatuses(status);
+  if (statuses.kind === 'err') return statuses;
+  const bounds = parseCreatedBounds(query.createdAfter, query.createdBefore);
+  if (bounds.kind === 'err') return bounds;
+  const empty = (
+    [
+      ['agentVersion', agentVersion],
+      ['flowId', flowId],
+      ['flowVersion', flowVersion],
+    ] as const
+  ).find(([, value]) => value !== undefined && value.trim() === '');
+  if (empty !== undefined) return { kind: 'err', message: `\`${empty[0]}\` must not be empty` };
+  if (agentVersion !== undefined && agentId === undefined) {
+    return { kind: 'err', message: '`agentVersion` needs `agentId`' };
+  }
+  if (flowVersion !== undefined && flowId === undefined) {
+    return { kind: 'err', message: '`flowVersion` needs `flowId`' };
+  }
+  return {
+    kind: 'ok',
+    value: {
+      ...(statuses.value !== undefined && { statuses: statuses.value }),
+      ...bounds.value,
+      ...(agentVersion !== undefined && { agentVersion }),
+      ...(flowId !== undefined && { flowId }),
+      ...(flowVersion !== undefined && { flowVersion }),
+    },
+  };
 }
 
 /**
  * `?parentRunId=` (children of a run), `?topLevel=true`, `?agentId=` (an
  * agent's turns), `?replays=exclude|include|only` (default `exclude`),
  * `?evalRunId=` (one eval run's replays; implies they are included),
- * `?include=output`.
+ * `?triggerId=` (the runs a trigger started), `?include=output`, and the
+ * narrowing in `parseRunNarrowing`.
  */
 function parseRunListFilter(
   query: Readonly<Record<string, string>>,
+  status?: readonly string[],
 ): { kind: 'ok'; value: RunListFilter } | { kind: 'err'; message: string } {
-  const { parentRunId, topLevel, agentId, replays, evalRunId, include } = query;
+  const { parentRunId, topLevel, agentId, replays, evalRunId, triggerId, include } = query;
+  if (triggerId !== undefined && !UUID_RE.test(triggerId)) {
+    return { kind: 'err', message: '`triggerId` must be a trigger id (a UUID)' };
+  }
   if (agentId !== undefined && agentId.trim() === '') {
     return { kind: 'err', message: '`agentId` must not be empty' };
   }
@@ -816,14 +1029,18 @@ function parseRunListFilter(
   if (unknown.length > 0) {
     return { kind: 'err', message: `Unknown \`include\` value(s): ${unknown.join(', ')}` };
   }
+  const narrowing = parseRunNarrowing(query, status);
+  if (narrowing.kind === 'err') return narrowing;
   return {
     kind: 'ok',
     value: {
+      ...narrowing.value,
       ...(parentRunId !== undefined && { parentRunId: parentRunId as RunId }),
       topLevelOnly,
       ...(agentId !== undefined && { agentId }),
       replays: replays ?? (evalRunId !== undefined ? 'include' : 'exclude'),
       ...(evalRunId !== undefined && { evalRunId }),
+      ...(triggerId !== undefined && { triggerId: triggerId as TriggerId }),
       includeOutput: includes.includes('output'),
     },
   };

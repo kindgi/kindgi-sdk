@@ -1,0 +1,23 @@
+package {{SCALA_PACKAGE}}.agents
+
+import com.kindgi.pack.scaladsl._
+import {{SCALA_PACKAGE}}.guardrails.ResponseNotEmpty
+import {{SCALA_PACKAGE}}.tools.{Echo, Greet}
+
+/** {{PACK_ID}}.echo-agent — uses both tools; the response-not-empty guardrail guards its answer. */
+object EchoAgent {
+  val agent: Agent = Agent("{{PACK_ID}}.echo-agent")
+    .version("{{PACK_VERSION}}")
+    .name("Echo Agent")
+    .description("Uses the pack's echo and greet tools; the response-not-empty guardrail guards the output.")
+    .instructions(
+      "For each user message: if the user sends a name, greet them with the greet tool. " +
+        "Otherwise echo their message with the echo tool. Quote the tool result verbatim.")
+    .capability(Map("needs" -> List(Map("feature" -> "tool-use"))))
+    .tool(Echo.tool)
+    .tool(Greet.tool)
+    .guardrail(ResponseNotEmpty.guardrail)
+    .set("conversationPolicy", Map("historyLimit" -> 10))
+    .set("budget", Map("maxSteps" -> 4, "maxCostUsd" -> 0.1, "maxWallMs" -> 60000))
+    .build()
+}

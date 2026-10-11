@@ -17,8 +17,10 @@ import {
   type AdapterTestOutcome,
 } from '../adapter-binding.js';
 import { statusFor, toWireError } from '../errors.js';
+import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
+import { tenantResourceAccess } from './tenant-access.js';
 
 /**
  * Adapters resource routes — part of the admin control plane. Unified
@@ -46,8 +48,10 @@ import { clampLimit } from './pagination.js';
 export function adaptersRouter(
   binding: AdapterRegistryBinding,
   factories?: AdapterFactoryRegistry,
+  authorizer?: Authorizer,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+  r.use('*', tenantResourceAccess(authorizer));
 
   // ---------- GET / (list, cursor-paginated) ----------
   r.get('/', async (c) => {

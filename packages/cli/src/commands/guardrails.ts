@@ -3,6 +3,7 @@
 
 import type { GuardrailId } from '@kindgi/types';
 
+import { UsageError } from '../errors.js';
 import { projectIdFlag, readJsonInput, requiredPositional, runSdk, stringFlag } from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
 
@@ -29,7 +30,7 @@ const list: LeafCommand = {
       const limitStr = stringFlag(ctx, 'limit');
       const limit = limitStr !== undefined ? Number.parseInt(limitStr, 10) : undefined;
       if (limit !== undefined && Number.isNaN(limit)) {
-        throw new Error(`--limit must be an integer, got "${limitStr}"`);
+        throw new UsageError(`--limit must be an integer, got "${limitStr}"`);
       }
       return await ctx.client().guardrails.list({
         ...(name !== undefined && { name }),
@@ -71,7 +72,7 @@ const register: LeafCommand = {
   run: (ctx) =>
     runSdk(ctx, 'guardrails register', async () => {
       const specText = stringFlag(ctx, 'spec');
-      if (specText === undefined) throw new Error('--spec=<json-or-@file> is required');
+      if (specText === undefined) throw new UsageError('--spec=<json-or-@file> is required');
       const spec = await readJsonInput(specText);
       const projectId = await projectIdFlag(ctx);
       return await ctx.client().guardrails.author(spec as never, { projectId });

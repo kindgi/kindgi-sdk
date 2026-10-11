@@ -144,3 +144,10 @@ export function validateGuardrailSpec(spec: unknown): Result<Guardrail, InvalidG
 
 /** The `$id` of the JSON Schema this loader validates against. */
 export const GUARDRAIL_SCHEMA_URI = GUARDRAIL_SCHEMA_ID;
+
+/**
+ * The fields a guardrail spec may carry (`guardrail.schema.json`'s properties). A reader that
+ * builds a spec from a source a newer version may extend (a pack index) keeps only these, so a
+ * field it doesn't know never fails the spec; a direct registration stays strict.
+ */
+export const GUARDRAIL_SPEC_KEYS: readonly string[] = Object.keys(guardrailSchema.properties);

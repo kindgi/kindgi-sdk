@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import { UsageError } from '../errors.js';
 import { integerFlag, requiredPositional, runSdk, stringFlag } from './helpers.js';
 import type { Command, LeafCommand } from './types.js';
 
@@ -15,7 +16,7 @@ function oneOf<T extends string>(
 ): T | undefined {
   if (value === undefined) return undefined;
   if (!(allowed as readonly string[]).includes(value)) {
-    throw new Error(`--${flag} must be one of ${allowed.join(', ')}, got "${value}"`);
+    throw new UsageError(`--${flag} must be one of ${allowed.join(', ')}, got "${value}"`);
   }
   return value as T;
 }
@@ -121,6 +122,19 @@ const close: LeafCommand = {
     }),
 };
 
+const unregister: LeafCommand = {
+  kind: 'leaf',
+  name: 'unregister',
+  description:
+    'Unregister a conversation: reads, lists and recall no longer return it, and it takes no more turns. The retention sweep removes it later.',
+  usage: 'kindgi conversations unregister <conversation-id>',
+  run: (ctx) =>
+    runSdk(ctx, 'conversations unregister', async () => {
+      const id = requiredPositional(ctx, 0, 'conversation-id');
+      return await ctx.client().conversations.unregister(id as never);
+    }),
+};
+
 const messages: LeafCommand = {
   kind: 'leaf',
   name: 'messages',
@@ -150,5 +164,5 @@ export const conversationsCommand: Command = {
   name: 'conversations',
   description:
     'Conversations: multi-turn threads with one agent version (list / get / open / close / messages).',
-  subcommands: [list, get, open, close, messages],
+  subcommands: [list, get, open, close, unregister, messages],
 };

@@ -195,6 +195,11 @@ export type ProjectMembershipAddOutcome =
   | {
       /** No project with this id in the tenant. */
       readonly kind: 'project-not-found';
+    }
+  | {
+      /** The person is a member already, with another role (kept: change it with `updateRole`). */
+      readonly kind: 'membership-exists';
+      readonly role: ProjectRole;
     };
 
 /** What `ProjectMembershipBinding.updateRole` did. */

@@ -348,6 +348,34 @@ describe('kindgi deploy — envelope resolution', () => {
     expect(fixtures.state.capturedBuild?.buildArgv).toContain('build');
     expect(fixtures.state.capturedBuild?.buildArgv).toContain('--env=staging');
     expect(out.stderr).toContain('running `kindgi build');
+    // Unpinned: the build picks the version and publish time (the build time).
+    expect(
+      fixtures.state.capturedBuild?.buildArgv.some((a) =>
+        /^--(artifact-version|published-at)=/.test(a),
+      ),
+    ).toBe(false);
+  });
+
+  test('an inline build passes --artifact-version and --published-at through', async () => {
+    const autoPath = join(packDir, '.kindgi/build/deploy-envelope.json');
+    const fixtures = makeFixtures({ writeEnvelopeAt: autoPath });
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      argv: [
+        'deploy',
+        '--env=staging',
+        '--artifact-version=20261008.7',
+        '--published-at=2026-10-08T12:00:00.000Z',
+        `--path=${packDir}`,
+      ],
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(fixtures.state.capturedBuild?.buildArgv).toEqual(
+      expect.arrayContaining([
+        '--artifact-version=20261008.7',
+        '--published-at=2026-10-08T12:00:00.000Z',
+      ]),
+    );
   });
 
   test('missing envelope + --from-envelope refuses to build (explicit path takes precedence)', async () => {

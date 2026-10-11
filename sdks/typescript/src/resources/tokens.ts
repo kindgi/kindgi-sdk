@@ -12,21 +12,29 @@ import type {
 
 import { type ListPage, listPage } from '../list-page.js';
 import type { Transport } from '../transport.js';
-import type { ApiToken, ApiTokenCreated, ApiTokenId, ApiTokenSpec } from '../types.js';
+import type {
+  ApiKeyPrincipal,
+  ApiToken,
+  ApiTokenCreated,
+  ApiTokenId,
+  ApiTokenSpec,
+} from '../types.js';
 
 /**
  * Tokens resource: API keys and public run tokens.
  *
- * An API key is a machine credential: a service account in its tenant,
- * with a role (`admin` | `member`) and an explicit list of capabilities.
- * Managing keys needs a tenant admin. `create` is the only place a
- * secret ever leaves the server: persist it immediately.
+ * An API key acts for one principal, a person or a service account, with
+ * that principal's grants: its role (`admin` | `member`) is a ceiling
+ * under them, and its project a limit. Anyone manages their own keys; a
+ * tenant admin manages everyone's. `create` is the only place a secret
+ * ever leaves the server: persist it immediately.
  */
 export interface TokensClient {
   /**
-   * Mint an API key. Returns `{ meta, secret }`; persist `secret`
-   * immediately, since no later read returns it. Only capabilities the
-   * caller holds can be granted.
+   * Mint an API key, for the caller or (a tenant admin only) for
+   * `spec.for`. Returns `{ meta, secret }`; persist `secret` immediately,
+   * since no later read returns it. Only capabilities the caller holds
+   * can be granted.
    *
    * @wire `POST /v1/tokens` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1tokens/post`.
@@ -37,8 +45,9 @@ export interface TokensClient {
   ): Promise<ApiTokenCreated>;
 
   /**
-   * List the tenant's API keys, newest first, revoked ones included.
-   * Never returns secrets.
+   * List API keys, newest first, revoked ones included: a tenant admin's
+   * list has every key (`filter.principal` for one principal's), anyone
+   * else's their own. Never returns secrets.
    *
    * @wire `GET /v1/tokens` — see
    *   `@kindgi/api/openapi.json#/paths/~1v1~1tokens/get`.
@@ -84,11 +93,14 @@ export type PublicRunToken = MintPublicRunTokenResult;
 export interface TokenFilter {
   readonly limit?: number;
   readonly cursor?: Cursor;
+  /** Tenant admins: only this principal's keys. */
+  readonly principal?: ApiKeyPrincipal;
 }
 
 function fromWire(wire: ApiTokenWire): ApiToken {
   return {
     id: wire.tokenId as unknown as ApiTokenId,
+    ...(wire.principal !== undefined && { principal: wire.principal }),
     role: wire.role,
     capabilities: wire.capabilities,
     ...(wire.label !== undefined && { label: wire.label }),
@@ -107,6 +119,7 @@ export function makeTokensClient(transport: Transport): TokensClient {
   return {
     async create(spec, options) {
       const body: Record<string, unknown> = {};
+      if (spec?.for !== undefined) body.for = { kind: spec.for.kind, id: spec.for.id };
       if (spec?.role !== undefined) body.role = spec.role;
       if (spec?.capabilities !== undefined) body.capabilities = spec.capabilities;
       if (spec?.label !== undefined) body.label = spec.label;
@@ -131,6 +144,9 @@ export function makeTokensClient(transport: Transport): TokensClient {
         query: {
           ...(filter?.limit !== undefined && { limit: filter.limit }),
           ...(filter?.cursor !== undefined && { cursor: filter.cursor as unknown as string }),
+          ...(filter?.principal !== undefined && {
+            principal: `${filter.principal.kind}:${filter.principal.id}`,
+          }),
         },
       });
       return listPage({ ...page, data: page.data.map(fromWire) });

@@ -21,7 +21,7 @@ const run = await kindgi.runs.start({
   options: { wait: false },
 });
 
-for await (const event of kindgi.runs.stream(run.id)) {
+for await (const event of kindgi.runs.follow(run.id)) {
   console.log(event.sequence, event.kind, event.nodeId ?? '');
 }
 // The loop ends after run.completed, run.failed or run.cancelled.
@@ -44,8 +44,9 @@ run = kindgi.runs.start(
     flow="acme.reserve-order", input={"orderId": "A-400"}, options={"wait": False}
 )
 
-for event in kindgi.runs.stream(run.id):
+for event in kindgi.runs.follow(run.id):
     print(event.sequence, event.kind, event.node_id or "")
+# The loop ends after run.completed, run.failed or run.cancelled.
 ```
 
 ```text
@@ -90,10 +91,17 @@ The server ends a stream after 5 minutes; a run that waits longer needs a new
 one. Each event's id is `<run id>:<sequence>`, and a new stream opened with
 the last id you saw (the `Last-Event-Id` header) starts after it.
 
-- In TypeScript, `runs.stream` does this for you: it reconnects after a
-  dropped connection or the server's limit, and ends only with the run.
-- In Python, `runs.stream` ends when the server closes the stream. Open it
-  again with `last_event_id=f"{run.id}:{event.sequence}"` to go on.
+`runs.follow` does this for you, in TypeScript and Python: it reconnects
+after a dropped connection or the server's limit, and ends only with the run.
+`runs.followProgress` (Python: `runs.follow_progress`) follows the
+[progress stream](../follow-from-the-browser/) (no payloads) the same way.
+
+- In Python, `runs.stream` is the plain call: it ends when the server closes
+  the stream, and `last_event_id=f"{run.id}:{event.sequence}"` opens it again
+  after that event.
+- In TypeScript, `runs.stream` still follows the run to its end, as `follow`
+  does, but it's deprecated: in a later release, announced in advance, it
+  becomes the plain call, as in Python.
 
 ## From the CLI
 

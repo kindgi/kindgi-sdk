@@ -5,17 +5,17 @@ packages:
   # The documentation site (docs.kindgi.com); private, never published.
   - "site"
 
-# Dev-only cycle: @kindgi/api tests use @kindgi/testing, which types against
-# @kindgi/api. Builds order by production deps (scripts/build-workspace.mjs).
-ignoreWorkspaceCycles: true
-
 # pnpm blocks dependency lifecycle scripts by default; reviewed allowlist.
 allowBuilds:
   '@biomejs/biome': true
   '@google/genai': false
   'esbuild': true
   'msw': true
-  'onnxruntime-node': true
+  # @huggingface/transformers' backend (@kindgi/adapter-model-in-process). The
+  # CPU runtime ships in the package; its install script only downloads the
+  # CUDA/TensorRT providers (Linux x64, from NuGet), which nothing here uses,
+  # and a network blip there failed `pnpm install` in CI.
+  'onnxruntime-node': false
   'protobufjs': true
   'sharp': true
 

@@ -21,7 +21,7 @@ import { type Flow, flowPinsDigest } from '@kindgi/flow';
 import type { ToolManifest } from '@kindgi/tools';
 import type { Semver, TenantId } from '@kindgi/types';
 
-import { createStubAppBindings } from '@kindgi/testing';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type {

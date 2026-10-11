@@ -3,13 +3,15 @@
 
 import type { Cursor, ProjectId } from '@kindgi/types';
 
-import type {
-  JudgeClass,
-  JudgedRunCopy,
-  JudgedRunWithJudgments,
-  Judgment,
-  JudgmentRegistryBinding,
-  JudgmentWithCopies,
+import {
+  type JudgeClass,
+  type JudgedRunCopy,
+  type JudgedRunWithJudgments,
+  type Judgment,
+  type JudgmentRegistryBinding,
+  type JudgmentWithCopies,
+  isReplayCopy,
+  segmentsStartWith,
 } from '../../src/index.js';
 
 /** In-memory `JudgmentRegistryBinding` honouring supersede and one run copy per run. */
@@ -102,6 +104,7 @@ export function inMemoryJudgments(): JudgmentRegistryBinding {
           input: input.run.input,
           output: input.run.output,
           ...(input.run.context !== undefined && { context: input.run.context }),
+          ...(input.run.segments !== undefined && { segments: input.run.segments }),
           capturedAt: now(),
         });
         copyProjects.set(input.runId, input.projectId);
@@ -178,7 +181,12 @@ export function inMemoryJudgments(): JudgmentRegistryBinding {
             (input.flowId === undefined ||
               (run.subject.kind === 'flow' && run.subject.id === input.flowId)) &&
             (input.since === undefined || run.capturedAt >= input.since) &&
-            (input.until === undefined || run.capturedAt < input.until)
+            (input.until === undefined || run.capturedAt < input.until) &&
+            // A run judged before segments were captured is in no segment.
+            (input.segments === undefined ||
+              (run.segments !== undefined && segmentsStartWith(run.segments, input.segments))) &&
+            // A comparison's replay is never a test set's case.
+            !isReplayCopy(run)
           );
         })
         .map((run) => ({

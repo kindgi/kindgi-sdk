@@ -14,6 +14,8 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
+import { KindgiApiError } from '@kindgi/client';
+
 import type { EnvRunners } from '../src/env/runners.js';
 import { type RunCliInputs, runCli } from '../src/main.js';
 
@@ -411,6 +413,307 @@ describe('kindgi env pull — wired via /v1/env/*', () => {
   });
 });
 
+// ---------- env set/list/unset --scope (the runtime's env values) ----------
+
+interface StoredEnv {
+  readonly scope: { readonly kind: string; readonly orgId?: string; readonly projectId?: string };
+  readonly envName: string;
+  readonly name: string;
+  readonly value: string;
+  readonly revision: number;
+}
+
+/** A fake `/v1/env` behind the client the CLI builds, recording each call. */
+function fakeEnvApi(seed: readonly StoredEnv[] = []) {
+  const rows = new Map<string, StoredEnv>();
+  const keyOf = (scope: StoredEnv['scope'], envName: string, name: string) =>
+    `${scope.kind}:${scope.orgId ?? scope.projectId ?? ''}|${envName}|${name}`;
+  for (const r of seed) rows.set(keyOf(r.scope, r.envName, r.name), r);
+  const calls: { readonly method: string; readonly input: Record<string, unknown> }[] = [];
+  const record = (r: StoredEnv) => ({
+    ...r,
+    createdAt: '2026-10-07T00:00:00Z',
+    updatedAt: '2026-10-07T00:00:00Z',
+  });
+  const env = {
+    get: async (input: { scope: StoredEnv['scope']; envName: string; name: string }) => {
+      calls.push({ method: 'get', input });
+      const r = rows.get(keyOf(input.scope, input.envName, input.name));
+      return r === undefined ? null : record(r);
+    },
+    set: async (input: {
+      scope: StoredEnv['scope'];
+      envName: string;
+      name: string;
+      value: string;
+      ifRevision?: number;
+    }) => {
+      calls.push({ method: 'set', input });
+      const k = keyOf(input.scope, input.envName, input.name);
+      const prev = rows.get(k);
+      if (input.ifRevision !== undefined && prev?.revision !== input.ifRevision) {
+        return { kind: 'revision-conflict', currentRevision: prev?.revision ?? 0 };
+      }
+      const next = { ...input, revision: (prev?.revision ?? 0) + 1 };
+      rows.set(k, next);
+      return { kind: 'ok', record: record(next) };
+    },
+    list: async (input: { scope: StoredEnv['scope']; envName: string }) => {
+      calls.push({ method: 'list', input });
+      const prefix = keyOf(input.scope, input.envName, '');
+      return {
+        data: [...rows.entries()].filter(([k]) => k.startsWith(prefix)).map(([, r]) => record(r)),
+        hasMore: false,
+      };
+    },
+    delete: async (input: { scope: StoredEnv['scope']; envName: string; name: string }) => {
+      calls.push({ method: 'delete', input });
+      return { deleted: rows.delete(keyOf(input.scope, input.envName, input.name)) };
+    },
+  };
+  return { calls, rows, clientFactory: (() => ({ env })) as never };
+}
+
+const API = ['--url=https://api.example.com', '--token=t'];
+
+describe("kindgi env set/list/unset --scope — the runtime's env values (ctx.env)", () => {
+  test('--scope needs --env: a value under the wrong env name would never resolve', async () => {
+    const fixtures = makeFixtures();
+    const api = fakeEnvApi();
+    const out = await runCli({
+      ...baseInputs(fixtures, [
+        'env',
+        'set',
+        'ACME_BASE_URL',
+        'https://a.example',
+        '--scope=project:p-1',
+        ...API,
+      ]),
+      clientFactory: api.clientFactory,
+    });
+    expect(out.exitCode).toBe(2);
+    expect(out.stderr).toContain('Missing required flag: --env=<name>');
+    expect(out.stderr).toContain('--env=local');
+    expect(api.calls).toEqual([]);
+  });
+
+  test('set writes /v1/env at the scope, and no local file', async () => {
+    const fixtures = makeFixtures();
+    const api = fakeEnvApi();
+    const out = await runCli({
+      ...baseInputs(fixtures, [
+        'env',
+        'set',
+        'ACME_BASE_URL',
+        'https://a.example',
+        '--scope=project:p-1',
+        '--env=local',
+        ...API,
+      ]),
+      clientFactory: api.clientFactory,
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(api.calls.find((c) => c.method === 'set')?.input).toEqual({
+      scope: { kind: 'project', projectId: 'p-1' },
+      envName: 'local',
+      name: 'ACME_BASE_URL',
+      value: 'https://a.example',
+    });
+    expect(fixtures.state.writeCalls).toBe(0);
+    expect(out.stderr).toContain('Set ACME_BASE_URL at project:p-1 in env local');
+    const summary = JSON.parse(out.stdout) as { changed: boolean; revision: number };
+    expect(summary).toMatchObject({ changed: true, overwritten: false, revision: 1 });
+    expect(out.stderr).not.toContain('looks like a credential');
+  });
+
+  test("set refuses to change a scope's value without --force, and replaces it with", async () => {
+    const seed = {
+      scope: { kind: 'org', orgId: 'o-1' },
+      envName: 'local',
+      name: 'ACME_REGION',
+      value: 'eu',
+      revision: 3,
+    };
+    const argv = ['env', 'set', 'ACME_REGION', 'us', '--scope=org:o-1', '--env=local', ...API];
+    const refused = fakeEnvApi([seed]);
+    const no = await runCli({
+      ...baseInputs(makeFixtures(), argv),
+      clientFactory: refused.clientFactory,
+    });
+    expect(no.exitCode).toBe(1);
+    expect(no.stderr).toContain('already set at org:o-1 in env local to "eu"');
+    expect(no.stderr).toContain('--force');
+    expect(refused.calls.map((c) => c.method)).toEqual(['get']);
+
+    const forced = fakeEnvApi([seed]);
+    const yes = await runCli({
+      ...baseInputs(makeFixtures(), [...argv, '--force']),
+      clientFactory: forced.clientFactory,
+    });
+    expect(yes.exitCode, yes.stderr).toBe(0);
+    // Replaces the revision it read, so a concurrent change isn't lost silently.
+    expect(forced.calls.find((c) => c.method === 'set')?.input).toMatchObject({
+      value: 'us',
+      ifRevision: 3,
+    });
+    expect(yes.stderr).toContain('Updated ACME_REGION');
+  });
+
+  test('set with the value already there changes nothing', async () => {
+    const api = fakeEnvApi([
+      {
+        scope: { kind: 'tenant' },
+        envName: 'local',
+        name: 'ACME_REGION',
+        value: 'eu',
+        revision: 1,
+      },
+    ]);
+    const out = await runCli({
+      ...baseInputs(makeFixtures(), [
+        'env',
+        'set',
+        'ACME_REGION',
+        'eu',
+        '--scope=tenant',
+        '--env=local',
+        ...API,
+      ]),
+      clientFactory: api.clientFactory,
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(api.calls.map((c) => c.method)).toEqual(['get']);
+    expect(out.stderr).toContain('no change');
+  });
+
+  test('a name that looks like a credential is set, with a warning pointing at kindgi secrets', async () => {
+    const api = fakeEnvApi();
+    const out = await runCli({
+      ...baseInputs(makeFixtures(), [
+        'env',
+        'set',
+        'ACME_API_KEY',
+        'abc',
+        '--scope=project:p-1',
+        '--env=local',
+        ...API,
+      ]),
+      clientFactory: api.clientFactory,
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(api.calls.some((c) => c.method === 'set')).toBe(true);
+    expect(out.stderr).toContain('ACME_API_KEY looks like a credential');
+    expect(out.stderr).toContain('kindgi secrets set ACME_API_KEY --env=local --scope=project:p-1');
+    const summary = JSON.parse(out.stdout) as { warnings?: string[] };
+    expect(summary.warnings).toHaveLength(1);
+  });
+
+  test('the KINDGI_ prefix stays refused with --scope', async () => {
+    const api = fakeEnvApi();
+    const out = await runCli({
+      ...baseInputs(makeFixtures(), [
+        'env',
+        'set',
+        'KINDGI_ENV',
+        'x',
+        '--scope=tenant',
+        '--env=local',
+        ...API,
+      ]),
+      clientFactory: api.clientFactory,
+    });
+    expect(out.exitCode).toBe(1);
+    expect(api.calls).toEqual([]);
+  });
+
+  test("list shows a scope's values (env isn't secret), sorted", async () => {
+    const api = fakeEnvApi([
+      { scope: { kind: 'tenant' }, envName: 'local', name: 'ZED', value: 'z', revision: 1 },
+      {
+        scope: { kind: 'tenant' },
+        envName: 'local',
+        name: 'ACME_REGION',
+        value: 'eu',
+        revision: 2,
+      },
+      {
+        scope: { kind: 'project', projectId: 'p-1' },
+        envName: 'local',
+        name: 'OTHER',
+        value: 'o',
+        revision: 1,
+      },
+    ]);
+    const out = await runCli({
+      ...baseInputs(makeFixtures(), ['env', 'list', '--scope=tenant', '--env=local', ...API]),
+      clientFactory: api.clientFactory,
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    const summary = JSON.parse(out.stdout) as { values: { key: string; value: string }[] };
+    expect(summary.values.map((v) => [v.key, v.value])).toEqual([
+      ['ACME_REGION', 'eu'],
+      ['ZED', 'z'],
+    ]);
+    expect(out.stderr).toContain('Scope:       tenant');
+  });
+
+  test('unset removes the value at the scope and says what a call gets now', async () => {
+    const api = fakeEnvApi([
+      {
+        scope: { kind: 'org', orgId: 'o-1' },
+        envName: 'local',
+        name: 'ACME_REGION',
+        value: 'eu',
+        revision: 1,
+      },
+    ]);
+    const argv = ['env', 'unset', 'ACME_REGION', '--scope=org:o-1', '--env=local', ...API];
+    const out = await runCli({
+      ...baseInputs(makeFixtures(), argv),
+      clientFactory: api.clientFactory,
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(JSON.parse(out.stdout)).toMatchObject({ removed: true });
+    expect(out.stderr).toContain("now gets the tenant's value");
+    const again = await runCli({
+      ...baseInputs(makeFixtures(), argv),
+      clientFactory: api.clientFactory,
+    });
+    expect(again.exitCode).toBe(0);
+    expect(again.stderr).toContain("wasn't set at org:o-1 in env local: no change");
+  });
+
+  test("a runtime that doesn't serve /v1/env says so, and how to use local files", async () => {
+    const clientFactory = (() => ({
+      env: {
+        get: async () => {
+          throw new KindgiApiError({
+            code: 'not-found',
+            serverCode: 'route-not-found',
+            message: 'No route for PUT /v1/env/ACME_REGION',
+            resource: { kind: 'route', id: 'unknown' },
+          });
+        },
+      },
+    })) as never;
+    const out = await runCli({
+      ...baseInputs(makeFixtures(), [
+        'env',
+        'set',
+        'ACME_REGION',
+        'eu',
+        '--scope=tenant',
+        '--env=local',
+        ...API,
+      ]),
+      clientFactory,
+    });
+    expect(out.exitCode).toBe(1);
+    expect(out.stderr).toContain("this runtime doesn't serve `/v1/env`");
+    expect(out.stderr).toContain('Without --scope');
+  });
+});
+
 // ---------- env init ----------
 
 describe('kindgi env init', () => {
@@ -435,6 +738,87 @@ describe('kindgi env init', () => {
     expect(written).toContain('KINDGI_SECRETS_GCP_LOCATION_ID=us-central1');
     // Optional core vars commented out.
     expect(written).toContain('# KINDGI_API_PORT=4000');
+  });
+
+  test('non-interactive: --kms=azure writes the Key Vault key (required) and no GCP vars', async () => {
+    const fixtures = makeFixtures();
+    const outPath = join(packDir, '.env.example');
+    const out = await runCli(
+      baseInputs(fixtures, [
+        'env',
+        'init',
+        '--secrets-backend=postgres',
+        '--kms=azure',
+        `--out=${outPath}`,
+        '--non-interactive',
+      ]),
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    const written = fixtures.state.files.get(outPath);
+    expect(written).toContain(
+      'KINDGI_SECRETS_AZURE_KEY_ID=https://my-vault.vault.azure.net/keys/kindgi-secrets',
+    );
+    expect(written).toContain('# KINDGI_AZURE_CLIENT_ID=');
+    expect(written).not.toContain('KINDGI_SECRETS_GCP_PROJECT_ID');
+  });
+
+  test('non-interactive: --secrets-manager=azure writes the vault URL and the manager, no KMS vars', async () => {
+    const fixtures = makeFixtures();
+    const outPath = join(packDir, '.env.example');
+    const out = await runCli(
+      baseInputs(fixtures, [
+        'env',
+        'init',
+        '--secrets-backend=secret-manager',
+        '--secrets-manager=azure',
+        `--out=${outPath}`,
+        '--non-interactive',
+      ]),
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    const written = fixtures.state.files.get(outPath);
+    expect(written).toContain('KINDGI_SECRETS_MANAGER=azure');
+    expect(written).toContain(
+      'KINDGI_SECRETS_AZURE_VAULT_URL=https://my-kindgi-secrets.vault.azure.net',
+    );
+    // No KMS or AAD key setting (descriptions may still mention them).
+    expect(written).not.toMatch(/^(# )?KINDGI_SECRETS_BACKEND_KMS=/m);
+    expect(written).not.toMatch(/^(# )?KINDGI_SECRETS_AAD_KEY(_PATH)?=/m);
+  });
+
+  test('--kms with secret-manager is refused, pointing at --secrets-manager', async () => {
+    const fixtures = makeFixtures();
+    const out = await runCli(
+      baseInputs(fixtures, [
+        'env',
+        'init',
+        '--secrets-backend=secret-manager',
+        '--kms=gcp',
+        `--out=${join(packDir, '.env.example')}`,
+        '--non-interactive',
+      ]),
+    );
+    expect(out.exitCode).toBe(2);
+    expect(out.stderr).toBe(
+      '--kms is for --secrets-backend=postgres. For secret-manager, pick --secrets-manager.\n',
+    );
+  });
+
+  test('non-interactive secret-manager without --secrets-manager → exit 2 naming the choices', async () => {
+    const fixtures = makeFixtures();
+    const out = await runCli(
+      baseInputs(fixtures, [
+        'env',
+        'init',
+        '--secrets-backend=secret-manager',
+        `--out=${join(packDir, '.env.example')}`,
+        '--non-interactive',
+      ]),
+    );
+    expect(out.exitCode).toBe(2);
+    expect(out.stderr).toBe(
+      '--secrets-manager is required when --secrets-backend=secret-manager. Choices: azure, gcp, aws, vault.\n',
+    );
   });
 
   test('non-interactive: backend=none writes only core vars (no secrets group)', async () => {

@@ -76,6 +76,8 @@ describe('createGeminiProvider: attempts', () => {
     });
     expect(built).toHaveLength(1);
     expect(built[0]?.httpOptions?.fetch).toBeTypeOf('function');
+    // The SDK retries only when given `retryOptions` (tests/retries.test.ts).
+    expect(built[0]?.httpOptions?.retryOptions).toEqual({ attempts: 3 });
     expect(requests).toBe(2);
     expect(result.attempts).toBe(2);
     expect(result.servedModel).toBe('gemini-2.5-pro-001');

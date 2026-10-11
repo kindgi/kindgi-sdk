@@ -23,6 +23,7 @@ One non-streaming `models.generateContent` call per `invoke`:
 - **Thinking parts** (`thought: true`) are left out of the message text. Thinking tokens count as completion tokens, since they bill as output.
 - **Structured output.** `structuredOutput` becomes `responseMimeType: 'application/json'` plus `responseJsonSchema`.
 - `temperature`, `maxOutputTokens` (the call's, else the model's `ModelInfo.maxOutputTokens`) and `abortSignal` are passed through.
+- **Retries.** A call that fails with a transient status (408, 429, 500, 502, 503, 504) is retried: three attempts in all, backing off from a second, with jitter. The `@google/genai` client retries only when it's told to, and the adapter tells it. A failed connection isn't retried. The result's `attempts` counts every attempt; a call that still fails throws the last error, and `attemptsOf(error)` (`@kindgi/capabilities/attempts`) counts them. An injected `client` keeps its own settings.
 - **`finishReason`:**
   - a response with function calls → `tool-use`;
   - `STOP` or unspecified → `stop`;
@@ -37,7 +38,7 @@ One non-streaming `models.generateContent` call per `invoke`:
 - uncached prompt tokens at `promptUsdPer1kTokens`;
 - cached prompt tokens at `promptUsdPer1kTokens × cachedPromptMultiplier` (default `0.25`, Gemini 2.5's implicit-cache discount);
 - completion tokens, thinking included, at `completionUsdPer1kTokens`;
-- `longContext: { thresholdTokens, promptUsdPer1kTokens, completionUsdPer1kTokens }`: a call whose prompt exceeds the threshold bills entirely at those rates (Gemini 2.5 Pro doubles past 200K prompt tokens).
+- `longContext: { thresholdTokens, promptUsdPer1kTokens, completionUsdPer1kTokens }`: a call whose prompt exceeds the threshold bills entirely at those rates, for a model whose price rises past a prompt size.
 
 `usage.promptTokens` includes cached tokens and built-in tool prompts; `usage.cachedTokens` reports the cached ones when there are any.
 
@@ -54,6 +55,7 @@ One non-streaming `models.generateContent` call per `invoke`:
   - `metadata.region` as the location (`unspecified` means `global`);
   - an optional `secret_ref` holding a service-account key.
 - **`vertexTarget(input)`**: the project and location a registration names, as the factory reads them.
+- **`geminiAdapterEntry`**: the `AdapterFactoryEntry` a runtime registers, `geminiAdapterFactory` plus **`geminiCheckConfig(input)`**. The check reports what the factory would throw on (`adapter_config.api`, `secret_ref` on the Developer API, `adapter_config.project`, `metadata.region`) with the factory's own messages, without building anything.
 - **Cost helpers**: `computeCostUsd(usage, rates)`, `toFrameworkUsage(usageMetadata)`, `GeminiCostRates`, `GeminiModelInfo`, `DEFAULT_CACHED_PROMPT_MULTIPLIER`.
 - **Translation helpers**: `toGeminiRequest(messages)`, `toGeminiFunctions(tools)`, `fromGeminiResponse(response)`, `mapFinishReason(reason)`, `checkFunctionName(name)`.
 
@@ -69,27 +71,19 @@ const gemini = createGeminiProvider({
     region: 'global',
     models: [
       {
-        name: 'gemini-2.5-pro',
+        name: 'gemini-3.8-flash',
         contextWindow: 1_048_576,
-        features: ['tool-use'],
+        features: ['tool-use', 'structured-output', 'long-context'],
         maxOutputTokens: 8_192,
         // Rates from Google's published pricing.
-        cost: {
-          promptUsdPer1kTokens: 0.00125,
-          completionUsdPer1kTokens: 0.01,
-          longContext: {
-            thresholdTokens: 200_000,
-            promptUsdPer1kTokens: 0.0025,
-            completionUsdPer1kTokens: 0.015,
-          },
-        },
+        cost: { promptUsdPer1kTokens: 0.00075, completionUsdPer1kTokens: 0.00375 },
       },
     ],
   },
 });
 
 const result = await gemini.invoke({
-  model: 'gemini-2.5-pro',
+  model: 'gemini-3.8-flash',
   messages: [{ role: 'user', content: 'Summarise the grievance in one sentence.' }],
 });
 ```

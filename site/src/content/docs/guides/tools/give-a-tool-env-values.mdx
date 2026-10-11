@@ -1,0 +1,243 @@
+---
+title: Give a tool per-project values
+description: Declare the env values a tool needs, set them for a tenant, an org or a project, and read them from the call's context.
+sidebar:
+  order: 4
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+Some of what a tool needs differs from one customer or project to the next,
+without being secret: a base URL, an account or region id, a queue name. A
+tool declares these **env values** by name. You set them for the whole
+tenant, an org or a single project, and on every call Kindgi hands the tool
+the most specific value in the call's context.
+
+This tool looks up an order in a system whose address and region differ per
+project:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// tools/find-order/index.ts
+import { defineTool } from '@kindgi/sdk/define';
+import type { ToolId } from '@kindgi/sdk/types';
+import { z } from 'zod';
+
+const defined = defineTool({
+  id: 'my-pack.find-order' as ToolId,
+  description: 'Finds an order in the order system.',
+  version: '0.1.0',
+  input: z.object({ orderId: z.string() }),
+  output: z.object({ url: z.string() }),
+  effects: [],
+  mutating: false,
+  needsSpec: {
+    env: {
+      ORDERS_BASE_URL: { type: 'string', pattern: '^https://' },
+      ORDERS_REGION: { type: 'string', enum: ['eu', 'us'], default: 'eu' },
+    },
+  },
+  handler: async ({ orderId }, ctx) => {
+    const base = ctx.env?.ORDERS_BASE_URL;
+    if (base === undefined) throw new Error('ORDERS_BASE_URL is not set');
+    return { url: `${base}/${ctx.env?.ORDERS_REGION}/orders/${orderId}` };
+  },
+});
+
+if (defined.kind === 'err') {
+  throw new Error(`my-pack.find-order failed to compile: ${defined.error.message}`);
+}
+
+export default defined.value;
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# tools/orders.py
+from pydantic import BaseModel, Field
+
+from kindgi import ToolContext, tool
+
+
+class Lookup(BaseModel):
+    order_id: str = Field(alias="orderId")
+
+
+class Found(BaseModel):
+    url: str
+
+
+@tool(
+    id="my-pack.find-order",
+    mutating=False,
+    needs_spec={
+        "env": {
+            "ORDERS_BASE_URL": {"type": "string", "pattern": "^https://"},
+            "ORDERS_REGION": {"type": "string", "enum": ["eu", "us"], "default": "eu"},
+        }
+    },
+)
+def find_order(lookup: Lookup, ctx: ToolContext) -> Found:
+    """Finds an order in the order system."""
+    base = ctx.env["ORDERS_BASE_URL"]
+    return Found(url=f"{base}/{ctx.env['ORDERS_REGION']}/orders/{lookup.order_id}")
+```
+
+</TabItem>
+</Tabs>
+
+- **The declaration** maps each name to a JSON Schema for its value. Values
+  are strings, as in a process environment, and the schema checks the
+  string (`enum`, `pattern`, `minLength`…). A name with a `default` is
+  optional; every other declared name is required. Each schema must compile
+  as the runtime compiles it, strictly (an unknown keyword is an error), and
+  a `default` must be a string. A tool with one that doesn't is refused when
+  it's defined, registered or deployed:
+
+  ```text
+  Tool "my-pack.find-order": the schema for needsSpec.env.ORDERS_REGION doesn't compile: strict mode: unknown keyword: "enmu"
+  ```
+- **On every call**, Kindgi resolves each declared name for the call: the
+  project's value, else its org's, else the tenant's, in the env the runtime
+  serves (`KINDGI_ENV`; under `kindgi dev`, `local`). A name no scope sets
+  gets its `default`. A required name with no value, or a value that doesn't
+  fit its schema, fails the call before the handler runs; the failure names
+  the tool and the value, and gives the command that sets it.
+- **The values a call used are recorded with it**, so the call re-run after a
+  wait (an approval, say) or a retry sees the same ones, even after someone
+  changes them. A comparison that replays the run sends a read-only tool it
+  runs live the values the run's call saw, so a changed value can't skew it.
+- **The context** holds only what the tool declares. `ctx.env` is optional in
+  the TypeScript type because a unit test builds its own context.
+
+## Set the values
+
+`kindgi env set` with `--scope` stores a value in the runtime, for a scope
+and an env. Set a value for the whole tenant, and override one for a single
+project:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```sh
+pnpm exec kindgi env set ORDERS_BASE_URL https://orders.example.com --scope=tenant --env=local
+pnpm exec kindgi env set ORDERS_REGION us --scope=project:<project-id> --env=local
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```sh
+uv run kindgi env set ORDERS_BASE_URL https://orders.example.com --scope=tenant --env=local
+uv run kindgi env set ORDERS_REGION us --scope=project:<project-id> --env=local
+```
+
+</TabItem>
+</Tabs>
+
+```text
+  ✓ Set ORDERS_BASE_URL at tenant in env local. A tool that declares it (`needsSpec.env`) gets it on its next call.
+```
+
+- **`--scope`** is `tenant`, `org:<orgId>` or `project:<projectId>`. A call
+  in that project now gets `ORDERS_REGION=us`; every other call gets the
+  default, `eu`.
+- **`--env`** is required with `--scope`: name the env the runtime serves
+  (`KINDGI_ENV`; under `kindgi dev`, `local`). A value under another env name
+  never reaches a call.
+- **A new value counts on the next call.** Nothing restarts, and no new agent
+  version is needed.
+- **Changing a value** that's already set takes `--force`.
+  `kindgi env list --scope=… --env=…` shows a scope's values, and
+  `kindgi env unset NAME --scope=… --env=…` removes one, so a call gets the
+  next scope's value again.
+
+### A value nobody set
+
+A call that needs a declared value no scope sets, and that has no `default`,
+fails before the tool runs. The message names the value and the command that
+sets it. For a tool `acme-orders.needs-account` that declares
+`ACME_ACCOUNT_ID`, which nobody set, it reads:
+
+```text
+precondition-failed: Tool "acme-orders.needs-account" was not run: env-value-missing: tool "acme-orders.needs-account" needs env value "ACME_ACCOUNT_ID" in env "local", and none is set for project e889c1f5-eae7-45dc-8669-5bd029a5d85c, its org, or the tenant. Set it: kindgi env set ACME_ACCOUNT_ID <value> --scope=project:e889c1f5-eae7-45dc-8669-5bd029a5d85c --env=local (or --scope=tenant, for every project)
+```
+
+:::note
+Without `--scope`, `kindgi env set`, `list` and `unset` edit the pack's own
+env files, as before. Those files are the pack service's process
+environment, not `ctx.env`: under `kindgi dev` too, a tool's env values come
+only from what `--scope` sets.
+:::
+
+## Test it
+
+A test passes the values in the context it builds:
+
+<Tabs syncKey="lang">
+<TabItem label="TypeScript">
+
+```ts
+// tools/find-order/index.test.ts
+import { invokeTool } from '@kindgi/sdk/define';
+import type { TenantId } from '@kindgi/sdk/types';
+import { expect, test } from 'vitest';
+
+import findOrder from './index.js';
+
+test('builds the URL from the env values', async () => {
+  const result = await invokeTool(
+    findOrder,
+    { orderId: 'ord_1001' },
+    {
+      tenantId: 'test-tenant' as TenantId,
+      abortSignal: new AbortController().signal,
+      env: { ORDERS_BASE_URL: 'https://orders.example.com', ORDERS_REGION: 'us' },
+    },
+  );
+  expect(result).toEqual({
+    kind: 'ok',
+    value: { url: 'https://orders.example.com/us/orders/ord_1001' },
+  });
+});
+```
+
+</TabItem>
+<TabItem label="Python">
+
+```python
+# tests/test_orders.py
+from kindgi import ToolContext
+from tools.orders import Lookup, find_order
+
+
+def test_builds_the_url_from_the_env_values():
+    ctx = ToolContext.for_test(
+        env={"ORDERS_BASE_URL": "https://orders.example.com", "ORDERS_REGION": "us"}
+    )
+    found = find_order(Lookup(orderId="ord_1001"), ctx)
+    assert found.url == "https://orders.example.com/us/orders/ord_1001"
+```
+
+</TabItem>
+</Tabs>
+
+## Env values, settings, secrets, process env
+
+A pack's code gets four kinds of values. Pick by what the value is:
+
+| The value… | Use | The code reads |
+|---|---|---|
+| should change only with a new agent version, judged before it goes live (a threshold, a prompt parameter) | a [settings block](../../evals/change-a-prompt-or-setting/) | `ctx.settings` |
+| differs per tenant, org or project, and isn't secret (a base URL, a region) | an env value | `ctx.env` |
+| is a credential (an API key, a signing key) | a secret | `ctx.secrets` |
+| is the pack service's own setup (its database, its SDK's config) | the pack's environment | `process.env` / `os.environ` |
+
+Env values aren't secret: they're recorded with each run that uses them and
+shown in its journal. `kindgi env set` warns about a name that looks like a
+credential (`…_TOKEN`, `…_KEY`, `…_PASSWORD`). Store those with
+`kindgi secrets`; [Give a tool a secret](../give-a-tool-a-secret/) shows how.

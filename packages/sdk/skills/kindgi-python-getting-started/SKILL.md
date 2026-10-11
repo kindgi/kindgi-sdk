@@ -92,8 +92,10 @@ The pack root is on `sys.path`, so tools import the app's own packages by
 name (`from acme.text import normalize`); inside `kindgi/`, import the pack's
 modules relatively. Don't add an `__init__.py` to `kindgi/` — the folder
 would then shadow the `kindgi` package. `kindgi dev` reads the app's `.env`
-/ `.env.local` — keys already there reach the tools as environment
-variables. A package a tool imports must be in the app's main dependencies,
+/ `.env.local` — values already there reach the tools as environment
+variables; a secret stored with `kindgi secrets set` doesn't (a tool reads
+it from `ctx.secrets`), and neither does a model provider's key, which no tool
+gets. A package a tool imports must be in the app's main dependencies,
 not a dev group: the deployed pack installs without dev dependencies (see
 `kindgi-python-authoring-tools`).
 
@@ -189,7 +191,7 @@ from kindgi.client import Kindgi
 client = Kindgi()  # KINDGI_API_URL + KINDGI_API_TOKEN, or Kindgi(url, token=…)
 run = client.runs.start(agent="my-pack.echo-agent", input={"userMessage": "Ada"})
 print(run.status, run.output["response"]["content"])
-for event in client.runs.stream(str(run.id)):
+for event in client.runs.follow(run.id):  # to the run's end, reconnecting
     print(event.kind)
 ```
 
@@ -277,7 +279,8 @@ system-packages = ["tesseract-ocr", "poppler-utils"]   # names, or name=version
 
 The variables the code reads from `os.environ` (a database URL, a bucket)
 are declared too, names only. A deployed pack service missing a `required`
-one isn't ready, and its `/readyz` names it:
+one isn't ready, and its `/readyz` names it; one the pack doesn't declare is
+dropped before the code loads (`kindgi dev` keeps it):
 
 ```toml
 [tool.kindgi.env]
@@ -293,6 +296,27 @@ build before anything uploads, with the range to use.
 - **The pack id and version** in `[tool.kindgi.pack]`. The id prefixes
   every primitive (`<pack-id>.<name>`); pick it once.
 - **Model credentials.** Ask for the key; never invent or hard-code one.
+
+## Keys and tokens: hands off
+
+Never open, read, grep, `cat`, copy or print the files that hold keys and
+tokens, in any folder of the repository (not only the pack's), and never
+print their values (`env`, `printenv`, or code that echoes the process
+environment):
+
+- `.env`, `.env.local` and any other `.env.*`: the app's settings, and any key
+  put there by hand;
+- `.kindgi/secrets.env`: Kindgi's own secrets, where `kindgi secrets set` writes;
+- `.kindgi/dev/runtime.env`: the dev runtime's token and database URL;
+- a self-hosted deployment's `kindgi.env` or `pack.env`.
+
+A value you read lands in your context and in every later request to the
+model provider. To see which secrets exist, run
+`kindgi secrets list --env=local --scope=tenant` (names only). To store one,
+ask the person to run `kindgi secrets set NAME --env=local --scope=tenant`
+themselves: it prompts without echoing. Never put a value on a command line.
+`kindgi init` adds these files to the deny rules in `.claude/settings.json`;
+in a monorepo, also to the repository root's, under the pack's path.
 
 ## Next
 

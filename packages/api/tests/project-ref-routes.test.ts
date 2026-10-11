@@ -16,8 +16,8 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, test } from 'vitest';
 
 import { makeInMemoryProjectBinding } from '@kindgi/platform';
-import { createStubAppBindings } from '@kindgi/testing';
 import type { TenantId } from '@kindgi/types';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { OPERATIONS, createApp, generateOpenApiDocument } from '../src/index.js';
 import type { RunHandlerBinding, TokenResolver } from '../src/index.js';
@@ -102,7 +102,10 @@ async function harness() {
 
 /** A guarded route's path, its parameters filled in. */
 const concrete = (route: string): string =>
-  route.replace(':agentId', 'acme.agent').replace(':suiteId', 'acme.suite');
+  route
+    .replace(':agentId', 'acme.agent')
+    .replace(':suiteId', 'acme.suite')
+    .replace(':serviceAccountId', 'acme-ci');
 
 describe('a projectId the route cannot use (T247)', () => {
   test.each(PROJECT_REF_ROUTES.map(concrete))(

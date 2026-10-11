@@ -1,0 +1,23 @@
+package {{SCALA_PACKAGE}}
+
+import com.kindgi.pack.ToolContext
+import {{SCALA_PACKAGE}}.tools.{Echo, Greet}
+
+/** The pack's tools, called directly — `sbt test`. */
+class ToolsSuite extends munit.FunSuite {
+  test("echo round-trips the message") {
+    val out = Echo.tool.call(Echo.Input("hello"), ToolContext.forTest())
+    assertEquals(out.echo, "hello")
+    assertEquals(out.characterCount, 5)
+  }
+
+  test("greet uses the greeting it is given, else Hello") {
+    assertEquals(Greet.tool.call(Greet.Input("Ada", "Hi"), ToolContext.forTest()).message, "Hi, Ada!")
+    assertEquals(Greet.tool.call(Greet.Input("Ada"), ToolContext.forTest()).message, "Hello, Ada!")
+  }
+
+  test("the tools say they only read") {
+    assert(!Echo.tool.mutating())
+    assert(!Greet.tool.mutating())
+  }
+}

@@ -6,7 +6,7 @@ import { readFile } from 'node:fs/promises';
 import { KindgiApiError } from '@kindgi/client';
 
 import type { CommandContext } from '../context.js';
-import { formatThrown } from '../errors.js';
+import { UsageError, formatThrown } from '../errors.js';
 import { type Column, type Rendered, renderJson, renderTable } from '../output.js';
 import type { CommandResult } from './types.js';
 
@@ -109,7 +109,7 @@ export async function readJsonInput(spec: string): Promise<unknown> {
   try {
     return JSON.parse(raw);
   } catch (err) {
-    throw new Error(`Malformed JSON input: ${(err as Error).message}`);
+    throw new UsageError(`Malformed JSON input: ${(err as Error).message}`);
   }
 }
 
@@ -117,7 +117,7 @@ export async function readJsonInput(spec: string): Promise<unknown> {
 export function requiredPositional(ctx: CommandContext, index: number, label: string): string {
   const value = ctx.positionals[index];
   if (typeof value !== 'string' || value === '') {
-    throw new Error(`Missing required argument: ${label}`);
+    throw new UsageError(`Missing required argument: ${label}`);
   }
   return value;
 }
@@ -126,6 +126,48 @@ export function requiredPositional(ctx: CommandContext, index: number, label: st
 export function stringFlag(ctx: CommandContext, name: string): string | undefined {
   const raw = ctx.options[name];
   return typeof raw === 'string' && raw !== '' ? raw : undefined;
+}
+
+const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
+const ZONED_TIME =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
+
+/** Year, month and day name a real date (and, when given, a real time of day). */
+function isCalendarTime(parts: RegExpExecArray): boolean {
+  const [year, month, day, hour = 0, minute = 0, second = 0] = parts.slice(1).map(Number);
+  const date = new Date(Date.UTC(year as number, (month as number) - 1, day as number));
+  return (
+    (year as number) >= 1000 &&
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === (month as number) - 1 &&
+    date.getUTCDate() === day &&
+    hour < 24 &&
+    minute < 60 &&
+    second < 60
+  );
+}
+
+/**
+ * A time given to `--<name>`, as the API takes a time (`toISOString()`):
+ * an ISO 8601 time with a zone (`2026-10-09T12:00:00Z`,
+ * `2026-10-09T14:00:00+02:00`), or a date (`2026-10-09`), read as the
+ * start of that day in UTC. Anything else is a usage error here, rather
+ * than the API's `400` for a time that isn't a `date-time`.
+ */
+export function timeFlagValue(raw: string, name: string): string {
+  const date = DATE_ONLY.exec(raw);
+  if (date !== null && isCalendarTime(date)) return `${raw}T00:00:00.000Z`;
+  const time = ZONED_TIME.exec(raw);
+  if (time !== null && isCalendarTime(time)) return new Date(raw).toISOString();
+  throw new UsageError(
+    `--${name} must be an ISO 8601 time with a zone (2026-10-09T12:00:00Z) or a date (2026-10-09); got "${raw}"`,
+  );
+}
+
+/** An optional time flag, as `timeFlagValue` reads it. */
+export function timeFlag(ctx: CommandContext, name: string): string | undefined {
+  const raw = stringFlag(ctx, name);
+  return raw === undefined ? undefined : timeFlagValue(raw, name);
 }
 
 /**
@@ -139,7 +181,7 @@ export function segmentsFlag(
   return listFlag(ctx, name).map((raw) => {
     const at = raw.indexOf(':');
     if (at <= 0 || at === raw.length - 1) {
-      throw new Error(`--${name} must be key:value, got "${raw}"`);
+      throw new UsageError(`--${name} must be key:value, got "${raw}"`);
     }
     return { key: raw.slice(0, at), value: raw.slice(at + 1) };
   });
@@ -166,7 +208,7 @@ export function integerFlag(ctx: CommandContext, name: string): number | undefin
   if (typeof raw !== 'string' || raw === '') return undefined;
   const n = Number(raw);
   if (!Number.isInteger(n)) {
-    throw new Error(`--${name} must be an integer, got '${raw}'`);
+    throw new UsageError(`--${name} must be an integer, got '${raw}'`);
   }
   return n;
 }

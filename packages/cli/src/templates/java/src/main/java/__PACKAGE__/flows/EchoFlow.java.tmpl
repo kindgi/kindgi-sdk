@@ -1,0 +1,18 @@
+package {{JAVA_PACKAGE}}.flows;
+
+import {{JAVA_PACKAGE}}.tools.Echo;
+import com.kindgi.pack.Flow;
+
+/** {{PACK_ID}}.echo-flow — runs the pack's echo tool, then ends. */
+public final class EchoFlow {
+  public static final Flow FLOW = Flow.define("{{PACK_ID}}.echo-flow")
+      .version("{{PACK_VERSION}}")
+      .set("name", "Echo Flow")
+      .set("description", "Runs the pack's echo tool and terminates.")
+      .toolNode("echo", Echo.TOOL)
+      .edge("e-start", "$start", "echo")
+      .edge("e-end", "echo", "$end")
+      .build();
+
+  private EchoFlow() {}
+}

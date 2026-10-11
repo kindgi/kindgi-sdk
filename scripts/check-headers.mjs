@@ -20,8 +20,8 @@
  * (a year range like `2026-2027` is fine) — the only copyright holder in
  * this repository.
  *
- * Python sources (`sdks/python`) count: they take the root package's
- * license, as files outside any package.json do.
+ * Python sources (`sdks/python`) and Java sources (`sdks/java`) count: they
+ * take the root package's license, as files outside any package.json do.
  *
  * Skips `*.d.ts` / `*.d.cts` / `*.d.mts` (generated declarations) and
  * `website/` (a separate project with its own toolchain, when present).
@@ -33,7 +33,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-const SOURCE = /\.(ts|tsx|mts|cts|js|mjs|cjs|py)$/;
+const SOURCE = /\.(ts|tsx|mts|cts|js|mjs|cjs|py|java|scala)$/;
 const DECLARATION = /\.d\.(ts|mts|cts)$/;
 const SKIP_DIRS = ['website/'];
 const PERMISSIVE = 'Apache-2.0';

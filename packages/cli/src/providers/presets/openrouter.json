@@ -1,6 +1,6 @@
 {
   "name": "openrouter",
-  "description": "Many vendors' models through OpenRouter, with one key (key: OPENROUTER_API_KEY).",
+  "description": "A hosted service in front of several vendors: your prompts pass through OpenRouter (key: OPENROUTER_API_KEY).",
   "adapterId": "@kindgi/adapter-model-openai-compat",
   "adapterConfigValues": {
     "baseURL": "https://openrouter.ai/api/v1"
@@ -10,12 +10,14 @@
   "metadata": {
     "id": "openrouter",
     "region": "unspecified",
-    "description": "Models from several vendors through OpenRouter",
+    "defaultModel": "anthropic/claude-sonnet-5.5",
+    "description": "OpenRouter, a hosted gateway",
     "models": [
       {
         "name": "anthropic/claude-sonnet-5.5",
         "contextWindow": 1000000,
         "maxOutputTokens": 128000,
+        "sampling": false,
         "features": ["tool-use", "parallel-tool-use", "structured-output", "long-context"],
         "cost": {
           "promptUsdPer1kTokens": 0.002,
@@ -27,6 +29,7 @@
         "name": "openai/gpt-6.1-sol",
         "contextWindow": 1050000,
         "maxOutputTokens": 128000,
+        "sampling": false,
         "features": ["tool-use", "parallel-tool-use", "structured-output", "long-context"],
         "cost": {
           "promptUsdPer1kTokens": 0.002,
@@ -49,6 +52,7 @@
         "name": "openai/gpt-6-luna",
         "contextWindow": 1050000,
         "maxOutputTokens": 128000,
+        "sampling": false,
         "features": ["tool-use", "parallel-tool-use", "structured-output", "long-context"],
         "cost": {
           "promptUsdPer1kTokens": 0.0001,

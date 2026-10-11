@@ -13,6 +13,7 @@ import type { DeployRunners } from './deploy/runners.js';
 import type { DevRunners } from './dev/runners.js';
 import type { EnvRunners } from './env/runners.js';
 import type { KeyRunners } from './key/runners.js';
+import type { OpenUrl } from './open-url.js';
 import type { PackageManager } from './package-manager.js';
 import type { GlobalFlags, OptionValue } from './parse.js';
 import type { TestRunners } from './test/runners.js';
@@ -151,6 +152,11 @@ export interface CommandContext {
    * presets. Tests inject them; production leaves this undefined.
    */
   readonly doctorSeam: DoctorSeam | undefined;
+  /**
+   * Opens a URL in the browser (`kindgi console`, `kindgi dev --open`).
+   * Tests inject it; production leaves it undefined (the system's opener).
+   */
+  readonly openUrl: OpenUrl | undefined;
 }
 
 export interface InitSeam {
@@ -182,6 +188,7 @@ export interface BuildContextInputs {
   readonly registryAuthSeam?: RegistryAuthSeam;
   readonly initSeam?: InitSeam;
   readonly doctorSeam?: DoctorSeam;
+  readonly openUrl?: OpenUrl;
 }
 
 export function buildContext(inputs: BuildContextInputs): CommandContext {
@@ -231,5 +238,6 @@ export function buildContext(inputs: BuildContextInputs): CommandContext {
     registryAuthSeam: inputs.registryAuthSeam,
     initSeam: inputs.initSeam,
     doctorSeam: inputs.doctorSeam,
+    openUrl: inputs.openUrl,
   };
 }

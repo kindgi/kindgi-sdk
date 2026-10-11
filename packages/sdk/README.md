@@ -94,7 +94,7 @@ Exports:
   `ProvenanceClient`, `TenantClient`, `CostClient`, `CapabilitiesClient`,
   `AdaptersClient`, `PoliciesClient`, `UsersClient`, `TeamsClient`, `OrgsClient`,
   `PacksClient`, `TokensClient`, `McpClient`, `EventsClient`, `ArtifactsClient`,
-  `WebhooksClient`, plus each resource's per-method input types.
+  plus each resource's per-method input types.
 - `Transport`, `TransportRequest`, `ClientOptions`.
 - Error surface — `KindgiApiError` (value), `fromWire`, `notImplementedInPreview`,
   `notYetWired`, plus `KindgiError`, `AuthError`, `ConflictError`,

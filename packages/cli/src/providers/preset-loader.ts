@@ -107,6 +107,13 @@ function checkPreset(input: unknown): ProviderPreset | string {
   ) {
     return '"metadata" must have an id and at least one named model';
   }
+  const defaultModel = (metadata as { readonly defaultModel?: unknown }).defaultModel;
+  if (
+    defaultModel !== undefined &&
+    !metadata.models.some((m) => (m as { name: string }).name === defaultModel)
+  ) {
+    return '"metadata.defaultModel" must name one of its models';
+  }
   return input as ProviderPreset;
 }
 
@@ -196,10 +203,13 @@ export function presetRegistration(
       (preset.adapterConfig ?? []).map((s) => [s.key, choices.settings[s.key] as string]),
     ),
   };
+  // The preset's default, when it's among the models registered.
+  const { defaultModel, ...rest } = preset.metadata;
+  const keepDefault = defaultModel !== undefined && models.some((m) => m.name === defaultModel);
   return {
     kind: 'ok',
     input: {
-      metadata: { ...preset.metadata, models },
+      metadata: { ...rest, models, ...(keepDefault && { defaultModel }) },
       adapter_id: preset.adapterId,
       ...(secret !== undefined && { secret_ref: { envName: choices.envName, name: secret } }),
       ...(Object.keys(adapterConfig).length > 0 && { adapter_config: adapterConfig }),

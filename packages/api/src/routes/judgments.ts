@@ -6,7 +6,7 @@ import { type Context, Hono } from 'hono';
 import type { ConversationBinding } from '@kindgi/agents';
 import { REVIEWER_ROLE_RANK, type ReviewerRole, ref } from '@kindgi/authz';
 import type { RunBinding } from '@kindgi/runtime';
-import type { Cursor, ProjectId, RunId, TenantId } from '@kindgi/types';
+import type { Cursor, ProjectId, RunId, ScopeSegment, TenantId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import type { FlowRegistryBinding } from '../flow-binding.js';
@@ -30,6 +30,7 @@ import type { Authorizer } from '../middleware/authorize.js';
 import type { ReviewerBinding } from '../reviewer-binding.js';
 import { callerReviewerRole } from '../reviewer-role.js';
 import type { AppEnv } from '../types.js';
+import { type Refusal, recordRefusal, refusalError } from './denied.js';
 import { captureTurnContext } from './judgment-context.js';
 import { captureFlowContext } from './judgment-flow-context.js';
 import { clampLimit } from './pagination.js';
@@ -64,9 +65,9 @@ export function judgmentsRouter(
   r.post('/', async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
-    const fail = (code: string, message: string) => {
+    const fail = (code: string, message: string, details?: Readonly<Record<string, unknown>>) => {
       c.status(statusFor(code) as never);
-      return c.json(toWireError({ code, message }, requestId));
+      return c.json(toWireError({ code, message, ...details }, requestId));
     };
 
     const parsed = parseJudgmentBody(await c.req.json().catch(() => null));
@@ -82,9 +83,10 @@ export function judgmentsRouter(
       asserted,
       reviewers,
     });
-    if (prepared.kind === 'err') return fail(prepared.code, prepared.message);
-    const { run, subject, projectId, itemValue, conversationId, restricted } = prepared;
-    const context = (await isFirstJudgment(binding, tenantId, body.runId))
+    if (prepared.kind === 'err') return fail(prepared.code, prepared.message, prepared.details);
+    const { run, subject, projectId, itemValue, conversationId, restricted, replayOf } = prepared;
+    const first = await isFirstJudgment(binding, tenantId, body.runId);
+    const captured = first
       ? await captureContext({
           tenantId,
           runId: body.runId,
@@ -96,6 +98,9 @@ export function judgmentsRouter(
           flows,
         })
       : undefined;
+    // A comparison's replay is stamped as one with its copy (stored with the
+    // first judgment), so a test set leaves it out (`isReplayCopy`).
+    const context = first && replayOf !== undefined ? { ...(captured ?? {}), replayOf } : captured;
 
     const judgment = await binding.record({
       tenantId,
@@ -105,6 +110,9 @@ export function judgmentsRouter(
         subject,
         input: run.input,
         output: run.output,
+        // Which segment the run was in, kept with the copy: a test set for a
+        // segment takes only its runs.
+        segments: run.segments,
         ...(context !== undefined && { context }),
       },
       item: body.item,
@@ -268,7 +276,8 @@ export function judgeClassesRouter(
       return fail('judge-class-name-taken', `A judge class named "${name}" already exists here.`);
     }
     c.status(201);
-    return c.json(serializeJudgeClass(outcome.judgeClass));
+    // Its creator is an admin on its scope: they see whom it names.
+    return c.json(serializeJudgeClass(outcome.judgeClass, true));
   });
 
   r.get('/', async (c) => {
@@ -290,8 +299,18 @@ export function judgeClassesRouter(
       authorizer === undefined
         ? page.data
         : await authorizer.filterByCan(c, 'read', page.data, (k) => scopeRef(tenantId, k.scope));
+    // Whom a class names (`principalIds`) is for its scope's admins only.
+    const naming = visible.filter((k) => k.assertableBy?.principalIds !== undefined);
+    const seenBy =
+      authorizer === undefined || naming.length === 0
+        ? undefined
+        : new Set(
+            (
+              await authorizer.filterByCan(c, 'admin', naming, (k) => scopeRef(tenantId, k.scope))
+            ).map((k) => k.id),
+          );
     return c.json({
-      data: visible.map(serializeJudgeClass),
+      data: visible.map((k) => serializeJudgeClass(k, seenBy === undefined || seenBy.has(k.id))),
       hasMore: page.hasMore,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });
@@ -334,7 +353,14 @@ export function judgeClassesRouter(
 
   r.get('/:judgeClassId', async (c) => {
     const found = await loadClass(c, 'read');
-    return found instanceof Response ? found : c.json(serializeJudgeClass(found));
+    if (found instanceof Response) return found;
+    const tenantId = c.get('tenantId') as TenantId;
+    // Whom it names (`principalIds`) is for its scope's admins only.
+    const seesPrincipals =
+      authorizer === undefined ||
+      found.assertableBy?.principalIds === undefined ||
+      (await authorizer.can(c, 'admin', scopeRef(tenantId, found.scope)));
+    return c.json(serializeJudgeClass(found, seesPrincipals));
   });
 
   r.patch('/:judgeClassId', async (c) => {
@@ -377,7 +403,10 @@ export function judgeClassesRouter(
       ...(description !== undefined && { description: description as string }),
       ...(assertableBy !== undefined && { assertableBy }),
     });
-    return updated === null ? classNotFound(c, found.id) : c.json(serializeJudgeClass(updated));
+    // Loaded as an admin: they see whom it names.
+    return updated === null
+      ? classNotFound(c, found.id)
+      : c.json(serializeJudgeClass(updated, true));
   });
 
   r.post('/:judgeClassId/unregister', async (c) => {
@@ -395,15 +424,26 @@ export function judgeClassesRouter(
 type Prepared =
   | {
       readonly kind: 'ok';
-      readonly run: { readonly input: unknown; readonly output: unknown };
+      readonly run: {
+        readonly input: unknown;
+        readonly output: unknown;
+        readonly segments: readonly ScopeSegment[];
+      };
       readonly subject: JudgedSubject;
       readonly projectId: ProjectId;
       readonly itemValue?: unknown;
       readonly conversationId?: string;
       /** The class was restricted and the caller met it. */
       readonly restricted?: true;
+      /** The run a comparison's replay re-ran, when the judged run is one. */
+      readonly replayOf?: string;
     }
-  | { readonly kind: 'err'; readonly code: string; readonly message: string };
+  | {
+      readonly kind: 'err';
+      readonly code: string;
+      readonly message: string;
+      readonly details?: Readonly<Record<string, unknown>>;
+    };
 
 /**
  * Everything a judgment needs from its run, or why it can't be recorded:
@@ -429,6 +469,13 @@ async function prepareJudgment(
     !(await authorizer.can(c, 'write', ref('project', run.projectId as unknown as string)))
   ) {
     return err('permission-denied', `Not allowed to judge run "${body.runId}".`);
+  }
+  // An erasure cleared its content: there's nothing to judge (T273 M-5).
+  if (run.contentErasedAt !== undefined) {
+    return err(
+      'run-erased',
+      `Run "${body.runId}" was erased (a person's words were removed): there's nothing to judge.`,
+    );
   }
   if (run.status !== 'completed' || run.output === undefined || run.output === null) {
     return err(
@@ -457,15 +504,27 @@ async function prepareJudgment(
         ...(reviewerRole !== undefined && { reviewerRole }),
       });
       if (why !== undefined) {
-        return err('judge-class-not-allowed', `You can't judge as "${judgeClass.name}": ${why}.`);
+        // Who the caller is rules it out: recorded, as every refusal the
+        // API decides itself is.
+        const refusal: Refusal = {
+          action: 'write',
+          resource: ref('project', run.projectId as unknown as string),
+          message: `You can't judge as "${judgeClass.name}": ${why}.`,
+          failing: 'actor',
+          code: 'judge-class-not-allowed',
+        };
+        recordRefusal(c, authorizer, refusal);
+        const { code, message, ...details } = refusalError(refusal);
+        return { kind: 'err', code, message, details };
       }
       restricted = true;
     }
   }
-  const copy = { input: run.input, output: run.output };
+  const copy = { input: run.input, output: run.output, segments: run.segments ?? [] };
   const extra = {
     ...(run.agent !== undefined && { conversationId: run.agent.conversationId as string }),
     ...(restricted && { restricted: true as const }),
+    ...(run.replayOf != null && { replayOf: run.replayOf as unknown as string }),
   };
   if (body.item.pointer === undefined)
     return { kind: 'ok', run: copy, subject, projectId, ...extra };
@@ -811,7 +870,26 @@ function serializeJudgmentWithCopies(j: JudgmentWithCopies): Record<string, unkn
   };
 }
 
-function serializeJudgeClass(k: JudgeClass): Record<string, unknown> {
+/**
+ * A judge class as the caller sees it. `assertableBy.principalIds` names
+ * people and tokens: only an admin on the class's scope gets it
+ * (`seesPrincipals`); every reader gets `principalCount`.
+ */
+function serializeJudgeClass(k: JudgeClass, seesPrincipals: boolean): Record<string, unknown> {
+  const restriction = k.assertableBy;
+  const assertableBy =
+    restriction === undefined
+      ? undefined
+      : (() => {
+          const { principalIds, ...rest } = restriction;
+          return principalIds === undefined
+            ? rest
+            : {
+                ...rest,
+                ...(seesPrincipals && { principalIds }),
+                principalCount: principalIds.length,
+              };
+        })();
   return {
     id: k.id,
     tenantId: k.tenantId,
@@ -819,7 +897,7 @@ function serializeJudgeClass(k: JudgeClass): Record<string, unknown> {
     name: k.name,
     weight: k.weight,
     ...(k.description !== undefined && { description: k.description }),
-    ...(k.assertableBy !== undefined && { assertableBy: k.assertableBy }),
+    ...(assertableBy !== undefined && { assertableBy }),
     createdAt: k.createdAt,
     updatedAt: k.updatedAt,
     ...(k.unregisteredAt !== undefined && { unregisteredAt: k.unregisteredAt }),

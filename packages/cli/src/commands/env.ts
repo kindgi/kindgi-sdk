@@ -7,12 +7,15 @@
  * Local-first: `list` / `set` / `unset` operate on `.env.<envName>`
  * files sitting next to `kindgi.config.ts`, which is exactly the
  * shape `kindgi deploy`'s secrets-sync warning path detects today.
- * `pull` bridges to the API's dedicated `/v1/env/*` surface.
+ * With `--scope` (and the `--env` it requires) they act on the
+ * runtime's env values instead (`/v1/env`, `./env-scoped.ts`): what a
+ * tool declaring `needsSpec.env` gets as `ctx.env` per call. `pull`
+ * copies a scope's values into a local file.
  *
  * Subcommands:
- *   - `list [--env <name>] [--reveal] [--force-reveal] [--path <dir>]`
- *   - `set <KEY> <VALUE> [--env <name>] [--force] [--path <dir>]`
- *   - `unset <KEY> [--env <name>] [--path <dir>]`
+ *   - `list [--env <name>] [--reveal] [--force-reveal] [--path <dir>] [--scope=<kind>[:id]]`
+ *   - `set <KEY> <VALUE> [--env <name>] [--force] [--path <dir>] [--scope=<kind>[:id]]`
+ *   - `unset <KEY> [--env <name>] [--path <dir>] [--scope=<kind>[:id]]`
  *   - `pull [--env <name>] --scope=<kind>[:id] [--path <dir>] [--overwrite-existing]`
  *
  * Every filesystem side-effect flows through `EnvRunners` so tests
@@ -27,7 +30,6 @@ import type { ReadStream } from 'node:tty';
 
 import { type LayeredEnv, readEnvLayers } from '@kindgi/dotenv-file';
 import { type EnvTarget, envVarsForTarget, renderEnvExample } from '@kindgi/env-schema';
-import type { Scope } from '@kindgi/platform';
 import { displayEnvPath, isRuntimeKey, resolvePackEnvFiles } from '@kindgi/secrets-dotenv';
 import type { EnvName } from '@kindgi/types';
 
@@ -44,6 +46,15 @@ import type { EnvRunners } from '../env/runners.js';
 import { EnvValueNotRepresentableError, setKey, unsetKey } from '../env/writer.js';
 import { renderJson } from '../output.js';
 import type { PackConfigRecord } from '../pack-config.js';
+import {
+  describeScope,
+  envErrorResult,
+  listAllEnv,
+  listScoped,
+  parseScope,
+  setScoped,
+  unsetScoped,
+} from './env-scoped.js';
 import { commandResultFromThrown, stringFlag } from './helpers.js';
 import type { Command, CommandResult, LeafCommand } from './types.js';
 
@@ -106,13 +117,15 @@ async function resolvePaths(ctx: CommandContext): Promise<PathsOutcome> {
     envName,
     ...(settings.localEnvFiles !== undefined && { localEnvFiles: settings.localEnvFiles }),
   });
+  // The app's own env files: `kindgi env` edits settings, never Kindgi's
+  // secrets file (`kindgi secrets` writes that one).
   return {
     kind: 'ok',
     paths: {
       packDir,
       envName,
-      envFilePath: files.write,
-      readPaths: files.read,
+      envFilePath: files.appWrite,
+      readPaths: files.app,
       config: settings.config,
     },
   };
@@ -176,8 +189,10 @@ function configEnvBlock(
 const listCmd: LeafCommand = {
   kind: 'leaf',
   name: 'list',
-  description: 'List resolved env values for the target env (merges config + .env.<envName>).',
-  usage: 'kindgi env list [--env <name>] [--reveal] [--force-reveal] [--path <dir>]',
+  description:
+    "List resolved env values for the target env (merges config + .env.<envName>); with --scope, the runtime's values at that scope.",
+  usage:
+    'kindgi env list [--env <name>] [--reveal] [--force-reveal] [--path <dir>] [--scope=<kind>[:id]]',
   optionSpec: {
     env: {
       type: 'string',
@@ -198,8 +213,14 @@ const listCmd: LeafCommand = {
       type: 'string',
       description: 'The pack root, where the env files are. Default: the current directory.',
     },
+    scope: {
+      type: 'string',
+      description:
+        "Act on the runtime's env values (`/v1/env`) instead of local files: `tenant`, `org:<orgId>` or `project:<projectId>`. Requires `--env`.",
+    },
   },
   run: async (ctx): Promise<CommandResult> => {
+    if (ctx.options.scope !== undefined) return listScoped(ctx);
     const runnersOutcome = pickRunners(ctx);
     if (runnersOutcome.kind === 'error') return runnersOutcome;
     const runners = runnersOutcome.runners;
@@ -320,8 +341,10 @@ function listBanner(
 const setCmd: LeafCommand = {
   kind: 'leaf',
   name: 'set',
-  description: 'Set a KEY=VALUE in .env.<envName>. Refuses to overwrite unless --force.',
-  usage: 'kindgi env set <KEY> <VALUE> [--env <name>] [--force] [--path <dir>]',
+  description:
+    "Set a KEY=VALUE in .env.<envName>, or with --scope in the runtime's env values. Refuses to overwrite unless --force.",
+  usage:
+    'kindgi env set <KEY> <VALUE> [--env <name>] [--force] [--path <dir>] [--scope=<kind>[:id]]',
   optionSpec: {
     env: {
       type: 'string',
@@ -331,11 +354,16 @@ const setCmd: LeafCommand = {
     force: {
       type: 'boolean',
       description:
-        'Change a key an env file already sets: overwrite it, or override a lower-precedence file. By default `set` refuses.',
+        'Change a key an env file (or, with `--scope`, that scope) already sets: overwrite it, or override a lower-precedence file. By default `set` refuses.',
     },
     path: {
       type: 'string',
       description: 'The pack root, where the env files are. Default: the current directory.',
+    },
+    scope: {
+      type: 'string',
+      description:
+        "Act on the runtime's env values (`/v1/env`) instead of local files: `tenant`, `org:<orgId>` or `project:<projectId>`. Requires `--env`.",
     },
   },
   run: async (ctx): Promise<CommandResult> => {
@@ -347,7 +375,7 @@ const setCmd: LeafCommand = {
         stderr:
           'Missing required argument: <KEY>.\n' +
           'Usage: kindgi env set <KEY> <VALUE> [--env <name>] [--force]\n',
-        exitCode: 1,
+        exitCode: 2,
       };
     }
     if (typeof value !== 'string') {
@@ -356,7 +384,7 @@ const setCmd: LeafCommand = {
         stderr:
           'Missing required argument: <VALUE>.\n' +
           'Usage: kindgi env set <KEY> <VALUE> [--env <name>] [--force]\n',
-        exitCode: 1,
+        exitCode: 2,
       };
     }
     if (!ENV_KEY_REGEX.test(key)) {
@@ -373,6 +401,7 @@ const setCmd: LeafCommand = {
         exitCode: 1,
       };
     }
+    if (ctx.options.scope !== undefined) return setScoped(ctx, key, value);
 
     const runnersOutcome = pickRunners(ctx);
     if (runnersOutcome.kind === 'error') return runnersOutcome;
@@ -454,8 +483,9 @@ function trySetKey(
 const unsetCmd: LeafCommand = {
   kind: 'leaf',
   name: 'unset',
-  description: 'Remove KEY from .env.<envName>. Idempotent — no error if the key is absent.',
-  usage: 'kindgi env unset <KEY> [--env <name>] [--path <dir>]',
+  description:
+    "Remove KEY from .env.<envName>, or with --scope from the runtime's env values. Idempotent — no error if the key is absent.",
+  usage: 'kindgi env unset <KEY> [--env <name>] [--path <dir>] [--scope=<kind>[:id]]',
   optionSpec: {
     env: {
       type: 'string',
@@ -466,6 +496,11 @@ const unsetCmd: LeafCommand = {
       type: 'string',
       description: 'The pack root, where the env files are. Default: the current directory.',
     },
+    scope: {
+      type: 'string',
+      description:
+        "Act on the runtime's env values (`/v1/env`) instead of local files: `tenant`, `org:<orgId>` or `project:<projectId>`. Requires `--env`.",
+    },
   },
   run: async (ctx): Promise<CommandResult> => {
     const key = ctx.positionals[0];
@@ -474,7 +509,7 @@ const unsetCmd: LeafCommand = {
         kind: 'error',
         stderr:
           'Missing required argument: <KEY>.\n' + 'Usage: kindgi env unset <KEY> [--env <name>]\n',
-        exitCode: 1,
+        exitCode: 2,
       };
     }
     if (isRefusedKey(key)) {
@@ -484,52 +519,57 @@ const unsetCmd: LeafCommand = {
         exitCode: 1,
       };
     }
-
-    const runnersOutcome = pickRunners(ctx);
-    if (runnersOutcome.kind === 'error') return runnersOutcome;
-    const runners = runnersOutcome.runners;
-
-    const resolved = await resolvePaths(ctx);
-    if (resolved.kind === 'error') return resolved;
-    const paths = resolved.paths;
-    const raw = await runners.readFile(paths.envFilePath);
-    // Idempotent: a missing file means nothing to remove.
-    const next = raw === null ? { contents: '', removed: false } : unsetKey(raw, key);
-    if (raw !== null) await runners.writeFile(paths.envFilePath, next.contents);
-
-    // Kindgi edits only the file it writes to. A lower-precedence file
-    // (e.g. the app's own `.env`) that still defines the key is left
-    // alone — say so, because the key is still set.
-    const after = await readFileView(ctx, runners, paths);
-    const stillDefinedIn = Object.hasOwn(after.values, key)
-      ? shown(paths, after.origin[key] ?? '')
-      : undefined;
-    const summary = {
-      envName: paths.envName,
-      envFilePath: paths.envFilePath,
-      key,
-      removed: next.removed,
-      ...(raw === null && { note: 'file did not exist' }),
-      ...(stillDefinedIn !== undefined && { stillDefinedIn }),
-    };
-    const still =
-      stillDefinedIn !== undefined
-        ? `  ! ${key} is still set in ${stillDefinedIn} — kindgi env only edits ${shown(paths, paths.envFilePath)}.\n`
-        : '';
-    const outcome =
-      raw === null
-        ? `${paths.envFilePath} does not exist — no change.`
-        : next.removed
-          ? `Removed ${key} from ${paths.envFilePath}`
-          : `${key} was not present in ${paths.envFilePath} — no change.`;
-    const banner = `\n  ✓ ${outcome}\n${still}\n`;
-    const rendered = renderJson(summary, ctx.globals.format);
-    return {
-      kind: 'ok',
-      rendered: { stdout: rendered.stdout, stderr: banner },
-    };
+    if (ctx.options.scope !== undefined) return unsetScoped(ctx, key);
+    return unsetLocal(ctx, key);
   },
 };
+
+/** `kindgi env unset <KEY>` on the local env files. */
+async function unsetLocal(ctx: CommandContext, key: string): Promise<CommandResult> {
+  const runnersOutcome = pickRunners(ctx);
+  if (runnersOutcome.kind === 'error') return runnersOutcome;
+  const runners = runnersOutcome.runners;
+
+  const resolved = await resolvePaths(ctx);
+  if (resolved.kind === 'error') return resolved;
+  const paths = resolved.paths;
+  const raw = await runners.readFile(paths.envFilePath);
+  // Idempotent: a missing file means nothing to remove.
+  const next = raw === null ? { contents: '', removed: false } : unsetKey(raw, key);
+  if (raw !== null) await runners.writeFile(paths.envFilePath, next.contents);
+
+  // Kindgi edits only the file it writes to. A lower-precedence file
+  // (e.g. the app's own `.env`) that still defines the key is left
+  // alone — say so, because the key is still set.
+  const after = await readFileView(ctx, runners, paths);
+  const stillDefinedIn = Object.hasOwn(after.values, key)
+    ? shown(paths, after.origin[key] ?? '')
+    : undefined;
+  const summary = {
+    envName: paths.envName,
+    envFilePath: paths.envFilePath,
+    key,
+    removed: next.removed,
+    ...(raw === null && { note: 'file did not exist' }),
+    ...(stillDefinedIn !== undefined && { stillDefinedIn }),
+  };
+  const still =
+    stillDefinedIn !== undefined
+      ? `  ! ${key} is still set in ${stillDefinedIn} — kindgi env only edits ${shown(paths, paths.envFilePath)}.\n`
+      : '';
+  const outcome =
+    raw === null
+      ? `${paths.envFilePath} does not exist — no change.`
+      : next.removed
+        ? `Removed ${key} from ${paths.envFilePath}`
+        : `${key} was not present in ${paths.envFilePath} — no change.`;
+  const banner = `\n  ✓ ${outcome}\n${still}\n`;
+  const rendered = renderJson(summary, ctx.globals.format);
+  return {
+    kind: 'ok',
+    rendered: { stdout: rendered.stdout, stderr: banner },
+  };
+}
 
 // ---------------------------------------------------------------------
 // `kindgi env pull` — WIRED via /v1/env/*
@@ -604,11 +644,7 @@ const pullCmd: LeafCommand = {
     const overwrite = ctx.options['overwrite-existing'] === true;
 
     try {
-      const remote = await pullAllPages(
-        ctx,
-        scopeResult.scope,
-        paths.envName as unknown as EnvName,
-      );
+      const remote = await listAllEnv(ctx, scopeResult.scope, paths.envName as unknown as EnvName);
       const raw = (await runners.readFile(paths.envFilePath)) ?? '';
       const existing = (await readFileView(ctx, runners, paths)).values;
       const { contents, added, overwritten, skipped } = mergeRemote(
@@ -643,87 +679,10 @@ const pullCmd: LeafCommand = {
         rendered: { stdout: rendered.stdout, stderr: `${banner}\n` },
       };
     } catch (err) {
-      return commandResultFromThrown(err, ctx, 'kindgi env pull');
+      return envErrorResult(err, ctx, 'kindgi env pull');
     }
   },
 };
-
-interface EnvPullRecord {
-  readonly name: string;
-  readonly value: string;
-}
-
-async function pullAllPages(
-  ctx: CommandContext,
-  scope: Scope,
-  envName: EnvName,
-): Promise<readonly EnvPullRecord[]> {
-  const out: EnvPullRecord[] = [];
-  let cursor: string | undefined;
-  const env = ctx.client().env;
-  for (let i = 0; i < 1_000; i += 1) {
-    const page = await env.list({
-      scope,
-      envName,
-      ...(cursor !== undefined && { cursor: cursor as never }),
-    });
-    for (const rec of page.data) out.push({ name: rec.name, value: rec.value });
-    if (page.nextCursor === undefined) break;
-    cursor = page.nextCursor as unknown as string;
-  }
-  return out;
-}
-
-type ScopeParseResult =
-  | { readonly kind: 'ok'; readonly scope: Scope }
-  | { readonly kind: 'err'; readonly stderr: string };
-
-function parseScope(raw: string | undefined): ScopeParseResult {
-  if (raw === undefined) {
-    return {
-      kind: 'err',
-      stderr:
-        'Missing required flag: --scope=<kind>[:id].\n' +
-        'Accepted forms:\n  --scope=tenant\n  --scope=org:<orgId>\n  --scope=project:<projectId>\n',
-    };
-  }
-  const [kind, id] = raw.split(':');
-  const tenantId = 'session-tenant' as unknown as Scope extends { tenantId: infer T } ? T : never;
-  if (kind === 'tenant') {
-    if (id !== undefined && id !== '') {
-      return { kind: 'err', stderr: `Malformed --scope: tenant carries no id, got "${raw}".\n` };
-    }
-    return { kind: 'ok', scope: { kind: 'tenant', tenantId } };
-  }
-  if (kind === 'org') {
-    if (id === undefined || id === '') {
-      return {
-        kind: 'err',
-        stderr: `Malformed --scope: expected --scope=org:<orgId>, got "${raw}".\n`,
-      };
-    }
-    return { kind: 'ok', scope: { kind: 'org', tenantId, orgId: id as never } };
-  }
-  if (kind === 'project') {
-    if (id === undefined || id === '') {
-      return {
-        kind: 'err',
-        stderr: `Malformed --scope: expected --scope=project:<projectId>, got "${raw}".\n`,
-      };
-    }
-    return { kind: 'ok', scope: { kind: 'project', tenantId, projectId: id as never } };
-  }
-  return {
-    kind: 'err',
-    stderr: `Unknown --scope kind "${String(kind)}". Accepted: tenant, org:<orgId>, project:<projectId>.\n`,
-  };
-}
-
-function describeScope(scope: Scope): string {
-  if (scope.kind === 'tenant') return 'tenant';
-  if (scope.kind === 'org') return `org:${scope.orgId as unknown as string}`;
-  return `project:${scope.projectId as unknown as string}`;
-}
 
 // ---------------------------------------------------------------------
 // init — scaffold `.env.example` for a deployment target
@@ -748,7 +707,8 @@ export interface EnvInitInputSeam {
 }
 
 const SECRETS_BACKEND_CHOICES = ['none', 'postgres', 'secret-manager'] as const;
-const SECRETS_BACKEND_KMS_CHOICES = ['gcp', 'aws', 'libsodium', 'vault'] as const;
+const SECRETS_BACKEND_KMS_CHOICES = ['gcp', 'azure', 'aws', 'libsodium', 'vault'] as const;
+const SECRETS_MANAGER_CHOICES = ['azure', 'gcp', 'aws', 'vault'] as const;
 
 const initCmd: LeafCommand = {
   kind: 'leaf',
@@ -756,7 +716,7 @@ const initCmd: LeafCommand = {
   description:
     'Scaffold `.env.example` for a deployment target. Interactive prompt when flags omit an axis and stdin is a TTY.',
   usage:
-    'kindgi env init [--secrets-backend=<none|postgres|secret-manager>] [--kms=<gcp|aws|libsodium|vault>] [--out=<path>] [--force] [--non-interactive]',
+    'kindgi env init [--secrets-backend=<none|postgres|secret-manager>] [--kms=<gcp|azure|aws|libsodium|vault>] [--secrets-manager=<azure|gcp|aws|vault>] [--out=<path>] [--force] [--non-interactive]',
   optionSpec: {
     'secrets-backend': {
       type: 'string' as const,
@@ -766,7 +726,12 @@ const initCmd: LeafCommand = {
     kms: {
       type: 'string' as const,
       description:
-        'The KMS for the `postgres` or `secret-manager` backend: `gcp`, `aws`, `libsodium` or `vault`. Asked for when needed and omitted.',
+        'The KMS for the `postgres` backend: `gcp`, `azure`, `aws`, `libsodium` or `vault`. Asked for when needed and omitted.',
+    },
+    'secrets-manager': {
+      type: 'string' as const,
+      description:
+        'The secret manager for the `secret-manager` backend: `azure`, `gcp`, `aws` or `vault`. Asked for when needed and omitted.',
     },
     out: {
       type: 'string' as const,
@@ -778,7 +743,8 @@ const initCmd: LeafCommand = {
     },
     'non-interactive': {
       type: 'boolean' as const,
-      description: 'Never prompt: fail when `--secrets-backend`, or a needed `--kms`, is missing.',
+      description:
+        'Never prompt: fail when `--secrets-backend`, or a needed `--kms` or `--secrets-manager`, is missing.',
     },
   },
   run: async (ctx): Promise<CommandResult> => {
@@ -787,6 +753,7 @@ const initCmd: LeafCommand = {
 
     const backendFlag = stringFlag(ctx, 'secrets-backend');
     const kmsFlag = stringFlag(ctx, 'kms');
+    const managerFlag = stringFlag(ctx, 'secrets-manager');
     const outFlag = stringFlag(ctx, 'out');
     const outPath =
       outFlag !== undefined && outFlag !== '' ? outFlag : join(ctx.cwd, '.env.example');
@@ -807,6 +774,13 @@ const initCmd: LeafCommand = {
         exitCode: 2,
       };
     }
+    if (managerFlag !== undefined && !SECRETS_MANAGER_CHOICES.includes(managerFlag as never)) {
+      return {
+        kind: 'error',
+        stderr: `--secrets-manager must be one of: ${SECRETS_MANAGER_CHOICES.join(', ')}. Got "${managerFlag}".\n`,
+        exitCode: 2,
+      };
+    }
 
     // Resolve missing axes via interactive prompt or fail loud.
     const seam = ctx.envInitInputSeam ?? {};
@@ -814,6 +788,7 @@ const initCmd: LeafCommand = {
 
     let backend = backendFlag as EnvTarget['secretsBackend'] | undefined;
     let kms = kmsFlag as EnvTarget['secretsBackendKms'] | undefined;
+    let manager = managerFlag as EnvTarget['secretsManager'] | undefined;
 
     if (backend === undefined) {
       if (nonInteractive || !stdinIsTty()) {
@@ -834,8 +809,24 @@ const initCmd: LeafCommand = {
       backend = pick as EnvTarget['secretsBackend'];
     }
 
+    // A KMS is the postgres backend's; a secret manager is the secret-manager backend's.
+    if (kms !== undefined && backend !== 'postgres') {
+      return {
+        kind: 'error',
+        stderr: `--kms is for --secrets-backend=postgres.${backend === 'secret-manager' ? ' For secret-manager, pick --secrets-manager.' : ''}\n`,
+        exitCode: 2,
+      };
+    }
+    if (manager !== undefined && backend !== 'secret-manager') {
+      return {
+        kind: 'error',
+        stderr: '--secrets-manager is for --secrets-backend=secret-manager.\n',
+        exitCode: 2,
+      };
+    }
+
     // Only prompt for KMS if backend needs it.
-    const needsKms = backend === 'postgres' || backend === 'secret-manager';
+    const needsKms = backend === 'postgres';
     if (needsKms && kms === undefined) {
       if (nonInteractive || !stdinIsTty()) {
         return {
@@ -855,9 +846,29 @@ const initCmd: LeafCommand = {
       kms = pick as EnvTarget['secretsBackendKms'];
     }
 
+    if (backend === 'secret-manager' && manager === undefined) {
+      if (nonInteractive || !stdinIsTty()) {
+        return {
+          kind: 'error',
+          stderr: `--secrets-manager is required when --secrets-backend=secret-manager. Choices: ${SECRETS_MANAGER_CHOICES.join(', ')}.\n`,
+          exitCode: 2,
+        };
+      }
+      const pick = await promptOnce(
+        seam,
+        'Which secret manager?',
+        SECRETS_MANAGER_CHOICES as unknown as readonly string[],
+      );
+      if (pick === undefined) {
+        return { kind: 'error', stderr: 'Cancelled.\n', exitCode: 1 };
+      }
+      manager = pick as EnvTarget['secretsManager'];
+    }
+
     const target: EnvTarget = {
       ...(backend !== undefined && { secretsBackend: backend }),
       ...(kms !== undefined && { secretsBackendKms: kms }),
+      ...(manager !== undefined && { secretsManager: manager }),
     };
 
     // Refuse to overwrite an existing file unless --force.
@@ -994,7 +1005,8 @@ const planCmd: LeafCommand = {
 export const envCommand: Command = {
   kind: 'group',
   name: 'env',
-  description: 'Manage per-environment values that resolve into `needs.env` at deploy time.',
+  description:
+    "Manage env values: the pack's local env files, and with --scope the runtime's (a tool's `ctx.env`, per project, org or tenant).",
   subcommands: [listCmd, setCmd, unsetCmd, pullCmd, initCmd, planCmd],
 };
 

@@ -16,8 +16,9 @@ import type {
 } from '@kindgi/handler-runtime/pack-service';
 import type { ProjectDatabases } from './project-database.js';
 import type { ProjectOutcome } from './project.js';
+import type { ActiveDevSandbox, SandboxAvailability } from './sandbox/index.js';
 
-import type { PackCode } from './pack-code.js';
+import type { JvmPackCode, PackCode } from './pack-code.js';
 
 /** The running Kindgi runtime `kindgi dev` talks to. */
 export interface RunningApiServer {
@@ -64,17 +65,22 @@ export interface StartApiServerOptions {
   readonly packDir: string;
   /** `dev.envFiles` from `kindgi.config.ts`; default `.env`, `.env.local`. */
   readonly localEnvFiles?: readonly string[];
-  /**
-   * The CLI's environment: values for `${VAR}` references the env files
-   * don't define, and `HOME` (Google credentials).
-   */
+  /** The CLI's environment: values for `${VAR}` references the env files don't define. */
   readonly hostEnv: Readonly<Record<string, string | undefined>>;
   /** The local pack service's front, which the runtime calls the pack's code through. */
   readonly packService: { readonly url: string; readonly token: string };
   /** `KINDGI_PUBLIC_TOKEN_SIGNING_KEY_PATH`: the developer's key file, if set. Otherwise the runtime makes one. */
   readonly publicRunTokenKeyPath?: string;
+  /** `KINDGI_EXPORT_SIGNING_KEY_PATH`: the developer's export key file, if set. Otherwise the runtime makes one. */
+  readonly exportSigningKeyPath?: string;
   /** `KINDGI_CORS_ORIGINS`: the browser app's origins, allowed on the run progress routes. */
   readonly corsOrigins?: readonly string[];
+  /**
+   * The Google credentials file `KINDGI_DEV_GOOGLE_CREDENTIALS` names
+   * (`dev/google-credentials.ts`), mounted read-only for Vertex AI.
+   * Absent: none reach the runtime.
+   */
+  readonly googleCredentialsPath?: string;
   /** The runtime image (`--runtime-image`). */
   readonly runtimeImage: string;
   /**
@@ -83,8 +89,13 @@ export interface StartApiServerOptions {
    * waits until it serves with this session's dev token.
    */
   readonly runtimeUrl?: string;
-  /** Lines the runtime writes. */
-  readonly onLog?: (line: string) => void;
+  /**
+   * `KINDGI_LOG_LEVEL` and `KINDGI_LOG_LEVELS` for the runtime: what
+   * `kindgi dev` shows, so the runtime writes only that.
+   */
+  readonly logLevels?: Readonly<Record<string, string>>;
+  /** Lines the runtime writes (a container's), with the stream each came on. */
+  readonly onLog?: (line: string, stream: 'stdout' | 'stderr') => void;
   /** Progress while preparing (an image pull). */
   readonly onProgress?: (line: string) => void;
 }
@@ -133,14 +144,26 @@ export interface IndexerRunOptions {
   readonly bundleMap?: Readonly<Record<string, string>>;
   /** Run the indexer in a child process with this environment. */
   readonly env?: () => Promise<Readonly<Record<string, string>>>;
-  /** Which indexer: the TypeScript one (default) or the pack's Python. */
+  /** Which indexer: the TypeScript one (default), the pack's Python, or its JDK. */
   readonly code?: PackCode;
+  /**
+   * What pack code prints while the indexer (a child) loads it, line by
+   * line as it comes; not the indexer's own result line.
+   */
+  readonly onOutput?: (line: string, stream: 'stdout' | 'stderr') => void;
+  /**
+   * The sandbox the indexer child runs in (`dev/sandbox`): it imports every
+   * primitive's module, so it runs the pack's code too. Absent, none.
+   */
+  readonly sandbox?: ActiveDevSandbox;
+  /** A notice for the user from starting the indexer in its sandbox. */
+  readonly onNotice?: (line: string) => void;
 }
 
 /** The local pack service `kindgi dev` runs the pack's code in. */
 export interface DevPackServiceOptions {
   readonly packDir: string;
-  /** Which pack service runs the code: the Node one, or the pack's Python. */
+  /** Which pack service runs the code: the Node one, the pack's Python, or its JDK. */
   readonly code: PackCode;
   /** The pack service's whole environment, read at every start. */
   readonly env: () => Promise<Readonly<Record<string, string>>>;
@@ -154,6 +177,10 @@ export interface DevPackServiceOptions {
    */
   readonly port?: number;
   readonly token?: string;
+  /** The sandbox the pack service runs in (`dev/sandbox`); absent, none. */
+  readonly sandbox?: ActiveDevSandbox;
+  /** A notice for the user from starting the pack service (the sandbox's). */
+  readonly onNotice?: (line: string) => void;
 }
 
 /**
@@ -191,6 +218,16 @@ export interface IndexOutcome {
    * print. Empty on a fully-clean pass.
    */
   readonly fileErrors: readonly {
+    readonly code: string;
+    readonly message: string;
+    readonly filePath?: string;
+  }[];
+  /**
+   * What the pack should change but that doesn't stop the build (for
+   * example a check id without the pack's prefix). Absent from an indexer
+   * that reports none.
+   */
+  readonly warnings?: readonly {
     readonly code: string;
     readonly message: string;
     readonly filePath?: string;
@@ -294,12 +331,26 @@ export interface DevRunners {
   }) => PackBuilder;
   /** The local pack service (not yet started). */
   readonly createPackService: (opts: DevPackServiceOptions) => DevPackService;
+  /** Whether this machine can sandbox the pack service, and with what (`dev/sandbox/detect.ts`). */
+  readonly detectSandbox: () => Promise<SandboxAvailability>;
   /**
    * Check a Python pack's interpreter can run pack code (`import kindgi`),
    * with the pack's environment: a one-line description, or why not.
    */
   readonly checkPackPython: (
     python: readonly [string, ...string[]],
+    env: Readonly<Record<string, string>>,
+    packDir?: string,
+  ) => Promise<
+    | { readonly kind: 'ok'; readonly value: string }
+    | { readonly kind: 'err'; readonly message: string }
+  >;
+  /**
+   * Check a JVM pack's JDK (17 or later) and build tool (Maven or sbt) run,
+   * with the pack's environment: a one-line description, or why not.
+   */
+  readonly checkPackJvm: (
+    code: JvmPackCode,
     env: Readonly<Record<string, string>>,
     packDir?: string,
   ) => Promise<

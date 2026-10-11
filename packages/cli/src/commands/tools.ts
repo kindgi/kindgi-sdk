@@ -4,6 +4,7 @@
 import type { ListPage, Tool } from '@kindgi/client';
 import type { ToolId } from '@kindgi/types';
 
+import { UsageError } from '../errors.js';
 import {
   type TableSpec,
   projectIdFlag,
@@ -29,9 +30,14 @@ const list: LeafCommand = {
   kind: 'leaf',
   name: 'list',
   description: 'List registered tools.',
-  usage: 'kindgi tools list [--name=<prefix>] [--limit=<n>] [--cursor=<c>]',
+  usage: 'kindgi tools list [--name=<prefix>] [--include-retired] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
     name: { type: 'string', description: 'Only the tools whose id starts with this prefix.' },
+    'include-retired': {
+      type: 'boolean',
+      description:
+        'Include retired tools (every version unregistered), each as its highest version with `unregisteredAt`.',
+    },
     limit: {
       type: 'string',
       description: 'The most tools to return (default 25, at most 100).',
@@ -51,10 +57,11 @@ const list: LeafCommand = {
         const limitStr = stringFlag(ctx, 'limit');
         const limit = limitStr !== undefined ? Number.parseInt(limitStr, 10) : undefined;
         if (limit !== undefined && Number.isNaN(limit)) {
-          throw new Error(`--limit must be an integer, got "${limitStr}"`);
+          throw new UsageError(`--limit must be an integer, got "${limitStr}"`);
         }
         return await ctx.client().tools.list({
           ...(name !== undefined && { name }),
+          ...(ctx.options['include-retired'] === true && { includeRetired: true }),
           ...(cursor !== undefined && { cursor: cursor as never }),
           ...(limit !== undefined && { limit }),
         });
@@ -95,7 +102,8 @@ const publish: LeafCommand = {
   run: (ctx) =>
     runSdk(ctx, 'tools publish', async () => {
       const manifestText = stringFlag(ctx, 'manifest');
-      if (manifestText === undefined) throw new Error('--manifest=<json-or-@file> is required');
+      if (manifestText === undefined)
+        throw new UsageError('--manifest=<json-or-@file> is required');
       const manifest = (await readJsonInput(manifestText)) as Tool;
       const projectId = await projectIdFlag(ctx);
       return await ctx.client().tools.register(manifest, { projectId });
@@ -119,10 +127,10 @@ const unregister: LeafCommand = {
 const versions: LeafCommand = {
   kind: 'leaf',
   name: 'versions',
-  description: 'List published versions of a tool (active + optionally tombstoned).',
-  usage: 'kindgi tools versions <tool-id> [--include-tombstoned] [--limit=<n>] [--cursor=<c>]',
+  description: 'List published versions of a tool (active, and optionally unregistered).',
+  usage: 'kindgi tools versions <tool-id> [--include-unregistered] [--limit=<n>] [--cursor=<c>]',
   optionSpec: {
-    'include-tombstoned': {
+    'include-unregistered': {
       type: 'boolean',
       description: 'Include unregistered versions too, each with its `unregisteredAt`.',
     },
@@ -142,9 +150,9 @@ const versions: LeafCommand = {
       const limitStr = stringFlag(ctx, 'limit');
       const limit = limitStr !== undefined ? Number.parseInt(limitStr, 10) : undefined;
       if (limit !== undefined && Number.isNaN(limit)) {
-        throw new Error(`--limit must be an integer, got "${limitStr}"`);
+        throw new UsageError(`--limit must be an integer, got "${limitStr}"`);
       }
-      const includeTombstoned = ctx.options['include-tombstoned'] === true;
+      const includeTombstoned = ctx.options['include-unregistered'] === true;
       return await ctx.client().tools.versions.list(toolId as ToolId, {
         ...(cursor !== undefined && { cursor: cursor as never }),
         ...(limit !== undefined && { limit }),

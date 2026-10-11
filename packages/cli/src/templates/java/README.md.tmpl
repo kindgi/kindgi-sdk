@@ -1,0 +1,69 @@
+# {{PACK_NAME}}
+
+A sample Kindgi pack in Java — scaffolded by `kindgi init --template=java`.
+
+Two tools (`echo`, `greet`), one guardrail (`response-not-empty`), one agent
+that uses both tools and the guardrail, and one flow that runs the echo tool.
+
+Java and Scala support is in preview: tested and supported, but the API may
+still change in 0.1.6 without the usual deprecation period.
+
+## Layout
+
+```
+{{PACK_NAME}}/
+├── kindgi.config.json                       # the pack's id and version ("language": "java")
+├── pom.xml                                  # com.kindgi:kindgi-pack, Java 17
+├── src/main/java/{{JAVA_PACKAGE_PATH}}/
+│   ├── tools/Echo.java                      # Tool.define — records in, records out
+│   ├── tools/Greet.java                     # Tool.define
+│   ├── guardrails/ResponseNotEmpty.java     # Guardrail.define — a zero-LLM check over the run
+│   ├── agents/EchoAgent.java                # Agent.define — data
+│   └── flows/EchoFlow.java                  # Flow.define — data
+└── src/test/java/{{JAVA_PACKAGE_PATH}}/ToolsTest.java   # the tools, called directly
+```
+
+## Run
+
+You need a JDK 17 or later (`JAVA_HOME`); Maven comes with the project
+(`./mvnw`).
+
+```sh
+./mvnw test
+kindgi dev       # boots Kindgi locally, compiles and runs this pack, recompiling on save
+```
+
+Then, from another terminal:
+
+```sh
+kindgi runs start --agent={{PACK_ID}}.echo-agent --input='{"userMessage":"hi"}'
+```
+
+`kindgi dev` uses `JAVA_HOME`'s JDK (or `dev.javaHome` in `kindgi.config.json`)
+and the project's Maven wrapper (or `dev.maven`, e.g. `["mvn", "-s", "settings.xml"]`).
+`MAVEN_ARGS` and `MAVEN_OPTS` in your shell reach Maven only, never the pack.
+
+## Use a real model
+
+`kindgi dev` gives a new pack `dev-echo`, a fallback provider that isn't a
+model: it calls the first tool and replies "Tool responded: …", after a
+warning line that says so. It answers only while no other provider fits. To
+use a real model, set one LLM provider's key and register its preset, with
+`kindgi dev` running, from another terminal. For Claude:
+
+```sh
+kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant   # no-echo prompt; writes .kindgi/secrets.env
+kindgi providers register --preset=anthropic                      # Opus 5.5, Sonnet 5.5, Haiku 4.5
+```
+
+Claude takes over from dev-echo on the next turn; nothing to restart.
+OpenAI (`OPENAI_API_KEY`, `--preset=openai`), Gemini (`GEMINI_API_KEY`,
+`--preset=gemini-api`), Groq (`GROQ_API_KEY`, `--preset=groq`) and
+OpenRouter (`OPENROUTER_API_KEY`, `--preset=openrouter`) work the same way;
+`kindgi providers presets` lists the presets.
+
+## Build
+
+`kindgi build --env=<name>` makes the pack's image: Maven compiles it in a
+pinned Maven + JDK 17 image, the index is built in the image, and the pack
+service runs on a JRE 17 as its entrypoint.

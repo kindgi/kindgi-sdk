@@ -17,6 +17,31 @@ function usage(over: Partial<Anthropic.Usage>): Anthropic.Usage {
 }
 
 describe('computeCostUsd', () => {
+  // Claude Haiku 5.5: $0.10 / $0.50 per 1M tokens, 5x past a 100,000-token prompt.
+  const HAIKU_5_5 = {
+    promptUsdPer1kTokens: 0.0001,
+    completionUsdPer1kTokens: 0.0005,
+    longContext: {
+      thresholdTokens: 100_000,
+      promptUsdPer1kTokens: 0.0005,
+      completionUsdPer1kTokens: 0.0025,
+    },
+  };
+
+  test('a prompt past the long-context threshold bills the whole call at the long rates, cache included', () => {
+    // 90,000 regular + 20,000 cache-read = 110,000 prompt tokens: long.
+    const cost = computeCostUsd(
+      usage({ input_tokens: 90_000, cache_read_input_tokens: 20_000, output_tokens: 1000 }),
+      HAIKU_5_5,
+    );
+    expect(cost).toBeCloseTo((90_000 * 0.0005 + 20_000 * 0.0005 * 0.1 + 1000 * 0.0025) / 1000, 10);
+  });
+
+  test('a prompt at the threshold, or under it, bills at the base rates', () => {
+    const cost = computeCostUsd(usage({ input_tokens: 100_000, output_tokens: 1000 }), HAIKU_5_5);
+    expect(cost).toBeCloseTo((100_000 * 0.0001 + 1000 * 0.0005) / 1000, 10);
+  });
+
   test('regular input + output tokens use base rates', () => {
     // 2000 in @ $0.003/1k = 0.006 ; 500 out @ $0.015/1k = 0.0075
     const cost = computeCostUsd(usage({ input_tokens: 2000, output_tokens: 500 }), {

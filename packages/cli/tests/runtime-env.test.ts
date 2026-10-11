@@ -37,7 +37,6 @@ describe('buildRuntimeEnv', () => {
     expect(buildRuntimeEnv(BASE)).toEqual({
       KINDGI_DEV: 'true',
       KINDGI_ENV: 'local',
-      KINDGI_LOG_FORMAT: 'pretty',
       KINDGI_API_PORT: '4000',
       KINDGI_PUBLIC_URL: 'http://127.0.0.1:4001',
       KINDGI_DEV_HOST_ALIAS: 'host.docker.internal',
@@ -46,12 +45,32 @@ describe('buildRuntimeEnv', () => {
       KINDGI_API_TOKEN: 'kgi_bt_dev',
       KINDGI_SEED_USER_ID: BASE.seedUserId,
       KINDGI_PACK_DIR: '/pack',
+      KINDGI_ARTIFACTS: 'local:/pack/.kindgi/dev/artifacts',
       KINDGI_DEV_CONSOLE_LOGIN: 'true',
       KINDGI_SECRETS_BACKEND: 'dotenv',
       KINDGI_SECRETS_DOTENV_DIR: '/pack',
       KINDGI_PACK_SERVICE_URL: 'http://127.0.0.1:61000',
       KINDGI_PACK_SERVICE_TOKEN: 'pack-token',
     });
+  });
+
+  test("the log settings it's given (kindgi dev's levels; JSON for the container)", () => {
+    const log = {
+      KINDGI_LOG_FORMAT: 'json',
+      KINDGI_LOG_LEVEL: 'debug',
+      KINDGI_LOG_LEVELS: 'http=warn',
+    };
+    const env = buildRuntimeEnv({ ...BASE, log });
+    expect(env).toMatchObject(log);
+    expect(Object.keys(env).slice(0, 5)).toEqual([
+      'KINDGI_DEV',
+      'KINDGI_ENV',
+      'KINDGI_LOG_FORMAT',
+      'KINDGI_LOG_LEVEL',
+      'KINDGI_LOG_LEVELS',
+    ]);
+    // A runtime you run writes to your terminal: no format unless given.
+    expect(buildRuntimeEnv(BASE)).not.toHaveProperty('KINDGI_LOG_FORMAT');
   });
 
   test('Linux host networking: the API binds loopback, no alias', () => {
@@ -67,9 +86,11 @@ describe('buildRuntimeEnv', () => {
       localEnvFiles: ['.env', '.env.dev'],
       corsOrigins: ['http://localhost:3000', 'http://localhost:5173'],
       publicTokenKeyPath: '/run/kindgi/public-token-signing.pem',
+      exportSigningKeyPath: '/run/kindgi/export-signing.pem',
       googleCredentialsPath: '/run/kindgi/google-credentials.json',
     });
     expect(env).toMatchObject({
+      KINDGI_EXPORT_SIGNING_KEY_PATH: '/run/kindgi/export-signing.pem',
       KINDGI_SECRETS_DOTENV_FILES: '.env,.env.dev',
       KINDGI_CORS_ORIGINS: 'http://localhost:3000,http://localhost:5173',
       KINDGI_PUBLIC_TOKEN_SIGNING_KEY_PATH: '/run/kindgi/public-token-signing.pem',
@@ -98,6 +119,7 @@ describe('buildRuntimeEnv', () => {
       localEnvFiles: ['.env'],
       corsOrigins: ['http://localhost:3000'],
       publicTokenKeyPath: '/k.pem',
+      exportSigningKeyPath: '/e.pem',
       googleCredentialsPath: '/g.json',
     });
     const hostNetwork = buildRuntimeEnv({ ...BASE, apiHost: '127.0.0.1' });
@@ -141,5 +163,17 @@ describe('runtime.env on disk', () => {
       },
     });
     expect(refs).toEqual({ ACME_HOST: 'api.example.com', ACME_KEY_FROM_SHELL: 'sk-shell' });
+  });
+
+  test("a key that refers to itself (KEY=${KEY}, the docker-compose habit) takes the shell's value (T377)", async () => {
+    await writeFile(
+      join(dir, '.env'),
+      'ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}\nPATHX=$PATHX:/extra\n',
+    );
+    const refs = await shellReferencesOf({
+      packDir: dir,
+      shellEnv: { ANTHROPIC_API_KEY: 'sk-ant-shell', PATHX: '/bin', UNRELATED: 'no' },
+    });
+    expect(refs).toEqual({ ANTHROPIC_API_KEY: 'sk-ant-shell', PATHX: '/bin' });
   });
 });

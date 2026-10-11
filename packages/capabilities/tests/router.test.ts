@@ -487,3 +487,67 @@ describe('route — structured RejectionReason', () => {
     }
   });
 });
+
+describe('route — a provider default model breaks ties', () => {
+  const model = (name: string, features: ModelInfo['features'] = ['tool-use']): ModelInfo => ({
+    name,
+    contextWindow: 128000,
+    features,
+    cost: { promptUsdPer1kTokens: 0.002, completionUsdPer1kTokens: 0.01 },
+  });
+  const openai = (defaultModel?: string): ProviderMetadata => ({
+    id: 'openai',
+    region: 'unspecified',
+    models: [model('gpt-6.1-sol'), model('gpt-6-astra'), model('gpt-6-luna')],
+    ...(defaultModel !== undefined && { defaultModel }),
+  });
+  const cap: Capability = { needs: [{ feature: 'tool-use' }] };
+
+  test('with no default, the first name by sort wins, as before', () => {
+    const r = route({ capability: cap, providers: providersOf(openai()) });
+    if (r.kind === 'err') throw new Error(JSON.stringify(r.error));
+    expect(r.value.model.name).toBe('gpt-6-astra');
+  });
+
+  test("the provider's default wins a tie, and the rest keep their order", () => {
+    const r = route({ capability: cap, providers: providersOf(openai('gpt-6.1-sol')) });
+    if (r.kind === 'err') throw new Error(JSON.stringify(r.error));
+    expect(r.value.model.name).toBe('gpt-6.1-sol');
+    expect(r.value.alternates.map((t) => t.model.name)).toEqual(['gpt-6-astra', 'gpt-6-luna']);
+  });
+
+  test("an agent's preference and its preferredModel still decide over the default", () => {
+    const preferring: Capability = {
+      needs: [{ feature: 'tool-use' }],
+      prefer: [{ feature: 'long-context', weight: 1 }],
+    };
+    const meta: ProviderMetadata = {
+      ...openai('gpt-6.1-sol'),
+      models: [model('gpt-6.1-sol'), model('gpt-6-astra', ['tool-use', 'long-context'])],
+    };
+    const ranked = route({ capability: preferring, providers: providersOf(meta) });
+    if (ranked.kind === 'err') throw new Error(JSON.stringify(ranked.error));
+    expect(ranked.value.model.name).toBe('gpt-6-astra');
+    const pinned = route({
+      capability: cap,
+      providers: providersOf(openai('gpt-6.1-sol')),
+      preferredModel: 'gpt-6-luna',
+    });
+    if (pinned.kind === 'err') throw new Error(JSON.stringify(pinned.error));
+    expect(pinned.value.model.name).toBe('gpt-6-luna');
+  });
+
+  test('a default orders models within its own provider, not across providers', () => {
+    const r = route({
+      capability: cap,
+      providers: providersOf(openai('gpt-6.1-sol'), {
+        id: 'anthropic',
+        region: 'us',
+        models: [model('claude-sonnet-5-5')],
+      }),
+    });
+    if (r.kind === 'err') throw new Error(JSON.stringify(r.error));
+    expect(r.value.provider.metadata.id).toBe('anthropic');
+    expect(r.value.alternates[0]?.model.name).toBe('gpt-6.1-sol');
+  });
+});

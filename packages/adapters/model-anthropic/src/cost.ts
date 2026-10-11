@@ -26,6 +26,17 @@ export interface CostRates {
   readonly completionUsdPer1kTokens: number;
   readonly promptCacheCreationMultiplier?: number;
   readonly promptCacheReadMultiplier?: number;
+  /**
+   * Long-context pricing: when a call's prompt (regular, cache-write and
+   * cache-read tokens together) exceeds `thresholdTokens`, the whole call
+   * bills at these rates, the cache multipliers applying to the long
+   * prompt rate. Claude Haiku 5.5 is 5x past a 100,000-token prompt.
+   */
+  readonly longContext?: {
+    readonly thresholdTokens: number;
+    readonly promptUsdPer1kTokens: number;
+    readonly completionUsdPer1kTokens: number;
+  };
 }
 
 /**
@@ -45,8 +56,16 @@ export interface CostRates {
  * rates without double-counting.
  */
 export function computeCostUsd(usage: Anthropic.Usage, rates: CostRates): number {
-  const inputRate = rates.promptUsdPer1kTokens;
-  const outputRate = rates.completionUsdPer1kTokens;
+  const promptTokens =
+    usage.input_tokens +
+    (usage.cache_creation_input_tokens ?? 0) +
+    (usage.cache_read_input_tokens ?? 0);
+  const long =
+    rates.longContext !== undefined && promptTokens > rates.longContext.thresholdTokens
+      ? rates.longContext
+      : undefined;
+  const inputRate = long?.promptUsdPer1kTokens ?? rates.promptUsdPer1kTokens;
+  const outputRate = long?.completionUsdPer1kTokens ?? rates.completionUsdPer1kTokens;
   const creationMultiplier =
     rates.promptCacheCreationMultiplier ?? DEFAULT_CACHE_CREATION_MULTIPLIER_5MIN;
   const readMultiplier = rates.promptCacheReadMultiplier ?? DEFAULT_CACHE_READ_MULTIPLIER;

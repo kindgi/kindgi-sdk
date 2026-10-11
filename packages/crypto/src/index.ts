@@ -39,6 +39,23 @@ export type {
 } from './webhook.js';
 
 export { createInMemorySigningKeyBinding } from './binding.js';
+
+export {
+  EXPORT_SIGNING_ALGORITHMS,
+  createEcdsaP256ExportSigner,
+  createEd25519ExportSigner,
+  createExportSignerFromPem,
+  ecdsaDerToP1363,
+  exportSigningKey,
+} from './export-signing.js';
+export { parseRetiredExportKeys, withRetiredExportKeys } from './retired-export-keys.js';
+export type {
+  ExportSignature,
+  ExportSigningAlgorithm,
+  ExportSigningBinding,
+  ExportSigningError,
+  ExportSigningKey,
+} from './export-signing.js';
 export type { SigningAlgorithm, SigningKeyBinding, SigningKeyDescriptor } from './binding.js';
 
 export type {

@@ -36,6 +36,7 @@ import {
 } from './agent-releases.js';
 import { liveScopeToWire } from './live-scope-wire.js';
 import { clampLimit } from './pagination.js';
+import { projectMismatch } from './project-mismatch.js';
 import { parseScopeParams } from './scope-params.js';
 
 /**
@@ -64,6 +65,8 @@ export function agentsRouter(
   releases?: AgentReleaseBindings,
   /** What a promotion's gate reads besides the releases (evals step 4b). */
   gateDeps?: AgentReleaseGateDeps,
+  /** What the deployment can do for an agent's turns, for publish warnings. */
+  capabilities: AgentPublishCapabilities = {},
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   // A read-only registry (under `kindgi dev`, the pack's files) refuses
@@ -153,6 +156,10 @@ export function agentsRouter(
 
     const cursorRaw = c.req.query('cursor');
     const nameRaw = c.req.query('name');
+    // `?includeRetired=true` lists retired items too (no active version),
+    // each as its highest version with `unregisteredAt`. Anything else →
+    // items with an active version only (the default).
+    const includeRetired = c.req.query('includeRetired') === 'true';
 
     const scopeParsed = parseScopeParams(c.req.query(), { tenantId });
     if (scopeParsed.kind === 'err') {
@@ -169,9 +176,17 @@ export function agentsRouter(
       ...(nameRaw !== undefined && nameRaw.length > 0 && { nameFilter: nameRaw }),
       ...(scopeParsed.scope !== undefined && { scope: scopeParsed.scope }),
       ...(scopeParsed.inherit !== undefined && { inherit: scopeParsed.inherit }),
+      ...(includeRetired && { includeRetired: true }),
     });
+    // Only what the caller may read (T243 A), as `GET …/:id` asks.
+    const visible =
+      authorizer === undefined
+        ? page.data
+        : await authorizer.filterByCan(c, 'read', page.data, (a) =>
+            ref('agent', a.id as unknown as string),
+          );
     return c.json({
-      data: page.data.map(serializeAgent),
+      data: visible.map(serializeAgent),
       hasMore: page.nextCursor !== undefined,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });
@@ -225,12 +240,17 @@ export function agentsRouter(
     const agentId = c.req.param('agentId') as AgentId;
     const limit = clampLimit(c.req.query('limit'));
     const cursorRaw = c.req.query('cursor');
+    // `?includeTombstoned=true` lists unregistered versions too, each
+    // with `unregisteredAt`. Anything else → active versions only.
+    const includeTombstoned = c.req.query('includeTombstoned') === 'true';
 
-    // Confirm the id exists at all — an empty versions list from the
-    // binding is ambiguous (no versions vs. unknown id), so we do a
-    // preliminary `get` to flip an unknown id to a `404`.
-    const latest = await binding.get({ tenantId, agentId });
-    if (latest === null) {
+    // Confirm the id exists at all: an empty versions list from the
+    // binding is ambiguous (no versions vs. unknown id). A retired agent
+    // (every version unregistered) still has its head row, so it answers
+    // 200, with its versions under `includeTombstoned`; a never-registered
+    // id is 404. As flows, tools and policies do.
+    const exists = await binding.headExists({ tenantId, agentId });
+    if (!exists) {
       c.status(statusFor('agent-not-found') as never);
       return c.json(
         toWireError(
@@ -249,6 +269,7 @@ export function agentsRouter(
       agentId,
       limit,
       ...(cursorRaw !== undefined && cursorRaw.length > 0 && { cursor: cursorRaw as Cursor }),
+      ...(includeTombstoned && { includeTombstoned: true }),
     });
     return c.json({
       data: page.data.map(serializeAgent),
@@ -383,6 +404,9 @@ export function agentsRouter(
     if (outcome.kind === 'already-registered') {
       return alreadyRegistered(c, binding, tenantId, outcome.agentId, outcome.version);
     }
+    if (outcome.kind === 'project-mismatch') {
+      return projectMismatch(c, 'agent', outcome.agentId as unknown as string, outcome.projectId);
+    }
     if (outcome.kind === 'project-not-found') {
       // Caller supplied a `projectId` that does not resolve within
       // this tenant. Distinct signal from `already-registered` so the
@@ -400,10 +424,12 @@ export function agentsRouter(
         ),
       );
     }
+    const warnings = publishWarnings(defined.value, capabilities);
     c.status(201);
     return c.json({
       agentId: outcome.agentId as unknown as string,
       version: outcome.version as unknown as string,
+      ...(warnings.length > 0 && { warnings }),
     });
   });
 
@@ -668,13 +694,125 @@ function derived(
         code: 'bad-input',
         message: `\`projectId\` "${outcome.projectId as unknown as string}" does not resolve to a project in this tenant`,
       });
+    case 'project-mismatch':
+      return projectMismatch(c, 'agent', agentId as unknown as string, outcome.projectId, 'derive');
   }
+}
+
+/** What the deployment can do for an agent's turns, for publish warnings. */
+export interface AgentPublishCapabilities {
+  /** Whether memory can search by meaning (embeddings are on). Absent: unknown, no warning. */
+  readonly semanticSearch?: boolean;
+  /** Whether agents can remember (`memory.remember`). Absent: unknown, no warning. */
+  readonly remember?: boolean;
+  /** Whether agent turns can recall earlier conversations. Absent: unknown, no warning. */
+  readonly conversationRecall?: boolean;
+}
+
+/**
+ * What a published agent should know about this deployment before its
+ * first turn: an intent that searches by meaning on a runtime without
+ * embeddings fails its turns (`semantic`) or searches by keyword only
+ * (`both`); an agent that remembers on a runtime that can't store what
+ * it remembers gets "not remembered" from every call.
+ */
+function publishWarnings(
+  agent: Agent,
+  capabilities: AgentPublishCapabilities,
+): { readonly code: string; readonly message: string }[] {
+  return [
+    ...(capabilities.semanticSearch === false ? semanticWarnings(agent) : []),
+    ...(capabilities.remember === false && agent.memory?.remember !== undefined
+      ? [
+          {
+            code: 'remember-unavailable',
+            message:
+              'The agent declares memory.remember, and this runtime cannot store agent memories: each remember call answers that nothing was remembered.',
+          },
+        ]
+      : []),
+    ...recallWarnings(agent, capabilities),
+  ];
+}
+
+/**
+ * Intents over conversations: `same-segment` and `same-project` quote other
+ * people's conversations (always said); on a runtime that can't recall,
+ * every such intent recalls nothing.
+ */
+function recallWarnings(
+  agent: Agent,
+  capabilities: AgentPublishCapabilities,
+): { readonly code: string; readonly message: string }[] {
+  const answers = agent.retrieval.findIndex(
+    (intent) => intent.source === 'conversations' && intent.roles?.includes('agent') === true,
+  );
+  const answersWarning =
+    answers >= 0 && capabilities.conversationRecall !== false
+      ? [
+          {
+            code: 'recall-agent-answers',
+            message: `Retrieval intent ${answers} recalls the agent's own earlier answers: they can carry its earlier mistakes. They are quoted as "earlier answer by the agent, not verified"; recall only the people's own words (the default) to leave them out.`,
+          },
+        ]
+      : [];
+  return [...answersWarning, ...perIntentRecallWarnings(agent, capabilities)];
+}
+
+function perIntentRecallWarnings(
+  agent: Agent,
+  capabilities: AgentPublishCapabilities,
+): { readonly code: string; readonly message: string }[] {
+  return agent.retrieval.flatMap((intent, i) => {
+    if (intent.source !== 'conversations') return [];
+    if (capabilities.conversationRecall === false) {
+      return [
+        {
+          code: 'recall-unavailable',
+          message: `Retrieval intent ${i} recalls earlier conversations, and this runtime can't: it recalls nothing, and each turn's journal says so (no-recall).`,
+        },
+      ];
+    }
+    if (intent.scope === 'same-segment' || intent.scope === 'same-project') {
+      const where = intent.scope === 'same-segment' ? "the run's segment" : "the run's project";
+      return [
+        {
+          code: 'recall-other-people',
+          message: `Retrieval intent ${i} recalls conversations in ${where}, whoever had them: this agent can quote other users' conversations in ${where}. Their messages are marked as another person's, without saying whose.`,
+        },
+      ];
+    }
+    return [];
+  });
+}
+
+function semanticWarnings(agent: Agent): { readonly code: string; readonly message: string }[] {
+  return agent.retrieval.flatMap((intent, i) => {
+    if (intent.mode === 'semantic') {
+      return [
+        {
+          code: 'semantic-unavailable',
+          message: `Retrieval intent ${i} searches by meaning (mode "semantic"), and this runtime has no embeddings: its turns fail with semantic-unavailable until an operator turns them on (KINDGI_MEMORY_EMBEDDINGS).`,
+        },
+      ];
+    }
+    if (intent.mode === 'both') {
+      return [
+        {
+          code: 'semantic-unavailable',
+          message: `Retrieval intent ${i} (mode "both") runs only its keyword search: this runtime has no embeddings (KINDGI_MEMORY_EMBEDDINGS).`,
+        },
+      ];
+    }
+    return [];
+  });
 }
 
 function serializeAgent(a: AgentVersionRecord): Record<string, unknown> {
   return {
     id: a.id as unknown as string,
     version: a.version as unknown as string,
+    ...(a.projectId !== undefined && { projectId: a.projectId as unknown as string }),
     name: a.name,
     ...(a.description !== undefined && { description: a.description }),
     instructions: a.instructions,
@@ -684,6 +822,7 @@ function serializeAgent(a: AgentVersionRecord): Record<string, unknown> {
     capabilities: a.capabilities,
     tools: a.tools,
     retrieval: a.retrieval,
+    ...(a.memory !== undefined && { memory: a.memory }),
     guardrails: a.guardrails,
     ...(a.conversationPolicy !== undefined && { conversationPolicy: a.conversationPolicy }),
     ...(a.budget !== undefined && { budget: a.budget }),

@@ -26,8 +26,15 @@ import type { TurnContext } from '../src/handlers/context.js';
 import { buildDispatchToolsHandler } from '../src/handlers/dispatch-tools.js';
 import { buildModelCallHandler } from '../src/handlers/model-call.js';
 import { rehydrateTurnContext } from '../src/handlers/rehydrate.js';
+import { addRetrievalNodes } from '../src/handlers/turn-provenance.js';
 import { resolveEffectiveHitlPolicy } from '../src/hitl-policy.js';
-import type { Agent, AgentId, ConversationMessage } from '../src/types.js';
+import type {
+  Agent,
+  AgentId,
+  ConversationMessage,
+  RetrievalIntent,
+  RetrievedFact,
+} from '../src/types.js';
 import { testNodeContext } from './node-context.js';
 
 const tenantId = 't-1' as TenantId;
@@ -483,5 +490,52 @@ describe("a tool call's approval in provenance", () => {
     await rerunParkedStep(ctx, { decided: 'approve' });
     const dag = ctx.provenance?.snapshot() as Provenance;
     expect(dag.nodes.filter((n) => n.kind === 'wait' || n.kind === 'resume')).toEqual([]);
+  });
+});
+
+describe('memory searches', () => {
+  test('each intent is a search_memory node; each fact is retrieved-from its search, with its ranks', () => {
+    const b = builder();
+    const keyword: RetrievalIntent = { types: ['acme.policy'], scope: 'tenant', mode: 'both' };
+    const listed: RetrievalIntent = { types: ['acme.note'], scope: 'same-conversation' };
+    const input = { sequence: 3, createdAt: AT } as unknown as ConversationMessage;
+    const found = {
+      fact: { id: 'f-1', type: 'acme.policy', contentHash: 'h-1' },
+      // Read back from the journal: an equal intent, not the same object.
+      intent: { ...keyword },
+      score: 0.03,
+      ranks: { keyword: 2, semantic: 1 },
+    } as unknown as RetrievedFact;
+    addRetrievalNodes(b, [keyword, listed], [found], input);
+    const dag = b.snapshot();
+    expect(dag.nodes.filter((n) => n.kind === 'memory-read')).toEqual([
+      expect.objectContaining({
+        id: 'memory-read:search:3:0',
+        attributes: {
+          operation: 'search_memory',
+          intent: 0,
+          source: 'facts',
+          types: ['acme.policy'],
+          scope: 'tenant',
+          mode: 'both',
+          factIds: ['f-1'],
+        },
+      }),
+      expect.objectContaining({
+        id: 'memory-read:search:3:1',
+        attributes: expect.objectContaining({ intent: 1, mode: 'list', factIds: [] }),
+      }),
+    ]);
+    expect(dag.nodes.find((n) => n.id === 'retrieval:f-1')?.attributes).toMatchObject({
+      ranks: { keyword: 2, semantic: 1 },
+    });
+    expect(dag.edges).toEqual(
+      expect.arrayContaining([
+        { from: 'memory-read:search:3:0', to: 'input:3', kind: 'caused-by' },
+        { from: 'memory-read:search:3:1', to: 'input:3', kind: 'caused-by' },
+        { from: 'retrieval:f-1', to: 'memory-read:search:3:0', kind: 'retrieved-from' },
+        { from: 'retrieval:f-1', to: 'input:3', kind: 'influenced-by' },
+      ]),
+    );
   });
 });

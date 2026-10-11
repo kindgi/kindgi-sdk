@@ -10,6 +10,13 @@ build/
 out/
 *.tsbuildinfo
 .turbo/
+# Maven (sdks/java)
+sdks/java/**/target/
+# sbt (sdks/scala, and the Scala conformance fixture)
+sdks/scala/**/target/
+sdks/scala/.bsp/
+packages/pack-conformance/fixtures/scala-pack/**/target/
+packages/pack-conformance/fixtures/scala-pack/.bsp/
 
 # Test + coverage
 coverage/

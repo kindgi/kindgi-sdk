@@ -18,7 +18,7 @@ import { type Agent, createAgentRegistry, pinsDigest } from '@kindgi/agents';
 import type { ToolManifest } from '@kindgi/tools';
 import type { Cursor, ProjectId, Semver, TenantId } from '@kindgi/types';
 
-import { createStubAppBindings } from '@kindgi/testing';
+import { createStubAppBindings } from '../src/testing/index.js';
 
 import { createApp } from '../src/index.js';
 import type { BlockRegistryBinding } from '../src/index.js';

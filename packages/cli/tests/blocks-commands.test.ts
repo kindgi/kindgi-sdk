@@ -134,7 +134,7 @@ describe('kindgi blocks', () => {
       ],
       { blocks: {} },
     );
-    expect(both.exitCode).toBe(1);
+    expect(both.exitCode).toBe(2);
     expect(both.stderr).toContain('Give one of --prompt or --settings');
   });
 

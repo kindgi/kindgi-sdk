@@ -117,6 +117,8 @@ export interface EvalRun {
   readonly correlationId?: string;
   /** A comparison eval run's baseline, reads and repetitions. */
   readonly comparison?: EvalComparison;
+  /** The project the run belongs to. Absent from a runtime that doesn't say. */
+  readonly projectId?: ProjectId;
 }
 
 export interface EvalRunFilter {
@@ -173,6 +175,44 @@ export interface EvalComparison {
   readonly versions?: FlowVersionOverrides;
   /** Which judgments count (absent: `as-recorded`). */
   readonly classWeights?: EvalClassWeights;
+  /**
+   * For an agent candidate: block content its replays run instead of the
+   * version's pinned content (settings values, a prompt template: an
+   * improvement pass's search). A comparison with overrides can't gate a
+   * promotion: it didn't run a published version.
+   */
+  readonly overrides?: EvalOverrides;
+  /** Only part of the test set's cases (absent: all of them). */
+  readonly sample?: EvalSample;
+  /**
+   * Rescore that comparison eval run instead of replaying: its replays'
+   * outputs are scored again, with the judgments recorded on them since
+   * (a changed answer judged on the replay itself). Nothing runs; the run
+   * rescored stays as it was. Same suite version, candidate and sample.
+   */
+  readonly rescoreOf?: string;
+}
+
+/** Block content that replaces a version's pinned content: settings values and prompt templates, by block id. */
+export interface EvalOverrides {
+  readonly settings?: Readonly<Record<string, Readonly<Record<string, unknown>>>>;
+  readonly prompts?: Readonly<Record<string, { readonly template: string }>>;
+}
+
+/**
+ * Part of a test set: its cases split once into a hold-out part (about
+ * `holdOutShare` of them) and a search part (the rest), stratified by
+ * judgment (the cases with a "no" and the others split on their own), in
+ * the order of a hash of each case id and `seed`. The same seed splits
+ * the same test set the same way, so an improvement pass searches on one
+ * part and proves its candidate on the other. A promotion gate refuses a
+ * comparison on the search part.
+ */
+export interface EvalSample {
+  readonly part: 'search' | 'hold-out';
+  readonly seed: string;
+  /** 0.1 to 0.9. */
+  readonly holdOutShare: number;
 }
 
 export interface EvalRunStartInput {
@@ -185,6 +225,11 @@ export interface EvalRunStartInput {
    */
   readonly projectId: ProjectId;
   readonly suiteId: string;
+  /**
+   * The suite version to run (absent: the latest). A rescore names the
+   * version the run it rescores ran, so the cases are the same.
+   */
+  readonly suiteVersion?: string;
   readonly agentRef?: AgentRef;
   readonly flowRef?: FlowRef;
   readonly dryRun?: boolean;

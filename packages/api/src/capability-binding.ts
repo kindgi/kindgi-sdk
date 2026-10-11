@@ -62,6 +62,18 @@ export interface CapabilityDescriptor {
    * layer — the SDK surfaces it for tooling / doc generation.
    */
   readonly paramsSchema?: Readonly<Record<string, unknown>>;
+  /**
+   * The tenant's registered providers with a model that has the feature,
+   * and those models. Absent when the binding doesn't read the provider
+   * registry; `[]` when no provider of the tenant has one.
+   */
+  readonly providers?: readonly CapabilityProvider[];
+}
+
+/** One provider with a model that has a feature, and those models. */
+export interface CapabilityProvider {
+  readonly providerId: string;
+  readonly models: readonly string[];
 }
 
 export interface CapabilityListInput {

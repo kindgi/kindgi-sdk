@@ -6,16 +6,23 @@ Anthropic `ModelProvider` for [`@kindgi/capabilities`](../../capabilities/). Wra
 
 Translate between the framework's `ModelCallInput` / `ModelCallResult` and a non-streaming `messages.create` call:
 
-- `system` messages are lifted into the top-level `system` parameter (several are joined with a blank line). `tool` messages become `tool_result` blocks folded into user turns, and assistant `toolCalls` become `tool_use` blocks.
+- `system` messages are lifted into the top-level `system` parameter, each its own text block, in order. `tool` messages become `tool_result` blocks folded into user turns, and assistant `toolCalls` become `tool_use` blocks.
 - Tool names are encoded `.` → `__` on send and decoded on receive, because the Messages API rejects dots in tool names (`acme.orders.lookup` ↔ `acme__orders__lookup`). Tool ids must not contain a literal `__`.
 - `max_tokens` is always sent, since Anthropic requires it: `input.maxOutputTokens`, else the model's `ModelInfo.maxOutputTokens`, else `4096`. `temperature` is sent when set, and `abortSignal` is passed to the request.
 - `stop_reason` maps `end_turn` / `stop_sequence` / `pause_turn` → `stop`, `max_tokens` → `length`, `tool_use` → `tool-use`, `refusal` → `content-filter`, anything else → `stop`.
 - Cost accounting that includes prompt caching. Anthropic reports four counters (`input_tokens`, `output_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens`), and `costUsd` bills each at its own rate:
   `(input × rate + cacheCreation × rate × creationMultiplier + cacheRead × rate × readMultiplier + output × outputRate) / 1000`.
-  The multiplier defaults match the 5-minute cache tier (creation `1.25`, read `0.1`); set `promptCacheCreationMultiplier: 2` in a model's `cost` for the 1-hour tier. `usage.promptTokens` includes cache writes and reads; `usage.cachedTokens` reports the cache reads when there are any.
+  The multiplier defaults match the 5-minute cache tier (creation `1.25`, read `0.1`). Claude Opus 5.5 and Sonnet 5.5 read at `0.05`: set `promptCacheReadMultiplier: 0.05` in their `cost` (the `anthropic` preset does). `usage.promptTokens` includes cache writes and reads; `usage.cacheReadTokens` and `usage.cacheWriteTokens` report them.
+- **Prompt caching.** Anthropic caches only the prefixes a request marks with `cache_control`, so the adapter marks up to three (`withPromptCache`), each with the 5-minute cache:
+  - the last tool (the tool definitions);
+  - the first system block (the agent's prompt; later system blocks, such as retrieved context, change from turn to turn);
+  - the last block of the last message, when another call will send this prefix again: the call has tools (the next step of a tool loop) or the conversation has an earlier answer (its next turn). A one-off call (no tools, no earlier answer, e.g. a judge) leaves its message unmarked: writing a tail that's never read again would only cost more.
+
+  The next call in a turn then reads the prefix at the read rate and writes only what's new. A prefix shorter than the model's minimum (from 512 tokens on the Claude 5.5 models) isn't cached and costs nothing extra. How Anthropic keeps cached prompts, and their eligibility for zero data retention: Anthropic's [prompt caching](https://platform.claude.com/docs/en/build-with-claude/prompt-caching) and [API and data retention](https://platform.claude.com/docs/en/manage-claude/api-and-data-retention) pages.
 
 ## Exports
 
+- **`anthropicAdapterEntry`** (`ANTHROPIC_ADAPTER_ID`) — the `AdapterFactoryEntry` a runtime registers. **`anthropicAdapterFactory`** builds the provider from a registration whose `secret_ref` names its Anthropic API key (resolved on every call); without one it throws, and **`anthropicCheckConfig(input)`** reports the same problem (`secret_ref`) without building anything.
 - **`createAnthropicProvider(options)`** — returns a `ModelProvider` whose `metadata` is `options.metadata`. `invoke()` throws when `input.model` is not one of `metadata.models[].name`.
 - **`AnthropicProviderOptions`**:
   - `apiKey: string | (() => string | Promise<string>)` — a static key, or a resolver called on every `invoke()`. The SDK client is cached and rebuilt only when the resolved key changes, so a rotated secret takes effect on the next call. A per-tenant registry can register one provider per tenant whose resolver reads that tenant's secret.
@@ -74,7 +81,7 @@ A single-key deployment passes `apiKey: process.env.ANTHROPIC_API_KEY` (checked 
 - **Streaming.** `invoke()` resolves with the complete response; streaming would need a different `ModelProvider` interface.
 - **Extended thinking.** `ModelMessage` has no thinking field; `thinking` blocks in responses are dropped.
 - **Image inputs.** `ModelMessage` content is text only.
-- **Structured output.** `structuredOutput` on `ModelCallInput` is ignored.
+- **Structured output.** `structuredOutput` on `ModelCallInput` is ignored. No Kindgi caller sends it today: an agent's typed output is checked by parse and repair on every provider, so the anthropic preset's models still declare `structured-output` (they can follow a JSON schema natively).
 - **Retry logic in the adapter.** Retries and timeouts are the SDK client's (`clientOptions.maxRetries`, `clientOptions.timeout`).
 
 ## Related

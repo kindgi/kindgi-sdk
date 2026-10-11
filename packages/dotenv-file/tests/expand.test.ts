@@ -95,12 +95,40 @@ describe('expandEnv — escapes, cycles, diagnostics', () => {
   });
 
   test('cycles are cut and reported, never overflow the stack', () => {
-    const r = expandEnv({ A: 'a$B', B: 'b$A', SELF: 'x$SELF' });
-    expect(r.values.SELF).toBe('x');
+    const r = expandEnv({ A: 'a$B', B: 'b$A' });
     expect(r.values.A).toBe('ab');
     expect(r.diagnostics.filter((d) => d.kind === 'cycle').map((d) => d.ref)).toEqual(
-      expect.arrayContaining(['A', 'SELF']),
+      expect.arrayContaining(['A']),
     );
+  });
+
+  test("a key that refers to itself takes the environment's value: no cycle (T377)", () => {
+    const env = { KEY: 'from-shell', PATH: '/bin' };
+    const r = expandEnv(
+      { KEY: '${KEY}', BARE: '$KEY', PATH: '$PATH:/extra', DFLT: '${DFLT:-fallback}' },
+      { env },
+    );
+    expect(r.values).toEqual({
+      KEY: 'from-shell',
+      BARE: 'from-shell',
+      PATH: '/bin:/extra',
+      DFLT: 'fallback',
+    });
+    expect(r.diagnostics).toEqual([]);
+  });
+
+  test('a self-reference the environment lacks is unresolved, and empty', () => {
+    const r = expandEnv({ SELF: 'x$SELF', KEY: '${KEY}' });
+    expect(r.values).toEqual({ SELF: 'x', KEY: '' });
+    expect(r.diagnostics).toEqual([
+      { kind: 'unresolved', key: 'SELF', ref: 'SELF' },
+      { kind: 'unresolved', key: 'KEY', ref: 'KEY' },
+    ]);
+  });
+
+  test("another key referring to a self-referring one gets the environment's value through it", () => {
+    const r = expandEnv({ KEY: '${KEY}', URL: 'https://x/?k=${KEY}' }, { env: { KEY: 'k1' } });
+    expect(r.values).toEqual({ KEY: 'k1', URL: 'https://x/?k=k1' });
   });
 
   test('every input key is present in the output', () => {

@@ -36,6 +36,15 @@ export interface LlmJudgeConfig {
   readonly temperature?: number;
 }
 
+/** A verdict's budget: PASS/FAIL or a score, and a brief reason. */
+export const JUDGE_VERDICT_TOKENS = 256;
+/**
+ * Added for a model that thinks (`ModelInfo.thinking`): even at its least
+ * thinking (the judge asks for `thinking: 'lowest'`), thought tokens count
+ * against the cap, and a verdict mustn't be crowded out.
+ */
+export const JUDGE_THINKING_TOKENS = 2048;
+
 /**
  * Invoke an LLM judge to evaluate a guardrail. Resolves a model via
  * the capability router (or uses `bindings.judgeProvider` if set), sends
@@ -82,7 +91,11 @@ export async function invokeJudge(
         { role: 'user', content: prompt },
       ],
       ...(config.temperature !== undefined && { temperature: config.temperature }),
-      maxOutputTokens: 256,
+      ...(provider.model.thinking !== undefined && { thinking: 'lowest' as const }),
+      maxOutputTokens:
+        provider.model.thinking !== undefined
+          ? JUDGE_VERDICT_TOKENS + JUDGE_THINKING_TOKENS
+          : JUDGE_VERDICT_TOKENS,
       ...(bindings.abortSignal !== undefined && { abortSignal: bindings.abortSignal }),
     });
   } catch (cause) {

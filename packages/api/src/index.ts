@@ -10,11 +10,18 @@ export type {
 } from './app.js';
 export type { AppEnv } from './types.js';
 export {
+  PLAIN_SESSION_COOKIE_NAME,
+  SESSION_COOKIE_NAME,
   SESSION_TOKEN_PREFIX,
   encodeSessionToken,
   MULTI_TENANT_LOOKUP,
 } from './middleware/auth.js';
-export type { TokenResolution, TokenResolver } from './middleware/auth.js';
+export type { SessionCookieOptions, TokenResolution, TokenResolver } from './middleware/auth.js';
+export type { SignInOptionsRateLimit } from './routes/sign-in-options.js';
+export { WRITE_AUDIT_KINDS } from './routes/write-audit.js';
+export type { WriteAuditKind } from './routes/write-audit.js';
+export { createInMemoryRateLimitStore } from './rate-limit-store.js';
+export type { RateLimitStore, RateLimitTake, RateLimitTakeInput } from './rate-limit-store.js';
 export type {
   ClaimMappingScopesSpec,
   ClaimMappingSpec,
@@ -25,14 +32,19 @@ export type {
   IdentityProviderPage,
   IdentityProviderRegisterInput,
   IdentityProviderRegisterOutcome,
+  IdentityProviderSignInUrlsInput,
   IdentityProviderUnregisterInput,
   IdentityProviderUnregisterOutcome,
+  IdentityProviderUpdateInput,
+  IdentityProviderUpdateOutcome,
+  OidcProviderConfig,
   ProviderConfig,
-  ExchangeCodeFn,
-  ExchangeCodeInput,
-  ExchangeCodeOutcome,
-  RefreshTokenFn,
-  RefreshTokenInput,
+  ProviderConfigBase,
+  ProviderSignIn,
+  SamlAttributeMapping,
+  SamlProviderConfig,
+  SignInOption,
+  SignInOptionsInput,
 } from './identity-provider-binding.js';
 export type {
   Session,
@@ -41,7 +53,9 @@ export type {
   SessionGetInput,
   SessionListInput,
   SessionPage,
+  SessionResolveTokenInput,
   SessionRevokeAllForUserInput,
+  SessionRevokeByProviderInput,
   SessionRevokeAllForUserOutcome,
   SessionRevokeInput,
   SessionRevokeOutcome,
@@ -50,28 +64,34 @@ export type {
   SessionTouchOutcome,
 } from './session-store-binding.js';
 export type {
+  IdentityCreateUserInput,
+  IdentityCreateUserResult,
   IdentityDirectoryBinding,
+  IdentityFindUserByEmailInput,
   IdentityGetUserInput,
   IdentityListSessionsInput,
   IdentityListUsersInput,
   IdentityRevokeSessionsInput,
+  IdentityUnregisterUserInput,
+  IdentityUnregisterUserRefusal,
+  IdentityUnregisterUserResult,
   RevokeSessionsResult,
   SessionSummary,
   SessionSummaryPage,
   UserCollectionPage,
   UserRecord,
 } from './identity-directory-binding.js';
-export { createInMemoryOauthStateStore } from './state-store-binding.js';
-export type {
-  OauthStateEntry,
-  OauthStateStore,
-  OauthStateTakeInput,
-} from './state-store-binding.js';
 export {
   createInMemoryIdempotencyStore,
   idempotencyMiddleware,
 } from './middleware/idempotency.js';
-export type { IdempotencyStore, StoredIdempotencyEntry } from './middleware/idempotency.js';
+export type {
+  IdempotencyHold,
+  IdempotencyHoldOutcome,
+  IdempotencyHolds,
+  IdempotencyStore,
+  StoredIdempotencyEntry,
+} from './middleware/idempotency.js';
 export { CURRENT_EVENT_BUS_ENVELOPE_VERSION } from './event-bus-binding.js';
 export type {
   EventBusBinding,
@@ -89,9 +109,67 @@ export {
   type TokenListInput,
   type TokenMintInput,
   type TokenMintOutput,
+  type TokenMintRefusal,
+  type TokenPrincipal,
   type TokenRevokeInput,
   type TokenRevokeOutcome,
 } from './token-admin.js';
+export type {
+  ServiceAccount,
+  ServiceAccountBinding,
+  ServiceAccountChange,
+  ServiceAccountCreateInput,
+  ServiceAccountError,
+  ServiceAccountErrorCode,
+  ServiceAccountGrant,
+  ServiceAccountGrantTarget,
+  ServiceAccountListInput,
+  ServiceAccountRef,
+} from './service-account-binding.js';
+export type {
+  JudgingClassResult,
+  JudgingError,
+  JudgingErrorCode,
+  JudgingItemRule,
+  JudgingQueueBinding,
+  JudgingQueueItem,
+  JudgingQueueListInput,
+  JudgingQueuePage,
+  JudgingQueueState,
+  JudgingRule,
+  JudgingRulePage,
+  JudgingRulePatch,
+  JudgingResultGroup,
+  JudgingRulePreview,
+  JudgingRuleResults,
+  JudgingRuleSpec,
+  JudgingRuleWhen,
+  JudgingRunStatus,
+} from './judging-queue-binding.js';
+export type {
+  PersonGrant,
+  PersonGrantChange,
+  PersonGrantError,
+  PersonGrantErrorCode,
+  PersonGrants,
+  PersonGrantsBinding,
+  PersonRef,
+} from './person-grants-binding.js';
+export type {
+  AccessPrincipal,
+  ProjectAccessBinding,
+  ProjectAccessHolder,
+  ProjectAccessPath,
+} from './project-access-binding.js';
+export type {
+  AccessPath,
+  MyAccess,
+  MyAccessBinding,
+  OrgAccess,
+  ProjectAccess,
+  RoleCapabilities,
+  TeamAccess,
+} from './my-access-binding.js';
 export type {
   InvokeAgentBindingInput,
   InvokeFlowBindingInput,
@@ -115,6 +193,7 @@ export type {
 } from './reviewer-binding.js';
 export type {
   Approval,
+  ApprovalPosition,
   ApprovalStatus,
   HitlBinding,
   HitlBindingError,
@@ -156,7 +235,7 @@ export type {
   AdapterTestInput,
   AdapterTestOutcome,
 } from './adapter-binding.js';
-export { TRIGGER_KINDS } from './trigger-binding.js';
+export { SCHEDULE_DEFAULTS, TRIGGER_KINDS } from './trigger-binding.js';
 export {
   DEFAULT_PUBLIC_RUN_TOKEN_TTL_SECONDS,
   MAX_PUBLIC_RUN_TOKEN_RUNS,
@@ -173,12 +252,17 @@ export type {
   VerifyPublicRunTokenFailure,
   VerifyPublicRunTokenResult,
 } from './public-run-token.js';
+export { runFailure } from './run-failure.js';
+export type { RunFailure } from './run-failure.js';
 export {
   WEBHOOK_DELIVERY_STATUSES,
   WEBHOOK_EVENT_TYPES,
 } from './webhook-endpoint-binding.js';
 export type {
   FinishedRun,
+  ApprovalRequestedEvent,
+  ImprovementPassFinishedEvent,
+  RequestedApproval,
   RunFinishedEvent,
   WebhookDelivery,
   WebhookDeliveryListInput,
@@ -206,18 +290,25 @@ export type {
   CronTriggerRecord,
   EventTriggerRecord,
   GetTriggerInput,
+  ListTriggerFiresInput,
   ListTriggersInput,
   RegisterCronTriggerInput,
   RegisterEventTriggerInput,
   RegisterTriggerError,
   RegisterTriggerInput,
   RegisterWebhookTriggerInput,
+  ScheduleCatchUp,
+  ScheduleOverlap,
+  TriggerFire,
+  TriggerFirePage,
   TriggerKind,
   TriggerLifecycleError,
   TriggerLifecycleInput,
   TriggerListPage,
+  TriggerOwner,
   TriggerRecord,
   TriggerRegistryBinding,
+  TriggerTarget,
   UpdateCronTriggerInput,
   UpdateEventTriggerInput,
   UpdateTriggerError,
@@ -258,6 +349,7 @@ export type {
 } from './flow-binding.js';
 export type {
   CapabilityDescriptor,
+  CapabilityProvider,
   CapabilityGetInput,
   CapabilityListInput,
   CapabilityPage,
@@ -335,6 +427,7 @@ export type {
 export {
   JUDGE_CLASS_SCOPE_KINDS,
   VERDICTS,
+  isReplayCopy,
   judgeClassApplies,
   whyNotAssertable,
 } from './judgment-binding.js';
@@ -345,8 +438,15 @@ export type {
   EvalCaseStoreBinding,
   JudgedEvalCase,
   JudgedItemSummary,
+  JudgedReason,
 } from './eval-case-binding.js';
-export { MAX_JUDGED_CASES } from './routes/judged-suites.js';
+export { MAX_JUDGED_CASES, buildJudgedSuite } from './routes/judged-suites.js';
+export type {
+  BuildJudgedSuiteInput,
+  BuildJudgedSuiteOutcome,
+  JudgedSuiteQuery,
+} from './routes/judged-suites.js';
+export { segmentsStartWith } from './routes/segments.js';
 export { MAX_JUDGED_HISTORY } from './routes/judgment-context.js';
 export type {
   JudgeClass,
@@ -430,6 +530,8 @@ export { GATE_METRICS } from './gate-policy-binding.js';
 export type { GateApproval, GateCheck, GateInput, GateResult } from './gate.js';
 export { evaluateGate, gateApproval } from './gate.js';
 export type { AgentReleaseGateDeps } from './routes/agent-releases.js';
+export { coordinatesOf as liveScopeCoordinates } from './routes/agent-releases.js';
+export type { GuardrailConfigCheck } from './routes/guardrails.js';
 export { EVAL_KINDS } from './eval-suite-binding.js';
 export type {
   EvalKind,
@@ -441,6 +543,7 @@ export type {
   EvalSuitePage,
   EvalSuitePublishInput,
   EvalSuitePublishOutcome,
+  EvalSuiteRecord,
   EvalSuiteRegistryBinding,
   EvalSuiteReinstateVersionInput,
   EvalSuiteReinstateVersionOutcome,
@@ -485,15 +588,27 @@ export type {
   EvalSubjectInvoker,
   InProcessEvalRunBindingOptions,
 } from './eval-run-dispatcher.js';
-export { DEFAULT_COMPARISON, createJudgedDispatcher } from './judged-dispatcher.js';
+export {
+  DEFAULT_COMPARISON,
+  RESCORE_UNSUPPORTED,
+  createJudgedDispatcher,
+} from './judged-dispatcher.js';
 export type {
   ComparisonBaselineSummary,
   ComparisonMetric,
   JudgedCaseResult,
   JudgedComparisonSummary,
   JudgedDispatcherOptions,
+  ReplayRunReader,
 } from './judged-dispatcher.js';
-export { itemChanges, matchJudged, outputItems, scoreItems, valueAt } from './judged-items.js';
+export {
+  itemChanges,
+  matchJudged,
+  outputItems,
+  scoreItems,
+  valueAt,
+  withFresh,
+} from './judged-items.js';
 export type {
   ItemChanges,
   ItemJudgments,
@@ -519,6 +634,16 @@ export type {
   CostRecordPage,
   CostTokenTotals,
 } from './cost-binding.js';
+export {
+  CURSOR_TTL_MS,
+  createAeadCursorSealer,
+  filtersOf,
+  type CursorContext,
+  type CursorKey,
+  type CursorSealer,
+  type OpenedCursor,
+} from './cursor-seal.js';
+export { sealedCursors } from './middleware/sealed-cursors.js';
 export type {
   ToolGetInput,
   ToolGetVersionInput,
@@ -527,6 +652,7 @@ export type {
   ToolPage,
   ToolPublishInput,
   ToolPublishOutcome,
+  ToolRecord,
   ToolRegistryBinding,
   ToolReinstateVersionInput,
   ToolReinstateVersionOutcome,
@@ -534,20 +660,33 @@ export type {
   ToolResolveOutcome,
   ToolUnregisterInput,
   ToolUnregisterOutcome,
+  ToolRefreshCodeInput,
+  RegistryRefreshOutcome,
   ToolVersionPage,
+  ToolVersionRow,
 } from './tool-binding.js';
 export type {
+  GuardrailBlockedRun,
   GuardrailGetInput,
   GuardrailListInput,
+  GuardrailOutcomeCounts,
+  GuardrailOutcomes,
+  GuardrailOutcomesByAgentVersion,
+  GuardrailOutcomesInput,
   GuardrailPage,
+  GuardrailRecord,
   GuardrailRegisterInput,
   GuardrailRegisterOutcome,
   GuardrailRegistryBinding,
   GuardrailUnregisterInput,
   GuardrailUnregisterOutcome,
+  GuardrailRefreshInput,
 } from './guardrail-binding.js';
+export { GUARDRAIL_OUTCOMES_MAX_AGENT_VERSIONS } from './guardrail-binding.js';
 export type {
   MemoryBinding,
+  MemoryDeleteFactInput,
+  MemoryFactChangeOutcome,
   MemoryFactPage,
   MemoryGetFactInput,
   MemoryListFactsInput,
@@ -557,45 +696,96 @@ export type {
   MemoryRetrieveOutcome,
   MemorySupersedeFactInput,
   MemorySupersedeFactOutcome,
+  MemoryVerifyFactInput,
   MemoryWriteFactInput,
   MemoryWriteFactOutcome,
 } from './memory-binding.js';
 export type {
-  SupervisorApplyOutcome,
-  SupervisorApplyProposalInput,
-  SupervisorBinding,
-  SupervisorDraftOutcome,
-  SupervisorDraftProposalInput,
-  SupervisorDryRunOutcome,
-  SupervisorDryRunProposalInput,
-  SupervisorGetProposalInput,
-  SupervisorListProposalsInput,
-  SupervisorProposalPage,
-  SupervisorRollbackOutcome,
-  SupervisorRollbackProposalInput,
-  SupervisorSubmitReviewInput,
-  SupervisorSubmitReviewOutcome,
-  SupervisorWithdrawOutcome,
-  SupervisorWithdrawProposalInput,
-} from './supervisor-binding.js';
+  CreateMemoryErasureOutcome,
+  MemoryErasure,
+  MemoryErasureBinding,
+  MemoryErasureLedgerEntry,
+  MemoryErasureSelector,
+  MemoryErasureSelectorKind,
+  MemoryErasureStatus,
+  MemoryErasureWarning,
+  ReplayMemoryErasuresResult,
+} from './memory-erasure-binding.js';
 export type {
-  FixProposal,
-  FixProposalStatus,
+  CreateProposalInput,
+  CreateProposalOutcome,
+  GetProposalInput,
+  ListProposalsInput,
   Observation,
+  ObservationPosition,
   ObservationStatus,
   ObservedViolation,
-  PassCriterion,
-  PatternKind,
-  PatternRef,
-  PromptChange,
+  ProposalCandidate,
+  ProposalDrafter,
+  ProposalEvaluationRef,
+  ProposalEvidence,
+  ProposalObjective,
+  ProposalStep,
+  ProposalTier,
   ProposedChange,
-  RetrievalChange,
-  RetrievalIntentShape,
+  RecordProposalInput,
+  RecordProposalOutcome,
+  StoredProposal,
+  StoredProposalPage,
+  SupervisorBinding,
   SupervisorObservationPage,
   SupervisorQueryObservationsInput,
   SupervisorQueryObservationsOutcome,
-  ToolConfigChange,
 } from './supervisor-binding.js';
+export type {
+  ImproveScheduleInput,
+  ImproveThreshold,
+  ImprovementBudget,
+  ImprovementModel,
+  ImprovementPass,
+  ImprovementPassBinding,
+  ImprovementPassComparison,
+  ImprovementPassOutcome,
+  ImprovementPassStatus,
+  ImprovementTier,
+  ListImprovementPassesInput,
+  StartImprovementPassInput,
+} from './improvement-pass-binding.js';
+export { IMPROVE_SCHEDULE_DEFAULTS } from './improvement-pass-binding.js';
+export {
+  DEFAULT_BUDGET as DEFAULT_IMPROVEMENT_BUDGET,
+  parseImproveScheduleInput,
+  serializePass,
+} from './routes/improvement-passes.js';
+export { sampleCases } from './eval-sample.js';
+export type { EvalOverrides, EvalSample } from './eval-run-binding.js';
+export {
+  DRAFTED_PROPOSAL_APPROVAL,
+  createProposalService,
+  proposalNotFound,
+} from './proposal-service.js';
+export type {
+  DraftProposalInput,
+  EvaluateProposalInput,
+  RescoreProposalInput,
+  ProposalFacts,
+  ProposalOutcome,
+  ProposalService,
+  ProposalServiceDeps,
+  ProposalServiceError,
+} from './proposal-service.js';
+export {
+  FIX_PROPOSAL_STATUSES,
+  PROPOSAL_ACTIONS,
+  evaluationOutcome,
+  proposalActionAllowed,
+  proposalStatus,
+} from './proposal-status.js';
+export type {
+  FixProposalStatus,
+  ProposalAction,
+  ProposalEvaluationOutcome,
+} from './proposal-status.js';
 export type {
   Deployment,
   DeploymentBinding,
@@ -676,6 +866,19 @@ export type {
   SecretVersionRecord,
 } from './secrets-binding.js';
 export { RESERVED_SECRET_NAME_PREFIX } from './secrets-binding.js';
+// A model provider's key is used by its provider only.
+export {
+  guardProviderKeys,
+  providerKeyRefusal,
+  providerKeysOf,
+  usersOfSecret,
+} from './provider-keys.js';
+export type {
+  ProviderKeys,
+  SecretUse,
+  SecretUser,
+  SecretUsersDeps,
+} from './provider-keys.js';
 export type {
   ListProvenanceRecordsInput,
   ListProvenanceRecordsResult,

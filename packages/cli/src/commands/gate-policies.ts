@@ -4,6 +4,7 @@
 import type { GatePolicy, GatePolicyPage } from '@kindgi/client';
 
 import type { CommandContext } from '../context.js';
+import { UsageError } from '../errors.js';
 import { SCOPE_FLAGS, SCOPE_USAGE, scopeCell, scopeFrom } from './agents.js';
 import {
   type TableSpec,
@@ -155,7 +156,7 @@ const reinstate: LeafCommand = {
 
 function required(ctx: CommandContext, flag: string): string {
   const value = stringFlag(ctx, flag);
-  if (value === undefined) throw new Error(`--${flag} is required`);
+  if (value === undefined) throw new UsageError(`--${flag} is required`);
   return value;
 }
 

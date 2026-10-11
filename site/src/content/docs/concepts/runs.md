@@ -45,8 +45,11 @@ reviewer decides the approval:
 kindgi approvals complete <approval-id> --decision=approve
 ```
 
-Retries are safe: a start with the same **idempotency key** returns the run
-the first call started.
+A start repeated with the same **idempotency key** never starts a second
+run. Once the first call has answered, the repeat returns the run the first
+call started; while the first is still running, the repeat is refused with a
+conflict, `idempotency-key-in-flight`, until it answers
+([Retry a start safely](../../guides/runs/retry-a-start-safely/)).
 
 ### If the runtime stops
 

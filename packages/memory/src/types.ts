@@ -31,7 +31,72 @@ export interface MemoryScope {
   readonly projectId?: ProjectId;
   readonly threadId?: ThreadId;
   readonly sessionId?: SessionId;
+  /**
+   * An app's end user, by the app's own opaque id (as conversations and
+   * judgments name them): a fact about or for one person who isn't a
+   * Kindgi user. A participant's facts are private to that participant's
+   * runs. Needs `projectId`: an app's end users belong to a project.
+   */
+  readonly participantId?: string;
 }
+
+/**
+ * Who can see which facts: the containers a reader may read, worked out
+ * by the server from the run or the caller (never from a request body),
+ * and applied inside every query. A fact is readable when each container
+ * its scope names is one the reader has: its project, org, user,
+ * participant and thread (a fact naming none of them is tenant-wide, and
+ * every reader in the tenant sees it). A missing field grants none.
+ */
+export interface MemoryReaders {
+  /** Every fact in the tenant (a tenant admin). The other fields are then ignored. */
+  readonly all?: true;
+  /** Projects whose facts it reads. */
+  readonly projectIds?: readonly ProjectId[];
+  /** Orgs whose org-wide facts (no project) it reads: a run's project's org. */
+  readonly orgIds?: readonly OrgId[];
+  /** Kindgi users whose personal facts it reads. */
+  readonly userIds?: readonly UserId[];
+  /** End users (participants) whose facts it reads. */
+  readonly participantIds?: readonly string[];
+  /** Conversations whose thread facts it reads. */
+  readonly threadIds?: readonly ThreadId[];
+  /**
+   * Projects where it reads every participant's and every thread's facts:
+   * an app's own credential, acting for all of its end users.
+   */
+  readonly onBehalfOfProjectIds?: readonly ProjectId[];
+}
+
+/**
+ * How far a fact is trusted. `verified`: a person with the right checked
+ * it. `asserted`: an app or a person wrote it. `unverified`: an agent
+ * remembered it during a conversation.
+ */
+export type FactTrust = 'verified' | 'asserted' | 'unverified';
+
+/** Whom a fact is about: what access and erasure requests by person find. */
+export interface FactSubject {
+  readonly kind: 'participant' | 'user' | 'external';
+  readonly id: string;
+}
+
+/** Who asserted a fact (PROV `wasAttributedTo`), set by the server from the writer. */
+export interface FactAttribution {
+  readonly kind: 'user' | 'service' | 'agent';
+  readonly id: string;
+  readonly agentVersion?: string;
+}
+
+/** The run step that wrote a fact (PROV `wasGeneratedBy`), for one an agent wrote. */
+export interface FactGeneratedBy {
+  readonly runId: string;
+  readonly stepId?: string;
+  readonly toolCallId?: string;
+}
+
+/** Why a revision stopped being current. */
+export type FactInvalidationReason = 'superseded' | 'deleted' | 'erased' | 'expired';
 
 /**
  * Retention override at the fact level. Tenant policy sets defaults; a
@@ -86,7 +151,13 @@ export interface SourceRefresh {
  * per-fact retrieval hint.
  */
 export interface Fact<TContent = unknown> {
+  /**
+   * The fact, across its revisions: superseding keeps it. (For a fact that
+   * was never superseded it is also its one revision's id.)
+   */
   readonly id: FactId;
+  /** This revision's own id; absent where it equals `id`. */
+  readonly revisionId?: string;
   /**
    * Fact type identifier. Packs define their own; a few general-purpose
    * names are conventional ('working-memory', 'user-profile', 'summary',
@@ -94,7 +165,7 @@ export interface Fact<TContent = unknown> {
    */
   readonly type: string;
   readonly scope: MemoryScope;
-  /** Monotonic version within `(scope, id)`. Supersession increments. */
+  /** The revision number within the fact: 1, then one more per supersede or verify. */
   readonly version: number;
   readonly createdAt: Timestamp;
   readonly updatedAt?: Timestamp;
@@ -110,5 +181,31 @@ export interface Fact<TContent = unknown> {
   readonly retention?: Retention;
   readonly source?: Source;
   readonly causedByLogId?: readonly string[];
+  /** The revision this one replaced (PROV `wasRevisionOf`). */
   readonly supersedes?: FactId;
+  /** How far it's trusted. Absent on facts from before trust was recorded: `asserted`. */
+  readonly trust?: FactTrust;
+  readonly verifiedBy?: string;
+  readonly verifiedAt?: Timestamp;
+  readonly attributedTo?: FactAttribution;
+  readonly generatedBy?: FactGeneratedBy;
+  readonly subjects?: readonly FactSubject[];
+  /** When the fact is true in the world (application time); absent: always. */
+  readonly validFrom?: Timestamp;
+  readonly validUntil?: Timestamp;
+  /** When it was said or seen. */
+  readonly observedAt?: Timestamp;
+  /** When this revision stopped being current (record time), by whom, and why; absent: current. */
+  readonly invalidatedAt?: Timestamp;
+  readonly invalidatedBy?: string;
+  readonly invalidationReason?: FactInvalidationReason;
+  /** `pending` while a person must approve it: a pending fact is never retrieved. */
+  readonly review?: 'pending';
+  /**
+   * When this revision stops being readable: from its retention
+   * (`keepUntil`, or `keepDays` from the fact's first write), or an
+   * agent-remembered fact's unverified window. No read returns it after.
+   * Absent: it doesn't expire.
+   */
+  readonly expiresAt?: Timestamp;
 }

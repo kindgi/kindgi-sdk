@@ -42,24 +42,26 @@ describe('commands the API does not wire yet', () => {
   test('root help and the reference leave them out; a partly wired group lists only what works', () => {
     const root = rootHelpText();
     expect(root).toContain('  runs');
-    expect(root).not.toMatch(/^ {2}capabilities /m);
-    expect(root).not.toMatch(/^ {2}artifacts /m);
+    expect(root).not.toMatch(/^ {2}observations /m);
+    // Wired with `kindgi proposals` (T278).
+    expect(root).toMatch(/^ {2}proposals /m);
+    // Wired in 0.1.5 (T252): the runtime serves both.
+    expect(root).toMatch(/^ {2}artifacts /m);
+    expect(root).toMatch(/^ {2}capabilities /m);
 
     const memory = ROOT_COMMANDS.find((c) => c.name === 'memory')!;
     const facts = (memory.kind === 'group' ? memory.subcommands : []).find(
       (c) => c.name === 'facts',
     )!;
     const help = commandHelpText(facts, ['memory', 'facts']);
-    expect(help).toContain('write');
-    expect(help).not.toMatch(/^ {2}supersede /m);
-    expect(help).not.toMatch(/^ {2}retrieve /m);
+    expect(help).toMatch(/^ {2}retrieve /m);
 
     const reference = describeCommands();
-    expect(reference.map((c) => c.name)).not.toContain('capabilities');
+    expect(reference.map((c) => c.name)).not.toContain('observations');
+    expect(reference.map((c) => c.name)).toContain('capabilities');
     const memoryRef = reference.find((c) => c.name === 'memory')!;
     const factsRef = memoryRef.subcommands.find((s) => s.name === 'facts')!;
-    expect(factsRef.subcommands.map((s) => s.name)).toContain('write');
-    expect(factsRef.subcommands.map((s) => s.name)).not.toContain('supersede');
+    expect(factsRef.subcommands.map((s) => s.name)).toContain('retrieve');
     // `runs resume` is wired (T272): it says what a run waits for.
     const runsRef = reference.find((c) => c.name === 'runs')!;
     expect(runsRef.subcommands.map((s) => s.name)).toContain('resume');

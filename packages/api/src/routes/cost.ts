@@ -1,25 +1,33 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { Hono } from 'hono';
+import { type Context, Hono } from 'hono';
 
 import type { Cursor, TenantId, Timestamp } from '@kindgi/types';
 
+import { type ResourceRef, denyPayload, ref } from '@kindgi/authz';
+import type { ProjectBinding } from '@kindgi/platform';
 import {
   COST_AGGREGATE_DEFAULT_LIMIT,
   COST_AGGREGATE_MAX_LIMIT,
   COST_GROUP_DIMENSIONS,
   type CostAggregateGroup,
+  type CostAggregateInput,
   type CostBinding,
   type CostGroupDimension,
   type CostRecord,
   type CostRecordFilter,
   type CostTokenTotals,
 } from '../cost-binding.js';
+
 import { statusFor, toWireError } from '../errors.js';
+import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
+import { deniedBy } from './denied.js';
 import { clampLimit } from './pagination.js';
-import { parseScopeParams } from './scope-params.js';
+import { projectIdsCallerMay } from './readable-projects.js';
+import { parseScopeParams, scopeResourceRef } from './scope-params.js';
+import { parseTimeInput } from './time-input.js';
 
 /**
  * Cost readback routes — part of the admin control plane. Three
@@ -38,8 +46,23 @@ import { parseScopeParams } from './scope-params.js';
  *
  * Budgets are not part of this surface.
  */
-export function costRouter(binding: CostBinding): Hono<AppEnv> {
+export function costRouter(
+  binding: CostBinding,
+  /**
+   * With one: a record needs `read` on its project (the tenant, for one
+   * with no project); an aggregate, `read` on the scope it's asked for,
+   * and across projects (no scope, or an org) it counts only the projects
+   * the caller may read, unless the caller is a tenant admin.
+   */
+  authorizer?: Authorizer,
+  /** The tenant's projects, to check one by one when the authorizer can't list them. */
+  projects?: Pick<ProjectBinding, 'list'>,
+): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
+  const recordRef = (tenantId: TenantId, rec: { readonly projectId?: unknown }): ResourceRef =>
+    rec.projectId !== undefined && rec.projectId !== null
+      ? ref('project', rec.projectId as string)
+      : ref('tenant', tenantId as unknown as string);
 
   const DEFAULT_AGGREGATE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 
@@ -81,8 +104,12 @@ export function costRouter(binding: CostBinding): Hono<AppEnv> {
       ...(scopeParsed.inherit !== undefined && { inherit: scopeParsed.inherit }),
       ...(include.rawUsage && { includeRawUsage: true }),
     });
+    const visible =
+      authorizer === undefined
+        ? page.data
+        : await authorizer.filterByCan(c, 'read', page.data, (rec) => recordRef(tenantId, rec));
     return c.json({
-      data: page.data.map(serializeRecord),
+      data: visible.map(serializeRecord),
       hasMore: page.nextCursor !== undefined,
       ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor as unknown as string }),
     });
@@ -117,6 +144,8 @@ export function costRouter(binding: CostBinding): Hono<AppEnv> {
         ),
       );
     }
+    const refused = await deniedBy(authorizer, c, 'read', recordRef(tenantId, record));
+    if (refused !== undefined) return refused;
     return c.json(serializeRecord(record));
   });
 
@@ -208,8 +237,8 @@ export function costRouter(binding: CostBinding): Hono<AppEnv> {
         ),
       );
     } else {
-      const parsedFrom = parseIsoDate(fromRaw);
-      const parsedTo = parseIsoDate(toRaw);
+      const parsedFrom = parseTimeInput(fromRaw);
+      const parsedTo = parseTimeInput(toRaw);
       if (parsedFrom === null || parsedTo === null) {
         c.status(statusFor('bad-input') as never);
         return c.json(
@@ -249,6 +278,24 @@ export function costRouter(binding: CostBinding): Hono<AppEnv> {
       );
     }
 
+    const refused = await deniedBy(
+      authorizer,
+      c,
+      'read',
+      scopeResourceRef(scopeParsed.scope, tenantId),
+    );
+    if (refused !== undefined) return refused;
+
+    // Across projects, only what the caller may read counts (`aggregateReach`).
+    const reach = await aggregateReach(c, {
+      binding,
+      tenantId,
+      authorizer,
+      projects,
+      scope: scopeParsed.scope,
+    });
+    if (reach.kind === 'refused') return reach.response;
+
     const result = await binding.aggregate({
       tenantId,
       groupBy,
@@ -257,6 +304,7 @@ export function costRouter(binding: CostBinding): Hono<AppEnv> {
       ...(Object.keys(filter.value).length > 0 && { filter: filter.value }),
       ...(scopeParsed.scope !== undefined && { scope: scopeParsed.scope }),
       ...(scopeParsed.inherit !== undefined && { inherit: scopeParsed.inherit }),
+      ...(reach.kind === 'projects' && { readableProjectIds: reach.ids }),
       limit,
     });
 
@@ -284,6 +332,65 @@ export function costRouter(binding: CostBinding): Hono<AppEnv> {
 }
 
 // -------- helpers --------
+
+/**
+ * What an aggregate may count for this caller. Across projects (no scope,
+ * the tenant, or an org), `read` on the scope lets a member ask, not see
+ * every project's spend: only the projects they may read count, applied in
+ * the binding's query (`readableProjectIds`). A tenant admin's, a project
+ * scope's (already checked) and one without authorization count everything
+ * the scope holds. When the readable projects can't be worked out, or the
+ * binding can't apply them, the aggregate is refused rather than
+ * over-counted.
+ */
+async function aggregateReach(
+  c: Context<AppEnv>,
+  args: {
+    readonly binding: CostBinding;
+    readonly tenantId: TenantId;
+    readonly authorizer: Authorizer | undefined;
+    readonly projects: Pick<ProjectBinding, 'list'> | undefined;
+    readonly scope: CostAggregateInput['scope'] | undefined;
+  },
+): Promise<
+  | { readonly kind: 'all' }
+  | { readonly kind: 'projects'; readonly ids: readonly string[] }
+  | { readonly kind: 'refused'; readonly response: Response }
+> {
+  const { binding, tenantId, authorizer, projects, scope } = args;
+  if (authorizer === undefined || scope?.kind === 'project') return { kind: 'all' };
+  if (await authorizer.can(c, 'admin', ref('tenant', tenantId as unknown as string))) {
+    return { kind: 'all' };
+  }
+  const ids = await projectIdsCallerMay(c, authorizer, projects, 'read');
+  if (ids !== undefined && binding.aggregatesReadableProjects === true) {
+    return { kind: 'projects', ids };
+  }
+  const deny = denyPayload(
+    'read',
+    scope?.kind === 'org' ? 'org' : 'tenant',
+    scope?.kind === 'org' ? (scope.orgId as unknown as string) : (tenantId as unknown as string),
+    ids === undefined
+      ? "the projects you may read can't be listed here, so an aggregate across projects can't be limited to them; ask per project (scopeKind=project)"
+      : "this deployment's cost store can't limit an aggregate to the projects you may read; ask per project (scopeKind=project)",
+  );
+  c.status(403);
+  return {
+    kind: 'refused',
+    response: c.json(
+      toWireError(
+        {
+          code: deny.code,
+          message: `Permission denied: ${deny.reason}`,
+          action: deny.action,
+          resource: deny.resource,
+          reason: deny.reason,
+        },
+        c.get('requestId'),
+      ),
+    ),
+  };
+}
 
 function parseRecordFilter(
   query: Readonly<Record<string, string | undefined>>,
@@ -323,13 +430,13 @@ function parseRecordFilter(
   if (opts.skipTime !== true) {
     const fromRaw = query.from;
     if (fromRaw !== undefined && fromRaw.length > 0) {
-      const parsed = parseIsoDate(fromRaw);
+      const parsed = parseTimeInput(fromRaw);
       if (parsed === null) return { kind: 'err', error: '`from` must be an ISO-8601 timestamp' };
       out.from = parsed;
     }
     const toRaw = query.to;
     if (toRaw !== undefined && toRaw.length > 0) {
-      const parsed = parseIsoDate(toRaw);
+      const parsed = parseTimeInput(toRaw);
       if (parsed === null) return { kind: 'err', error: '`to` must be an ISO-8601 timestamp' };
       out.to = parsed;
     }
@@ -354,12 +461,6 @@ function parseInclude(
     }
   }
   return { kind: 'ok', rawUsage: fields.includes('rawUsage') };
-}
-
-function parseIsoDate(raw: string): Date | null {
-  const t = Date.parse(raw);
-  if (!Number.isFinite(t)) return null;
-  return new Date(t);
 }
 
 function serializeRecord(rec: CostRecord): Record<string, unknown> {

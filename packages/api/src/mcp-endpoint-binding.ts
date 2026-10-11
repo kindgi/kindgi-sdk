@@ -126,6 +126,13 @@ export interface MCPEndpoint {
   readonly instructions?: string;
   /** Optional caller-defined metadata bag. */
   readonly metadata?: Readonly<Record<string, unknown>>;
+  /**
+   * Whether the runtime sends the W3C `traceparent` of the run calling a
+   * tool to this endpoint (as a request header; ids only, never content),
+   * so the server's logs can be matched to the run. Opt-in: absent or
+   * `false` sends none. HTTP transports only (`stdio` has no headers).
+   */
+  readonly sendTraceparent?: boolean;
 }
 
 export interface MCPEndpointListInput {

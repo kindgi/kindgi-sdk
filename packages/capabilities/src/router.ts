@@ -207,8 +207,9 @@ function tupleKey(t: ProviderModelPick): string {
 
 /**
  * Rank tuples by summed weight of matched preferences, stable sort.
- * Equal scores tiebreak lexically on `(providerId, modelName)` so
- * replay is deterministic even when multiple tuples tie.
+ * Equal scores tiebreak on the provider id, then the provider's
+ * `defaultModel` first, then the model name, so replay is deterministic
+ * even when multiple tuples tie.
  */
 function rankByPreference(
   tuples: readonly ProviderModelPick[],
@@ -226,7 +227,14 @@ function rankByPreference(
 function compareTuplesLex(a: ProviderModelPick, b: ProviderModelPick): number {
   const p = a.provider.metadata.id.localeCompare(b.provider.metadata.id);
   if (p !== 0) return p;
+  const d = Number(isDefaultModel(b)) - Number(isDefaultModel(a));
+  if (d !== 0) return d;
   return a.model.name.localeCompare(b.model.name);
+}
+
+/** The provider names this model as the one to use when nothing else decides. */
+function isDefaultModel(t: ProviderModelPick): boolean {
+  return t.provider.metadata.defaultModel === t.model.name;
 }
 
 function preferenceScore(t: ProviderModelPick, prefs: readonly Preference[]): number {
