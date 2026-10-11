@@ -12,7 +12,7 @@ import { callerPrincipal, callerRef, isTenantAdmin, principalToWire } from '../c
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { withholdFromReplay } from '../middleware/idempotency.js';
-import { FULL_SYSTEM_CAPABILITY } from '../system.js';
+import { FULL_SYSTEM_CAPABILITY, isSystemCapability } from '../system.js';
 import {
   API_TOKEN_ROLES,
   type ApiTokenRecord,
@@ -211,7 +211,6 @@ function samePrincipal(a: TokenPrincipal, b: TokenPrincipal | undefined): boolea
   return b.kind === 'service-account' && b.serviceAccountId === a.serviceAccountId;
 }
 
-/** Why the route refuses this mint before the store sees it, if it does. */
 /**
  * A tenant's key never carries a system scope (`system:*`): those are
  * system keys' (`/v1/system/keys`). On a runtime serving many tenants it
@@ -224,8 +223,9 @@ function systemCapabilityRefusal(
   capabilities: readonly string[],
   tenancy: 'single' | 'multi' | undefined,
 ): WireError | undefined {
+  // `system:*` never; `kindgi:system` only where the runtime serves one tenant.
   const notMintable = capabilities.filter(
-    (cap) => cap.startsWith('system:') || (tenancy === 'multi' && cap === FULL_SYSTEM_CAPABILITY),
+    (cap) => isSystemCapability(cap) && (tenancy === 'multi' || cap !== FULL_SYSTEM_CAPABILITY),
   );
   if (notMintable.length === 0) return undefined;
   const refusal: Refusal = {
@@ -240,6 +240,7 @@ function systemCapabilityRefusal(
   return refusalError(refusal);
 }
 
+/** Why the route refuses this mint before the store sees it, if it does. */
 async function mintRefusal(
   c: Context<AppEnv>,
   authorizer: Authorizer | undefined,

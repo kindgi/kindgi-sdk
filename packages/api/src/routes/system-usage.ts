@@ -125,6 +125,8 @@ export function systemUsageRouter(options: {
     if (denied !== undefined) return denied;
     const query = parseUsageQuery((name) => c.req.query(name));
     if (typeof query === 'string') return badInput(c, query);
+    // A read of one tenant's usage names that tenant on the access record.
+    if (query.tenantId !== undefined) c.set('systemTargetTenant', query.tenantId);
     const read = await usage.read(query);
     if (read.kind === 'cursor-unreadable') {
       return badInput(c, '`cursor` is not one this route gave: start again without it');

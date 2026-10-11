@@ -1865,7 +1865,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemKeys.mint',
     summary: 'Mint a system key',
     description:
-      "A system key (`kgi_sy_…`) is the operator's, for a service that acts for it (sign-up, the orchestrator, billing, the license renewal), with the least scope that service needs. It acts in no tenant: it reaches `/v1/system/*` and the deployment's license, and every other route refuses it (`system-key-on-tenant-route`). Every request it makes is recorded. Only the full system capability (`kindgi:system`: the deployment's own token on a runtime serving many tenants, or a full system key) mints one, and a key can't outlive the key minting it. Returns the plaintext token exactly once. Only mounted when the deployment keeps system keys.",
+      "A system key (`kgi_sy_…`) is the operator's, for a service that acts for it (sign-up, the orchestrator, billing, the license renewal), with the least scope that service needs. It acts in no tenant: it reaches `/v1/system/*` and the deployment's license, and every other route refuses it (`system-key-on-tenant-route`). Every request it makes is recorded. Only the full system capability (`kindgi:system`: the deployment's own token on a runtime serving many tenants, or a full system key) mints one, and a key can't outlive the key minting it. Returns the plaintext token exactly once. A runtime serving one tenant has no system keys: there, the deployment's own token is that tenant's, and this route isn't mounted.",
     tags: ['system-keys'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -1877,10 +1877,13 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'Malformed request body: no scopes, one that is not a system scope, a scope twice, `kindgi:system` beside another, a past `expiresAt`, or an empty label.',
       ),
       '403': ErrorResponse(
-        "A tenant's key or session (`system-principal-required`); a scoped system key (`system-scope-missing`, `details.scope` `kindgi:system`); a key that would outlive the key minting it (`token-expiry-exceeds-minter`, its `details.latestExpiresAt` the latest allowed).",
+        "A tenant's key or session (`system-principal-required`); a scoped system key (`system-scope-missing`, `details.scope` `kindgi:system`); a key that would outlive the key minting it (`token-expiry-exceeds-minter`, its `details.latestExpiresAt` the latest allowed); a full key minted by another system key without `expiresAt` (`system-key-expiry-required`: only the deployment's own token mints one that never expires).",
       ),
       '409': ErrorResponse(
         "Idempotency-Key reused with a different body (`idempotency-key-body-mismatch`), or a retry of a request that succeeded: its answer carried a secret, which isn't kept (`idempotency-key-replay-withheld`).",
+      ),
+      '503': ErrorResponse(
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`): a request that changes something is recorded before it acts.",
       ),
     },
   },
@@ -1891,7 +1894,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemKeys.list',
     summary: 'List system keys',
     description:
-      'Newest first, revoked ones too. Never returns secrets. The full system capability only.',
+      "The operator's system keys (`kgi_sy_…`) on a runtime serving many tenants: each acts in no tenant, for one service, with the scopes it was minted with. Newest first, revoked ones too. Never returns secrets. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) lists them.",
     tags: ['system-keys'],
     security: 'bearer',
     responses: {
@@ -1909,7 +1912,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemKeys.revoke',
     summary: 'Revoke a system key',
     description:
-      'Takes effect on the next request. Revoking a revoked key keeps the first time. The full system capability only.',
+      "Revokes one of the operator's system keys (`kgi_sy_…`) and every key minted from it, however deep (`alsoRevoked`): they stop working on the next request. Revoking a revoked key keeps the first time. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) revokes them.",
     tags: ['system-keys'],
     security: 'bearer',
     parameters: [
@@ -1917,18 +1920,25 @@ export const OPERATIONS: readonly OperationSpec[] = [
         name: 'keyId',
         in: 'path',
         required: true,
-        description: "The system key's id.",
-        schema: { type: 'string' },
+        description: "The system key's id (a UUID).",
+        schema: { type: 'string', format: 'uuid' },
       },
       IdempotencyKeyParam,
     ],
     responses: {
-      '200': { description: 'Revoked.', schema: ref('SystemKey') },
+      '200': {
+        description: 'Revoked, with every key minted from it.',
+        schema: ref('RevokeSystemKeyResult'),
+      },
       ...CommonMutationErrors,
       '403': ErrorResponse(
         "A tenant's key or session (`system-principal-required`), or a scoped system key (`system-scope-missing`).",
       ),
+      '400': ErrorResponse('`keyId` is not a system key id (a UUID).'),
       '404': ErrorResponse('No system key with that id (`system-key-not-found`).'),
+      '503': ErrorResponse(
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+      ),
     },
   },
   // ---------- system: tenant settings and usage ----------

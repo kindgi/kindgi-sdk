@@ -361,6 +361,7 @@ export type {
 export type { LicenseClient, LicenseStatus } from './resources/license.js';
 export type {
   MintedSystemKey,
+  RevokedSystemKey,
   SystemKey,
   SystemKeySpec,
   SystemKeysClient,

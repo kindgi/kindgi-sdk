@@ -94,6 +94,13 @@ function makeApp() {
       async record(entry) {
         audit.push(entry);
       },
+      async begin(attempt) {
+        audit.push({ ...attempt, status: 0 });
+        return String(audit.length - 1);
+      },
+      async finish(id, outcome) {
+        audit[Number(id)] = { ...(audit[Number(id)] as SystemAccessRecord), ...outcome };
+      },
     },
     systemTenantDirectory: {
       async get(tenantId) {
@@ -323,7 +330,7 @@ describe('GET /v1/system/usage', () => {
     expect(t.asked).toEqual([]);
   });
 
-  test('the access record marks a read across every tenant', async () => {
+  test('the access record marks a read across every tenant, or the one tenant named', async () => {
     const t = makeApp();
     await t.call('kgi_sy_usage', 'GET', `/v1/system/usage?${window}`);
     expect(t.audit.at(-1)).toMatchObject({
@@ -331,5 +338,7 @@ describe('GET /v1/system/usage', () => {
       scope: 'system:usage:read',
       tenantId: '*',
     });
+    await t.call('kgi_sy_usage', 'GET', `/v1/system/usage?${window}&tenantId=${active}`);
+    expect(t.audit.at(-1)).toMatchObject({ scope: 'system:usage:read', tenantId: active });
   });
 });

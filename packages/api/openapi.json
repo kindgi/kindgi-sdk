@@ -30,7 +30,7 @@
     },
     {
       "name": "system-keys",
-      "description": "The operator's system keys (`kgi_sy_…`): each acts in no tenant, with the least system scope its service needs, and only the full system capability mints them."
+      "description": "The operator's system keys (`kgi_sy_…`), on a runtime serving many tenants: each acts in no tenant, with the least system scope its service needs (sign-up, the orchestrator, billing, the license renewal), and only the full system capability mints them. A runtime serving one tenant has none."
     },
     {
       "name": "system-tenants",
@@ -373,6 +373,8 @@
           "system-principal-required": 403,
           "system-scope-missing": 403,
           "system-key-not-found": 404,
+          "system-key-expiry-required": 403,
+          "access-record-unavailable": 503,
           "tenant-closing": 409,
           "tenant-suspended": 409,
           "service-account-not-found": 404,
@@ -2638,6 +2640,70 @@
                 }
               }
             }
+          }
+        }
+      },
+      "RevokeSystemKeyResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "The revoked system key, and the keys revoked with it because they were minted from it.",
+        "required": [
+          "id",
+          "scopes",
+          "createdAt",
+          "mintedBy",
+          "alsoRevoked"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The key's id."
+          },
+          "label": {
+            "type": "string",
+            "description": "What the key is for, as given at mint."
+          },
+          "scopes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "system:tenants",
+                "system:tenants:production",
+                "system:tenants:limits",
+                "system:tenants:contacts",
+                "system:tenants:purge",
+                "system:suspend",
+                "system:deployments",
+                "system:usage:read",
+                "system:license",
+                "kindgi:system"
+              ],
+              "description": "A system scope, or `kindgi:system` for every one of them. None reads customer content."
+            }
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "revokedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "mintedBy": {
+            "type": "string",
+            "description": "Who minted it: a system key's id, or `boot` for the deployment's own token."
+          },
+          "alsoRevoked": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The ids of the keys minted from it, however deep, revoked with it."
           }
         }
       },
@@ -22941,7 +23007,7 @@
             }
           },
           "403": {
-            "description": "A tenant's key or session (`system-principal-required`); a scoped system key (`system-scope-missing`, `details.scope` `kindgi:system`); a key that would outlive the key minting it (`token-expiry-exceeds-minter`, its `details.latestExpiresAt` the latest allowed).",
+            "description": "A tenant's key or session (`system-principal-required`); a scoped system key (`system-scope-missing`, `details.scope` `kindgi:system`); a key that would outlive the key minting it (`token-expiry-exceeds-minter`, its `details.latestExpiresAt` the latest allowed); a full key minted by another system key without `expiresAt` (`system-key-expiry-required`: only the deployment's own token mints one that never expires).",
             "content": {
               "application/json": {
                 "schema": {
@@ -22969,9 +23035,19 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`): a request that changes something is recorded before it acts.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
           }
         },
-        "description": "A system key (`kgi_sy_…`) is the operator's, for a service that acts for it (sign-up, the orchestrator, billing, the license renewal), with the least scope that service needs. It acts in no tenant: it reaches `/v1/system/*` and the deployment's license, and every other route refuses it (`system-key-on-tenant-route`). Every request it makes is recorded. Only the full system capability (`kindgi:system`: the deployment's own token on a runtime serving many tenants, or a full system key) mints one, and a key can't outlive the key minting it. Returns the plaintext token exactly once. Only mounted when the deployment keeps system keys.",
+        "description": "A system key (`kgi_sy_…`) is the operator's, for a service that acts for it (sign-up, the orchestrator, billing, the license renewal), with the least scope that service needs. It acts in no tenant: it reaches `/v1/system/*` and the deployment's license, and every other route refuses it (`system-key-on-tenant-route`). Every request it makes is recorded. Only the full system capability (`kindgi:system`: the deployment's own token on a runtime serving many tenants, or a full system key) mints one, and a key can't outlive the key minting it. Returns the plaintext token exactly once. A runtime serving one tenant has no system keys: there, the deployment's own token is that tenant's, and this route isn't mounted.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -23038,7 +23114,7 @@
             }
           }
         },
-        "description": "Newest first, revoked ones too. Never returns secrets. The full system capability only.",
+        "description": "The operator's system keys (`kgi_sy_…`) on a runtime serving many tenants: each acts in no tenant, for one service, with the scopes it was minted with. Newest first, revoked ones too. Never returns secrets. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) lists them.",
         "security": [
           {
             "bearerAuth": []
@@ -23055,17 +23131,17 @@
         ],
         "responses": {
           "200": {
-            "description": "Revoked.",
+            "description": "Revoked, with every key minted from it.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/SystemKey"
+                  "$ref": "#/components/schemas/RevokeSystemKeyResult"
                 }
               }
             }
           },
           "400": {
-            "description": "Malformed request body.",
+            "description": "`keyId` is not a system key id (a UUID).",
             "content": {
               "application/json": {
                 "schema": {
@@ -23123,18 +23199,29 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
           }
         },
-        "description": "Takes effect on the next request. Revoking a revoked key keeps the first time. The full system capability only.",
+        "description": "Revokes one of the operator's system keys (`kgi_sy_…`) and every key minted from it, however deep (`alsoRevoked`): they stop working on the next request. Revoking a revoked key keeps the first time. Only the full system capability (`kindgi:system`: the deployment's own token, or a full system key) revokes them.",
         "parameters": [
           {
             "name": "keyId",
             "in": "path",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "format": "uuid"
             },
             "required": true,
-            "description": "The system key's id."
+            "description": "The system key's id (a UUID)."
           },
           {
             "name": "Idempotency-Key",

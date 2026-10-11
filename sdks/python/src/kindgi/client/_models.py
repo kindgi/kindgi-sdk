@@ -1075,6 +1075,50 @@ class SystemKeyList(BaseModel):
     data: list[Datum2]
 
 
+class RevokeSystemKeyResult(BaseModel):
+    """
+    The revoked system key, and the keys revoked with it because they were minted from it.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: str
+    """
+    The key's id.
+    """
+    label: str | None = None
+    """
+    What the key is for, as given at mint.
+    """
+    scopes: list[
+        Literal[
+            "system:tenants",
+            "system:tenants:production",
+            "system:tenants:limits",
+            "system:tenants:contacts",
+            "system:tenants:purge",
+            "system:suspend",
+            "system:deployments",
+            "system:usage:read",
+            "system:license",
+            "kindgi:system",
+        ]
+    ]
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    expires_at: Annotated[AwareDatetime | None, Field(alias="expiresAt")] = None
+    revoked_at: Annotated[AwareDatetime | None, Field(alias="revokedAt")] = None
+    minted_by: Annotated[str, Field(alias="mintedBy")]
+    """
+    Who minted it: a system key's id, or `boot` for the deployment's own token.
+    """
+    also_revoked: Annotated[list[str], Field(alias="alsoRevoked")]
+    """
+    The ids of the keys minted from it, however deep, revoked with it.
+    """
+
+
 class ApiKeyPrincipal(BaseModel):
     """
     Whom an API key acts for: a person, or a service account.

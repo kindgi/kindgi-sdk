@@ -41,7 +41,9 @@ export {
   withSystemTenantContext,
 } from './middleware/system.js';
 export type {
+  SystemAccessAttempt,
   SystemAccessAuditBinding,
+  SystemAccessOutcome,
   SystemAccessRecord,
   SystemTenantDirectory,
   SystemTenantOptions,
@@ -68,6 +70,7 @@ export {
   type UsageGroupKey,
   type UsageState,
 } from './routes/system-usage.js';
+export { systemKeysMintedFrom } from './routes/system-keys.js';
 export { createInMemoryRateLimitStore } from './rate-limit-store.js';
 export type { RateLimitStore, RateLimitTake, RateLimitTakeInput } from './rate-limit-store.js';
 export type {

@@ -11,8 +11,10 @@ import { refused } from '../routes/denied.js';
 import {
   FULL_SYSTEM_CAPABILITY,
   SYSTEM_PRINCIPAL_ALLOWED_ROUTES,
+  type SystemPrincipal,
   type SystemScope,
   holdsSystemScope,
+  isSystemCapability,
 } from '../system.js';
 import type { AppEnv } from '../types.js';
 import type { Authorizer } from './authorize.js';
@@ -32,14 +34,36 @@ export interface SystemAccessRecord {
   readonly tenantId?: string;
 }
 
+/** A state-changing request's attempt, recorded before it acts. */
+export type SystemAccessAttempt = Omit<SystemAccessRecord, 'status' | 'scope' | 'tenantId'>;
+
+/** What became of an attempt. */
+export interface SystemAccessOutcome {
+  readonly status: number;
+  readonly scope?: string;
+  readonly tenantId?: string;
+}
+
 /**
  * Where the runtime keeps the record of every request a system principal
  * makes (key, scope, route, target tenant): the record the access
  * procedure points to.
+ *
+ * - **A state-changing request** (`POST`, `PUT`, `PATCH`, `DELETE`) is
+ *   recorded **before** it acts: `begin` returns the attempt's id, and
+ *   `finish` adds its outcome. If `begin` fails, nothing is done (`503
+ *   access-record-unavailable`). If the process stops between the two, the
+ *   attempt stays on record, never silence.
+ * - **A read, and a refusal before any route code,** is recorded once
+ *   answered (`record`).
  */
 export interface SystemAccessAuditBinding {
   record(entry: SystemAccessRecord): Promise<void>;
+  begin(attempt: SystemAccessAttempt): Promise<string>;
+  finish(id: string, outcome: SystemAccessOutcome): Promise<void>;
 }
+
+const STATE_CHANGING: ReadonlySet<string> = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 const SYSTEM_PREFIX = '/v1/system/';
 
@@ -79,64 +103,169 @@ function answer(
   );
 }
 
+export interface SystemPrincipalFenceOptions {
+  /** The record of every request a system principal makes. */
+  readonly audit?: SystemAccessAuditBinding;
+  /** Records a refusal of the caller, as every refusal the API decides itself is. */
+  readonly authorizer?: Authorizer;
+  /**
+   * How many tenants the runtime serves (default `single`). With `multi`, a
+   * tenant's key or session never holds the operator's powers: `kindgi:system`
+   * and every `system:*` are dropped from its capabilities, whatever it was
+   * minted with.
+   */
+  readonly tenancy?: 'single' | 'multi';
+}
+
 /**
- * Fences a system principal in: it reaches `/v1/system/*` and the
- * deployment-level routes of `SYSTEM_PRINCIPAL_ALLOWED_ROUTES`; any other
- * route answers `403 system-key-on-tenant-route` before its code runs.
- * Every request a system principal makes is recorded with `audit`, its
- * refusals too. Other callers pass untouched.
+ * Fences the operator's powers in, both ways:
+ * - **A system principal** reaches `/v1/system/*` and the deployment-level
+ *   routes of `SYSTEM_PRINCIPAL_ALLOWED_ROUTES`; any other route answers
+ *   `403 system-key-on-tenant-route` before its code runs. Every request it
+ *   makes is recorded with `audit`, its refusals too.
+ * - **A tenant's key or session** never reaches `/v1/system/*` (`403
+ *   system-principal-required`, before any route code, so a system route
+ *   mounted without a gate is still closed to it). On a runtime serving
+ *   many tenants it loses `kindgi:system` and `system:*`, with a warning
+ *   naming the key: a key minted before the runtime served many tenants
+ *   keeps none of the operator's powers.
  *
  * The record is written once the response is known. An action already
  * taken can't be undone, so a failed write is logged at error level and
  * the response still goes out.
  */
 export function systemPrincipalFence(
-  audit?: SystemAccessAuditBinding,
-  authorizer?: Authorizer,
+  options: SystemPrincipalFenceOptions = {},
 ): MiddlewareHandler<AppEnv> {
+  const { audit, authorizer, tenancy } = options;
   return async (c, next) => {
     const system = c.get('systemPrincipal');
-    if (system === undefined) return next();
-    const method = c.req.method;
-    const path = c.req.path;
-    const allowed =
-      isSystemPath(path) ||
-      SYSTEM_PRINCIPAL_ALLOWED_ROUTES.some((r) => r.method === method && r.path === path);
-    let refusal: Response | undefined;
-    if (allowed) {
-      await next();
-    } else {
-      refusal = deny(
-        c,
-        authorizer,
-        'system-key-on-tenant-route',
-        `A system key acts in no tenant: it reaches /v1/system/* only, not ${method} ${path}. Use a key of the tenant.`,
-      );
+    if (system === undefined) {
+      if (isSystemPath(c.req.path)) return principalRequired(c, authorizer);
+      if (tenancy === 'multi') dropSystemCapabilities(c);
+      return next();
     }
-    if (audit !== undefined) {
-      const scope = c.get('systemScopeUsed');
-      const tenantId = c.get('systemTargetTenant');
-      try {
-        await audit.record({
-          requestId: c.get('requestId'),
-          keyId: system.keyId,
-          method,
-          path,
-          status: refusal?.status ?? c.res.status,
-          ...(scope !== undefined && { scope }),
-          ...(tenantId !== undefined && { tenantId }),
-        });
-      } catch (cause) {
-        c.get('log').error('could not record a system request in the access record', {
-          err: cause,
-          keyId: system.keyId,
-          method,
-          path,
-        });
+    let attemptId: string | undefined;
+    const proceed = async (): Promise<Response | undefined> => {
+      // A state-changing request is on record before it acts, or it doesn't act.
+      if (audit !== undefined && STATE_CHANGING.has(c.req.method)) {
+        try {
+          attemptId = await audit.begin(attemptOf(c, system));
+        } catch (cause) {
+          c.get('log').error('could not record a system request before acting on it', {
+            err: cause,
+            keyId: system.keyId,
+            method: c.req.method,
+            path: c.req.path,
+          });
+          return answer(
+            c,
+            'access-record-unavailable',
+            "The operator's access record can't be written just now, so nothing was done: try again.",
+            {},
+          );
+        }
       }
-    }
+      await next();
+      return undefined;
+    };
+    const refusal = await admitSystemRequest(c, proceed, authorizer);
+    if (audit !== undefined) await recordSystemRequest(c, audit, system, refusal, attemptId);
     return refusal;
   };
+}
+
+/**
+ * Lets a system principal's request through to `/v1/system/*`, or to a
+ * listed route when it holds that route's scope; else its refusal. The
+ * listed route's scope is checked here too, so the list means what it
+ * says, and the route checks again.
+ */
+async function admitSystemRequest(
+  c: Context<AppEnv>,
+  proceed: () => Promise<Response | undefined>,
+  authorizer: Authorizer | undefined,
+): Promise<Response | undefined> {
+  const { method, path } = c.req;
+  if (isSystemPath(path)) return proceed();
+  const listed = SYSTEM_PRINCIPAL_ALLOWED_ROUTES.find(
+    (r) => r.method === method && r.path === path,
+  );
+  if (listed === undefined) {
+    return deny(
+      c,
+      authorizer,
+      'system-key-on-tenant-route',
+      `A system key acts in no tenant: it reaches /v1/system/* only, not ${method} ${path}. Use a key of the tenant.`,
+    );
+  }
+  const refusal = systemScopeRefusal(c, listed.scope, authorizer);
+  if (refusal !== undefined) return refusal;
+  c.set('systemScopeUsed', holdsFullSystem(c) ? FULL_SYSTEM_CAPABILITY : listed.scope);
+  return proceed();
+}
+
+function attemptOf(c: Context<AppEnv>, system: SystemPrincipal): SystemAccessAttempt {
+  return {
+    requestId: c.get('requestId'),
+    keyId: system.keyId,
+    method: c.req.method,
+    path: c.req.path,
+  };
+}
+
+/**
+ * The access record of one system request: the attempt's outcome when it
+ * began one, else the whole record. A failed write is logged, never thrown:
+ * an action taken can't be undone, and its attempt is already on record.
+ */
+async function recordSystemRequest(
+  c: Context<AppEnv>,
+  audit: SystemAccessAuditBinding,
+  system: SystemPrincipal,
+  refusal: Response | undefined,
+  attemptId: string | undefined,
+): Promise<void> {
+  const { method, path } = c.req;
+  const scope = c.get('systemScopeUsed');
+  const tenantId = c.get('systemTargetTenant');
+  const outcome: SystemAccessOutcome = {
+    status: refusal?.status ?? c.res.status,
+    ...(scope !== undefined && { scope }),
+    ...(tenantId !== undefined && { tenantId }),
+  };
+  try {
+    if (attemptId !== undefined) {
+      await audit.finish(attemptId, outcome);
+    } else {
+      await audit.record({ ...attemptOf(c, system), ...outcome });
+    }
+  } catch (cause) {
+    c.get('log').error('could not record a system request in the access record', {
+      err: cause,
+      keyId: system.keyId,
+      method,
+      path,
+    });
+  }
+}
+
+/** A tenant's key or session on a runtime serving many tenants: no operator's powers. */
+function dropSystemCapabilities(c: Context<AppEnv>): void {
+  const capabilities = c.get('capabilities');
+  if (capabilities === undefined || !capabilities.some(isSystemCapability)) return;
+  c.set(
+    'capabilities',
+    capabilities.filter((cap) => !isSystemCapability(cap)),
+  );
+  c.get('log').warn(
+    "A tenant's key carries the operator's capabilities, which a runtime serving many tenants ignores: revoke it, and use a system key",
+    {
+      event: 'system-capability-dropped',
+      tokenId: c.get('tokenId'),
+      dropped: capabilities.filter(isSystemCapability),
+    },
+  );
 }
 
 /**
@@ -193,6 +322,10 @@ function systemScopeRefusal(
     );
   }
   return undefined;
+}
+
+function holdsFullSystem(c: Context<AppEnv>): boolean {
+  return (c.get('capabilities') ?? []).includes(FULL_SYSTEM_CAPABILITY);
 }
 
 function principalRequired(c: Context<AppEnv>, authorizer: Authorizer | undefined): Response {

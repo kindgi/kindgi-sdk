@@ -253,6 +253,10 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'system-scope-missing': 403,
   /** No system key with that id. */
   'system-key-not-found': 404,
+  /** A full system key minted by another system key, with no `expiresAt`: only the deployment's own token mints one that never expires. */
+  'system-key-expiry-required': 403,
+  /** The operator's access record can't be written, so a system request that would change something was not acted on. */
+  'access-record-unavailable': 503,
   /** A system route naming a tenant in a state it refuses. */
   'tenant-closing': 409,
   'tenant-suspended': 409,
