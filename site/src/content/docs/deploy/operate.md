@@ -490,6 +490,9 @@ What to check before you upgrade, and what's different after:
   console still needs `https`.
 - **The console's sign-in returns you only to a console page;** a sign-in
   link that pointed elsewhere lands on the console's home.
+- **The console has a new look,** light or dark: it follows your system, or
+  the one you choose (also in ⌘K). Its links no longer point at an address
+  without the tenant while a page loads.
 - **`kindgi dev` runs your pack's code sandboxed** (macOS Seatbelt; Linux
   bubblewrap, which you may need to install): it can't read your keys or
   files outside the app, write outside it, or reach Docker, and keeps the
