@@ -37,10 +37,6 @@
       "description": "The operator's tenants on a runtime serving many: create, list, read, close and suspend them (a project too), and what the control plane sets on each (production, limits, the image prefix), plus the admins' contacts for service notices. System keys only, each route under its own scope."
     },
     {
-      "name": "system-usage",
-      "description": "Usage across tenants, aggregated (counts, sums, first and last times): the control plane's pull for statements. System keys only."
-    },
-    {
       "name": "service-accounts"
     },
     {
@@ -2455,7 +2451,6 @@
                 "system:tenants:purge",
                 "system:suspend",
                 "system:deployments",
-                "system:usage:read",
                 "system:license",
                 "kindgi:system"
               ],
@@ -2503,7 +2498,6 @@
                 "system:tenants:purge",
                 "system:suspend",
                 "system:deployments",
-                "system:usage:read",
                 "system:license",
                 "kindgi:system"
               ],
@@ -2557,7 +2551,6 @@
                 "system:tenants:purge",
                 "system:suspend",
                 "system:deployments",
-                "system:usage:read",
                 "system:license",
                 "kindgi:system"
               ],
@@ -2628,7 +2621,6 @@
                       "system:tenants:purge",
                       "system:suspend",
                       "system:deployments",
-                      "system:usage:read",
                       "system:license",
                       "kindgi:system"
                     ],
@@ -2690,7 +2682,6 @@
                 "system:tenants:purge",
                 "system:suspend",
                 "system:deployments",
-                "system:usage:read",
                 "system:license",
                 "kindgi:system"
               ],
@@ -18705,106 +18696,6 @@
           }
         }
       },
-      "UsageGroup": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "count",
-          "quantity",
-          "firstAt",
-          "lastAt"
-        ],
-        "description": "One group: the dimensions it's grouped by (only those), then its count, the sum of its quantities, and its first and last times.",
-        "properties": {
-          "tenantId": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "projectId": {
-            "type": "string"
-          },
-          "agentId": {
-            "type": "string"
-          },
-          "kind": {
-            "type": "string",
-            "enum": [
-              "run.started",
-              "run.ended",
-              "approval.requested",
-              "approval.decided",
-              "llm.inference",
-              "llm.embedding",
-              "project.production"
-            ]
-          },
-          "class": {
-            "type": "string",
-            "enum": [
-              "production",
-              "staging",
-              "dry-run",
-              "replay",
-              "eval",
-              "child"
-            ]
-          },
-          "state": {
-            "type": "string",
-            "enum": [
-              "on",
-              "off"
-            ]
-          },
-          "day": {
-            "type": "string",
-            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-            "description": "The UTC date, `YYYY-MM-DD`."
-          },
-          "count": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "Records in the group."
-          },
-          "quantity": {
-            "type": "number",
-            "description": "The sum of their quantities: milliseconds for `run.ended`, tokens for model calls."
-          },
-          "firstAt": {
-            "type": "string",
-            "format": "date-time"
-          },
-          "lastAt": {
-            "type": "string",
-            "format": "date-time"
-          }
-        }
-      },
-      "SystemUsagePage": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": [
-          "data",
-          "watermark"
-        ],
-        "properties": {
-          "data": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/UsageGroup"
-            }
-          },
-          "watermark": {
-            "type": "string",
-            "format": "date-time",
-            "description": "Every record at or before this time is in the answer; a later one may not be yet. Re-read a window until its watermark is past the window's end."
-          },
-          "nextCursor": {
-            "type": "string",
-            "description": "More groups: pass it as `cursor`. Absent on the last page."
-          }
-        }
-      },
       "TenantConfigKind": {
         "type": "string",
         "enum": [
@@ -24669,151 +24560,6 @@
             }
           }
         },
-        "security": [
-          {
-            "bearerAuth": []
-          }
-        ]
-      }
-    },
-    "/v1/system/usage": {
-      "get": {
-        "operationId": "systemUsage.read",
-        "summary": "Read usage across tenants",
-        "tags": [
-          "system-usage"
-        ],
-        "responses": {
-          "200": {
-            "description": "A page of groups.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/SystemUsagePage"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "A window, filter, `limit` or `cursor` this route can't read (`bad-input`), naming which.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "Missing / malformed / expired / revoked bearer token.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "A tenant's key or session (`system-principal-required`), or a system key without `system:usage:read` (`system-scope-missing`).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WireError"
-                }
-              }
-            }
-          }
-        },
-        "description": "Usage records aggregated by the dimensions in `groupBy`: each group's count, the sum of its quantities, and its first and last times. Never a record's content. Records are counted when the counted thing happens, exactly once (`USAGE_KINDS`, each run with its class). `watermark`: every record at or before it is in the answer, so re-read a window until its watermark is past the window's end. Takes `system:usage:read`; the access record marks a read across every tenant. A runtime that doesn't count usage answers 404.",
-        "parameters": [
-          {
-            "name": "from",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "date-time"
-            },
-            "required": true,
-            "description": "Records at or after this time: a time with a zone, such as `2026-11-01T00:00:00Z`."
-          },
-          {
-            "name": "to",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "date-time"
-            },
-            "required": true,
-            "description": "Records before this time. At most 92 days after `from`."
-          },
-          {
-            "name": "groupBy",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            },
-            "required": false,
-            "description": "Comma-separated, each once: `tenant`, `project`, `agent`, `kind`, `class`, `state`, `day` (the UTC date). Default `tenant,kind`."
-          },
-          {
-            "name": "kind",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            },
-            "required": false,
-            "description": "Only these kinds, comma-separated (`run.started`, `run.ended`, `approval.requested`, `approval.decided`, `llm.inference`, `llm.embedding`, `project.production`)."
-          },
-          {
-            "name": "class",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            },
-            "required": false,
-            "description": "Only these run classes, comma-separated (`production`, `staging`, `dry-run`, `replay`, `eval`, `child`)."
-          },
-          {
-            "name": "state",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            },
-            "required": false,
-            "description": "Only these states, comma-separated (`on`, `off`: a `project.production` record)."
-          },
-          {
-            "name": "tenantId",
-            "in": "query",
-            "schema": {
-              "type": "string",
-              "format": "uuid"
-            },
-            "required": false,
-            "description": "Only this tenant."
-          },
-          {
-            "name": "limit",
-            "in": "query",
-            "schema": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 10000
-            },
-            "required": false,
-            "description": "Groups a page: 1 to 10000, default 1000."
-          },
-          {
-            "name": "cursor",
-            "in": "query",
-            "schema": {
-              "type": "string"
-            },
-            "required": false,
-            "description": "The previous page's `nextCursor`."
-          }
-        ],
         "security": [
           {
             "bearerAuth": []

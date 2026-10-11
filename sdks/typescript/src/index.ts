@@ -372,10 +372,6 @@ export type {
   SystemTenant,
   SystemTenantSpec,
   SystemTenantsClient,
-  SystemUsageClient,
-  SystemUsageGroup,
-  SystemUsagePage,
-  SystemUsageQuery,
   TenantAdminContact,
   TenantLimitsShape,
 } from './resources/system-tenants.js';

@@ -148,7 +148,8 @@ const KEYS: Record<string, string[]> = {
   kgi_sy_signup: ['system:tenants', 'system:tenants:image-prefix', 'system:tenants:production'],
   kgi_sy_support: ['system:suspend'],
   kgi_sy_notices: ['system:tenants:contacts'],
-  kgi_sy_billing: ['system:usage:read'],
+  /** The orchestrator: deployments only, none of the tenant scopes. */
+  kgi_sy_orchestrator: ['system:deployments'],
 };
 
 function makeApp() {
@@ -282,7 +283,7 @@ describe('POST /v1/system/tenants', () => {
 
   test('a key without system:tenants is refused', async () => {
     const { call, code } = makeApp();
-    for (const token of ['kgi_sy_support', 'kgi_sy_notices', 'kgi_sy_billing']) {
+    for (const token of ['kgi_sy_support', 'kgi_sy_notices', 'kgi_sy_orchestrator']) {
       const r = await call(token, 'POST', '/v1/system/tenants', SIGNUP);
       expect(r.status, token).toBe(403);
       expect(code(r), token).toBe('system-scope-missing');
@@ -378,9 +379,9 @@ describe('reading, closing, suspending, the image prefix and the admins', () => 
 
 test('GET /v1/system/whoami: any system key, its own id and scopes', async () => {
   const { call } = makeApp();
-  const me = await call('kgi_sy_billing', 'GET', '/v1/system/whoami');
+  const me = await call('kgi_sy_orchestrator', 'GET', '/v1/system/whoami');
   expect(me.status).toBe(200);
-  expect(me.body).toEqual({ keyId: 'kgi_sy_billing', scopes: ['system:usage:read'] });
+  expect(me.body).toEqual({ keyId: 'kgi_sy_orchestrator', scopes: ['system:deployments'] });
 });
 
 describe('least privilege on the public surface: a create-only key', () => {
