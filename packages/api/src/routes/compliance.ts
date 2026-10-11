@@ -29,6 +29,7 @@ import {
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
 import { tenantAdminAccess } from './tenant-access.js';
+import { parseTimeInput } from './time-input.js';
 
 /**
  * Compliance-evidence readback + signed-export routes over the unified
@@ -271,16 +272,16 @@ function parseFilterFromQuery(
   }
   const from = query.from;
   if (from !== undefined && from.length > 0) {
-    const parsed = new Date(from);
-    if (Number.isNaN(parsed.getTime())) {
+    const parsed = parseTimeInput(from);
+    if (parsed === null) {
       return { kind: 'err', message: '`from` must be an ISO 8601 timestamp' };
     }
     filter.from = parsed.toISOString() as Timestamp;
   }
   const to = query.to;
   if (to !== undefined && to.length > 0) {
-    const parsed = new Date(to);
-    if (Number.isNaN(parsed.getTime())) {
+    const parsed = parseTimeInput(to);
+    if (parsed === null) {
       return { kind: 'err', message: '`to` must be an ISO 8601 timestamp' };
     }
     filter.to = parsed.toISOString() as Timestamp;
@@ -381,17 +382,19 @@ function parseFilterFromBody(
   }
   const from = body.from;
   if (from !== undefined) {
-    if (typeof from !== 'string' || Number.isNaN(new Date(from).getTime())) {
+    const parsed = parseTimeInput(from);
+    if (parsed === null) {
       return { kind: 'err', message: '`filter.from` must be an ISO 8601 timestamp' };
     }
-    filter.from = new Date(from).toISOString() as Timestamp;
+    filter.from = parsed.toISOString() as Timestamp;
   }
   const to = body.to;
   if (to !== undefined) {
-    if (typeof to !== 'string' || Number.isNaN(new Date(to).getTime())) {
+    const parsed = parseTimeInput(to);
+    if (parsed === null) {
       return { kind: 'err', message: '`filter.to` must be an ISO 8601 timestamp' };
     }
-    filter.to = new Date(to).toISOString() as Timestamp;
+    filter.to = parsed.toISOString() as Timestamp;
   }
   const empty = Object.keys(filter).length === 0;
   return { kind: 'ok', value: empty ? undefined : (filter as EvidenceFilter) };

@@ -55,6 +55,14 @@ export type HandlerRegistry = ReadonlyMap<NodeId, NodeHandler>;
 export interface NodeContext {
   readonly runId: RunId;
   readonly nodeId: NodeId;
+  /**
+   * This step, the same every time it runs: its node id, a loop body's
+   * step with its iteration, or a fanout branch. `record` keeps its
+   * decisions under it, and a tool call's idempotency key is made from it
+   * (`toolIdempotencyKey`, `@kindgi/tools`). Treat it as opaque. Absent on
+   * a host that doesn't name its steps (a runtime before 0.1.6).
+   */
+  readonly stepScope?: string;
   /** The tenant this run belongs to — required for any tenant-scoped I/O. */
   readonly tenantId: TenantId;
   /**

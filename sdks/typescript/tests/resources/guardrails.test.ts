@@ -178,3 +178,55 @@ describe('guardrails.author — projectId (POST /v1/guardrails requires it)', ()
     expect(JSON.parse(req.body ?? '{}')).toEqual({ ...spec, projectId: 'proj-1' });
   });
 });
+
+describe('guardrails.outcomes', () => {
+  it('GETs /v1/guardrails/{id}/outcomes with the project, the window and recent', async () => {
+    const outcomes = {
+      guardrailId: 'acme.no-pii',
+      from: '2026-10-01T00:00:00.000Z',
+      to: '2026-10-08T00:00:00.000Z',
+      counts: { passed: 1204, violated: 31, blocked: 7, errored: 2 },
+      byAgentVersion: [
+        {
+          agentId: 'acme.refunds',
+          agentVersion: '2.1.0',
+          passed: 1204,
+          violated: 31,
+          blocked: 7,
+          errored: 2,
+        },
+      ],
+      recentBlocked: [
+        {
+          runId: '00000000-0000-4000-8000-000000000009',
+          at: '2026-10-07T10:00:00.000Z',
+          agentId: 'acme.refunds',
+          agentVersion: '2.1.0',
+        },
+      ],
+      recordedSince: '2026-09-30T08:00:00.000Z',
+    };
+    const stub = jsonFetch(outcomes);
+    const client = createClient({
+      apiUrl: 'https://api.example.com',
+      auth: AUTH,
+      fetch: stub.fetch,
+    });
+    const answer = await client.guardrails.outcomes('acme.no-pii', {
+      projectId: 'p-1',
+      from: new Date('2026-10-01T00:00:00Z'),
+      to: '2026-10-08T00:00:00Z',
+      recent: 5,
+    });
+    expect(answer).toEqual(outcomes);
+    const url = new URL(stub.calls[0]?.url ?? '');
+    expect(stub.calls[0]?.method).toBe('GET');
+    expect(url.pathname).toBe('/v1/guardrails/acme.no-pii/outcomes');
+    expect(Object.fromEntries(url.searchParams)).toEqual({
+      projectId: 'p-1',
+      from: '2026-10-01T00:00:00.000Z',
+      to: '2026-10-08T00:00:00Z',
+      recent: '5',
+    });
+  });
+});

@@ -90,3 +90,37 @@ const OUT_CTS = join(PKG_ROOT, 'dist', 'index.d.cts');
 await writeFile(OUT_CTS, await readFile(OUT_TS, 'utf8'), 'utf8');
 
 console.log(`wrote ${OUT_TS} + ${OUT_CTS}`);
+
+// `@kindgi/client/sso-handoff`: its own entry, with no imports, so its
+// declarations are just that file's.
+const HANDOFF_TS = join(PKG_ROOT, 'dist', 'sso-handoff.d.ts');
+const handoff = spawnSync(
+  'pnpm',
+  [
+    'exec',
+    'dts-bundle-generator',
+    join(PKG_ROOT, 'src', 'sso-handoff.ts'),
+    '--out-file',
+    HANDOFF_TS,
+    '--project',
+    join(PKG_ROOT, 'tsconfig.json'),
+    '--no-check',
+    '--no-banner',
+  ],
+  { stdio: 'inherit', cwd: PKG_ROOT },
+);
+if (handoff.status !== 0) {
+  console.error(
+    `dts-bundle-generator (sso-handoff) exited with status ${handoff.status ?? 'unknown'}`,
+  );
+  process.exit(handoff.status ?? 1);
+}
+const handoffBody = [
+  '// SPDX-License-Identifier: Apache-2.0',
+  '// Copyright (C) 2026 Kindgi Inc.',
+  '',
+  await readFile(HANDOFF_TS, 'utf8'),
+].join('\n');
+await writeFile(HANDOFF_TS, handoffBody, 'utf8');
+await writeFile(join(PKG_ROOT, 'dist', 'sso-handoff.d.cts'), handoffBody, 'utf8');
+console.log(`wrote ${HANDOFF_TS} + .d.cts`);

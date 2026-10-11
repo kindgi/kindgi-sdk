@@ -57,6 +57,8 @@ function urlsOf(providerId: string, kind: string): ProviderSignIn | undefined {
 function makeApp(
   options: {
     readonly withSignInUrls?: boolean;
+    /** The kinds the deployment signs in with. Default: both. */
+    readonly signsInWith?: readonly string[];
     readonly withUpdate?: boolean;
     readonly onUpdate?: (config: ProviderConfig) => IdentityProviderUpdateOutcome;
   } = {},
@@ -76,7 +78,10 @@ function makeApp(
     },
     unregister: async ({ providerId }) => ({ unregistered: stored.delete(providerId) }),
     ...(options.withSignInUrls !== false && {
-      signInUrls: async ({ providerId, kind }) => urlsOf(providerId, kind),
+      signInUrls: async ({ providerId, kind }) =>
+        (options.signsInWith ?? ['oidc', 'saml']).includes(kind)
+          ? urlsOf(providerId, kind)
+          : undefined,
     }),
     ...(options.withUpdate !== false && {
       update: async ({ config }) => {
@@ -179,10 +184,17 @@ describe('GET /v1/auth/providers/:providerId/sign-in', () => {
   });
 
   test("a kind the deployment doesn't sign in with: 400, says so", async () => {
+    const { app } = makeApp({ signsInWith: ['oidc'] });
+    const res = await get(app, '/v1/auth/providers/acme-entra/sign-in?kind=saml');
+    expect(res.status).toBe(400);
+    expect((await errorOf(res)).message).toContain("doesn't sign in with `saml`");
+  });
+
+  test('a kind that is not one (oauth2, a plain OAuth 2.0 provider): 400', async () => {
     const { app } = makeApp();
     const res = await get(app, '/v1/auth/providers/acme-gh/sign-in?kind=oauth2');
     expect(res.status).toBe(400);
-    expect((await errorOf(res)).message).toContain("doesn't sign in with `oauth2`");
+    expect((await errorOf(res)).message).toContain('`kind` must be `oidc` or `saml`');
   });
 
   test("not mounted when the deployment can't say", async () => {

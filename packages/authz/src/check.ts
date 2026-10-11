@@ -121,4 +121,24 @@ export interface AuthzCheckBinding {
     projectId: string,
     ctx?: AuthzCheckContext,
   ): Promise<boolean>;
+
+  /**
+   * Optional. Records a decision the API layer made without asking
+   * `check`: a refusal by the caller's API key itself (a `member` key's
+   * tenant admin, a key limited to a project reaching outside it), or a
+   * check the authorization model can't answer (an action it doesn't
+   * define on the type, a bug in the route). Recorded where `check`
+   * records its own decisions (the runtime: one `authz-decision` audit
+   * event, its `failing` and `reason` saying which check refused), so the
+   * audit holds every refusal, whichever check made it. Fire-and-forget:
+   * it never fails the request. Without it, those refusals aren't
+   * recorded.
+   */
+  recordDecision?(
+    principal: Principal,
+    action: Action,
+    resource: ResourceRef,
+    decision: Decision,
+    ctx?: AuthzCheckContext,
+  ): void;
 }

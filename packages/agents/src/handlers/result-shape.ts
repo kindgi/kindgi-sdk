@@ -36,11 +36,18 @@ export interface AgentTurnUsage {
  */
 export interface AgentTurnWarning {
   /**
-   * `fallback-provider`: a fallback provider answered. Any other code is a
-   * provider's own warning about its answers (`ModelCallResult.warnings`),
-   * such as dev-echo's `dev-echo-not-a-model`.
+   * `fallback-provider`: a fallback provider answered.
+   * `memory-needs-participant`: the agent keeps memory per end user
+   * (`same-user`), but the run named none (`participantId`), so it read and
+   * kept none.
+   * Any other code is a provider's own warning about its answers
+   * (`ModelCallResult.warnings`), such as dev-echo's `dev-echo-not-a-model`.
    */
-  readonly code: 'fallback-provider' | 'dev-echo-not-a-model' | (string & {});
+  readonly code:
+    | 'fallback-provider'
+    | 'memory-needs-participant'
+    | 'dev-echo-not-a-model'
+    | (string & {});
   readonly message: string;
 }
 

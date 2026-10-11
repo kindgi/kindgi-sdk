@@ -1,6 +1,6 @@
 # `@kindgi/adapter-model-shared`
 
-Shared plumbing for Kindgi's model adapters: what every adapter needs to turn a vendor's API into a [`@kindgi/capabilities`](../../capabilities/) `ModelProvider` the same way. The Azure OpenAI and Amazon Bedrock adapters are built on it.
+Shared plumbing for Kindgi's model adapters: what every adapter needs to turn a vendor's API into a [`@kindgi/capabilities`](../../capabilities/) `ModelProvider` the same way.
 
 Today's engine for sending the requests is the [AI SDK](https://ai-sdk.dev)'s provider packages (`@ai-sdk/*`), called at the provider-spec level (`doGenerate`). It never uses the `ai` package, its agent loop or Vercel's gateway, so no request goes anywhere but the vendor's own API. The engine sits behind one module, `@kindgi/adapter-model-shared/ai-sdk`, the only entry point whose types are a library's. Swapping it later touches that module and the adapters that hand their models in, nothing else.
 

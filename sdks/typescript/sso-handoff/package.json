@@ -1,0 +1,7 @@
+{
+  "//": "For resolvers without `exports` (TypeScript's node10, older bundlers): `@kindgi/client/sso-handoff` resolves here.",
+  "main": "../dist/sso-handoff.cjs",
+  "module": "../dist/sso-handoff.js",
+  "types": "../dist/sso-handoff.d.cts",
+  "sideEffects": false
+}

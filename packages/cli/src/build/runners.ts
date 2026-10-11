@@ -267,6 +267,8 @@ export interface JvmBuildRunners {
     readonly runtimeImageRef: string;
     /** Debian packages for the image, checked (`checkAptPackages`). */
     readonly systemPackages: readonly string[];
+    /** The names the pack declares (`env.required`, `env.optional`), sorted. */
+    readonly declaredEnv: readonly string[];
   }) => Promise<void>;
   /** Writes the build context: `files` (pack-relative) and the Containerfile. */
   readonly writeContext: (opts: {

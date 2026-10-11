@@ -11,8 +11,9 @@
 val Scala213 = "2.13.18"
 val Scala3 = "3.3.8"
 
-// The oldest Jackson kindgi-pack supports; an app's newer one wins (see the README).
-val JacksonVersion = "2.15.4"
+// The oldest Jackson kindgi-pack supports (sdks/java/kindgi-pack/pom.xml's jackson2.version); an
+// app's newer one wins (see the README).
+val JacksonVersion = "2.18.11"
 
 ThisBuild / organization := "com.kindgi"
 ThisBuild / scalaVersion := Scala3

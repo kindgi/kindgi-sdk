@@ -155,20 +155,21 @@ _CONFLICT = {
     "judge-class-name-taken", "promotion-superseded", "gate-policy-already-registered",
     "gate-policy-scope-taken", "gate-policy-scope-changed", "gate-policy-scope-unpinned",
     "gate-policy-needs-pin", "gate-policy-descendant-unpinned", "fact-changed", "legal-hold",
-    "erasure-in-progress",
+    "erasure-in-progress", "provider-key-in-use",
 }  # fmt: skip
 _INVALID = {
     "invalid-request", "validation-failed", "unknown-field", "bad-input", "unresolved-tool",
     "unresolved-guardrail", "schema-validation-failed", "invalid-agent", "invalid-tool-definition",
     "invalid-schema", "unknown-effect", "invalid-guardrail", "invalid-provider",
     "guardrail-config-invalid", "provider-config-invalid", "supervisor-header-missing",
-    "scope-invalid", "artifact-too-large",
+    "scope-invalid", "artifact-too-large", "provider-key-refused",
 }  # fmt: skip
 _AUTH: Mapping[str, Literal["unauthenticated", "forbidden", "token-expired"]] = {
     "auth-missing": "unauthenticated",
     "auth-expired": "token-expired",
     "auth-revoked": "unauthenticated",
     "permission-denied": "forbidden",
+    "identity-providers-operator-managed": "forbidden",
 }
 _ID_FIELDS = (
     "agentId", "toolId", "runId", "adapterId", "userId", "providerId", "capabilityId", "tokenId",

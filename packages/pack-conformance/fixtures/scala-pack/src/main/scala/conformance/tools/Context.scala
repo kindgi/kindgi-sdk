@@ -17,6 +17,7 @@ object Context {
         "secrets" -> ctx.secrets,
         "config" -> ctx.config) ++
         Option(ctx.requestId).map("requestId" -> _) ++
+        Option(ctx.idempotencyKey).map("idempotencyKey" -> _) ++
         Option(ctx.projectId).map("projectId" -> _) ++
         Option(ctx.orgId).map("orgId" -> _) ++
         Option(ctx.settings).filterNot(_.isEmpty).map("settings" -> _)

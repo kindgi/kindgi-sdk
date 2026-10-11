@@ -3,8 +3,10 @@
 
 /**
  * `POST /v1/conversations/{id}/unregister` (T273 M-4): a tombstone, by the
- * binding; it answers the conversation with `unregisteredAt`. A runtime
- * whose binding can't unregister answers 501; a malformed id is 400.
+ * binding; it answers the conversation with `unregisteredAt`. The route
+ * loads the conversation first (unknown or unregistered already: 404, before
+ * any check; authorization is in route-authz-conversations.test.ts). A
+ * runtime whose binding can't unregister answers 501; a malformed id is 400.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -22,11 +24,41 @@ const tenantId = randomUUID() as TenantId;
 const TOKEN = 'conversations-unregister-token';
 const resolveToken: TokenResolver = async (token) => (token === TOKEN ? { tenantId } : null);
 
-function app(unregister?: ConversationBinding['unregisterConversation']) {
+function stored(id: string): Conversation {
+  return {
+    id,
+    tenantId,
+    agentId: 'acme.desk',
+    agentVersion: '1.0.0',
+    title: 'Refund',
+    scope: { tenantId },
+    openedAt: '2026-10-01T00:00:00.000Z',
+    turnCount: 2,
+  } as unknown as Conversation;
+}
+
+const notFound = (conversationId: string) =>
+  ({
+    kind: 'err',
+    error: {
+      code: 'conversation-not-found',
+      message: `No conversation with id "${conversationId}"`,
+    },
+  }) as never;
+
+function app(
+  unregister?: ConversationBinding['unregisterConversation'],
+  // Any id is found unless the test says otherwise.
+  get: ConversationBinding['getConversation'] = async (_t, id) => ({
+    kind: 'ok',
+    value: stored(id as unknown as string),
+  }),
+) {
   const stubs = createStubAppBindings();
   const { unregisterConversation: _stubbed, ...rest } = stubs.conversationBinding;
   const conversationBinding = {
     ...rest,
+    getConversation: get,
     ...(unregister !== undefined && { unregisterConversation: unregister }),
   } as ConversationBinding;
   return createApp({
@@ -73,17 +105,19 @@ describe('unregistering a conversation', () => {
     expect(asked).toEqual([id]);
   });
 
-  test('not found (or unregistered already): 404', async () => {
-    const built = app(async (_t, conversationId) => ({
-      kind: 'err',
-      error: {
-        code: 'conversation-not-found',
-        message: `No conversation with id "${conversationId as unknown as string}"`,
-      } as never,
-    }));
+  test('not found (or unregistered already): 404, and the binding never asked to unregister', async () => {
+    const asked: string[] = [];
+    const built = app(
+      async (_t, conversationId) => {
+        asked.push(conversationId as unknown as string);
+        return notFound(conversationId as unknown as string);
+      },
+      async (_t, conversationId) => notFound(conversationId as unknown as string),
+    );
     const answer = await unregister(built, randomUUID());
     expect(answer.status).toBe(404);
     expect(answer.body.error.code).toBe('conversation-not-found');
+    expect(asked).toEqual([]);
   });
 
   test("a runtime that can't unregister: 501", async () => {

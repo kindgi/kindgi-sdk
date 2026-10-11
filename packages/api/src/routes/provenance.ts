@@ -32,6 +32,7 @@ import {
 import type { AppEnv } from '../types.js';
 import { clampLimit, decodeCursor, encodeCursor } from './pagination.js';
 import { parseListScope } from './scope-params.js';
+import { parseTimeInput } from './time-input.js';
 import { UUID_RE } from './uuid-param.js';
 
 /**
@@ -137,8 +138,8 @@ export function provenanceRouter(
 
     let createdAfter: Date | undefined;
     if (createdAfterRaw !== undefined && createdAfterRaw.length > 0) {
-      const parsed = new Date(createdAfterRaw);
-      if (Number.isNaN(parsed.getTime())) {
+      const parsed = parseTimeInput(createdAfterRaw);
+      if (parsed === null) {
         c.status(statusFor('bad-input') as never);
         return c.json(
           toWireError(

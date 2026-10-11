@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/handler-runtime",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Runtime-side primitives for running a Kindgi pack's own code. Ships the pack service (`pack-service`, process entry `pack-service-main`) — a long-lived HTTP server that runs a pack's tool handlers and guardrail checks over pack protocol v2 (`protocol`), validating each tool call's input and output against the tool's JSON Schemas, with a local supervisor for development; and the build-time pack indexer (`kindgi-index`, process entry `kindgi-index-main`), which writes the pack's `index.json`.",
   "license": "Apache-2.0",
   "repository": {
@@ -77,6 +77,7 @@
     }
   },
   "devDependencies": {
+    "@kindgi/guardrails": "workspace:*",
     "@kindgi/specs": "workspace:*",
     "@types/node": "^22.10.5",
     "typescript": "^5.7.3",
