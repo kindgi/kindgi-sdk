@@ -1,5 +1,20 @@
 # @kindgi/specs
 
+## 0.1.6
+
+### Patch Changes
+
+- fdb86ae: **A guardrail that only names a built-in check is marked.** The CLI's indexer sets `checkBuiltIn: true` on a pack index guardrail whose check is a built-in's (`must-cite`, …), and a deployment keeps it on the guardrail (`Guardrail.checkBuiltIn`, in both specs). From runtime 0.1.6, a guardrail that names a built-in, comes with its pack's code, and lacks the mark gets one warning in the runtime's log each time the runtime loads it. Such a pack was built with a CLI from before 0.1.6. One built before 0.1.5 may also ship its own check under the built-in's id, which the built-in replaces. Nothing is refused, and the built-in still runs. Rebuilding with a current CLI silences the warning. An older runtime ignores the mark.
+  
+  `POST /v1/guardrails`' `guardrail-config-invalid` now says it covers the config of any check the guardrail names, a pack check's or a built-in's.
+- 8b60576: **A tool call's idempotency key.** A run's step can run more than once: resumed after an approval, retried after a failure, or run again when the runtime restarted while it ran. So a tool that changes something (a refund, an email, a payment) could do it twice, with no key to dedupe on. `ToolContext.idempotencyKey` is the same every time the same call runs, and different for every other call: pass it to the system you write to (an `Idempotency-Key` header, a client reference, a unique column), or look for it there first.
+  
+  - **What it is:** a version 5 UUID (RFC 9562) under a fixed namespace (`TOOL_IDEMPOTENCY_NAMESPACE`), over the run, the step and the tool, plus the model's call id for a call a model asked for (`toolIdempotencyKey`, `@kindgi/tools`). The pack protocol schema says how, so any runtime makes the same key.
+  - **The step:** `NodeContext.stepScope` names a step the same every time it runs (its node, a loop body's step with its iteration, a fanout branch). A model's call id alone isn't enough: it's only unique within one of its answers, so two turns of a loop can share one.
+  - **Every pack language:** the pack protocol's call context carries it (protocol 2.6.0; an older pack service ignores it). Python `ctx.idempotency_key`, Java and Scala `ctx.idempotencyKey()`. The conformance suite checks that each pack service hands it to the tool, and that a 0.1.1 service still answers a call carrying it.
+  - **Absent** outside a run, and from a runtime that can't name its steps (before 0.1.6): the call can't be deduped on it then.
+  - **The docs:** "Make a side effect happen once" in Write a tool, and the tools skills (every language). `requestId` is no longer described as an idempotency key.
+
 ## 0.1.5
 
 ### Patch Changes

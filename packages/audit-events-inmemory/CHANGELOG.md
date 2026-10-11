@@ -1,5 +1,12 @@
 # @kindgi/audit-events-inmemory
 
+## 0.1.6
+
+### Patch Changes
+
+- @kindgi/audit-events@0.1.6
+  - @kindgi/types@0.1.6
+
 ## 0.1.5
 
 ### Patch Changes

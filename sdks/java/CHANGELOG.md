@@ -7,6 +7,8 @@ heading into its version.
 
 ## Unreleased
 
+## 0.1.6
+
 - `kindgi-pack`, `kindgi-pack-scala`: **`ToolContext.idempotencyKey()`**, the same every time a
   tool call runs (resumed, retried, or run again after a crash) and different for every other
   call, so a tool that writes can dedupe on it. `null` from a runtime before 0.1.6. The

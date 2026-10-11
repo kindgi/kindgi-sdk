@@ -1,5 +1,37 @@
 # @kindgi/tools
 
+## 0.1.6
+
+### Patch Changes
+
+- bef2d8c: **A tool whose `needsSpec` schema wouldn't compile is refused up front.** Each schema in `needsSpec.secrets` and `needsSpec.env` must compile as the runtime compiles it when it loads the tool, and an env value's `default` must be a string. Before, a pack with one the runtime couldn't compile (an unknown keyword, say) deployed fine, and then the runtime left that tool out, so calls to it failed as an unknown tool. Now `defineTool` refuses it (`invalid-tool-definition`), and so do `POST /v1/tools` (`400 validation-failed`) and a deployment (`400 deployment-validation-failed`). The message names the tool, the slot and the name (`Tool "acme.sign": the schema for needsSpec.secrets.SIGNING_KEY doesn't compile: …`), and the issue's path is `/needsSpec/<slot>/<name>`.
+- 85ef97c: **A tool's secret can be optional.** A secret declared in `needsSpec.secrets` with a schema that accepts `null` (`{ type: ['string', 'null'] }`) is optional. When the env doesn't have it, or has it empty, it's left out of `ctx.secrets` and the call goes on, with the call's log line naming it. A value that is set is still checked against the schema. A revoked secret, one whose value is gone at its provider though it's still mapped, or a secrets backend that fails, still fails the call. The schema has to name `null`: an unconstrained `{}` stays required. This needs runtime 0.1.6 or later: an older runtime requires every declared secret, failing a call without one with `secret-unavailable`. The guide ("An optional secret"), the authoring skills for every pack language, and the TypeScript and Python context types say so.
+  
+  `SecretError`'s `secret-not-found` (`@kindgi/api`) gains an optional `reason`: `deleted-at-provider` when the secret is mapped but its provider has no value for it. Absent means it was never stored.
+- 307771f: A model provider's key is used by its provider only. A secret that a provider registration of the tenant names (its `secret_ref`, in any env) can't be declared or sent by a tool, or named by an MCP or a webhook endpoint:
+  
+  - **`POST /v1/tools`, `POST /v1/mcp/endpoints`, and `POST` or `PATCH /v1/webhook-endpoints`** refuse it with `400 provider-key-refused`, naming the secret and the provider (`details.secret`, `details.providerId`). The message says what to do: store the key under its own name (the same value is fine) and use that name.
+  - **`POST /v1/deployments`** reports each tool that names one as a `deployment-validation-failed` issue (`path` `/secrets/<name>`), and deploys nothing.
+  - **`POST /v1/providers`** refuses a `secret_ref` that a tool (its current version), an MCP endpoint or a webhook endpoint already uses: `409 provider-key-in-use`, with `details.usedBy` listing each.
+  
+  For a runtime to enforce the same at every call, `@kindgi/api` exports `guardProviderKeys(binding, keys, user)`: a `SecretBinding` whose `resolve` answers a model provider's key with the new `SecretError` code `provider-key-refused` (naming the secret and the provider), for whatever hands secrets to tools and endpoints, while the provider adapters keep the store itself. Also exported: `providerKeysOf(registry)`, `providerKeyRefusal`, `usersOfSecret`, and their types.
+  
+  `@kindgi/tools` exports `toolSecretNames(manifest)`: every secret a tool declares or sends, by name.
+- 03151ca: **A union of types compiles.** A schema with `type: ['string', 'number', 'boolean', 'null']`, which is what Zod 4 writes for `z.union([z.string(), z.number(), z.boolean(), z.null()])`, used to be refused ("strict mode: use allowUnionTypes…"), while `.nullable()` compiled. It's standard JSON Schema, and every schema compiler now takes it: tool input and output, an agent's typed output, a guardrail check's config, flow and block schemas, and the pack service's validation. `ALLOW_UNION_TYPES` (`@kindgi/schema`) says so.
+  - A schema that strict mode still refuses (an open tuple, an unknown keyword) says how out: for a field that may hold any JSON value, `z.json()` (or `{}` in JSON Schema) compiles.
+  - The Java pack service validates a union of types too (its CHANGELOG). Python's always did.
+- 8b60576: **A tool call's idempotency key.** A run's step can run more than once: resumed after an approval, retried after a failure, or run again when the runtime restarted while it ran. So a tool that changes something (a refund, an email, a payment) could do it twice, with no key to dedupe on. `ToolContext.idempotencyKey` is the same every time the same call runs, and different for every other call: pass it to the system you write to (an `Idempotency-Key` header, a client reference, a unique column), or look for it there first.
+  
+  - **What it is:** a version 5 UUID (RFC 9562) under a fixed namespace (`TOOL_IDEMPOTENCY_NAMESPACE`), over the run, the step and the tool, plus the model's call id for a call a model asked for (`toolIdempotencyKey`, `@kindgi/tools`). The pack protocol schema says how, so any runtime makes the same key.
+  - **The step:** `NodeContext.stepScope` names a step the same every time it runs (its node, a loop body's step with its iteration, a fanout branch). A model's call id alone isn't enough: it's only unique within one of its answers, so two turns of a loop can share one.
+  - **Every pack language:** the pack protocol's call context carries it (protocol 2.6.0; an older pack service ignores it). Python `ctx.idempotency_key`, Java and Scala `ctx.idempotencyKey()`. The conformance suite checks that each pack service hands it to the tool, and that a 0.1.1 service still answers a call carrying it.
+  - **Absent** outside a run, and from a runtime that can't name its steps (before 0.1.6): the call can't be deduped on it then.
+  - **The docs:** "Make a side effect happen once" in Write a tool, and the tools skills (every language). `requestId` is no longer described as an idempotency key.
+- Updated dependencies [03151ca]
+  - @kindgi/schema@0.1.6
+  - @kindgi/log@0.1.6
+  - @kindgi/types@0.1.6
+
 ## 0.1.5
 
 ### Patch Changes

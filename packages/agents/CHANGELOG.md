@@ -1,5 +1,74 @@
 # @kindgi/agents
 
+## 0.1.6
+
+### Patch Changes
+
+- fdb86ae: An approval and the run waiting on it end together.
+  - **A reviewer's withdraw ends the run:** on a gate approval it cancels the run's waitpoint, and the turn fails with `hitl-withdrawn` ("The approval for … was withdrawn"), right away instead of at the approval's deadline. Every `hitl-*` failure is a person's outcome, not an error.
+  - **A run's end withdraws its open approvals:** they show `withdrawnBecause` (`run-cancelled` or `run-ended`).
+  - **A decision on an approval whose run has ended is refused before anything is recorded:** `409 run-already-terminal`, with the ended run's `runId` and `status` in `details`. A decision recorded just before the run ended stands: the answer has `waitpointResolved: false` and the run's `runStatus`.
+  - **Approvals carry `requestedBy`, `separateApprover`, `escalatedFrom` and `escalatedTo`.** `identity.whoami` returns the caller's `actor` in the same form as `requestedBy`.
+  - **The approvals list takes `runId`, and `includeDescendants`** for the runs inside it.
+- a2b2ae8: **Examples name current models.** The Java and Scala agent-authoring skills' `preferredModel` and `models.allow` examples use `claude-haiku-5-5` instead of `claude-haiku-4-5`, which Anthropic retires on or after 2026-10-15. The `preferredProvider`, `preferredModel` and `ModelInfo.name` docs give `anthropic` and `claude-sonnet-5-5` as their examples.
+- 307771f: Guardrail outcomes: what each guardrail's checks came to, passes included, counted on the server.
+  
+  - **The record:** an agent turn's guardrail gate records each check as `passed`, `violated` (the answer went through), `blocked` (a `halt` failed the turn) or `errored` (the check couldn't run). It records through `InvokeAgentBindings.guardrailOutcomes`, a `GuardrailOutcomeSink` from `@kindgi/guardrails`, before it acts on them, so a blocked turn is recorded too.
+    - **No content:** only ids, the action, the severity and an error's code. No answer, and no check's reason.
+    - **Not recorded:** replays and dry runs.
+    - **Strict:** a sink that throws fails the step with `persistence-error`, so the counts never silently miss a turn.
+    - **Without a sink,** nothing is recorded.
+  - **`categorizeOutcomes`** also answers `checks`, each guardrail's outcome in order.
+  - **`GET /v1/guardrails/{guardrailId}/outcomes`:** a guardrail's outcomes on a project's agent turns over a window. The answer has the `counts`, the same counts per agent version (`byAgentVersion`), the window's latest blocked turns (`recentBlocked`, run ids and times only) and `recordedSince`, the earliest outcome kept.
+    - **The query:** `projectId`, `from` and `to` are required, with a window of at most 90 days. `recent` is optional: 0 to 50, 10 by default.
+    - **Who:** it needs `read` on the guardrail and on the project.
+    - **Retention:** outcomes go with their run's retention, so a window can hold fewer than asked.
+  - **`GuardrailRegistryBinding.outcomes`** is optional. Without it, the route answers `501 guardrail-outcomes-not-supported`.
+  - **The clients:** TypeScript `guardrails.outcomes(id, query)`; Python `guardrails.outcomes(...)`.
+- 8b60576: **A tool call's idempotency key.** A run's step can run more than once: resumed after an approval, retried after a failure, or run again when the runtime restarted while it ran. So a tool that changes something (a refund, an email, a payment) could do it twice, with no key to dedupe on. `ToolContext.idempotencyKey` is the same every time the same call runs, and different for every other call: pass it to the system you write to (an `Idempotency-Key` header, a client reference, a unique column), or look for it there first.
+  
+  - **What it is:** a version 5 UUID (RFC 9562) under a fixed namespace (`TOOL_IDEMPOTENCY_NAMESPACE`), over the run, the step and the tool, plus the model's call id for a call a model asked for (`toolIdempotencyKey`, `@kindgi/tools`). The pack protocol schema says how, so any runtime makes the same key.
+  - **The step:** `NodeContext.stepScope` names a step the same every time it runs (its node, a loop body's step with its iteration, a fanout branch). A model's call id alone isn't enough: it's only unique within one of its answers, so two turns of a loop can share one.
+  - **Every pack language:** the pack protocol's call context carries it (protocol 2.6.0; an older pack service ignores it). Python `ctx.idempotency_key`, Java and Scala `ctx.idempotencyKey()`. The conformance suite checks that each pack service hands it to the tool, and that a 0.1.1 service still answers a call carrying it.
+  - **Absent** outside a run, and from a runtime that can't name its steps (before 0.1.6): the call can't be deduped on it then.
+  - **The docs:** "Make a side effect happen once" in Write a tool, and the tools skills (every language). `requestId` is no longer described as an idempotency key.
+- bbdccbb: An agent turn stops when its run is stopped. The runtime aborts a step's `abortSignal` when its run ends from outside: a cancel, or a shutdown that interrupts the runs it was executing. A turn's own work (its model call, its tool calls) listened only to the turn's abort, so a call in flight ran on until it answered.
+  
+  - **Now:** each step of a turn links the step's `abortSignal` to the turn's, so a call in flight is aborted at once, and the turn ends as aborted from outside (`agent-turn-aborted`, reason `external`).
+  - **A wall-clock timeout keeps its own reason** (`timeout`).
+  - **A cancelled turn's message stays plain:** `Agent turn cancelled`. The failure of the step its cancel aborted only restates the cancel, and is no longer appended as the turn's serialized failure. Any other words are kept.
+  - **No API change.**
+  - **`@kindgi/env-schema`** lists `KINDGI_RUN_ENDED_CHECK_MS`: how often a server stops the runs it executes that were ended from outside, so a step that writes nothing for a while, such as a long model call, stops within this time of a cancel. Default 5000 ms; at least 1000.
+- Updated dependencies [fd93b3e]
+- Updated dependencies [a6ac2e9]
+- Updated dependencies [fdb86ae]
+- Updated dependencies [eed55a1]
+- Updated dependencies [a2b2ae8]
+- Updated dependencies [307771f]
+- Updated dependencies [bef2d8c]
+- Updated dependencies [85ef97c]
+- Updated dependencies [307771f]
+- Updated dependencies [6a4715c]
+- Updated dependencies [307771f]
+- Updated dependencies [307771f]
+- Updated dependencies [307771f]
+- Updated dependencies [03151ca]
+- Updated dependencies [8b60576]
+  - @kindgi/authz@0.1.6
+  - @kindgi/compliance@0.1.6
+  - @kindgi/guardrails@0.1.6
+  - @kindgi/capabilities@0.1.6
+  - @kindgi/tools@0.1.6
+  - @kindgi/runtime@0.1.6
+  - @kindgi/schema@0.1.6
+  - @kindgi/handler@0.1.6
+  - @kindgi/flow@0.1.6
+  - @kindgi/provenance@0.1.6
+  - @kindgi/embedding@0.1.6
+  - @kindgi/memory@0.1.6
+  - @kindgi/policy-contract@0.1.6
+  - @kindgi/types@0.1.6
+
 ## 0.1.5
 
 ### Patch Changes

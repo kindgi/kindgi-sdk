@@ -1,5 +1,149 @@
 # @kindgi/cli
 
+## 0.1.6
+
+### Patch Changes
+
+- 9c999e0: `kindgi init` keeps a coding agent working in your project out of the files that hold keys and tokens: `.env*`, `.kindgi/secrets.env`, `.kindgi/dev/runtime.env`, and a self-hosted deployment's `kindgi.env` and `pack.env`. It merges `Read(...)` deny rules for them into `.claude/settings.json` (it never overwrites: missing rules are appended, and a file it can't read as JSON is left as it is, with what to add), and adds them to a `.cursorignore`, `.geminiignore` or `.aiderignore` the project already has. Claude Code reads the settings of the folder a session starts in, so when the pack sits below its git repository's root (a monorepo), `init` also merges the same rules, under the pack's path (`Read(./apps/agent/.env*)`, …), into the root's `.claude/settings.json`, creating it if there's none, and says so: an agent started at the repo root can't read the pack's keys either. A repository rooted at the home folder is left alone (its `.claude/settings.json` is Claude Code's user-wide settings), and `init` says what to add by hand. A settings file `init` can't read as JSON is a warning, never a failure, `--force` included. The getting-started skills tell the agent to keep its hands off those files and to list secrets by name with `kindgi secrets list`. "Your coding agent" in the docs shows the rules and the Claude Code sandbox settings that also keep the agent's shell commands out of them.
+- 307771f: **A reviewer's inbox in one read.** `GET /v1/approvals` takes:
+  - `status` with several values, repeated or comma-separated (`status=pending,assigned,in_review`), as `GET /v1/runs` does. One status works as before; an unknown one is `400 bad-input`.
+  - `assignedTo=me`: only the approvals assigned to the caller's own reviewer row (none when it has no row).
+  - `order=asc`: oldest first. The page's `nextCursor` continues its own order, and a cursor can't continue the other order (`400 bad-input`). The page says which order it's in (`order`); a runtime before 0.1.6 leaves it out and lists newest first.
+  
+  `HitlBinding.listApprovals` takes optional `statuses`, `assignedTo` and `order`, and says the order it applied (`order` on its result). The route keeps a page right from a binding that ignores the filters. The client takes `status` as one or a list, `assignedTo: 'me'` and `order`, and returns the page's `order`. The Python client takes one value or a list for every repeated query parameter. The CLI adds `kindgi approvals list --status=<a,b> --assigned-to=me --order=asc`.
+- 8b9e90d: Azure settings for the runtime: `KINDGI_SECRETS_BACKEND_KMS=azure` with `KINDGI_SECRETS_AZURE_KEY_ID` (an Azure Key Vault key wraps the postgres backend's DEKs), `KINDGI_IMAGE_REGISTRY_AUTH=azure` (Azure Container Registry with the server's managed identity), and `KINDGI_AZURE_CLIENT_ID` (which user-assigned identity the server uses). `parseAzureKeyId` checks the key's URL and refuses one pinned to a version. `kindgi env init --kms=azure` writes them.
+- 540a3d3: The indexer warns when a pack's check id doesn't start with the pack's id (`<pack id>.`). Packs in one tenant share one space of check names, so the warning says to name the check `<pack id>.checks.<name>`. It's a warning, never a refusal: the pack builds and indexes as before. It covers a TypeScript guardrail's `check` (or any check its module exports) with an `id` and an `evaluate`, a Python `@guardrail`'s check id (`check_id=`, or the guardrail's own id), and a Java or Scala guardrail's (`checkId`, or its own id). A built-in named by its id isn't the pack's check, so it isn't flagged. The indexer report gains `warnings` (`IndexerWarning`, code `check-id-unprefixed`) beside `fileErrors`; `kindgi build` prints them after the index line, and `kindgi dev` at boot, then on a reload only the ones the last load didn't show (any still standing as one line).
+- 38f2feb: **Docs links name their release line.**
+  - `kindgi sso providers start` now prints its "Step by step" guide at `https://docs.kindgi.com/v0.1/guides/sso/<guide>/`, not the docs' root. The root moves on to the next release line's docs, and during a release candidate it still shows the last release's. The skills `kindgi init` installs already link this way.
+  - **`@kindgi/client`:** the new `docsUrl(path, version?)` builds `docs.kindgi.com/v<major>.<minor>/<path>` for a Kindgi version, or the root without one. It has no dependencies, and `@kindgi/client/sso-handoff` re-exports it.
+  - **`identityProviderHandoff(urls, preset?, { version })`:** the handoff takes the version whose docs its `guideUrl` names. The CLI passes its own, and a console can pass the runtime's. Without a version the link is the root, as before.
+  - `SSO_GUIDES` is gone; `docsUrl` replaces it.
+  - `check:refs` now fails a root docs link in anything a package or SDK ships from its `src/`, as it already did for skills.
+- f0da210: **`kindgi dev` runs your pack's code sandboxed.** The tools' code, often written by a coding agent, runs as you; now it can't read your home folder (SSH keys, cloud credentials, registry tokens, other projects), the secret files in the app (`.env*`, `.kindgi`, `.git`, `kindgi.env`, `pack.env`, `.kindgirc.json`, `.npmrc`, `.pypirc`, `.netrc`), other tools' temp files, or the Docker socket and other UNIX sockets (on Linux, those under the home folder, `/tmp`, `/var/tmp` and `/run`). It can't write outside the app either (on macOS every other folder, where a program it replaced would run later outside the sandbox; on Linux the system is read-only), or write Kindgi's configuration (`kindgi.config.*`, `pyproject.toml`), which `kindgi dev` loads. On macOS the keychain, LaunchServices and Apple Events are closed; on Linux the code gets its own session, away from your terminal. It keeps the network, the app's own files, the runtime and the dependencies, and its own temp folder; a process it starts is inside too, and so is the indexer, which loads every module (and its top-level code) to list the pack.
+  
+  - **macOS:** Seatbelt (`sandbox-exec`). **Linux:** the system's bubblewrap (`bwrap`), which also hides other processes. Where neither can run (Linux without bwrap, Ubuntu 23.10+ without its AppArmor permission, a container, native Windows, or inside another sandbox), `kindgi dev` warns at start and runs your tools without it.
+  - **`KINDGI_DEV_SANDBOX`:** `on` (default), `off`, or `required` (stop rather than run without it). `dev.sandbox: false` turns it off for one project.
+  - **What runs is worked out at every start:** the runtime (Node, a Python interpreter's own paths, a JDK and the classpath), the links its paths go through (a uv-managed Python, SDKMAN's `current`), and a checkout's linked workspace packages; never a folder that holds the home folder.
+  - **With the sandbox on, `kindgi dev` starts only with one Kindgi configuration in the app**, so code can't add another by a name looked up first.
+  - **A path or a socket a tool needs:** `dev.sandbox.allowRead` and `dev.sandbox.allowUnixSockets` in the pack's config (`~/.aws` for the AWS SDK's credential chain, a local Postgres socket); `kindgi dev` names each at every start. A path that would open the whole home folder never is.
+  - **`kindgi doctor`** says whether `kindgi dev` can sandbox your tools here, and what would fix it.
+  - **The pack service supervisor** (`createPackServiceSupervisor`) takes `command` as a function called before every start, and a `cwd`.
+  - **The tools skills** tell an agent to open a path in `dev.sandbox.allowRead`, never to turn the sandbox off.
+- 307771f: **A retired flow can be found and brought back.** `GET /v1/flows/{id}/versions?includeTombstoned=true` lists a flow's unregistered versions too, each with `unregisteredAt`, as tools and policies already do. It answers for a retired flow (every version unregistered) instead of `404`; only a never-registered id is `404`. `GET /v1/flows?includeRetired=true` lists retired flows too, each as its highest version with `unregisteredAt`. Both are off by default.
+  - `FlowListVersionsInput.includeTombstoned` and `FlowListInput.includeRetired` are optional; a registry that ignores them lists active versions and flows as before.
+  - The client: `flows.list({ includeRetired })` and `flows.versions.list(id, { includeTombstoned })`, rows typed `FlowVersionRow` (a `Flow` with `unregisteredAt`).
+  - The CLI: `kindgi flows list --include-retired` and `kindgi flows versions <id> --include-unregistered`; tables show `UNREGISTERED`.
+- 307771f: Under `kindgi dev`, Kindgi keeps the secrets you store in its own file, `.kindgi/secrets.env`, instead of your app's `.env.local`. A framework like Next.js or Vite loads `.env.local` into every route of your app, so a model key stored there was readable by code that never needs it.
+  
+  - `kindgi secrets set … --env=local` writes `.kindgi/secrets.env`: owner-only, under the gitignored `.kindgi/`, read after your app's `.env` and `.env.local`, so its value wins. `--app` writes your app's env file instead, for a value both read, such as a webhook signing secret (`appEnvFile` on `POST /v1/secrets`; a runtime with a secrets store refuses it).
+  - `kindgi secrets copy [NAME…]` copies model providers' keys (or the names given) from your app's env files into `.kindgi/secrets.env`, merge-only and as written. It never edits or deletes anything in your app's files; it says, per key, that the key is still there and whether git tracks the file. `kindgi dev` gives a one-time hint when it uses a provider's key from a file your app loads.
+  - Under `kindgi dev`, the pack service's environment no longer holds a secret stored with `kindgi secrets` (a tool reads it from `ctx.secrets`, as in a deployment), nor any model provider's key, whichever env file holds it. `GET /v1/providers/{providerId}/check` carries the provider's `secretRef` by name, never its value, which is how `kindgi dev` knows the names.
+  - A command that can't read an env file says so instead of crashing: `kindgi doctor` reports the model-key check as skipped, `kindgi dev` names the file it can't read, and `kindgi providers register` asks the runtime instead.
+- 5bdacf1: **Only the names a pack declares reach its code.** Before the pack's code loads, the pack service (TypeScript, Python, Java and Scala) drops from its environment every variable the pack doesn't declare in `env.required` or `env.optional`. A model key or a password in a self-hosted `--env-file`, meant for something else, no longer reaches a tool or a process a tool starts.
+  
+  - **What stays:** the declared names, `KINDGI_*`, and the platform's: the process's basics, the language runtime's settings, `PORT`, proxies and certificates, and Cloud Run's, AWS's and Azure's workload identity and metadata (`PLATFORM_ENV_NAMES`, `PLATFORM_ENV_PREFIXES`). Static credentials such as `AWS_SECRET_ACCESS_KEY` aren't the platform's: a pack that needs one declares it.
+  - **What it says:** one `warn` record at start, `env-dropped`, with the names it dropped, never their values. A Python image always names `GPG_KEY`, which its base image sets.
+  - **The opt-out:** `KINDGI_PACK_ENV_FILTER=off` keeps every variable, as before. `kindgi dev` sets it, since there the pack service gets the app's env files. Any value other than `on` or `off` is a `config-invalid` start.
+  - **Java and Scala:** a JVM can't drop a variable from its own environment, so the launcher (`kindgi-pack-java`) does, keeping the names in `KINDGI_PACK_ENV_DECLARED`, which `kindgi build` now sets in the image from the pack's index. The service won't start while a variable the pack doesn't declare still reaches it, or when `KINDGI_PACK_ENV_DECLARED` isn't the index's `env`.
+  - **The skills** (tools and getting-started, every language) say so: an undeclared name works under `kindgi dev` and is unset once deployed, so declare every name the code reads.
+  - **The conformance suite** checks it for every pack service: an undeclared variable is absent in a tool, the declared ones and the platform's are there, and `off` keeps it.
+- 307771f: A project role to give is `owner`, `admin`, `editor` or `viewer`. `member`, an undocumented older name for `viewer`, is refused: adding or changing a project membership, or giving a service account a project role, with `member` is a `400 bad-input` that says to use `viewer`. A role given as `member` before still reads back as `member`, granting what `viewer` does. In the TypeScript client, writes take `AssignableProjectRoleValue` (memberships) and `ServiceAccountGrantInput` (service accounts); the Python client's request models take the four roles. `kindgi service-accounts` lists the four.
+- fdb86ae: A comparison can now be rescored after people judge its new answers. A changed free-text answer is a new item that no test-set judgment covers, so a comparison had no evidence for it, and a proposal changing a reply ended `not-better`.
+  - **Judge the new answers:** a comparison's `perCase[].changes.new` lists each changed item with its replay run (`runIds`). Judge it on that replay, as you'd judge any run. The console's Judge buttons do the same.
+  - **Rescore:** `POST /v1/eval-runs/{runId}/rescore` (`kindgi eval-runs rescore <run-id> [--wait]`, client `evalRuns.rescore`) starts a new comparison that replays nothing. It scores the run's replays again, counting the judgments recorded on them since, with the comparison's class weights. The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`).
+  - **What the evidence says:** a score's `fresh` sums, a new item's `judged`, and a metric's `freshWeight` say how much came from judging the replays. A case whose replays can't be read again keeps its scores (`rescored: false`, `summary.notRescored`).
+  - **Refusals:** a runtime that can't read replays and their judgments again answers `400 dispatcher-input-invalid`. A run that isn't a completed comparison of a test set is `409 eval-run-not-rescorable`.
+  - **Bindings:** `EvalRunStartInput.suiteVersion` (optional) pins the suite version a run uses. `EvalRun.projectId` (optional) names the run's project. `createJudgedDispatcher` takes optional `evalRuns`, `runs` and `judgments` readers for rescores.
+- fdb86ae: A proposal can be rescored. After people judge its comparison's new answers on the replay runs, `POST /v1/proposals/{proposalId}/rescore` rescores the proposal's latest evaluation, as `POST /v1/eval-runs/{runId}/rescore` does. The CLI is `kindgi proposals evaluate <proposal-id> --rescore [--wait]`, and the client is `proposals.rescore`.
+  - **What it does:** the new run scores the same replays again, with the same test set version and settings, and replays nothing. It becomes the proposal's evaluation, so the proposal is `evaluating`, then `evaluated` or `not-better` as the rescore says. The run rescored stays as it was.
+  - **Rules:** it needs `publish` on the agent, as evaluating does, and takes no body fields. It's allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`. A latest evaluation that isn't a completed comparison is `409 eval-run-not-rescorable`. With `--rescore`, the CLI refuses the comparison flags.
+- 307771f: **A retired agent, tool or test set can be found and brought back, as a flow can; and an eval run says which project it's in.**
+  - `GET /v1/agents/{id}/versions` and `GET /v1/eval-suites/{id}/versions` take `?includeTombstoned=true`, listing unregistered versions too, each with `unregisteredAt` (tools' versions already did). They answer for a retired one (every version unregistered) instead of `404`; only a never-registered id is `404`.
+  - `GET /v1/agents`, `/v1/tools` and `/v1/eval-suites` take `?includeRetired=true`, listing retired ones too, each as its highest version with `unregisteredAt`. `Tool` and `EvalSuite` gain an optional `unregisteredAt` for it. Both flags are off by default, and optional on the bindings (`AgentListInput`, `ToolListInput`, `EvalSuiteListInput`: `includeRetired`; `AgentListVersionsInput`, `EvalSuiteListVersionsInput`: `includeTombstoned`).
+  - `EvalRun` gains an optional `projectId`: the project the run was started in.
+  - The client: `includeRetired` on `agents.list`, `tools.list` and `evalSuites.list`; `includeTombstoned` on `agents.versions.list` and `evalSuites.versions.list`. `tools.list` rows are typed `ToolVersionRow`.
+  - The CLI: `--include-retired` on `agents list`, `tools list` and `eval-suites list`; `--include-unregistered` on `agents versions`. **`kindgi tools versions --include-tombstoned` is now `--include-unregistered`**, as `blocks` and `flows` say. The agents table shows `UNREGISTERED`.
+- fdb86ae: `run.finished` names the agent of an agent's run: `data.run.agent` (`id`, `version`, `conversationId`), as `GET /v1/runs/{runId}` shows it, since an agent run's `flowId` is `agent.turn`. It's optional, absent on a flow's run and from a runtime that doesn't send it yet; the Python `FinishedRun` model has it as `agent: RunAgent | None`. `kindgi runs list --table` shows an agent run by its agent (`acme.desk@1.2.0`) in a `FLOW / AGENT` column, and the flow otherwise.
+- fdb86ae: A suspended run says what it's waiting for: `GET /v1/runs/{runId}` has `waitingFor` (`approvals`, `other`). An approval shows its identity and state (`approvalId`, `status`, `requiredRole`, `title`, `createdAt`, `expiresAt`, `subjectKind`) and, for a tool call held for review, `tool: { id, version, callId }`; never the call's arguments or the approval's description, context or decision, which stay on the approval. `other` names child runs, decided approvals and waits no approval is linked to. It's optional (absent from an older runtime, and on the list). `kindgi runs resume` uses it when present, names the held call, and otherwise works the answer out as before.
+- 307771f: **A project's schedules in one read, their owners named.** `GET /v1/schedules?projectId=` lists one project's schedules (a project id that isn't one is `400 bad-input`). `ListTriggersInput.projectId` is optional: the registry narrows, and the route keeps a page right from one that doesn't. Each schedule's `owner` gains an optional `displayName`, the owner's name at the time of the response: the person's display name from the directory, or the service account's name. It's absent when it can't be read (no directory, a removed account), and the id stands. The schedules router takes the directory and service-account bindings for it, and reads each owner once per response. The in-memory trigger registry narrows by project too. The client takes `projectId` on `schedules.list`; the CLI adds `kindgi schedules list --project=<id>` and an `OWNER` column.
+- 01958d4: The `secret-manager` secrets backend's settings: `KINDGI_SECRETS_MANAGER` (`azure`, `gcp` or `vault`; `aws` is read from runtime 0.1.7) picks your own secret manager, with `KINDGI_SECRETS_AZURE_VAULT_URL` (checked by `parseAzureVaultUrl`), `KINDGI_SECRETS_GCP_PROJECT_ID` (and, from runtime 0.1.7, `KINDGI_SECRETS_AWS_REGION`). `kindgi env init --secrets-backend=secret-manager --secrets-manager=<name>` writes them, and `--kms` is now for the `postgres` backend only. The secret-provider interface gains optional `providerVersion` fields, so Kindgi numbers secret versions itself whatever ids the provider uses.
+- fdb86ae: The message for IT that `kindgi sso providers start` prints is now `@kindgi/client/sso-handoff`. It's a new entry with no dependencies, so a browser app (the console) can show the same text. `identityProviderHandoff(urls, preset?)` returns the message, the identity provider's steps and the guide's URL. `IDENTITY_PROVIDER_PRESETS` lists Google Workspace, Microsoft Entra ID, Okta and Keycloak, with the steps in each one's console. The CLI's output doesn't change: snapshot tests of `start` for each provider check it byte for byte.
+- 929db86: Time inputs follow the API's `date-time` format: RFC 3339 times, e.g. `2026-10-09T14:00:00+02:00` or `2026-10-09T12:00:00Z` (Postgres `timestamptz` text is also accepted). Anything else gets `400 bad-input`. That includes a date without a time or zone, which was read in the server's zone, and anything else `Date.parse` used to take, such as `"Oct 9"` or `"1"`, which reached the store unchecked. One rule now covers every time the API reads, list cursors included:
+  - cost and eval-run `from`/`to` (eval runs checked none before);
+  - compliance evidence `from`/`to`, in the query and in the export filter;
+  - authz audit `from`/`to`;
+  - observations `since`/`until`;
+  - provenance and approvals `createdAfter`;
+  - memory `asOf` and fact times;
+  - memory erasure replay times;
+  - the test-set build's `since`/`until`;
+  - deployment `publishedAt`;
+  - API key `expiresAt`;
+  - secret `rotationDueAt`.
+  
+  The CLI's time flags accept an ISO 8601 time with a zone, or a date (read as that day's start in UTC), and send either as a full ISO time, so a date given to the CLI never meets the new 400. Anything else is refused before any call. The flags are `--since`/`--until`, `--as-of`, `--created-after`, `--expires` (its durations stay), `--published-at` and `--rotation-due-at`.
+- Updated dependencies [9c999e0]
+- Updated dependencies [fdb86ae]
+- Updated dependencies [fdb86ae]
+- Updated dependencies [307771f]
+- Updated dependencies [8b9e90d]
+- Updated dependencies [fdb86ae]
+- Updated dependencies [540a3d3]
+- Updated dependencies [38f2feb]
+- Updated dependencies [f0da210]
+- Updated dependencies [796c790]
+- Updated dependencies [36c31ea]
+- Updated dependencies [a2b2ae8]
+- Updated dependencies [307771f]
+- Updated dependencies [307771f]
+- Updated dependencies [1703bab]
+- Updated dependencies [307771f]
+- Updated dependencies [307771f]
+- Updated dependencies [307771f]
+- Updated dependencies [fdb86ae]
+- Updated dependencies [fdb86ae]
+- Updated dependencies [85ef97c]
+- Updated dependencies [5bdacf1]
+- Updated dependencies [307771f]
+- Updated dependencies [307771f]
+- Updated dependencies [f0d6a12]
+- Updated dependencies [edb2aba]
+- Updated dependencies [2a95199]
+- Updated dependencies [fdb86ae]
+- Updated dependencies [6a4715c]
+- Updated dependencies [fdb86ae]
+- Updated dependencies [fdb86ae]
+- Updated dependencies [26882a9]
+- Updated dependencies [307771f]
+- Updated dependencies [307771f]
+- Updated dependencies [307771f]
+- Updated dependencies [fdb86ae]
+- Updated dependencies [fdb86ae]
+- Updated dependencies [307771f]
+- Updated dependencies [307771f]
+- Updated dependencies [03151ca]
+- Updated dependencies [fdb86ae]
+- Updated dependencies [01958d4]
+- Updated dependencies [fdb86ae]
+- Updated dependencies [fdb86ae]
+- Updated dependencies [307771f]
+- Updated dependencies [8b60576]
+- Updated dependencies [bbdccbb]
+- Updated dependencies [fdb86ae]
+- Updated dependencies [307771f]
+  - @kindgi/sdk@0.1.6
+  - @kindgi/client@0.1.6
+  - @kindgi/env-schema@0.1.6
+  - @kindgi/agents@0.1.6
+  - @kindgi/handler-runtime@0.1.6
+  - @kindgi/secrets-dotenv@0.1.6
+  - @kindgi/crypto@0.1.6
+  - @kindgi/platform@0.1.6
+  - @kindgi/flow@0.1.6
+  - @kindgi/dotenv-file@0.1.6
+  - @kindgi/log@0.1.6
+  - @kindgi/types@0.1.6
+
 ## 0.1.5
 
 ### Patch Changes

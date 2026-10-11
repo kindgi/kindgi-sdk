@@ -1,5 +1,330 @@
 # @kindgi/api
 
+## 0.1.6
+
+### Patch Changes
+
+- 70c8d1f: **No `/v1` answer is kept by a browser or a proxy.** Every `/v1` response, data and errors alike, says `Cache-Control: no-store`. A `410` is cacheable by default, and a browser kept one through a reload for a flow that had since been reinstated; and an answer is one tenant's data, which no shared cache should hold. A route's own header (an event stream's `no-cache`) gives way to it. Outside `/v1` (the console's assets, the docs, `/health`), the server's own caching stands.
+- fdb86ae: Reviewers can be told when an approval waits for them.
+  
+  - **`approval.requested` webhook event:** an endpoint can subscribe to it like `run.finished`.
+    - **When:** sent each time an approval starts waiting (an escalation opens a new one).
+    - **What:** `data.approval` carries `approvalId`, `projectId`, `requiredRole`, `title`, `assignedTo`, `createdAt`, `expiresAt` and `url`. Never what the approval is about: no `context`, tool call or run input.
+    - **Filter:** the endpoint's `projectId` narrows it to the approval's project.
+  - **`KINDGI_REVIEWER_EMAIL`** (off by default): `on` emails reviewers through the emailed sign-in link's server.
+    - **Who:** the people the approvals list would show the approval to, only those who may read its project.
+    - **How often:** the first email goes at once, then a five-minute digest.
+    - **What:** title, project, required role and a link only.
+    - **Without the server:** turned on without `KINDGI_AUTH_EMAIL_SMTP_URL` and `KINDGI_AUTH_EMAIL_FROM`, the runtime refuses to start.
+  - **Clients:** the TypeScript and Python clients type the new event. The Python client's `parse_event` reads it.
+- fdb86ae: An approval and the run waiting on it end together.
+  - **A reviewer's withdraw ends the run:** on a gate approval it cancels the run's waitpoint, and the turn fails with `hitl-withdrawn` ("The approval for … was withdrawn"), right away instead of at the approval's deadline. Every `hitl-*` failure is a person's outcome, not an error.
+  - **A run's end withdraws its open approvals:** they show `withdrawnBecause` (`run-cancelled` or `run-ended`).
+  - **A decision on an approval whose run has ended is refused before anything is recorded:** `409 run-already-terminal`, with the ended run's `runId` and `status` in `details`. A decision recorded just before the run ended stands: the answer has `waitpointResolved: false` and the run's `runStatus`.
+  - **Approvals carry `requestedBy`, `separateApprover`, `escalatedFrom` and `escalatedTo`.** `identity.whoami` returns the caller's `actor` in the same form as `requestedBy`.
+  - **The approvals list takes `runId`, and `includeDescendants`** for the runs inside it.
+- 307771f: **A reviewer's inbox in one read.** `GET /v1/approvals` takes:
+  - `status` with several values, repeated or comma-separated (`status=pending,assigned,in_review`), as `GET /v1/runs` does. One status works as before; an unknown one is `400 bad-input`.
+  - `assignedTo=me`: only the approvals assigned to the caller's own reviewer row (none when it has no row).
+  - `order=asc`: oldest first. The page's `nextCursor` continues its own order, and a cursor can't continue the other order (`400 bad-input`). The page says which order it's in (`order`); a runtime before 0.1.6 leaves it out and lists newest first.
+  
+  `HitlBinding.listApprovals` takes optional `statuses`, `assignedTo` and `order`, and says the order it applied (`order` on its result). The route keeps a page right from a binding that ignores the filters. The client takes `status` as one or a list, `assignedTo: 'me'` and `order`, and returns the page's `order`. The Python client takes one value or a list for every repeated query parameter. The CLI adds `kindgi approvals list --status=<a,b> --assigned-to=me --order=asc`.
+- fd93b3e: **The access audit keeps every refusal.** Refusals the API decided before asking the authorization model weren't recorded: what a caller's API key rules out (a `member` key asking a tenant admin's action, a key limited to a project reaching outside it, a key without the capability a write needs) and a caller who isn't a reviewer on the approvals routes. They're now recorded like every other decision, through the binding's new optional `recordDecision` (`@kindgi/authz`), with a `reason` saying which check refused.
+  - `refused()` (with `capabilityRefusal()`) is the one way a route refuses on its own check: it records and answers `403 permission-denied`, the route's message unchanged, with `action`, `resource` and `reason` in the details.
+  - A check the authorization model can't answer (an action it doesn't define on the type) is recorded as one, and a test over every operation fails on it.
+  - A runtime without `recordDecision` refuses as before, recording nothing more.
+- a6ac2e9: Every secret and env write through the API is recorded in the audit log. Before, nothing was: a binding could emit these events only for one fixed tenant and project.
+  - **`/v1/secrets`:**
+    - a set → `secret-set` (`writeMode`, the new version, and `revokedValuesPurged: true` when the backend dropped a revoked secret's values to set it again);
+    - a rotation → `secret-rotated` (new and previous version), `secret-rotation-started` (asynchronous, with its `rotationId`) or `secret-rotation-failed`;
+    - a revoke → `secret-revoked` / `secret-hard-revoked` (with its `reason`).
+  - **`/v1/env`:** a set → `env-set` (its revision); a delete → `env-deleted`.
+  - **Each record:**
+    - `actor` is the caller (`user:…`, `service_account:…`, else the session, else `token:` and 16 hex of the credential's sha256);
+    - `correlationId` is the request;
+    - `projectId` is set for a project-scoped value;
+    - a refused write is recorded too, `failed`, with the code the client was answered.
+  - **Never a value,** nor anything derived from one.
+  - **Not recorded:** a revoke or delete that changed nothing.
+  - **Best effort:** a failing audit log never fails the write.
+  - **`emitLifecycleEvent`:** gains optional `actor`, `correlationId`, `writeMode`, `rotationId` and `revokedValuesPurged`, and `projectId` becomes optional.
+- fdb86ae: `POST /v1/auth/refresh` rotates the session token only, and never calls the identity provider. Removed: `createApp`'s `refreshToken` option, plus the `RefreshTokenFn`, `RefreshTokenInput` and `ExchangeCodeOutcome` types it used. No sign-in stores a provider refresh token for it anymore. Also removed from the error table: the codes nothing returns anymore (`oauth-state-invalid`, `oauth-code-exchange-failed`, `oauth-refresh-failed`, `oauth-refresh-not-supported`). Provider tokens a session already holds carry over to the refreshed session, as before.
+- de726fe: `409 block-project-mismatch` no longer names the project a block belongs to, as the agent, flow, tool and eval-suite mismatches don't. A caller who can't read that project shouldn't learn it.
+  - **The answer:** the error's `details` drop `projectId`, keeping `blockId`. The message says `Block "<id>" belongs to another project; publish its versions there`.
+  - **The log:** the request's log keeps the project, as `ownerProjectId`.
+  - **Unchanged:** the status and code. The binding's `project-mismatch` outcome still carries `projectId`, for the log.
+- fdb86ae: **A guardrail that only names a built-in check is marked.** The CLI's indexer sets `checkBuiltIn: true` on a pack index guardrail whose check is a built-in's (`must-cite`, …), and a deployment keeps it on the guardrail (`Guardrail.checkBuiltIn`, in both specs). From runtime 0.1.6, a guardrail that names a built-in, comes with its pack's code, and lacks the mark gets one warning in the runtime's log each time the runtime loads it. Such a pack was built with a CLI from before 0.1.6. One built before 0.1.5 may also ship its own check under the built-in's id, which the built-in replaces. Nothing is refused, and the built-in still runs. Rebuilding with a current CLI silences the warning. An older runtime ignores the mark.
+  
+  `POST /v1/guardrails`' `guardrail-config-invalid` now says it covers the config of any check the guardrail names, a pack check's or a built-in's.
+- 874567d: A list `cursor` must now carry a time a server actually writes: Postgres `timestamptz` text, or an ISO 8601 time naming a real calendar time. Anything else gets `400 bad-input` on every list that pages by time: conversations, runs, approvals (including a bare time cursor from before) and API keys. Before this, the check used `Date.parse`, which accepts `"1"`, `"x 1"` and `"Oct 9"`, so a hand-made cursor got past it and reached the store. Cursors the API hands out are unaffected.
+- fdb86ae: A deploy keeps a guardrail id that's already registered only if it's the deploy's own: in the project the deploy registers into (the tenant's Default project), with the same definition. Before, `already-registered` always counted as success, so two cases went through silently:
+  - **Another project's guardrail with that id:** the pack's agents would run it. Now the deploy is refused with `409 guardrail-project-mismatch`, without naming that project.
+  - **A changed guardrail in the same project:** the old definition stayed in force. Now the deploy is refused with `409 guardrail-already-registered`; unregister the guardrail and deploy again.
+  
+  In either case nothing is deployed, and what the deploy had registered is rolled back. Only what a guardrail's author declares is compared (its check, kind, action, config, scope, severity and the rest, plus its code's module path). What a deploy or a release derives isn't: the image and artifact version its code points into, a `configSchema` (a 0.1.4 deploy stored none), and fields a later release adds. So an unchanged pack still redeploys, from a new image and across releases.
+- 307771f: **A retired flow can be found and brought back.** `GET /v1/flows/{id}/versions?includeTombstoned=true` lists a flow's unregistered versions too, each with `unregisteredAt`, as tools and policies already do. It answers for a retired flow (every version unregistered) instead of `404`; only a never-registered id is `404`. `GET /v1/flows?includeRetired=true` lists retired flows too, each as its highest version with `unregisteredAt`. Both are off by default.
+  - `FlowListVersionsInput.includeTombstoned` and `FlowListInput.includeRetired` are optional; a registry that ignores them lists active versions and flows as before.
+  - The client: `flows.list({ includeRetired })` and `flows.versions.list(id, { includeTombstoned })`, rows typed `FlowVersionRow` (a `Flow` with `unregisteredAt`).
+  - The CLI: `kindgi flows list --include-retired` and `kindgi flows versions <id> --include-unregistered`; tables show `UNREGISTERED`.
+- 307771f: Guardrail outcomes: what each guardrail's checks came to, passes included, counted on the server.
+  
+  - **The record:** an agent turn's guardrail gate records each check as `passed`, `violated` (the answer went through), `blocked` (a `halt` failed the turn) or `errored` (the check couldn't run). It records through `InvokeAgentBindings.guardrailOutcomes`, a `GuardrailOutcomeSink` from `@kindgi/guardrails`, before it acts on them, so a blocked turn is recorded too.
+    - **No content:** only ids, the action, the severity and an error's code. No answer, and no check's reason.
+    - **Not recorded:** replays and dry runs.
+    - **Strict:** a sink that throws fails the step with `persistence-error`, so the counts never silently miss a turn.
+    - **Without a sink,** nothing is recorded.
+  - **`categorizeOutcomes`** also answers `checks`, each guardrail's outcome in order.
+  - **`GET /v1/guardrails/{guardrailId}/outcomes`:** a guardrail's outcomes on a project's agent turns over a window. The answer has the `counts`, the same counts per agent version (`byAgentVersion`), the window's latest blocked turns (`recentBlocked`, run ids and times only) and `recordedSince`, the earliest outcome kept.
+    - **The query:** `projectId`, `from` and `to` are required, with a window of at most 90 days. `recent` is optional: 0 to 50, 10 by default.
+    - **Who:** it needs `read` on the guardrail and on the project.
+    - **Retention:** outcomes go with their run's retention, so a window can hold fewer than asked.
+  - **`GuardrailRegistryBinding.outcomes`** is optional. Without it, the route answers `501 guardrail-outcomes-not-supported`.
+  - **The clients:** TypeScript `guardrails.outcomes(id, query)`; Python `guardrails.outcomes(...)`.
+- b8cd054: **Two more refusals are in the access audit.** A 403 to a caller the API knows is an access decision. These two answered without recording one, and are now recorded with the authorizer, so `GET /v1/audit/authz` shows them:
+  - **Identity-provider changes while the operator manages sign-in** (`KINDGI_AUTH_TENANT_PROVIDERS=off`) from a key without `kindgi:system`: `403 identity-providers-operator-managed`.
+  - **Console token sign-in** (`POST /v1/auth/token-sign-in`) with a service account's key or a narrowed key (`403 token-sign-in-not-allowed`), or on a deployment that doesn't allow it (`403 token-sign-in-off`).
+  
+  Each keeps its code and message, and its error gains the `action`, `resource` and `reason` details the other refusals carry. Token sign-in's own `sign-in-refused` event is still written. A 401, for a caller the API doesn't know, is a sign-in matter and isn't in the access audit.
+- 307771f: A judge class's `assertableBy.principalIds` (the people and tokens it's restricted to) goes only to an admin on the class's scope. Any other reader of `GET /v1/judge-classes` and `GET /v1/judge-classes/{judgeClassId}` gets the class without it, and every reader gets the new `assertableBy.principalCount`: how many it names. The response's `assertableBy` is the new `JudgeClassAssertableByView` (TypeScript: `JudgeClassAssertableByView`); request bodies keep `JudgeClassAssertableBy`.
+- 307771f: A project's **judging rules** say which of its runs need a person's judgment, and the runs they match as they end wait in the project's **judging queue**: `client.projects.judgingRules` and `client.projects.judgingQueue` (Python: `projects.judging_rules`, `projects.judging_queue`).
+  - **A rule** matches by agent or flow, version (`live` included) and dry runs, and queues a `sample` of those runs, at most `maxOpen` waiting at once. `judgeClassId` says whose judgment it wants. Only completed runs can be judged, so `when.status` takes `completed` only for now (`failed` and `cancelled` are refused with 400).
+    - **Versions:** each change is a new version, and `versions` lists who changed what.
+    - **Preview:** `preview` answers how many of the last 100 runs a rule would have queued.
+    - **Results:** `results` groups by the rule's version and the agent's version. Each group has the runs queued and the ones `maxOpen` skipped (`skippedByCap`), plus the weighted `yes` share of their judgments and a count by class.
+  - **The queue** lists runs oldest first, without their content. It filters by state, agent, rule, judge class, `forMe` and time; `limit=0` answers only the `total`.
+    - Each item names the rules that queued it, at the version that did, and its `can` says what the caller may do.
+    - An item closes as `judged` once each of its rules has the judgment it wants.
+    - `dismiss` and `reopen` take a run out and put it back.
+  
+  Reading takes project `read`; changing rules, dismissing and reopening take project `write`, as judging does. A rule only lists runs: it never runs a model.
+- 307771f: Under `kindgi dev`, Kindgi keeps the secrets you store in its own file, `.kindgi/secrets.env`, instead of your app's `.env.local`. A framework like Next.js or Vite loads `.env.local` into every route of your app, so a model key stored there was readable by code that never needs it.
+  
+  - `kindgi secrets set … --env=local` writes `.kindgi/secrets.env`: owner-only, under the gitignored `.kindgi/`, read after your app's `.env` and `.env.local`, so its value wins. `--app` writes your app's env file instead, for a value both read, such as a webhook signing secret (`appEnvFile` on `POST /v1/secrets`; a runtime with a secrets store refuses it).
+  - `kindgi secrets copy [NAME…]` copies model providers' keys (or the names given) from your app's env files into `.kindgi/secrets.env`, merge-only and as written. It never edits or deletes anything in your app's files; it says, per key, that the key is still there and whether git tracks the file. `kindgi dev` gives a one-time hint when it uses a provider's key from a file your app loads.
+  - Under `kindgi dev`, the pack service's environment no longer holds a secret stored with `kindgi secrets` (a tool reads it from `ctx.secrets`, as in a deployment), nor any model provider's key, whichever env file holds it. `GET /v1/providers/{providerId}/check` carries the provider's `secretRef` by name, never its value, which is how `kindgi dev` knows the names.
+  - A command that can't read an env file says so instead of crashing: `kindgi doctor` reports the model-key check as skipped, `kindgi dev` names the file it can't read, and `kindgi providers register` asks the runtime instead.
+- fdb86ae: What the caller may do, in one call, so a client can hide what the caller can't do instead of offering it and answering 403. It's optional for a runtime: without a `MyAccessBinding` the route answers `501 permissions-unsupported`, and a client reads whoami's `tenantAdmin` and `reviewerRole` instead.
+  
+  **`GET /v1/identity/me/permissions`** answers for the caller as authenticated:
+  - **`tenant`:** `{admin, member?}`. `admin` is decided as the admin routes decide it.
+  - **`reviewer`:** `{role, id?, decides, canDecide}`, when the caller is a reviewer.
+    - `id`: its reviewer id, its row on the roster, which an approval assigned to it names in `assignedTo`.
+    - `decides`: the required roles it may decide, its own rank and below.
+    - `canDecide`: false when its token has a reviewer role but no user or roster row (and then there's no `id`).
+  - **`key`:** `{tokenId, role?, projectId?}`, when the caller is an API key.
+  - **`tokenCapabilities`:** the capabilities the token carries, which secret, env and signing-key writes need. A sign-in session carries none; an API key carries those it was minted with (none by default).
+  - **`projects`:** the projects the caller may read, by name. Each has its effective `role` (`owner` > `admin` > `editor` > `viewer`) and `via`, every way it holds one:
+    - `direct` or `team`, with `since` when the runtime keeps it;
+    - `org-admin`;
+    - `tenant-admin`.
+  - **`orgs` and `teams`:** the caller's own, with its role in each.
+  - **`capabilities`:** what each project role allows on the project and each object type in it, from the runtime's authorization model. A client decides an action as `capabilities[project.role][type]` holding it.
+  - **`readOnlyNotice`:** the line a console shows someone who may only view a project, when a tenant admin set one. It's in the tenant config, `kind: 'config'`, key `console.readOnlyNotice`, plain text on one line, at most 280 characters.
+  
+  **The key's limits are applied:**
+  - a `member` key is never tenant admin;
+  - a key limited to a project sees that project alone, and administers no org or team.
+  
+  **Only what the caller may see:** no project it can't read, nobody else's role. The server still checks every call. `503 authz-backend-unavailable` when the authorization store can't be read.
+  
+  **Clients:**
+  - **TypeScript:** `client.identity.me.permissions()`, typed `MyPermissions`.
+  - **Python:** `client.identity.me.permissions()`, with the `MyPermissions` models.
+- bef2d8c: **A tool whose `needsSpec` schema wouldn't compile is refused up front.** Each schema in `needsSpec.secrets` and `needsSpec.env` must compile as the runtime compiles it when it loads the tool, and an env value's `default` must be a string. Before, a pack with one the runtime couldn't compile (an unknown keyword, say) deployed fine, and then the runtime left that tool out, so calls to it failed as an unknown tool. Now `defineTool` refuses it (`invalid-tool-definition`), and so do `POST /v1/tools` (`400 validation-failed`) and a deployment (`400 deployment-validation-failed`). The message names the tool, the slot and the name (`Tool "acme.sign": the schema for needsSpec.secrets.SIGNING_KEY doesn't compile: …`), and the issue's path is `/needsSpec/<slot>/<name>`.
+- fdb86ae: Paging `GET /v1/observations` no longer skips observations recorded at the same instant as a page's last one. The next cursor was that observation's bare time, with no tie-breaker; it now carries its position (the time as stored, and its id), when the deployment gives it. A bare-time cursor a client already holds still answers as before. The binding gains `SupervisorObservationPage.next` and `SupervisorQueryObservationsInput.after` (both optional; without them the route pages as before). A cursor that is neither a position nor a time, or a position whose id isn't an id, is `400 bad-input`. The cursor descriptions of the observations and approvals pages no longer say it's a timestamp: it's opaque.
+  
+  `GET /v1/blocks/{blockId}/versions` and `GET /v1/tools/{toolId}/versions` check their cursor too: one that isn't a versions cursor the registry issues (the forms documented on `BlockListVersionsInput.cursor` and `ToolListVersionsInput.cursor`) is `400 bad-input`, instead of starting over from the first page.
+- 85ef97c: **A tool's secret can be optional.** A secret declared in `needsSpec.secrets` with a schema that accepts `null` (`{ type: ['string', 'null'] }`) is optional. When the env doesn't have it, or has it empty, it's left out of `ctx.secrets` and the call goes on, with the call's log line naming it. A value that is set is still checked against the schema. A revoked secret, one whose value is gone at its provider though it's still mapped, or a secrets backend that fails, still fails the call. The schema has to name `null`: an unconstrained `{}` stays required. This needs runtime 0.1.6 or later: an older runtime requires every declared secret, failing a call without one with `secret-unavailable`. The guide ("An optional secret"), the authoring skills for every pack language, and the TypeScript and Python context types say so.
+  
+  `SecretError`'s `secret-not-found` (`@kindgi/api`) gains an optional `reason`: `deleted-at-provider` when the secret is mapped but its provider has no value for it. Absent means it was never stored.
+- 307771f: Who has access to a project, and how: `GET /v1/projects/{projectId}/access` lists everyone the authorization store lets in, people and service accounts, each with their effective role (the highest any way in gives) and every way in. The ways in are:
+  - `direct`, the principal's own role, with `joinedAt` when a membership stands behind it;
+  - `team`, a team's grant;
+  - `org-admin`, an admin of the project's org;
+  - `tenant-admin`.
+  
+  Reading it takes `write` on the project (its editors and admins), and emails show to its admins only. It's ordered by role (owner first), then by name, and paged by a cursor. A runtime without an authorization store answers `501 project-access-unsupported`. In TypeScript, `projects.access.list`; in Python, `projects.access.list`. The new optional `ProjectAccessBinding` is what a runtime implements.
+- 307771f: A project role to give is `owner`, `admin`, `editor` or `viewer`. `member`, an undocumented older name for `viewer`, is refused: adding or changing a project membership, or giving a service account a project role, with `member` is a `400 bad-input` that says to use `viewer`. A role given as `member` before still reads back as `member`, granting what `viewer` does. In the TypeScript client, writes take `AssignableProjectRoleValue` (memberships) and `ServiceAccountGrantInput` (service accounts); the Python client's request models take the four roles. `kindgi service-accounts` lists the four.
+- f0d6a12: Reinstating a retired tool version that declares or sends a model provider's key is refused too: `POST /v1/tools/{toolId}/versions/{version}/reinstate` answers `400 provider-key-refused`, and the version stays retired. Both clients now classify `provider-key-refused` as an invalid request and `provider-key-in-use` as a conflict, and the TypeScript client's `InvalidRequestError` carries the server's details besides `issues` as `fields` (for `provider-key-refused`: `secret` and `providerId`).
+- 307771f: A model provider's key is used by its provider only. A secret that a provider registration of the tenant names (its `secret_ref`, in any env) can't be declared or sent by a tool, or named by an MCP or a webhook endpoint:
+  
+  - **`POST /v1/tools`, `POST /v1/mcp/endpoints`, and `POST` or `PATCH /v1/webhook-endpoints`** refuse it with `400 provider-key-refused`, naming the secret and the provider (`details.secret`, `details.providerId`). The message says what to do: store the key under its own name (the same value is fine) and use that name.
+  - **`POST /v1/deployments`** reports each tool that names one as a `deployment-validation-failed` issue (`path` `/secrets/<name>`), and deploys nothing.
+  - **`POST /v1/providers`** refuses a `secret_ref` that a tool (its current version), an MCP endpoint or a webhook endpoint already uses: `409 provider-key-in-use`, with `details.usedBy` listing each.
+  
+  For a runtime to enforce the same at every call, `@kindgi/api` exports `guardProviderKeys(binding, keys, user)`: a `SecretBinding` whose `resolve` answers a model provider's key with the new `SecretError` code `provider-key-refused` (naming the secret and the provider), for whatever hands secrets to tools and endpoints, while the provider adapters keep the store itself. Also exported: `providerKeysOf(registry)`, `providerKeyRefusal`, `usersOfSecret`, and their types.
+  
+  `@kindgi/tools` exports `toolSecretNames(manifest)`: every secret a tool declares or sends, by name.
+- fdb86ae: A redeploy of the same pack from a new image now refreshes what the deploy derived for what it keeps:
+  - **A tool already published at that version** gets the new image's code pointer (`codeArtifactRef`).
+  - **A guardrail the deploy keeps** gets the new pointer and its check's `configSchema`.
+  
+  If the deploy is refused or fails later, the old values are restored, unless another deploy has refreshed them since (a compare-and-set through the methods' optional `expected`). Registries opt in through two new optional binding methods, `ToolRegistryBinding.refreshCodeArtifactRef` and `GuardrailRegistryBinding.refreshDeployedFields`. A registry without them keeps the first deploy's values, as before. The pointer itself is metadata: pack code runs by tool id and version, or by check name.
+- 5f460dd: **Every refusal of a caller the API knows is in the access audit.** Five more refusals were answered without being recorded. They're now recorded with the authorizer, so `GET /v1/audit/authz` shows them:
+  - **`key-project-mismatch`:** a request from a key limited to one project that names another, and a key limited to a project minting one that isn't.
+  - **`permission-denied`:** minting a key with capabilities you don't hold.
+  - **`judge-class-not-allowed`:** judging as a restricted judge class you may not assert.
+  - **`host-access-denied`:** registering a stdio MCP endpoint where the deployment runs no commands.
+  
+  Each keeps its code and message, and its error gains the `action`, `resource` and `reason` details the other refusals carry. `key-project-mismatch` keeps its `keyProjectId` and `projectId`.
+  
+  Four 403s stay out of the audit, because they don't refuse the caller:
+  - `signer-not-trusted`, which refuses an artifact;
+  - `csrf-origin-mismatch`, where the request may not be the principal's;
+  - a request with no principal: a public run token used outside its two progress routes, since it names a run, not a principal, and judging without a user or a service token;
+  - `role-exceeds-principal`, a limit on the key being minted.
+  
+  A 401 (an unknown caller) never is in the audit.
+- 307771f: **An agent, flow, tool, test set or guardrail says which project it's in.** Reading one (`GET /v1/agents`, `/v1/flows`, `/v1/tools`, `/v1/eval-suites`, `/v1/guardrails`: by id, in lists, and as versions) carries `projectId` when the registry records it, so a client can tell a record of another project opened under this one's address. It's optional in the schemas (`Agent`, `Flow`, `Tool`, `ToolVersionRow`, `EvalSuite`, `Guardrail`): a pack `kindgi dev` serves from disk has none, and neither does a runtime before 0.1.6.
+  - The bindings' read types say so: `AgentRegistryBinding.get` and `AgentPage` items are `AgentVersionRecord`; `FlowRegistryBinding.get` and `FlowPage` items are `FlowVersionRecord`; `ToolRegistryBinding.get`/`getVersion` and `ToolPage` items are the new `ToolRecord`; `EvalSuiteRegistryBinding.get`/`getVersion` and `EvalSuitePage` items are the new `EvalSuiteRecord`; `GuardrailRegistryBinding.get` and `GuardrailPage` items are the new `GuardrailRecord`. Each is the definition plus an optional `projectId`, so an implementation that doesn't set it still fits.
+  - A deploy (of an agent or a flow) and an agent version derived from edited pins compare a registered version's definition without what the registry sets (`projectId`, `unregisteredAt`), so a registry that reads the project back doesn't make every deploy register a new version.
+- fdb86ae: **Breaking:** the API's own OAuth sign-in flow is removed. Sign-in runs in the deployment (the runtime's browser flow), which reads the identity-provider catalog. The flow in this package was never mounted there, and its in-memory state store broke across instances.
+  - **Routes removed:** `POST /v1/auth/login/{providerId}` and `POST /v1/auth/callback/{providerId}` now answer 404.
+  - **`createApp` inputs removed:** `exchangeCode` and `oauthStateStore`.
+  - **Types removed:**
+    - `ExchangeCodeFn`, `ExchangeCodeInput`, `OAuth2ProviderConfig`;
+    - `OauthStateStore`, `OauthStateEntry`, `OauthStateTakeInput`, `createInMemoryOauthStateStore`;
+    - the OpenAPI schemas `LoginBody`, `AuthorizationResponse`, `CallbackBody`, `CallbackResult` and `OAuth2IdentityProviderConfig`.
+  - **Clients:** TypeScript `client.auth.login` and `client.auth.callback` are removed, with `LoginInput`, `LoginResult`, `CallbackInput` and `CallbackResultShape`. Python's `auth.login` and `auth.callback` are removed too.
+  - **The `oauth2` identity-provider kind is removed:** `IdentityProviderKind` is now `oidc | saml`.
+    - Registering an `oauth2` provider answers `422 identity-provider-invalid`, as a deployment already refused it.
+    - One stored before still lists, with its common fields.
+    - `GET /v1/auth/providers/{providerId}/sign-in?kind=oauth2` is now `400 bad-input`.
+  - **OIDC `allowedRedirectUris` is removed:** only the removed login route enforced it.
+    - Sending it is `400 invalid-provider-config`.
+    - A provider stored with it still loads, lists and signs people in; the field is left out of what it returns.
+  - **Unchanged:**
+    - the provider catalog;
+    - `POST /v1/auth/refresh` (`refreshToken` still rotates a provider refresh token a session holds);
+    - `POST /v1/auth/logout`;
+    - token sign-in.
+- 6a4715c: The deprecated export-signing inputs are gone. **Breaking, for code that embeds `@kindgi/api`:**
+  - `CreateAppInput.signingKey` is removed: pass `exportSigning`, an `ExportSigningBinding` (`createEd25519ExportSigner` or `createExportSignerFromPem` from `@kindgi/crypto`, or a KMS-backed binding).
+  - `exportSignerFromSigningKeyBinding` (`@kindgi/crypto`) is removed with it.
+  - `ComplianceEvidenceGenerator.exportSigned` is removed. `@kindgi/api` builds and signs a compliance export itself, so nothing called it.
+  
+  The Kindgi runtime already passes `exportSigning`, and nothing changes for it or for the signed exports it serves.
+- fdb86ae: A comparison can now be rescored after people judge its new answers. A changed free-text answer is a new item that no test-set judgment covers, so a comparison had no evidence for it, and a proposal changing a reply ended `not-better`.
+  - **Judge the new answers:** a comparison's `perCase[].changes.new` lists each changed item with its replay run (`runIds`). Judge it on that replay, as you'd judge any run. The console's Judge buttons do the same.
+  - **Rescore:** `POST /v1/eval-runs/{runId}/rescore` (`kindgi eval-runs rescore <run-id> [--wait]`, client `evalRuns.rescore`) starts a new comparison that replays nothing. It scores the run's replays again, counting the judgments recorded on them since, with the comparison's class weights. The run rescored stays as it was; the new one names it (`comparison.rescoreOf`, `summary.rescoreOf`).
+  - **What the evidence says:** a score's `fresh` sums, a new item's `judged`, and a metric's `freshWeight` say how much came from judging the replays. A case whose replays can't be read again keeps its scores (`rescored: false`, `summary.notRescored`).
+  - **Refusals:** a runtime that can't read replays and their judgments again answers `400 dispatcher-input-invalid`. A run that isn't a completed comparison of a test set is `409 eval-run-not-rescorable`.
+  - **Bindings:** `EvalRunStartInput.suiteVersion` (optional) pins the suite version a run uses. `EvalRun.projectId` (optional) names the run's project. `createJudgedDispatcher` takes optional `evalRuns`, `runs` and `judgments` readers for rescores.
+- fdb86ae: A proposal can be rescored. After people judge its comparison's new answers on the replay runs, `POST /v1/proposals/{proposalId}/rescore` rescores the proposal's latest evaluation, as `POST /v1/eval-runs/{runId}/rescore` does. The CLI is `kindgi proposals evaluate <proposal-id> --rescore [--wait]`, and the client is `proposals.rescore`.
+  - **What it does:** the new run scores the same replays again, with the same test set version and settings, and replays nothing. It becomes the proposal's evaluation, so the proposal is `evaluating`, then `evaluated` or `not-better` as the rescore says. The run rescored stays as it was.
+  - **Rules:** it needs `publish` on the agent, as evaluating does, and takes no body fields. It's allowed from `evaluated`, `not-better`, `refused`, `superseded` and `expired`. A latest evaluation that isn't a completed comparison is `409 eval-run-not-rescorable`. With `--rescore`, the CLI refuses the comparison flags.
+- 307771f: **A retired agent, tool or test set can be found and brought back, as a flow can; and an eval run says which project it's in.**
+  - `GET /v1/agents/{id}/versions` and `GET /v1/eval-suites/{id}/versions` take `?includeTombstoned=true`, listing unregistered versions too, each with `unregisteredAt` (tools' versions already did). They answer for a retired one (every version unregistered) instead of `404`; only a never-registered id is `404`.
+  - `GET /v1/agents`, `/v1/tools` and `/v1/eval-suites` take `?includeRetired=true`, listing retired ones too, each as its highest version with `unregisteredAt`. `Tool` and `EvalSuite` gain an optional `unregisteredAt` for it. Both flags are off by default, and optional on the bindings (`AgentListInput`, `ToolListInput`, `EvalSuiteListInput`: `includeRetired`; `AgentListVersionsInput`, `EvalSuiteListVersionsInput`: `includeTombstoned`).
+  - `EvalRun` gains an optional `projectId`: the project the run was started in.
+  - The client: `includeRetired` on `agents.list`, `tools.list` and `evalSuites.list`; `includeTombstoned` on `agents.versions.list` and `evalSuites.versions.list`. `tools.list` rows are typed `ToolVersionRow`.
+  - The CLI: `--include-retired` on `agents list`, `tools list` and `eval-suites list`; `--include-unregistered` on `agents versions`. **`kindgi tools versions --include-tombstoned` is now `--include-unregistered`**, as `blocks` and `flows` say. The agents table shows `UNREGISTERED`.
+- 307771f: **The reviewer roster is for those who decide approvals.** With authorization on, `GET /v1/approvals/reviewers` (and `/:reviewerId`) needed only a valid token, so any member, a project's viewer included, could see who reviews. It names people: a tenant admin or a reviewer (a role on the token, or one the roster gives the user) reads it now, and anyone else gets `403 permission-denied`, recorded in the access audit. Registering and unregistering still need a tenant admin.
+- 307771f: `GET /v1/runs/failures`: a project's failed runs over a window, grouped by cause and version, from the server's counts. A console can show error groups and which version started failing without counting the pages it loaded.
+  
+  - **Each group:** the failure's `code`, the agent or flow (`subject`), the `version`, how many runs failed, when the first and the latest failed in the window (`firstSeen`, `lastSeen`), and the latest run (`exampleRunId`).
+  - **People's decisions come apart:** `hitl-*` codes (an approval rejected, cancelled or timed out), with their `reason`, are `outcomes`, never failures.
+  - **Runs that failed before their cause was recorded** come back as `unrecorded`, by subject and version only.
+  - **The query:** `projectId`, `from` and `to` are required, with a window of at most 90 days. Optionally `agentId` or `flowId` (not both), `groupBy` (`code`, `version`, or both, the default) and `limit` (1 to 200, 50 by default). It needs `read` on the project.
+  - **Not counted:** replays, eval runs' runs and dry runs. A child run counts under its own agent or flow.
+  - **`RunBinding.failureGroups`** is optional. Without it, the route answers `501 run-failures-not-supported`.
+  - **The clients:** TypeScript `runs.failures(query)`; Python `runs.failures(...)`.
+- 307771f: A failed run's `failure` carries the error's own `reason` when it gives one, e.g. `reason: "timeout"` on a turn whose approval nobody decided in time (`hitl-cancelled`), so a caller no longer reads it from the message. It's optional: a runtime from before this release doesn't send it.
+- fdb86ae: `run.finished` names the agent of an agent's run: `data.run.agent` (`id`, `version`, `conversationId`), as `GET /v1/runs/{runId}` shows it, since an agent run's `flowId` is `agent.turn`. It's optional, absent on a flow's run and from a runtime that doesn't send it yet; the Python `FinishedRun` model has it as `agent: RunAgent | None`. `kindgi runs list --table` shows an agent run by its agent (`acme.desk@1.2.0`) in a `FLOW / AGENT` column, and the flow otherwise.
+- fdb86ae: A suspended run says what it's waiting for: `GET /v1/runs/{runId}` has `waitingFor` (`approvals`, `other`). An approval shows its identity and state (`approvalId`, `status`, `requiredRole`, `title`, `createdAt`, `expiresAt`, `subjectKind`) and, for a tool call held for review, `tool: { id, version, callId }`; never the call's arguments or the approval's description, context or decision, which stay on the approval. `other` names child runs, decided approvals and waits no approval is linked to. It's optional (absent from an older runtime, and on the list). `kindgi runs resume` uses it when present, names the held call, and otherwise works the answer out as before.
+- 307771f: `GET /v1/runs` (`runs.list`) narrows by more: `status` (one or several, repeated or comma-separated), `createdAfter` and `createdBefore` (strict), `agentVersion` (with `agentId`), and `flowId` with `flowVersion` (with `flowId`). An unknown status, a bad time, an empty value, or a version without its id is a `400 bad-input`. Both clients take `status` as one status or a list. An unfiltered tenant-wide page is also much faster on a large deployment.
+- 307771f: **A project's schedules in one read, their owners named.** `GET /v1/schedules?projectId=` lists one project's schedules (a project id that isn't one is `400 bad-input`). `ListTriggersInput.projectId` is optional: the registry narrows, and the route keeps a page right from one that doesn't. Each schedule's `owner` gains an optional `displayName`, the owner's name at the time of the response: the person's display name from the directory, or the service account's name. It's absent when it can't be read (no directory, a removed account), and the id stands. The schedules router takes the directory and service-account bindings for it, and reads each owner once per response. The in-memory trigger registry narrows by project too. The client takes `projectId` on `schedules.list`; the CLI adds `kindgi schedules list --project=<id>` and an `OWNER` column.
+- fdb86ae: Page cursors can be sealed. A list that hides rows the caller can't read after fetching them handed out its binding's cursor, a readable position that could name one of those rows (its id or time).
+  
+  - **What it does:** with `cursorSealer` (`createAeadCursorSealer`, AES-256-GCM), every list's cursors are sealed at the API's edge. A GET's sealed `cursor` opens to its position before any route reads it, and a JSON answer's `nextCursor` is sealed on its way out. A sealed cursor shows nothing of the row it points after.
+  - **Where it opens:** only for the tenant, caller, list and filters it was handed out for, within a day. Otherwise `400 bad-input`, and the client starts again without it. The page size may change mid-scan. A plain cursor still passes.
+  - **Keys:** each carries a `kid`. The first key seals and any listed key opens, so a key can rotate.
+  - **Approvals:** with sealed cursors, `GET /v1/approvals` continues after the last approval it fetched once the page holds every one of that window the caller may read. A window of approvals the caller can't read no longer ends the paging: the page is empty, with `hasMore` and a cursor.
+  - **Without a sealer:** cursors are the bindings' own, as before.
+  - **The runtime's key:** `@kindgi/env-schema` lists `KINDGI_PAGINATION_KEY(_PATH)` and `KINDGI_PAGINATION_PREVIOUS_KEY(_PATH)` (for `--help` and the environment reference). Without a key, a cursor from before a restart answers 400 after it, and more than one instance needs the key. Keep the previous key at least a day after rotating, and rotate yearly. A cursor sealed with a key the runtime doesn't have says so (`unknown-key`). A list's filters bind as `[name, value]` pairs.
+- 01958d4: The `secret-manager` secrets backend's settings: `KINDGI_SECRETS_MANAGER` (`azure`, `gcp` or `vault`; `aws` is read from runtime 0.1.7) picks your own secret manager, with `KINDGI_SECRETS_AZURE_VAULT_URL` (checked by `parseAzureVaultUrl`), `KINDGI_SECRETS_GCP_PROJECT_ID` (and, from runtime 0.1.7, `KINDGI_SECRETS_AWS_REGION`). `kindgi env init --secrets-backend=secret-manager --secrets-manager=<name>` writes them, and `--kms` is now for the `postgres` backend only. The secret-provider interface gains optional `providerVersion` fields, so Kindgi numbers secret versions itself whatever ids the provider uses.
+- fdb86ae: Browser sessions can use a plain session cookie in development on a loopback address, so Safari can sign in to a console at `http://localhost` or `http://127.0.0.1`. Safari keeps a `Secure` cookie only over https, even on localhost.
+  - **`SessionCookieOptions.secure`** (default `true`). With `false`, the cookie is `kindgi_session` (`PLAIN_SESSION_COOKIE_NAME`; `__Host-` needs `Secure`). It's still `HttpOnly` and `SameSite=Lax`, and the middleware reads only that name. Where the cookie is `Secure`, a plain `kindgi_session` never counts. `createApp` refuses `secure: false` with a `__Host-` or `__Secure-` name.
+  - **`GET /v1/auth/sign-in-options`** answers `methods.sessionCookie`: `secure` or `plain`, wherever there are browser sessions. A sign-in page can check the browser keeps that kind of cookie before offering sign-in. It's absent from older servers: treat that as `secure`.
+- fdb86ae: Sessions no longer hold identity-provider tokens. `Session` and `SessionCreateInput` lose `accessToken` and `refreshToken`, and `POST /v1/auth/refresh` no longer copies them to the new session. Nothing has written them since the API's own OAuth flow was removed. Stored provider tokens are cleared in 0.1.6: the runtime's session store stops reading and writing them and empties them on existing sessions. They're credentials, so nothing keeps them. If you run a session store of your own that kept them, delete them.
+- f49efa3: `GET /v1/auth/sign-in-options`' rate limit can be shared by every instance.
+  - **The binding:** a new `RateLimitStore` (`take({ key, limit, windowMs })` → allowed, or refused with `retryAfterMs`). `SignInOptionsRateLimit.store` takes one.
+  - **The default:** `createInMemoryRateLimitStore()` counts in each process, as before, so N instances let N × `limit` through. The Kindgi runtime passes one it keeps in Postgres.
+  - **Keys:** the route asks the store with the client's key, namespaced (`sign-in-options:<client>`), so one store can serve several limits.
+  - **A store that fails:** the lookup is still answered, because the limit is a speed bump, not a lock, and the failure is logged.
+- fdb86ae: A tenant's sign-in history: `GET /v1/audit/sign-ins`, a tenant admin's to read. It lists who signed in and out, how (`method`: `api-token`, `email-link`, `google`, `microsoft`, `github`, or a workspace identity provider), when and from where (`clientAddress`), what was refused and why, and the emailed links sent or capped. `?userId=` narrows it to one person's own sign-ins and sign-outs, and `?kind=`, `?from=`/`?to=`, `?order=desc` and cursor paging work as on `/v1/audit/authz`. Anyone else gets 403 `permission-denied`.
+- fdb86ae: An operator can manage sign-in alone. With `identityProviderChanges: 'operator'` (the runtime's `KINDGI_AUTH_TENANT_PROVIDERS=off`), a tenant can't add, change or remove its identity providers. `POST /v1/auth/providers`, `PATCH /v1/auth/providers/{providerId}` and `POST …/unregister` answer `403 identity-providers-operator-managed`: "This deployment's operator manages sign-in (KINDGI_AUTH_TENANT_PROVIDERS=off): identity providers can't be added, changed or removed here, except with the deployment's own token (KINDGI_API_TOKEN)." The deployment's own token (the `kindgi:system` capability) still can. Reading them is the same, and the providers there keep signing people in. `GET /v1/auth/providers` says which it is: an optional `changes`, `tenant` or `operator` (absent from older servers: read it as `tenant`). The TypeScript and Python clients read the new code as forbidden. `KINDGI_AUTH_TENANT_PROVIDERS` is in the environment schema (`on` by default).
+- 929db86: Time inputs follow the API's `date-time` format: RFC 3339 times, e.g. `2026-10-09T14:00:00+02:00` or `2026-10-09T12:00:00Z` (Postgres `timestamptz` text is also accepted). Anything else gets `400 bad-input`. That includes a date without a time or zone, which was read in the server's zone, and anything else `Date.parse` used to take, such as `"Oct 9"` or `"1"`, which reached the store unchecked. One rule now covers every time the API reads, list cursors included:
+  - cost and eval-run `from`/`to` (eval runs checked none before);
+  - compliance evidence `from`/`to`, in the query and in the export filter;
+  - authz audit `from`/`to`;
+  - observations `since`/`until`;
+  - provenance and approvals `createdAfter`;
+  - memory `asOf` and fact times;
+  - memory erasure replay times;
+  - the test-set build's `since`/`until`;
+  - deployment `publishedAt`;
+  - API key `expiresAt`;
+  - secret `rotationDueAt`.
+  
+  The CLI's time flags accept an ISO 8601 time with a zone, or a date (read as that day's start in UTC), and send either as a full ISO time, so a date given to the CLI never meets the new 400. Anything else is refused before any call. The flags are `--since`/`--until`, `--as-of`, `--created-after`, `--expires` (its durations stay), `--published-at` and `--rotation-due-at`.
+- 307771f: A team can have a role on a project. `POST /v1/projects/{projectId}/team-grants` gives one (`viewer`, `editor` or `admin`; a team never owns a project), and every member of the team then holds it there. Giving it takes `admin` on the project and `read` on the team. Adding a role the team already holds answers `201` with the existing grant; another is `409 team-grant-exists` (`details.role`). `PATCH` and `DELETE …/team-grants/{teamId}` change and remove it. `GET …/team-grants` lists a project's, and `GET /v1/teams/{teamId}/project-grants` a team's; each grant names its team and project. In TypeScript, `projects.teamGrants` and `teams.projectGrants`; in Python, `projects.team_grants` and `teams.project_grants`.
+  
+  Who sees who has access: listing a project's members or team grants takes `write` on the project (its editors and admins), so a viewer no longer sees who else works there. Listing a team's members or its projects takes `admin` on the team. Everyone reads their own roles through their grants.
+  
+  Re-adding a project or team member with another role is `409 membership-exists`, naming the role they hold (`details.role`), which is kept. The same role answers `201` as before. With authorization on, deleting a team takes its tuples with it (its members' roles and its project grants).
+  
+  `@kindgi/platform`:
+  - `TeamProjectRole` is new.
+  - The membership add outcomes and the hierarchy's add errors gain `membership-exists`.
+  - `TeamProjectGrant` gains `grantedAt`, and its binding an optional `get`.
+  - `TenantHierarchyBinding` gains optional `addTeamProjectGrant`, `updateTeamProjectGrantRole`, `removeTeamProjectGrant` and `deleteTeam`.
+- fdb86ae: A test set built from judgments leaves out a comparison's replays. Judging a replay's answer is evidence for that comparison, and it no longer becomes a case of a later test set.
+  - **How a replay is known:**
+    - A run's first judgment now stamps its stored copy with the run it replays (`run.context.replayOf`, shown in `GET /v1/judgments/{id}`).
+    - An agent turn judged before this stamp is still known, from the replay report its output carries (`replay.of`).
+    - `isReplayCopy` states the rule, and `JudgmentRegistryBinding.listJudgedRuns` never lists a replay.
+  - **The one gap:** a flow's replay judged through the API before this release isn't stamped and can't be told apart, so it still counts. To leave one out, remove its judgments (`kindgi judgments remove <id>`), or build the test set from judgments made since the upgrade (`--since`).
+- fdb86ae: The API reference and the clients no longer offer event triggers and inbound webhooks, which the runtime doesn't serve: it fires schedules only, and `/v1/event-triggers` and `/v1/webhooks` answer 404. The OpenAPI document leaves those operations out, with the schemas only they used. The TypeScript client drops `eventTriggers` and `webhooks` (and their types), and the Python client their resources. A run's `trigger.kind` keeps `event` and `webhook`, now described as not served yet. To react to something outside, start a run with `POST /v1/runs`. The operations stay registered in `@kindgi/api`, marked `unserved`, so they come back when a runtime serves them. Outbound webhook endpoints (`/v1/webhook-endpoints`) are unchanged.
+- 307771f: The people list (`GET /v1/identity/users`) takes `include=grants`: each person carries `grants`, the same shape as `GET /v1/identity/users/{userId}/grants`, in one read instead of one per person. In TypeScript, `users.list({ includeGrants: true })` (and `identity.users.list`); in Python, `identity.users.list(include="grants")`. A runtime that doesn't read grants (no authorization store) lists the people without them. An unknown `include` value is a `400 bad-input`. The person-grants binding gains an optional `readMany`, so a runtime can read a page of people's grants in one call; without it, the route reads each person, a few at a time.
+- Updated dependencies [fdb86ae]
+- Updated dependencies [fd93b3e]
+- Updated dependencies [a6ac2e9]
+- Updated dependencies [fdb86ae]
+- Updated dependencies [eed55a1]
+- Updated dependencies [a2b2ae8]
+- Updated dependencies [307771f]
+- Updated dependencies [bef2d8c]
+- Updated dependencies [85ef97c]
+- Updated dependencies [307771f]
+- Updated dependencies [6a4715c]
+- Updated dependencies [26882a9]
+- Updated dependencies [307771f]
+- Updated dependencies [307771f]
+- Updated dependencies [307771f]
+- Updated dependencies [03151ca]
+- Updated dependencies [307771f]
+- Updated dependencies [8b60576]
+- Updated dependencies [bbdccbb]
+  - @kindgi/agents@0.1.6
+  - @kindgi/authz@0.1.6
+  - @kindgi/compliance@0.1.6
+  - @kindgi/guardrails@0.1.6
+  - @kindgi/capabilities@0.1.6
+  - @kindgi/tools@0.1.6
+  - @kindgi/crypto@0.1.6
+  - @kindgi/runtime@0.1.6
+  - @kindgi/schema@0.1.6
+  - @kindgi/platform@0.1.6
+  - @kindgi/flow@0.1.6
+  - @kindgi/provenance@0.1.6
+  - @kindgi/blob-binding@0.1.6
+  - @kindgi/audit-events@0.1.6
+  - @kindgi/log@0.1.6
+  - @kindgi/memory@0.1.6
+  - @kindgi/policy-contract@0.1.6
+  - @kindgi/types@0.1.6
+
 ## 0.1.5
 
 ### Patch Changes

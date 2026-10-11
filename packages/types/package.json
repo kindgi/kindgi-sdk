@@ -1,6 +1,6 @@
 {
   "name": "@kindgi/types",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Foundational TypeScript types shared across Kindgi. Branded IDs, timestamps, hashes, refs, Result, list filter / page shapes. Zero runtime dependencies; the only runtime export is the makeEnvName validator.",
   "license": "Apache-2.0",
   "repository": {
