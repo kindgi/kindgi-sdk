@@ -505,6 +505,14 @@ What to check before you upgrade, and what's different after:
 - **The console has a new look,** light or dark: it follows your system, or
   the one you choose (also in ⌘K). Its links no longer point at an address
   without the tenant while a page loads.
+- **⌘K and the breadcrumbs reach every project section;** choosing Cost or
+  Schedules there used to do nothing.
+- **A record opened under another project's address moves to its own
+  project** (a run, an approval, an agent and the pages under it, a tool, and
+  the like), keeping its tab, instead of showing under the wrong project with
+  actions that project then refused. One in a project you can't open says so:
+  "This agent belongs to another project, which you can't open. Ask an admin
+  of it for access."
 - **`kindgi dev` runs your pack's code sandboxed** (macOS Seatbelt; Linux
   bubblewrap, which you may need to install): it can't read your keys or
   files outside the app, write outside it, or reach Docker, and keeps the
