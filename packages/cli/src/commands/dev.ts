@@ -514,7 +514,11 @@ async function runDevForPack(
   // The runtime's port, before anything starts. Taken without `--port`
   // (another `kindgi dev`, say): the next free one, which `.kindgirc.json`
   // then records for every client. Taken with `--port`: refused.
-  const port = await pickRuntimePort(dev, args);
+  const owner = {
+    owner: lock.owner,
+    ownerIsLive: (o: string) => ownerIsLive(o, dev.devLockProcesses ?? osProcesses()),
+  };
+  const port = await pickRuntimePort(dev, args, owner);
   if (port.kind === 'error') return port;
 
   // Resolve the database URL. Precedence:
@@ -780,8 +784,7 @@ async function runDevForPack(
     server = await withHeartbeat('still starting the runtime', 3000, () =>
       dev.startApiServer({
         port: port.port,
-        owner: lock.owner,
-        ownerIsLive: (owner) => ownerIsLive(owner, dev.devLockProcesses ?? osProcesses()),
+        ...owner,
         databaseUrl,
         tenantId: effectiveTenantId,
         token: effectiveToken,
@@ -822,14 +825,7 @@ async function runDevForPack(
         exitCode: 130,
       };
     }
-    // Another live kindgi dev's runtime container, for this pack: untouched.
-    if (err instanceof RuntimeOwnedElsewhere) {
-      return {
-        kind: 'error',
-        stderr: `kindgi dev: ${err.message}. Stop that kindgi dev first, then run kindgi dev again.\n`,
-        exitCode: ALREADY_RUNNING_EXIT_CODE,
-      };
-    }
+    if (err instanceof RuntimeOwnedElsewhere) return ownedElsewhereRefusal(err);
     return {
       kind: 'error',
       stderr: `kindgi dev couldn't start the Kindgi runtime: ${(err as Error).message}\n`,
@@ -1324,16 +1320,31 @@ type RuntimePortOutcome =
   | { readonly kind: 'ok'; readonly port: number }
   | (CommandResult & { readonly kind: 'error' });
 
+/** Another live kindgi dev's runtime container, for this pack: untouched, and said so. */
+function ownedElsewhereRefusal(err: RuntimeOwnedElsewhere): CommandResult & { kind: 'error' } {
+  return {
+    kind: 'error',
+    stderr: `kindgi dev: ${err.message}. Stop that kindgi dev first, then run kindgi dev again.\n`,
+    exitCode: ALREADY_RUNNING_EXIT_CODE,
+  };
+}
+
 async function pickRuntimePort(
   dev: DevRunners,
   args: ResolvedDevArgs,
+  owner: { readonly owner: string; readonly ownerIsLive: (owner: string) => Promise<boolean> },
 ): Promise<RuntimePortOutcome> {
   // `--runtime-url`: the developer's runtime has its own port. Port 0: any.
   if (args.runtimeUrl !== undefined || args.port === 0 || dev.runtimePortInUse === undefined) {
     return { kind: 'ok', port: args.port };
   }
-  const inUse = (port: number) => dev.runtimePortInUse!({ packDir: args.packDir, port });
-  if (!(await inUse(args.port))) return { kind: 'ok', port: args.port };
+  const inUse = (port: number) => dev.runtimePortInUse!({ packDir: args.packDir, port, ...owner });
+  try {
+    if (!(await inUse(args.port))) return { kind: 'ok', port: args.port };
+  } catch (err) {
+    if (err instanceof RuntimeOwnedElsewhere) return ownedElsewhereRefusal(err);
+    throw err;
+  }
   if (args.portGiven) {
     return {
       kind: 'error',

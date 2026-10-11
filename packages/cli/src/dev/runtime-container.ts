@@ -207,6 +207,30 @@ export async function ownedElsewhere(
   return (await self.ownerIsLive?.(owner)) === true ? owner : undefined;
 }
 
+/**
+ * Clear the way for this pack's runtime container: one left by an earlier
+ * `kindgi dev` of this pack (a crashed session) is removed, but never one
+ * still running for another live `kindgi dev` (its lock was skipped: an
+ * older CLI, a lock removed by hand), which throws `RuntimeOwnedElsewhere`
+ * and is left as it is. The port check and the start both go through here.
+ */
+export async function removeReplaceableRuntimeContainer(
+  name: string,
+  self: Pick<RuntimeContainerOptions, 'owner' | 'ownerIsLive'>,
+): Promise<void> {
+  const existing = await docker([
+    'inspect',
+    '--format',
+    `{{.State.Running}} {{index .Config.Labels "${RUNTIME_OWNER_LABEL}"}}`,
+    name,
+  ]);
+  if (existing.code === 0) {
+    const owner = await ownedElsewhere(existing.stdout, self);
+    if (owner !== undefined) throw new RuntimeOwnedElsewhere(name, owner);
+  }
+  await docker(['rm', '--force', name]);
+}
+
 /** This pack's runtime container runs for another `kindgi dev`, still alive: it isn't touched. */
 export class RuntimeOwnedElsewhere extends Error {
   constructor(
@@ -311,20 +335,7 @@ export async function startRuntimeContainer(
   wait: { readonly timeoutMs?: number; readonly fetch?: typeof fetch } = {},
 ): Promise<RunningRuntimeContainer> {
   const name = runtimeContainerName(options.packDir);
-  // A container left by this pack's last kindgi dev is replaced, but never
-  // one still running for another live kindgi dev (its lock was skipped:
-  // an older CLI, a lock removed by hand).
-  const existing = await docker([
-    'inspect',
-    '--format',
-    `{{.State.Running}} {{index .Config.Labels "${RUNTIME_OWNER_LABEL}"}}`,
-    name,
-  ]);
-  if (existing.code === 0) {
-    const owner = await ownedElsewhere(existing.stdout, options);
-    if (owner !== undefined) throw new RuntimeOwnedElsewhere(name, owner);
-  }
-  await docker(['rm', '--force', name]);
+  await removeReplaceableRuntimeContainer(name, options);
   const started = await docker(runtimeRunArgs(name, options));
   if (started.code !== 0) {
     throw new Error(`docker run failed: ${dockerFailureDetail(started.stderr)}`);

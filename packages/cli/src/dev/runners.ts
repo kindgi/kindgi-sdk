@@ -409,11 +409,15 @@ export interface DevRunners {
   /**
    * Whether the runtime's port on `127.0.0.1` is taken, checked before
    * anything starts. The pack's own runtime from an earlier boot doesn't
-   * count: starting the runtime replaces it. Missing: not checked.
+   * count: starting the runtime replaces it. One still running for
+   * another live `kindgi dev` (`owner`, `ownerIsLive`, as for the start)
+   * throws `RuntimeOwnedElsewhere`. Missing: not checked.
    */
   readonly runtimePortInUse?: (input: {
     readonly packDir: string;
     readonly port: number;
+    readonly owner?: string;
+    readonly ownerIsLive?: (owner: string) => Promise<boolean>;
   }) => Promise<boolean>;
   readonly startServices?: (options: {
     readonly recreate: boolean;

@@ -45,7 +45,7 @@ import type {
   StartServicesResult,
   WatchHandle,
 } from '../src/dev/runners.js';
-import { RuntimeStartStopped } from '../src/dev/runtime-container.js';
+import { RuntimeOwnedElsewhere, RuntimeStartStopped } from '../src/dev/runtime-container.js';
 import { type RunCliInputs, runCli } from '../src/main.js';
 import { CLI_VERSION } from '../src/version-info.js';
 
@@ -1112,6 +1112,32 @@ describe('kindgi dev — one per pack', () => {
     expect(writes.join('')).toContain(
       'a previous kindgi dev (pid 4242) ended without removing .kindgi/dev/dev.lock; continuing',
     );
+    await expect(stat(devLockPath(packDir))).rejects.toThrow();
+  });
+
+  test("a lock removed by hand: the first one's runtime container stops it at the port check, exit 3", async () => {
+    const fixtures = makeFixtures();
+    let started = 0;
+    const out = await runCli({
+      ...baseInputs(fixtures),
+      devRunners: {
+        ...fixtures.runners,
+        runtimePortInUse: async () => {
+          throw new RuntimeOwnedElsewhere('kindgi-dev-runtime-x', '4242@Fri Oct 10 10:02:00 2026');
+        },
+        startApiServer: async (o) => {
+          started += 1;
+          return fixtures.runners.startApiServer(o);
+        },
+      },
+      argv: ['dev', '--no-watch', `--path=${packDir}`],
+    });
+    expect(out.exitCode).toBe(3);
+    expect(out.stderr).toContain(
+      "kindgi dev: this pack's runtime container (kindgi-dev-runtime-x) runs for another kindgi dev (pid 4242), still running. Stop that kindgi dev first",
+    );
+    expect(started).toBe(0);
+    // The lock it took, there being none, is released.
     await expect(stat(devLockPath(packDir))).rejects.toThrow();
   });
 });
@@ -2622,12 +2648,14 @@ describe("kindgi dev — the runtime's port (T218)", () => {
   function withPorts(taken: readonly number[]) {
     const fixtures = makeFixtures();
     const asked: { packDir: string; port: number }[] = [];
+    const owners: (string | undefined)[] = [];
     const started: number[] = [];
     let servicesStarted = 0;
     const runners: DevRunners = {
       ...fixtures.runners,
       runtimePortInUse: async (input) => {
-        asked.push({ ...input });
+        asked.push({ packDir: input.packDir, port: input.port });
+        owners.push(input.owner);
         return taken.includes(input.port);
       },
       startApiServer: async (opts) => {
@@ -2649,6 +2677,7 @@ describe("kindgi dev — the runtime's port (T218)", () => {
     return {
       fixtures: { ...fixtures, runners },
       asked,
+      owners,
       started,
       servicesStarted: () => servicesStarted,
     };
@@ -2672,6 +2701,8 @@ describe("kindgi dev — the runtime's port (T218)", () => {
     const { out, live } = await dev(ports.fixtures, []);
     expect(out.exitCode).toBe(0);
     expect(ports.asked).toEqual([{ packDir, port: 4000 }]);
+    // Asked as this kindgi dev, so another live one's container is never removed for the port.
+    expect(ports.owners).toEqual([expect.stringMatching(new RegExp(`^${process.pid}@`))]);
     expect(ports.started).toEqual([4000]);
     expect(live).not.toContain('is in use');
   });
