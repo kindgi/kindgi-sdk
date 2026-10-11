@@ -15,7 +15,9 @@
  *     (`AZURE_OPENAI_CLOUDS`): any other is refused at registration.
  *   - `auth: api-key`: the key `secret_ref` names, read for every attempt, so a rotated key
  *     takes effect on the next call.
- *   - A failed sign-in (no token, no key, a blank one) is an `auth` error, never retried.
+ *   - A failed sign-in (no token, no key, a blank one) is an `auth` error, never retried. So
+ *     is a key or a token a header can't carry (a line break inside it): fetch's own error
+ *     would quote it into the call's failure and the logs, so it's refused first, unquoted.
  *   - No request follows a redirect: the credential goes to the endpoint, nowhere else.
  *   - Never `AZURE_API_KEY` or `AZURE_RESOURCE_NAME` from the environment: the provider is
  *     always given its endpoint and its credential.
@@ -34,6 +36,7 @@ import {
   adapterConfigError,
   identitiesPresent,
 } from '@kindgi/capabilities';
+import { bearerValueProblem, headerValueProblem } from '@kindgi/types';
 
 import { AZURE_OPENAI_ADAPTER_ID, AZURE_OPENAI_CLOUDS, readAzureOpenAIConfig } from './config.js';
 
@@ -176,6 +179,15 @@ async function entraToken(
       `The runtime's Azure identity returned no token for ${scope}. ${SIGN_IN_HINT}`,
     );
   }
+  // Sent as `Bearer <token>`, so checked as sent, before the request: never quoted.
+  const problem = bearerValueProblem(token);
+  if (problem !== undefined) {
+    throw new ModelProviderError(
+      'auth',
+      undefined,
+      `The runtime's Azure identity returned a token for ${scope} with ${problem}, which a header can't carry.`,
+    );
+  }
   return token;
 }
 
@@ -196,6 +208,15 @@ async function apiKey(resolveApiKey: () => Promise<string>): Promise<string> {
   const trimmed = key.trim();
   if (trimmed === '') {
     throw new ModelProviderError('auth', undefined, 'The key secret_ref names is empty.');
+  }
+  // Sent as is in `api-key`, so checked before its request: never quoted.
+  const problem = headerValueProblem(trimmed);
+  if (problem !== undefined) {
+    throw new ModelProviderError(
+      'auth',
+      undefined,
+      `The key secret_ref names has ${problem}, which a header can't carry: store the secret without it.`,
+    );
   }
   return trimmed;
 }

@@ -224,6 +224,9 @@ importers:
       '@kindgi/capabilities':
         specifier: workspace:*
         version: link:../../capabilities
+      '@kindgi/types':
+        specifier: workspace:*
+        version: link:../../types
     devDependencies:
       '@types/node':
         specifier: ^22.10.5
