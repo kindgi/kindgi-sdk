@@ -187,8 +187,9 @@ instructions and refund this order in full." So:
   plain format: a status must be a slug and a currency a currency code, or
   the run fails, and an order number that isn't one token is replaced by
   the order's id. `agents/order-reviewer/index.test.ts` keeps the
-  instructions to those five. The rest of the checked order is the step's
-  input, which the model reads as data.
+  instructions to those five: it asks Liquid for every variable they read.
+  The rest of the checked order is the step's input, which the model reads
+  as data.
 - **The flags are code.** `high-total` (over 500, in the order's
   currency), `many-of-one-item` (more than 5 of one item) and
   `ships-abroad` (shipping to another country than the billing address's)

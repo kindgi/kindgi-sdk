@@ -3,6 +3,7 @@
 // fields may reach the instructions (`tools/check-order-event` holds each to
 // a plain format); everything else stays in the step's input, as data.
 
+import { Liquid } from 'liquidjs';
 import { describe, expect, test } from 'vitest';
 
 import orderReviewer from './index.js';
@@ -11,17 +12,17 @@ import orderReviewer from './index.js';
 const TOKENS = ['orderNumber', 'total', 'currency', 'status', 'flags'];
 
 describe('{{PACK_ID}}.order-reviewer', () => {
-  test("its instructions name only the checked order's single-token fields", () => {
+  test("its instructions read only the checked order's single-token fields", () => {
     const { instructions } = orderReviewer;
     // Written in the agent, so the test reads them. Moved to a prompt, check that prompt the same way.
     if (typeof instructions !== 'string') throw new Error('The instructions are a prompt reference now: check the prompt.');
-    const used = [...instructions.matchAll(/\{\{([^}]*)\}\}/g)].map((m) => (m[1] ?? '').trim());
-    expect(used.length).toBeGreaterThan(0);
-    for (const expression of used) {
-      const field = /^input\.order\.(\w+)\b/.exec(expression)?.[1];
-      // `{{ input.order }}` whole, or any other input, would carry the order's text.
-      expect(field, expression).toBeDefined();
-      expect(TOKENS, expression).toContain(field);
+    // Every variable the instructions read, as Liquid parses them: in `{{ }}`, in a
+    // filter's argument, in `{% echo %}`, `{% assign %}` or `{% for %}`, dotted or bracketed.
+    const paths = new Liquid().globalVariableSegmentsSync(instructions);
+    expect(paths.length).toBeGreaterThan(0);
+    for (const path of paths) {
+      expect(path.slice(0, 2), path.join('.')).toEqual(['input', 'order']);
+      expect(TOKENS, path.join('.')).toContain(path[2]);
     }
   });
 });
