@@ -102,7 +102,7 @@ To give an agent tools that act on the store (look up an order, refund it), Word
 | The signing key, when it isn't in `wp-config.php` or the environment | The `kindgi_site_secret_key` option, not autoloaded |
 | Each person's subject, Kindgi id, and sealed session | User options `kindgi_subject`, `kindgi_user_id`, `kindgi_session` |
 
-WordPress's personal-data tools (**Tools → Export Personal Data** and **Erase Personal Data**) cover each person's subject and Kindgi id. Erasing forgets the person on this site; Kindgi keeps its own record, so erase it there too.
+WordPress's personal-data tools (**Tools → Export Personal Data** and **Erase Personal Data**) cover each person's subject and Kindgi id. Erasing forgets the person on this site, not in Kindgi. Kindgi keeps its own record of the person: removing them there ends their sign-ins, and their name stays on the records they're part of, decisions included.
 
 Deleting the plugin removes all of them except each person's subject and Kindgi id. They say who each person is, so a site installed again and connected with a new code for the same site in Kindgi finds the same people there, with their history. Kindgi keeps its own record.
 

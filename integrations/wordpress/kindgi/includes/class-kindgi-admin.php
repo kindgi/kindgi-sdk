@@ -100,8 +100,8 @@ final class Kindgi_Admin {
 
 	/**
 	 * Forgets the person here: their subject, Kindgi id and cached
-	 * session. Their record at Kindgi stays; erase it there too. Signing in
-	 * again later makes them a new person at Kindgi.
+	 * session. Their record at Kindgi stays: a tenant admin removes them
+	 * there. Signing in again later makes them a new person at Kindgi.
 	 */
 	public static function erase( string $email ): array {
 		$user    = get_user_by( 'email', $email );
@@ -117,7 +117,7 @@ final class Kindgi_Admin {
 		return array(
 			'items_removed'  => $removed,
 			'items_retained' => false,
-			'messages'       => $removed ? array( __( "Kindgi keeps its own record of this person: erase it at Kindgi too.", 'kindgi' ) ) : array(),
+			'messages'       => $removed ? array( __( "Kindgi keeps its own record of this person: a tenant admin can remove them there, which ends their sign-ins. Their name stays on what they did.", 'kindgi' ) ) : array(),
 			'done'           => true,
 		);
 	}
