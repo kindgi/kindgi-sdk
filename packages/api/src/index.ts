@@ -829,6 +829,12 @@ export type {
   ProposalAction,
   ProposalEvaluationOutcome,
 } from './proposal-status.js';
+export {
+  PACK_SERVICE_NAME_PREFIX,
+  hostNamesPackService,
+  packServiceName,
+} from './pack-service-name.js';
+export { DEPLOYMENT_ENDPOINT_PROBLEM_CODES } from './deployment-binding.js';
 export type {
   Deployment,
   DeploymentBinding,
@@ -841,6 +847,10 @@ export type {
   DeployedPrimitive,
   DeployedVersion,
   DeploymentContents,
+  DeploymentEndpoint,
+  DeploymentEndpointProblem,
+  DeploymentEndpointProblemCode,
+  DeploymentEndpointStatus,
   DeploymentPrimitiveCounts,
   DeploymentRegisterInput,
   DeploymentRegisterOutcome,

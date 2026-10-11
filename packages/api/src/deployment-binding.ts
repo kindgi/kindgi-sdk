@@ -84,6 +84,68 @@ export interface DeploymentBinding {
  * check happens at `register` time inside the route (via
  * `SigningKeyBinding.isTrusted`).
  */
+/**
+ * Where a deployment's pack service stands, when the server routes pack
+ * calls per deployment (`KINDGI_PACK_ROUTING=per-deployment`):
+ * - `pending`: no pack service yet. Calls to its tools fail
+ *   (`pack-endpoint-pending`), and are never sent to another deployment.
+ * - `ready`: calls to its tools go to its own pack service.
+ * - `cleared`: its pack service was taken down; calls fail
+ *   (`pack-endpoint-cleared`).
+ */
+export type DeploymentEndpointStatus = 'pending' | 'ready' | 'cleared';
+
+/**
+ * Why a `pending` deployment has no pack service yet. A fixed code, never
+ * free text, so nothing about the operator's setup reaches the tenant.
+ *
+ * The server refused the endpoint it was given:
+ * - `endpoint-url-invalid`: not `https`, or with user info or a path;
+ * - `endpoint-host-not-allowed`: the host isn't on the operator's allowlist;
+ * - `endpoint-name-mismatch`: the host doesn't name this deployment's
+ *   service (`packServiceName`);
+ * - `endpoint-unreachable`: the pack service didn't answer `/v1/info`;
+ * - `endpoint-info-mismatch`: it answered as another pack or version;
+ * - `image-not-allowed`: the image is outside the tenant's repository.
+ *
+ * The pack service couldn't be created:
+ * - `tenant-not-provisioned`: the tenant has nowhere to run pack services yet;
+ * - `capacity-unavailable`: no room for another pack service just now;
+ * - `service-start-failed`: the image was deployed but didn't start.
+ */
+export const DEPLOYMENT_ENDPOINT_PROBLEM_CODES = [
+  'endpoint-url-invalid',
+  'endpoint-host-not-allowed',
+  'endpoint-name-mismatch',
+  'endpoint-unreachable',
+  'endpoint-info-mismatch',
+  'image-not-allowed',
+  'tenant-not-provisioned',
+  'capacity-unavailable',
+  'service-start-failed',
+] as const;
+
+export type DeploymentEndpointProblemCode = (typeof DEPLOYMENT_ENDPOINT_PROBLEM_CODES)[number];
+
+/** Why a `pending` deployment has no pack service yet, and since when. */
+export interface DeploymentEndpointProblem {
+  readonly code: DeploymentEndpointProblemCode;
+  /** When it was recorded. ISO-8601. */
+  readonly since: string;
+}
+
+/** A deployment's pack service, as a tenant sees it: never its URL or token. */
+export interface DeploymentEndpoint {
+  readonly status: DeploymentEndpointStatus;
+  /** When the status last changed. ISO-8601. */
+  readonly since: string;
+  /**
+   * With `pending` only: the last reason it has no pack service yet. Gone
+   * once the status changes.
+   */
+  readonly problem?: DeploymentEndpointProblem;
+}
+
 export interface Deployment {
   readonly deploymentId: string;
   readonly tenantId: TenantId;
@@ -109,6 +171,12 @@ export interface Deployment {
   readonly publishedAt: string;
   /** Server-side ledger timestamp — when `register` returned OK. ISO-8601. */
   readonly activatedAt: string;
+  /**
+   * Its pack service's status, when the server routes pack calls per
+   * deployment. Absent otherwise (one pack service for every deployment),
+   * and from a binding that doesn't track it.
+   */
+  readonly endpoint?: DeploymentEndpoint;
   /**
    * Counts of primitives in the deployment's `index.json`. Not
    * authoritative — the image is. Populated for cheap admin rendering.

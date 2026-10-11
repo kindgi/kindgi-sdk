@@ -8583,6 +8583,42 @@ class DeploymentContents(BaseModel):
     flows: list[Flow2]
 
 
+class DeploymentEndpointProblem(BaseModel):
+    """
+    With `pending` only: the last reason the deployment has no pack service yet, gone once the status changes. A fixed code, never free text.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    code: str
+    """
+    One of a fixed list; a later runtime may add codes, so treat an unknown one as a reason not yet named. The server refused the endpoint it was given: `endpoint-url-invalid` (not `https`, or with user info or a path), `endpoint-host-not-allowed` (the host isn't on the operator's allowlist), `endpoint-name-mismatch` (the host doesn't name this deployment's service), `endpoint-unreachable` (the pack service didn't answer), `endpoint-info-mismatch` (it answered as another pack or version), `image-not-allowed` (the image is outside the tenant's repository). The pack service couldn't be created: `tenant-not-provisioned` (the tenant has nowhere to run pack services yet), `capacity-unavailable` (no room for another pack service just now), `service-start-failed` (the image was deployed but didn't start).
+    """
+    since: AwareDatetime
+    """
+    When it was recorded.
+    """
+
+
+class DeploymentEndpoint(BaseModel):
+    """
+    Its pack service's status, when the server routes each pack call to the deployment that shipped the tool (`KINDGI_PACK_ROUTING=per-deployment`). Absent otherwise. `pending`: no pack service yet, and calls to its tools fail (`pack-endpoint-pending`) rather than go to another deployment. `ready`: calls go to its own pack service. `cleared`: its pack service was taken down, and calls fail (`pack-endpoint-cleared`). Carries no URL and no token.
+    """
+
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    status: Literal["pending", "ready", "cleared"]
+    since: AwareDatetime
+    """
+    When the status last changed.
+    """
+    problem: DeploymentEndpointProblem | None = None
+
+
 class DeploymentRecord(BaseModel):
     model_config = ConfigDict(
         extra="allow",
@@ -8623,6 +8659,7 @@ class DeploymentRecord(BaseModel):
     """
     Server-side ledger timestamp — when the register call succeeded.
     """
+    endpoint: DeploymentEndpoint | None = None
     primitives: DeploymentPrimitiveCounts
     contents: DeploymentContents
 
