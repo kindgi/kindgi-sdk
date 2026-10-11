@@ -3398,7 +3398,7 @@ class Conversation(BaseModel):
     """
     opened_by: Annotated[str | None, Field(alias="openedBy")] = None
     """
-    Who opened it: the caller's principal (`user:<id>`, `service_account:<id>`), set by the server, never from a request's body. Absent on conversations opened before Kindgi 0.1.8, and when the caller had no principal; those aren't listed by `?openedBy=me`.
+    Who opened it: the caller's principal (`user:<id>`, `service_account:<id>`), or, for one a turn opened, whoever the run acts for. Set by the server, never from a request's body. Absent on conversations opened before Kindgi 0.1.8, and when the caller had no principal; those aren't listed by `?openedBy=me`.
     """
     scope: dict[str, Any]
     """

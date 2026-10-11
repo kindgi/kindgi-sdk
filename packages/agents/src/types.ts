@@ -583,8 +583,9 @@ export interface Conversation {
   readonly projectId?: ProjectId;
   /**
    * Who opened it: the caller's principal (`user:<id>`,
-   * `service_account:<id>`). Absent on conversations opened before it was
-   * kept, and when the caller had no principal.
+   * `service_account:<id>`), or, for one a turn opened, whoever the run
+   * acts for. Absent on conversations opened before it was kept, and when
+   * the caller had no principal.
    */
   readonly openedBy?: string;
   /** Additional attributes (project id, matter id, etc.). */

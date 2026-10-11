@@ -1036,8 +1036,9 @@ export interface Conversation {
   readonly projectId?: string;
   /**
    * Who opened it: the caller's principal (`user:<id>`,
-   * `service_account:<id>`). Absent on conversations from before 0.1.8,
-   * and from a runtime that doesn't record it.
+   * `service_account:<id>`), or, for one a turn opened, whoever the run
+   * acts for. Absent on conversations from before 0.1.8, and from a
+   * runtime that doesn't record it.
    */
   readonly openedBy?: string;
   /** Structural scope (project id, matter id, etc.). */
