@@ -1,5 +1,19 @@
 # @kindgi/adapter-model-in-process
 
+## 0.1.6
+
+### Patch Changes
+
+- Updated dependencies [a2b2ae8]
+  - @kindgi/capabilities@0.1.6
+
+## 0.1.6-rc.0
+
+### Patch Changes
+
+- Updated dependencies [a2b2ae8]
+  - @kindgi/capabilities@0.1.6-rc.0
+
 ## 0.1.5
 
 ### Patch Changes
