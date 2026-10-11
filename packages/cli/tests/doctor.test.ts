@@ -1174,6 +1174,21 @@ describe('the license key', () => {
     );
   });
 
+  test('with --path to a folder with a space: the env file as one shell word', async () => {
+    await mkdir(join(dir, 'My Deploy'));
+    await writeFile(
+      join(dir, 'My Deploy', 'kindgi.env'),
+      `KINDGI_LICENSE_KEY=${key({ exp: NOW / 1000 + 12 * DAY })}\n`,
+    );
+    const { report } = await doctor({
+      args: ['--path', 'My Deploy'],
+      seam: { ...seam(), now: () => NOW, licensePublicKeys },
+    });
+    expect(report?.checks.find((c) => c.id === 'license')?.fix).toContain(
+      `kindgi license renew --env-file '${join('My Deploy', 'kindgi.env')}' --renewer <its renewer key>`,
+    );
+  });
+
   test('with --path: the env file named from where doctor ran', async () => {
     await mkdir(join(dir, 'deploy'));
     await writeFile(

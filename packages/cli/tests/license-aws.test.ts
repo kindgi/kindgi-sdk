@@ -102,12 +102,21 @@ describe('Secrets Manager', () => {
     const store = secretStoreFor('aws:us-east-2:kindgi/license-key', { cloud: c.deps });
     expect(await store.read()).toBe('kgi_lk_current.sig');
     await store.write('kgi_lk_next.sig');
-    const [get, put] = c.seen;
+    await store.write('kgi_lk_after.sig');
+    const [get, put, again] = c.seen;
     expect(JSON.parse(get?.body ?? '')).toEqual({ SecretId: 'kindgi/license-key' });
+    // A raw request must name the new version (AWS: "If you generate a raw
+    // HTTP request … you must generate a ClientRequestToken"; 32 to 64
+    // characters): a new UUID per write.
+    const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
     expect(JSON.parse(put?.body ?? '')).toEqual({
       SecretId: 'kindgi/license-key',
       SecretString: 'kgi_lk_next.sig',
+      ClientRequestToken: expect.stringMatching(UUID),
     });
+    expect(JSON.parse(again?.body ?? '').ClientRequestToken).not.toBe(
+      JSON.parse(put?.body ?? '').ClientRequestToken,
+    );
     expect(put?.headers['x-amz-target']).toBe('secretsmanager.PutSecretValue');
     expect(put?.headers['content-type']).toBe('application/x-amz-json-1.1');
     expect(put?.headers['x-amz-security-token']).toBe('env-session');
@@ -141,7 +150,11 @@ describe('Secrets Manager', () => {
             ? { status: 400, body: { __type: 'ResourceNotFoundException', message: 'not found' } }
             : {
                 status: 400,
-                body: { __type: 'com.amazon.coral.service#AccessDeniedException', Message: 'no' },
+                body: {
+                  __type: 'com.amazon.coral.service#AccessDeniedException',
+                  Message:
+                    'User: arn:aws:sts::123456789012:assumed-role/kindgi/x is not authorized',
+                },
               },
       },
       ENV_CREDS,
@@ -149,7 +162,7 @@ describe('Secrets Manager', () => {
     const store = secretStoreFor('aws:us-east-2:kindgi/license-key', { cloud: c.deps });
     expect(await store.read()).toBeUndefined();
     await expect(store.write('kgi_lk_never.printed')).rejects.toThrow(
-      'the Secrets Manager secret kindgi/license-key (us-east-2) answered 400 (AccessDeniedException). The identity running this needs secretsmanager:PutSecretValue on that secret.',
+      'the Secrets Manager secret kindgi/license-key (us-east-2) answered 400 (AccessDeniedException: User: arn:aws:sts::123456789012:assumed-role/kindgi/x is not authorized). The identity running this needs secretsmanager:PutSecretValue on that secret.',
     );
   });
 
@@ -320,6 +333,20 @@ describe('where the credentials come from, the first that answers', () => {
     expect(laptop.ran).toEqual(['aws configure export-credentials --format process']);
     await expect(awsCredentials(aws({}).deps, 'us-east-2')).rejects.toThrow(
       'No AWS credentials here',
+    );
+  });
+
+  test("the AWS CLI's session token with a line break inside: said by where it came from, not as none", async () => {
+    const laptop = aws(
+      {},
+      {},
+      {
+        aws: '{"Version":1,"AccessKeyId":"ASIACLI","SecretAccessKey":"s","SessionToken":"t\\nSECRETPART"}',
+      },
+    );
+    const err = await awsCredentials(laptop.deps, 'us-east-2').catch((e: unknown) => e);
+    expect((err as Error).message).toBe(
+      "The AWS session token from the AWS CLI (aws configure export-credentials) can't be sent in a header: it has a line break.",
     );
   });
 });

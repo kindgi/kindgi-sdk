@@ -341,6 +341,11 @@ const skip = (id: DoctorCheckId, message: string, fix?: string): DoctorCheck => 
 
 // ---------- the license key ----------
 
+/** `word` as one shell word: as it is when it's plain, else single-quoted. */
+function shellWord(word: string): string {
+  return /^[A-Za-z0-9_./:@%+=,-]+$/.test(word) ? word : `'${word.replaceAll("'", "'\\''")}'`;
+}
+
 /**
  * The license key a runtime started here would use: `KINDGI_LICENSE_KEY`,
  * or the one in this folder's `kindgi.env`. Checked offline, as the runtime
@@ -380,7 +385,7 @@ async function licenseKeyCheck(
   const keyArg =
     where === 'KINDGI_LICENSE_KEY'
       ? `--key ${(await setting('KINDGI_LICENSE_KEY_REF')) ?? '<where KINDGI_LICENSE_KEY is kept>'}`
-      : `--env-file ${relative(cwd, envFile) || 'kindgi.env'}`;
+      : `--env-file ${shellWord(relative(cwd, envFile) || 'kindgi.env')}`;
   const renew = `kindgi license renew ${keyArg} --renewer ${renewer}`;
   const checked =
     seam.licensePublicKeys !== undefined

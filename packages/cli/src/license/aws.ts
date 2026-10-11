@@ -15,7 +15,7 @@
  * (`aws configure export-credentials`: profiles, SSO).
  */
 
-import { createHash, createHmac } from 'node:crypto';
+import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 
 import { headerValueProblem } from '@kindgi/types';
@@ -92,7 +92,14 @@ export function awsSecretStore(ref: string, deps: CloudDeps): SecretStore | unde
       return value === '' ? undefined : value;
     },
     async write(value) {
-      const res = await send('PutSecretValue', { SecretId: secretId, SecretString: value });
+      // A raw request names the new version itself: the SDKs and the AWS CLI
+      // add a UUID, and without one Secrets Manager answers 400
+      // (InvalidRequestException). It becomes the version's id.
+      const res = await send('PutSecretValue', {
+        SecretId: secretId,
+        SecretString: value,
+        ClientRequestToken: randomUUID(),
+      });
       if (!res.ok) {
         throw refused(describe, res.status, await awsError(res), 'secretsmanager:PutSecretValue');
       }
@@ -120,7 +127,12 @@ function refused(
   error: { readonly type?: string; readonly message?: string },
   action: string,
 ): CloudSecretError {
-  const why = error.type ?? error.message;
+  // AWS's own words with the type: what to fix (never a value: Secrets
+  // Manager's messages don't echo the secret).
+  const why =
+    error.type !== undefined && error.message !== undefined
+      ? `${error.type}: ${error.message}`
+      : (error.type ?? error.message);
   const denied = error.type === 'AccessDeniedException' || status === 403;
   return new CloudSecretError(
     `${what} answered ${status}${why !== undefined ? ` (${why})` : ''}.${denied ? ` The identity running this needs ${action} on that secret.` : ''}`,
@@ -287,6 +299,7 @@ async function fromContainer(deps: CloudDeps): Promise<AwsCredentials | undefine
 /** The instance's role, IMDSv2 only: no session token, no credentials. */
 async function fromInstance(deps: CloudDeps): Promise<AwsCredentials | undefined> {
   const imds = 'http://169.254.169.254/latest';
+  let c: { AccessKeyId?: string; SecretAccessKey?: string; Token?: string } | undefined;
   try {
     const t = await deps.fetch(`${imds}/api/token`, {
       method: 'PUT',
@@ -306,29 +319,29 @@ async function fromInstance(deps: CloudDeps): Promise<AwsCredentials | undefined
       signal: AbortSignal.timeout(METADATA_TIMEOUT_MS),
     });
     if (!res.ok) return undefined;
-    const c = (await res.json()) as {
-      AccessKeyId?: string;
-      SecretAccessKey?: string;
-      Token?: string;
-    };
-    return asCredentials(c.AccessKeyId, c.SecretAccessKey, c.Token);
+    c = (await res.json()) as typeof c;
   } catch {
     return undefined;
   }
+  // Outside the `try`: a credential that can't be sent is said, not "none here".
+  return asCredentials(c?.AccessKeyId, c?.SecretAccessKey, c?.Token, 'the instance role (IMDS)');
 }
 
 async function fromAwsCli(deps: CloudDeps): Promise<AwsCredentials | undefined> {
+  let c: { AccessKeyId?: string; SecretAccessKey?: string; SessionToken?: string };
   try {
     const out = await deps.run('aws', ['configure', 'export-credentials', '--format', 'process']);
-    const c = JSON.parse(out) as {
-      AccessKeyId?: string;
-      SecretAccessKey?: string;
-      SessionToken?: string;
-    };
-    return asCredentials(c.AccessKeyId, c.SecretAccessKey, c.SessionToken);
+    c = JSON.parse(out) as typeof c;
   } catch {
     return undefined;
   }
+  // Outside the `try`: a credential that can't be sent is said, not "none here".
+  return asCredentials(
+    c.AccessKeyId,
+    c.SecretAccessKey,
+    c.SessionToken,
+    'the AWS CLI (aws configure export-credentials)',
+  );
 }
 
 /**
