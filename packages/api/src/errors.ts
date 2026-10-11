@@ -260,6 +260,8 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   /** A system route naming a tenant in a state it refuses. */
   'tenant-closing': 409,
   'tenant-suspended': 409,
+  /** Creating a tenant with a slug another tenant has. */
+  'tenant-slug-taken': 409,
   'service-account-not-found': 404,
   /** An active service account of the tenant already has the name. */
   'service-account-name-taken': 409,

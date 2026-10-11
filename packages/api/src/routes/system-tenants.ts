@@ -1,0 +1,453 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (C) 2026 Kindgi Inc.
+
+import { type Context, Hono } from 'hono';
+
+import type { TenantId } from '@kindgi/types';
+
+import { statusFor, toWireError } from '../errors.js';
+import { type ImagePrefix, parseImagePrefix } from '../image-ref.js';
+import type { Authorizer } from '../middleware/authorize.js';
+import { withholdFromReplay } from '../middleware/idempotency.js';
+import {
+  type SystemTenantDirectory,
+  requireSystemScope,
+  systemReadAcrossTenants,
+  withSystemTenantContext,
+} from '../middleware/system.js';
+import { FULL_SYSTEM_CAPABILITY } from '../system.js';
+import type { AppEnv } from '../types.js';
+
+/** A tenant, as the operator sees it. Never its content. */
+export interface SystemTenant {
+  readonly id: TenantId;
+  readonly name: string;
+  readonly slug: string;
+  /** `closing` wins over `suspended`. A purged tenant isn't listed or read. */
+  readonly state: 'active' | 'suspended' | 'closing';
+  readonly createdAt: string;
+  /** A test tenant (the adversarial suite's): left out of usage, invoices and counts. */
+  readonly test: boolean;
+  /** Whether it may put projects in production: absent `production_blocked_at`. */
+  readonly productionAllowed: boolean;
+  /** The repository its deployments' images must sit in; absent while unset. */
+  readonly imagePrefix?: string;
+  readonly closingAt?: string;
+  readonly suspendedAt?: string;
+  /** Why it's suspended, as the operator gave it. */
+  readonly suspendedReason?: string;
+}
+
+export interface SystemTenantCreateInput {
+  readonly name: string;
+  readonly slug?: string;
+  /** Absent: allowed. Sign-up always sends `false`. */
+  readonly productionAllowed?: boolean;
+  readonly test?: boolean;
+  readonly imagePrefix?: ImagePrefix;
+  /** The person made the tenant's admin and member, by email. Absent: an admin key instead. */
+  readonly firstAdmin?: { readonly email: string; readonly name: string };
+  /** The system key creating it, or `boot`. */
+  readonly createdBy: string;
+}
+
+export type SystemTenantCreateOutcome =
+  | {
+      readonly kind: 'ok';
+      readonly tenant: SystemTenant;
+      /** With `firstAdmin`: the person it made admin. */
+      readonly firstAdmin?: { readonly personId: string };
+      /** Without `firstAdmin`: the new tenant's first admin key, shown once. */
+      readonly adminKey?: { readonly tokenId: string; readonly token: string };
+    }
+  | { readonly kind: 'slug-taken' };
+
+/**
+ * The runtime's tenants, for the operator: creating one runs the tenant's
+ * setup (its default project, its authorization store, adapter sync) in
+ * the same change. Closing, suspending and the image prefix are writes on
+ * the `tenants` row; the runtime enforces what each state means.
+ */
+export interface SystemTenantsBinding {
+  create(input: SystemTenantCreateInput): Promise<SystemTenantCreateOutcome>;
+  /** Newest first; purged tenants are left out. */
+  list(input: {
+    readonly limit: number;
+    readonly cursor?: string;
+  }): Promise<
+    | {
+        readonly kind: 'ok';
+        readonly data: readonly SystemTenant[];
+        readonly nextCursor?: string;
+      }
+    | { readonly kind: 'cursor-unreadable' }
+  >;
+  read(tenantId: TenantId): Promise<SystemTenant | null>;
+  /** Sets `closing` (idempotent: a second close keeps the first time), cancelling its running runs. */
+  close(tenantId: TenantId): Promise<SystemTenant>;
+  /** Sets or clears `suspended`: setting cancels its running runs; clearing resumes what was on. */
+  setSuspended(tenantId: TenantId, suspended: boolean, reason?: string): Promise<SystemTenant>;
+  setImagePrefix(tenantId: TenantId, prefix: ImagePrefix): Promise<SystemTenant>;
+  /** Its active admins with a primary email, at most 100. */
+  admins(
+    tenantId: TenantId,
+  ): Promise<
+    readonly { readonly userId: string; readonly email: string; readonly displayName?: string }[]
+  >;
+}
+
+const MAX_NAME = 100;
+const MAX_REASON = 500;
+const SLUG_RE = /^[a-z0-9](?:-?[a-z0-9])*$/;
+const MAX_SLUG = 63;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const DEFAULT_LIMIT = 100;
+const MAX_LIMIT = 500;
+
+type Problem = string;
+
+/**
+ * `/v1/system/tenants`, P1's routes: create, list and read tenants, close
+ * and suspend them, set their image prefix, and read their admins' contact
+ * addresses for service notices. Each takes its system scope, and acts in
+ * one tenant through `withSystemTenantContext`.
+ */
+export function systemTenantsRouter(options: {
+  readonly tenants: SystemTenantsBinding;
+  /** The same directory the other `/v1/system/tenants` routes use (`createApp`'s `systemTenantDirectory`). */
+  readonly directory: SystemTenantDirectory;
+  readonly authorizer?: Authorizer;
+}): Hono<AppEnv> {
+  const { tenants, directory, authorizer } = options;
+  const r = new Hono<AppEnv>();
+  const ctx = (scope: Parameters<typeof requireSystemScope>[0]) => ({
+    scope,
+    ...(authorizer !== undefined && { authorizer }),
+  });
+
+  // ---------- POST / (create) ----------
+  r.post('/', requireSystemScope('system:tenants', authorizer), async (c) => {
+    const body = await readJsonObject(c);
+    if (typeof body === 'string') return badInput(c, body);
+    const parsed = parseCreateBody(body);
+    if (typeof parsed === 'string') return badInput(c, parsed);
+    const fullOnly = fullOnlyRefusal(c, parsed);
+    if (fullOnly !== undefined) return fullOnly;
+    const created = await tenants.create({
+      ...parsed,
+      createdBy: c.get('systemPrincipal')?.keyId ?? 'boot',
+    });
+    return createdAnswer(c, created, parsed.slug);
+  });
+
+  // ---------- GET / (list) ----------
+  r.get('/', async (c) => {
+    const denied = systemReadAcrossTenants(c, 'system:tenants', authorizer);
+    if (denied !== undefined) return denied;
+    const limit = parseLimit(c.req.query('limit'));
+    if (typeof limit === 'string') return badInput(c, limit);
+    const cursor = c.req.query('cursor');
+    const page = await tenants.list({ limit, ...(cursor !== undefined && { cursor }) });
+    if (page.kind === 'cursor-unreadable') {
+      return badInput(c, '`cursor` is not one this route gave: start again without it');
+    }
+    return c.json({
+      data: page.data,
+      ...(page.nextCursor !== undefined && { nextCursor: page.nextCursor }),
+    });
+  });
+
+  // ---------- GET /:tenantId ----------
+  r.get('/:tenantId', (c) =>
+    withSystemTenantContext(
+      c,
+      directory,
+      c.req.param('tenantId'),
+      ctx('system:tenants'),
+      async (t) => {
+        const tenant = await tenants.read(t.id);
+        return tenant === null ? notFound(c, t.id) : c.json(tenant);
+      },
+    ),
+  );
+
+  // ---------- POST /:tenantId/close ----------
+  r.post('/:tenantId/close', (c) =>
+    withSystemTenantContext(
+      c,
+      directory,
+      c.req.param('tenantId'),
+      ctx('system:tenants'),
+      async (t) => c.json(await tenants.close(t.id)),
+    ),
+  );
+
+  // ---------- PUT /:tenantId/suspended ----------
+  r.put('/:tenantId/suspended', (c) =>
+    withSystemTenantContext(
+      c,
+      directory,
+      c.req.param('tenantId'),
+      { ...ctx('system:suspend'), refuse: ['closing'] },
+      async (t) => {
+        const body = await readJsonObject(c);
+        if (typeof body === 'string') return badInput(c, body);
+        const parsed = parseSuspendBody(body);
+        if (typeof parsed === 'string') return badInput(c, parsed);
+        return c.json(await tenants.setSuspended(t.id, parsed.suspended, parsed.reason));
+      },
+    ),
+  );
+
+  // ---------- PUT /:tenantId/image-prefix ----------
+  r.put('/:tenantId/image-prefix', (c) =>
+    withSystemTenantContext(
+      c,
+      directory,
+      c.req.param('tenantId'),
+      { ...ctx('system:tenants'), refuse: ['closing'] },
+      async (t) => {
+        const body = await readJsonObject(c);
+        if (typeof body === 'string') return badInput(c, body);
+        const prefix = prefixOf(body.prefix);
+        if (typeof prefix === 'string') return badInput(c, prefix);
+        return c.json(await tenants.setImagePrefix(t.id, prefix));
+      },
+    ),
+  );
+
+  // ---------- GET /:tenantId/admins ----------
+  // The one system read of a tenant's people: account contacts for service
+  // notices (breach, maintenance, sub-processors, terms), never content.
+  r.get('/:tenantId/admins', (c) =>
+    withSystemTenantContext(
+      c,
+      directory,
+      c.req.param('tenantId'),
+      ctx('system:tenants:contacts'),
+      async (t) => c.json({ data: await tenants.admins(t.id) }),
+    ),
+  );
+
+  return r;
+}
+
+/** `GET /v1/system/whoami`: a system key's own id, scopes and expiry. Any system principal. */
+export function systemWhoamiRouter(): Hono<AppEnv> {
+  const r = new Hono<AppEnv>();
+  r.get('/', (c) => {
+    // The fence lets only a system principal reach /v1/system/*.
+    const system = c.get('systemPrincipal');
+    const expiresAt = c.get('tokenExpiresAt');
+    return c.json({
+      keyId: system?.keyId,
+      scopes: c.get('capabilities') ?? [],
+      ...(expiresAt !== undefined && { expiresAt: expiresAt.toISOString() }),
+    });
+  });
+  return r;
+}
+
+interface ParsedCreate {
+  readonly name: string;
+  readonly slug?: string;
+  readonly productionAllowed?: boolean;
+  readonly test?: boolean;
+  readonly imagePrefix?: ImagePrefix;
+  readonly firstAdmin?: { readonly email: string; readonly name: string };
+}
+
+const CREATE_FIELDS = new Set([
+  'name',
+  'slug',
+  'productionAllowed',
+  'test',
+  'imagePrefix',
+  'firstAdmin',
+]);
+
+function parseCreateBody(b: Readonly<Record<string, unknown>>): ParsedCreate | Problem {
+  const unknown = Object.keys(b).filter((k) => !CREATE_FIELDS.has(k));
+  if (unknown.length > 0) return `Unknown field ${unknown.map((k) => `\`${k}\``).join(', ')}`;
+  const name = textOf(b.name, 'name', MAX_NAME);
+  if (name === undefined || name.problem !== undefined) {
+    return name?.problem ?? '`name` is required';
+  }
+  const flags = flagsOf(b);
+  if (typeof flags === 'string') return flags;
+  const rest = referencesOf(b);
+  if (typeof rest === 'string') return rest;
+  return { name: name.value, ...flags, ...rest };
+}
+
+/** `productionAllowed` and `test`: booleans when given. */
+function flagsOf(
+  b: Readonly<Record<string, unknown>>,
+): Pick<ParsedCreate, 'productionAllowed' | 'test'> | Problem {
+  for (const flag of ['productionAllowed', 'test'] as const) {
+    if (b[flag] !== undefined && typeof b[flag] !== 'boolean')
+      return `\`${flag}\` is true or false`;
+  }
+  return {
+    ...(b.productionAllowed !== undefined && { productionAllowed: b.productionAllowed as boolean }),
+    ...(b.test !== undefined && { test: b.test as boolean }),
+  };
+}
+
+/** `slug`, `imagePrefix` and `firstAdmin`, each checked when given. */
+function referencesOf(
+  b: Readonly<Record<string, unknown>>,
+): Pick<ParsedCreate, 'slug' | 'imagePrefix' | 'firstAdmin'> | Problem {
+  const slug = slugOf(b.slug);
+  if (typeof slug === 'object') return slug.problem;
+  const imagePrefix = b.imagePrefix === undefined ? undefined : prefixOf(b.imagePrefix);
+  if (typeof imagePrefix === 'string') return imagePrefix;
+  const firstAdmin = b.firstAdmin === undefined ? undefined : adminOf(b.firstAdmin);
+  if (typeof firstAdmin === 'string') return firstAdmin;
+  return {
+    ...(slug !== undefined && { slug }),
+    ...(imagePrefix !== undefined && { imagePrefix }),
+    ...(firstAdmin !== undefined && { firstAdmin }),
+  };
+}
+
+function textOf(
+  raw: unknown,
+  field: string,
+  max: number,
+):
+  | { readonly value: string; readonly problem?: undefined }
+  | { readonly problem: string }
+  | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== 'string' || raw.trim() === '' || raw.length > max) {
+    return { problem: `\`${field}\` must be a non-empty string of at most ${max} characters` };
+  }
+  return { value: raw };
+}
+
+function slugOf(raw: unknown): string | undefined | { readonly problem: string } {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== 'string' || raw.length > MAX_SLUG || !SLUG_RE.test(raw)) {
+    return {
+      problem: `\`slug\` must be lowercase letters, digits and single hyphens, at most ${MAX_SLUG} characters`,
+    };
+  }
+  return raw;
+}
+
+function prefixOf(raw: unknown): ImagePrefix | Problem {
+  if (typeof raw !== 'string') return '`prefix` must be a string, `<host>/<path>`';
+  const parsed = parseImagePrefix(raw);
+  return parsed.kind === 'ok'
+    ? parsed.value
+    : `The image prefix is refused: ${parsed.error.reason}`;
+}
+
+function adminOf(raw: unknown): { readonly email: string; readonly name: string } | Problem {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    return '`firstAdmin` is `{ email, name }`';
+  }
+  const a = raw as Record<string, unknown>;
+  if (typeof a.email !== 'string' || a.email.length > 254 || !EMAIL_RE.test(a.email)) {
+    return '`firstAdmin.email` must be an email address';
+  }
+  const name = textOf(a.name, 'firstAdmin.name', MAX_NAME);
+  if (name === undefined || name.problem !== undefined) {
+    return name?.problem ?? '`firstAdmin.name` is required';
+  }
+  return { email: a.email, name: name.value };
+}
+
+function parseSuspendBody(
+  b: Readonly<Record<string, unknown>>,
+): { readonly suspended: boolean; readonly reason?: string } | Problem {
+  if (typeof b.suspended !== 'boolean')
+    return 'The body is `{ "suspended": true, "reason"? }` or `false`';
+  if (b.reason === undefined) return { suspended: b.suspended };
+  const reason = textOf(b.reason, 'reason', MAX_REASON);
+  if (reason === undefined || reason.problem !== undefined) return reason?.problem ?? '';
+  return { suspended: b.suspended, reason: reason.value };
+}
+
+function parseLimit(raw: string | undefined): number | Problem {
+  if (raw === undefined) return DEFAULT_LIMIT;
+  const n = Number(raw);
+  if (!Number.isInteger(n) || n < 1 || n > MAX_LIMIT) {
+    return `\`limit\` must be a whole number from 1 to ${MAX_LIMIT}`;
+  }
+  return n;
+}
+
+/**
+ * An admin key is a key: only the full capability mints one. So is a test
+ * tenant, which leaves the counts.
+ */
+function fullOnlyRefusal(c: Context<AppEnv>, body: ParsedCreate): Response | undefined {
+  if ((c.get('capabilities') ?? []).includes(FULL_SYSTEM_CAPABILITY)) return undefined;
+  if (body.firstAdmin !== undefined && body.test !== true) return undefined;
+  return answer(c, 'system-scope-missing', fullOnlyMessage(body), {
+    scope: FULL_SYSTEM_CAPABILITY,
+  });
+}
+
+function createdAnswer(
+  c: Context<AppEnv>,
+  created: SystemTenantCreateOutcome,
+  slug: string | undefined,
+): Response {
+  if (created.kind === 'slug-taken') {
+    return answer(c, 'tenant-slug-taken', `Another tenant has the slug "${slug}".`, { slug });
+  }
+  c.set('systemTargetTenant', created.tenant.id as unknown as string);
+  // The admin key is shown once: an Idempotency-Key repeat doesn't get it.
+  if (created.adminKey !== undefined) withholdFromReplay(c);
+  c.status(201);
+  return c.json({
+    tenant: created.tenant,
+    ...(created.firstAdmin !== undefined && { firstAdmin: created.firstAdmin }),
+    ...(created.adminKey !== undefined && { adminKey: created.adminKey }),
+  });
+}
+
+function fullOnlyMessage(body: ParsedCreate): string {
+  return body.test === true
+    ? 'A test tenant takes the full system capability, kindgi:system.'
+    : 'A tenant without `firstAdmin` gets an admin key, and minting a key takes the full system capability, kindgi:system: name its first admin instead.';
+}
+
+async function readJsonObject(
+  c: Context<AppEnv>,
+): Promise<Readonly<Record<string, unknown>> | Problem> {
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return 'Request body must be valid JSON';
+  }
+  if (body === null || typeof body !== 'object' || Array.isArray(body)) {
+    return 'Request body must be an object';
+  }
+  return body as Readonly<Record<string, unknown>>;
+}
+
+function answer(
+  c: Context<AppEnv>,
+  code: string,
+  message: string,
+  details: Readonly<Record<string, unknown>> = {},
+): Response {
+  c.status(statusFor(code) as never);
+  // `toWireError` puts every field besides code and message under `details`.
+  return c.json(toWireError({ code, message, ...details }, c.get('requestId')));
+}
+
+function badInput(c: Context<AppEnv>, message: string): Response {
+  return answer(c, 'bad-input', message);
+}
+
+function notFound(c: Context<AppEnv>, tenantId: TenantId): Response {
+  return answer(c, 'tenant-not-found', `No tenant with id "${tenantId as unknown as string}".`, {
+    tenantId: tenantId as unknown as string,
+  });
+}

@@ -155,6 +155,11 @@ import {
   type SystemTenantSettingsBinding,
   systemTenantSettingsRouter,
 } from './routes/system-tenant-settings.js';
+import {
+  type SystemTenantsBinding,
+  systemTenantsRouter,
+  systemWhoamiRouter,
+} from './routes/system-tenants.js';
 import { type SystemUsageBinding, systemUsageRouter } from './routes/system-usage.js';
 import { projectTeamGrantsRouter, teamProjectGrantsRouter } from './routes/team-grants.js';
 import { teamsRouter } from './routes/teams.js';
@@ -561,6 +566,12 @@ export interface CreateAppInput {
    * (`system:usage:read`). Without it the route isn't mounted (404).
    */
   readonly systemUsage?: SystemUsageBinding;
+  /**
+   * Optional. The runtime's tenants, for the operator: `/v1/system/tenants`
+   * (create, list, read, close, suspend, the image prefix, the admins'
+   * contacts). Mounted only with `systemTenantDirectory` too.
+   */
+  readonly systemTenants?: SystemTenantsBinding;
   /**
    * Optional. Issue and accept public run tokens (`kgi_pt_…`):
    * short-lived, read-only tokens a browser uses to follow specific runs
@@ -1477,6 +1488,18 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   if (input.systemKeys !== undefined) {
     v1.route('/system/keys', systemKeysRouter(input.systemKeys, authorizer));
   }
+  if (input.systemTenants !== undefined && input.systemTenantDirectory !== undefined) {
+    v1.route(
+      '/system/tenants',
+      systemTenantsRouter({
+        tenants: input.systemTenants,
+        directory: input.systemTenantDirectory,
+        ...(authorizer !== undefined && { authorizer }),
+      }),
+    );
+  }
+  // A system key's own id, scopes and expiry: the fence lets only a system principal here.
+  v1.route('/system/whoami', systemWhoamiRouter());
   if (input.systemTenantSettings !== undefined && input.systemTenantDirectory !== undefined) {
     v1.route(
       '/system/tenants',

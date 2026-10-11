@@ -2,7 +2,12 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type {
+  CreateSystemTenantBody,
+  CreateSystemTenantResult,
+  SystemTenantList,
+  SystemTenant as SystemTenantWire,
   SystemUsagePage as SystemUsagePageWire,
+  TenantAdminContacts,
   TenantLimitsResult,
   TenantLimits as TenantLimitsWire,
   TenantProductionAllowed,
@@ -10,6 +15,10 @@ import type {
 import type { Transport } from '../transport.js';
 
 export type TenantLimitsShape = TenantLimitsWire;
+export type SystemTenant = SystemTenantWire;
+export type SystemTenantSpec = CreateSystemTenantBody;
+export type CreatedSystemTenant = CreateSystemTenantResult;
+export type TenantAdminContact = TenantAdminContacts['data'][number];
 export type SystemUsagePage = SystemUsagePageWire;
 export type SystemUsageGroup = SystemUsagePageWire['data'][number];
 
@@ -20,6 +29,66 @@ export type SystemUsageGroup = SystemUsagePageWire['data'][number];
  * `system-scope-missing`. A closing tenant answers `409 tenant-closing`.
  */
 export interface SystemTenantsClient {
+  /**
+   * Create a tenant, with its setup. With `firstAdmin`, that person is its
+   * admin, and no key comes back; without it, its first admin key comes back
+   * once (the full system capability only). Takes `system:tenants`.
+   *
+   * @wire `POST /v1/system/tenants`
+   */
+  create(
+    spec: SystemTenantSpec,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<CreatedSystemTenant>;
+  /**
+   * Tenants, newest first, purged ones left out. Takes `system:tenants`.
+   *
+   * @wire `GET /v1/system/tenants`
+   */
+  list(page?: { readonly limit?: number; readonly cursor?: string }): Promise<SystemTenantList>;
+  /**
+   * One tenant. Takes `system:tenants`.
+   *
+   * @wire `GET /v1/system/tenants/{tenantId}`
+   */
+  get(tenantId: string): Promise<SystemTenant>;
+  /**
+   * Close the tenant: readable and exportable for its window, nothing runs.
+   * One-way. Takes `system:tenants`.
+   *
+   * @wire `POST /v1/system/tenants/{tenantId}/close`
+   */
+  close(tenantId: string, options?: { readonly idempotencyKey?: string }): Promise<SystemTenant>;
+  /**
+   * Suspend the tenant (`true`), or restore it (`false`). Reversible. Takes
+   * `system:suspend`.
+   *
+   * @wire `PUT /v1/system/tenants/{tenantId}/suspended`
+   */
+  setSuspended(
+    tenantId: string,
+    suspended: boolean,
+    reason?: string,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<SystemTenant>;
+  /**
+   * The repository the tenant's deployments' images must sit in,
+   * `<host>/<path>` with no trailing slash. Takes `system:tenants`.
+   *
+   * @wire `PUT /v1/system/tenants/{tenantId}/image-prefix`
+   */
+  setImagePrefix(
+    tenantId: string,
+    prefix: string,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<SystemTenant>;
+  /**
+   * The tenant's admins' contact addresses, for service notices. Takes
+   * `system:tenants:contacts`.
+   *
+   * @wire `GET /v1/system/tenants/{tenantId}/admins`
+   */
+  admins(tenantId: string): Promise<readonly TenantAdminContact[]>;
   /**
    * Allow the tenant to put projects in production (`true`), or stop it
    * (`false`): the switch the production gate reads. Takes
@@ -82,7 +151,64 @@ export interface SystemUsageClient {
 }
 
 export function makeSystemTenantsClient(transport: Transport): SystemTenantsClient {
+  const idem = (options?: { readonly idempotencyKey?: string }) =>
+    options?.idempotencyKey !== undefined ? { idempotencyKey: options.idempotencyKey } : {};
   return {
+    async create(spec, options) {
+      return transport.request<CreatedSystemTenant>({
+        method: 'POST',
+        path: '/v1/system/tenants',
+        body: spec,
+        ...idem(options),
+      });
+    },
+    async list(page) {
+      return transport.request<SystemTenantList>({
+        method: 'GET',
+        path: '/v1/system/tenants',
+        query: {
+          ...(page?.limit !== undefined && { limit: page.limit }),
+          ...(page?.cursor !== undefined && { cursor: page.cursor }),
+        },
+      });
+    },
+    async get(tenantId) {
+      return transport.request<SystemTenant>({
+        method: 'GET',
+        path: `/v1/system/tenants/${encodeURIComponent(tenantId)}`,
+      });
+    },
+    async close(tenantId, options) {
+      return transport.request<SystemTenant>({
+        method: 'POST',
+        path: `/v1/system/tenants/${encodeURIComponent(tenantId)}/close`,
+        body: {},
+        ...idem(options),
+      });
+    },
+    async setSuspended(tenantId, suspended, reason, options) {
+      return transport.request<SystemTenant>({
+        method: 'PUT',
+        path: `/v1/system/tenants/${encodeURIComponent(tenantId)}/suspended`,
+        body: { suspended, ...(reason !== undefined && { reason }) },
+        ...idem(options),
+      });
+    },
+    async setImagePrefix(tenantId, prefix, options) {
+      return transport.request<SystemTenant>({
+        method: 'PUT',
+        path: `/v1/system/tenants/${encodeURIComponent(tenantId)}/image-prefix`,
+        body: { prefix },
+        ...idem(options),
+      });
+    },
+    async admins(tenantId) {
+      const page = await transport.request<TenantAdminContacts>({
+        method: 'GET',
+        path: `/v1/system/tenants/${encodeURIComponent(tenantId)}/admins`,
+      });
+      return page.data;
+    },
     async setProductionAllowed(tenantId, allowed, options) {
       return transport.request<TenantProductionAllowed>({
         method: 'PUT',

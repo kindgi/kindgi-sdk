@@ -96,3 +96,82 @@ describe('systemUsage — wire round-trip', () => {
     });
   });
 });
+
+describe('systemTenants — P1 routes, wire round-trip', () => {
+  const TENANT_ROW = {
+    id: TENANT,
+    name: 'Acme Store',
+    slug: 'acme-store',
+    state: 'active',
+    createdAt: '2026-10-12T09:00:00.000Z',
+    test: false,
+    productionAllowed: false,
+  };
+
+  it('create: POST /v1/system/tenants with the spec', async () => {
+    const answer = { tenant: TENANT_ROW, firstAdmin: { personId: 'p-1' } };
+    const stub = jsonFetch(answer, { status: 201 });
+    const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+    const spec = {
+      name: 'Acme Store',
+      productionAllowed: false,
+      firstAdmin: { email: 'owner@acme.test', name: 'Ada Owner' },
+    };
+    expect(await client.systemTenants.create(spec, { idempotencyKey: 'signup:1' })).toEqual(answer);
+    const call = stub.calls[0]!;
+    expect(`${call.method} ${call.url}`).toBe(`POST ${API}/v1/system/tenants`);
+    expect(JSON.parse(call.body ?? '{}')).toEqual(spec);
+    expect(call.headers['idempotency-key']).toBe('signup:1');
+  });
+
+  it('close, setSuspended, setImagePrefix: their paths and bodies', async () => {
+    for (const [run, method, path, body] of [
+      [(c: ReturnType<typeof createClient>) => c.systemTenants.close(TENANT), 'POST', '/close', {}],
+      [
+        (c: ReturnType<typeof createClient>) =>
+          c.systemTenants.setSuspended(TENANT, true, 'unpaid invoice'),
+        'PUT',
+        '/suspended',
+        { suspended: true, reason: 'unpaid invoice' },
+      ],
+      [
+        (c: ReturnType<typeof createClient>) =>
+          c.systemTenants.setImagePrefix(TENANT, 'us-central1-docker.pkg.dev/p/s-1'),
+        'PUT',
+        '/image-prefix',
+        { prefix: 'us-central1-docker.pkg.dev/p/s-1' },
+      ],
+    ] as const) {
+      const stub = jsonFetch(TENANT_ROW);
+      const client = createClient({ apiUrl: API, auth: AUTH, fetch: stub.fetch });
+      expect(await run(client)).toEqual(TENANT_ROW);
+      const call = stub.calls[0]!;
+      expect(`${call.method} ${call.url}`).toBe(
+        `${method} ${API}/v1/system/tenants/${TENANT}${path}`,
+      );
+      expect(JSON.parse(call.body ?? '{}')).toEqual(body);
+    }
+  });
+
+  it('list, get and admins read; whoami names the key', async () => {
+    const listStub = jsonFetch({ data: [TENANT_ROW] });
+    expect(
+      await createClient({ apiUrl: API, auth: AUTH, fetch: listStub.fetch }).systemTenants.list({
+        limit: 10,
+      }),
+    ).toEqual({ data: [TENANT_ROW] });
+    expect(listStub.calls[0]!.url).toBe(`${API}/v1/system/tenants?limit=10`);
+    const admins = [{ userId: 'p-1', email: 'owner@acme.test' }];
+    const adminStub = jsonFetch({ data: admins });
+    expect(
+      await createClient({ apiUrl: API, auth: AUTH, fetch: adminStub.fetch }).systemTenants.admins(
+        TENANT,
+      ),
+    ).toEqual(admins);
+    const meStub = jsonFetch({ keyId: 'k-1', scopes: ['system:tenants'] });
+    expect(
+      await createClient({ apiUrl: API, auth: AUTH, fetch: meStub.fetch }).systemKeys.whoami(),
+    ).toEqual({ keyId: 'k-1', scopes: ['system:tenants'] });
+    expect(meStub.calls[0]!.url).toBe(`${API}/v1/system/whoami`);
+  });
+});
