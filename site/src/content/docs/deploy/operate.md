@@ -310,9 +310,12 @@ docker run --rm --network kindgi --env-file kindgi.env \
   runtime's own writing identity doesn't have. In a container elsewhere, that
   means Google credentials inside it. On Google Cloud, run it as a Cloud Run
   job with the runtime image and a service account that can read the bucket.
+- **Which copy:** the one whose pass started last, by what the file says,
+  never by when it was written or copied. Two replicas' passes can overlap.
 - **How it runs:** it starts its own passive server on 127.0.0.1 (below),
   replays each tenant's erasures, and clears what they name before it stops.
-  A replayed erasure is done before anything serves.
+  A replayed erasure is done before anything serves. A tenant in the copy
+  that the database doesn't have is skipped, and named.
 - **What it prints:** per tenant, how many erasures it replayed and how many
   it only restored to the ledger (nothing of theirs was there). Then how many
   of the replayed ones it cleared. Ids and counts only, never whom an
