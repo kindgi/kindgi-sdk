@@ -85,6 +85,12 @@ jobs:
       - name: Design tokens current, and their contrast
         run: pnpm run check:tokens
 
+      # parseEvent's shapes (@kindgi/sdk/webhooks) are generated from the API's
+      # WebhookEvent schema: scripts/gen-webhook-event-shapes.mjs. A schema
+      # change without a regeneration fails here.
+      - name: Webhook event shapes current with the API schema
+        run: pnpm run check:webhook-shapes
+
       - name: Validate JSON Schemas (@kindgi/specs)
         run: pnpm run spec:validate
 

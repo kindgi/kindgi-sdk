@@ -12,7 +12,7 @@ description: >
   authoring agents is covered by kindgi-authoring-agents.
 type: core
 library: "@kindgi/sdk"
-version: "0.4.5"
+version: "0.4.6"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -168,7 +168,7 @@ const defined = defineTool({
   ```
 - **Not secret:** env values are recorded with each run that uses them and shown in its journal. A credential is a secret (`needsSpec.secrets`), never an env value.
 - **Schemas compile strictly:** each `needsSpec` schema must compile as the runtime compiles it (an unknown keyword is refused), and an env `default` is a string; otherwise `defineTool` returns `invalid-tool-definition`, and a deploy fails with `deployment-validation-failed`.
-- **In a unit test:** pass `env: { … }` in the context `invokeTool` gets.
+- **In a unit test:** call it with `invokeToolForTest(tool, input, { env: { … } })` (`@kindgi/sdk/define`). It decides the values as a run does: a name you don't set takes its schema's `default`, each value is checked, and the handler sees the declared names only. A missing or invalid one is `precondition-failed` (`env-value-missing`, `env-value-invalid`). Plain `invokeTool` passes `ctx.env` as given (the runtime decides a pack tool's env itself).
 
 Everything else comes from the process environment: `process.env.CITATOR_URL`. The pack service runs with the pack's env files in `kindgi dev` (less any secret stored with `kindgi secrets set`, which a tool declares and reads from `ctx.secrets`, and any model provider's key, which no tool gets), and with the container's environment in an image. Declare the names your code reads in `kindgi.config.ts`, `env: { required: ['CITATOR_URL'], optional: [...] }`: a deployment injects exactly those, a pack service missing a required one isn't ready and says which, and `kindgi dev` warns about it. In an image the pack service also drops every variable the pack doesn't declare before your code loads (`kindgi dev` keeps them), so an undeclared name works locally and is unset once deployed: declare every name the code reads. Values per environment go in `environments.<name>.env`, secrets only as references.
 
@@ -261,15 +261,13 @@ the agent-author to opt in.
 
 ## Testing a tool
 
-Put a tool's tests beside it, `tools/<tool>/index.test.ts`. Discovery skips `*.test.*` and `*.spec.*` files (`.ts`, `.js`, `.mjs`, `.cjs`), so the indexer never loads a test as a primitive: don't move tests elsewhere to keep them out. `invokeTool(tool, input, ctx)` from `@kindgi/sdk/define` calls the tool the way Kindgi does, schemas included, and returns a `Result`. Its `ctx` needs a `tenantId` and an `abortSignal` (`ToolContext` in `@kindgi/tools`); the rest is optional. vitest doesn't typecheck, so a context missing them still passes the test: run `tsc --noEmit` too.
+Put a tool's tests beside it, `tools/<tool>/index.test.ts`. Discovery skips `*.test.*` and `*.spec.*` files (`.ts`, `.js`, `.mjs`, `.cjs`), so the indexer never loads a test as a primitive: don't move tests elsewhere to keep them out. `invokeTool(tool, input, ctx)` from `@kindgi/sdk/define` calls the tool the way Kindgi does, schemas included, and returns a `Result`. `toolContextForTest()` builds its `ctx` (tenant `tenant-test`, run `run-test`, an abort signal) and takes what to change: `env`, `secrets`, `projectId`.
 
 ```ts
-import { invokeTool } from '@kindgi/sdk/define';
-import type { TenantId } from '@kindgi/sdk/types';
+import { invokeTool, toolContextForTest } from '@kindgi/sdk/define';
 
-const ctx = { tenantId: 'test' as TenantId, abortSignal: new AbortController().signal };
-// add `env: { STORE_URL: '…' }` for a tool that reads a declared env value
-const result = await invokeTool(lookupOrder, { orderId: 'ord_1001' }, ctx);
+const result = await invokeTool(lookupOrder, { orderId: 'ord_1001' }, toolContextForTest());
+// a tool with env values: invokeToolForTest(tool, input, { env: { STORE_URL: '…' } })
 ```
 
 `kindgi test` runs the pack's tests with vitest (`vitest run`; `--watch` keeps watching).

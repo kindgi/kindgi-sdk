@@ -32,12 +32,17 @@ export type {
   RunIndexerOptions,
   KindgiConfig,
   KindgiProviderDeclaration,
+  KindgiPresetChoices,
+  KindgiPresetDeclaration,
+  KindgiPresetName,
+  KindgiPresetSettingValues,
   KindgiConfigFile,
   LoadKindgiConfigOptions,
   JvmLanguage,
   PackLanguage,
 } from './kindgi-index.js';
 export {
+  PRESET_DECLARATION_SETTINGS,
   DEFAULT_DISCOVERY,
   DEFAULT_JAVA_DISCOVERY,
   DEFAULT_SCALA_DISCOVERY,
