@@ -128,6 +128,7 @@ import type {
 import { RuntimeOwnedElsewhere, RuntimeStartStopped } from '../dev/runtime-container.js';
 import { DEFAULT_RUNTIME_IMAGE } from '../dev/runtime-image.js';
 import { resolveDevSandbox } from '../dev/sandbox/notices.js';
+import { createStartPhases, formatDuration } from '../dev/start-phases.js';
 import { describeEnvDiagnostics, loadLocalEnvSettings } from '../env/project-env.js';
 import {
   declaredProviderKeyNames,
@@ -780,42 +781,44 @@ async function runDevForPack(
       : `Starting the Kindgi runtime (${args.runtimeImage})...`,
   );
   let server: RunningApiServer;
+  // Each phase of the start as it happens, with its time (`dev/start-phases.ts`).
+  const startPhases = createStartPhases({ emit: emitProgress });
   try {
-    server = await withHeartbeat('still starting the runtime', 3000, () =>
-      dev.startApiServer({
-        port: port.port,
-        ...owner,
-        databaseUrl,
-        tenantId: effectiveTenantId,
-        token: effectiveToken,
-        userId: effectiveUserId,
-        packDir: args.packDir,
-        ...(projectEnv.localEnvFiles !== undefined && {
-          localEnvFiles: projectEnv.localEnvFiles,
-        }),
-        hostEnv: ctx.env,
-        packService: { url: packFront.url, token: pack.token },
-        ...(publicRunTokens.keyPath !== undefined && {
-          publicRunTokenKeyPath: publicRunTokens.keyPath,
-        }),
-        ...(publicRunTokens.exportKeyPath !== undefined && {
-          exportSigningKeyPath: publicRunTokens.exportKeyPath,
-        }),
-        ...(publicRunTokens.corsOrigins.length > 0 && {
-          corsOrigins: publicRunTokens.corsOrigins,
-        }),
-        ...(google.credentials !== undefined && {
-          googleCredentialsPath: google.credentials.path,
-        }),
-        runtimeImage: args.runtimeImage,
-        ...(args.runtimeUrl !== undefined && { runtimeUrl: args.runtimeUrl }),
-        logLevels: runtimeLogLevels(logView),
-        onLog: (line, stream) => emitOutput(showLine('runtime', line, logView, stream)),
-        onProgress: emitProgress,
-        ...(ctx.stopSignal !== undefined && { signal: ctx.stopSignal }),
+    server = await dev.startApiServer({
+      port: port.port,
+      ...owner,
+      databaseUrl,
+      tenantId: effectiveTenantId,
+      token: effectiveToken,
+      userId: effectiveUserId,
+      packDir: args.packDir,
+      ...(projectEnv.localEnvFiles !== undefined && {
+        localEnvFiles: projectEnv.localEnvFiles,
       }),
-    );
+      hostEnv: ctx.env,
+      packService: { url: packFront.url, token: pack.token },
+      ...(publicRunTokens.keyPath !== undefined && {
+        publicRunTokenKeyPath: publicRunTokens.keyPath,
+      }),
+      ...(publicRunTokens.exportKeyPath !== undefined && {
+        exportSigningKeyPath: publicRunTokens.exportKeyPath,
+      }),
+      ...(publicRunTokens.corsOrigins.length > 0 && {
+        corsOrigins: publicRunTokens.corsOrigins,
+      }),
+      ...(google.credentials !== undefined && {
+        googleCredentialsPath: google.credentials.path,
+      }),
+      runtimeImage: args.runtimeImage,
+      ...(args.runtimeUrl !== undefined && { runtimeUrl: args.runtimeUrl }),
+      logLevels: runtimeLogLevels(logView),
+      onLog: (line, stream) => emitOutput(showLine('runtime', line, logView, stream)),
+      onProgress: emitProgress,
+      startPhases,
+      ...(ctx.stopSignal !== undefined && { signal: ctx.stopSignal }),
+    });
   } catch (err) {
+    startPhases.close();
     await pack.close().catch(() => undefined);
     // Ctrl+C (or SIGTERM) while it waited: a stop, not a failure.
     if (err instanceof RuntimeStartStopped || ctx.stopSignal?.aborted === true) {
@@ -832,7 +835,12 @@ async function runDevForPack(
       exitCode: 1,
     };
   }
-  emitProgress(`✓ the Kindgi runtime is serving at ${server.baseUrl}`);
+  startPhases.close();
+  emitProgress(
+    args.runtimeUrl !== undefined
+      ? `✓ the Kindgi runtime is serving at ${server.baseUrl}`
+      : `✓ the Kindgi runtime is serving at ${server.baseUrl} (started in ${formatDuration(startPhases.elapsedMs())})`,
+  );
 
   const client = ctx.clientFor(server.baseUrl, server.token);
 

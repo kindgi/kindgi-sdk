@@ -67,7 +67,7 @@ All `@kindgi/*` packages share one version.
 | [`@kindgi/authz`](./packages/authz) | Kindgi™ authorization shape. |
 | [`@kindgi/blob-binding`](./packages/blob-binding) | Kindgi™ blob storage binding contract. |
 | [`@kindgi/capabilities`](./packages/capabilities) | Capability declarations + provider router for Kindgi™. |
-| [`@kindgi/cli`](./packages/cli) | Command-line interface for Kindgi™ — the sovereign AI OS. |
+| [`@kindgi/cli`](./packages/cli) | Command-line interface for Kindgi™. |
 | [`@kindgi/compliance`](./packages/compliance) | Kindgi™ compliance evidence contract. |
 | [`@kindgi/crypto`](./packages/crypto) | Kindgi™ cryptographic primitives. |
 | [`@kindgi/dev-echo-provider`](./packages/dev-echo-provider) | Deterministic dev-only ModelProvider — no LLM key, no network, no cost. |
@@ -94,7 +94,7 @@ All `@kindgi/*` packages share one version.
 | [`@kindgi/testing`](./packages/testing) | Test helpers for Kindgi apps and packages. |
 | [`@kindgi/tools`](./packages/tools) | Tool authoring shape + registry + invocation for Kindgi. |
 | [`@kindgi/types`](./packages/types) | Foundational TypeScript types shared across Kindgi. |
-| [`@kindgi/client`](./sdks/typescript) | TypeScript client SDK for Kindgi™ — the sovereign AI OS. |
+| [`@kindgi/client`](./sdks/typescript) | TypeScript client SDK for Kindgi™. |
 <!-- packages:end -->
 
 ## Python

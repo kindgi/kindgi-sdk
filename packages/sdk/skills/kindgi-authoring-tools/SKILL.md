@@ -12,7 +12,7 @@ description: >
   authoring agents is covered by kindgi-authoring-agents.
 type: core
 library: "@kindgi/sdk"
-version: "0.4.6"
+version: "0.4.7"
 sdk_version: "0.0.0"
 pack_languages: [node]
 sources:
@@ -270,7 +270,7 @@ const result = await invokeTool(lookupOrder, { orderId: 'ord_1001' }, toolContex
 // a tool with env values: invokeToolForTest(tool, input, { env: { STORE_URL: '…' } })
 ```
 
-`kindgi test` runs the pack's tests with vitest (`vitest run`; `--watch` keeps watching).
+`kindgi test` runs the pack's tests with vitest (`vitest run`; `--watch` keeps watching). In an app Kindgi was added to, `kindgi init` wrote the vitest config (`vitest.config.mts`, or `.ts` in a `"type": "module"` app): it runs `kindgi/**/*.test.ts`, and its `resolve.alias` copies `tsconfig.json`'s `paths`, which vitest doesn't read. A test that can't resolve an alias the app's code uses (`@/…`) means the two differ: update the config's alias, not the import.
 
 ## Shared code
 

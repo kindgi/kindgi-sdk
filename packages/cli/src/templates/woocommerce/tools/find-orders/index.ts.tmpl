@@ -1,0 +1,80 @@
+// {{PACK_ID}}.woo.find-orders — look up orders. Read-only (`mutating:
+// false`), so the agent's approval policy lets it run without a person.
+import { defineTool } from '@kindgi/sdk/define';
+import type { ToolId } from '@kindgi/sdk/types';
+import { z } from 'zod';
+
+import { WOO_NEEDS, type WooOrder, refundedSoFar, woo } from '../../lib/woo.js';
+
+const STATUSES = [
+  'pending',
+  'processing',
+  'on-hold',
+  'completed',
+  'cancelled',
+  'refunded',
+  'failed',
+] as const;
+
+const FindOrdersInput = z.object({
+  search: z
+    .string()
+    .min(1)
+    .max(100)
+    .optional()
+    .describe('An order number, or a customer name or email address.'),
+  status: z.enum(STATUSES).optional(),
+  limit: z.number().int().min(1).max(20).default(10),
+});
+
+const Order = z.object({
+  id: z.number().int(),
+  number: z.string(),
+  status: z.string(),
+  total: z.string(),
+  /** What the order has been refunded already. */
+  refunded: z.string(),
+  currency: z.string(),
+  createdAt: z.string(),
+  /** The customer's name, never their email or address. */
+  customer: z.string(),
+});
+
+const defined = defineTool({
+  id: '{{PACK_ID}}.woo.find-orders' as ToolId,
+  description:
+    "Look up the store's orders by order number, customer name or email, or status. Read-only: it changes nothing.",
+  version: '{{PACK_VERSION}}',
+  input: FindOrdersInput,
+  output: z.object({ orders: z.array(Order) }),
+  effects: [
+    { kind: 'reads', resource: 'external:woocommerce' },
+    { kind: 'network', resource: 'external:woocommerce' },
+  ],
+  mutating: false,
+  needsSpec: WOO_NEEDS,
+  handler: async ({ search, status, limit }, ctx) => {
+    const query = new URLSearchParams({ per_page: String(limit) });
+    if (search !== undefined) query.set('search', search);
+    if (status !== undefined) query.set('status', status);
+    const orders = await woo<WooOrder[]>(ctx, 'GET', `orders?${query.toString()}`);
+    return {
+      orders: orders.map((o) => ({
+        id: o.id,
+        number: o.number,
+        status: o.status,
+        total: o.total,
+        refunded: refundedSoFar(o).toFixed(2),
+        currency: o.currency,
+        createdAt: o.date_created,
+        customer: [o.billing?.first_name, o.billing?.last_name].filter(Boolean).join(' '),
+      })),
+    };
+  },
+});
+
+if (defined.kind === 'err') {
+  throw new Error(`{{PACK_ID}}.woo.find-orders failed to compile: ${defined.error.message}`);
+}
+
+export default defined.value;

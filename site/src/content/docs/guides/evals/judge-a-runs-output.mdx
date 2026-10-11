@@ -454,3 +454,104 @@ live runs: one judged `yes`, one dismissed, and one skipped while both waited.
   ]
 }
 ```
+
+## In the console
+
+A project's **Quality** section is the judging queue and its rules in the
+console. Its headline says where judging stands:
+
+> 5 runs wait for a judgment (3 for you) · 1 judged this week · 1 dismissed
+> this week · 7 added this week · 0 proposals to review.
+
+When a proposal waits for a reviewer, "· 1 waiting for a reviewer" follows.
+The section has five tabs: **Waiting**, **Rules**, **Trends**, **Judge
+classes** and **Proposals**.
+
+### Waiting
+
+![The Quality section's Waiting tab: the headline, the filters, "2 more wait for other judges.", and three runs of demo.echo-agent 1.0.0 queued by the Everything and Support sample rules, each needing an expert judgment, with Dismiss.](../../../../assets/quality/quality-waiting.png)
+
+Each row is a run in the queue:
+- **What ran:** the agent or flow and its version, and when it finished. It
+  links the run's **Judgments** tab, where you judge it (see
+  [Judge an item](#judge-an-item)).
+- **Why it's here:** the rules that queued it.
+- **Where it stands:** what it still needs ("Needs an expert judgment (1 so
+  far, unclassified)"), or how a closed one ended.
+
+Filter it by state (**Waiting**, **Judged**, **Dismissed**, **Erased**), by
+**For me** or **Everyone's** ("2 more wait for other judges."), by rule and
+by agent. **Dismiss** takes a run out of the queue with a reason, and
+**Reopen** puts a dismissed one back.
+
+### Rules
+
+![The Rules tab: "3 judging rules." with New rule, and the Support sample, Everything and Bot review rules, each with which runs it takes, what it wants, its cap, its open items, and History, Change and Unregister.](../../../../assets/quality/quality-rules.png)
+
+Each rule is in words:
+- **Which runs:** "Completed runs of Dev-Echo Agent", and how many it takes
+  ("Takes every matching run", or "Takes 1 in 10").
+- **What it wants:** "An expert judgment", "Any judgment" or "A bot
+  judgment".
+- **Its cap:** "No cap", or no new items while that many are open.
+- **What it has open now:** for example "3 open", linking **Waiting**.
+
+A rule matches an agent's or a flow's own runs, not an agent's turns as a
+flow's step; replays never match.
+
+Project editors see **New rule**, and **Change** on each rule. The editor
+shows what the rule would have queued from the recent runs, and saving makes
+a new version of the rule. **History** lists what each version changed, who
+changed it and when. **Unregister** stops a rule; the runs it queued stay in
+the queue.
+
+![The New judging rule dialog, over the Rules tab.](../../../../assets/quality/quality-rule-editor.png)
+
+### Trends
+
+![The Trends tab: each rule by its latest version, with the share of yes for each agent version. The Trend check rule's chart shows 1.1.0 at about 95% yes and 1.0.0 at about 25%, "1.1.0 is judged better than 1.0.0."](../../../../assets/quality/quality-trends.png)
+
+**Trends** shows, per rule and by its latest version, the share of yes
+among people's judgments of each agent version, over all time or the last 90
+or 30 days. These are [`judgingRules.results`](#change-a-rule-and-read-its-results)'
+numbers:
+- **A version shows from 10 judgments.** Below that it says so: "1.0.0: too
+  few judgments to say (2 so far)".
+- **Each line names its judgments and its range:** "1.1.0: about 95% yes,
+  from 12 judgments (12 runs judged so far); range 64–100%".
+- **A comparison only when the ranges are apart:** "1.1.0 is judged better
+  than 1.0.0."
+- **The weights, in words:** "Weighted by judge class: An expert's judgment
+  counts 3× an unclassified one; a bot's judgment counts the same as an
+  unclassified one."
+- **What the numbers leave out:** an earlier version of the rule is "shown
+  apart, never added in", and runs the cap kept out are counted ("1 matched
+  run wasn't queued because the rule already had its most open runs
+  waiting, so the queued ones lean toward quieter times.").
+
+**Every count** opens the counts behind a rule's trend.
+
+### Judge classes
+
+![The Judge classes tab: "2 judge classes apply to this project's runs. An unclassified judgment counts 1." The expert class counts 3×, applies to this project, may be given only by people and is wanted by the Echo half and Support sample rules; the bot class counts the same, only services.](../../../../assets/quality/quality-classes.png)
+
+Each [judge class](#weight-judges-by-class) that applies to the project's runs, in words:
+- how much it counts ("Counts 3× an unclassified one");
+- where it applies ("This project");
+- who may give it ("Only people", "Only services"); who may give a
+  restricted class is counted here, never listed;
+- the rules that want it.
+
+Project admins add, change and remove a project's classes (a tenant's
+classes: tenant admins). Removing a class names the rules that want it.
+
+### Proposals
+
+![The Proposals tab: "0 to review · 0 waiting for a reviewer · 1 being evaluated · 1 needs a look." Tuned agent's proposals: one drafted and not evaluated yet, one "Not better on the test set", and a withdrawn one under Closed.](../../../../assets/quality/quality-proposals.png)
+
+The project's agents' [proposals](../improve-an-agent/), grouped by what
+they wait for: **To review**, **Waiting for a reviewer**, **Being
+evaluated**, **Need a look** and **Closed**. Each says where it stands
+("Not better on the test set", with the judged yes share it was evaluated
+on) and links its page: "Each proposal's page holds its actions: evaluate,
+request, roll back, withdraw."

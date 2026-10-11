@@ -1,6 +1,6 @@
 ---
 title: Decide an approval
-description: Register reviewers, find what's waiting, and approve, reject, escalate or withdraw it from the CLI or your app.
+description: Register reviewers, find what's waiting, and approve, reject, escalate or withdraw it from the CLI, the console or your app.
 sidebar:
   order: 2
 ---
@@ -72,6 +72,30 @@ Error [auth]: The caller isn't a reviewer: its token carries no reviewer role, a
 
 `kindgi dev` leaves a role you set as it is, and doesn't register you again
 after you unregister yourself.
+
+### In the console
+
+A project's **Approvals** page leads to **Reviewers**: the tenant's roster,
+with each reviewer's role, when they were added, and whether they're
+active. Like the list, it's shown to tenant admins and reviewers only;
+anyone else reads "Who reviews approvals is shown to tenant admins and
+reviewers."
+
+A tenant admin adds a reviewer with **Add a reviewer**: find the person
+among the tenant's people by name or email, choose the role ("They decide
+approvals of this role and below."), and confirm with the button, which
+names them, such as **Make Eddie Park a standard reviewer**. Someone on the
+roster already isn't added again: "Eddie Park is already on the roster."
+**Remove** takes a reviewer off the roster at once; their past decisions
+stay.
+
+![Approvals → Reviewers with the form open: Who, searched for "Ed", lists Eddie Park and Eda Brooks with their emails; Role, with "They decide approvals of this role and below."; and the roster: you, the seed user (admin, shown by id), and Ada Lovelace (standard), each active with a Remove button. Above it: "Email notifications: off."](../../../../assets/approvals/reviewers.png)
+
+The page also says whether reviewers are emailed (see
+[Reviewer email](#reviewer-email)): "Email notifications: off. Reviewers
+find waiting approvals here; KINDGI_REVIEWER_EMAIL=on emails them.", or,
+when it's on, that the first email goes at once, then a digest every five
+minutes at most.
 
 ## Reviewer email
 
@@ -255,9 +279,28 @@ runtime purges other audit events (see
 ### In the console
 
 An approval's page (or the Inbox, with it chosen) offers the decisions the
-reviewer may make, each saying what it does to the waiting run, and a
-rationale.
+reviewer may make, each saying what it does, and an optional rationale:
+"It goes to the audit log with your rationale." On a run's gate:
 
+| Choice | What it says it does |
+| --- | --- |
+| **Approve** | "The waiting run goes on with it." |
+| **Reject** | "The waiting run is told no: what it asked for does not happen." |
+| **Send to a senior reviewer** (**Send to an admin reviewer** on one that needs a `senior`; none at `admin`) | "A new approval opens for senior reviewers; the run waits for that one." See [Escalate](#escalate). |
+| **Withdraw this request** | "Nothing is decided, and the run waiting on it ends: it fails, saying the approval was withdrawn." See [Withdraw](#withdraw). |
+
+![An approval's page, "Approve the next turn of acme.support", pending, needing a standard reviewer. Your decision offers Approve, Reject, Send to a senior reviewer and Withdraw this request; Send to a senior reviewer is chosen, with "A new approval opens for senior reviewers; the run waits for that one.", a rationale, and a Send to a senior reviewer button. Below: the subject, required role, when it was requested and when it expires, and the waiting run, agent and conversation.](../../../../assets/approvals/decide.png)
+
+An agent promotion's approval says what each does to the version instead:
+"The version goes live where it was asked for.", or "The promotion is
+dropped; nothing changes where it runs." Once a decision is recorded, the
+page says what it did, such as "The waiting run continues." or "The waiting
+run is told no.", with **Open the run**.
+
+- **Someone who can't decide it** reads why, in place of the choices: "You
+  aren't on the reviewer roster, so you can't decide approvals. A tenant
+  admin can add you.", or, below its role, "This one needs a senior
+  reviewer."
 - **Whoever asked for it,** a person or a service account, isn't offered
   **Approve** when it needs someone else's (`separateApprover`): "You asked
   for this, so someone else approves it."
@@ -358,6 +401,17 @@ The new approval needs a `senior` reviewer, so the `standard` reviewer no
 longer sees it. A `senior` (or `admin`) reviewer approves or rejects
 `a65cd23c-…`, and the run continues.
 
+In the console, it's **Send to a senior reviewer** (to an admin one, on an
+approval that needs a `senior`). The page then says "A new approval is open
+for senior reviewers; the run waits for it.", with **Open it**, and from
+then on "Sent on to senior reviewers: that approval decides it.", with
+**Open the approval it went to**:
+
+![The same approval after it was sent on, marked Escalated: "Sent on. A new approval is open for senior reviewers; the run waits for it." with Open it and Open the run, then "Sent on to senior reviewers: that approval decides it." with Open the approval it went to.](../../../../assets/approvals/sent-on.png)
+
+The new approval links back: "Sent on from an earlier approval: open it".
+It offers **Send to an admin reviewer** in its turn.
+
 ### Withdraw
 
 Withdraw closes an approval without deciding what it asked, when the
@@ -368,6 +422,14 @@ withdrawn").
 ```sh
 kindgi approvals complete <approval-id> --decision=withdraw --rationale="Asked by mistake"
 ```
+
+In the console, it's **Withdraw this request**. On a run's gate, the page
+then says "The request is withdrawn; nothing was decided, and the run
+waiting on it ends.", with **Open the run**, and from then on "You withdrew
+it: nothing was decided." Its run fails with `hitl-withdrawn` ("The
+approval for the session-HITL gate was withdrawn").
+
+![Another approval after Withdraw this request, marked Withdrawn: "Withdrawn. The request is withdrawn; nothing was decided, and the run waiting on it ends." with Open the run, then "You withdrew it: nothing was decided."](../../../../assets/approvals/withdrawn.png)
 
 Cancelling a run withdraws the approvals it waits on by itself: see
 [Cancel a run](../../runs/cancel-a-run/#approvals-of-a-cancelled-run).

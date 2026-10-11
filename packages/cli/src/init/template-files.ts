@@ -43,7 +43,7 @@ export interface Substitutions {
   /**
    * The commands a README shows, as `kindgi init`'s Next steps print them:
    * the install (`pnpm install`), the typecheck script, and how the project
-   * runs its `kindgi` (`pnpm exec kindgi`, `npx --no kindgi`, `uv run
+   * runs its `kindgi` (`pnpm exec kindgi`, `npx --no -- kindgi`, `uv run
    * kindgi`). Left as placeholders when absent, for a second pass
    * (`fillRunnerPlaceholders`) once the package manager is known.
    */
