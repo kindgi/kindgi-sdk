@@ -46,7 +46,7 @@ jobs:
             if ! (
               cd "$dir"
               terraform fmt -check -recursive -diff &&
-                terraform init -backend=false -input=false -no-color &&
+                terraform init -backend=false -lockfile=readonly -input=false -no-color &&
                 terraform validate -no-color &&
                 terraform test -no-color
             ); then
