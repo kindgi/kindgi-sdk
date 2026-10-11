@@ -6,8 +6,9 @@
  * running as a participant takes what reading their memory takes: the
  * participant is the caller (a person, by their user id), or the caller holds
  * `write` on the turn's project. Checked at every way a turn gets a
- * participant: a body's `input.participantId`, posting into a conversation
- * (its stored participant wins), and opening a conversation for someone.
+ * participant: a body's `input.participantId` (an agent's or a flow's run),
+ * posting into a conversation (its stored participant wins), and opening a
+ * conversation for someone.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -27,26 +28,31 @@ const P1 = randomUUID();
 const ALICE = randomUUID() as UserId;
 const BOBS_CONVERSATION = randomUUID();
 const HIS_OWN = randomUUID();
+/** A conversation whose lookup fails (the database is away). */
+const UNREADABLE = randomUUID();
+
+/** What each key may run: the desk agent, the triage flow, and an agent in no project. */
+const RUN = ['execute agent:acme.desk', 'execute flow:acme.triage', 'execute agent:acme.loose'];
 
 /** Each key's grants, as `<action> <type>:<id>`. */
 const KEYS: Record<string, { readonly who: TokenResolution; readonly grants: readonly string[] }> =
   {
     // A person who may run the agent and nothing else (a site's person's shape).
-    caller: { who: { tenantId, userId: ALICE }, grants: ['execute agent:acme.desk'] },
+    caller: { who: { tenantId, userId: ALICE }, grants: RUN },
     // An editor: `write` on the project, acting for all its end users.
     editor: {
       who: { tenantId, userId: randomUUID() as UserId },
-      grants: ['execute agent:acme.desk', `write project:${P1}`],
+      grants: [...RUN, `write project:${P1}`],
     },
     // An app's key that may only run the agent; one naming a user is still a key.
     app: {
       who: { tenantId, serviceAccountId: 'sa-app', tokenId: 'tok-app' as never, userId: ALICE },
-      grants: ['execute agent:acme.desk'],
+      grants: RUN,
     },
     // An app's key acting for its project's end users.
     appWriter: {
       who: { tenantId, serviceAccountId: 'sa-desk', tokenId: 'tok-desk' as never },
-      grants: ['execute agent:acme.desk', `write project:${P1}`],
+      grants: [...RUN, `write project:${P1}`],
     },
   };
 
@@ -88,14 +94,26 @@ function makeApp(withAuthz = true) {
       }),
       resumeRun: async () => ({ kind: 'err', error: { code: 'bad-input', message: 'unused' } }),
     } as unknown as RunHandlerBinding,
+    // The desk agent and the triage flow live in P1; `acme.loose` in no project.
     agentRegistry: {
       ...(stub as unknown as { agentRegistry?: object }).agentRegistry,
-      get: async () => ({ agentId: 'acme.desk', version: '1.0.0', projectId: P1 }),
+      get: async ({ agentId }: { agentId: string }) => ({
+        agentId,
+        version: '1.0.0',
+        ...(agentId === 'acme.desk' && { projectId: P1 }),
+      }),
     } as never,
-    flowRegistry: { get: async () => null } as never,
+    flowRegistry: {
+      get: async ({ flowId }: { flowId: string }) =>
+        flowId === 'acme.triage' ? { flowId, version: '1.0.0', projectId: P1 } : null,
+    } as never,
     conversationBinding: {
       ...stub.conversationBinding,
       getConversation: async (_t: TenantId, id: string) => {
+        // As Postgres: an id that isn't a uuid fails the query, as does the database being away.
+        if (id === UNREADABLE || !/^[0-9a-f-]{36}$/.test(id)) {
+          return { kind: 'err', error: { code: 'persistence-error', message: 'query failed' } };
+        }
         const found = conversations.get(id);
         return found === undefined
           ? {
@@ -149,16 +167,26 @@ function makeApp(withAuthz = true) {
         headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
         body: JSON.stringify(body),
       });
-      const json = (await res.json()) as { error?: { code?: string; message?: string } };
-      return { status: res.status, code: json.error?.code, message: json.error?.message };
+      const raw = await res.text();
+      const json = JSON.parse(raw) as {
+        error?: { code?: string; message?: string; details?: { resource?: string } };
+      };
+      return {
+        status: res.status,
+        code: json.error?.code,
+        message: json.error?.message,
+        resource: json.error?.details?.resource,
+        raw,
+      };
     };
     return {
-      run: (input: Record<string, unknown>) =>
+      run: (input: Record<string, unknown>, agent = 'acme.desk') =>
         post('/v1/runs', {
-          agent: 'acme.desk',
+          agent,
           agentVersion: '1.0.0',
           input: { userMessage: 'hello', ...input },
         }),
+      runFlow: (input: Record<string, unknown>) => post('/v1/runs', { flow: 'acme.triage', input }),
       open: (participantId?: string) =>
         post('/v1/conversations', {
           agentId: 'acme.desk',
@@ -195,6 +223,23 @@ describe('a person who may only run the agent', () => {
     ).toBe(true);
   });
 
+  test('the refusal names only the conversation they sent, never its participant or project', async () => {
+    const r = await makeApp().as('caller').run({ conversationId: BOBS_CONVERSATION });
+    expect(refusedForParticipant(r)).toBe(true);
+    expect(r.resource).toBe(`conversation:${BOBS_CONVERSATION}`);
+    expect(r.message).toContain('this conversation');
+    expect(r.raw).not.toContain('cus_bob');
+    expect(r.raw).not.toContain(P1);
+  });
+
+  test("a flow's run naming someone else is refused; as themselves it goes ahead", async () => {
+    const { as } = makeApp();
+    expect(refusedForParticipant(await as('caller').runFlow({ participantId: 'cus_bob' }))).toBe(
+      true,
+    );
+    expect(reachedTheHandler(await as('caller').runFlow({ participantId: ALICE }))).toBe(true);
+  });
+
   test('opening a conversation for someone else is refused', async () => {
     expect(refusedForParticipant(await makeApp().as('caller').open('cus_bob'))).toBe(true);
   });
@@ -218,6 +263,12 @@ describe("a caller acting for the project's end users (write on the project)", (
     expect((await as('editor').open('cus_bob')).status).toBe(201);
   });
 
+  test('an editor runs a flow as any participant', async () => {
+    expect(
+      reachedTheHandler(await makeApp().as('editor').runFlow({ participantId: 'cus_bob' })),
+    ).toBe(true);
+  });
+
   test("an app's key with write acts for its end users", async () => {
     expect(
       reachedTheHandler(await makeApp().as('appWriter').run({ participantId: 'cus_bob' })),
@@ -230,6 +281,40 @@ describe("an app's key that may only run the agent", () => {
     const { as } = makeApp();
     expect(refusedForParticipant(await as('app').run({ participantId: 'cus_bob' }))).toBe(true);
     expect(refusedForParticipant(await as('app').run({ participantId: ALICE }))).toBe(true);
+  });
+});
+
+describe("a turn whose project isn't known", () => {
+  test('only the participant themselves may: write on some project is no help', async () => {
+    const { as } = makeApp();
+    const r = await as('editor').run({ participantId: 'cus_bob' }, 'acme.loose');
+    expect(refusedForParticipant(r)).toBe(true);
+    expect(r.message).toContain("project isn't known");
+    expect(reachedTheHandler(await as('caller').run({ participantId: ALICE }, 'acme.loose'))).toBe(
+      true,
+    );
+  });
+});
+
+describe('looking up the conversation', () => {
+  test('a failed lookup answers 500 and starts no turn, for anyone', async () => {
+    const { as } = makeApp();
+    for (const key of ['caller', 'editor']) {
+      const r = await as(key).run({ conversationId: UNREADABLE });
+      expect(r.status).toBe(500);
+      expect(r.code).toBe('internal-server-error');
+    }
+  });
+
+  test("an id that isn't a uuid names no conversation: the run handler answers it", async () => {
+    const { as } = makeApp();
+    expect(reachedTheHandler(await as('caller').run({ conversationId: 'not-a-uuid' }))).toBe(true);
+    // The body's participant is still checked.
+    expect(
+      refusedForParticipant(
+        await as('caller').run({ conversationId: 'not-a-uuid', participantId: 'cus_bob' }),
+      ),
+    ).toBe(true);
   });
 });
 

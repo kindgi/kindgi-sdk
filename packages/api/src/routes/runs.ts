@@ -87,14 +87,16 @@ export interface RunsRouterOptions {
    * A conversation's stored participant and project: a turn posted into it
    * runs as that participant, whatever the body names, so who may post it
    * is checked against them (`participantRefusal`). `null`: no such
-   * conversation (the run handler answers it).
+   * conversation (the run handler answers it). Any other failure throws, so
+   * the turn never runs unchecked. Required, as `targetProject` is: a
+   * router without them would check no stored participant.
    */
-  readonly conversationOf?: (
+  readonly conversationOf: (
     tenantId: TenantId,
     conversationId: string,
   ) => Promise<{ readonly participantId?: string; readonly projectId?: string } | null>;
   /** The project a target is registered in: the agent's or flow's own. */
-  readonly targetProject?: (
+  readonly targetProject: (
     tenantId: TenantId,
     target: { readonly kind: 'agent' | 'flow'; readonly id: string },
   ) => Promise<string | undefined>;
@@ -116,7 +118,7 @@ const refuseMalformedRunId = refuseMalformedUuidParam('runId', 'a run id');
 export function runsRouter(
   binding: RunHandlerBinding,
   runBinding: RunBinding,
-  options: RunsRouterOptions = {},
+  options: RunsRouterOptions,
   authorizer?: Authorizer,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
@@ -242,17 +244,23 @@ export function runsRouter(
     const conversationId =
       typeof turnInput.conversationId === 'string' ? turnInput.conversationId : undefined;
     if (authorizer !== undefined && (named !== undefined || conversationId !== undefined)) {
+      // Conversation ids are uuids: another id names no conversation (the
+      // run handler answers it), so only the body's participant is checked.
       const conversation =
-        conversationId === undefined
+        conversationId === undefined || !UUID_RE.test(conversationId)
           ? null
-          : await options.conversationOf?.(tenantId, conversationId);
+          : await options.conversationOf(tenantId, conversationId);
       const participantId = conversation?.participantId ?? named;
       if (participantId !== undefined) {
         const projectId =
           conversation?.projectId ??
           (parsed.value.projectId as unknown as string | undefined) ??
-          (await options.targetProject?.(tenantId, target));
-        const refusal = await participantRefusal(c, authorizer, participantId, projectId);
+          (await options.targetProject(tenantId, target));
+        const refusal = await participantRefusal(c, authorizer, {
+          participantId,
+          projectId,
+          ...(conversation !== null && { conversationId }),
+        });
         if (refusal !== undefined) return refusal;
       }
     }

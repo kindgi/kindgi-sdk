@@ -12,5 +12,8 @@
 - **Opening a conversation for someone:** `participantId` on `POST /v1/conversations`.
 
 Anything else is refused with 403 `participant-not-allowed`, and recorded as other refusals are.
+- **Posting into a conversation:** the refusal names only that conversation, never its participant or project.
+- **The turn's project isn't known:** only the participant themselves may.
+- **The conversation can't be read** (a failed query): the API answers 500 and starts no turn.
 
 **Who it affects:** before, anyone who could run an agent could run it as any participant. Today, every role that can run an agent also holds `write`, so nothing changes for them. The check is for callers that may run an agent without `write` on its project.

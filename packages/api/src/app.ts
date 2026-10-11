@@ -1899,7 +1899,17 @@ function participantLookups(
         tenantId,
         conversationId as never,
       );
-      if (got.kind !== 'ok') return null;
+      if (got.kind !== 'ok') {
+        if (got.error.code === 'conversation-not-found') return null;
+        // Any other failure isn't "no conversation": the turn would then run
+        // as the stored participant unchecked. A 500, and no turn.
+        throw new Error(
+          "Couldn't read the conversation's participant, so the turn wasn't started",
+          {
+            cause: got.error,
+          },
+        );
+      }
       const { participantId, projectId } = got.value;
       return {
         ...(participantId !== undefined && { participantId }),

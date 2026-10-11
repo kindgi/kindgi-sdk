@@ -220,12 +220,10 @@ export function conversationsRouter(
     );
     if (refused !== undefined) return refused;
     // Opening it for a participant: its turns run with their memory.
-    const notAllowed = await participantRefusal(
-      c,
-      authorizer,
-      parsed.value.participantId,
-      projectId as unknown as string | undefined,
-    );
+    const notAllowed = await participantRefusal(c, authorizer, {
+      participantId: parsed.value.participantId,
+      projectId: projectId as unknown as string | undefined,
+    });
     if (notAllowed !== undefined) return notAllowed;
 
     const opened = await conversationBinding.openConversation({
