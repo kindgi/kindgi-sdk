@@ -201,6 +201,22 @@
       }
     },
     {
+      "name": "a three-letter kind (the license renewer's key) is scrubbed; ordinary text with kgi_ is left alone",
+      "logger": { "level": "info" },
+      "bindings": [{ "subsystem": "pack" }],
+      "level": "info",
+      "message": "renewer kgi_lrk_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8S9t0WXYZ and kgi_lrp_short; the kgi_ prefix, kgi_config, kgi_long_word and KGI_TOKEN stay",
+      "fields": { "note": "set KINDGI_LICENSE_RENEWER_KEY, not kgi_settings" },
+      "expected": {
+        "time": "2026-10-08T12:00:00.000Z",
+        "level": "info",
+        "severity": "INFO",
+        "subsystem": "pack",
+        "message": "renewer kgi_lrk_…WXYZ and kgi_lrp_…; the kgi_ prefix, kgi_config, kgi_long_word and KGI_TOKEN stay",
+        "note": "set KINDGI_LICENSE_RENEWER_KEY, not kgi_settings"
+      }
+    },
+    {
       "name": "an error: name, message (scrubbed) and code; no stack at warn when the logger is at info",
       "logger": {
         "level": "info"
