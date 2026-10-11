@@ -12,7 +12,8 @@
  *
  * Ergonomic defaults:
  *   - Refuses to spawn without a `vitest.config.*` at the pack root
- *     (bare vitest would sweep the whole repo on dev machines).
+ *     (bare vitest would sweep the whole repo on dev machines), any of
+ *     vitest's own names (`VITEST_CONFIG_FILENAMES`).
  *   - `--watch` threads through as `--watch`. Everything else (except
  *     the CLI's own `--reporter` short-cut + `--path`) is verbatim
  *     pass-through after `--`.
@@ -29,7 +30,9 @@ import { isAbsolute, join, resolve } from 'node:path';
 import { KINDGI_CONFIG_FILENAMES } from '@kindgi/handler-runtime';
 
 import type { CommandContext } from '../context.js';
+import { KINDGI_TESTS_GLOB } from '../init/vitest-setup.js';
 import { renderJson } from '../output.js';
+import { VITEST_CONFIG_FILENAMES } from '../test/runners.js';
 import type { CommandResult, LeafCommand } from './types.js';
 
 export const testCommand: LeafCommand = {
@@ -49,7 +52,7 @@ export const testCommand: LeafCommand = {
     path: {
       type: 'string',
       description:
-        'The pack root, with a `kindgi.config.ts` (or `.mts`) and a `vitest.config.*`. Default: the current directory.',
+        'The pack root, with a `kindgi.config.*` and a `vitest.config.*` (`.ts`, `.mts`, `.cts`, `.js`, `.mjs` or `.cjs`). Default: the current directory.',
     },
   },
   run: async (ctx): Promise<CommandResult> => runTestCommand(ctx),
@@ -69,25 +72,21 @@ export async function runTestCommand(ctx: CommandContext): Promise<CommandResult
 
   const args = resolveArgs(ctx);
 
-  // Confirm kindgi.config.ts sits at the pack root — same shape
+  // Confirm a kindgi.config.* sits at the pack root — same shape
   // kindgi dev / build use. Failing loud beats a cryptic vitest
   // error later.
   const configOk = await ensurePackConfig(args.packDir);
   if (!configOk) {
     return {
       kind: 'error',
-      stderr: `kindgi test could not find a kindgi.config.ts at ${args.packDir}.\nRun \`kindgi init <pack-name>\` to scaffold a pack, or pass --path=<dir>.\n`,
+      stderr: `kindgi test could not find a Kindgi config at ${args.packDir} (${KINDGI_CONFIG_FILENAMES.join(', ')}).\nRun \`kindgi init <pack-name>\` to scaffold a pack, or pass --path=<dir>.\n`,
       exitCode: 1,
     };
   }
 
   const hasConfig = await runners.hasVitestConfig({ packDir: args.packDir });
   if (!hasConfig) {
-    return {
-      kind: 'error',
-      stderr: `kindgi test could not find a vitest config at ${args.packDir}.\nCreate one (e.g. \`vitest.config.ts\`) or \`cd\` into your pack root.\nThe two templates shipped with \`kindgi init\` ship one out of the box.\n`,
-      exitCode: 1,
-    };
+    return { kind: 'error', stderr: noVitestConfig(args.packDir), exitCode: 1 };
   }
 
   const forwarded = buildForwardedArgs(args);
@@ -153,6 +152,20 @@ export async function runTestCommand(ctx: CommandContext): Promise<CommandResult
     exitCode: result.exitCode,
     rendered: { stdout: rendered.stdout, stderr },
   };
+}
+
+/**
+ * No vitest config: the names looked for, and what each kind of pack
+ * needs (augment mode's setup, which `kindgi init` writes unless the app
+ * runs vitest already).
+ */
+function noVitestConfig(packDir: string): string {
+  return [
+    `kindgi test could not find a vitest config at ${packDir} (${VITEST_CONFIG_FILENAMES.join(', ')}).`,
+    `In an app Kindgi was added to, it needs vitest and vite in devDependencies and a vitest.config.mts (.ts in a "type": "module" app) whose test.include has '${KINDGI_TESTS_GLOB}'; \`kindgi init\` writes them when the app has no vitest setup of its own.`,
+    'A pack made by `kindgi init <pack-name>` has one at its root: run kindgi test there, or pass --path=<dir>.',
+    '',
+  ].join('\n');
 }
 
 // ---------------------------------------------------------------------

@@ -19,7 +19,7 @@ Keep an agent a piece of data that can be versioned, stored, and pinned by `{ id
   - **`createAgentRegistry(seed?)`** — an in-memory **`AgentRegistry`** keyed by `(id, version)`: `register`, `get(id, version?)`, `getLatest`, `list`, `listVersions`, `unregister`.
 - **Prompt rendering**
   - **`renderInstructions(agent, context: RenderContext)`** — renders `instructions` in LiquidJS strict mode and returns `{ ok: true, value: RenderResult }` or `{ ok: false, error: PromptRenderError }`. A missing required parameter or unresolved variable is a `missing-parameter` error (`MissingParameterError`), never an empty string; other failures are `render-failure` (`RenderFailureError`). `RenderResult.context` holds every value the template saw.
-  - **`AUTO_INJECTED_VARS`** — `today`, `now`, `agent` (`id`, `name`, `version`), `conversation` (`id`, `turn`). These names are reserved and cannot be declared as parameters.
+  - **`AUTO_INJECTED_VARS`** — `today`, `now`, `agent` (`id`, `name`, `version`), `conversation` (`id`, `turn`), `input` (the turn's structured input), `settings` (the settings blocks' values). These names are reserved and cannot be declared as parameters.
 - **Running turns**
   - **`invokeAgent(input: InvokeAgentInput, bindings: InvokeAgentBindings)`** — returns `Promise<Result<AgentTurnResult, InvokeAgentError>>`.
     - `InvokeAgentInput` — `tenantId`, `projectId`, `agent`, `conversationId` (of a conversation opened with the same agent version), `userMessage`, and optional `parameters`, `participantId`, `abortSignal`, `dryRun` (no conversation, memory or provenance writes; the model call is skipped), `principal` and `authz` (when both are set, tool calls are authorized against the principal; see [`@kindgi/authz`](../authz/)).

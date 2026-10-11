@@ -118,6 +118,7 @@ describe('kindgi init — minimal template', () => {
       '.claude/skills/kindgi-authoring-tools/SKILL.md',
       '.claude/skills/kindgi-framework-feedback/SKILL.md',
       '.claude/skills/kindgi-getting-started/SKILL.md',
+      '.claude/skills/kindgi-using/SKILL.md',
       '.gitignore',
       '.nvmrc',
       'AGENTS.md',
@@ -238,7 +239,7 @@ describe('kindgi init — a machine without pnpm (T280)', () => {
     );
     expect(out.exitCode).toBe(0);
     expect(out.stderr).toContain('  npm install');
-    expect(out.stderr).toContain('npx --no kindgi dev');
+    expect(out.stderr).toContain('npx --no -- kindgi dev');
     expect(out.stderr).not.toMatch(/^ {2}pnpm /m);
     // No advice to pin a pnpm this machine doesn't have.
     expect(out.stderr).not.toContain('packageManager');
@@ -260,7 +261,13 @@ describe("kindgi init — the README's commands are the Next steps' (T279)", () 
       seam: undefined,
       runner: 'pnpm exec kindgi',
     },
-    { name: 'minimal, without pnpm', argv: [], env: {}, seam: NO_PNPM, runner: 'npx --no kindgi' },
+    {
+      name: 'minimal, without pnpm',
+      argv: [],
+      env: {},
+      seam: NO_PNPM,
+      runner: 'npx --no -- kindgi',
+    },
     {
       name: 'sample, with pnpm',
       argv: ['--template=sample'],
@@ -273,7 +280,7 @@ describe("kindgi init — the README's commands are the Next steps' (T279)", () 
       argv: ['--template=sample'],
       env: {},
       seam: NO_PNPM,
-      runner: 'npx --no kindgi',
+      runner: 'npx --no -- kindgi',
     },
     // No npm project to hold the CLI: the published CLI, within its minor.
     {
@@ -417,6 +424,7 @@ describe('kindgi init — python template', () => {
       '.claude/skills/kindgi-python-authoring-guardrails/SKILL.md',
       '.claude/skills/kindgi-python-authoring-tools/SKILL.md',
       '.claude/skills/kindgi-python-getting-started/SKILL.md',
+      '.claude/skills/kindgi-using/SKILL.md',
       '.gitignore',
       'AGENTS.md',
       'README.md',
@@ -461,6 +469,7 @@ describe('kindgi init — java template', () => {
       '.claude/skills/kindgi-java-authoring-guardrails/SKILL.md',
       '.claude/skills/kindgi-java-authoring-tools/SKILL.md',
       '.claude/skills/kindgi-java-getting-started/SKILL.md',
+      '.claude/skills/kindgi-using/SKILL.md',
     ]);
     const files = all.filter((f) => !f.startsWith('.claude/'));
     expect(files).toEqual([
@@ -530,6 +539,7 @@ describe('kindgi init — scala template', () => {
       '.claude/skills/kindgi-scala-authoring-guardrails/SKILL.md',
       '.claude/skills/kindgi-scala-authoring-tools/SKILL.md',
       '.claude/skills/kindgi-scala-getting-started/SKILL.md',
+      '.claude/skills/kindgi-using/SKILL.md',
       '.gitignore',
       'AGENTS.md',
       'README.md',
@@ -614,6 +624,7 @@ describe('kindgi init — sample template', () => {
       '.claude/skills/kindgi-authoring-tools/SKILL.md',
       '.claude/skills/kindgi-framework-feedback/SKILL.md',
       '.claude/skills/kindgi-getting-started/SKILL.md',
+      '.claude/skills/kindgi-using/SKILL.md',
       '.gitignore',
       '.nvmrc',
       'AGENTS.md',

@@ -130,6 +130,13 @@ every rate is 10% higher. The OpenAI registration's settings are on
 A wrong key fails the turn with the provider's own message. To change the key,
 set it again with `--write-mode=add-version`; the next turn uses the new one.
 
+A key a header can't carry, such as one pasted with a line break inside it,
+fails the turn before anything is sent, naming the provider, never the key:
+
+```text
+@kindgi/adapter-model-anthropic: provider "acme": its API key has a line break, which a header can't carry: store the secret without it
+```
+
 If `dev-echo` still answers (its answer starts with
 `⚠ dev-echo isn't a real model`), the agent needs something none of the
 registered models has: see

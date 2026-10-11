@@ -146,4 +146,22 @@ if [ -n "$api_touched" ] || [ -n "$py_client_touched" ]; then
   fi
 fi
 
+# ------------------------------------------------------------------- #
+# 5. Webhook event shapes — parseEvent's ↔ openapi.json's WebhookEvent #
+# ------------------------------------------------------------------- #
+shapes_touched=$(printf '%s\n' "$staged_all" \
+  | grep -E '^(packages/api/openapi\.json|scripts/gen-webhook-event-shapes\.mjs|packages/sdk/src/webhook-event-shapes\.generated\.ts)$' \
+  || true)
+
+if [ -n "$shapes_touched" ]; then
+  printf "\033[36mpre-commit: checking parseEvent's shapes against openapi.json...\033[0m\n"
+  make_log_dir
+  if ! node scripts/gen-webhook-event-shapes.mjs --check >"$log_dir/webhook-shapes.log" 2>&1; then
+    printf "\n\033[31mpre-commit: the webhook event shapes are out of step with openapi.json\033[0m\n\n"
+    tail -20 "$log_dir/webhook-shapes.log"
+    printf "\n\033[31m→ Run: pnpm run gen:webhook-shapes\033[0m\n\n"
+    exit 1
+  fi
+fi
+
 exit 0

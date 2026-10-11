@@ -73,6 +73,11 @@ sbt test           # the template's tests: the tools, called directly
 ./kindgiw dev      # boots Kindgi locally and runs this pack, recompiling on save
 ```
 
+One `kindgi dev` per pack. When one is already running (the person's
+terminal, say), `kindgi dev` exits with code 3 and prints where it is
+(its pid, the console and the API): use that one. Don't start another,
+and don't stop theirs.
+
 `kindgi dev` needs Docker and Postgres. It starts Postgres in Docker unless
 `KINDGI_DATABASE_URL` points at yours. It compiles through sbt's server
 (`sbt --client`), so a save compiles in about a second once it's warm.

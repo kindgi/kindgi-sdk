@@ -11,6 +11,10 @@ Kindgi signs each request with a secret that your receiver knows too. The
 secret lives with your other secrets, and the endpoint refers to it by name:
 Kindgi never stores it with the endpoint.
 
+This page is about Kindgi **sending** your app webhooks. To have a webhook from
+another system start a run, see [Start runs from WooCommerce, Drupal or any
+signed webhook](../start-runs-from-webhooks/).
+
 ## 1. Store a signing secret
 
 A signing secret is `whsec_` and the base64 of at least 24 random bytes.
@@ -172,8 +176,51 @@ webhook-signature: v1,bj8Mj6s7ln2Gd1sDRQi8+Wax2SOFHovsdMIwvNhDrgw=
   so it's all zeros. See [Cost per run and per customer](../../observability/cost-per-run/).
   A runtime before 0.1.3 doesn't send it.
 - The event carries the run's identity and outcome, never its input or
-  output. Fetch the run (`runs.get`) for its output.
+  output. Fetch the run (`runs.get`) for its output: after `parseEvent`
+  (TypeScript), `event.data.run.id` is a `RunId`, so it goes to `runs.get` as
+  it is.
 - `webhook-id` is the event's id, the same on every retry.
+
+### On an agent's run
+
+When your app starts an agent's run (a turn in a conversation), the event
+is the same, with `flowId` `agent.turn` and an `agent` saying which agent
+ran:
+
+```json
+{
+  "id": "62340028-b9ea-4b3c-911a-9958ecdf64de",
+  "type": "run.finished",
+  "createdAt": "2026-10-11T06:05:07.444Z",
+  "data": {
+    "run": {
+      "id": "73628759-cb27-4813-94f7-f872bb3a78ef",
+      …
+      "flowId": "agent.turn",
+      "flowVersion": "1.1.0",
+      "status": "completed",
+      …
+      "agent": {
+        "id": "acme.order-assistant",
+        "version": "0.1.0",
+        "conversationId": "9bd2328a-5c30-4cf9-ab15-4ddc74dc898d",
+        "via": "latest"
+      }
+    }
+  }
+}
+```
+
+- `agent.id` and `agent.version` are the agent and the version that ran,
+  and `conversationId` is the conversation the turn belongs to.
+- `via` says why that version ran: `latest` (no version is live for the
+  run's scope), `live` (the version live for its scope), `explicit` (your
+  app named the version) or `conversation` (the conversation's own).
+- `usage` counts the agent's model calls, as on a flow's run.
+- These are the fields `GET /v1/runs/<run-id>` shows. In Python,
+  `parse_event` gives them as `event.data.run.agent`.
+- A flow's run has no `agent`, and neither does an event from a runtime
+  before 0.1.6.
 
 ## Improvement passes
 
@@ -183,7 +230,7 @@ one when any [improvement pass](../../evals/improve-an-agent/) ends,
 the pass as `GET /v1/improvement-passes/<pass-id>` shows it; its outcome
 names the proposal it wrote, if it wrote one. Of the filter, only
 `projectId` (the pass's project) applies; `flowIds` and `includeDryRuns` are
-about runs. The Python client's `parse_event` reads it.
+about runs. `parseEvent` (TypeScript) and `parse_event` (Python) read it.
 
 ## Approvals
 
