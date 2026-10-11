@@ -225,6 +225,36 @@ variable "database_private_network" {
   default     = ""
 }
 
+variable "database_backup_retention" {
+  description = "How many daily backups Cloud SQL keeps. Null (the default): Cloud SQL's own default, 7. A deployment others rely on keeps more (30, say)."
+  type        = number
+  default     = null
+  validation {
+    condition     = var.database_backup_retention == null ? true : (floor(var.database_backup_retention) == var.database_backup_retention && var.database_backup_retention >= 1 && var.database_backup_retention <= 365)
+    error_message = "database_backup_retention is a whole number of backups, from 1 to 365."
+  }
+}
+
+variable "database_backup_location" {
+  description = "Where Cloud SQL stores the backups: a multi-region (us, eu, asia) or a region. Empty (the default): Cloud SQL's own choice, the multi-region nearest the instance. Set it when where backups are kept is a promise you make (us for an instance in us-central1, say)."
+  type        = string
+  default     = ""
+  validation {
+    condition     = can(regex("^([a-z]+(-[a-z0-9]+)*)?$", var.database_backup_location))
+    error_message = "database_backup_location is a location name such as us or us-central1."
+  }
+}
+
+variable "database_point_in_time_days" {
+  description = "How many days of transaction logs point-in-time recovery keeps: any second within them can be restored. Null (the default): Cloud SQL's own default, 7. At most 7 on ENTERPRISE and 35 on ENTERPRISE_PLUS."
+  type        = number
+  default     = null
+  validation {
+    condition     = var.database_point_in_time_days == null ? true : (floor(var.database_point_in_time_days) == var.database_point_in_time_days && var.database_point_in_time_days >= 1 && var.database_point_in_time_days <= 35)
+    error_message = "database_point_in_time_days is a whole number of days, from 1 to 35 (7 on ENTERPRISE)."
+  }
+}
+
 variable "database_deletion_protection" {
   description = "Keep Terraform (and the console) from deleting Kindgi's database instance."
   type        = bool

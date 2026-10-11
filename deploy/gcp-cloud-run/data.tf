@@ -41,6 +41,17 @@ resource "google_sql_database_instance" "kindgi" {
     backup_configuration {
       enabled                        = true
       point_in_time_recovery_enabled = true
+      # Unset unless a variable says otherwise: Cloud SQL's own defaults.
+      location                       = var.database_backup_location == "" ? null : var.database_backup_location
+      transaction_log_retention_days = var.database_point_in_time_days
+
+      dynamic "backup_retention_settings" {
+        for_each = var.database_backup_retention == null ? [] : [var.database_backup_retention]
+        content {
+          retained_backups = backup_retention_settings.value
+          retention_unit   = "COUNT"
+        }
+      }
     }
 
     database_flags {
