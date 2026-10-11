@@ -46,7 +46,14 @@ pnpm install          # or the app's own package manager
   `"type": "module"`, it also gets a one-line `package.json` that makes
   them ES modules;
 - `@kindgi/sdk` (a dependency) and `@kindgi/cli` (a devDependency) in your
-  `package.json`, at the CLI's own version, and, from 0.1.1, `zod`;
+  `package.json`, at the CLI's own version, and, from 0.1.1, `zod`. From
+  0.1.7, `zod` is the version Kindgi is tested with, written exactly
+  (`4.6.5`) when your app pins its dependencies exactly or its package
+  manager saves exact versions, else as a range (`^4.6.5`). A `zod` your app
+  has is kept;
+- from 0.1.7, the tests `kindgi test` runs: `vitest` and `vite` (in
+  `devDependencies`, pinned the same way) and a vitest config. See
+  [Test your tools](#test-your-tools);
 - from 0.1.1, in a pnpm app, `allowBuilds: { esbuild: false }` in
   `pnpm-workspace.yaml`: pnpm 11+ won't install until every dependency's
   install script has a decision, and esbuild (the CLI's bundler) doesn't
@@ -61,7 +68,8 @@ pnpm install          # or the app's own package manager
   `.gitignore` entries (`.kindgi/`, `.kindgirc.json`, `.env.local`).
 
 It creates no env files: `kindgi dev` reads your app's own `.env` and
-`.env.local`. If your app lints with ESLint, leave out what Kindgi builds:
+`.env.local`, and keeps the secrets you store in its own
+`.kindgi/secrets.env`, which your app doesn't load. If your app lints with ESLint, leave out what Kindgi builds:
 add `".kindgi/**"` to the `globalIgnores` in `eslint.config.mjs`. To keep
 the pack separate from the app instead, pass `--new-repo`.
 
@@ -180,6 +188,37 @@ pnpm exec kindgi runs start --agent=acme-support.triage --input='{"userMessage":
 To have `kindgi dev` register the model on every boot, in each worktree and
 after `--reset`, declare it in the pack's config:
 [Declare them in your pack's config](../../guides/models/#declare-them-in-your-packs-config).
+
+### Test your tools
+
+A tool's tests go beside it (`kindgi/tools/get-request/index.test.ts`), and
+`kindgi test` runs them:
+
+```sh
+pnpm exec kindgi test
+```
+
+From 0.1.7, `init` sets this up. It writes `vitest.config.mts` at the app's
+root (`vitest.config.ts` in a `"type": "module"` app), which runs
+`kindgi/**/*.test.ts` and none of your app's own tests. vitest doesn't read
+`tsconfig.json`, so the config copies its `paths` (Next.js's `@/*`) into
+`resolve.alias`, and a tool that imports `@/lib/requests` works under test
+as it does in your app. When you change those paths, change the config to
+match: `init`'s summary names the ones it copied.
+
+An app that runs vitest already keeps its own setup, and `init` says what
+`kindgi test` needs from it: a `vitest.config.*` at the root whose
+`test.include` covers `kindgi/**/*.test.ts`, with the aliases your tools
+import by.
+
+:::note[On Kindgi 0.1.6 and earlier]
+`init` adds no test setup, and `kindgi test` looks only for
+`vitest.config.ts`, `.js`, `.mjs` or `.cjs`. Add vitest
+(`pnpm add -D vitest`) and a `vitest.config.mjs` (`vitest.config.ts` in a
+`"type": "module"` app; in any other, a `.ts` config makes Node warn about
+ES module syntax) whose `test.include` is `['kindgi/**/*.test.ts']`, with
+your tsconfig `paths` as `resolve.alias`.
+:::
 
 ### What the pack's image needs
 

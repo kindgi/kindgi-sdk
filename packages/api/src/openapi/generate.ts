@@ -301,6 +301,7 @@ function buildOperation(op: OperationSpec): Record<string, unknown> {
     responses: buildResponses(op.responses),
   };
   if (op.description !== undefined) doc.description = op.description;
+  if (op.senderOnly !== undefined) doc['x-kindgi-sender-only'] = true;
   if (op.parameters !== undefined && op.parameters.length > 0) {
     doc.parameters = op.parameters.map(buildParameter);
   }

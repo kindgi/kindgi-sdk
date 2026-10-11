@@ -105,7 +105,7 @@ describe('buildMcpServerEntry', () => {
       'npm',
     );
     expect(entry.command).toBe('npx');
-    expect(entry.args.slice(0, 3)).toEqual(['--no', 'kindgi', 'mcp-launch']);
+    expect(entry.args.slice(0, 4)).toEqual(['--no', '--', 'kindgi', 'mcp-launch']);
   });
 
   test('a Python pack runs the published CLI through npx (no npm project to install it into)', () => {

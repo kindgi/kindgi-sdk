@@ -218,9 +218,9 @@ background. Start an agent with `agent` instead of `flow`, and its input
 | Field | |
 | --- | --- |
 | `id` | The run's id: for `get`, `cancel`, the journal and the event stream. |
-| `status` | `pending`, `running`, `suspended`, `completed`, `failed` or `cancelled`. |
+| `status` | `pending`, `running`, `suspended`, `completed`, `failed` or `cancelled`. `kindgi runs resume <run-id>` says what a `suspended` run waits for ([details](../../approvals/decide-an-approval/#what-a-run-waits-for)). |
 | `output` | What the run returned, once it completed. |
-| `failureMessage` | Why it failed. |
+| `failure` | Why it failed: its `code` and `message` (an agent's turn has its own code, such as `budget-exceeded`; any other failure is `run-failed`). See [why runs failed](../see-why-runs-failed/). |
 | `flowId`, `flowVersion` | The flow and the version the run is pinned to. An agent's turn reports `agent.turn`, and its agent is in `agent`. |
 | `agent` | For an agent's turn: the agent's `id`, the `version` that ran, and the `conversationId`. A flow's run has none, nor does a turn from before Kindgi 0.1.3. |
 | `dryRun` | Whether it was a [dry run](../../flows/dry-run-a-flow/). |
@@ -234,7 +234,7 @@ The client references have every field and option:
 ## When it fails
 
 A run that fails is still a run: `start` returns it, with `status: "failed"`
-and `failureMessage`. A request the API refuses (a flow that doesn't exist,
+and its `failure`. A request the API refuses (a flow that doesn't exist,
 a malformed input) raises an error instead, and no run exists:
 
 <Tabs syncKey="lang">
@@ -244,7 +244,7 @@ a malformed input) raises an error instead, and no run exists:
 import { KindgiApiError } from '@kindgi/sdk/client';
 
 const run = await kindgi.runs.start({ flow: 'acme.review-order', input: { orderId: 'Z-9' } });
-if (run.status === 'failed') console.log(run.failureMessage);
+if (run.status === 'failed') console.log(run.failure?.code, run.failure?.message);
 
 try {
   await kindgi.runs.start({ flow: 'acme.no-such-flow', input: {} });
@@ -254,7 +254,7 @@ try {
 ```
 
 ```text
-handler-error: Tool "acme.get-order" handler threw: handler-throw: Handler for tool "acme.get-order" threw: Error: No order Z-9
+run-failed handler-error: Tool "acme.get-order" handler threw: handler-throw: Handler for tool "acme.get-order" threw: Error: No order Z-9
 not-found No flow "acme.no-such-flow" is registered in this tenant.
 ```
 
@@ -266,7 +266,7 @@ from kindgi.client import NotFoundError
 
 run = kindgi.runs.start(flow="acme.review-order", input={"orderId": "Z-9"})
 if run.status == "failed":
-    print(run.failure_message)
+    print(run.failure.code, run.failure.message)
 
 try:
     kindgi.runs.start(flow="acme.no-such-flow", input={})
@@ -275,7 +275,7 @@ except NotFoundError as err:
 ```
 
 ```text
-handler-error: Tool "acme.get-order" handler threw: handler-throw: Handler for tool "acme.get-order" threw: ValueError: No order Z-9
+run-failed handler-error: Tool "acme.get-order" handler threw: handler-throw: Handler for tool "acme.get-order" threw: ValueError: No order Z-9
 No flow "acme.no-such-flow" is registered in this tenant.
 ```
 
@@ -285,3 +285,45 @@ No flow "acme.no-such-flow" is registered in this tenant.
 A request that times out on your side may have started the run anyway.
 [Retry a start safely](../retry-a-start-safely/) shows how to retry without
 starting it twice.
+
+### In the console
+
+A failed run's page says what happened in a sentence, then the runtime's
+own words and the code:
+
+```text
+The turn ran out of its budget.
+Agent turn steps budget exceeded (limit 1, observed 1)
+Code budget-exceeded
+```
+
+![A failed agent run's page: the agent acme.tight at 1.0.0, Failed, then its message and tool call, and the failure: "The turn ran out of its budget.", "Agent turn steps budget exceeded (limit 1, observed 1)" and "Code budget-exceeded".](../../../../assets/runs/run-failure.png)
+
+A run that ended at its approval didn't go wrong: someone, or the
+approval's deadline, decided. Its page says which, not in red: "A reviewer
+rejected it.", "Its approval was withdrawn.", "No one decided its approval
+in time." or "Its approval was closed before anyone decided.", then "It
+ended at its approval: a review outcome, not an error.", the reviewer's
+rationale and the code
+([Decide an approval](../../approvals/decide-an-approval/)).
+
+![A rejected run's page: "A reviewer rejected it.", "It ended at its approval: a review outcome, not an error.", "Reviewer rejected the session-HITL gate: not this week" and "Code hitl-rejected".](../../../../assets/runs/run-review-outcome.png)
+
+## Run it again
+
+A finished run's page has **Run again** for whoever may run its agent or
+flow. A step inside a flow has none. The dialog, **Run again, for real**,
+says what the new run is and does, for that run:
+
+```text
+The agent demo.echo-agent at 1.0.0, its version then, with the same input.
+The turn's parameters aren't kept with the run: add them under `parameters` if it had any.
+This is a new, live run: every tool it calls acts for real again (a refund would be issued again).
+What the agent remembers about cust-9 is read, and may be added to.
+It starts a new conversation; the original one is left as it was.
+It starts as you, with your access, not as whoever started the original.
+```
+
+The input is the run's, and you can change it before **Start the run**.
+
+![The Run again, for real dialog over a finished run's page: the six lines above, the input as the run had it, and the buttons Don't run it and Start the run.](../../../../assets/runs/run-again-dialog.png)

@@ -1,0 +1,82 @@
+// A WooCommerce store in memory, for the tools' tests: order 1043 and the
+// refunds made on it, behind a fake `fetch`. It keeps each refund's
+// `meta_data`, as WooCommerce does, and can fail after saving a refund, as a
+// store whose answer is lost can. No WooCommerce needed.
+
+import { vi } from 'vitest';
+
+/** A request the tools made, as the store saw it. */
+export interface Call {
+  readonly method: string;
+  readonly path: string;
+  readonly body: unknown;
+  readonly authorization: string | null;
+}
+
+/** A refund the store keeps. */
+export interface FakeRefund {
+  readonly id: number;
+  readonly amount: string;
+  readonly reason: string;
+  readonly api_refund: boolean;
+  readonly meta_data: readonly { readonly key: string; readonly value: unknown }[];
+}
+
+export interface FakeStore {
+  readonly calls: Call[];
+  readonly refunds: FakeRefund[];
+  /** The next refund is saved, then answered with this status instead of the refund. */
+  failNextRefundAfterSaving(status: number): void;
+}
+
+/** A store whose order 1043 (300.00) has been refunded `refunded` already. */
+export function fakeStore(refunded: readonly number[] = []): FakeStore {
+  const calls: Call[] = [];
+  const refunds: FakeRefund[] = refunded.map((amount, i) => ({
+    id: 400 + i,
+    amount: amount.toFixed(2),
+    reason: 'An earlier refund',
+    api_refund: false,
+    meta_data: [],
+  }));
+  let failAfterSaving: number | undefined;
+  vi.stubGlobal('fetch', async (url: URL, init: RequestInit) => {
+    const method = init.method ?? 'GET';
+    const body = typeof init.body === 'string' ? JSON.parse(init.body) : undefined;
+    calls.push({ method, path: url.pathname, body, authorization: new Headers(init.headers).get('authorization') });
+    if (url.pathname.endsWith('/refunds')) {
+      if (method !== 'POST') return Response.json(refunds);
+      const asked = body as { amount: string; reason: string; api_refund: boolean; meta_data?: FakeRefund['meta_data'] };
+      const refund: FakeRefund = {
+        id: 501 + refunds.length,
+        amount: asked.amount,
+        reason: asked.reason,
+        api_refund: asked.api_refund,
+        meta_data: asked.meta_data ?? [],
+      };
+      refunds.push(refund);
+      if (failAfterSaving !== undefined) {
+        const status = failAfterSaving;
+        failAfterSaving = undefined;
+        return Response.json({ code: 'bad_gateway', message: 'Bad gateway' }, { status });
+      }
+      return Response.json(refund, { status: 201 });
+    }
+    return Response.json({
+      id: 1043,
+      number: '1043',
+      status: 'completed',
+      currency: 'USD',
+      total: '300.00',
+      date_created: '2026-10-01T10:00:00',
+      refunds: refunds.map((r) => ({ id: r.id, total: `-${r.amount}` })),
+    });
+  });
+  return {
+    calls,
+    refunds,
+    failNextRefundAfterSaving(status) {
+      failAfterSaving = status;
+    },
+  };
+}

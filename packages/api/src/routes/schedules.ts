@@ -6,12 +6,10 @@ import type { Context } from 'hono';
 
 import { type Action, type ResourceRef, ref } from '@kindgi/authz';
 import type { ProjectBinding } from '@kindgi/platform';
-import type { Cursor, ProjectId, TenantId, TriggerId, UserId } from '@kindgi/types';
+import type { Cursor, ProjectId, TenantId, TriggerId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
-import type { IdentityDirectoryBinding } from '../identity-directory-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
-import type { ServiceAccountBinding } from '../service-account-binding.js';
 import {
   type CronTriggerRecord,
   type RegisterCronTriggerInput,
@@ -19,7 +17,6 @@ import {
   type ScheduleCatchUp,
   type ScheduleOverlap,
   type TriggerFire,
-  type TriggerOwner,
   type TriggerRegistryBinding,
   type TriggerTarget,
   type UpdateCronTriggerInput,
@@ -28,6 +25,7 @@ import type { AppEnv } from '../types.js';
 import { parseImproveScheduleInput } from './improvement-passes.js';
 import { liveScopeToWire, parseLiveScopeBody } from './live-scope-wire.js';
 import { clampLimit } from './pagination.js';
+import { type TriggerOwnerNames, ownerJson, ownerNamesOf, ownerOf } from './trigger-owners.js';
 import { UUID_RE } from './uuid-param.js';
 
 /**
@@ -54,46 +52,17 @@ export function schedulesRouter(
   authorizer?: Authorizer,
   /** The tenant's Default project: where a schedule that names no project goes. */
   projects?: Pick<ProjectBinding, 'getDefault'>,
-  /**
-   * Where an owner's name is read (`owner.displayName`): the person's from
-   * the directory, the service account's from its binding. Without one,
-   * that kind of owner has no name, and its id stands.
-   */
-  names?: {
-    readonly directory?: Pick<IdentityDirectoryBinding, 'getUser'>;
-    readonly serviceAccounts?: Pick<ServiceAccountBinding, 'get'>;
-  },
+  /** Where an owner's name is read (`owner.displayName`); see `TriggerOwnerNames`. */
+  names?: TriggerOwnerNames,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
-  /**
-   * Each owner's name at the time of the response, by `kind:id`, read once
-   * per owner: the person's display name, or the service account's name.
-   * One that can't be read (no binding, a removed account, a failed read)
-   * has none.
-   */
-  async function ownerNames(
-    tenantId: TenantId,
-    rows: readonly CronTriggerRecord[],
-  ): Promise<ReadonlyMap<string, string>> {
-    const owners = new Map(rows.map((row) => [ownerKey(row.owner), row.owner]));
-    const found = new Map<string, string>();
-    await Promise.all(
-      [...owners].map(async ([key, owner]) => {
-        try {
-          const name =
-            owner.kind === 'user'
-              ? (await names?.directory?.getUser({ tenantId, userId: owner.id as UserId }))
-                  ?.displayName
-              : (await names?.serviceAccounts?.get({ tenantId, serviceAccountId: owner.id }))?.name;
-          if (name !== undefined && name.length > 0) found.set(key, name);
-        } catch {
-          // A name that can't be read: the owner's id stands.
-        }
-      }),
+  const ownerNames = (tenantId: TenantId, rows: readonly CronTriggerRecord[]) =>
+    ownerNamesOf(
+      names,
+      tenantId,
+      rows.map((row) => row.owner),
     );
-    return found;
-  }
 
   /** A schedule as the wire carries it, its owner named. */
   async function scheduleJson(c: Context<AppEnv>, row: CronTriggerRecord): Promise<Response> {
@@ -440,26 +409,16 @@ function targetFields(target: TriggerTarget): Record<string, unknown> {
   }
 }
 
-/** An owner's key in `ownerNames`. */
-function ownerKey(owner: TriggerOwner): string {
-  return `${owner.kind}:${owner.id}`;
-}
-
 function serializeSchedule(
   r: CronTriggerRecord,
   names: ReadonlyMap<string, string> = new Map(),
 ): Record<string, unknown> {
-  const displayName = names.get(ownerKey(r.owner));
   return {
     scheduleId: r.triggerId as unknown as string,
     triggerId: r.triggerId as unknown as string,
     ...targetFields(r.target),
     projectId: r.projectId as unknown as string,
-    owner: {
-      kind: r.owner.kind,
-      id: r.owner.id,
-      ...(displayName !== undefined && { displayName }),
-    },
+    owner: ownerJson(r.owner, names),
     cronExpression: r.config.cronExpression,
     ...(r.config.timezone !== undefined && { timezone: r.config.timezone }),
     ...(r.config.input !== undefined && { input: r.config.input }),
@@ -507,13 +466,6 @@ function targetAccess(target: TriggerTarget): [Action, ResourceRef] {
     case 'improve':
       return ['publish', ref('agent', target.agentId)];
   }
-}
-
-/** Who a schedule's runs act as: the request's principal. */
-function ownerOf(c: Context<AppEnv>): TriggerOwner {
-  const actor = c.get('principal')?.actor;
-  if (actor === undefined) return { kind: 'service', id: 'unknown' };
-  return { kind: actor.kind === 'user' ? 'user' : 'service', id: actor.id };
 }
 
 /** `flowId` + `flowVersion`, `agentId` (+ `agentVersion`), or `improve`: exactly one target. */

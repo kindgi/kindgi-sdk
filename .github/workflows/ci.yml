@@ -85,6 +85,12 @@ jobs:
       - name: Design tokens current, and their contrast
         run: pnpm run check:tokens
 
+      # parseEvent's shapes (@kindgi/sdk/webhooks) are generated from the API's
+      # WebhookEvent schema: scripts/gen-webhook-event-shapes.mjs. A schema
+      # change without a regeneration fails here.
+      - name: Webhook event shapes current with the API schema
+        run: pnpm run check:webhook-shapes
+
       - name: Validate JSON Schemas (@kindgi/specs)
         run: pnpm run spec:validate
 
@@ -243,6 +249,16 @@ jobs:
           # With the `verify` extra, so kindgi.exports is tested at its cryptography floor.
           uv pip install --python /tmp/kindgi-floors --resolution lowest-direct -e ".[verify]" "pytest>=8"
           /tmp/kindgi-floors/bin/python -m pytest -p no:cacheprovider -k "not in_step_with_openapi"
+      # The newest cryptography: the `verify` extra has no upper cap (a cap held
+      # apps below its security fixes), so a breaking release shows here before
+      # an app that upgrades meets it.
+      - name: Pytest at the newest cryptography
+        if: matrix.python == '3.13'
+        run: |
+          uv venv /tmp/kindgi-newest
+          uv pip install --python /tmp/kindgi-newest --upgrade -e ".[verify]" "pytest>=8" cryptography
+          /tmp/kindgi-newest/bin/python -c "import cryptography; print('cryptography', cryptography.__version__)"
+          /tmp/kindgi-newest/bin/python -m pytest -p no:cacheprovider tests/test_exports.py
       - name: Generated client in step with openapi.json
         run: uv run python scripts/gen_client.py --check
       - name: Build the distribution (not published)

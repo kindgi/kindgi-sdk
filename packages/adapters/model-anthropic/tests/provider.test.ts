@@ -372,6 +372,56 @@ describe('createAnthropicProvider — result shape', () => {
   });
 });
 
+describe('createAnthropicProvider — tool names', () => {
+  const tool = (name: string) => ({ name, description: name, inputSchema: { type: 'object' } });
+
+  test("a tool id holding `__` (an MCP server's own name) comes back as the id", async () => {
+    const { client, create } = fakeClient(
+      fakeResponse({
+        stop_reason: 'tool_use',
+        content: [
+          { type: 'tool_use', id: 'tu-1', name: 'drupal__tool_api__list_content', input: {} },
+        ],
+      }),
+    );
+    const provider = createAnthropicProvider({
+      apiKey: 'sk-unused',
+      metadata: OPUS_METADATA,
+      client,
+    });
+    const result = await provider.invoke({
+      model: 'claude-opus-4-7',
+      messages: [{ role: 'user', content: 'list the articles' }],
+      tools: [tool('drupal.tool_api__list_content'), tool('drupal.tool_api__load_content')],
+    });
+    const sent = (create.mock.calls[0] as unknown as [{ tools: { name: string }[] }])[0].tools;
+    expect(sent.map((t) => t.name)).toEqual([
+      'drupal__tool_api__list_content',
+      'drupal__tool_api__load_content',
+    ]);
+    expect(result.message.toolCalls?.map((c) => c.name)).toEqual(['drupal.tool_api__list_content']);
+  });
+
+  test('two tools sent under one name are refused before the call, naming both', async () => {
+    const { client, create } = fakeClient();
+    const provider = createAnthropicProvider({
+      apiKey: 'sk-unused',
+      metadata: OPUS_METADATA,
+      client,
+    });
+    await expect(
+      provider.invoke({
+        model: 'claude-opus-4-7',
+        messages: [{ role: 'user', content: 'hi' }],
+        tools: [tool('acme.lookup__order'), tool('acme.lookup.order')],
+      }),
+    ).rejects.toThrow(
+      'tools "acme.lookup__order" and "acme.lookup.order" have the same name for the model',
+    );
+    expect(create).not.toHaveBeenCalled();
+  });
+});
+
 describe('createAnthropicProvider — lazy apiKey resolver', () => {
   test('static apiKey string is passed through unchanged', () => {
     const provider = createAnthropicProvider({

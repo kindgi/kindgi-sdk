@@ -22,10 +22,11 @@ import type {
 } from '@kindgi/capabilities';
 import { adapterConfigError, samplingFor } from '@kindgi/capabilities';
 import { createAttemptCounter } from '@kindgi/capabilities/attempts';
-import { nameToolsAsSent } from '@kindgi/capabilities/tool-names';
+import { nameToolsAsSent, toolIdsBySentName } from '@kindgi/capabilities/tool-names';
+import { bearerValueProblem } from '@kindgi/types';
 
 import { EXTRA_BODY_RESERVED_RESPONSES, invokeResponses, requestOptions } from './responses.js';
-import { computeCost, decodeToolName, encodeToolName } from './wire.js';
+import { SERVER_ENV_NEVER, computeCost, decodeToolName, encodeToolName } from './wire.js';
 
 /**
  * Configuration for an OpenAI-compatible ModelProvider. `baseURL` is the
@@ -160,10 +161,20 @@ export function createOpenAICompatModelProvider(
   const attempts = createAttemptCounter(options.clientOptions?.fetch);
   async function clientForCall(): Promise<OpenAI> {
     const key = typeof options.apiKey === 'function' ? await options.apiKey() : options.apiKey;
+    // Checked as the SDK sends it (`Authorization: Bearer <key>`): fetch's own
+    // error for a value it can't send (a line break inside, or leading, after
+    // `Bearer `) quotes the key, into the call's failure.
+    const problem = bearerValueProblem(key);
+    if (problem !== undefined) {
+      throw new Error(
+        `${OPENAI_COMPAT_ADAPTER_ID}: provider "${metadata.id}": its API key has ${problem}, which a header can't carry: store the secret without it`,
+      );
+    }
     if (cached !== undefined && cached.key === key) return cached.client;
     const client = new OpenAI({
       apiKey: key,
       baseURL: options.baseURL,
+      ...SERVER_ENV_NEVER,
       ...(options.clientOptions ?? {}),
       fetch: attempts.fetch,
     });
@@ -186,6 +197,8 @@ export function createOpenAICompatModelProvider(
       // The system prompt names the call's tools as they're sent (`acme__lookup_order`):
       // a model told to call `acme.lookup_order` calls a name it wasn't given.
       const toolIds = input.tools?.map((t) => t.name) ?? [];
+      // A call names its tool by the name it was sent: back to the id by lookup.
+      const toolIdOf = toolIdsBySentName(toolIds, encodeToolName, decodeToolName);
       const sent = input.messages.map((m) =>
         m.role === 'system'
           ? { ...m, content: nameToolsAsSent(m.content, toolIds, encodeToolName) }
@@ -210,6 +223,7 @@ export function createOpenAICompatModelProvider(
           ...(lowestThinking !== undefined && { reasoningEffort: lowestThinking }),
           warnings: sampling.warnings,
           startedAt,
+          toolIdOf,
         });
       }
 
@@ -252,7 +266,7 @@ export function createOpenAICompatModelProvider(
       const durationMs = Date.now() - startedAt;
       const choice = completion.choices[0];
       const contentText = choice?.message.content ?? '';
-      const toolCalls = extractToolCalls(choice?.message.tool_calls);
+      const toolCalls = extractToolCalls(choice?.message.tool_calls, toolIdOf);
       const responseMessage: ModelMessage = {
         role: 'assistant',
         content: contentText,
@@ -326,6 +340,7 @@ function toOpenAiTool(tool: ModelToolDefinition): OpenAI.Chat.Completions.ChatCo
 
 function extractToolCalls(
   raw: OpenAI.Chat.Completions.ChatCompletionMessageToolCall[] | undefined,
+  toolIdOf: (name: string) => string = decodeToolName,
 ): ModelToolCall[] {
   if (raw === undefined || raw.length === 0) return [];
   const out: ModelToolCall[] = [];
@@ -337,9 +352,8 @@ function extractToolCalls(
     } catch {
       args = {};
     }
-    // Decode: the wire returns the encoded name; the framework
-    // expects the canonical dotted form.
-    out.push({ id: tc.id, name: decodeToolName(tc.function.name), arguments: args });
+    // The wire names the tool as it was sent; the framework expects its id.
+    out.push({ id: tc.id, name: toolIdOf(tc.function.name), arguments: args });
   }
   return out;
 }
