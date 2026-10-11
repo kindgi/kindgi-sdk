@@ -1422,6 +1422,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
       '404': ErrorResponse(
         'Agent or flow not found; or `projectId` names no project of this tenant (`project-not-found`).',
       ),
+      '403': ErrorResponse(
+        "No `execute` on the agent or flow; naming a `projectId` without `write` on it; or a turn run as a participant whose memory the caller may not read (`participant-not-allowed`). A turn runs with its participant's memory (the conversation's stored participant, else `input.participantId`), so running as one takes being them (a person, by their user id) or `write` on the turn's project, as reading their memory does.",
+      ),
       '422': ErrorResponse('Guardrail violation or budget exceeded.'),
       '409': ErrorResponse(
         "Idempotency-Key was reused with a different body; or an erasure of the turn's person (its conversation or its `participantId`) is in progress (`erasure-in-progress`): no new turn starts for them until it completes.",
@@ -3166,6 +3169,9 @@ export const OPERATIONS: readonly OperationSpec[] = [
     responses: {
       '201': { description: 'Conversation opened.', schema: ref('Conversation') },
       ...CommonMutationErrors,
+      '403': ErrorResponse(
+        "No `execute` on the agent; or a `participantId` whose memory the caller may not read (`participant-not-allowed`): its turns run with that participant's memory, so opening it for someone takes being them (a person, by their user id) or `write` on its project.",
+      ),
     },
   },
   {

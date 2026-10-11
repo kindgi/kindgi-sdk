@@ -37,6 +37,7 @@ import { deniedBy } from './denied.js';
 import { liveScopeToWire } from './live-scope-wire.js';
 import type { DecodedCursor } from './pagination.js';
 import { clampLimit, decodeCursor, isCursorTime } from './pagination.js';
+import { participantRefusal } from './participant-access.js';
 import { runFailuresHandler } from './run-failures.js';
 import { parseListScope } from './scope-params.js';
 import { parseSegmentsBody } from './segments.js';
@@ -82,6 +83,21 @@ export interface RunsRouterOptions {
     tenantId: TenantId,
     target: { readonly kind: 'agent' | 'flow'; readonly id: string },
   ) => Promise<boolean>;
+  /**
+   * A conversation's stored participant and project: a turn posted into it
+   * runs as that participant, whatever the body names, so who may post it
+   * is checked against them (`participantRefusal`). `null`: no such
+   * conversation (the run handler answers it).
+   */
+  readonly conversationOf?: (
+    tenantId: TenantId,
+    conversationId: string,
+  ) => Promise<{ readonly participantId?: string; readonly projectId?: string } | null>;
+  /** The project a target is registered in: the agent's or flow's own. */
+  readonly targetProject?: (
+    tenantId: TenantId,
+    target: { readonly kind: 'agent' | 'flow'; readonly id: string },
+  ) => Promise<string | undefined>;
 }
 
 /** How far up the parent chain a public token's grant reaches. */
@@ -212,6 +228,32 @@ export function runsRouter(
             requestId,
           ),
         );
+      }
+    }
+
+    // Whose memory the turn runs with: a conversation's stored participant
+    // (it wins, as the turn reads it), else the one the body names. Running
+    // as someone takes what reading their memory takes.
+    const turnInput =
+      typeof parsed.value.input === 'object' && parsed.value.input !== null
+        ? (parsed.value.input as Record<string, unknown>)
+        : {};
+    const named = typeof turnInput.participantId === 'string' ? turnInput.participantId : undefined;
+    const conversationId =
+      typeof turnInput.conversationId === 'string' ? turnInput.conversationId : undefined;
+    if (authorizer !== undefined && (named !== undefined || conversationId !== undefined)) {
+      const conversation =
+        conversationId === undefined
+          ? null
+          : await options.conversationOf?.(tenantId, conversationId);
+      const participantId = conversation?.participantId ?? named;
+      if (participantId !== undefined) {
+        const projectId =
+          conversation?.projectId ??
+          (parsed.value.projectId as unknown as string | undefined) ??
+          (await options.targetProject?.(tenantId, target));
+        const refusal = await participantRefusal(c, authorizer, participantId, projectId);
+        if (refusal !== undefined) return refusal;
       }
     }
 

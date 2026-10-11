@@ -1,0 +1,239 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (C) 2026 Kindgi Inc.
+
+/**
+ * Who a turn may run as. A turn runs with its participant's memory, so
+ * running as a participant takes what reading their memory takes: the
+ * participant is the caller (a person, by their user id), or the caller holds
+ * `write` on the turn's project. Checked at every way a turn gets a
+ * participant: a body's `input.participantId`, posting into a conversation
+ * (its stored participant wins), and opening a conversation for someone.
+ */
+
+import { randomUUID } from 'node:crypto';
+
+import { describe, expect, test } from 'vitest';
+
+import type { Action, AuthzCheckBinding, Decision, ResourceRef } from '@kindgi/authz';
+import type { TenantId, UserId } from '@kindgi/types';
+
+import { createStubAppBindings } from '../src/testing/index.js';
+
+import { createApp } from '../src/index.js';
+import type { RunHandlerBinding, TokenResolution } from '../src/index.js';
+
+const tenantId = randomUUID() as TenantId;
+const P1 = randomUUID();
+const ALICE = randomUUID() as UserId;
+const BOBS_CONVERSATION = randomUUID();
+const HIS_OWN = randomUUID();
+
+/** Each key's grants, as `<action> <type>:<id>`. */
+const KEYS: Record<string, { readonly who: TokenResolution; readonly grants: readonly string[] }> =
+  {
+    // A person who may run the agent and nothing else (a site's person's shape).
+    caller: { who: { tenantId, userId: ALICE }, grants: ['execute agent:acme.desk'] },
+    // An editor: `write` on the project, acting for all its end users.
+    editor: {
+      who: { tenantId, userId: randomUUID() as UserId },
+      grants: ['execute agent:acme.desk', `write project:${P1}`],
+    },
+    // An app's key that may only run the agent; one naming a user is still a key.
+    app: {
+      who: { tenantId, serviceAccountId: 'sa-app', tokenId: 'tok-app' as never, userId: ALICE },
+      grants: ['execute agent:acme.desk'],
+    },
+    // An app's key acting for its project's end users.
+    appWriter: {
+      who: { tenantId, serviceAccountId: 'sa-desk', tokenId: 'tok-desk' as never },
+      grants: ['execute agent:acme.desk', `write project:${P1}`],
+    },
+  };
+
+function decision(grants: readonly string[], action: Action, resource: ResourceRef): Decision {
+  const allowed = grants.includes(`${action} ${resource.type}:${resource.id}`);
+  return {
+    allowed,
+    reason: allowed ? 'test: granted' : 'test: not granted',
+    evidence: {
+      action,
+      relation: '',
+      resource: `${resource.type}:${resource.id}`,
+      actorSubject: '',
+    },
+  };
+}
+
+/** Conversations: Bob's (participant cus_bob), and one Alice's own. */
+const conversations = new Map<string, { participantId: string; projectId: string }>([
+  [BOBS_CONVERSATION, { participantId: 'cus_bob', projectId: P1 }],
+  [HIS_OWN, { participantId: ALICE, projectId: P1 }],
+]);
+
+function makeApp(withAuthz = true) {
+  let current = 'caller';
+  const stub = createStubAppBindings();
+  const app = createApp({
+    ...stub,
+    resolveToken: async (token) => KEYS[token]?.who ?? null,
+    // Reaching the run handler means the participant rule let it through.
+    runHandler: {
+      invokeAgent: async () => ({
+        kind: 'err',
+        error: { code: 'bad-input', message: 'reached the run handler' },
+      }),
+      invokeFlow: async () => ({
+        kind: 'err',
+        error: { code: 'bad-input', message: 'reached the run handler' },
+      }),
+      resumeRun: async () => ({ kind: 'err', error: { code: 'bad-input', message: 'unused' } }),
+    } as unknown as RunHandlerBinding,
+    agentRegistry: {
+      ...(stub as unknown as { agentRegistry?: object }).agentRegistry,
+      get: async () => ({ agentId: 'acme.desk', version: '1.0.0', projectId: P1 }),
+    } as never,
+    flowRegistry: { get: async () => null } as never,
+    conversationBinding: {
+      ...stub.conversationBinding,
+      getConversation: async (_t: TenantId, id: string) => {
+        const found = conversations.get(id);
+        return found === undefined
+          ? {
+              kind: 'err',
+              error: { code: 'conversation-not-found', message: 'no such conversation' },
+            }
+          : {
+              kind: 'ok',
+              value: {
+                id,
+                agentId: 'acme.desk',
+                agentVersion: '1.0.0',
+                title: '',
+                ...found,
+                scope: { tenantId },
+                openedAt: new Date().toISOString(),
+              },
+            };
+      },
+      openConversation: async (input: { participantId?: string }) => ({
+        kind: 'ok',
+        value: {
+          id: randomUUID(),
+          agentId: 'acme.desk',
+          agentVersion: '1.0.0',
+          title: '',
+          ...(input.participantId !== undefined && { participantId: input.participantId }),
+          projectId: P1,
+          scope: { tenantId },
+          openedAt: new Date().toISOString(),
+        },
+      }),
+    } as never,
+    ...(withAuthz && {
+      authz: {
+        fgaApiUrl: 'http://fga.invalid',
+        authzCheckBinding: {
+          check: async (_p, action, resource) =>
+            decision(KEYS[current]?.grants ?? [], action, resource),
+          checkBatch: async (_p, action, resources) =>
+            resources.map((r) => decision(KEYS[current]?.grants ?? [], action, r)),
+        } satisfies AuthzCheckBinding,
+      },
+    }),
+  });
+  const as = (key: string) => {
+    current = key;
+    const post = async (path: string, body: unknown) => {
+      const res = await app.request(path, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const json = (await res.json()) as { error?: { code?: string; message?: string } };
+      return { status: res.status, code: json.error?.code, message: json.error?.message };
+    };
+    return {
+      run: (input: Record<string, unknown>) =>
+        post('/v1/runs', {
+          agent: 'acme.desk',
+          agentVersion: '1.0.0',
+          input: { userMessage: 'hello', ...input },
+        }),
+      open: (participantId?: string) =>
+        post('/v1/conversations', {
+          agentId: 'acme.desk',
+          agentVersion: '1.0.0',
+          projectId: P1,
+          ...(participantId !== undefined && { participantId }),
+        }),
+    };
+  };
+  return { as };
+}
+
+const refusedForParticipant = (r: { status: number; code?: string | undefined }) =>
+  r.status === 403 && r.code === 'participant-not-allowed';
+const reachedTheHandler = (r: { status: number; code?: string | undefined }) =>
+  r.status === 400 && r.code === 'bad-input';
+
+describe('a person who may only run the agent', () => {
+  test('naming someone else as participant is refused', async () => {
+    const r = await makeApp().as('caller').run({ participantId: 'cus_bob' });
+    expect(refusedForParticipant(r)).toBe(true);
+    expect(r.message).toContain(`write on project ${P1}`);
+  });
+
+  test("posting into someone else's conversation is refused, even naming themselves", async () => {
+    const { as } = makeApp();
+    expect(
+      refusedForParticipant(await as('caller').run({ conversationId: BOBS_CONVERSATION })),
+    ).toBe(true);
+    expect(
+      refusedForParticipant(
+        await as('caller').run({ conversationId: BOBS_CONVERSATION, participantId: ALICE }),
+      ),
+    ).toBe(true);
+  });
+
+  test('opening a conversation for someone else is refused', async () => {
+    expect(refusedForParticipant(await makeApp().as('caller').open('cus_bob'))).toBe(true);
+  });
+
+  test('as themselves, or with no participant, it goes ahead', async () => {
+    const { as } = makeApp();
+    expect(reachedTheHandler(await as('caller').run({ participantId: ALICE }))).toBe(true);
+    expect(reachedTheHandler(await as('caller').run({ conversationId: HIS_OWN }))).toBe(true);
+    expect(reachedTheHandler(await as('caller').run({}))).toBe(true);
+    expect((await as('caller').open(ALICE)).status).toBe(201);
+  });
+});
+
+describe("a caller acting for the project's end users (write on the project)", () => {
+  test('an editor runs as any participant, posts into their conversation, opens one for them', async () => {
+    const { as } = makeApp();
+    expect(reachedTheHandler(await as('editor').run({ participantId: 'cus_bob' }))).toBe(true);
+    expect(reachedTheHandler(await as('editor').run({ conversationId: BOBS_CONVERSATION }))).toBe(
+      true,
+    );
+    expect((await as('editor').open('cus_bob')).status).toBe(201);
+  });
+
+  test("an app's key with write acts for its end users", async () => {
+    expect(
+      reachedTheHandler(await makeApp().as('appWriter').run({ participantId: 'cus_bob' })),
+    ).toBe(true);
+  });
+});
+
+describe("an app's key that may only run the agent", () => {
+  test('is refused for any participant, even one equal to a user it names (a key is never the person)', async () => {
+    const { as } = makeApp();
+    expect(refusedForParticipant(await as('app').run({ participantId: 'cus_bob' }))).toBe(true);
+    expect(refusedForParticipant(await as('app').run({ participantId: ALICE }))).toBe(true);
+  });
+});
+
+test('without authorization, nothing is checked', async () => {
+  const r = await makeApp(false).as('caller').run({ participantId: 'cus_bob' });
+  expect(reachedTheHandler(r)).toBe(true);
+});

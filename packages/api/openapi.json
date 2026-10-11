@@ -355,6 +355,7 @@
           "principal-not-found": 404,
           "role-exceeds-principal": 403,
           "key-project-mismatch": 403,
+          "participant-not-allowed": 403,
           "token-expiry-exceeds-minter": 403,
           "service-account-not-found": 404,
           "service-account-name-taken": 409,
@@ -20708,6 +20709,16 @@
               }
             }
           },
+          "403": {
+            "description": "No `execute` on the agent or flow; naming a `projectId` without `write` on it; or a turn run as a participant whose memory the caller may not read (`participant-not-allowed`). A turn runs with its participant's memory (the conversation's stored participant, else `input.participantId`), so running as one takes being them (a person, by their user id) or `write` on the turn's project, as reading their memory does.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
           "404": {
             "description": "Agent or flow not found; or `projectId` names no project of this tenant (`project-not-found`).",
             "content": {
@@ -28091,6 +28102,16 @@
           },
           "401": {
             "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No `execute` on the agent; or a `participantId` whose memory the caller may not read (`participant-not-allowed`): its turns run with that participant's memory, so opening it for someone takes being them (a person, by their user id) or `write` on its project.",
             "content": {
               "application/json": {
                 "schema": {

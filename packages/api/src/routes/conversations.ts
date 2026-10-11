@@ -20,6 +20,7 @@ import type { Authorizer } from '../middleware/authorize.js';
 import type { AppEnv } from '../types.js';
 import { deniedBy } from './denied.js';
 import { clampLimit, decodeCursor, encodeCursor, isCursorTime } from './pagination.js';
+import { participantRefusal } from './participant-access.js';
 import { parseListScope } from './scope-params.js';
 import { refuseMalformedUuidParam } from './uuid-param.js';
 
@@ -218,6 +219,14 @@ export function conversationsRouter(
       ref('agent', parsed.value.agentId as unknown as string),
     );
     if (refused !== undefined) return refused;
+    // Opening it for a participant: its turns run with their memory.
+    const notAllowed = await participantRefusal(
+      c,
+      authorizer,
+      parsed.value.participantId,
+      projectId as unknown as string | undefined,
+    );
+    if (notAllowed !== undefined) return notAllowed;
 
     const opened = await conversationBinding.openConversation({
       tenantId,
