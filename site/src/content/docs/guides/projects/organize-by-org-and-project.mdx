@@ -133,6 +133,17 @@ each run with its class for usage counting, so test work is counted apart
 from real work. A run's own read doesn't show it.
 
 <Tabs syncKey="lang">
+<TabItem label="CLI">
+
+```sh
+kindgi projects production <project-id> on
+kindgi projects production <project-id> status
+kindgi projects production <project-id> off
+```
+
+Each prints one line: whether the project is in production, and since when. `--json` prints `{ projectId, productionSince }`. A refusal names its code, and exits 1.
+
+</TabItem>
 <TabItem label="TypeScript">
 
 ```ts

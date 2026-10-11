@@ -3,12 +3,22 @@
 
 /**
  * `kindgi projects`: find the project ids the `--project=<id>` flags take
- * (blocks, eval suites and runs, judge classes, agents derive). Mirrors
- * the clients' `projects.list`, `projects.getDefault` and `projects.get`.
+ * (blocks, eval suites and runs, judge classes, agents derive), and put a
+ * project in production. Mirrors the clients' `projects.list`,
+ * `projects.getDefault`, `projects.get` and `projects.setProduction`.
  */
 
-import { integerFlag, requiredPositional, runSdk, stringFlag } from './helpers.js';
-import type { Command, LeafCommand } from './types.js';
+import type { CommandContext } from '../context.js';
+import { UsageError, extractKindgiError } from '../errors.js';
+import { renderJson } from '../output.js';
+import {
+  commandResultFromThrown,
+  integerFlag,
+  requiredPositional,
+  runSdk,
+  stringFlag,
+} from './helpers.js';
+import type { Command, CommandResult, LeafCommand } from './types.js';
 
 const list: LeafCommand = {
   kind: 'leaf',
@@ -54,10 +64,82 @@ const get: LeafCommand = {
     }),
 };
 
+/** A project's production state, as `on`, `off` and `status` all print it. */
+interface ProductionState {
+  readonly projectId: string;
+  readonly productionSince: string | null;
+}
+
+const PRODUCTION_ACTIONS = ['on', 'off', 'status'] as const;
+type ProductionAction = (typeof PRODUCTION_ACTIONS)[number];
+
+const production: LeafCommand = {
+  kind: 'leaf',
+  name: 'production',
+  description:
+    "Put a project in production (`on`), take it out (`off`), or say whether it's in production (`status`). A run in a project in production is a production run; a run anywhere else is staging. `on` and `off` are for tenant admins.",
+  usage: 'kindgi projects production <project-id> <on|off|status>',
+  run: async (ctx) => {
+    try {
+      const projectId = requiredPositional(ctx, 0, 'project-id');
+      const action = productionAction(requiredPositional(ctx, 1, 'on|off|status'));
+      const state = await productionState(ctx, projectId, action);
+      return {
+        kind: 'ok',
+        rendered: ctx.globals.formatRequested
+          ? renderJson(state, ctx.globals.format)
+          : { stdout: `${productionText(state)}\n`, stderr: '' },
+      };
+    } catch (err) {
+      return productionError(err, ctx);
+    }
+  },
+};
+
+function productionAction(raw: string): ProductionAction {
+  if ((PRODUCTION_ACTIONS as readonly string[]).includes(raw)) return raw as ProductionAction;
+  throw new UsageError(`The second argument is on, off or status, not "${raw}".`);
+}
+
+/** `on` and `off` set it; `status` reads the project, whose `productionSince` is absent while it isn't in production. */
+async function productionState(
+  ctx: CommandContext,
+  projectId: string,
+  action: ProductionAction,
+): Promise<ProductionState> {
+  if (action === 'status') {
+    const project = await ctx.client().projects.get(projectId);
+    return { projectId: project.id, productionSince: project.productionSince ?? null };
+  }
+  const answer = await ctx.client().projects.setProduction(projectId, action === 'on');
+  return { projectId: answer.projectId, productionSince: answer.productionSince };
+}
+
+function productionText(state: ProductionState): string {
+  return state.productionSince === null
+    ? `${state.projectId} isn't in production: its runs are staging runs.`
+    : `${state.projectId} is in production, since ${state.productionSince}: its runs are production runs.`;
+}
+
+/**
+ * The two refusals named by the server's own code, since the client's
+ * families would mislead: `production-not-allowed` is a 403 (`auth`), and
+ * its message says what lets the tenant in (`details.next`, when the
+ * runtime names it); `tenant-not-found` is a 404 (`not-found`).
+ */
+function productionError(err: unknown, ctx: CommandContext): CommandResult {
+  const wire = extractKindgiError(err);
+  const code = wire !== null && 'serverCode' in wire ? wire.serverCode : undefined;
+  if (wire !== null && (code === 'production-not-allowed' || code === 'tenant-not-found')) {
+    return { kind: 'error', stderr: `Error [${code}]: ${wire.message}\n`, exitCode: 1 };
+  }
+  return commandResultFromThrown(err, ctx, 'kindgi projects production');
+}
+
 export const projectsCommand: Command = {
   kind: 'group',
   name: 'projects',
   description:
-    'Find projects, for the commands that take `--project=<id>` (list / get-default / get).',
-  subcommands: [list, getDefault, get],
+    'Find projects, for the commands that take `--project=<id>` (list / get-default / get), and put one in production (production).',
+  subcommands: [list, getDefault, get, production],
 };
