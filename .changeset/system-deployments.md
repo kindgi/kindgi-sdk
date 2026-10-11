@@ -4,7 +4,8 @@
 ---
 
 **Per-deployment routing's system routes, on a runtime serving many tenants.** Whatever runs each deployment's own pack service (an orchestrator, holding a `system:deployments` key) learns which deployments need one or should lose theirs, and records where each runs. No tenant input ever names a pack's URL.
-- **`GET /v1/system/deployments?endpoint=missing|retire`:** across tenants, oldest first, ids and the image only. Each `retire` entry says why: `superseded`, `tenant-closing`, `tenant-suspended`, `project-suspended` or `pack-suspended`.
+- **`GET /v1/system/deployments?endpoint=missing|retire`:** across tenants, oldest first, ids and the image only: the tenant, the deployment, its pack (`packId`) and, when the deploy was scoped to one, its project. Each `retire` entry says why: `superseded`, `tenant-closing`, `tenant-suspended`, `project-suspended` or `pack-suspended`.
+- **Registration hands a binding what routing needs:** `DeploymentRegisterInput` gains the optional `packId` (the image index's) and `packChecks` (the check ids its pack service runs, not built-ins a guardrail merely names).
 - **`PUT /v1/system/tenants/{tenantId}/deployments/{deploymentId}/endpoint`** `{ url, auth, token }`, which checks:
   - the URL is `https://<host>` (`endpoint-url-invalid`);
   - its host is on the operator's allowlist (`endpoint-host-not-allowed`);

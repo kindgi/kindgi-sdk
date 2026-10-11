@@ -263,6 +263,13 @@ export interface DeploymentRegisterInput {
    * can tell one pack's deployments from another's.
    */
   readonly packId?: string;
+  /**
+   * The check ids the image's pack service serves: its guardrails whose
+   * check runs in the image (a check module), not a built-in one. A
+   * binding that routes each check call to the deployment that shipped it
+   * keeps them, as it keeps `contents.tools` for tool calls.
+   */
+  readonly packChecks?: readonly string[];
 }
 
 export type DeploymentRegisterOutcome =

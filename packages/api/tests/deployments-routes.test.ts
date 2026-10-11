@@ -2114,6 +2114,54 @@ describe('POST /v1/deployments — the pack id reaches the binding', () => {
     });
     expect(r.status).toBe(201);
     expect(seen.map((input) => input.packId)).toEqual(['acme.aperture']);
+    expect(seen.map((input) => input.packChecks)).toEqual([['must-cite']]);
+  });
+
+  test("packChecks: only the checks the image's pack service runs, not a built-in a guardrail merely names", async () => {
+    const guardrail = (id: string, checkId: string, extra: Record<string, unknown>) => ({
+      id,
+      kind: 'zero-llm',
+      action: { 'on-violation': 'halt' },
+      checkId,
+      ...extra,
+    });
+    const fixture = buildSignedDeploy({
+      index: {
+        v: 1,
+        packId: 'acme.aperture',
+        packVersion: '1.0.0',
+        artifactVersion: '20260920.1',
+        publishedAt: '2026-09-20T14:32:07.104Z',
+        tools: [],
+        guardrails: [
+          guardrail('acme.own', 'acme.checks.own', { checkModulePath: 'guardrails/own.mjs' }),
+          guardrail('acme.cites', 'must-cite', {
+            checkModulePath: 'guardrails/cites.mjs',
+            checkBuiltIn: true,
+            config: { minCitations: 1 },
+          }),
+        ],
+        agents: [],
+        flows: [],
+      },
+    });
+    const inner = makeInMemoryDeploymentBinding();
+    const seen: DeploymentRegisterInput[] = [];
+    const binding: DeploymentBinding = {
+      ...inner,
+      register: async (input) => {
+        seen.push(input);
+        return inner.register(input);
+      },
+    };
+    const { app } = makeApp({ fixture, deploymentRegistry: binding });
+    const r = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    expect(r.status, await r.clone().text()).toBe(201);
+    expect(seen.map((input) => input.packChecks)).toEqual([['acme.checks.own']]);
   });
 });
 
