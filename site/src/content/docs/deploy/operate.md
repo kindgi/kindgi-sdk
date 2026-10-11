@@ -467,6 +467,9 @@ What to check before you upgrade, and what's different after:
   projects, teams and their members, memory erasures, an agent's promotions,
   a schedule's fires, cost records, observations, and the versions of agents,
   flows, policies, test sets, blocks and tools.
+- **The sign-in options lookup limit holds across instances:** 30 lookups a
+  minute per client (`GET /v1/auth/sign-in-options`), counted in Postgres
+  rather than by each instance.
 - **Safari signs in to `kindgi dev`'s console.** Under `kindgi dev` on
   `http://localhost` or `127.0.0.1`, the session cookie is a plain one,
   since Safari keeps a `Secure` cookie only over `https`. A deployment's
@@ -497,7 +500,9 @@ What to check before you upgrade, and what's different after:
   its settings when it's first used.
 - **Embedding `@kindgi/api`:** `createApp`'s `signingKey` is gone (pass
   `exportSigning`), and so are `refreshToken`, `exchangeCode` and
-  `oauthStateStore`.
+  `oauthStateStore`. `SignInOptionsRateLimit.store` takes a `RateLimitStore`
+  (in memory by default) to share the sign-in lookup limit across instances;
+  a store that fails doesn't block sign-in.
 - **New in 0.1.6:**
   - **Judging:** a project's judging rules queue the runs that need a
     person's verdict, results per agent version, and comparisons and
