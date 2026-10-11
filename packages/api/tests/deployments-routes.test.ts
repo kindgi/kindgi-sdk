@@ -2048,6 +2048,49 @@ describe('GET /v1/deployments — the endpoint, under per-deployment routing', (
     const body = (await one.json()) as Record<string, unknown>;
     expect('endpoint' in body).toBe(false);
   });
+
+  test("a pending deployment carries its problem's code and when, and nothing else the binding holds", async () => {
+    const { app, deploymentId } = await seeded({
+      status: 'pending',
+      since: '2026-10-11T12:00:00.000Z',
+      problem: {
+        code: 'endpoint-host-not-allowed',
+        since: '2026-10-11T12:01:00.000Z',
+        host: 'kp-x-123.us-central1.run.app',
+      },
+      url: 'https://kp-x-123.us-central1.run.app',
+      token: 'pack-token',
+    } as unknown as Deployment['endpoint']);
+    const expected = {
+      status: 'pending',
+      since: '2026-10-11T12:00:00.000Z',
+      problem: { code: 'endpoint-host-not-allowed', since: '2026-10-11T12:01:00.000Z' },
+    };
+    const one = await app.request(`/v1/deployments/${deploymentId}`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(((await one.json()) as Record<string, unknown>).endpoint).toEqual(expected);
+    const listed = await app.request('/v1/deployments', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    const page = (await listed.json()) as { data: Record<string, unknown>[] };
+    expect(page.data[0]?.endpoint).toEqual(expected);
+  });
+
+  test('a problem goes with pending only: a ready deployment shows none', async () => {
+    const { app, deploymentId } = await seeded({
+      status: 'ready',
+      since: '2026-10-11T12:05:00.000Z',
+      problem: { code: 'capacity-unavailable', since: '2026-10-11T12:01:00.000Z' },
+    });
+    const one = await app.request(`/v1/deployments/${deploymentId}`, {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(((await one.json()) as Record<string, unknown>).endpoint).toEqual({
+      status: 'ready',
+      since: '2026-10-11T12:05:00.000Z',
+    });
+  });
 });
 
 describe('/v1/deployments — cross-tenant isolation', () => {

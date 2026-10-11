@@ -802,6 +802,7 @@ export {
   hostNamesPackService,
   packServiceName,
 } from './pack-service-name.js';
+export { DEPLOYMENT_ENDPOINT_PROBLEM_CODES } from './deployment-binding.js';
 export type {
   Deployment,
   DeploymentBinding,
@@ -815,6 +816,8 @@ export type {
   DeployedVersion,
   DeploymentContents,
   DeploymentEndpoint,
+  DeploymentEndpointProblem,
+  DeploymentEndpointProblemCode,
   DeploymentEndpointStatus,
   DeploymentPrimitiveCounts,
   DeploymentRegisterInput,

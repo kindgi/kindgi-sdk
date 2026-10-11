@@ -44,6 +44,10 @@ export function packServiceName(tenantId: string, deploymentId: string): string 
  * name and then `-` or `.`, so a longer name (`kp-…x`) doesn't pass. Cloud
  * Run's hosts are `<service>-<project number>.<region>.run.app`, and an
  * internal name may be `<service>.<domain>`. Compared lowercase.
+ *
+ * It checks the first label only: the domain is the hosts allowlist's to
+ * check (`packEndpointHostAllowed`, `@kindgi/env-schema`), so a caller runs
+ * both. Pass the URL's `hostname` (no port).
  */
 export function hostNamesPackService(host: string, name: string): boolean {
   const lower = host.toLowerCase();

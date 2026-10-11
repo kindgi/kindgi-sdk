@@ -38,6 +38,7 @@ import type {
   DeployedVersion,
   Deployment,
   DeploymentBinding,
+  DeploymentEndpoint,
   DeploymentPrimitiveCounts,
   DeploymentRegisterOutcome,
 } from '../deployment-binding.js';
@@ -1987,6 +1988,16 @@ async function rollback(actions: readonly RollbackAction[]): Promise<void> {
   }
 }
 
+/** Named fields only: an endpoint's URL and token never reach a tenant. */
+function serializeEndpoint(e: DeploymentEndpoint): Record<string, unknown> {
+  return {
+    status: e.status,
+    since: e.since,
+    ...(e.status === 'pending' &&
+      e.problem !== undefined && { problem: { code: e.problem.code, since: e.problem.since } }),
+  };
+}
+
 function serializeDeployment(d: Deployment): Record<string, unknown> {
   return {
     deploymentId: d.deploymentId,
@@ -2000,9 +2011,7 @@ function serializeDeployment(d: Deployment): Record<string, unknown> {
     signature: d.signature,
     publishedAt: d.publishedAt,
     activatedAt: d.activatedAt,
-    ...(d.endpoint !== undefined && {
-      endpoint: { status: d.endpoint.status, since: d.endpoint.since },
-    }),
+    ...(d.endpoint !== undefined && { endpoint: serializeEndpoint(d.endpoint) }),
     primitives: {
       tools: d.primitives.tools,
       guardrails: d.primitives.guardrails,

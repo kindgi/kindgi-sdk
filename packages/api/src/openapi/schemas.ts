@@ -9185,6 +9185,28 @@ export const DeploymentEndpointSchema: JsonSchema = {
       format: 'date-time',
       description: 'When the status last changed.',
     },
+    problem: { $ref: '#/components/schemas/DeploymentEndpointProblem' },
+  },
+};
+
+/** Why a `pending` deployment has no pack service yet: a fixed code, never free text. */
+export const DeploymentEndpointProblemSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['code', 'since'],
+  description:
+    'With `pending` only: the last reason the deployment has no pack service yet, gone once the status changes. A fixed code, never free text.',
+  properties: {
+    code: {
+      type: 'string',
+      description:
+        "One of a fixed list; a later runtime may add codes, so treat an unknown one as a reason not yet named. The server refused the endpoint it was given: `endpoint-url-invalid` (not `https`, or with user info or a path), `endpoint-host-not-allowed` (the host isn't on the operator's allowlist), `endpoint-name-mismatch` (the host doesn't name this deployment's service), `endpoint-unreachable` (the pack service didn't answer), `endpoint-info-mismatch` (it answered as another pack or version), `image-not-allowed` (the image is outside the tenant's repository). The pack service couldn't be created: `tenant-not-provisioned` (the tenant has nowhere to run pack services yet), `capacity-unavailable` (no room for another pack service just now), `service-start-failed` (the image was deployed but didn't start).",
+    },
+    since: {
+      type: 'string',
+      format: 'date-time',
+      description: 'When it was recorded.',
+    },
   },
 };
 
@@ -12137,6 +12159,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['RevokeSessionsResult', RevokeSessionsResultSchema],
   ['DeploymentPrimitiveCounts', DeploymentPrimitiveCountsSchema],
   ['DeploymentContents', DeploymentContentsSchema],
+  ['DeploymentEndpointProblem', DeploymentEndpointProblemSchema],
   ['DeploymentEndpoint', DeploymentEndpointSchema],
   ['DeploymentRecord', DeploymentRecordSchema],
   ['DeploymentRegistrationBody', DeploymentRegistrationBodySchema],
