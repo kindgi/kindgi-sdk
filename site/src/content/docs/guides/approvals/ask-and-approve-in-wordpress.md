@@ -49,7 +49,7 @@ environment:
 
 ```sh
 KINDGI_SITE_SIGN_IN=true
-KINDGI_OPENFGA_API_URL=http://openfga:8080
+KINDGI_OPENFGA_API_URL=http://kindgi-openfga:8080
 KINDGI_PUBLIC_URL=https://kindgi.acme.example
 ```
 
@@ -199,7 +199,7 @@ Kindgi emails the site's reviewers too:
   person the site made for them, shown as "Ada, via Acme store".
 - **It keeps how they signed in:** `sessionProvider` is `site:<siteId>`.
 - **It keeps the decider's name as it was** when they decided
-  (`deciderName`). Renaming or erasing the person later doesn't change
+  (`deciderName`). Renaming or removing the person later doesn't change
   decisions already made.
 
 The audit record of each decision carries both.
@@ -289,9 +289,9 @@ another reviewer decides." instead of **Approve**.
   key may be out.
 - **Revoke one key** (`revokeKey(projectId, siteId, kid)`). It ends the
   sessions that key opened.
-- **Remove one person** (`kindgi.users.unregister(userId)`). Their next
-  sign-in is refused: "This person was removed: a tenant admin can let them
-  back in".
+- **Remove one person** (`kindgi.users.unregister(userId)`). It's for good:
+  their next sign-in is refused, "This person was removed: their site can't
+  sign them in again".
 - **When someone leaves the store,** remove them in Kindgi too. Deleting
   their WordPress user, or taking away their roles, reaches Kindgi only at
   their next sign-in through the site. Until then, they keep their reviewer
@@ -325,25 +325,32 @@ Kindgi answers 401 `site-sign-in-refused` with a reason in
 | `malformed` | The statement needs `iat`, `exp`, `jti` and `sub` | The same: use the plugin. |
 | `replayed` | This statement was already used | The plugin never sends one twice. A copied statement is refused. |
 | `role-not-allowed` | None of these roles may sign in through this site | Add the role to `allowedRoles`. A person who had signed in before loses what their roles gave them. |
-| `person-removed` | This person was removed: a tenant admin can let them back in | |
+| `person-removed` | This person was removed: their site can't sign them in again | Nothing, through the site: removing a person is for good. |
 | `people-cap` | This site has as many people as it may: a tenant admin can raise its cap | Raise `peopleCap` or `newPeoplePerDay`. |
 
 Too many sign-ins at once get 429, with `Retry-After`.
 
 ## Give the agent the store's actions
 
-WordPress's Abilities API and the MCP Adapter plugin can expose the store's
-actions (look up an order, refund it) as
+WordPress's [Abilities API](https://developer.wordpress.org/apis/abilities-api/)
+(WordPress 6.9 and later) and the
+[MCP Adapter](https://github.com/WordPress/mcp-adapter) plugin can expose
+the store's actions (look up an order, refund it) as
 [an MCP server's tools](../../tools/mcp-servers/):
 
-- **Register your own adapter server,** and list each ability on it. Each
-  becomes its own tool, named `<endpoint>.<ability, with / as ->`: with an
-  endpoint named `shop`, `acme/refund-order` becomes
-  `shop.acme-refund-order`. Each tool then gets its own approval rule.
-- **Never give an agent the default server's `execute-ability`.** It runs
-  any ability by name, so one approval rule would cover every action.
-- **Set `meta.mcp.public` to `false`** on every ability with side effects,
-  so that only your own server exposes it.
+- **Register your own adapter server,** and list each ability on it: the
+  abilities it names become its MCP tools (see
+  [Configuring custom MCP servers for your plugins](https://developer.wordpress.org/news/2026/02/from-abilities-to-ai-agents-introducing-the-wordpress-mcp-adapter/)).
+  Register its endpoint with Kindgi, and each ability becomes its own
+  tool, named `<endpoint>.<ability, with / as ->`: with an endpoint named
+  `shop`, `acme/refund-order` becomes `shop.acme-refund-order`. Each tool
+  then gets its own approval rule.
+- **Never give an agent the default server's `execute-ability`.** It
+  ["executes any WordPress ability with provided parameters"](https://github.com/WordPress/mcp-adapter/blob/trunk/docs/guides/default-server.md),
+  so one approval rule would cover every action.
+- **Set `meta.mcp.public` to `false`** on every ability with side effects.
+  The default server then never exposes it, even when the ability is
+  otherwise public, and only your own server does.
 - **Give read-only tools `never_ask`.** An MCP tool always counts as one
   that changes things, so a gate asks before each one by default:
 

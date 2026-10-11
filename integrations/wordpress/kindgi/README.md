@@ -70,7 +70,8 @@ Each person acts as themselves. Kindgi's record says "approved by Jane, via Acme
 - **Kindgi decides the rest from the person's roles on this site.** A role the site wasn't registered to allow is refused there.
 - **The Approvals tab** shows only for someone whose roles give a reviewer role.
 - **Notification address:** each statement carries the person's email, for Kindgi's "an approval is waiting" mail only. Change it, or send none, with the `kindgi_statement_email` filter.
-- **A changed role counts at once.** Changing a person's role forgets their cached session, so their next call signs in again with the new roles. Losing every role the site allows ends their grants and sessions at Kindgi.
+- **A changed role counts at their next sign-in.** Changing a person's role forgets their cached session, so their next call signs in again with the new roles. Losing every role the site allows ends their grants and sessions at Kindgi then.
+- **When someone leaves the store, remove them in Kindgi too.** Deleting their WordPress user, or taking away their roles, reaches Kindgi only at their next sign-in through the site. Until then, they keep their reviewer role and its emails.
 
 ## Security: what "the site vouches" means
 
@@ -88,9 +89,9 @@ A site's statements are exactly as strong as the site's own login, and as whoeve
 
 To give an agent tools that act on the store (look up an order, refund it), WordPress's Abilities API and the MCP Adapter can expose them over MCP:
 
-- **Register your own MCP server with the adapter** and list each ability as its own tool. Kindgi then sees `acme/refund-order` as a tool and can require approval for it alone.
+- **Register your own MCP server with the adapter** and list each ability as its own tool. With its endpoint registered in Kindgi as `shop`, the ability `acme/refund-order` is the tool `shop.acme-refund-order`, and can require approval alone.
 - **Don't expose the default server's `execute-ability` tool.** It runs any ability by name, so one approval rule would cover every action.
-- **Set `meta.mcp.public` to `false`** on every ability with side effects, so that only your own server exposes it.
+- **Set `meta.mcp.public` to `false`** on every ability with side effects. The default server then never exposes it, even when the ability is otherwise public, and only your own server does.
 - **Give money-moving tools no automatic retries on a tool error.** A retry is a new call, with its own approval and its own idempotency key. If the first call refunded before it failed, the retry refunds again.
 
 ## What the plugin stores
