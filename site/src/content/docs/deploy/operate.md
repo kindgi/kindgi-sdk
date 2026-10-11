@@ -355,9 +355,9 @@ The database migrates when 0.1.6 starts.
   an admin of the class's scope; everyone else gets their number
   (`assertableBy.principalCount`).
 - **A malformed MCP credential could appear in the runtime's log.** An MCP
-  endpoint's credential with a line break or a NUL in its value could show
-  up in the sync log, in the error the HTTP library raised when it refused
-  the header. 0.1.6 refuses such a value before sending, and its log names
+  endpoint's credential, or a value in its `config.headers`, with a line
+  break or a NUL inside it could show up in the sync log, in the error the
+  HTTP library raised when it refused the header. 0.1.6 refuses such a value before sending, and its log names
   only the header. A log written before keeps what it wrote: rotate an MCP
   credential that was ever stored with a line break inside it.
 - **A secret with a line break could appear in a run's failure message.**
@@ -473,6 +473,9 @@ What to check before you upgrade, and what's different after:
   steps start after the cancel.
 - **Two runtime instances starting at once no longer deadlock or race on
   migrations:** one waits until the other's migrations finish.
+- **Guardrail, tool and provider changes reach every runtime instance** on
+  one database at its next turn, with no restart, whichever instance (or a
+  plain SQL change) made them.
 - **Paging no longer skips or repeats rows recorded in the same millisecond**
   as a page's last row, on the lists that page by time: organizations,
   projects, teams and their members, memory erasures, an agent's promotions,
