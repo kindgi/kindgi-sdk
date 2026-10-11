@@ -92,8 +92,9 @@ chosen to make a repeat change nothing more:
 
 A repeat still saves a revision: the article's history shows two with the
 same text, and the agent says so when it retried. Every call waits for a
-person, the repeat included, so a reviewer who sees the same change twice
-can check the article's latest revision first.
+person, the repeat included. A reviewer who sees the same change twice
+should approve it again: the first may have landed, and a rejection would
+have the agent tell the editor the change wasn't made.
 
 A run that waits for a person keeps waiting through a restart of the
 runtime: the approval resumes it, and the tool runs once.
