@@ -166,7 +166,7 @@ run "the_pack_invokes_the_named_services" {
   assert {
     condition = alltrue([
       for g in google_cloud_run_v2_service_iam_member.pack_invokes :
-      g.role == "roles/run.invoker" && g.member == "serviceAccount:${google_service_account.pack.email}"
+      g.role == "roles/run.invoker" && g.member == "serviceAccount:${google_service_account.pack[0].email}"
     ])
     error_message = "Each grant gives the pack's service account roles/run.invoker."
   }
@@ -406,5 +406,77 @@ run "the_refused_names_cover_every_option_kms_signing" {
       for e in google_cloud_run_v2_service.server.template[0].containers[0].env : contains(local.server_module_env, e.name)
     ])
     error_message = "A name the module sets on the server is missing from server_module_env."
+  }
+}
+
+run "with_a_pack_image_the_server_calls_the_one_pack_service" {
+  command = plan
+
+  assert {
+    condition     = length(google_cloud_run_v2_service.pack) == 1 && length(google_service_account.pack) == 1 && length(google_cloud_run_v2_service_iam_member.server_invokes_pack) == 1
+    error_message = "With pack_image: the pack service, its account, and the server's invoker grant, as before."
+  }
+  assert {
+    condition     = contains([for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.name], "KINDGI_PACK_SERVICE_URL")
+    error_message = "The server calls the pack service at its URL."
+  }
+  assert {
+    condition     = length(google_secret_manager_secret_iam_member.pack_reads_token) == 1
+    error_message = "The pack service reads the shared pack token."
+  }
+}
+
+run "without_a_pack_image_there_is_no_pack_service" {
+  command = plan
+
+  variables {
+    pack_image = ""
+  }
+
+  assert {
+    condition     = length(google_cloud_run_v2_service.pack) == 0 && length(google_service_account.pack) == 0 && length(google_cloud_run_v2_service_iam_member.server_invokes_pack) == 0
+    error_message = "Without pack_image: no pack service, no pack account, no invoker grant."
+  }
+  assert {
+    condition     = length(google_secret_manager_secret_iam_member.pack_reads_token) == 0 && length(google_secret_manager_secret_iam_member.pack_reads_its_secrets) == 0
+    error_message = "No pack account, so none of its secret grants."
+  }
+  assert {
+    condition     = !contains([for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.name], "KINDGI_PACK_SERVICE_URL")
+    error_message = "No pack service, so no KINDGI_PACK_SERVICE_URL: each deployment is a service of its own."
+  }
+  assert {
+    condition     = length(setintersection(toset([for e in google_cloud_run_v2_service.server.template[0].containers[0].env : e.name]), toset(["KINDGI_PACK_SERVICE_TOKEN", "KINDGI_PACK_SERVICE_AUTH"]))) == 2
+    error_message = "The pack token and the ID-token auth stay: they're how the server calls each deployment's service."
+  }
+  assert {
+    condition     = output.pack_service_url == null && output.service_accounts.pack == null
+    error_message = "No pack service URL or account in the outputs."
+  }
+}
+
+run "pack_settings_without_a_pack_image_are_refused" {
+  command = plan
+
+  variables {
+    pack_image = ""
+    pack_env   = { ACME_MODE = "live" }
+  }
+
+  expect_failures = [google_cloud_run_v2_service.server]
+}
+
+run "connector_mode_without_a_pack_service_needs_no_public_pack_ingress" {
+  command = plan
+
+  variables {
+    pack_image    = ""
+    network_mode  = "connector"
+    vpc_connector = "projects/acme-app-dev/locations/northamerica-northeast2/connectors/acme"
+  }
+
+  assert {
+    condition     = length(google_cloud_run_v2_service.pack) == 0
+    error_message = "Connector mode plans without a pack service, whatever pack_ingress says."
   }
 }

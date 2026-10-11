@@ -170,6 +170,17 @@ pnpm exec kindgi build --local --push --env prod
 Set `server_image` and `pack_image` in `prod.tfvars` to the two digests
 (`…@sha256:…`).
 
+**Without a pack service** (runtime 0.1.8 or later): where each deployment is
+a Cloud Run service of its own (`KINDGI_PACK_ROUTING=per-deployment`), leave
+`pack_image` unset.
+- **What the module then leaves out:** the pack service, its service account
+  and its grants, and the server's `KINDGI_PACK_SERVICE_URL`.
+- **What stays:** the pack token and `KINDGI_PACK_SERVICE_AUTH`, which are how
+  the server calls each deployment's service.
+- **The `pack_*` settings** configure the one pack service, so set with no
+  `pack_image` they're refused rather than ignored.
+- **An existing deployment** that keeps `pack_image` plans no change.
+
 ## 3. The secrets
 
 Make each value here and pipe it straight into Secret Manager: it's never on

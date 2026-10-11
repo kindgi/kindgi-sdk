@@ -160,18 +160,18 @@ resource "google_kms_crypto_key_iam_member" "server_signs_exports" {
 }
 
 resource "google_secret_manager_secret_iam_member" "pack_reads_token" {
-  for_each  = google_secret_manager_secret.shared
+  for_each  = { for name, secret in google_secret_manager_secret.shared : name => secret if local.pack }
   secret_id = each.value.id
   role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:${google_service_account.pack.email}"
+  member    = "serviceAccount:${google_service_account.pack[0].email}"
 }
 
 # The pack's own secrets (`secret_env` from `kindgi env plan`): the
 # operator created them; the pack service gets read access to exactly
 # these. One in another project is granted there, not here (README).
 resource "google_secret_manager_secret_iam_member" "pack_reads_its_secrets" {
-  for_each  = { for name, ref in var.pack_secret_env : name => ref if ref.project == null }
+  for_each  = { for name, ref in var.pack_secret_env : name => ref if local.pack && ref.project == null }
   secret_id = "projects/${var.project_id}/secrets/${each.value.secret}"
   role      = "roles/secretmanager.secretAccessor"
-  member    = "serviceAccount:${google_service_account.pack.email}"
+  member    = "serviceAccount:${google_service_account.pack[0].email}"
 }

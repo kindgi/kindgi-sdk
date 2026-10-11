@@ -27,13 +27,14 @@ locals {
 # ---- the pack service ---------------------------------------------------------
 
 resource "google_cloud_run_v2_service" "pack" {
+  count               = local.pack ? 1 : 0
   name                = "${var.name_prefix}-pack"
   location            = var.region
   ingress             = var.pack_ingress
   deletion_protection = false
 
   template {
-    service_account                  = google_service_account.pack.email
+    service_account                  = google_service_account.pack[0].email
     timeout                          = var.pack_timeout
     max_instance_request_concurrency = var.pack_concurrency
 
@@ -156,7 +157,8 @@ resource "google_cloud_run_v2_service" "pack" {
 # Only the server may call the pack service (with a Google ID token, plus
 # the pack token in Kindgi-Pack-Token).
 resource "google_cloud_run_v2_service_iam_member" "server_invokes_pack" {
-  name     = google_cloud_run_v2_service.pack.name
+  count    = local.pack ? 1 : 0
+  name     = google_cloud_run_v2_service.pack[0].name
   location = var.region
   role     = "roles/run.invoker"
   member   = "serviceAccount:${google_service_account.server.email}"
@@ -332,10 +334,15 @@ resource "google_cloud_run_v2_service" "server" {
       }
 
       # The pack service: its internal URL, the shared token, and a Google
-      # ID token per call (KINDGI_PACK_SERVICE_AUTH).
-      env {
-        name  = "KINDGI_PACK_SERVICE_URL"
-        value = google_cloud_run_v2_service.pack.uri
+      # ID token per call (KINDGI_PACK_SERVICE_AUTH). Without a pack image
+      # there's no pack service, and so no URL: each deployment is a
+      # service of its own (KINDGI_PACK_ROUTING=per-deployment).
+      dynamic "env" {
+        for_each = local.pack ? [google_cloud_run_v2_service.pack[0].uri] : []
+        content {
+          name  = "KINDGI_PACK_SERVICE_URL"
+          value = env.value
+        }
       }
       env {
         name = "KINDGI_PACK_SERVICE_TOKEN"
@@ -471,8 +478,15 @@ resource "google_cloud_run_v2_service" "server" {
       error_message = "network_mode = \"connector\" needs vpc_connector (projects/<project>/locations/<region>/connectors/<name>)."
     }
     precondition {
-      condition     = var.network_mode == "direct" || var.pack_ingress == "INGRESS_TRAFFIC_ALL"
+      condition     = !local.pack || var.network_mode == "direct" || var.pack_ingress == "INGRESS_TRAFFIC_ALL"
       error_message = "network_mode = \"connector\" needs pack_ingress = \"INGRESS_TRAFFIC_ALL\": a private-ranges-only server can't reach an internal-only pack service (IAM still guards it)."
+    }
+    precondition {
+      condition = local.pack || (
+        length(var.pack_env) == 0 && length(var.pack_secret_env) == 0 && length(var.pack_cloud_sql_instances) == 0
+        && length(var.pack_bucket_readers) == 0 && length(var.pack_run_invokers) == 0
+      )
+      error_message = "The pack_* settings configure the one pack service, which exists only with pack_image: set pack_image, or unset them."
     }
     precondition {
       condition     = !local.kms || var.secrets_aad_key_version != null
