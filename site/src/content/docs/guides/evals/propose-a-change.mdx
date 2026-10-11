@@ -130,6 +130,130 @@ Here the candidate scored the same as the recorded outputs on the test set's
 }
 ```
 
+### Judge the new answers, then rescore
+
+A comparison counts what people have judged. When a change rewrites an
+agent's answers, each new answer is an item no one has judged, so nothing on
+the candidate's side is counted and the proposal can't be better. Here a
+prompt change ("Answer briefly." to "Answer warmly.") rewrote the answer in
+each of a test set's three cases. The comparison, the proposal's
+`evaluation.evalRunId`, lists them case by case:
+
+```sh
+kindgi eval-runs show <eval-run-id>
+```
+
+```json
+{
+  "runId": "b4ec86b8-aaa6-438d-8e2b-e45d0a3706a1",
+  …
+  "suiteId": "acme.desk-checks",
+  "suiteVersion": "1.0.0",
+  "kind": "judged",
+  …
+  "status": "completed",
+  …
+  "result": {
+    "perCase": [
+      {
+        …
+        "caseId": "b0eb1310-cd99-43ec-a9f1-4b56beeb23ae",
+        "runIds": ["7b3c3a87-b433-448a-8113-ac78c0ee6137"],
+        "changes": {
+          "new": [{ "key": "answer", "pointer": "/appended/1/content" }],
+          "kept": [],
+          "dropped": [{ "key": "answer" }]
+        },
+        …
+      },
+      …
+    ],
+    "summary": {
+      …
+      "metrics": {
+        "judgedCoverage": { "n": 3, "delta": -1, "weight": 0, "baseline": 1, "baselineN": 3, "candidate": 0, "direction": "higher", "baselineWeight": 3 },
+        "weightedYesShare": { "n": 0, "delta": null, "weight": 0, "baseline": 1, "baselineN": 3, "candidate": null, "direction": "higher", "baselineWeight": 3 },
+        …
+      },
+      …
+    }
+  },
+  …
+}
+```
+
+`runIds` are the comparison's replay runs. Judge each new answer on its
+replay run, at the `pointer` the comparison names. A replay's answer is at
+`/appended/1/content`, not at a turn's `/response/content`; a pointer
+that isn't in the run's output is refused (`400 item-not-found`):
+
+```sh
+kindgi judgments add --run=7b3c3a87-b433-448a-8113-ac78c0ee6137 --item=answer --pointer=/appended/1/content --yes
+```
+
+Then rescore the proposal:
+
+```sh
+kindgi proposals evaluate <proposal-id> --rescore --wait
+```
+
+A rescore is a new comparison, with the same test set version and settings,
+that replays nothing: it scores the same replay runs again, with the
+judgments made since, and becomes the proposal's evaluation. Here the three
+new answers were judged good, as the old ones were, so the candidate scores
+the same as the recorded outputs, and the proposal stays `not-better`. As
+good isn't better. A rescore that finds the candidate better makes it
+`evaluated`.
+
+```json
+{
+  "id": "59304a9b-678e-4b12-99f3-2e7e500940d6",
+  "agentId": "acme.desk",
+  "fromVersion": "1.0.0",
+  …
+  "status": "not-better",
+  "candidate": {
+    "pinsDigest": "sha256:9ba29a87d32957a58fd798077b733c2a61e455a220e1c28ba4b1a97f10a49926",
+    "agentVersion": "1.0.1",
+    "blockVersion": "1.0.1"
+  },
+  "evaluation": {
+    "suiteId": "acme.desk-checks",
+    "evalRunId": "d5ef632b-7293-4992-bf25-3edb3921bcc2",
+    "objective": "weightedYesShare",
+    "startedAt": "2026-10-11T07:13:41.411Z",
+    "runStatus": "completed",
+    "baseline": 1,
+    "candidate": 1,
+    "delta": 0,
+    "cases": 3,
+    "better": false
+  },
+  …
+}
+```
+
+The new comparison says what it rescored, and how much of what it counts
+was judged since. `comparison.rescoreOf` names the comparison rescored. Each
+metric's `freshWeight` is the weight of those judgments, and per case,
+`candidate[].fresh` and `changes.new[].judged`:
+
+```json
+"comparison": { "k": 10, "reads": "recorded", "baseline": "recorded", "rescoreOf": "b4ec86b8-aaa6-438d-8e2b-e45d0a3706a1", "repetitions": 1 },
+…
+"weightedYesShare": { "n": 3, "delta": 0, "weight": 3, "baseline": 1, "baselineN": 3, "candidate": 1, "direction": "higher", "freshWeight": 3, "baselineWeight": 3 }
+```
+
+- **The comparison rescored stays as it was.** A case whose replay run is
+  gone since (deleted with its retention, say) keeps the scores it had, with
+  `rescored: false`.
+- **Rescoring needs `publish` on the agent,** from `evaluated`, `not-better`,
+  `refused`, `superseded` or `expired`.
+- **A comparison you started yourself,** not through a proposal, rescores
+  with `kindgi eval-runs rescore <eval-run-id> --wait`.
+- **In the clients:** `proposals.rescore(proposalId)` and
+  `evalRuns.rescore(runId)` (`eval_runs.rescore(run_id)` in Python).
+
 ## Request it
 
 ```sh
@@ -234,4 +358,4 @@ authorized on their agent: `read` to see one.
 | `withdrawn` | Withdrawn. |
 
 From your app, the clients have the same calls: `proposals.create`, `list`,
-`get`, `evaluate`, `request`, `rollback` and `withdraw`.
+`get`, `evaluate`, `rescore`, `request`, `rollback` and `withdraw`.
