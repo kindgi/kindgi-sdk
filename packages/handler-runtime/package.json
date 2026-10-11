@@ -44,6 +44,10 @@
       "types": "./dist/kindgi-index-main.d.ts",
       "import": "./dist/kindgi-index-main.js"
     },
+    "./kindgi-closure-main": {
+      "types": "./dist/kindgi-closure-main.d.ts",
+      "import": "./dist/kindgi-closure-main.js"
+    },
     "./build-extensions": {
       "types": "./dist/build-extensions.d.ts",
       "import": "./dist/build-extensions.js",
