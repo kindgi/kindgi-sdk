@@ -9776,8 +9776,40 @@ export const ProjectSchema: JsonSchema = {
     slug: { type: 'string' },
     isDefault: { type: 'boolean' },
     description: { type: 'string' },
+    productionSince: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        "When the project was put in production; absent while it isn't. A run in a project in production is a production run, and a run anywhere else is staging.",
+    },
     createdAt: { type: 'string' },
     updatedAt: { type: 'string' },
+  },
+};
+
+export const ProjectProductionBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['production'],
+  properties: {
+    production: {
+      type: 'boolean',
+      description: '`true` puts the project in production; `false` takes it out.',
+    },
+  },
+};
+
+export const ProjectProductionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['projectId', 'productionSince'],
+  properties: {
+    projectId: { type: 'string' },
+    productionSince: {
+      type: ['string', 'null'],
+      format: 'date-time',
+      description: "When the project went into production; `null` while it isn't in production.",
+    },
   },
 };
 
@@ -10054,6 +10086,149 @@ export const TenantSchema: JsonSchema = {
     slug: { type: 'string' },
     createdAt: { type: 'string', format: 'date-time' },
     updatedAt: { type: 'string', format: 'date-time' },
+    productionAllowed: {
+      type: 'boolean',
+      description:
+        "Whether the tenant may put projects in production. Absent from a runtime that doesn't gate production.",
+    },
+    productionNext: {
+      type: 'string',
+      description:
+        'Where to go to be allowed to put projects in production, for example a billing page. Only while `productionAllowed` is `false`, and only when the runtime names one.',
+    },
+    limits: ref('TenantLimits'),
+  },
+};
+
+export const TenantLimitsSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  description:
+    "The tenant's limits that are set. A limit that isn't set is absent, and isn't enforced.",
+  properties: {
+    apiRequestsPerMinute: {
+      type: 'integer',
+      minimum: 1,
+      description: 'API requests a minute. Past it: 429 `rate-limit-exceeded`.',
+    },
+    webhookReceivesPerMinute: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "Webhook deliveries received a minute, across the tenant's triggers. Past it: 429.",
+    },
+    runsAtOnce: {
+      type: 'integer',
+      minimum: 1,
+      description: 'Runs executing at once. Past it, a new run waits as `pending`.',
+    },
+    runsPending: {
+      type: 'integer',
+      minimum: 1,
+      description: 'Runs waiting as `pending`. Past it, a new run is refused with 429.',
+    },
+    toolCallsInFlight: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        "Tool calls in flight to the tenant's pack services. Past it, a call waits for a slot.",
+    },
+    approvalsPending: {
+      type: 'integer',
+      minimum: 1,
+      description:
+        'Approvals waiting for a decision. Past it, the step that asks fails, naming the limit.',
+    },
+  },
+};
+
+export const ProductionAllowedBodySchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['allowed'],
+  properties: {
+    allowed: {
+      type: 'boolean',
+      description: '`true` allows the tenant to put projects in production; `false` stops it.',
+    },
+  },
+};
+
+export const TenantProductionAllowedSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['tenantId', 'productionAllowed'],
+  properties: {
+    tenantId: { type: 'string', format: 'uuid' },
+    productionAllowed: { type: 'boolean' },
+  },
+};
+
+export const TenantLimitsResultSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['tenantId', 'limits'],
+  properties: {
+    tenantId: { type: 'string', format: 'uuid' },
+    limits: ref('TenantLimits'),
+  },
+};
+
+export const UsageGroupSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['count', 'quantity', 'firstAt', 'lastAt'],
+  description:
+    "One group: the dimensions it's grouped by (only those), then its count, the sum of its quantities, and its first and last times.",
+  properties: {
+    tenantId: { type: 'string', format: 'uuid' },
+    projectId: { type: 'string' },
+    agentId: { type: 'string' },
+    kind: {
+      type: 'string',
+      enum: [
+        'run.started',
+        'run.ended',
+        'approval.requested',
+        'approval.decided',
+        'llm.inference',
+        'llm.embedding',
+        'project.production',
+      ],
+    },
+    class: {
+      type: 'string',
+      enum: ['production', 'staging', 'dry-run', 'replay', 'eval', 'child'],
+    },
+    state: { type: 'string', enum: ['on', 'off'] },
+    day: { type: 'string', format: 'date', description: 'The UTC date, `YYYY-MM-DD`.' },
+    count: { type: 'integer', minimum: 0, description: 'Records in the group.' },
+    quantity: {
+      type: 'number',
+      description:
+        'The sum of their quantities: milliseconds for `run.ended`, tokens for model calls.',
+    },
+    firstAt: { type: 'string', format: 'date-time' },
+    lastAt: { type: 'string', format: 'date-time' },
+  },
+};
+
+export const SystemUsagePageSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['data', 'watermark'],
+  properties: {
+    data: { type: 'array', items: ref('UsageGroup') },
+    watermark: {
+      type: 'string',
+      format: 'date-time',
+      description:
+        "Every record at or before this time is in the answer; a later one may not be yet. Re-read a window until its watermark is past the window's end.",
+    },
+    nextCursor: {
+      type: 'string',
+      description: 'More groups: pass it as `cursor`. Absent on the last page.',
+    },
   },
 };
 
@@ -12256,6 +12431,8 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['ProjectAccess', ProjectAccessSchema],
   ['ProjectAccessPage', ProjectAccessPageSchema],
   ['Project', ProjectSchema],
+  ['ProjectProductionBody', ProjectProductionBodySchema],
+  ['ProjectProduction', ProjectProductionSchema],
   ['ProjectSpec', ProjectSpecSchema],
   ['ProjectPatch', ProjectPatchSchema],
   ['ProjectCollectionPage', ProjectCollectionPageSchema],
@@ -12265,6 +12442,12 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['UpdateProjectMembershipBody', UpdateProjectMembershipBodySchema],
   ['AddProjectMembershipResult', AddProjectMembershipResultSchema],
   ['Tenant', TenantSchema],
+  ['TenantLimits', TenantLimitsSchema],
+  ['ProductionAllowedBody', ProductionAllowedBodySchema],
+  ['TenantProductionAllowed', TenantProductionAllowedSchema],
+  ['TenantLimitsResult', TenantLimitsResultSchema],
+  ['UsageGroup', UsageGroupSchema],
+  ['SystemUsagePage', SystemUsagePageSchema],
   ['TenantConfigKind', TenantConfigKindSchema],
   ['TenantConfigEntry', TenantConfigEntrySchema],
   ['TenantConfigCollectionPage', TenantConfigCollectionPageSchema],

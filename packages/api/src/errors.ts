@@ -356,6 +356,10 @@ export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   'org-not-found': 404,
   'team-not-found': 404,
   'project-not-found': 404,
+  /** Putting a project in production while the tenant isn't allowed to (the production gate; `details.next`). */
+  'production-not-allowed': 403,
+  /** The production route on a runtime whose project binding can't set it. */
+  'production-unsupported': 501,
   'team-membership-not-found': 404,
   'project-membership-not-found': 404,
   // Re-adding a member with another role: the role they hold is kept.

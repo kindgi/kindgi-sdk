@@ -51,6 +51,17 @@ OPERATIONS: dict[str, Operation] = {
     "systemKeys.revoke": Operation(
         "systemKeys.revoke", "POST", "/v1/system/keys/{keyId}/revoke", "json", True
     ),
+    "systemTenants.setProductionAllowed": Operation(
+        "systemTenants.setProductionAllowed",
+        "PUT",
+        "/v1/system/tenants/{tenantId}/production-allowed",
+        "json",
+        True,
+    ),
+    "systemTenants.setLimits": Operation(
+        "systemTenants.setLimits", "PUT", "/v1/system/tenants/{tenantId}/limits", "json", True
+    ),
+    "systemUsage.read": Operation("systemUsage.read", "GET", "/v1/system/usage", "json", False),
     "serviceAccounts.list": Operation(
         "serviceAccounts.list", "GET", "/v1/service-accounts", "json", False
     ),
@@ -762,6 +773,9 @@ OPERATIONS: dict[str, Operation] = {
     ),
     "projects.access.list": Operation(
         "projects.access.list", "GET", "/v1/projects/{projectId}/access", "json", False
+    ),
+    "projects.production.set": Operation(
+        "projects.production.set", "PUT", "/v1/projects/{projectId}/production", "json", True
     ),
     "projects.teamGrants.list": Operation(
         "projects.teamGrants.list", "GET", "/v1/projects/{projectId}/team-grants", "json", False
@@ -1536,6 +1550,106 @@ class SystemKeysResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.RevokeSystemKeyResult,
+            timeout=timeout,
+        )
+
+
+class SystemTenantsResource:
+    """`client.system_tenants` — the `systemTenants` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def set_production_allowed(
+        self,
+        tenant_id: str | UUID,
+        body: _models.ProductionAllowedBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.TenantProductionAllowed:
+        """Allow a tenant production, or stop it. `PUT /v1/system/tenants/{tenantId}/production-allowed`
+
+        The switch the production gate reads: with it off, `PUT /v1/projects/{projectId}/production` refuses to put the tenant's projects in production (`403 production-not-allowed`), and projects already in production stay so. A tenant is allowed until it's switched off. Takes `system:tenants:production`. A closing tenant is frozen: `409 tenant-closing`.
+        """
+        return self._client._request(
+            _OPERATIONS["systemTenants.setProductionAllowed"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ProductionAllowedBody, body, fields),
+            response=_models.TenantProductionAllowed,
+            timeout=timeout,
+        )
+
+    def set_limits(
+        self,
+        tenant_id: str | UUID,
+        body: _models.TenantLimits | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.TenantLimitsResult:
+        """Set a tenant's limits. `PUT /v1/system/tenants/{tenantId}/limits`
+
+        Replaces the tenant's limits with exactly these: a limit left out isn't set, and isn't enforced. Each is a whole number from 1 to 1000000. The tenant reads them on `GET /v1/tenant`. Takes `system:tenants:limits`. A closing tenant is frozen: `409 tenant-closing`.
+        """
+        return self._client._request(
+            _OPERATIONS["systemTenants.setLimits"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.TenantLimits, body, fields),
+            response=_models.TenantLimitsResult,
+            timeout=timeout,
+        )
+
+
+class SystemUsageResource:
+    """`client.system_usage` — the `systemUsage` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def read(
+        self,
+        /,
+        *,
+        from_: str,
+        to: str,
+        group_by: str | None = None,
+        kind: str | None = None,
+        class_: str | None = None,
+        state: str | None = None,
+        tenant_id: str | UUID | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.SystemUsagePage:
+        """Read usage across tenants. `GET /v1/system/usage`
+
+        Usage records aggregated by the dimensions in `groupBy`: each group's count, the sum of its quantities, and its first and last times. Never a record's content. Records are counted when the counted thing happens, exactly once (`USAGE_KINDS`, each run with its class). `watermark`: every record at or before it is in the answer, so re-read a window until its watermark is past the window's end. Takes `system:usage:read`; the access record marks a read across every tenant. A runtime that doesn't count usage answers 404.
+        """
+        return self._client._request(
+            _OPERATIONS["systemUsage.read"],
+            path={},
+            query={
+                "from": from_,
+                "to": to,
+                "groupBy": group_by,
+                "kind": kind,
+                "class": class_,
+                "state": state,
+                "tenantId": tenant_id,
+                "limit": limit,
+                "cursor": cursor,
+            },
+            headers={},
+            response=_models.SystemUsagePage,
             timeout=timeout,
         )
 
@@ -7010,6 +7124,37 @@ class ProjectsAccessResource:
         )
 
 
+class ProjectsProductionResource:
+    """`client.projects.production` — the `projects.production` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def set(
+        self,
+        project_id: str | UUID,
+        body: _models.ProjectProductionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ProjectProduction:
+        """Put a project in production, or take it out. `PUT /v1/projects/{projectId}/production`
+
+        A run in a project in production is a production run; a run anywhere else is staging. For tenant admins (`admin` on the tenant), both ways. Setting what's already set answers 200 unchanged and keeps the first `productionSince`. With the runtime's production gate on, putting a project in production is refused with 403 `production-not-allowed` while the tenant isn't allowed it, with `details.next` naming where to go to be allowed when the runtime names one; a project already in production stays so. 501 `production-unsupported` from a runtime whose projects can't be put in production.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.production.set"],
+            path={"projectId": project_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ProjectProductionBody, body, fields),
+            response=_models.ProjectProduction,
+            timeout=timeout,
+        )
+
+
 class ProjectsTeamGrantsResource:
     """`client.projects.team_grants` — the `projects.teamGrants` operations."""
 
@@ -7111,6 +7256,7 @@ class ProjectsResource:
         self.judging_queue = ProjectsJudgingQueueResource(client)
         self.memberships = ProjectsMembershipsResource(client)
         self.access = ProjectsAccessResource(client)
+        self.production = ProjectsProductionResource(client)
         self.team_grants = ProjectsTeamGrantsResource(client)
 
     def get_default(self, /, *, timeout: float | None = None) -> _models.Project:
@@ -7293,7 +7439,7 @@ class TenantResource:
     def get(self, /, *, timeout: float | None = None) -> _models.Tenant:
         """Fetch the caller's tenant. `GET /v1/tenant`
 
-        Returns the tenant the bearer token authenticates as. There is no `/v1/tenants` collection — tenants are the sovereignty boundary, not a listable resource under a tenant.
+        Returns the tenant the bearer token authenticates as. There is no `/v1/tenants` collection — tenants are the sovereignty boundary, not a listable resource under a tenant. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), and one that sets limits adds the tenant's `limits`.
         """
         return self._client._request(
             _OPERATIONS["tenant.get"],
@@ -8864,6 +9010,106 @@ class AsyncSystemKeysResource:
             query={},
             headers={"Idempotency-Key": idempotency_key},
             response=_models.RevokeSystemKeyResult,
+            timeout=timeout,
+        )
+
+
+class AsyncSystemTenantsResource:
+    """`client.system_tenants` — the `systemTenants` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def set_production_allowed(
+        self,
+        tenant_id: str | UUID,
+        body: _models.ProductionAllowedBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.TenantProductionAllowed:
+        """Allow a tenant production, or stop it. `PUT /v1/system/tenants/{tenantId}/production-allowed`
+
+        The switch the production gate reads: with it off, `PUT /v1/projects/{projectId}/production` refuses to put the tenant's projects in production (`403 production-not-allowed`), and projects already in production stay so. A tenant is allowed until it's switched off. Takes `system:tenants:production`. A closing tenant is frozen: `409 tenant-closing`.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemTenants.setProductionAllowed"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ProductionAllowedBody, body, fields),
+            response=_models.TenantProductionAllowed,
+            timeout=timeout,
+        )
+
+    async def set_limits(
+        self,
+        tenant_id: str | UUID,
+        body: _models.TenantLimits | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.TenantLimitsResult:
+        """Set a tenant's limits. `PUT /v1/system/tenants/{tenantId}/limits`
+
+        Replaces the tenant's limits with exactly these: a limit left out isn't set, and isn't enforced. Each is a whole number from 1 to 1000000. The tenant reads them on `GET /v1/tenant`. Takes `system:tenants:limits`. A closing tenant is frozen: `409 tenant-closing`.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemTenants.setLimits"],
+            path={"tenantId": tenant_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.TenantLimits, body, fields),
+            response=_models.TenantLimitsResult,
+            timeout=timeout,
+        )
+
+
+class AsyncSystemUsageResource:
+    """`client.system_usage` — the `systemUsage` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def read(
+        self,
+        /,
+        *,
+        from_: str,
+        to: str,
+        group_by: str | None = None,
+        kind: str | None = None,
+        class_: str | None = None,
+        state: str | None = None,
+        tenant_id: str | UUID | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+        timeout: float | None = None,
+    ) -> _models.SystemUsagePage:
+        """Read usage across tenants. `GET /v1/system/usage`
+
+        Usage records aggregated by the dimensions in `groupBy`: each group's count, the sum of its quantities, and its first and last times. Never a record's content. Records are counted when the counted thing happens, exactly once (`USAGE_KINDS`, each run with its class). `watermark`: every record at or before it is in the answer, so re-read a window until its watermark is past the window's end. Takes `system:usage:read`; the access record marks a read across every tenant. A runtime that doesn't count usage answers 404.
+        """
+        return await self._client._request(
+            _OPERATIONS["systemUsage.read"],
+            path={},
+            query={
+                "from": from_,
+                "to": to,
+                "groupBy": group_by,
+                "kind": kind,
+                "class": class_,
+                "state": state,
+                "tenantId": tenant_id,
+                "limit": limit,
+                "cursor": cursor,
+            },
+            headers={},
+            response=_models.SystemUsagePage,
             timeout=timeout,
         )
 
@@ -14360,6 +14606,37 @@ class AsyncProjectsAccessResource:
         )
 
 
+class AsyncProjectsProductionResource:
+    """`client.projects.production` — the `projects.production` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def set(
+        self,
+        project_id: str | UUID,
+        body: _models.ProjectProductionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ProjectProduction:
+        """Put a project in production, or take it out. `PUT /v1/projects/{projectId}/production`
+
+        A run in a project in production is a production run; a run anywhere else is staging. For tenant admins (`admin` on the tenant), both ways. Setting what's already set answers 200 unchanged and keeps the first `productionSince`. With the runtime's production gate on, putting a project in production is refused with 403 `production-not-allowed` while the tenant isn't allowed it, with `details.next` naming where to go to be allowed when the runtime names one; a project already in production stays so. 501 `production-unsupported` from a runtime whose projects can't be put in production.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.production.set"],
+            path={"projectId": project_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ProjectProductionBody, body, fields),
+            response=_models.ProjectProduction,
+            timeout=timeout,
+        )
+
+
 class AsyncProjectsTeamGrantsResource:
     """`client.projects.team_grants` — the `projects.teamGrants` operations."""
 
@@ -14461,6 +14738,7 @@ class AsyncProjectsResource:
         self.judging_queue = AsyncProjectsJudgingQueueResource(client)
         self.memberships = AsyncProjectsMembershipsResource(client)
         self.access = AsyncProjectsAccessResource(client)
+        self.production = AsyncProjectsProductionResource(client)
         self.team_grants = AsyncProjectsTeamGrantsResource(client)
 
     async def get_default(self, /, *, timeout: float | None = None) -> _models.Project:
@@ -14645,7 +14923,7 @@ class AsyncTenantResource:
     async def get(self, /, *, timeout: float | None = None) -> _models.Tenant:
         """Fetch the caller's tenant. `GET /v1/tenant`
 
-        Returns the tenant the bearer token authenticates as. There is no `/v1/tenants` collection — tenants are the sovereignty boundary, not a listable resource under a tenant.
+        Returns the tenant the bearer token authenticates as. There is no `/v1/tenants` collection — tenants are the sovereignty boundary, not a listable resource under a tenant. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), and one that sets limits adds the tenant's `limits`.
         """
         return await self._client._request(
             _OPERATIONS["tenant.get"],
@@ -15629,6 +15907,8 @@ class Resources:
     signing_keys: SigningKeysResource
     tokens: TokensResource
     system_keys: SystemKeysResource
+    system_tenants: SystemTenantsResource
+    system_usage: SystemUsageResource
     service_accounts: ServiceAccountsResource
     approvals: ApprovalsResource
     agents: AgentsResource
@@ -15679,6 +15959,8 @@ class Resources:
         self.signing_keys = SigningKeysResource(client)
         self.tokens = TokensResource(client)
         self.system_keys = SystemKeysResource(client)
+        self.system_tenants = SystemTenantsResource(client)
+        self.system_usage = SystemUsageResource(client)
         self.service_accounts = ServiceAccountsResource(client)
         self.approvals = ApprovalsResource(client)
         self.agents = AgentsResource(client)
@@ -15731,6 +16013,8 @@ class AsyncResources:
     signing_keys: AsyncSigningKeysResource
     tokens: AsyncTokensResource
     system_keys: AsyncSystemKeysResource
+    system_tenants: AsyncSystemTenantsResource
+    system_usage: AsyncSystemUsageResource
     service_accounts: AsyncServiceAccountsResource
     approvals: AsyncApprovalsResource
     agents: AsyncAgentsResource
@@ -15781,6 +16065,8 @@ class AsyncResources:
         self.signing_keys = AsyncSigningKeysResource(client)
         self.tokens = AsyncTokensResource(client)
         self.system_keys = AsyncSystemKeysResource(client)
+        self.system_tenants = AsyncSystemTenantsResource(client)
+        self.system_usage = AsyncSystemUsageResource(client)
         self.service_accounts = AsyncServiceAccountsResource(client)
         self.approvals = AsyncApprovalsResource(client)
         self.agents = AsyncAgentsResource(client)
