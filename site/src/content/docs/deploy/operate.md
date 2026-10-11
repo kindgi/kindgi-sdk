@@ -197,7 +197,9 @@ pnpm exec kindgi runs get <run id> --url http://localhost:4000 --token "$KINDGI_
 
 A backup taken before an [erasure](../../guides/agents/erase-a-persons-data/)
 brings back what it cleared: replay the erasures next
-([Erasures and backups](#erasures-and-backups)).
+([Erasures and backups](#erasures-and-backups)). To look at the restored
+database first, without anything running on its own, start the runtime with
+[`KINDGI_PASSIVE=on`](#look-at-a-restored-copy-before-it-serves-kindgi_passive).
 
 ## Erasures and backups
 
@@ -266,6 +268,72 @@ Then:
 
    Its answer lists the erasures it `replayed`, the ones it `restored` to the
    ledger, and any it couldn't match (`unmatched`).
+
+### Copies the runtime keeps on its own
+
+From 0.1.8, the runtime can keep copies of the ledger itself, every tenant's
+at once. That suits a runtime that serves several tenants, where no one admin
+can export them all:
+
+- **`KINDGI_ERASURE_LEDGER_EXPORT`:** where. Either `local:<absolute dir>`, or
+  `gcs:<bucket>[/<prefix>]` through Application Default Credentials. Creating
+  objects is all it needs (`roles/storage.objectCreator` on the bucket).
+- **`KINDGI_ERASURE_LEDGER_EXPORT_INTERVAL_MS`:** how often. Default an hour,
+  at least a minute. An erasure made after both the last copy and the restore
+  point is in neither, so this is the most a restore can miss.
+
+**What each copy is:**
+- one file, `erasure-ledger-<YYYYMMDD>-<digest>.json`, holding every tenant's
+  ledger and no identifier;
+- a new one is written when the ledger changes, and at least one a day;
+- none is ever overwritten or deleted, so keep them longer than your
+  backups (a bucket's lifecycle rule, say).
+
+The startup log names where and how often:
+
+```text
+  Erasure ledger: copied every 15 min to gcs:<bucket>/<prefix>, every tenant's, for a replay after a restore
+```
+
+**After a restore,** before the runtime serves anyone, replay the newest copy
+with the runtime image's own command, using the runtime's settings:
+
+```sh
+docker run --rm --network kindgi --env-file kindgi.env \
+  quay.io/kindgi/runtime:<version> erasures replay --from gcs:<bucket>/<prefix>
+```
+
+`--from` takes the bucket, a directory (`local:<dir>`, mounted into the
+container), or one file by its absolute path.
+- **How it runs:** it starts its own passive server on 127.0.0.1 (below),
+  replays each tenant's erasures, and clears what they name before it stops.
+  A replayed erasure is done before anything serves.
+- **What it prints:** per tenant, how many erasures it replayed and how many
+  it only restored to the ledger (nothing of theirs was there). Then how many
+  of the replayed ones it cleared. Ids and counts only, never whom an
+  erasure names.
+- **Exit `1`:** an erasure was hashed under a ledger key this runtime doesn't
+  hold (set the key it was made with, and replay again), or one isn't done by
+  `--timeout` (seconds, default 600). Exit `2` when it can't run.
+
+`erasures export --out <local:<dir> | gcs:<bucket>[/<prefix>]>` writes a copy
+now, before an upgrade say.
+
+### Look at a restored copy before it serves: `KINDGI_PASSIVE`
+
+`KINDGI_PASSIVE=on` starts a runtime that does nothing on its own:
+- none of its background work starts: schedules and event triggers, runs
+  resumed or swept, webhook deliveries, the authorization outbox, the
+  sweeps, erasures, the ledger's copies;
+- it connects no MCP endpoint at startup;
+- it sends no email.
+
+So a restored database can be inspected without a schedule firing, a
+webhook going out, or a run calling your tools.
+- **Requests are still served,** and a run started through the API still
+  runs, so keep a passive runtime where only you can reach it.
+- **The startup log** has a `⚠ Passive (KINDGI_PASSIVE=on)` line, and
+  `/ready` says `"passive": true`.
 
 Two more things keep erasures complete:
 
