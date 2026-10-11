@@ -245,10 +245,10 @@ The license key expires, and the server warns from 30 days before (the startup b
 $(terraform output -raw license_enroll_command)   # fill in --for first
 ```
 
-- It makes the renewer key, writes it to the vault as `license-renewer` (`license_renewer_secret`), never prints it, and prints one line to add on access.kindgi.com (for a production key, send it to Kindgi instead).
+- It makes the renewer key, writes it to the vault as `license-renewer` (`license_renewer_secret`), never prints it, and prints one line to add on access.kindgi.com (for a key Kindgi issued, send it to Kindgi instead).
 - **By hand, or from CI or cron:** `$(terraform output -raw license_renew_command)`. It asks access.kindgi.com for this deployment's key and checks the answer offline. It adds a version of `license-key` only when the key changed.
 - **Or let the module run it:** set `license_renewal_schedule` (a cron in UTC, such as `"17 6 * * *"`) and apply. Enroll first: the services apply grants the job its roles on `license-renewer`, which exists once you've enrolled.
-  - The job is a Container Apps job on the runtime image, running the same `kindgi license renew` on that schedule.
+  - The job is a Container Apps job on the runtime image, running the same `kindgi license renew` on that schedule. The runtime image carries the `kindgi` CLI from 0.1.7.
   - It has an identity of its own, `<name_prefix>-license-renewer`. That identity reads `license-key` and `license-renewer`, and holds a custom role, `<name_prefix>-license-key-writer-…`, that can only set `license-key`, never delete it or read other secrets.
   - The server gets no access to the renewer key.
   - Its runs: `az containerapp job execution list -n <name_prefix>-license-renew -g <rg> -o table`.
