@@ -415,7 +415,7 @@ to finish, with the output `{"greeting":"Hello, Azure!"}`.
   starts new replicas on its own, and after that day none comes up. The
   runtime warns from 30 days before, at startup and once a day, in a log
   record with `"event": "kindgi.preview_expiry"`: alert on it in Log
-  Analytics ([Licensing](../../concepts/licensing/#preview-builds-expire)).
+  Analytics ([Licensing](../../concepts/licensing/#preview-releases-stop-starting-after-90-days)).
 - **Upgrade:** make sure a restorable backup exists (automatic backups with
   point-in-time restore are on), copy the new runtime image by digest, set
   `server_image`, and apply. Migrations only go forward: never run two runtime

@@ -281,7 +281,7 @@ Two more things keep erasures complete:
 
 **Upgrade at least every 90 days while Kindgi is in preview.** Until 1.0, a
 release stops starting 90 days after it was released, and the runtime warns
-from 30 days before ([Licensing](../../concepts/licensing/#preview-builds-expire)).
+from 30 days before ([Licensing](../../concepts/licensing/#preview-releases-stop-starting-after-90-days)).
 A restart after that day doesn't come back up.
 
 1. [Back up Postgres.](#back-up-postgres)

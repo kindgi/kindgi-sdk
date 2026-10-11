@@ -95,7 +95,7 @@ The key is checked only when the runtime starts, so a running server never
 stops because of its key. A platform that restarts instances on its own
 (scaling, a deploy) keeps working through the grace period while you renew.
 
-## Preview builds expire
+## Preview releases stop starting after 90 days
 
 Until Kindgi 1.0, each runtime release is a preview, and it stops starting
 90 days after it was released. That holds in every mode, development mode
