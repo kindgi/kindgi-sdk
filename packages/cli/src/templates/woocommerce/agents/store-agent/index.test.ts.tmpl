@@ -14,7 +14,7 @@ function names(text: string, id: string): boolean {
 }
 
 describe('{{PACK_ID}}.store-agent', () => {
-  test('its instructions name every tool that waits for a person, and say a result means it was done', () => {
+  test('its instructions name every tool that waits for a person, and say which results mean it was done', () => {
     const { instructions } = storeAgent;
     // Written in the agent, so the test reads them. Moved to a prompt, check that prompt the same way.
     if (typeof instructions !== 'string') throw new Error('The instructions are a prompt reference now: check the prompt.');
@@ -30,8 +30,11 @@ describe('{{PACK_ID}}.store-agent', () => {
     const line = instructions.split('\n').find((l) => l.includes('run only after a person approves them'));
     expect(line).toBeDefined();
     for (const id of waiting) expect(names(line ?? '', id), id).toBe(true);
-    expect(line).toContain('a person approved it and it was done');
+    // A rejection and a failure come back as results too: neither may read as done.
     expect(line).toContain('"status": "rejected"');
+    expect(line).toContain('"status": "failed"');
+    expect(line).toMatch(/"status": "failed"[^.]*didn't go through/);
+    expect(line).toContain('Any other result means a person approved it and it was done');
   });
 
   test("its instructions don't tell it to say a call waits: it never answers while one does", () => {

@@ -64,9 +64,10 @@ The audit records the decision, and the agent says the change wasn't made.
 
 The agent doesn't see the approval itself: a call that waited comes back
 with its result once a person decided. So its instructions say what that
-means: a result is a change that was approved and made, and
-`{"status": "rejected", "rationale": …}` is one that wasn't, for the
-reason the reviewer gave. `agents/store-agent/index.test.ts` keeps them
+means: `{"status": "rejected", "rationale": …}` is a reviewer declining,
+`{"status": "failed", "error": …}` is a change that was approved but didn't
+go through (the store refused it, say), and any other result is a change
+that was approved and made. `agents/store-agent/index.test.ts` keeps them
 naming every tool the approval policy holds back.
 
 ### Why refunds are two tools
