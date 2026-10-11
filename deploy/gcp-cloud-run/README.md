@@ -243,7 +243,7 @@ Pin each secret to a version, as above, rather than `latest`: a new version then
 
 ## 8. Renew the license key
 
-The license key has an end date: 45 days for a key from access.kindgi.com, or the end of the contract term for a production key. A deployment renews its own key with `kindgi license renew`, when you run it: by hand, or on a schedule this module adds. Nothing calls Kindgi until you do.
+The license key has an end date: 45 days for a key from access.kindgi.com, or the end of the contract term for a key Kindgi issued. A deployment renews its own key with `kindgi license renew`, when you run it: by hand, or on a schedule this module adds. Nothing calls Kindgi until you do.
 
 **Once per deployment, enroll it:**
 
@@ -252,9 +252,9 @@ terraform output -raw license_enroll_command
 # kindgi license enroll --for <your GitHub login, or your license subject> --renewer gcp:projects/<project>/secrets/<prefix>-license-renewer
 ```
 
-Run that command with `--for` filled in: your GitHub login, or a production key's subject.
+Run that command with `--for` filled in: your GitHub login, or, for a key Kindgi issued, its subject.
 - It makes the deployment's renewer key and keeps it in `<prefix>-license-renewer`. The module creates that secret empty, and only the renewal job may read it; the key is never printed.
-- It prints a line to add at access.kindgi.com, signed in as that login. A production licensee sends the line to Kindgi instead, with the key's subject for `--for`.
+- It prints a line to add at access.kindgi.com, signed in as that login. For a key Kindgi issued, send the line to Kindgi instead, with the key's subject for `--for`.
 - Outside Cloud Run the CLI uses your gcloud credentials (`gcloud auth print-access-token`), which must be able to add versions to that secret.
 
 **By hand:**
@@ -275,7 +275,7 @@ license_renewal_schedule = "17 6 * * *" # daily at 06:17 UTC
 ```
 
 - **The job:** a Cloud Run job on the runtime image runs the same command, started by Cloud Scheduler. Where `region` has no Cloud Scheduler ([its locations](https://docs.cloud.google.com/scheduler/docs/locations)), set `license_renewal_scheduler_region`; the job still runs in `region`.
-- **The image:** it needs the `kindgi` CLI with `license renew`, which the runtime image carries from 0.1.6.
+- **The image:** it needs the `kindgi` CLI with `license renew`, which the runtime image carries from 0.1.7.
 - **Its identity:** a service account of its own, `<prefix>-renew`. It can read the license key and the renewer key, and add versions to the license key, and nothing else: it can't restart or change the server.
 - **Its network:** in `direct` it leaves through Cloud NAT, like the server; in `connector`, through Cloud Run's own egress. It calls access.kindgi.com only.
 - **Alerts:** a renewal that failed or was refused, and a key under 7 days from its end while renewals answer `unchanged`. Each opens an incident; `alert_notification_channels` sends them on.

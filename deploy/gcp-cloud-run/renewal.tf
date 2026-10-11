@@ -192,7 +192,7 @@ resource "google_monitoring_alert_policy" "license_key_expiring" {
 
   documentation {
     mime_type = "text/markdown"
-    content   = "The license key expires within 7 days and renewals answer `unchanged`. A self-serve key: sign in at access.kindgi.com for a new one. A production key: write to contact@kindgi.com to extend the term."
+    content   = "The license key expires within 7 days and renewals answer `unchanged`. A self-serve key: sign in at access.kindgi.com for a new one. A key Kindgi issued: write to contact@kindgi.com to extend the term."
   }
 
   depends_on = [google_project_service.apis]
