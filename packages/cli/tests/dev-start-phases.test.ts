@@ -28,9 +28,9 @@ describe("the runtime start's phases", () => {
 
   test('a pull says itself at once, its progress every 3s, and its time at the end', () => {
     phases.begin('pull', 'quay.io/acme/runtime:1.0 (first run only)');
-    phases.progress('96.0 MB of 269 MB, 3 of 8 layers');
+    phases.progress('pull', '96.0 MB of 269 MB, 3 of 8 layers');
     vi.advanceTimersByTime(3000);
-    phases.progress('180 MB of 269 MB, 6 of 8 layers');
+    phases.progress('pull', '180 MB of 269 MB, 6 of 8 layers');
     vi.advanceTimersByTime(3000);
     vi.advanceTimersByTime(1500);
     phases.end('pull', '269 MB');
@@ -80,6 +80,15 @@ describe("the runtime start's phases", () => {
     phases.begin('migrate');
     expect(phases.end('migrate')).toBe(false);
     expect(lines).toEqual([]);
+  });
+
+  test("a pull's late progress never lands on the phase after it", () => {
+    phases.begin('pull', 'acme/runtime:1.0 (first run only)');
+    phases.end('pull');
+    phases.begin('container');
+    phases.progress('pull', '269 MB in 8 layers');
+    vi.advanceTimersByTime(3000);
+    expect(lines.at(-1)).toBe('  ⋯ starting its container (3s)');
   });
 
   test("an end for a phase that isn't open claims nothing", () => {

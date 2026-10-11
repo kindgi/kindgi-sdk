@@ -164,13 +164,18 @@ export async function ensureRuntimeImage(
   phases.begin('pull', `${image} (first run only)`);
   const progress = pullProgress();
   const manifestRead = new AbortController();
-  void imageLayers(image, manifestRead.signal).then((layers) => {
-    if (layers !== undefined) phases.progress(progress.sized(layers));
-  });
+  void imageLayers(image, manifestRead.signal)
+    .then((layers) => {
+      if (layers !== undefined && !manifestRead.signal.aborted) {
+        phases.progress('pull', progress.sized(layers));
+      }
+    })
+    // It can't reject today (`docker` reports, never throws); an unhandled rejection would end the CLI.
+    .catch(() => undefined);
   const pulled = await docker(['pull', image], {
     onLine: (line) => {
       const note = progress.take(line);
-      if (note !== undefined) phases.progress(note);
+      if (note !== undefined) phases.progress('pull', note);
     },
   });
   manifestRead.abort();

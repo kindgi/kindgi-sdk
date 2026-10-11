@@ -16,8 +16,11 @@ export type StartPhase = 'pull' | 'container' | 'migrate' | 'serve';
 export interface StartPhases {
   /** A phase begins. One still open ends without a line (waiting gives way to migrating). */
   begin(phase: StartPhase, note?: string): void;
-  /** What the open phase has done so far (a pull's bytes), shown on its next line. */
-  progress(note: string): void;
+  /**
+   * What `phase` has done so far (a pull's bytes), shown on its next line,
+   * if it's the one open (a late answer never lands on the next phase).
+   */
+  progress(phase: StartPhase, note: string): void;
   /**
    * `phase` ends, if it's the one open: a line saying so, with how long it
    * took. Whether it was (a stray end claims nothing).
@@ -82,8 +85,8 @@ export function createStartPhases(options: {
         open.note = undefined;
       }
     },
-    progress(note) {
-      if (open !== undefined) open.note = note;
+    progress(phase, note) {
+      if (open?.phase === phase) open.note = note;
     },
     end(phase, note) {
       if (closed || open?.phase !== phase) return false;
