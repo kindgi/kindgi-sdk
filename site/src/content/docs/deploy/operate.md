@@ -559,10 +559,12 @@ What to check before you upgrade, and what's different after:
 
 #### Known limitations in 0.1.6
 
-- **Run one runtime instance.** Several aren't supported yet: a guardrail,
-  tool or provider change reaches other instances only when they restart.
-  If you run several anyway, restart the others after such a change. A fix
-  is planned.
+- **Run one runtime instance.** 0.1.6 fixes the known reasons several
+  instances couldn't share a database: boot migrations wait their turn, the
+  sign-in limit is shared, guardrail, tool and provider changes reach every
+  instance, and page cursors work across instances with one
+  `KINDGI_PAGINATION_KEY`. Several instances together aren't verified yet, so
+  the Cloud Run module still runs one.
 - **AWS Secrets Manager comes in 0.1.7.** With
   `KINDGI_SECRETS_MANAGER=aws`, a 0.1.6 runtime doesn't start (exit code 2):
 
