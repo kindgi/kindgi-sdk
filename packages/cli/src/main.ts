@@ -22,6 +22,7 @@ import type { EnvRunners } from './env/runners.js';
 import { formatThrown } from './errors.js';
 import { commandHelpText, rootHelpText, unknownSubcommandText } from './help.js';
 import type { KeyRunners } from './key/runners.js';
+import type { LicenseCommandDeps } from './license/renew.js';
 import type { OpenUrl } from './open-url.js';
 import { GLOBAL_OPTION_SPEC, parseCommand } from './parse.js';
 import type { TestRunners } from './test/runners.js';
@@ -96,6 +97,8 @@ export interface RunCliInputs {
    * `packages/cli/src/key/defaults.ts` on dispatch.
    */
   readonly keyRunners?: KeyRunners;
+  /** Injectable seams for `kindgi license renew` (its clock, its fetch): tests only. */
+  readonly licenseDeps?: LicenseCommandDeps;
   /**
    * Injectable value-input seams for `kindgi secrets set` /
    * `rotate`. Tests substitute stubs so the TTY / stdin / file paths
@@ -261,6 +264,7 @@ export async function runCli(inputs: RunCliInputs): Promise<CliOutcome> {
     ...(testRunners !== undefined ? { testRunners } : {}),
     ...(envRunners !== undefined ? { envRunners } : {}),
     ...(keyRunners !== undefined ? { keyRunners } : {}),
+    ...(inputs.licenseDeps !== undefined ? { licenseDeps: inputs.licenseDeps } : {}),
     ...(inputs.secretsInputSeam !== undefined ? { secretsInputSeam: inputs.secretsInputSeam } : {}),
     ...(inputs.envInitInputSeam !== undefined ? { envInitInputSeam: inputs.envInitInputSeam } : {}),
     ...(inputs.registryAuthSeam !== undefined ? { registryAuthSeam: inputs.registryAuthSeam } : {}),

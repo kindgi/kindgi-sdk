@@ -297,6 +297,8 @@ with a `reason` that says which check refused (runtime 0.1.6 or later):
 - a caller who isn't a reviewer, on the approvals routes, or who may not
   judge as a restricted judge class (`judge-class-not-allowed`);
 - the operator's identity-provider lock (`identity-providers-operator-managed`);
+- reading the deployment's license (`GET /v1/license`) without its own token,
+  unless you're an admin of the one tenant it serves (`license-operator-only`);
 - console token sign-in's refusals (`token-sign-in-not-allowed`,
   `token-sign-in-off`);
 - a stdio MCP endpoint where the deployment runs no commands
