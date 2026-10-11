@@ -256,17 +256,17 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_TENANT_HOST_ACCESS',
     description:
-      "How far what tenants register may reach into the server's own host. `deployed` refuses a `stdio` MCP endpoint (a command the server would run in its container, as its user) at registration (`403 host-access-denied`) and at connect; run MCP servers over HTTP instead. It also refuses the server's connections to the cloud metadata endpoints (link-local addresses) and to its own host (loopback) when a tenant chose the host: an MCP endpoint, a model provider's base URL, an HTTP tool, an image reference. Private networks stay reachable. `local` allows all of it: only for a machine where every token holder may run commands. Unset: `local` with `KINDGI_DEV`, `deployed` otherwise; a value set here always wins.",
+      "How far what tenants register may reach into the server's own host. `deployed` refuses a `stdio` MCP endpoint (a command the server would run in its container, as its user) at registration (`403 host-access-denied`) and at connect; run MCP servers over HTTP instead. It also refuses the server's connections to the cloud metadata endpoints (link-local addresses) and to its own host (loopback) when a tenant chose the host: an MCP endpoint, a model provider's base URL, an HTTP tool, an image reference. Private networks stay reachable. `isolated` is for a server whose tenants don't trust one another: it refuses all that `deployed` does, plus private networks (RFC 1918, CGNAT 100.64.0.0/10, IPv6 unique-local), and the server's own cloud credentials (a Gemini provider on Vertex AI then needs `secret_ref`: it doesn't fall back to Application Default Credentials). The server won't start with it and `KINDGI_DEV`, or with `KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow`. `local` allows all of it: only for a machine where every token holder may run commands. Unset: `local` with `KINDGI_DEV`, `deployed` otherwise; a value set here always wins.",
     example: 'deployed',
     required: false,
     appliesTo: appliesToServer,
     group: 'core',
-    allowedValues: ['local', 'deployed'],
+    allowedValues: ['local', 'deployed', 'isolated'],
   },
   {
     name: 'KINDGI_WEBHOOK_PRIVATE_NETWORKS',
     description:
-      'Whether a webhook may go to a private network address: for a receiver on the same VPC or compose network as a self-hosted server. `allow` accepts a receiver whose host resolves to a private address: RFC 1918, CGNAT (100.64.0.0/10) or IPv6 unique-local. Loopback, link-local (the cloud metadata endpoints) and unroutable addresses stay refused, and webhooks stay https only. Unset or `deny`: public addresses only. Development mode (`KINDGI_DEV`) allows http and every address anyway.',
+      'Whether a webhook may go to a private network address: for a receiver on the same VPC or compose network as a self-hosted server. `allow` accepts a receiver whose host resolves to a private address: RFC 1918, CGNAT (100.64.0.0/10) or IPv6 unique-local. Loopback, link-local (the cloud metadata endpoints) and unroutable addresses stay refused, and webhooks stay https only. Unset or `deny`: public addresses only. Development mode (`KINDGI_DEV`) allows http and every address anyway. `KINDGI_TENANT_HOST_ACCESS=isolated` refuses `allow`.',
     example: 'allow',
     required: false,
     appliesTo: appliesToServer,

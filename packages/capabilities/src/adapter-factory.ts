@@ -76,6 +76,14 @@ export interface AdapterConfigCheckInput {
    * the factory refuses instead.
    */
   readonly identities?: AdapterIdentitiesPresent;
+  /**
+   * Whether the adapter may sign in with credentials the server's environment
+   * holds when the registration names no secret (Google's Application Default
+   * Credentials, for Gemini on Vertex AI). `false` under
+   * `KINDGI_TENANT_HOST_ACCESS=isolated`: such a registration is refused,
+   * naming the secret it needs. Absent: allowed.
+   */
+  readonly ambientCredentials?: boolean;
 }
 
 /**
@@ -187,6 +195,14 @@ export interface AdapterFactoryInput {
    * has none; an adapter that needs one refuses, naming the setting.
    */
   readonly identities?: AdapterIdentities;
+  /**
+   * Whether the adapter may sign in with credentials the server's environment
+   * holds when the registration names no secret (Google's Application Default
+   * Credentials, for Gemini on Vertex AI). `false` under
+   * `KINDGI_TENANT_HOST_ACCESS=isolated`: such a registration is refused,
+   * naming the secret it needs. Absent: allowed.
+   */
+  readonly ambientCredentials?: boolean;
 }
 
 /** The runtime's cloud identities an adapter may sign in with (`AdapterFactoryInput.identities`). */
@@ -242,6 +258,12 @@ export interface AdapterFactoryRegistryOptions {
    * when it registers.
    */
   readonly identities?: AdapterIdentities;
+  /**
+   * `false`: no adapter may fall back to the server's ambient credentials
+   * (`AdapterFactoryInput.ambientCredentials`). Each entry's factory and
+   * check get it, and an input can't turn it back on.
+   */
+  readonly ambientCredentials?: false;
 }
 
 /**
@@ -259,7 +281,7 @@ export function createAdapterFactoryRegistry(
   options: AdapterFactoryRegistryOptions = {},
 ): AdapterFactoryRegistry {
   const entries = new Map<string, AdapterFactoryEntry>();
-  const { identities } = options;
+  const { identities, ambientCredentials } = options;
 
   function register(entry: AdapterFactoryEntry): void {
     if (entries.has(entry.adapterId)) {
@@ -267,9 +289,10 @@ export function createAdapterFactoryRegistry(
         `AdapterFactoryRegistry: "${entry.adapterId}" is already registered. Duplicate adapter registration at boot indicates a wiring bug.`,
       );
     }
+    const withRuntime = identities === undefined ? entry : withIdentities(entry, identities);
     entries.set(
       entry.adapterId,
-      identities === undefined ? entry : withIdentities(entry, identities),
+      ambientCredentials === false ? withoutAmbientCredentials(withRuntime) : withRuntime,
     );
   }
 
@@ -286,6 +309,18 @@ export function createAdapterFactoryRegistry(
     list(): readonly AdapterFactoryEntry[] {
       return [...entries.values()];
     },
+  };
+}
+
+/** An entry whose factory and check may not use the server's ambient credentials. */
+function withoutAmbientCredentials(entry: AdapterFactoryEntry): AdapterFactoryEntry {
+  const { checkConfig } = entry;
+  return {
+    ...entry,
+    factory: (input) => entry.factory({ ...input, ambientCredentials: false }),
+    ...(checkConfig !== undefined && {
+      checkConfig: (input) => checkConfig({ ...input, ambientCredentials: false }),
+    }),
   };
 }
 

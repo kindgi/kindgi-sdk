@@ -109,6 +109,13 @@ To send an agent to Gemini when other providers are registered too, set
 `preferredProvider: 'gemini'` (`preferred_provider="gemini"` in Python), or
 require it: see [Choose the model an agent uses](../../agents/choose-a-model/).
 
+## On a runtime that keeps tenants apart
+
+A runtime with `KINDGI_TENANT_HOST_ACCESS=isolated` doesn't lend its own Google
+credentials to what a tenant registers. There, put a service-account key (its
+JSON) in a secret and name it in the provider's `secret_ref`. Without one, the
+registration is refused, naming `secret_ref`.
+
 ## If you registered Gemini 2.5
 
 Earlier releases' preset registered `gemini-2.5-pro` and `gemini-2.5-flash`.

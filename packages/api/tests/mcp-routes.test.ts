@@ -585,6 +585,15 @@ describe('API — tenant host access (KINDGI_TENANT_HOST_ACCESS)', () => {
     expect((await register(app, { ...stdioEndpoint() })).status).toBe(201);
   });
 
+  test('isolated: a stdio endpoint is 403 host-access-denied, naming isolated', async () => {
+    const { app } = makeApp('isolated');
+    const res = await register(app, { ...stdioEndpoint() });
+    expect(res.status).toBe(403);
+    const body = (await res.json()) as { error: { code: string; message: string } };
+    expect(body.error.code).toBe('host-access-denied');
+    expect(body.error.message).toContain('KINDGI_TENANT_HOST_ACCESS=isolated refuses');
+  });
+
   test('authRef is gone: an unknown field, refused, not ignored', async () => {
     const { app } = makeApp('deployed');
     const res = await register(app, { ...http, authRef: 'env:DOCS_TOKEN' });

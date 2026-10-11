@@ -261,7 +261,10 @@ export function parseServiceAccountKey(key: string): Record<string, string> {
  *   - `metadata.region` — the Vertex location (`global`, `us-central1`,
  *     `northamerica-northeast1`, …); `'unspecified'` means `global`;
  *   - `secret_ref` (optional) — a service-account key. Without one the
- *     adapter uses Application Default Credentials.
+ *     adapter uses Application Default Credentials, the server's own,
+ *     unless the deployment refuses those to tenant configuration
+ *     (`ambientCredentials: false`, `KINDGI_TENANT_HOST_ACCESS=isolated`):
+ *     then it's required.
  *
  * On the Gemini Developer API (`api: "developer"`):
  *   - `secret_ref` (required) — a Gemini API key from Google AI Studio.
@@ -269,7 +272,12 @@ export function parseServiceAccountKey(key: string): Record<string, string> {
 export const geminiAdapterFactory: AdapterFactory = (input) => {
   const metadata = input.metadata as GeminiProviderOptions['metadata'];
   const hasSecretRef = input.resolveApiKey !== undefined;
-  throwIf(input.metadata.id, apiProblem(input) ?? developerKeyProblem(input, hasSecretRef));
+  throwIf(
+    input.metadata.id,
+    apiProblem(input) ??
+      developerKeyProblem(input, hasSecretRef) ??
+      ambientCredentialsProblem(input, hasSecretRef),
+  );
   if (apiOf(input) === 'developer') {
     return createGeminiProvider({ metadata, apiKey: input.resolveApiKey as () => Promise<string> });
   }
@@ -294,7 +302,8 @@ export function geminiCheckConfig(input: AdapterConfigCheckInput): readonly Adap
     const key = developerKeyProblem(input, input.hasSecretRef);
     return key !== undefined ? [key] : [];
   }
-  return vertexTargetProblems(input);
+  const ambient = ambientCredentialsProblem(input, input.hasSecretRef);
+  return [...vertexTargetProblems(input), ...(ambient !== undefined ? [ambient] : [])];
 }
 
 /** The entry a runtime registers: the factory, and its static check. */
@@ -306,7 +315,7 @@ export const geminiAdapterEntry: AdapterFactoryEntry = {
 };
 
 /** What the checks read of a registration. */
-type Registration = Pick<AdapterFactoryInput, 'metadata' | 'config'>;
+type Registration = Pick<AdapterFactoryInput, 'metadata' | 'config' | 'ambientCredentials'>;
 
 function throwIf(providerId: string, problem: AdapterConfigProblem | undefined): void {
   if (problem !== undefined) throw adapterConfigError(GEMINI_ADAPTER_ID, providerId, problem);
@@ -334,6 +343,21 @@ function developerKeyProblem(
     path: '/secret_ref',
     message:
       'uses the Gemini Developer API (adapter_config.api "developer") and needs secret_ref: its Gemini API key.',
+  };
+}
+
+/** Vertex AI with no key signs in as the server: refused where the deployment says so. */
+function ambientCredentialsProblem(
+  input: Registration,
+  hasSecretRef: boolean,
+): AdapterConfigProblem | undefined {
+  if (apiOf(input) !== 'vertex' || hasSecretRef || input.ambientCredentials !== false) {
+    return undefined;
+  }
+  return {
+    path: '/secret_ref',
+    message:
+      "uses Vertex AI without secret_ref, which signs in with the server's own Google credentials (Application Default Credentials); this deployment doesn't let tenant configuration use them (KINDGI_TENANT_HOST_ACCESS). Name a service-account key in secret_ref.",
   };
 }
 

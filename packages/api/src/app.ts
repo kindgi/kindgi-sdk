@@ -580,9 +580,9 @@ export interface CreateAppInput {
   /**
    * How far tenant configuration may reach into the server's host
    * (`KINDGI_TENANT_HOST_ACCESS`, see `tenant-host-access.ts`): under
-   * `deployed`, registering a stdio MCP endpoint answers `403
-   * host-access-denied`. Default `deployed`; the runtime passes `local`
-   * only for a development server.
+   * `deployed` and `isolated`, registering a stdio MCP endpoint answers
+   * `403 host-access-denied`. Default `deployed`; the runtime passes
+   * `local` only for a development server.
    */
   readonly tenantHostAccess?: TenantHostAccess;
   /**

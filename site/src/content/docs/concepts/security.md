@@ -119,6 +119,12 @@ controls that:
   instead. It also refuses connections to the runtime's own host (a loopback
   address) and the cloud metadata endpoints, wherever configuration names a
   host: an image registry, a model provider, an HTTP tool, an MCP server.
+- **`isolated`** is for a runtime whose tenants don't trust one another. It
+  refuses all that `deployed` does, and also private networks (RFC 1918,
+  CGNAT and IPv6 unique-local addresses) wherever configuration names a host,
+  and the runtime's own cloud credentials: a Gemini provider on Vertex AI then
+  needs a service-account key in `secret_ref`. The runtime won't start with it
+  in development mode or with `KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow`.
 - **`local`** (the default in development mode) allows it. Use it only on a
   machine where everyone holding an API token may run commands anyway.
 
@@ -133,7 +139,8 @@ https. Kindgi checks this when the webhook is registered, and again at every
 delivery, for every address the receiver's name resolves to. A self-hosted runtime whose receiver is on
 its own private network sets `KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow`, which
 opens RFC 1918, CGNAT and IPv6 unique-local addresses. Loopback and the
-cloud metadata addresses stay refused.
+cloud metadata addresses stay refused. `KINDGI_TENANT_HOST_ACCESS=isolated`
+refuses that setting.
 
 ## Secrets by reference
 

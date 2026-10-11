@@ -186,10 +186,10 @@ describe('envVarsForTarget', () => {
     expect(dev?.required).toBe(false);
   });
 
-  test('KINDGI_TENANT_HOST_ACCESS: the server only, optional, local or deployed', () => {
+  test('KINDGI_TENANT_HOST_ACCESS: the server only, optional, local, deployed or isolated', () => {
     const access = envVarsForTarget({}).find((v) => v.name === 'KINDGI_TENANT_HOST_ACCESS');
     expect(access).toMatchObject({ group: 'core', required: false });
-    expect(access?.allowedValues).toEqual(['local', 'deployed']);
+    expect(access?.allowedValues).toEqual(['local', 'deployed', 'isolated']);
     expect(
       envVarsForTarget({ component: 'pack-service' }).some(
         (v) => v.name === 'KINDGI_TENANT_HOST_ACCESS',

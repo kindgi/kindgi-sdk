@@ -43,8 +43,8 @@ import { parseSecretRef } from './secret-ref.js';
  * secret in the deployment's store, never a plaintext credential. The
  * API surface accepts, stores, and returns only the reference.
  *
- * `hostAccess` (`KINDGI_TENANT_HOST_ACCESS`): under `deployed`, a stdio
- * endpoint — a command the server would run on its own host — is
+ * `hostAccess` (`KINDGI_TENANT_HOST_ACCESS`): under `deployed` and
+ * `isolated`, a stdio endpoint — a command the server would run on its own host — is
  * refused with `403 host-access-denied`.
  */
 export function mcpRouter(
@@ -230,7 +230,7 @@ export function mcpRouter(
       return refused(c, authorizer, {
         action: 'admin',
         resource: ref('mcp_endpoint', validation.value.endpointId),
-        message: stdioRefusal(validation.value.endpointId),
+        message: stdioRefusal(validation.value.endpointId, options.hostAccess),
         failing: 'scope',
         code: 'host-access-denied',
       });
