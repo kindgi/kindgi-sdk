@@ -221,7 +221,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_OPENFGA_AUTH',
     description:
-      "Used from runtime 0.1.8; earlier runtimes ignore it. What the server sends OpenFGA besides the preshared key. `none` (default). `google-id-token`: also a Google ID token for `KINDGI_OPENFGA_API_URL`, from the server's own identity, for an OpenFGA on Cloud Run behind IAM; the URL must be https. It goes in `X-Serverless-Authorization`, which Cloud Run checks and removes, because `Authorization` carries the key.",
+      "Used from runtime 0.1.8; earlier runtimes ignore it. What the server sends OpenFGA besides the preshared key. `none` (default). `google-id-token`: also a Google ID token for `KINDGI_OPENFGA_API_URL`, from the server's own identity, for an OpenFGA on Cloud Run behind IAM; the URL must be https. It goes in `X-Serverless-Authorization`, which Cloud Run checks in place of `Authorization` (and passes on without its signature), because `Authorization` carries the key.",
     example: 'none',
     required: false,
     appliesTo: appliesToServer,
