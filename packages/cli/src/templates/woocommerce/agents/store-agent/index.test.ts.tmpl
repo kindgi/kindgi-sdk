@@ -35,6 +35,8 @@ describe('{{PACK_ID}}.store-agent', () => {
     expect(line).toContain('"status": "failed"');
     expect(line).toMatch(/"status": "failed"[^.]*didn't go through/);
     expect(line).toContain('Any other result means a person approved it and it was done');
+    // Totals read before the wait may be stale by the time it returns.
+    expect(line).toMatch(/look it up again before you say what it has been refunded/);
   });
 
   test("its instructions don't tell it to say a call waits: it never answers while one does", () => {

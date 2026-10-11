@@ -67,7 +67,8 @@ with its result once a person decided. So its instructions say what that
 means: `{"status": "rejected", "rationale": …}` is a reviewer declining,
 `{"status": "failed", "error": …}` is a change that was approved but didn't
 go through (the store refused it, say), and any other result is a change
-that was approved and made. `agents/store-agent/index.test.ts` keeps them
+that was approved and made. The order may have changed while the call
+waited, so they also say to look it up again before stating its totals. `agents/store-agent/index.test.ts` keeps them
 naming every tool the approval policy holds back.
 
 ### Why refunds are two tools
