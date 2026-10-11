@@ -97,6 +97,11 @@ needs on first run), indexes the pack, registers every primitive, and
 re-registers on every save. The banner prints the API URL, the seeded
 bearer token, and (if the console is bundled) the `/console/` URL.
 
+One `kindgi dev` per pack. When one is already running (the person's
+terminal, say), `kindgi dev` exits with code 3 and prints where it is
+(its pid, the console and the API): use that one. Don't start another,
+and don't stop theirs.
+
 Until a model provider is registered, agents answer with `dev-echo`, a
 stand-in that calls the agent's first tool with `{"message": <userMessage>}`
 and replies with what the tool returned. It checks the wiring only: it can't

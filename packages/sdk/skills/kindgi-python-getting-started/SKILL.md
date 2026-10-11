@@ -61,6 +61,11 @@ uv run pytest
 uv run kindgi dev  # boots Kindgi locally and runs this pack, reloading on save
 ```
 
+One `kindgi dev` per pack. When one is already running (the person's
+terminal, say), `kindgi dev` exits with code 3 and prints where it is
+(its pid, the console and the API): use that one. Don't start another,
+and don't stop theirs.
+
 `kindgi dev` needs Postgres: it starts one in Docker unless
 `KINDGI_DATABASE_URL` points at yours. It runs the pack with
 `.venv/bin/python` (or `dev.python` in `[tool.kindgi]`, e.g.

@@ -10,7 +10,7 @@
 
 import { connect, createServer } from 'node:net';
 
-import { docker, runtimeContainerName } from './runtime-container.js';
+import { removeReplaceableRuntimeContainer, runtimeContainerName } from './runtime-container.js';
 
 const HOST = '127.0.0.1';
 
@@ -70,12 +70,15 @@ export async function firstFreePort(
  * {@link portInUse} for the runtime of the pack at `packDir`. This pack's
  * runtime container from an earlier boot (a crashed session) is removed
  * first: starting the runtime replaces it anyway, so the port it holds
- * is this boot's.
+ * is this boot's. One still running for another live `kindgi dev` isn't:
+ * `RuntimeOwnedElsewhere`.
  */
 export async function runtimePortInUseReal(input: {
   readonly packDir: string;
   readonly port: number;
+  readonly owner?: string;
+  readonly ownerIsLive?: (owner: string) => Promise<boolean>;
 }): Promise<boolean> {
-  await docker(['rm', '--force', runtimeContainerName(input.packDir)]);
+  await removeReplaceableRuntimeContainer(runtimeContainerName(input.packDir), input);
   return portInUse(input.port);
 }
