@@ -1,0 +1,42 @@
+// {{PACK_ID}}.store-agent — what it's told about the tools that wait for a
+// person. The model never sees the approval: a call that waited comes back
+// with its result once a person decided. So the instructions say what a
+// result means, for exactly the tools the approval policy holds back.
+
+import { describe, expect, test } from 'vitest';
+
+import storeAgent from './index.js';
+
+/** Whether `text` names `id` whole: `acme.woo.refund` isn't named by `acme.woo.refund-large`. */
+function names(text: string, id: string): boolean {
+  const escaped = id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`(?<![\\w.-])${escaped}(?![\\w-])`).test(text);
+}
+
+describe('{{PACK_ID}}.store-agent', () => {
+  test('its instructions name every tool that waits for a person, and say a result means it was done', () => {
+    const { instructions } = storeAgent;
+    // Written in the agent, so the test reads them. Moved to a prompt, check that prompt the same way.
+    if (typeof instructions !== 'string') throw new Error('The instructions are a prompt reference now: check the prompt.');
+    const policy = storeAgent.conversationPolicy?.hitl?.tools;
+    expect(policy?.default).toBe('always_ask');
+    const free = new Set(
+      Object.entries(policy?.overrides ?? {})
+        .filter(([, mode]) => mode === 'never_ask')
+        .map(([id]) => id),
+    );
+    const waiting = storeAgent.tools.map((t) => t.id).filter((id) => !free.has(id));
+    expect(waiting.length).toBeGreaterThan(0);
+    const line = instructions.split('\n').find((l) => l.includes('run only after a person approves them'));
+    expect(line).toBeDefined();
+    for (const id of waiting) expect(names(line ?? '', id), id).toBe(true);
+    expect(line).toContain('a person approved it and it was done');
+    expect(line).toContain('"status": "rejected"');
+  });
+
+  test("its instructions don't tell it to say a call waits: it never answers while one does", () => {
+    const { instructions } = storeAgent;
+    if (typeof instructions !== 'string') throw new Error('The instructions are a prompt reference now: check the prompt.');
+    expect(instructions).not.toMatch(/waits? for a person/i);
+  });
+});
