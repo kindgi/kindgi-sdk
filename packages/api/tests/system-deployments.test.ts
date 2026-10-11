@@ -155,6 +155,9 @@ function makeApp(options: { readonly names?: 'bound' | 'any' } = {}) {
         audit[Number(id)] = { ...(audit[Number(id)] as SystemAccessRecord), ...outcome };
       },
     },
+    // A runtime serving many tenants freezes a closing or suspended tenant's
+    // writes; these routes are the system's, which the freeze doesn't touch.
+    tenantStates: { of: async () => undefined },
     systemTenantDirectory: {
       async get(id) {
         const state = STATES.get(id);

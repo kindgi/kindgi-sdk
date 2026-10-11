@@ -4,6 +4,7 @@
 import type {
   CreateSystemTenantBody,
   CreateSystemTenantResult,
+  ProjectSuspension,
   SystemTenantList,
   SystemTenant as SystemTenantWire,
   SystemUsagePage as SystemUsagePageWire,
@@ -32,7 +33,10 @@ export interface SystemTenantsClient {
   /**
    * Create a tenant, with its setup. With `firstAdmin`, that person is its
    * admin, and no key comes back; without it, its first admin key comes back
-   * once (the full system capability only). Takes `system:tenants`.
+   * once (the full system capability only). Takes `system:tenants:create` or
+   * `system:tenants`. Production starts blocked; `productionAllowed: true`
+   * takes `system:tenants:production`, and `imagePrefix`
+   * `system:tenants:image-prefix`.
    *
    * @wire `POST /v1/system/tenants`
    */
@@ -73,7 +77,9 @@ export interface SystemTenantsClient {
   ): Promise<SystemTenant>;
   /**
    * The repository the tenant's deployments' images must sit in,
-   * `<host>/<path>` with no trailing slash. Takes `system:tenants`.
+   * `<host>/<path>` with no trailing slash. Takes
+   * `system:tenants:image-prefix`; changing one already set takes the full
+   * system capability.
    *
    * @wire `PUT /v1/system/tenants/{tenantId}/image-prefix`
    */
@@ -82,6 +88,19 @@ export interface SystemTenantsClient {
     prefix: string,
     options?: { readonly idempotencyKey?: string },
   ): Promise<SystemTenant>;
+  /**
+   * Suspend one of the tenant's projects (`true`), or restore it (`false`).
+   * Takes `system:suspend`.
+   *
+   * @wire `PUT /v1/system/tenants/{tenantId}/projects/{projectId}/suspended`
+   */
+  setProjectSuspended(
+    tenantId: string,
+    projectId: string,
+    suspended: boolean,
+    reason?: string,
+    options?: { readonly idempotencyKey?: string },
+  ): Promise<ProjectSuspension>;
   /**
    * The tenant's admins' contact addresses, for service notices. Takes
    * `system:tenants:contacts`.
@@ -199,6 +218,14 @@ export function makeSystemTenantsClient(transport: Transport): SystemTenantsClie
         method: 'PUT',
         path: `/v1/system/tenants/${encodeURIComponent(tenantId)}/image-prefix`,
         body: { prefix },
+        ...idem(options),
+      });
+    },
+    async setProjectSuspended(tenantId, projectId, suspended, reason, options) {
+      return transport.request<ProjectSuspension>({
+        method: 'PUT',
+        path: `/v1/system/tenants/${encodeURIComponent(tenantId)}/projects/${encodeURIComponent(projectId)}/suspended`,
+        body: { suspended, ...(reason !== undefined && { reason }) },
         ...idem(options),
       });
     },

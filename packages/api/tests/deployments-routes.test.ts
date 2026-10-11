@@ -4087,3 +4087,96 @@ describe('POST /v1/deployments — a redeploy refreshes what it derived', () => 
     });
   });
 });
+
+describe("POST /v1/deployments — the tenant's own image repository", () => {
+  /** The fake registry, counting every call: a refused image is never read. */
+  function counted(fixture: SignedDeploy) {
+    const inner = makeMockImageRegistry([
+      { imageRef: fixture.imageRef, digest: fixture.digest, indexBytes: fixture.indexBytes },
+    ]);
+    const calls: string[] = [];
+    const registry = new Proxy(inner, {
+      get(target, prop, receiver) {
+        const value = Reflect.get(target, prop, receiver);
+        if (typeof value !== 'function') return value;
+        return (...args: unknown[]) => {
+          calls.push(String(prop));
+          return (value as (...a: unknown[]) => unknown).apply(target, args);
+        };
+      },
+    });
+    return { registry, calls };
+  }
+
+  async function deploy(
+    prefix: string | undefined,
+    tenancy: 'multi' | 'single' = 'multi',
+  ): Promise<{ status: number; code?: string; details?: Record<string, unknown>; reads: number }> {
+    const fixture = buildSignedDeploy();
+    const { registry, calls } = counted(fixture);
+    const { app } = makeApp({
+      fixture,
+      imageRegistry: registry,
+      extra: {
+        imagePrefixes: { of: async () => prefix },
+        ...(tenancy === 'multi' && {
+          tenancy,
+          tenantStates: { of: async () => undefined },
+          systemAccessAudit: {
+            record: async () => undefined,
+            begin: async () => 'a',
+            finish: async () => undefined,
+          },
+        }),
+      },
+    });
+    const res = await app.request('/v1/deployments', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify(fixture.wire),
+    });
+    const body = (await res.json()) as {
+      error?: { code: string; details?: Record<string, unknown> };
+    };
+    return {
+      status: res.status,
+      ...(body.error !== undefined && { code: body.error.code }),
+      ...(body.error?.details !== undefined && { details: body.error.details }),
+      reads: calls.length,
+    };
+  }
+
+  test('an image in the repository registers', async () => {
+    expect((await deploy('ghcr.io/acme')).status).toBe(201);
+  });
+
+  test('an image outside it is refused before any registry read, naming only its own prefix', async () => {
+    const r = await deploy('ghcr.io/other');
+    expect(r).toMatchObject({ status: 409, code: 'image-not-allowed', reads: 0 });
+    expect(r.details).toMatchObject({ imagePrefix: 'ghcr.io/other' });
+  });
+
+  test('on a path boundary: ghcr.io/acm never admits ghcr.io/acme', async () => {
+    expect(await deploy('ghcr.io/acm')).toMatchObject({ status: 409, code: 'image-not-allowed' });
+  });
+
+  test('no prefix: refused on a runtime serving many tenants', async () => {
+    expect(await deploy(undefined)).toMatchObject({
+      status: 409,
+      code: 'image-prefix-unset',
+      reads: 0,
+    });
+  });
+
+  test('a stored prefix that does not parse refuses: it fails closed', async () => {
+    expect(await deploy('not a prefix/')).toMatchObject({
+      status: 409,
+      code: 'image-prefix-unset',
+    });
+  });
+
+  test('a runtime serving one tenant never checks: any image registers, prefix or not', async () => {
+    expect((await deploy(undefined, 'single')).status).toBe(201);
+    expect((await deploy('ghcr.io/other', 'single')).status).toBe(201);
+  });
+});

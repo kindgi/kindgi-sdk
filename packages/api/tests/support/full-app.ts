@@ -686,8 +686,11 @@ export function fullAppInput(): CreateAppInput {
       setImagePrefix: async () => {
         throw new Error('not used');
       },
+      setProjectSuspended: async () => ({ kind: 'project-not-found' }),
       admins: async () => [],
     },
+    imagePrefixes: { of: async () => undefined },
+    tenantStates: { of: async () => undefined },
     systemTenantSettings: {
       setProductionAllowed: async () => {
         throw new Error('not used: no system principal in the sweeps');

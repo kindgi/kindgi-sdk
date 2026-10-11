@@ -79,6 +79,7 @@ import {
   type SystemTenantDirectory,
   systemPrincipalFence,
 } from './middleware/system.js';
+import { type TenantStateBinding, tenantStateGate } from './middleware/tenant-state.js';
 import type { MyAccessBinding } from './my-access-binding.js';
 import { type GenerateOptions, generateOpenApiDocument } from './openapi/generate.js';
 import type { PersonGrantsBinding } from './person-grants-binding.js';
@@ -586,6 +587,21 @@ export interface CreateAppInput {
    * contacts). Mounted only with `systemTenantDirectory` too.
    */
   readonly systemTenants?: SystemTenantsBinding;
+  /**
+   * Each tenant's state, for freezing a closing or suspended tenant's
+   * writes (`tenantStateGate`), on every way in: keys, sessions, SigV4.
+   * Required with `tenancy: 'multi'`; a runtime serving one tenant has none.
+   */
+  readonly tenantStates?: TenantStateBinding;
+  /**
+   * Each tenant's image repository (`PUT /v1/system/tenants/{id}/image-prefix`),
+   * which `POST /v1/deployments` checks before any registry read. With
+   * `tenancy: 'multi'` only, where it's required and a tenant without one
+   * can't deploy; a runtime serving one tenant ignores it.
+   */
+  readonly imagePrefixes?: {
+    of(tenantId: import('@kindgi/types').TenantId): Promise<string | undefined>;
+  };
   /**
    * Optional. Issue and accept public run tokens (`kgi_pt_…`):
    * short-lived, read-only tokens a browser uses to follow specific runs
@@ -1138,6 +1154,22 @@ const DEFAULT_TOKEN_SIGN_IN_TTL_MS = 12 * 60 * 60 * 1000;
 export function createApp(input: CreateAppInput): Hono<AppEnv> {
   // The operator's requests are on record wherever the operator acts in no
   // tenant: the access procedure and the processing terms rely on it.
+  // A frozen tenant stays frozen whatever way it comes in: the gate needs to know.
+  if (input.tenancy === 'multi' && input.tenantStates === undefined) {
+    throw new Error(
+      "createApp: a runtime serving many tenants needs tenantStates, so a closing or suspended tenant's writes are refused",
+    );
+  }
+  // Each tenant deploys only its own images there: the check needs to know them.
+  if (
+    input.tenancy === 'multi' &&
+    input.deploymentRegistry !== undefined &&
+    input.imagePrefixes === undefined
+  ) {
+    throw new Error(
+      'createApp: a runtime serving many tenants needs imagePrefixes, so a tenant deploys only images in its own repository',
+    );
+  }
   if (input.tenancy === 'multi' && input.systemAccessAudit === undefined) {
     throw new Error(
       "createApp: a runtime serving many tenants needs systemAccessAudit, the record of every request the operator's system keys make",
@@ -1270,6 +1302,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       ...(input.tenancy !== undefined && { tenancy: input.tenancy }),
     }),
   );
+  // A closing or suspended tenant reads, exports and deletes; nothing else.
+  v1.use('*', tenantStateGate(input.tenantStates));
   // A key limited to a project names no other one.
   v1.use('*', refuseOtherProjectForKey(authorizer));
   // Page cursors are sealed at the edge, for every list.
@@ -1853,6 +1887,16 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       deploymentsRouter(
         {
           deploymentRegistry: input.deploymentRegistry,
+          // Only where the runtime serves many tenants: one tenant's runtime
+          // deploys any image, as before.
+          ...(input.tenancy === 'multi' &&
+            input.imagePrefixes !== undefined && {
+              imagePrefixes: {
+                of: (tenantId: import('@kindgi/types').TenantId) =>
+                  input.imagePrefixes?.of(tenantId) ?? Promise.resolve(undefined),
+                required: true,
+              },
+            }),
           signingKeyRegistry: input.signingKeyRegistry,
           providerKeys,
           imageRegistry: input.imageRegistry,
@@ -2017,6 +2061,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   if (input.blobStorage !== undefined && input.s3Credentials !== undefined) {
     const s3 = new Hono<AppEnv>();
     s3.use('*', sigv4Middleware(input.s3Credentials));
+    // A frozen tenant's artifacts are read, not written, here too.
+    s3.use('*', tenantStateGate(input.tenantStates));
     s3.route('/', s3Router(input.blobStorage));
     app.route('/s3', s3);
   }

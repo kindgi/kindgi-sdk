@@ -1965,7 +1965,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemTenants.create',
     summary: 'Create a tenant',
     description:
-      "Creates a tenant on a runtime serving many tenants, with its setup (its default project, its authorization store) in the same change. With `firstAdmin`, that person becomes its admin and member by email, and the runtime's own sign-in finds them; the answer carries no key. Without it, the answer carries the tenant's first admin key, shown once, and that takes the full system capability (`kindgi:system`), as does a `test` tenant. Takes `system:tenants`. An Idempotency-Key retry answers the same tenant.",
+      "Creates a tenant on a runtime serving many tenants, with its setup (its default project, its authorization store) in the same change. With `firstAdmin`, that person becomes its admin and member by email, and the runtime's own sign-in finds them; the answer carries no key. Without it, the answer carries the tenant's first admin key, shown once, and that takes the full system capability (`kindgi:system`), as does a `test` tenant. Takes `system:tenants:create` (sign-up's) or `system:tenants`. A tenant created here starts with production blocked; `productionAllowed: true` takes `system:tenants:production`, and `imagePrefix` takes `system:tenants:image-prefix`. Asking for more than the key's scopes is refused naming the scope, never dropped. An Idempotency-Key retry answers the same tenant.",
     tags: ['system-tenants'],
     security: 'bearer',
     parameters: [IdempotencyKeyParam],
@@ -1980,10 +1980,10 @@ export const OPERATIONS: readonly OperationSpec[] = [
         'Malformed body: a name, slug, image prefix or first admin that is refused, or an unknown field.',
       ),
       '403': ErrorResponse(
-        "A tenant's key or session (`system-principal-required`); a system key without `system:tenants`, or without `kindgi:system` for an admin key or a test tenant (`system-scope-missing`).",
+        "A tenant's key or session (`system-principal-required`); a system key without `system:tenants:create` or `system:tenants`, or asking for what its scopes don't give: production (`system:tenants:production`), an image prefix (`system:tenants:image-prefix`), an admin key or a test tenant (`kindgi:system`) (`system-scope-missing`, `details.scope` naming it).",
       ),
       '409': ErrorResponse(
-        'Another tenant has the slug (`tenant-slug-taken`); or an Idempotency-Key reused with another body.',
+        "Another tenant has the slug (`tenant-slug-taken`), or its image prefix overlaps another tenant's (`image-prefix-taken`); or an Idempotency-Key reused with another body.",
       ),
       '503': ErrorResponse(
         "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
@@ -2112,7 +2112,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
     operationId: 'systemTenants.setImagePrefix',
     summary: "Set the repository a tenant's images must sit in",
     description:
-      "Each tenant may deploy only images at or under its own repository: `<host>/<path>`, matched on a path boundary, with no trailing slash. On a runtime serving many tenants, a tenant without one can't register a deployment. Takes `system:tenants`. A closing tenant is refused (`409 tenant-closing`).",
+      "Each tenant may deploy only images at or under its own repository: `<host>/<path>`, matched on a path boundary, with no trailing slash. On a runtime serving many tenants, a tenant without one can't register a deployment. Takes `system:tenants:image-prefix`, the key that binds the tenant's slot; changing a prefix that's already set takes the full system capability. A closing tenant is refused (`409 tenant-closing`).",
     tags: ['system-tenants'],
     security: 'bearer',
     parameters: [
@@ -2131,9 +2131,55 @@ export const OPERATIONS: readonly OperationSpec[] = [
       ...CommonMutationErrors,
       '400': ErrorResponse('A prefix that is not `<host>/<path>`.'),
       '403': ErrorResponse(
-        "A tenant's key or session (`system-principal-required`), or a system key without `system:tenants` (`system-scope-missing`).",
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:tenants:image-prefix`, or changing a prefix already set without `kindgi:system` (`system-scope-missing`).",
       ),
       '404': ErrorResponse('No tenant with that id, or a purged one (`tenant-not-found`).'),
+      '409': ErrorResponse(
+        "The tenant is closing (`tenant-closing`); the prefix equals, holds or sits inside another tenant's (`image-prefix-taken`); or an Idempotency-Key reused with another body.",
+      ),
+      '503': ErrorResponse(
+        "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+      ),
+    },
+  },
+  {
+    method: 'put',
+    honoPath: '/v1/system/tenants/:tenantId/projects/:projectId/suspended',
+    openapiPath: '/v1/system/tenants/{tenantId}/projects/{projectId}/suspended',
+    operationId: 'systemTenants.setProjectSuspended',
+    summary: "Suspend one of a tenant's projects, or restore it",
+    description:
+      'Reversible: nothing new runs or deploys in the project, its running runs are cancelled and its deployments retired; reads and the rest of the tenant are untouched. Takes `system:suspend`. A closing tenant is refused (`409 tenant-closing`).',
+    tags: ['system-tenants'],
+    security: 'bearer',
+    parameters: [
+      {
+        name: 'tenantId',
+        in: 'path',
+        required: true,
+        description: "The tenant's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+      {
+        name: 'projectId',
+        in: 'path',
+        required: true,
+        description: "The project's id.",
+        schema: { type: 'string', format: 'uuid' },
+      },
+      IdempotencyKeyParam,
+    ],
+    requestBody: { required: true, schema: ref('SetTenantSuspendedBody') },
+    responses: {
+      '200': { description: 'The project now.', schema: ref('ProjectSuspension') },
+      ...CommonMutationErrors,
+      '400': ErrorResponse('A malformed project id or body.'),
+      '403': ErrorResponse(
+        "A tenant's key or session (`system-principal-required`), or a system key without `system:suspend` (`system-scope-missing`).",
+      ),
+      '404': ErrorResponse(
+        'No such tenant (`tenant-not-found`), or no such project in it (`project-not-found`).',
+      ),
       '409': ErrorResponse(
         'The tenant is closing (`tenant-closing`); or an Idempotency-Key reused with another body.',
       ),
@@ -6581,7 +6627,7 @@ export const OPERATIONS: readonly OperationSpec[] = [
       },
       ...CommonMutationErrors,
       '409': ErrorResponse(
-        "Idempotency-Key was reused with a different body, or resource-state conflict. Or `tool-project-mismatch`, `agent-project-mismatch` or `flow-project-mismatch`: one of the image's tools, agents or flows belongs to another project (`details.primitive`, `details.id`; the message doesn't name the project); nothing was deployed, even when it was unchanged. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+        "Idempotency-Key was reused with a different body, or resource-state conflict. Or, on a runtime serving many tenants (`KINDGI_TENANCY=multi`), where each tenant deploys only its own images: `image-not-allowed`, the image is outside the tenant's repository (`details.imagePrefix`, its own), or `image-prefix-unset`, the tenant has no repository set yet; both are checked before any registry read, and never on a runtime serving one tenant. Or `tool-project-mismatch`, `agent-project-mismatch` or `flow-project-mismatch`: one of the image's tools, agents or flows belongs to another project (`details.primitive`, `details.id`; the message doesn't name the project); nothing was deployed, even when it was unchanged. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
       ),
       '400': ErrorResponse(
         "Signature invalid, image unverifiable, or deployment-validation-failed with per-primitive `details[]`. A tool that declares or sends a model provider's key is one such issue (`path` `/secrets/<name>`): a tool never gets a model provider's key.",

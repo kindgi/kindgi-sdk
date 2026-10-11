@@ -34,7 +34,7 @@
     },
     {
       "name": "system-tenants",
-      "description": "What the control plane sets on a tenant: whether it may put projects in production, and its limits. System keys only."
+      "description": "The operator's tenants on a runtime serving many: create, list, read, close and suspend them (a project too), and what the control plane sets on each (production, limits, the image prefix), plus the admins' contacts for service notices. System keys only, each route under its own scope."
     },
     {
       "name": "system-usage",
@@ -388,9 +388,12 @@
           "endpoint-name-mismatch": 422,
           "endpoint-unreachable": 422,
           "endpoint-info-mismatch": 422,
-          "image-not-allowed": 409,
           "endpoint-not-pending": 409,
           "tenant-slug-taken": 409,
+          "image-not-allowed": 409,
+          "image-prefix-unset": 409,
+          "image-prefix-taken": 409,
+          "tenant-state-unavailable": 503,
           "service-account-not-found": 404,
           "service-account-name-taken": 409,
           "service-account-unregistered": 409,
@@ -2456,6 +2459,8 @@
               "type": "string",
               "enum": [
                 "system:tenants",
+                "system:tenants:create",
+                "system:tenants:image-prefix",
                 "system:tenants:production",
                 "system:tenants:limits",
                 "system:tenants:contacts",
@@ -2502,6 +2507,8 @@
               "type": "string",
               "enum": [
                 "system:tenants",
+                "system:tenants:create",
+                "system:tenants:image-prefix",
                 "system:tenants:production",
                 "system:tenants:limits",
                 "system:tenants:contacts",
@@ -2554,6 +2561,8 @@
               "type": "string",
               "enum": [
                 "system:tenants",
+                "system:tenants:create",
+                "system:tenants:image-prefix",
                 "system:tenants:production",
                 "system:tenants:limits",
                 "system:tenants:contacts",
@@ -2623,6 +2632,8 @@
                     "type": "string",
                     "enum": [
                       "system:tenants",
+                      "system:tenants:create",
+                      "system:tenants:image-prefix",
                       "system:tenants:production",
                       "system:tenants:limits",
                       "system:tenants:contacts",
@@ -2683,6 +2694,8 @@
               "type": "string",
               "enum": [
                 "system:tenants",
+                "system:tenants:create",
+                "system:tenants:image-prefix",
                 "system:tenants:production",
                 "system:tenants:limits",
                 "system:tenants:contacts",
@@ -2973,7 +2986,7 @@
           },
           "productionAllowed": {
             "type": "boolean",
-            "description": "Whether it may put projects in production. Absent: allowed."
+            "description": "Whether it may put projects in production. Absent: blocked, until the operator allows it; `true` takes `system:tenants:production`."
           },
           "test": {
             "type": "boolean",
@@ -2981,7 +2994,7 @@
           },
           "imagePrefix": {
             "type": "string",
-            "description": "The repository its deployments' images must sit in, `<host>/<path>` with no trailing slash. On a runtime serving many tenants, a tenant without one can't register a deployment."
+            "description": "The repository its deployments' images must sit in, `<host>/<path>` with no trailing slash; takes `system:tenants:image-prefix`. On a runtime serving many tenants, a tenant without one can't register a deployment."
           },
           "firstAdmin": {
             "type": "object",
@@ -3051,7 +3064,8 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "data"
+          "data",
+          "hasMore"
         ],
         "properties": {
           "data": {
@@ -3060,8 +3074,12 @@
               "$ref": "#/components/schemas/SystemTenant"
             }
           },
+          "hasMore": {
+            "type": "boolean"
+          },
           "nextCursor": {
-            "type": "string"
+            "type": "string",
+            "description": "Opaque; absent when `hasMore` is false."
           }
         }
       },
@@ -3092,6 +3110,30 @@
           "prefix": {
             "type": "string",
             "description": "`<host>/<path>`, with no trailing slash."
+          }
+        }
+      },
+      "ProjectSuspension": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "projectId",
+          "suspended"
+        ],
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "suspended": {
+            "type": "boolean"
+          },
+          "suspendedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "suspendedReason": {
+            "type": "string"
           }
         }
       },
@@ -18798,6 +18840,15 @@
             "type": "string",
             "description": "Where to go to be allowed to put projects in production, for example a billing page. Only while `productionAllowed` is `false`, and only when the runtime names one."
           },
+          "state": {
+            "type": "string",
+            "enum": [
+              "active",
+              "suspended",
+              "closing"
+            ],
+            "description": "On a runtime serving many tenants: `closing` (readable and exportable for its window, nothing changes) or `suspended` (the same, until restored). `closing` wins. Absent: active."
+          },
           "limits": {
             "$ref": "#/components/schemas/TenantLimits"
           }
@@ -18940,7 +18991,7 @@
           },
           "day": {
             "type": "string",
-            "format": "date",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
             "description": "The UTC date, `YYYY-MM-DD`."
           },
           "count": {
@@ -23771,7 +23822,7 @@
             }
           },
           "403": {
-            "description": "A tenant's key or session (`system-principal-required`); a system key without `system:tenants`, or without `kindgi:system` for an admin key or a test tenant (`system-scope-missing`).",
+            "description": "A tenant's key or session (`system-principal-required`); a system key without `system:tenants:create` or `system:tenants`, or asking for what its scopes don't give: production (`system:tenants:production`), an image prefix (`system:tenants:image-prefix`), an admin key or a test tenant (`kindgi:system`) (`system-scope-missing`, `details.scope` naming it).",
             "content": {
               "application/json": {
                 "schema": {
@@ -23781,7 +23832,7 @@
             }
           },
           "409": {
-            "description": "Another tenant has the slug (`tenant-slug-taken`); or an Idempotency-Key reused with another body.",
+            "description": "Another tenant has the slug (`tenant-slug-taken`), or its image prefix overlaps another tenant's (`image-prefix-taken`); or an Idempotency-Key reused with another body.",
             "content": {
               "application/json": {
                 "schema": {
@@ -23811,7 +23862,7 @@
             }
           }
         },
-        "description": "Creates a tenant on a runtime serving many tenants, with its setup (its default project, its authorization store) in the same change. With `firstAdmin`, that person becomes its admin and member by email, and the runtime's own sign-in finds them; the answer carries no key. Without it, the answer carries the tenant's first admin key, shown once, and that takes the full system capability (`kindgi:system`), as does a `test` tenant. Takes `system:tenants`. An Idempotency-Key retry answers the same tenant.",
+        "description": "Creates a tenant on a runtime serving many tenants, with its setup (its default project, its authorization store) in the same change. With `firstAdmin`, that person becomes its admin and member by email, and the runtime's own sign-in finds them; the answer carries no key. Without it, the answer carries the tenant's first admin key, shown once, and that takes the full system capability (`kindgi:system`), as does a `test` tenant. Takes `system:tenants:create` (sign-up's) or `system:tenants`. A tenant created here starts with production blocked; `productionAllowed: true` takes `system:tenants:production`, and `imagePrefix` takes `system:tenants:image-prefix`. Asking for more than the key's scopes is refused naming the scope, never dropped. An Idempotency-Key retry answers the same tenant.",
         "parameters": [
           {
             "name": "Idempotency-Key",
@@ -24275,7 +24326,7 @@
             }
           },
           "403": {
-            "description": "A tenant's key or session (`system-principal-required`), or a system key without `system:tenants` (`system-scope-missing`).",
+            "description": "A tenant's key or session (`system-principal-required`), or a system key without `system:tenants:image-prefix`, or changing a prefix already set without `kindgi:system` (`system-scope-missing`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -24286,6 +24337,135 @@
           },
           "404": {
             "description": "No tenant with that id, or a purged one (`tenant-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The tenant is closing (`tenant-closing`); the prefix equals, holds or sits inside another tenant's (`image-prefix-taken`); or an Idempotency-Key reused with another body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The operator's access record can't be written, so nothing was done (`access-record-unavailable`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Each tenant may deploy only images at or under its own repository: `<host>/<path>`, matched on a path boundary, with no trailing slash. On a runtime serving many tenants, a tenant without one can't register a deployment. Takes `system:tenants:image-prefix`, the key that binds the tenant's slot; changing a prefix that's already set takes the full system capability. A closing tenant is refused (`409 tenant-closing`).",
+        "parameters": [
+          {
+            "name": "tenantId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The tenant's id."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetTenantImagePrefixBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/v1/system/tenants/{tenantId}/projects/{projectId}/suspended": {
+      "put": {
+        "operationId": "systemTenants.setProjectSuspended",
+        "summary": "Suspend one of a tenant's projects, or restore it",
+        "tags": [
+          "system-tenants"
+        ],
+        "responses": {
+          "200": {
+            "description": "The project now.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectSuspension"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "A malformed project id or body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "A tenant's key or session (`system-principal-required`), or a system key without `system:suspend` (`system-scope-missing`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such tenant (`tenant-not-found`), or no such project in it (`project-not-found`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -24325,7 +24505,7 @@
             }
           }
         },
-        "description": "Each tenant may deploy only images at or under its own repository: `<host>/<path>`, matched on a path boundary, with no trailing slash. On a runtime serving many tenants, a tenant without one can't register a deployment. Takes `system:tenants`. A closing tenant is refused (`409 tenant-closing`).",
+        "description": "Reversible: nothing new runs or deploys in the project, its running runs are cancelled and its deployments retired; reads and the rest of the tenant are untouched. Takes `system:suspend`. A closing tenant is refused (`409 tenant-closing`).",
         "parameters": [
           {
             "name": "tenantId",
@@ -24336,6 +24516,16 @@
             },
             "required": true,
             "description": "The tenant's id."
+          },
+          {
+            "name": "projectId",
+            "in": "path",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "required": true,
+            "description": "The project's id."
           },
           {
             "name": "Idempotency-Key",
@@ -24353,7 +24543,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/SetTenantImagePrefixBody"
+                "$ref": "#/components/schemas/SetTenantSuspendedBody"
               }
             }
           }
@@ -42981,7 +43171,7 @@
             }
           },
           "409": {
-            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or `tool-project-mismatch`, `agent-project-mismatch` or `flow-project-mismatch`: one of the image's tools, agents or flows belongs to another project (`details.primitive`, `details.id`; the message doesn't name the project); nothing was deployed, even when it was unchanged. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict. Or, on a runtime serving many tenants (`KINDGI_TENANCY=multi`), where each tenant deploys only its own images: `image-not-allowed`, the image is outside the tenant's repository (`details.imagePrefix`, its own), or `image-prefix-unset`, the tenant has no repository set yet; both are checked before any registry read, and never on a runtime serving one tenant. Or `tool-project-mismatch`, `agent-project-mismatch` or `flow-project-mismatch`: one of the image's tools, agents or flows belongs to another project (`details.primitive`, `details.id`; the message doesn't name the project); nothing was deployed, even when it was unchanged. Or `registry-read-only`: this registry takes no writes (under `kindgi dev`, the pack's files are the source); the message says what to do instead.",
             "content": {
               "application/json": {
                 "schema": {

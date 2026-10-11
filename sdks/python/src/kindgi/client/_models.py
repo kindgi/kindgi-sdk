@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-from datetime import date
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
@@ -931,6 +930,8 @@ class SystemKey(BaseModel):
     scopes: list[
         Literal[
             "system:tenants",
+            "system:tenants:create",
+            "system:tenants:image-prefix",
             "system:tenants:production",
             "system:tenants:limits",
             "system:tenants:contacts",
@@ -960,6 +961,8 @@ class MintSystemKeyBody(BaseModel):
         list[
             Literal[
                 "system:tenants",
+                "system:tenants:create",
+                "system:tenants:image-prefix",
                 "system:tenants:production",
                 "system:tenants:limits",
                 "system:tenants:contacts",
@@ -1003,6 +1006,8 @@ class MintSystemKeyResult(BaseModel):
     scopes: list[
         Literal[
             "system:tenants",
+            "system:tenants:create",
+            "system:tenants:image-prefix",
             "system:tenants:production",
             "system:tenants:limits",
             "system:tenants:contacts",
@@ -1047,6 +1052,8 @@ class Datum2(BaseModel):
     scopes: list[
         Literal[
             "system:tenants",
+            "system:tenants:create",
+            "system:tenants:image-prefix",
             "system:tenants:production",
             "system:tenants:limits",
             "system:tenants:contacts",
@@ -1095,6 +1102,8 @@ class RevokeSystemKeyResult(BaseModel):
     scopes: list[
         Literal[
             "system:tenants",
+            "system:tenants:create",
+            "system:tenants:image-prefix",
             "system:tenants:production",
             "system:tenants:limits",
             "system:tenants:contacts",
@@ -1296,7 +1305,7 @@ class CreateSystemTenantBody(BaseModel):
     """
     production_allowed: Annotated[bool | None, Field(alias="productionAllowed")] = None
     """
-    Whether it may put projects in production. Absent: allowed.
+    Whether it may put projects in production. Absent: blocked, until the operator allows it; `true` takes `system:tenants:production`.
     """
     test: bool | None = None
     """
@@ -1304,7 +1313,7 @@ class CreateSystemTenantBody(BaseModel):
     """
     image_prefix: Annotated[str | None, Field(alias="imagePrefix")] = None
     """
-    The repository its deployments' images must sit in, `<host>/<path>` with no trailing slash. On a runtime serving many tenants, a tenant without one can't register a deployment.
+    The repository its deployments' images must sit in, `<host>/<path>` with no trailing slash; takes `system:tenants:image-prefix`. On a runtime serving many tenants, a tenant without one can't register a deployment.
     """
     first_admin: Annotated[FirstAdmin | None, Field(alias="firstAdmin")] = None
     """
@@ -1352,7 +1361,11 @@ class SystemTenantList(BaseModel):
         populate_by_name=True,
     )
     data: list[SystemTenant]
+    has_more: Annotated[bool, Field(alias="hasMore")]
     next_cursor: Annotated[str | None, Field(alias="nextCursor")] = None
+    """
+    Opaque; absent when `hasMore` is false.
+    """
 
 
 class SetTenantSuspendedBody(BaseModel):
@@ -1373,6 +1386,17 @@ class SetTenantImagePrefixBody(BaseModel):
     """
     `<host>/<path>`, with no trailing slash.
     """
+
+
+class ProjectSuspension(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    project_id: Annotated[UUID, Field(alias="projectId")]
+    suspended: bool
+    suspended_at: Annotated[AwareDatetime | None, Field(alias="suspendedAt")] = None
+    suspended_reason: Annotated[str | None, Field(alias="suspendedReason")] = None
 
 
 class Datum3(BaseModel):
@@ -10085,7 +10109,7 @@ class UsageGroup(BaseModel):
         Field(alias="class"),
     ] = None
     state: Literal["on", "off"] | None = None
-    day: date | None = None
+    day: Annotated[str | None, Field(pattern="^\\d{4}-\\d{2}-\\d{2}$")] = None
     """
     The UTC date, `YYYY-MM-DD`.
     """
@@ -12613,6 +12637,10 @@ class Tenant(BaseModel):
     production_next: Annotated[str | None, Field(alias="productionNext")] = None
     """
     Where to go to be allowed to put projects in production, for example a billing page. Only while `productionAllowed` is `false`, and only when the runtime names one.
+    """
+    state: Literal["active", "suspended", "closing"] | None = None
+    """
+    On a runtime serving many tenants: `closing` (readable and exportable for its window, nothing changes) or `suspended` (the same, until restored). `closing` wins. Absent: active.
     """
     limits: TenantLimits | None = None
 

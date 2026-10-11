@@ -3,14 +3,23 @@
 
 import { randomBytes, randomUUID } from 'node:crypto';
 
+import { Hono } from 'hono';
 import { describe, expect, test } from 'vitest';
 
 import type { TenantId } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
 
-import { SYSTEM_TENANT_ID, createApp } from '../src/index.js';
+import {
+  SYSTEM_TENANT_ID,
+  createApp,
+  imagePrefixesOverlap,
+  parseImagePrefix,
+  tenantStateGate,
+} from '../src/index.js';
 import type {
+  AppEnv,
+  ImagePrefix,
   RunHandlerBinding,
   SystemAccessRecord,
   SystemTenant,
@@ -25,6 +34,7 @@ import type {
  */
 
 const HOST = 'us-central1-docker.pkg.dev';
+const PROJECT = '0b7c4a2e-9d1f-4e3a-8b6c-5d4e3f2a1b0c';
 
 function makeTenants() {
   const rows = new Map<string, SystemTenant & { admins: { userId: string; email: string }[] }>();
@@ -36,6 +46,13 @@ function makeTenants() {
   };
   const strip = ({ admins: _admins, ...t }: SystemTenant & { admins: unknown }) =>
     t as SystemTenant;
+  /** Another tenant's prefix overlaps this one, as the runtime's binding checks. */
+  const taken = (self: TenantId | undefined, prefix: ImagePrefix) =>
+    [...rows.values()].some((r) => {
+      if (r.id === self || r.imagePrefix === undefined) return false;
+      const other = parseImagePrefix(r.imagePrefix);
+      return other.kind === 'ok' && imagePrefixesOverlap(other.value, prefix);
+    });
   const update = (id: TenantId, patch: Partial<SystemTenant>): SystemTenant => {
     const row = rows.get(id as unknown as string);
     if (row === undefined) throw new Error('no such tenant');
@@ -47,6 +64,9 @@ function makeTenants() {
     async create(input) {
       const slug = input.slug ?? `t-${randomBytes(3).toString('hex')}`;
       if ([...rows.values()].some((r) => r.slug === slug)) return { kind: 'slug-taken' };
+      if (input.imagePrefix !== undefined && taken(undefined, input.imagePrefix)) {
+        return { kind: 'image-prefix-taken' };
+      }
       const id = randomUUID() as TenantId;
       const tenant: SystemTenant = {
         id,
@@ -55,7 +75,7 @@ function makeTenants() {
         state: 'active',
         createdAt: new Date().toISOString(),
         test: input.test === true,
-        productionAllowed: input.productionAllowed !== false,
+        productionAllowed: input.productionAllowed,
         ...(input.imagePrefix !== undefined && {
           imagePrefix: `${input.imagePrefix.host}/${input.imagePrefix.path}`,
         }),
@@ -96,7 +116,22 @@ function makeTenants() {
         : update(id, { state: 'active' });
     },
     async setImagePrefix(id, prefix) {
-      return update(id, { imagePrefix: `${prefix.host}/${prefix.path}` });
+      if (taken(id, prefix)) return { kind: 'image-prefix-taken' };
+      return { kind: 'ok', tenant: update(id, { imagePrefix: `${prefix.host}/${prefix.path}` }) };
+    },
+    async setProjectSuspended(id, projectId, suspended, reason) {
+      if (!rows.has(id as unknown as string) || projectId !== PROJECT) {
+        return { kind: 'project-not-found' };
+      }
+      return {
+        kind: 'ok',
+        project: {
+          projectId,
+          suspended,
+          ...(suspended && { suspendedAt: new Date().toISOString() }),
+          ...(suspended && reason !== undefined && { suspendedReason: reason }),
+        },
+      };
     },
     async admins(id) {
       return rows.get(id as unknown as string)?.admins ?? [];
@@ -108,7 +143,10 @@ function makeTenants() {
 /** System keys by their capabilities. */
 const KEYS: Record<string, string[]> = {
   kgi_sy_full: ['kindgi:system'],
-  kgi_sy_signup: ['system:tenants', 'system:tenants:production'],
+  /** Sign-up on the public surface: create only. */
+  kgi_sy_web: ['system:tenants:create'],
+  /** The worker: tenants, binding slots, and the card gate's switch. */
+  kgi_sy_signup: ['system:tenants', 'system:tenants:image-prefix', 'system:tenants:production'],
   kgi_sy_support: ['system:suspend'],
   kgi_sy_notices: ['system:tenants:contacts'],
   kgi_sy_billing: ['system:usage:read'],
@@ -120,6 +158,7 @@ function makeApp() {
   const app = createApp({
     ...createStubAppBindings(),
     tenancy: 'multi',
+    tenantStates: { of: async () => undefined },
     resolveToken: async (token) => {
       const caps = KEYS[token];
       return caps === undefined
@@ -343,4 +382,251 @@ test('GET /v1/system/whoami: any system key, its own id and scopes', async () =>
   const me = await call('kgi_sy_billing', 'GET', '/v1/system/whoami');
   expect(me.status).toBe(200);
   expect(me.body).toEqual({ keyId: 'kgi_sy_billing', scopes: ['system:usage:read'] });
+});
+
+describe('least privilege on the public surface: a create-only key', () => {
+  const WEB_BODY = { name: 'Acme Store', firstAdmin: SIGNUP.firstAdmin };
+
+  test('creates with a first admin; production starts blocked when not asked', async () => {
+    const { call } = makeApp();
+    const r = await call('kgi_sy_web', 'POST', '/v1/system/tenants', WEB_BODY);
+    expect(r.status, JSON.stringify(r.body)).toBe(201);
+    expect((r.body.tenant as SystemTenant).productionAllowed).toBe(false);
+  });
+
+  test.each<[string, Record<string, unknown>, string]>([
+    ['production', { productionAllowed: true }, 'system:tenants:production'],
+    ['an image prefix', { imagePrefix: `${HOST}/acme-cell/s-7` }, 'system:tenants:image-prefix'],
+    ['a test tenant', { test: true }, 'kindgi:system'],
+  ])('asking for %s is refused naming the scope, never dropped', async (_what, extra, scope) => {
+    const { call, code, tenants } = makeApp();
+    const r = await call('kgi_sy_web', 'POST', '/v1/system/tenants', { ...WEB_BODY, ...extra });
+    expect(r.status).toBe(403);
+    expect(code(r)).toBe('system-scope-missing');
+    expect((r.body.error as { details?: unknown }).details).toMatchObject({ scope });
+    expect(tenants.rows.size).toBe(0);
+  });
+
+  test('it lists, reads and closes nothing', async () => {
+    const { call, code, create } = makeApp();
+    const { tenant } = await create(SIGNUP);
+    for (const [method, path] of [
+      ['GET', '/v1/system/tenants'],
+      ['GET', `/v1/system/tenants/${tenant.id}`],
+      ['POST', `/v1/system/tenants/${tenant.id}/close`],
+    ] as const) {
+      const r = await call('kgi_sy_web', method, path);
+      expect(r.status, `${method} ${path}`).toBe(403);
+      expect(code(r)).toBe('system-scope-missing');
+    }
+  });
+});
+
+describe('the image prefix: its own scope; moving it takes the full capability', () => {
+  test('set by the slot-binding key; the same value again is fine; another one is full-only', async () => {
+    const { call, code, create } = makeApp();
+    const { tenant } = await create({ ...SIGNUP, imagePrefix: undefined });
+    const path = `/v1/system/tenants/${tenant.id}/image-prefix`;
+    expect((await call('kgi_sy_signup', 'PUT', path, { prefix: `${HOST}/c/s-1` })).status).toBe(
+      200,
+    );
+    expect((await call('kgi_sy_signup', 'PUT', path, { prefix: `${HOST}/c/s-1` })).status).toBe(
+      200,
+    );
+    const moving = await call('kgi_sy_signup', 'PUT', path, { prefix: `${HOST}/c/s-2` });
+    expect(moving.status).toBe(403);
+    expect((moving.body.error as { details?: unknown }).details).toMatchObject({
+      scope: 'kindgi:system',
+    });
+    expect((await call('kgi_sy_full', 'PUT', path, { prefix: `${HOST}/c/s-2` })).status).toBe(200);
+    expect(code(await call('kgi_sy_web', 'PUT', path, { prefix: `${HOST}/c/s-3` }))).toBe(
+      'system-scope-missing',
+    );
+  });
+});
+
+describe('suspending one project', () => {
+  test('under system:suspend; an unknown project is 404; a malformed id 400', async () => {
+    const { call, code, create } = makeApp();
+    const { tenant } = await create(SIGNUP);
+    const path = `/v1/system/tenants/${tenant.id}/projects/${PROJECT}/suspended`;
+    expect(code(await call('kgi_sy_signup', 'PUT', path, { suspended: true }))).toBe(
+      'system-scope-missing',
+    );
+    const on = await call('kgi_sy_support', 'PUT', path, {
+      suspended: true,
+      reason: 'abuse report',
+    });
+    expect(on.body).toMatchObject({
+      projectId: PROJECT,
+      suspended: true,
+      suspendedReason: 'abuse report',
+    });
+    const off = await call('kgi_sy_support', 'PUT', path, { suspended: false });
+    expect(off.body).toMatchObject({ projectId: PROJECT, suspended: false });
+    const other = `/v1/system/tenants/${tenant.id}/projects/${randomUUID()}/suspended`;
+    expect(code(await call('kgi_sy_support', 'PUT', other, { suspended: true }))).toBe(
+      'project-not-found',
+    );
+    const bad = `/v1/system/tenants/${tenant.id}/projects/not-a-project/suspended`;
+    expect((await call('kgi_sy_support', 'PUT', bad, { suspended: true })).status).toBe(400);
+  });
+});
+
+describe('a closing or suspended tenant is frozen, whatever way it comes in', () => {
+  /** A tenant principal resolving with nothing about its state, as a session does. */
+  function tenantApp(state: 'active' | 'suspended' | 'closing' | 'unreadable') {
+    const tenantId = randomUUID() as TenantId;
+    const app = createApp({
+      ...createStubAppBindings(),
+      resolveToken: async () => ({ tenantId, scopes: ['tenant-admin'], capabilities: [] }),
+      runHandler: {} as RunHandlerBinding,
+      tenantStates: {
+        of: async () => {
+          if (state === 'unreadable') throw new Error('the database is down');
+          return state;
+        },
+      },
+    });
+    return (method: string, path: string) =>
+      app.request(path, {
+        method,
+        headers: { authorization: 'Bearer kgi_sk_x', 'content-type': 'application/json' },
+        ...(method !== 'GET' && method !== 'DELETE' && { body: '{}' }),
+      });
+  }
+  const codeOf = async (res: Response) =>
+    ((await res.json().catch(() => ({}))) as { error?: { code?: string } }).error?.code;
+
+  test.each(['closing', 'suspended'] as const)(
+    '%s: a write is refused; reads, exports, erasure, unregistering and revoking pass',
+    async (state) => {
+      const send = tenantApp(state);
+      const write = await send('POST', '/v1/tokens');
+      expect(write.status).toBe(409);
+      expect(await codeOf(write)).toBe(`tenant-${state}`);
+      for (const [method, path] of [
+        ['GET', '/v1/tenant'],
+        ['DELETE', `/v1/env/${randomUUID()}`],
+        ['POST', '/v1/memory/erasures'],
+        ['POST', `/v1/memory/erasures/${randomUUID()}/resume`],
+        ['POST', '/v1/memory/retrieve'],
+        ['POST', `/v1/tokens/${randomUUID()}/revoke`],
+        ['POST', `/v1/identity/users/${randomUUID()}/revoke-sessions`],
+        ['POST', `/v1/agents/${randomUUID()}/unregister`],
+        ['POST', '/v1/memory/erasures/replay'],
+        ['POST', '/v1/retention/sweep'],
+        ['POST', '/v1/retention/sweep/conversations'],
+        ['POST', `/v1/provenance/${randomUUID()}/export`],
+        ['POST', '/v1/auth/logout'],
+        ['POST', '/v1/auth/refresh'],
+        ['POST', '/v1/auth/token-sign-in'],
+        ['POST', `/v1/auth/providers/${randomUUID()}/unregister`],
+      ] as const) {
+        const res = await send(method, path);
+        expect(await codeOf(res), `${method} ${path}`).not.toMatch(/^tenant-(closing|suspended)$/);
+      }
+    },
+  );
+
+  test.each(['closing', 'suspended'] as const)(
+    '%s: registering or changing a sign-in provider is a write, and so is any non-POST write to an allowed path',
+    async (state) => {
+      const send = tenantApp(state);
+      for (const [method, path] of [
+        ['POST', '/v1/auth/providers'],
+        ['PATCH', `/v1/auth/providers/${randomUUID()}`],
+        ['PUT', '/v1/memory/erasures'],
+        ['PATCH', `/v1/agents/${randomUUID()}/unregister`],
+      ] as const) {
+        const res = await send(method, path);
+        expect(res.status, `${method} ${path}`).toBe(409);
+        expect(await codeOf(res), `${method} ${path}`).toBe(`tenant-${state}`);
+      }
+    },
+  );
+
+  test("a state that can't be read refuses the write, never lets it through; a read still passes", async () => {
+    const send = tenantApp('unreadable');
+    const write = await send('POST', '/v1/tokens');
+    expect(write.status).toBe(503);
+    expect(write.headers.get('retry-after')).toBe('5');
+    expect(await codeOf(write)).toBe('tenant-state-unavailable');
+    expect((await send('GET', '/v1/tenant')).status).not.toBe(503);
+  });
+
+  test('an active tenant writes as before', async () => {
+    const res = await tenantApp('active')('POST', '/v1/tokens');
+    expect(await codeOf(res)).not.toMatch(/^tenant-/);
+  });
+
+  test('the S3 surface too: a frozen tenant reads and deletes its artifacts, never writes them', async () => {
+    const app = new Hono<AppEnv>();
+    app.use('*', async (c, next) => {
+      c.set('requestId', 'req-s3');
+      c.set('tenantId', randomUUID() as TenantId);
+      await next();
+    });
+    app.use('/s3/*', tenantStateGate({ of: async () => 'suspended' }));
+    app.all('/s3/*', (c) => c.json({ reached: true }));
+    for (const method of ['PUT', 'POST'] as const) {
+      expect((await app.request('/s3/bucket/key', { method })).status, method).toBe(409);
+    }
+    for (const method of ['GET', 'DELETE'] as const) {
+      expect((await app.request('/s3/bucket/key', { method })).status, method).toBe(200);
+    }
+  });
+});
+
+describe("no two tenants' image prefixes overlap", () => {
+  test.each<[string, string]>([
+    ['the same repository', `${HOST}/acme-cell/s-7`],
+    ['a parent over it', `${HOST}/acme-cell`],
+    ['a child inside it', `${HOST}/acme-cell/s-7/agents`],
+  ])('%s is refused at create and by PUT', async (_why, prefix) => {
+    const { call, code, create } = makeApp();
+    await create(SIGNUP);
+    const other = await call('kgi_sy_signup', 'POST', '/v1/system/tenants', {
+      ...SIGNUP,
+      slug: 'beta-store',
+      imagePrefix: prefix,
+    });
+    expect(other.status).toBe(409);
+    expect(code(other)).toBe('image-prefix-taken');
+    const { tenant: beta } = await create({
+      ...SIGNUP,
+      slug: 'beta-store',
+      imagePrefix: undefined,
+    });
+    const put = await call('kgi_sy_signup', 'PUT', `/v1/system/tenants/${beta.id}/image-prefix`, {
+      prefix,
+    });
+    expect(code(put)).toBe('image-prefix-taken');
+  });
+
+  test("a sibling repository is fine: s-7 and s-70 don't overlap", async () => {
+    const { create } = makeApp();
+    await create(SIGNUP);
+    await create({ ...SIGNUP, slug: 'beta-store', imagePrefix: `${HOST}/acme-cell/s-70` });
+  });
+
+  test('imagePrefixesOverlap: equal, parent and child overlap; another host does not', () => {
+    const p = (s: string) => {
+      const r = parseImagePrefix(s);
+      if (r.kind === 'err') throw new Error(r.error.reason);
+      return r.value;
+    };
+    expect(imagePrefixesOverlap(p(`${HOST}/a/s-1`), p(`${HOST}/a/s-1`))).toBe(true);
+    expect(imagePrefixesOverlap(p(`${HOST}/a`), p(`${HOST}/a/s-1`))).toBe(true);
+    expect(imagePrefixesOverlap(p(`${HOST}/a/s-1`), p(`${HOST}/a`))).toBe(true);
+    expect(imagePrefixesOverlap(p(`${HOST}/a/s-1`), p(`${HOST}/a/s-10`))).toBe(false);
+    expect(imagePrefixesOverlap(p(`${HOST}/a/s-1`), p('europe-docker.pkg.dev/a/s-1'))).toBe(false);
+  });
+});
+
+test('the list says whether there is more', async () => {
+  const { call, create } = makeApp();
+  await create(SIGNUP);
+  const list = await call('kgi_sy_signup', 'GET', '/v1/system/tenants');
+  expect(list.body).toMatchObject({ hasMore: false });
 });

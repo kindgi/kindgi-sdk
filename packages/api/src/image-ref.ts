@@ -73,6 +73,16 @@ export function imageRefWithin(ref: ImageRef, prefix: ImagePrefix): boolean {
   );
 }
 
+/**
+ * Whether two prefixes overlap: equal, or one at or under the other on a
+ * path boundary. Two tenants' prefixes never may, or one could deploy the
+ * other's images.
+ */
+export function imagePrefixesOverlap(a: ImagePrefix, b: ImagePrefix): boolean {
+  if (a.host !== b.host) return false;
+  return a.path === b.path || a.path.startsWith(`${b.path}/`) || b.path.startsWith(`${a.path}/`);
+}
+
 function parseName(name: string): Result<ImagePrefix, ImageRefError> {
   if (name.length > MAX_NAME_LENGTH) {
     return invalid(`its repository is longer than ${MAX_NAME_LENGTH} characters`);

@@ -87,6 +87,8 @@ export type {
   SystemDeploymentsOptions,
   SystemDeploymentToRetire,
 } from './routes/system-deployments.js';
+export { tenantStateGate } from './middleware/tenant-state.js';
+export type { TenantStateBinding } from './middleware/tenant-state.js';
 export { systemTenantsRouter, systemWhoamiRouter } from './routes/system-tenants.js';
 export type {
   SystemTenant,
@@ -96,7 +98,12 @@ export type {
 } from './routes/system-tenants.js';
 export { createInMemoryRateLimitStore } from './rate-limit-store.js';
 export type { RateLimitStore, RateLimitTake, RateLimitTakeInput } from './rate-limit-store.js';
-export { imageRefWithin, parseImagePrefix, parseImageRef } from './image-ref.js';
+export {
+  imagePrefixesOverlap,
+  imageRefWithin,
+  parseImagePrefix,
+  parseImageRef,
+} from './image-ref.js';
 export type { ImagePrefix, ImageRef, ImageRefError } from './image-ref.js';
 export type {
   ClaimMappingScopesSpec,

@@ -73,6 +73,13 @@ OPERATIONS: dict[str, Operation] = {
         "json",
         True,
     ),
+    "systemTenants.setProjectSuspended": Operation(
+        "systemTenants.setProjectSuspended",
+        "PUT",
+        "/v1/system/tenants/{tenantId}/projects/{projectId}/suspended",
+        "json",
+        True,
+    ),
     "systemTenants.admins": Operation(
         "systemTenants.admins", "GET", "/v1/system/tenants/{tenantId}/admins", "json", False
     ),
@@ -1663,7 +1670,7 @@ class SystemTenantsResource:
     ) -> _models.CreateSystemTenantResult:
         """Create a tenant. `POST /v1/system/tenants`
 
-        Creates a tenant on a runtime serving many tenants, with its setup (its default project, its authorization store) in the same change. With `firstAdmin`, that person becomes its admin and member by email, and the runtime's own sign-in finds them; the answer carries no key. Without it, the answer carries the tenant's first admin key, shown once, and that takes the full system capability (`kindgi:system`), as does a `test` tenant. Takes `system:tenants`. An Idempotency-Key retry answers the same tenant.
+        Creates a tenant on a runtime serving many tenants, with its setup (its default project, its authorization store) in the same change. With `firstAdmin`, that person becomes its admin and member by email, and the runtime's own sign-in finds them; the answer carries no key. Without it, the answer carries the tenant's first admin key, shown once, and that takes the full system capability (`kindgi:system`), as does a `test` tenant. Takes `system:tenants:create` (sign-up's) or `system:tenants`. A tenant created here starts with production blocked; `productionAllowed: true` takes `system:tenants:production`, and `imagePrefix` takes `system:tenants:image-prefix`. Asking for more than the key's scopes is refused naming the scope, never dropped. An Idempotency-Key retry answers the same tenant.
         """
         return self._client._request(
             _OPERATIONS["systemTenants.create"],
@@ -1748,7 +1755,7 @@ class SystemTenantsResource:
     ) -> _models.SystemTenant:
         """Set the repository a tenant's images must sit in. `PUT /v1/system/tenants/{tenantId}/image-prefix`
 
-        Each tenant may deploy only images at or under its own repository: `<host>/<path>`, matched on a path boundary, with no trailing slash. On a runtime serving many tenants, a tenant without one can't register a deployment. Takes `system:tenants`. A closing tenant is refused (`409 tenant-closing`).
+        Each tenant may deploy only images at or under its own repository: `<host>/<path>`, matched on a path boundary, with no trailing slash. On a runtime serving many tenants, a tenant without one can't register a deployment. Takes `system:tenants:image-prefix`, the key that binds the tenant's slot; changing a prefix that's already set takes the full system capability. A closing tenant is refused (`409 tenant-closing`).
         """
         return self._client._request(
             _OPERATIONS["systemTenants.setImagePrefix"],
@@ -1757,6 +1764,31 @@ class SystemTenantsResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.SetTenantImagePrefixBody, body, fields),
             response=_models.SystemTenant,
+            timeout=timeout,
+        )
+
+    def set_project_suspended(
+        self,
+        tenant_id: str | UUID,
+        project_id: str | UUID,
+        body: _models.SetTenantSuspendedBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ProjectSuspension:
+        """Suspend one of a tenant's projects, or restore it. `PUT /v1/system/tenants/{tenantId}/projects/{projectId}/suspended`
+
+        Reversible: nothing new runs or deploys in the project, its running runs are cancelled and its deployments retired; reads and the rest of the tenant are untouched. Takes `system:suspend`. A closing tenant is refused (`409 tenant-closing`).
+        """
+        return self._client._request(
+            _OPERATIONS["systemTenants.setProjectSuspended"],
+            path={"tenantId": tenant_id, "projectId": project_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.SetTenantSuspendedBody, body, fields),
+            response=_models.ProjectSuspension,
             timeout=timeout,
         )
 
@@ -9408,7 +9440,7 @@ class AsyncSystemTenantsResource:
     ) -> _models.CreateSystemTenantResult:
         """Create a tenant. `POST /v1/system/tenants`
 
-        Creates a tenant on a runtime serving many tenants, with its setup (its default project, its authorization store) in the same change. With `firstAdmin`, that person becomes its admin and member by email, and the runtime's own sign-in finds them; the answer carries no key. Without it, the answer carries the tenant's first admin key, shown once, and that takes the full system capability (`kindgi:system`), as does a `test` tenant. Takes `system:tenants`. An Idempotency-Key retry answers the same tenant.
+        Creates a tenant on a runtime serving many tenants, with its setup (its default project, its authorization store) in the same change. With `firstAdmin`, that person becomes its admin and member by email, and the runtime's own sign-in finds them; the answer carries no key. Without it, the answer carries the tenant's first admin key, shown once, and that takes the full system capability (`kindgi:system`), as does a `test` tenant. Takes `system:tenants:create` (sign-up's) or `system:tenants`. A tenant created here starts with production blocked; `productionAllowed: true` takes `system:tenants:production`, and `imagePrefix` takes `system:tenants:image-prefix`. Asking for more than the key's scopes is refused naming the scope, never dropped. An Idempotency-Key retry answers the same tenant.
         """
         return await self._client._request(
             _OPERATIONS["systemTenants.create"],
@@ -9493,7 +9525,7 @@ class AsyncSystemTenantsResource:
     ) -> _models.SystemTenant:
         """Set the repository a tenant's images must sit in. `PUT /v1/system/tenants/{tenantId}/image-prefix`
 
-        Each tenant may deploy only images at or under its own repository: `<host>/<path>`, matched on a path boundary, with no trailing slash. On a runtime serving many tenants, a tenant without one can't register a deployment. Takes `system:tenants`. A closing tenant is refused (`409 tenant-closing`).
+        Each tenant may deploy only images at or under its own repository: `<host>/<path>`, matched on a path boundary, with no trailing slash. On a runtime serving many tenants, a tenant without one can't register a deployment. Takes `system:tenants:image-prefix`, the key that binds the tenant's slot; changing a prefix that's already set takes the full system capability. A closing tenant is refused (`409 tenant-closing`).
         """
         return await self._client._request(
             _OPERATIONS["systemTenants.setImagePrefix"],
@@ -9502,6 +9534,31 @@ class AsyncSystemTenantsResource:
             headers={"Idempotency-Key": idempotency_key},
             body=_body(_models.SetTenantImagePrefixBody, body, fields),
             response=_models.SystemTenant,
+            timeout=timeout,
+        )
+
+    async def set_project_suspended(
+        self,
+        tenant_id: str | UUID,
+        project_id: str | UUID,
+        body: _models.SetTenantSuspendedBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ProjectSuspension:
+        """Suspend one of a tenant's projects, or restore it. `PUT /v1/system/tenants/{tenantId}/projects/{projectId}/suspended`
+
+        Reversible: nothing new runs or deploys in the project, its running runs are cancelled and its deployments retired; reads and the rest of the tenant are untouched. Takes `system:suspend`. A closing tenant is refused (`409 tenant-closing`).
+        """
+        return await self._client._request(
+            _OPERATIONS["systemTenants.setProjectSuspended"],
+            path={"tenantId": tenant_id, "projectId": project_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.SetTenantSuspendedBody, body, fields),
+            response=_models.ProjectSuspension,
             timeout=timeout,
         )
 

@@ -1346,7 +1346,8 @@ export const CreateSystemTenantBodySchema: JsonSchema = {
     },
     productionAllowed: {
       type: 'boolean',
-      description: 'Whether it may put projects in production. Absent: allowed.',
+      description:
+        'Whether it may put projects in production. Absent: blocked, until the operator allows it; `true` takes `system:tenants:production`.',
     },
     test: {
       type: 'boolean',
@@ -1355,7 +1356,7 @@ export const CreateSystemTenantBodySchema: JsonSchema = {
     imagePrefix: {
       type: 'string',
       description:
-        "The repository its deployments' images must sit in, `<host>/<path>` with no trailing slash. On a runtime serving many tenants, a tenant without one can't register a deployment.",
+        "The repository its deployments' images must sit in, `<host>/<path>` with no trailing slash; takes `system:tenants:image-prefix`. On a runtime serving many tenants, a tenant without one can't register a deployment.",
     },
     firstAdmin: {
       type: 'object',
@@ -1396,10 +1397,11 @@ export const CreateSystemTenantResultSchema: JsonSchema = {
 export const SystemTenantListSchema: JsonSchema = {
   type: 'object',
   additionalProperties: false,
-  required: ['data'],
+  required: ['data', 'hasMore'],
   properties: {
     data: { type: 'array', items: ref('SystemTenant') },
-    nextCursor: { type: 'string' },
+    hasMore: { type: 'boolean' },
+    nextCursor: { type: 'string', description: 'Opaque; absent when `hasMore` is false.' },
   },
 };
 
@@ -1419,6 +1421,18 @@ export const SetTenantImagePrefixBodySchema: JsonSchema = {
   required: ['prefix'],
   properties: {
     prefix: { type: 'string', description: '`<host>/<path>`, with no trailing slash.' },
+  },
+};
+
+export const ProjectSuspensionSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['projectId', 'suspended'],
+  properties: {
+    projectId: { type: 'string', format: 'uuid' },
+    suspended: { type: 'boolean' },
+    suspendedAt: { type: 'string', format: 'date-time' },
+    suspendedReason: { type: 'string' },
   },
 };
 
@@ -10429,6 +10443,12 @@ export const TenantSchema: JsonSchema = {
       description:
         'Where to go to be allowed to put projects in production, for example a billing page. Only while `productionAllowed` is `false`, and only when the runtime names one.',
     },
+    state: {
+      type: 'string',
+      enum: ['active', 'suspended', 'closing'],
+      description:
+        'On a runtime serving many tenants: `closing` (readable and exportable for its window, nothing changes) or `suspended` (the same, until restored). `closing` wins. Absent: active.',
+    },
     limits: ref('TenantLimits'),
   },
 };
@@ -10534,7 +10554,11 @@ export const UsageGroupSchema: JsonSchema = {
       enum: ['production', 'staging', 'dry-run', 'replay', 'eval', 'child'],
     },
     state: { type: 'string', enum: ['on', 'off'] },
-    day: { type: 'string', format: 'date', description: 'The UTC date, `YYYY-MM-DD`.' },
+    day: {
+      type: 'string',
+      pattern: '^\\d{4}-\\d{2}-\\d{2}$',
+      description: 'The UTC date, `YYYY-MM-DD`.',
+    },
     count: { type: 'integer', minimum: 0, description: 'Records in the group.' },
     quantity: {
       type: 'number',
@@ -12360,6 +12384,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['SystemTenantList', SystemTenantListSchema],
   ['SetTenantSuspendedBody', SetTenantSuspendedBodySchema],
   ['SetTenantImagePrefixBody', SetTenantImagePrefixBodySchema],
+  ['ProjectSuspension', ProjectSuspensionSchema],
   ['TenantAdminContacts', TenantAdminContactsSchema],
   ['SystemWhoami', SystemWhoamiSchema],
   ['ApiToken', ApiTokenSchema],
