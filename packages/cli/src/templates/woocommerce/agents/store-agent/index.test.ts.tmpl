@@ -33,7 +33,7 @@ describe('{{PACK_ID}}.store-agent', () => {
     // A rejection and a failure come back as results too: neither may read as done.
     expect(line).toContain('"status": "rejected"');
     expect(line).toContain('"status": "failed"');
-    expect(line).toMatch(/"status": "failed"[^.]*didn't go through/);
+    expect(line).toMatch(/"status": "failed"[^.]*didn't go through[^.]*never that it was done/);
     expect(line).toContain('Any other result means a person approved it and it was done');
     // Totals read before the wait may be stale by the time it returns.
     expect(line).toMatch(/look it up again before you say what it has been refunded/);
