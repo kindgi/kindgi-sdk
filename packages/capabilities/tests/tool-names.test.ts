@@ -3,7 +3,7 @@
 
 import { describe, expect, test } from 'vitest';
 
-import { nameToolsAsSent } from '../src/index.js';
+import { ToolNameCollisionError, nameToolsAsSent, toolIdsBySentName } from '../src/index.js';
 
 const encode = (id: string): string => id.replace(/\./g, '__');
 
@@ -50,5 +50,34 @@ describe('nameToolsAsSent', () => {
 
   test('regex characters in an id are literal', () => {
     expect(nameToolsAsSent('a+b.c and aXb.c', ['a+b.c'], encode)).toBe('a+b__c and aXb.c');
+  });
+});
+
+describe('toolIdsBySentName', () => {
+  const decode = (name: string): string => name.replace(/__/g, '.');
+
+  test("gives back the call's own ids, a `__` inside one included", () => {
+    const idOf = toolIdsBySentName(
+      ['drupal.tool_api__list_content', 'acme.lookup_order'],
+      encode,
+      decode,
+    );
+    expect(idOf('drupal__tool_api__list_content')).toBe('drupal.tool_api__list_content');
+    expect(idOf('acme__lookup_order')).toBe('acme.lookup_order');
+  });
+
+  test("a name the call didn't send falls back, so it's reported as what the model asked for", () => {
+    const idOf = toolIdsBySentName(['acme.lookup_order'], encode, decode);
+    expect(idOf('acme__refund_order')).toBe('acme.refund_order');
+  });
+
+  test('two tools sent under one name are refused, naming both', () => {
+    expect(() =>
+      toolIdsBySentName(['acme.lookup__order', 'acme.lookup.order'], encode, decode),
+    ).toThrow(
+      new ToolNameCollisionError('acme.lookup__order', 'acme.lookup.order', 'acme__lookup__order'),
+    );
+    // The same id twice is one tool, not a collision.
+    expect(() => toolIdsBySentName(['acme.a', 'acme.a'], encode, decode)).not.toThrow();
   });
 });

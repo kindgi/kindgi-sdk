@@ -1,6 +1,6 @@
 ---
 title: Set up SSO
-description: Let your workspace's people sign in with your organization's identity provider (Google Workspace, Microsoft Entra ID, Okta, Keycloak, or any OpenID Connect or SAML provider), set up from the CLI.
+description: Let your workspace's people sign in with your organization's identity provider (Google Workspace, Microsoft Entra ID, Okta, Keycloak, or any OpenID Connect or SAML provider), set up from the console or the CLI.
 sidebar:
   order: 0
   label: Set up SSO
@@ -14,7 +14,8 @@ people you've added.
 Setting it up takes two people: you, an admin of the workspace, and whoever
 runs your identity provider ("IT" below). You start in the CLI and get what
 to send IT. IT creates the app on their side and sends back what it gave
-them. You register it, and try it.
+them. You register it, and try it. The steps below use the CLI; the
+console's **Sign-in** page does the same ([From the console](#from-the-console)).
 
 **Before you start:** sign-in must be on for this runtime, and your domain
 verified for your workspace ([Turn on sign-in](../../deploy/sign-in/)).
@@ -161,6 +162,36 @@ acme-kc   oidc  Acme Keycloak  acme.test
 - **`remove <id>`** takes it out of sign-in at once, and ends the sessions
   people opened through it. Its old links answer "That sign-in option is
   gone".
+
+## From the console
+
+A tenant admin does the same on the console's **Sign-in** page:
+
+- **Add an identity provider** asks which one (a preset, another OpenID
+  Connect provider, or a SAML 2.0 one) and proposes an id. **Get the URLs**
+  then shows what to send IT: the redirect URI (or, for SAML, the service
+  provider's URLs) and the message for IT, with your provider's steps and a
+  link to its page here. **Finish later** closes it; adding the same id again
+  gives the same URLs.
+
+  ![Add an identity provider: the redirect URI and the message for IT, with Keycloak's steps, then Finish later and IT sent it back](../../../../assets/sso/console-add-provider.png)
+
+- **IT sent it back** takes what IT returns: the issuer, the client ID and
+  the client secret's name in your secrets (**Check** looks the name up,
+  never the value), or the SAML metadata XML. Then the domains and the
+  button's name. **Register** adds it to sign-in.
+- **The list** shows each provider with its domains, its host and who gets
+  in. **Try** gives a sign-in link for someone at its domains. **Change**
+  edits it in place, and says so before a change that signs its people
+  out. **Remove** takes it out of sign-in.
+
+  ![The Sign-in page: Acme Keycloak, OpenID Connect, at acme.test, with Try, Change and Remove](../../../../assets/sso/console-providers.png)
+
+When whoever runs Kindgi manages sign-in for every workspace
+(`KINDGI_AUTH_TENANT_PROVIDERS=off`, in
+[Turn on sign-in](../../deploy/sign-in/#who-manages-a-workspaces-identity-providers)),
+the page says so and lists the providers with **Try** only. A workspace
+admin's change from the CLI or the API is refused too.
 
 ## Your identity provider
 

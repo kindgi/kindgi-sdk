@@ -28,7 +28,9 @@ dependencies = [
 
 [project.optional-dependencies]
 # Verifying signed exports (kindgi.exports): Ed25519 isn't in the standard library.
-verify = ["cryptography>=42,<47"]
+# The floor is the first release with every known advisory fixed; no upper cap,
+# so an app is never held below a security fix (CI tests the newest too).
+verify = ["cryptography>=50.0.0"]
 
 [project.urls]
 Homepage = "https://github.com/kindgi/kindgi-sdk/tree/main/sdks/python#readme"
@@ -44,8 +46,8 @@ dev = [
   # The reference Standard Webhooks library: tests/test_webhooks.py checks
   # kindgi.webhooks against it, both ways.
   "standardwebhooks>=1.0",
-  # kindgi.exports' Ed25519 (the `verify` extra), for its tests.
-  "cryptography>=42,<47",
+  # kindgi.exports' Ed25519 (the `verify` extra), for its tests: the same range.
+  "cryptography>=50.0.0",
 ]
 
 [build-system]

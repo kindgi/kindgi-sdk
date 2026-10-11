@@ -1,0 +1,66 @@
+// {{PACK_ID}}.content-review — reviews each article Drupal saves.
+//
+// A webhook trigger starts it: Drupal's Webhooks module posts the node to
+// Kindgi when an article is created or updated, Kindgi checks the
+// signature, and the event (the webhook's JSON body) is the flow's run
+// input. README.md has the setup.
+//
+// Two steps, in this order on purpose:
+//   - `check` (`{{PACK_ID}}.check-content-event`) checks the event and keeps
+//     only its typed fields and house-style findings, in code, before any
+//     model sees it;
+//   - `review` (`{{PACK_ID}}.content-reviewer`, read-only) writes the note
+//     from the checked event, its step input.
+//
+// Try it without a site:
+//   kindgi runs start --flow={{PACK_ID}}.content-review --input=@fixtures/node-updated.json
+
+import { defineFlow } from '@kindgi/sdk/define';
+
+const defined = defineFlow({
+  id: '{{PACK_ID}}.content-review',
+  version: '{{PACK_VERSION}}',
+  name: 'Content review',
+  description: "Checks a saved Drupal article, then has the content reviewer write a note for the site's editors.",
+  nodes: [
+    {
+      id: 'check',
+      kind: 'tool',
+      ref: '{{PACK_ID}}.check-content-event',
+      inputMapping: { event: { path: 'runInput' } },
+    },
+    {
+      id: 'review',
+      kind: 'agent',
+      ref: '{{PACK_ID}}.content-reviewer',
+      inputMapping: { event: { path: 'nodeOutputs.check' } },
+    },
+  ],
+  edges: [
+    { id: 'e-start', from: '$start', to: 'check' },
+    { id: 'e-review', from: 'check', to: 'review' },
+    { id: 'e-end', from: 'review', to: '$end' },
+  ],
+  output: {
+    mapping: {
+      nodeId: { path: 'nodeOutputs.check.nodeId' },
+      flags: { path: 'nodeOutputs.check.flags' },
+      review: { path: 'nodeOutputs.review.text' },
+    },
+    schema: {
+      type: 'object',
+      properties: {
+        nodeId: { type: 'integer' },
+        flags: { type: 'array', items: { type: 'string' } },
+        review: { type: 'string' },
+      },
+      required: ['nodeId', 'flags', 'review'],
+    },
+  },
+});
+
+if (defined.kind === 'err') {
+  throw new Error(`{{PACK_ID}}.content-review failed to compile: ${defined.error.message}`);
+}
+
+export default defined.value;

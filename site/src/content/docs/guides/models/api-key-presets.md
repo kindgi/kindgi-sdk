@@ -1,6 +1,6 @@
 ---
 title: Connect OpenAI, Gemini, Groq or OpenRouter
-description: Register GPT, Gemini on the Developer API, Groq or OpenRouter from a preset, with the provider's API key in the pack's env files.
+description: Register GPT, Gemini on the Developer API, Groq or OpenRouter from a preset, with the provider's API key stored as a secret.
 sidebar:
   order: 2
 ---
@@ -31,9 +31,11 @@ With `kindgi dev` running, in the pack, store the key under the preset's name
 kindgi secrets set OPENAI_API_KEY --env=local --scope=tenant
 ```
 
-It prompts for the key without echoing it and writes it to the pack's
-`.env.local`. A line `OPENAI_API_KEY=…` in the pack's `.env` works too. Keep
-both files out of git.
+It prompts for the key without echoing it and writes it to Kindgi's own
+`.kindgi/secrets.env`, a file only you can read, which your app doesn't load.
+A line `OPENAI_API_KEY=…` in your app's `.env` or `.env.local` works too
+([Keep local values in env files](../../secrets/env-files/)). Keep your env files out of git;
+`kindgi init` already keeps `.kindgi/` out.
 
 ## 2. Register the preset
 
@@ -127,6 +129,13 @@ every rate is 10% higher. The OpenAI registration's settings are on
 
 A wrong key fails the turn with the provider's own message. To change the key,
 set it again with `--write-mode=add-version`; the next turn uses the new one.
+
+A key a header can't carry, such as one pasted with a line break inside it,
+fails the turn before anything is sent, naming the provider, never the key:
+
+```text
+@kindgi/adapter-model-anthropic: provider "acme": its API key has a line break, which a header can't carry: store the secret without it
+```
 
 If `dev-echo` still answers (its answer starts with
 `⚠ dev-echo isn't a real model`), the agent needs something none of the

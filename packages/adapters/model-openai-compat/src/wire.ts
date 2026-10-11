@@ -17,8 +17,9 @@ import type { ModelInfo, UsageCounters } from '@kindgi/capabilities';
  *
  * See the sibling comment in
  * `packages/adapters/model-anthropic/src/translate.ts` — same
- * substitution (`.` → `__`), same reversibility caveat (authors
- * should not put literal `__` in tool ids).
+ * substitution (`.` → `__`), and the same rule back: a call's name is
+ * looked up among the request's own tools (`toolIdsBySentName`), since a
+ * tool id can hold `__` itself; `decodeToolName` is only the fallback.
  */
 export function encodeToolName(name: string): string {
   return name.replace(/\./g, '__');
@@ -128,3 +129,15 @@ function longContextOf(value: unknown): OpenAICompatCostRates['longContext'] {
     ? { thresholdTokens, promptUsdPer1kTokens, completionUsdPer1kTokens }
     : undefined;
 }
+
+/**
+ * Client options the OpenAI SDK would otherwise take from the server's
+ * environment (`OPENAI_ORG_ID`, `OPENAI_PROJECT_ID`, `OPENAI_ADMIN_KEY`):
+ * set to none, so nothing of the server's goes out with a provider's calls,
+ * to whatever base URL the provider names.
+ */
+export const SERVER_ENV_NEVER = {
+  organization: null,
+  project: null,
+  adminAPIKey: null,
+} as const;

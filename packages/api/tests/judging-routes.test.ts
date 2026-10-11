@@ -38,6 +38,22 @@ const PROJECT = randomUUID();
 const EDITOR = 'tok-editor';
 const VIEWER = 'tok-viewer'; // a standard reviewer with `read` only
 
+/** One rule version's runs of one agent version, as a runtime counts them. */
+const RESULT_GROUP = {
+  ruleVersion: 1,
+  agentVersion: '1.1.0',
+  added: 3,
+  open: 1,
+  judged: 1,
+  dismissed: 1,
+  erased: 0,
+  skippedByCap: 0,
+  judgments: 4,
+  runsWithJudgments: 2,
+  yesShare: 0.75,
+  byClass: [{ judgeClassId: null, judgments: 4, yes: 3 }],
+};
+
 const resolveToken: TokenResolver = async (token) =>
   token === EDITOR
     ? { tenantId, userId: 'editor' as UserId, scopes: [] }
@@ -188,7 +204,7 @@ function memoryBinding() {
     },
     async results({ ruleId }) {
       return rules.has(ruleId)
-        ? { kind: 'ok', value: { ruleId, groups: [] } }
+        ? { kind: 'ok', value: { ruleId, groups: [RESULT_GROUP] } }
         : { kind: 'err', error: { code: 'judging-rule-not-found', message: 'no' } };
     },
     async preview({ spec, last, ruleId }) {
@@ -323,6 +339,16 @@ describe('judging rules', () => {
     const r = await h.call(EDITOR, 'POST', '/judging-rules', { ...RULE, judgeClassId: 'cls-nope' });
     expect(r.status).toBe(404);
     expect(r.body.error.code).toBe('judge-class-not-found');
+  });
+
+  test("a rule's results: each group's counts, the runs its judgments come from included", async () => {
+    const h = harness();
+    const created = await h.call(EDITOR, 'POST', '/judging-rules', RULE);
+    const res = await h.call(VIEWER, 'GET', `/judging-rules/${created.body.ruleId}/results`);
+    expect(res.status).toBe(200);
+    expect(res.body.groups).toEqual([RESULT_GROUP]);
+    // Four judgments from two runs: the share's runs, not its judgments.
+    expect(res.body.groups[0]).toMatchObject({ judgments: 4, runsWithJudgments: 2 });
   });
 
   test('an unknown rule: 404', async () => {

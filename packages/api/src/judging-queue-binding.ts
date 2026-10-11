@@ -159,6 +159,15 @@ export interface JudgingResultGroup {
   readonly skippedByCap: number;
   /** Live judgments on the queued runs: each is one person's verdict on one item of a run's output. */
   readonly judgments: number;
+  /**
+   * The queued runs with at least one live judgment: the runs `judgments`
+   * and `yesShare` come from, whatever their queue item's state now (still
+   * `open`, closed as `judged`, or dismissed after someone judged it).
+   * Several people judging one run make
+   * several judgments but one run here, so a range can be sized by runs.
+   * Absent from a runtime that doesn't count them.
+   */
+  readonly runsWithJudgments?: number;
   /** The `yes` share of those judgments, each weighted by its class (unclassified: 1). `null` with no judgments. */
   readonly yesShare: number | null;
   /** The same judgments by class (`null`: unclassified), unweighted. */

@@ -387,6 +387,49 @@ Save a file and `kindgi dev` loads the new version; the next run uses it, with
 no restart. A run already in flight keeps the version it started on. Change
 `version` when what callers send or get back changes, not on every save.
 
+## In the console
+
+A project's **Flows** page lists its flows, each at its latest live version:
+"2 flows.", and for each its name, its latest version, its steps in words
+("3 steps: 2 agents, 1 loop") and what it pins ("Pins 1 agent").
+
+![The Flows page: "2 flows.", Refunds (acme.refunds, "Triage, check each item, then answer.") at 2.0.0 with 3 steps: 2 agents, 1 loop, and acme.single at 1.0.0 with 2 steps: 2 agents, each pinning 1 agent.](../../../../assets/flows/flows-list.png)
+
+A flow's page draws the version as a graph, from Start to End: each step
+with what it runs and at which version ("demo.echo-agent, pinned at
+1.0.0"), and a loop in words ("For each item of runInput.items, at most 50
+times: demo.echo-agent, pinned at 1.0.0"). Below it:
+- **What 2.0.0 runs:** the agents and tools at the versions "Fixed when this
+  version was published: every run of it uses these versions."
+- **Versions:** the live ones, the latest marked, with what each runs: "3
+  live; runs that name no version use the latest, 2.0.0. Unregistered
+  versions aren't listed: open one by its number."
+- **Its runs →** and **Runs of 2.0.0 →**, the runs list filtered.
+
+![Refunds' page at 2.0.0: the graph Start, triage, a loop over runInput.items, answer, End; What 2.0.0 runs (demo.echo-agent 1.0.0); and Versions: 2.0.0 (latest), 1.1.0 and 1.0.0, each with Unregister.](../../../../assets/flows/flow-page.png)
+
+For flow admins, each version has **Unregister**. Its dialog says what
+changes:
+
+```text
+Unregister 1.0.0?
+Runs that name no version keep using 2.0.0.
+Runs that name 1.0.0 are refused, a schedule's included; runs already going finish. It's no longer listed here; it can be reinstated from its own page.
+```
+
+While the dialog is still open, **Reinstate it** undoes it. Later, the
+version opened by its number says "1.0.0 is unregistered", since when, and
+"Runs that name it are refused, runs that name no version don't use it, and
+it isn't listed.", with **Reinstate**.
+
+![Version 1.0.0 opened by its number: "1.0.0 is unregistered", since when, that runs naming it are refused, and Reinstate, above its graph.](../../../../assets/flows/flow-unregistered-version.png)
+
+Unregistering a flow's only live version takes it off the list, and its
+page says "No version of this flow is live": "Every version is
+unregistered, so it isn't listed and runs that name no version are
+refused. Open a version by its number to reinstate it, or publish a new
+one."
+
 ## Next
 
 - [Pass data between steps](../pass-data-between-steps/)

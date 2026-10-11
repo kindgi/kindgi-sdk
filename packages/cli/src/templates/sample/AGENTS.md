@@ -25,3 +25,9 @@ via `kindgi feedback write` — see
 `.claude/skills/kindgi-framework-feedback/SKILL.md`. Mark items fixed
 by adding a `> **Fixed:** <note>` line right after their header; the
 file is a plain markdown list you edit directly.
+
+When the person asks how to use what you built (where something is in
+Kindgi's console, what an agent did, what it cost, who has access), answer
+from `kindgi`'s read-only commands and give the console link beside it —
+see `.claude/skills/kindgi-using/SKILL.md`. Deciding approvals, erasing,
+adding people and rating answers stay with the person.
