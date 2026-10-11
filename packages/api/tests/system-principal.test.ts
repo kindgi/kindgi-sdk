@@ -10,7 +10,10 @@ import type { ApiTokenId, TenantId, UserId } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
 
+import { callerIdentity } from '../src/caller.js';
+
 import {
+  OPERATIONS,
   SYSTEM_TENANT_ID,
   createApp,
   systemPrincipalFence,
@@ -19,6 +22,7 @@ import {
 import type {
   ApiTokenRecord,
   AppEnv,
+  CreateAppInput,
   RunHandlerBinding,
   SystemAccessRecord,
   SystemKeyRecord,
@@ -433,7 +437,9 @@ describe('withSystemTenantContext', () => {
       c.set('capabilities', capabilities);
       await next();
     });
-    if (fence) app.use('*', systemPrincipalFence({ record: async (e) => void audit.push(e) }));
+    if (fence) {
+      app.use('*', systemPrincipalFence({ audit: { record: async (e) => void audit.push(e) } }));
+    }
     app.put(path, (c) =>
       withSystemTenantContext(
         c,
@@ -490,5 +496,147 @@ describe('withSystemTenantContext', () => {
     });
     const res = await app.request(`/v1/tenants/${live}/thing`, { method: 'PUT' });
     expect(res.status).toBe(500);
+  });
+});
+
+describe("w3's review: the operator's powers stay fenced in both ways", () => {
+  /** A bare app: a caller set by hand, then the fence, then two routes. */
+  function bare(caller: { system?: boolean; capabilities: string[] }, tenancy: 'single' | 'multi') {
+    const app = new Hono<AppEnv>();
+    const warnings: unknown[] = [];
+    app.use('*', async (c, next) => {
+      c.set('requestId', 'req-1');
+      c.set('log', {
+        warn: (_message: string, fields: unknown) => void warnings.push(fields),
+        error: () => undefined,
+      } as never);
+      c.set('tokenId', 'key-legacy' as ApiTokenId);
+      if (caller.system === true) c.set('systemPrincipal', { keyId: 'k-1' });
+      c.set('capabilities', caller.capabilities);
+      await next();
+    });
+    app.use('*', systemPrincipalFence({ tenancy, audit: { record: async () => undefined } }));
+    app.get('/v1/caps', (c) => c.json({ capabilities: c.get('capabilities') }));
+    // A system route someone forgot to gate: the fence alone keeps tenants out.
+    app.get('/v1/system/ungated', (c) => c.json({ reached: true }));
+    app.get('/v1/system/who', (c) => c.json({ identity: callerIdentity(c) }));
+    return { app, warnings };
+  }
+
+  test("multi mode: a tenant's key loses kindgi:system and system:*, with a warning naming the key", async () => {
+    const { app, warnings } = bare(
+      { capabilities: ['kindgi:system', 'system:tenants', 'env:write'] },
+      'multi',
+    );
+    const res = await app.request('/v1/caps');
+    expect(await res.json()).toEqual({ capabilities: ['env:write'] });
+    expect(warnings).toEqual([
+      expect.objectContaining({
+        event: 'system-capability-dropped',
+        tokenId: 'key-legacy',
+        dropped: ['kindgi:system', 'system:tenants'],
+      }),
+    ]);
+  });
+
+  test('single mode: a tenant key keeps kindgi:system, as today', async () => {
+    const { app, warnings } = bare({ capabilities: ['kindgi:system', 'env:write'] }, 'single');
+    expect(await (await app.request('/v1/caps')).json()).toEqual({
+      capabilities: ['kindgi:system', 'env:write'],
+    });
+    expect(warnings).toEqual([]);
+  });
+
+  test("a system route without a gate is still closed to a tenant's key", async () => {
+    for (const tenancy of ['single', 'multi'] as const) {
+      const { app } = bare({ capabilities: ['kindgi:system'] }, tenancy);
+      const res = await app.request('/v1/system/ungated');
+      expect(res.status, tenancy).toBe(403);
+      expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+        'system-principal-required',
+      );
+    }
+  });
+
+  test('a system key is its own actor: the idempotency cache and audits name it, not a person', async () => {
+    const { app } = bare({ system: true, capabilities: ['system:tenants'] }, 'multi');
+    expect(await (await app.request('/v1/system/who')).json()).toEqual({
+      identity: 'system-key:k-1',
+    });
+  });
+
+  test("multi mode, end to end: a pre-upgrade tenant key with kindgi:system doesn't read the operator's license view", async () => {
+    const multi = makeApp('multi');
+    const refused = await multi.call(multi.tenant.legacy, 'GET', '/v1/license');
+    expect(refused.status).toBe(403);
+    expect(multi.code(refused)).toBe('license-operator-only');
+    const single = makeApp('single');
+    const operator = await single.call(single.tenant.legacy, 'GET', '/v1/license');
+    expect(operator.status).toBe(200);
+    expect(operator.body).toMatchObject({ name: 'Acme' });
+  });
+
+  test('a runtime serving many tenants needs the access record', () => {
+    expect(() =>
+      createApp({
+        ...createStubAppBindings(),
+        tenancy: 'multi',
+        resolveToken: async () => null,
+        runHandler: {} as RunHandlerBinding,
+      } as CreateAppInput),
+    ).toThrow(/needs systemAccessAudit/);
+  });
+});
+
+describe('every /v1/system/* operation, from OPERATIONS: a principal first, then a scope', () => {
+  const systemOps = OPERATIONS.filter((op) => op.openapiPath.startsWith('/v1/system/'));
+  const TENANT_KEY = 'kgi_ak_sweep_tenant';
+  const ZERO_SCOPE = 'kgi_sy_sweep_zero';
+
+  async function sweepApp() {
+    const { fullAppInput } = await import('./support/full-app.js');
+    return createApp({
+      ...fullAppInput(),
+      tenancy: 'multi',
+      systemAccessAudit: { record: async () => undefined },
+      resolveToken: async (token) => {
+        if (token === TENANT_KEY) {
+          return { tenantId, scopes: ['tenant-admin'], capabilities: ['kindgi:system'] };
+        }
+        if (token === ZERO_SCOPE) {
+          return { tenantId: SYSTEM_TENANT_ID, system: { keyId: 'zero' }, capabilities: [] };
+        }
+        return null;
+      },
+    });
+  }
+
+  test('there are system operations to sweep', () => {
+    expect(systemOps.length).toBeGreaterThan(0);
+  });
+
+  test.each([
+    [TENANT_KEY, 'system-principal-required'],
+    [ZERO_SCOPE, 'system-scope-missing'],
+  ])('%s gets %s on every one', async (token, expected) => {
+    const app = await sweepApp();
+    const wrong: string[] = [];
+    for (const op of systemOps) {
+      const method = op.method.toUpperCase();
+      const res = await app.request(op.honoPath.replace(/:[A-Za-z]+/g, randomUUID()), {
+        method,
+        headers: {
+          authorization: `Bearer ${token}`,
+          ...(method !== 'GET' && { 'content-type': 'application/json' }),
+        },
+        ...(method !== 'GET' && { body: '{}' }),
+      });
+      const code = ((await res.json().catch(() => ({}))) as { error?: { code?: string } }).error
+        ?.code;
+      if (res.status !== 403 || code !== expected) {
+        wrong.push(`${method} ${op.openapiPath}: ${res.status} ${code}`);
+      }
+    }
+    expect(wrong).toEqual([]);
   });
 });

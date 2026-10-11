@@ -525,9 +525,9 @@ export interface CreateAppInput {
    */
   readonly systemKeys?: SystemKeysBinding;
   /**
-   * Optional. The record of every request a system principal makes (its
-   * key, scope, route and target tenant). Without it nothing is recorded,
-   * as on a runtime that issues no system keys.
+   * The record of every request a system principal makes (its key,
+   * scope, route and target tenant). Required with `tenancy: 'multi'`;
+   * optional otherwise, where there is no system principal.
    */
   readonly systemAccessAudit?: SystemAccessAuditBinding;
   /**
@@ -1072,6 +1072,13 @@ export interface ScalarDocsConfig {
 const DEFAULT_TOKEN_SIGN_IN_TTL_MS = 12 * 60 * 60 * 1000;
 
 export function createApp(input: CreateAppInput): Hono<AppEnv> {
+  // The operator's requests are on record wherever the operator acts in no
+  // tenant: the access procedure and the processing terms rely on it.
+  if (input.tenancy === 'multi' && input.systemAccessAudit === undefined) {
+    throw new Error(
+      "createApp: a runtime serving many tenants needs systemAccessAudit, the record of every request the operator's system keys make",
+    );
+  }
   // Every secret route and reader goes through one binding, whose writes
   // the webhook receiver hears: it keeps a trigger's signing key for a few
   // seconds, and drops it at once when its secret is written here.
@@ -1191,7 +1198,14 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     input.authz !== undefined ? createAuthorizer(input.authz.authzCheckBinding) : undefined;
   // A system principal acts in no tenant: it reaches /v1/system/* (and the
   // deployment's license), nothing else, and each of its requests is recorded.
-  v1.use('*', systemPrincipalFence(input.systemAccessAudit, authorizer));
+  v1.use(
+    '*',
+    systemPrincipalFence({
+      ...(input.systemAccessAudit !== undefined && { audit: input.systemAccessAudit }),
+      ...(authorizer !== undefined && { authorizer }),
+      ...(input.tenancy !== undefined && { tenancy: input.tenancy }),
+    }),
+  );
   // A key limited to a project names no other one.
   v1.use('*', refuseOtherProjectForKey(authorizer));
   // Page cursors are sealed at the edge, for every list.

@@ -13,6 +13,7 @@ import {
   SYSTEM_PRINCIPAL_ALLOWED_ROUTES,
   type SystemScope,
   holdsSystemScope,
+  isSystemCapability,
 } from '../system.js';
 import type { AppEnv } from '../types.js';
 import type { Authorizer } from './authorize.js';
@@ -79,24 +80,48 @@ function answer(
   );
 }
 
+export interface SystemPrincipalFenceOptions {
+  /** The record of every request a system principal makes. */
+  readonly audit?: SystemAccessAuditBinding;
+  /** Records a refusal of the caller, as every refusal the API decides itself is. */
+  readonly authorizer?: Authorizer;
+  /**
+   * How many tenants the runtime serves (default `single`). With `multi`, a
+   * tenant's key or session never holds the operator's powers: `kindgi:system`
+   * and every `system:*` are dropped from its capabilities, whatever it was
+   * minted with.
+   */
+  readonly tenancy?: 'single' | 'multi';
+}
+
 /**
- * Fences a system principal in: it reaches `/v1/system/*` and the
- * deployment-level routes of `SYSTEM_PRINCIPAL_ALLOWED_ROUTES`; any other
- * route answers `403 system-key-on-tenant-route` before its code runs.
- * Every request a system principal makes is recorded with `audit`, its
- * refusals too. Other callers pass untouched.
+ * Fences the operator's powers in, both ways:
+ * - **A system principal** reaches `/v1/system/*` and the deployment-level
+ *   routes of `SYSTEM_PRINCIPAL_ALLOWED_ROUTES`; any other route answers
+ *   `403 system-key-on-tenant-route` before its code runs. Every request it
+ *   makes is recorded with `audit`, its refusals too.
+ * - **A tenant's key or session** never reaches `/v1/system/*` (`403
+ *   system-principal-required`, before any route code, so a system route
+ *   mounted without a gate is still closed to it). On a runtime serving
+ *   many tenants it loses `kindgi:system` and `system:*`, with a warning
+ *   naming the key: a key minted before the runtime served many tenants
+ *   keeps none of the operator's powers.
  *
  * The record is written once the response is known. An action already
  * taken can't be undone, so a failed write is logged at error level and
  * the response still goes out.
  */
 export function systemPrincipalFence(
-  audit?: SystemAccessAuditBinding,
-  authorizer?: Authorizer,
+  options: SystemPrincipalFenceOptions = {},
 ): MiddlewareHandler<AppEnv> {
+  const { audit, authorizer, tenancy } = options;
   return async (c, next) => {
     const system = c.get('systemPrincipal');
-    if (system === undefined) return next();
+    if (system === undefined) {
+      if (isSystemPath(c.req.path)) return principalRequired(c, authorizer);
+      if (tenancy === 'multi') dropSystemCapabilities(c);
+      return next();
+    }
     const method = c.req.method;
     const path = c.req.path;
     const allowed =
@@ -137,6 +162,24 @@ export function systemPrincipalFence(
     }
     return refusal;
   };
+}
+
+/** A tenant's key or session on a runtime serving many tenants: no operator's powers. */
+function dropSystemCapabilities(c: Context<AppEnv>): void {
+  const capabilities = c.get('capabilities');
+  if (capabilities === undefined || !capabilities.some(isSystemCapability)) return;
+  c.set(
+    'capabilities',
+    capabilities.filter((cap) => !isSystemCapability(cap)),
+  );
+  c.get('log').warn(
+    "A tenant's key carries the operator's capabilities, which a runtime serving many tenants ignores: revoke it, and use a system key",
+    {
+      event: 'system-capability-dropped',
+      tokenId: c.get('tokenId'),
+      dropped: capabilities.filter(isSystemCapability),
+    },
+  );
 }
 
 /**
