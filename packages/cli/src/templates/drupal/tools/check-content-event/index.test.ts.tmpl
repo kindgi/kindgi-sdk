@@ -45,6 +45,13 @@ describe('{{PACK_ID}}.check-content-event', () => {
     expect(result.value.flags).toContain('no-revision-log');
   });
 
+  test("an event without the revision log field isn't flagged: Drupal didn't send it (an anonymous save)", async () => {
+    const { revision_log: _, ...entity } = event.entity as Record<string, unknown>;
+    const result = await invokeToolForTest(checkContentEvent, { event: { ...event, entity } });
+    if (result.kind !== 'ok') throw new Error(result.error.message);
+    expect(result.value.flags).not.toContain('no-revision-log');
+  });
+
   test('fails on anything that is not a node event', async () => {
     for (const other of [{ event: 'entity:user:update', entity: {} }, { webhook_id: 3 }]) {
       const result = await invokeToolForTest(checkContentEvent, { event: other });

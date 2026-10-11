@@ -35,6 +35,7 @@ export const NodeEvent = z.object({
     changed: one(z.string().max(40)),
     title: one(z.string()),
     moderation_state: atMostOne(z.string().max(64)).optional(),
+    /** Sent when the account that saved may view the revision or edit the article; a save from drush or cron (anonymous) has none. */
     revision_log: atMostOne(z.string().nullable()).optional(),
     body: atMostOne(z.string().nullable()).optional(),
   }),
@@ -53,7 +54,12 @@ export const CheckedEvent = z.object({
   changedAt: z.string(),
   /** The house-style phrases the text has (`lib/drupal.ts`). */
   houseStyle: z.array(z.string()),
-  /** What an editor should look at: `live-change`, `house-style`, `no-revision-log`. */
+  /**
+   * What an editor should look at: `live-change`, `house-style`, `no-revision-log`.
+   * `no-revision-log` only when the event has the field and it's empty: Drupal
+   * leaves the field out when the account that saved may neither view the
+   * revision nor edit the article, and then the event can't say.
+   */
   flags: z.array(z.string()),
 });
 
@@ -66,7 +72,8 @@ export function checkEvent(event: z.infer<typeof NodeEvent>): z.infer<typeof Che
   const flags: string[] = [];
   if (published && change === 'updated') flags.push('live-change');
   if (houseStyle.length > 0) flags.push('house-style');
-  if (change === 'updated' && (node.revision_log?.[0]?.value ?? '').trim() === '') {
+  const log = node.revision_log;
+  if (change === 'updated' && log !== undefined && (log[0]?.value ?? '').trim() === '') {
     flags.push('no-revision-log');
   }
   return {
@@ -86,7 +93,7 @@ export function checkEvent(event: z.infer<typeof NodeEvent>): z.infer<typeof Che
 const defined = defineTool({
   id: '{{PACK_ID}}.check-content-event' as ToolId,
   description:
-    "Check a Drupal node event and keep its typed fields and house-style findings: no article text and no editor account. Calls nothing.",
+    'Check a Drupal node event and keep its typed fields and house-style findings: no article text and no editor account. Calls nothing.',
   version: '{{PACK_VERSION}}',
   input: z.object({ event: NodeEvent }),
   output: CheckedEvent,

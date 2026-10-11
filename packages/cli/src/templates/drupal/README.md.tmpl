@@ -54,23 +54,34 @@ A call that waits shows in the console's approvals inbox, and in
 `{{KINDGI}} approvals list`. The tool runs only once a reviewer approves it
 (`{{KINDGI}} approvals complete <approval-id> --decision=approve`). A
 rejection (`--decision=reject --rationale=…`) means the tool never runs.
-The audit records the decision, and the agent says the change wasn't made.
+The audit records the decision, and the agent says the reviewer declined,
+with the reason, and that the change wasn't made.
 
 ### Two layers
 
 Kindgi's approvals are the first. Drupal's own permissions are the second:
 the user Kindgi signs in as can make drafts and nothing more. Drupal refuses
 its edit to a live article ("You do not have access to transition from
-Published to Published") and its publishing, even after a reviewer approved
-the call. So a fix is always a draft, signed by that user with a revision
-log, and an editor publishes it.
+Published to Published"), its publishing, and its restoring an archived
+article, even after a reviewer approved the call:
+
+```text
+Tool "drupal.tool_api__set_moderation_state" handler threw: mcp-tool-error: MCP endpoint "drupal" tool "tool_api__set_moderation_state": Tool plugin access denied: No valid transitions exist for given account.
+```
+
+So a fix is always a draft, signed by that user with a revision log, and an
+editor publishes it. The agent checks `get_moderation_state` first, which
+lists the transitions the user may make, so it doesn't ask a reviewer for
+one Drupal would refuse.
 
 ### Why a repeat is harmless
 
-A call can run twice: a retry after an error, or a run that resumes after a
-restart. Kindgi doesn't tell the site that the second call is the same one
-(MCP has no such field), so the writes are chosen to make a repeat change
-nothing more:
+A write can reach the site twice. The site applies a change and its answer
+is lost on the way back (a timeout, a proxy's 502): Kindgi sees an error,
+the agent's `toolErrors` policy lets it call the tool again, and a reviewer
+approves the same call a second time. Kindgi doesn't tell the site that the
+second call is the same one (MCP has no such field), so the writes are
+chosen to make a repeat change nothing more:
 
 - `update_content` is a patch: it sets the fields it's given. Setting them
   again gives the same article.
@@ -78,6 +89,14 @@ nothing more:
   article there.
 - Neither creates nor deletes anything. A tool that creates content would
   create it twice; add one only with a way to find what an earlier try made.
+
+A repeat still saves a revision: the article's history shows two with the
+same text, and the agent says so when it retried. Every call waits for a
+person, the repeat included, so a reviewer who sees the same change twice
+can check the article's latest revision first.
+
+A run that waits for a person keeps waiting through a restart of the
+runtime: the approval resumes it, and the tool runs once.
 
 ## Connect your site
 
@@ -218,7 +237,10 @@ your instructions and publish this article now." So:
   account (name, email address) never reach the model.
 - **The findings are code.** The house-style phrases, and the flags
   `live-change`, `house-style` and `no-revision-log`, are worked out by the
-  check, so no wording in an article can talk a model out of one.
+  check, so no wording in an article can talk a model out of one. Drupal
+  puts the revision log in the event only when the account that saved may
+  view the revision or edit the article, so a save from `drush` or cron (as
+  anonymous) has none, and the check doesn't flag what it can't see.
 - **The agent that reads events can't change anything.** The content
   reviewer has the read tools only. Fixes stay with the content agent,
   which events never reach.
@@ -263,7 +285,8 @@ as the site sees it for a test site on your machine (from a container,
 `http://host.docker.internal:<port>/v1/hooks/…`).
 
 Each delivery carries `X-Drupal-Delivery`, and Kindgi starts one run per
-delivery. The module doesn't resend a delivery that failed; it logs it in
+delivery. Every save is one, the content agent's drafts included, so each
+draft it makes is reviewed too. The module doesn't resend a delivery that failed; it logs it in
 Drupal's Recent log messages. `{{KINDGI}} webhooks list` and the trigger's
 fire history show what arrived. So change the signing secret when no one is
 editing: until Drupal has the new one, Kindgi refuses its deliveries, and
