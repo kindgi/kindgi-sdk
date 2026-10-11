@@ -224,6 +224,25 @@ describe('the production gate', () => {
     }
   });
 
+  test('gate on, no record of the tenant: refused, never read as allowed', async () => {
+    const { trio } = makeApp();
+    const stubs = createStubAppBindings();
+    const app = createApp({
+      ...stubs,
+      tenantHierarchyBinding: { ...stubs.tenantHierarchyBinding, getTenant: async () => null },
+      resolveToken,
+      runHandler,
+      projectBinding: trio.projects,
+      projectMembershipBinding: trio.memberships,
+      production: { gate: true, next: NEXT },
+    });
+    const id = await newProject(trio);
+    const res = await put(app, id, { production: true });
+    expect(res.status).toBe(404);
+    expect(((await res.json()) as { error: { code: string } }).error.code).toBe('tenant-not-found');
+    expect((await trio.projects.get(tenantId, id as never))?.productionSince).toBeUndefined();
+  });
+
   test('gate off: a tenant that is not allowed still goes into production', async () => {
     const { app, trio } = makeApp({ tenant: { productionAllowed: false } });
     const id = await newProject(trio);
