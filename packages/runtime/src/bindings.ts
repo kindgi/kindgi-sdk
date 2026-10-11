@@ -170,14 +170,6 @@ export interface SchedulerBinding {
   startEventTriggerScheduler(options: EventTriggerSchedulerOptions): EventTriggerSchedulerHandle;
 
   /**
-   * Fire a specific webhook trigger by its webhookId. Called by a
-   * webhook receiver AFTER it has verified the request's HMAC
-   * signature. The scheduler resolves the trigger, dispatches the
-   * flow, and journals the fire.
-   */
-  fireByWebhookId(input: FireByWebhookIdInput): Promise<Result<{ readonly runId: RunId }, unknown>>;
-
-  /**
    * Compute the initial `nextFireAt` for a cron config. Called at
    * trigger register/update to precompute the first-fire timestamp
    * in the same write.
@@ -205,13 +197,6 @@ export interface EventTriggerSchedulerOptions {
 
 export interface EventTriggerSchedulerHandle {
   stop(): Promise<void>;
-}
-
-export interface FireByWebhookIdInput {
-  readonly tenantId: TenantId;
-  readonly webhookId: string;
-  readonly runFlowBinding: unknown;
-  readonly requestBody: unknown;
 }
 
 /**

@@ -160,6 +160,13 @@ KINDGI_SECRETS_VAULT_ADDR must be https:// …
 Secrets manager probe failed at boot: unauthorized: … preflight capability check returned 403 … The token needs access to paths under kindgi/, a kv-v2 mount. Check …
 ```
 
+With Kubernetes login, a pod whose service account the role doesn't bind
+doesn't start either (exit code 2). The part after `403:` is Vault's own:
+
+```text
+Secrets manager probe failed at boot: unauthorized: Vault probe failed: Vault's Kubernetes login (auth/kubernetes, role kindgi-runtime) answered 403: service account name not authorized. Check that the role exists, binds this service account and namespace, and that the auth method can review tokens. Check …
+```
+
 The settings are all in the
 [environment variable reference](../../reference/env-vars/#kindgi_secrets_manager).
 AWS Secrets Manager (`KINDGI_SECRETS_MANAGER=aws`) comes in 0.1.7: a 0.1.6

@@ -102,6 +102,45 @@ Sign-in domains: the tenant's own, and acme-live.example (KINDGI_AUTH_VERIFIED_D
 A domain that isn't verified can still sign in through its provider's own
 link: `kindgi sso providers test` prints it.
 
+## Who manages a workspace's identity providers
+
+By default, each workspace's admins add, change and remove its own identity
+providers, from the console's **Sign-in** page or `kindgi sso providers`
+([Set up SSO](../../guides/sso/)). The startup output says so:
+
+```text
+  Identity providers: each tenant's admins set up their own (KINDGI_AUTH_TENANT_PROVIDERS=off keeps that to this deployment's own token)
+```
+
+To manage sign-in yourself, for every workspace (from your deployment's own
+scripts, say), turn that off:
+
+```sh
+# kindgi.env
+KINDGI_AUTH_TENANT_PROVIDERS=off
+```
+
+```text
+  Identity providers: the operator's (KINDGI_AUTH_TENANT_PROVIDERS=off): only this deployment's own token adds, changes or removes them; the ones there keep signing people in
+```
+
+- **Only the deployment's own token** (`KINDGI_API_TOKEN`) can then add,
+  change or remove a provider. A workspace admin's change is refused with
+  `403 identity-providers-operator-managed`:
+
+  ```text
+  This deployment's operator manages sign-in (KINDGI_AUTH_TENANT_PROVIDERS=off): identity providers can't be added, changed or removed here, except with the deployment's own token (KINDGI_API_TOKEN).
+  ```
+
+- **The providers already there keep signing people in,** and anyone may
+  still read them: the list says `changes: operator`.
+- **The console's Sign-in page** says who manages it, and lists the
+  providers with **Try** only:
+
+  ![The Sign-in page with KINDGI_AUTH_TENANT_PROVIDERS=off: Whoever runs Kindgi manages sign-in here, and acme-ops listed with Try only](../../../assets/sso/console-providers-operator.png)
+
+`on` is the default. Like the other settings here, it needs sign-in on.
+
 ## Continue with Google, Microsoft or GitHub
 
 The deployment's own apps let people sign in with their Google, Microsoft or

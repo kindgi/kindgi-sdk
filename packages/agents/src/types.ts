@@ -418,8 +418,9 @@ export interface Agent {
    * this to build a "configure agent" form; the runtime validates each
    * required parameter is provided before the model call.
    *
-   * Framework auto-vars (`today`, `now`, `agent.*`, `conversation.*`)
-   * do not need to be declared here — they're supplied by the runtime.
+   * Framework auto-vars (`AUTO_INJECTED_VARS`: `today`, `now`, `agent.*`,
+   * `conversation.*`, `input.*`, `settings[…]`) are supplied by the
+   * runtime, and a parameter can't take one of their names.
    */
   readonly parameters?: readonly PromptParameter[];
   /**
