@@ -3,7 +3,8 @@
 
 /**
  * How `kindgi init` writes a third-party dependency it adds to an app
- * (zod): at the version Kindgi is tested with, written exactly when the
+ * (zod; vitest and vite for its tests): at the version Kindgi is tested
+ * with, written exactly when the
  * app pins exactly or its package manager saves exact versions, else as a
  * `^` range from that version. Kindgi's own packages are always exact
  * (`dependency-specs.ts`).
@@ -20,6 +21,19 @@ import semver from 'semver';
  * and `@kindgi/sdk`'s zod range.
  */
 export const TESTED_ZOD_VERSION = '4.6.5';
+
+/**
+ * The vitest a pack's tests are run with, and the vite it needs (vitest
+ * names vite as a peer it doesn't install, so init adds both): what the
+ * fresh templates and augment mode write. Bump them with each release
+ * after a pack's `kindgi test` passes on them; a test checks the vite is
+ * inside vitest's peer range and the templates agree.
+ */
+export const TESTED_VITEST_VERSION = '5.0.3';
+export const TESTED_VITE_VERSION = '8.3.4';
+
+/** The vites `TESTED_VITEST_VERSION` takes (its `peerDependencies.vite`). */
+export const VITEST_VITE_RANGE = '^6.4.0 || ^7.0.0 || ^8.0.0';
 
 /** `version` as an app writes it: exact, or a `^` range from it. */
 export function specAt(version: string, exact: boolean): string {

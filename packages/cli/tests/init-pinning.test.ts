@@ -10,7 +10,15 @@ import { fileURLToPath } from 'node:url';
 import semver from 'semver';
 import { afterEach, beforeEach, describe, expect, test } from 'vitest';
 
-import { TESTED_ZOD_VERSION, pinsExactly, savesExact, specAt } from '../src/init/pinning.js';
+import {
+  TESTED_VITEST_VERSION,
+  TESTED_VITE_VERSION,
+  TESTED_ZOD_VERSION,
+  VITEST_VITE_RANGE,
+  pinsExactly,
+  savesExact,
+  specAt,
+} from '../src/init/pinning.js';
 
 describe('the tested zod', () => {
   const sdkDir = fileURLToPath(new URL('../../sdk/', import.meta.url));
@@ -29,6 +37,14 @@ describe('the tested zod', () => {
     const range = sdk.peerDependencies.zod;
     expect(range).toBeDefined();
     expect(semver.satisfies(TESTED_ZOD_VERSION, range as string)).toBe(true);
+  });
+});
+
+describe('the tested vitest and vite', () => {
+  test('the vite is one the vitest takes, and both are versions, not ranges', () => {
+    expect(semver.valid(TESTED_VITEST_VERSION)).toBe(TESTED_VITEST_VERSION);
+    expect(semver.valid(TESTED_VITE_VERSION)).toBe(TESTED_VITE_VERSION);
+    expect(semver.satisfies(TESTED_VITE_VERSION, VITEST_VITE_RANGE)).toBe(true);
   });
 });
 
