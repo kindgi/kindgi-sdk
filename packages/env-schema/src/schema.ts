@@ -1182,6 +1182,44 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'pack-service',
   },
   {
+    name: 'KINDGI_PACK_TENANT_ID',
+    description:
+      "The one tenant this pack service serves. Set: the service refuses, with 421 (`pack-tenant-mismatch`), a call whose `kindgi-tenant-id` header is missing or names another tenant, and a tool call whose context names another tenant, before any pack code runs. The server sends the header on every call, from the deployment it routed the call to. An orchestrator that runs a pack service per tenant sets it. Unset: no check. It's a backstop for a misrouted call to an honest pack, not a boundary: the server's routing is.",
+    example: '',
+    required: false,
+    appliesTo: appliesToPackService,
+    group: 'pack-service',
+  },
+  {
+    name: 'KINDGI_PACK_ROUTING',
+    description:
+      'How the server finds the pack service for a call. `single` (default): one pack service, `KINDGI_PACK_SERVICE_URL`, for every call. `per-deployment`: each call goes to the pack service of the deployment that shipped the tool or check, the newest such deployment with an endpoint, recorded through the system API by whatever runs the services (an orchestrator, or a script). `KINDGI_PACK_SERVICE_URL` is then refused, and a call whose deployment has no endpoint fails (`pack-endpoint-pending`): it never falls back to another service. Deployments registered before it was turned on have no routes; deploy them again.',
+    example: 'single',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'pack-service',
+    allowedValues: ['single', 'per-deployment'],
+  },
+  {
+    name: 'KINDGI_PACK_ENDPOINT_HOSTS',
+    description:
+      "With `KINDGI_PACK_ROUTING=per-deployment`: the hosts a deployment's pack endpoint may name, comma-separated. Each is a host name, or `*.` and a domain, which matches one more label in front of it (`*.us-central1.run.app` matches `kp-abc-123.us-central1.run.app`). Lowercase, with no scheme, port or path. Without it, every endpoint is refused, so per-deployment routing is never open by default.",
+    example: '*.us-central1.run.app',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'pack-service',
+  },
+  {
+    name: 'KINDGI_PACK_ENDPOINT_NAMES',
+    description:
+      "With `KINDGI_PACK_ROUTING=per-deployment`: whether an endpoint's host must begin with the service name derived from its tenant and deployment (`kp-` and 20 characters, then `-`), so an endpoint can't point one tenant's deployment at another's service. `bound` (default): it must. `any`: no name check, for services named by hand; a multi-tenant server refuses to start with it.",
+    example: 'bound',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'pack-service',
+    allowedValues: ['bound', 'any'],
+  },
+  {
     name: 'KINDGI_IMAGE_REGISTRY_HOST',
     description:
       'The registry host the credentials below are for, with its port when it has one (e.g. `registry.example`, `ghcr.io`). Other registries are read anonymously.',

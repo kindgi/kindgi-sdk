@@ -9,10 +9,15 @@ import {
   CORS_ORIGINS_VAR,
   KINDGI_ENV_SCHEMA,
   PUBLIC_TOKEN_KEY_PATH_VAR,
+  packEndpointHostAllowed,
   parseAzureKeyId,
   parseAzureVaultUrl,
   parseCorsOrigins,
+  parsePackEndpointHosts,
+  parsePackEndpointNames,
+  parsePackRouting,
   parsePackServiceToken,
+  parsePackTenantId,
   parsePublicUrl,
 } from '../src/index.js';
 
@@ -171,5 +176,79 @@ describe('parsePublicUrl (T219)', () => {
     ]) {
       expect(() => parsePublicUrl(bad)).toThrow(/^KINDGI_PUBLIC_URL must be an http\(s\) URL/);
     }
+  });
+});
+
+describe('parsePackTenantId', () => {
+  test('without its surrounding whitespace; unset or blank is undefined (no pin)', () => {
+    expect(parsePackTenantId('t-1')).toBe('t-1');
+    expect(parsePackTenantId(' 4fc847d5-95b4-4c68-bf9d-618a241c9771\n')).toBe(
+      '4fc847d5-95b4-4c68-bf9d-618a241c9771',
+    );
+    expect(parsePackTenantId(undefined)).toBeUndefined();
+    expect(parsePackTenantId(' ')).toBeUndefined();
+  });
+
+  test.each([['two words'], ['caf\u00e9'], ['nul\u0000']])(
+    "refuses %j, which a header can't carry",
+    (raw) => {
+      expect(() => parsePackTenantId(raw)).toThrow(
+        'KINDGI_PACK_TENANT_ID may hold only printable ASCII',
+      );
+    },
+  );
+});
+
+describe('parsePackRouting and parsePackEndpointNames', () => {
+  test('defaults: single routing, bound names', () => {
+    expect(parsePackRouting(undefined)).toBe('single');
+    expect(parsePackRouting('')).toBe('single');
+    expect(parsePackRouting('per-deployment')).toBe('per-deployment');
+    expect(parsePackEndpointNames(undefined)).toBe('bound');
+    expect(parsePackEndpointNames('any')).toBe('any');
+  });
+
+  test('anything else fails at startup, naming the setting', () => {
+    expect(() => parsePackRouting('per-tenant')).toThrow('KINDGI_PACK_ROUTING');
+    expect(() => parsePackEndpointNames('loose')).toThrow('KINDGI_PACK_ENDPOINT_NAMES');
+  });
+});
+
+describe('KINDGI_PACK_ENDPOINT_HOSTS', () => {
+  const allowed = parsePackEndpointHosts('*.us-central1.run.app, pack.internal');
+
+  test('unset or blank: none, so every endpoint is refused', () => {
+    expect(parsePackEndpointHosts(undefined)).toEqual([]);
+    expect(packEndpointHostAllowed('pack.internal', parsePackEndpointHosts(''))).toBe(false);
+  });
+
+  test('`*.` matches exactly one more label in front of the domain', () => {
+    expect(
+      packEndpointHostAllowed('kp-abcdefghijklmnopqrst-123.us-central1.run.app', allowed),
+    ).toBe(true);
+    expect(packEndpointHostAllowed('KP-ABC.US-CENTRAL1.RUN.APP', allowed)).toBe(true);
+    expect(packEndpointHostAllowed('us-central1.run.app', allowed)).toBe(false);
+    expect(packEndpointHostAllowed('a.b.us-central1.run.app', allowed)).toBe(false);
+    expect(packEndpointHostAllowed('kp-x.europe-west1.run.app', allowed)).toBe(false);
+    expect(packEndpointHostAllowed('evilus-central1.run.app', allowed)).toBe(false);
+  });
+
+  test('an exact host matches only itself', () => {
+    expect(packEndpointHostAllowed('pack.internal', allowed)).toBe(true);
+    expect(packEndpointHostAllowed('x.pack.internal', allowed)).toBe(false);
+  });
+
+  test.each([
+    ['https://x.run.app'],
+    ['x.run.app:443'],
+    ['x.run.app/path'],
+    ['*'],
+    ['*.app'],
+    ['localhost'],
+    ['Upper.Example.com'],
+  ])('refuses %j at startup', (raw) => {
+    expect(() => parsePackEndpointHosts(raw)).toThrow(
+      'KINDGI_PACK_ENDPOINT_HOSTS takes host names',
+    );
   });
 });

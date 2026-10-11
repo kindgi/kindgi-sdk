@@ -119,6 +119,112 @@ export function parsePackServiceToken(raw: string | undefined): string | undefin
   return token;
 }
 
+/** The tenant a pack service serves: it refuses calls for any other (`KINDGI_PACK_TENANT_ID`). */
+export const PACK_TENANT_ID_VAR = 'KINDGI_PACK_TENANT_ID';
+
+/**
+ * `KINDGI_PACK_TENANT_ID` as the pack service reads it, without surrounding
+ * whitespace: it's compared with the `kindgi-tenant-id` header, which never
+ * carries any. Unset or blank: `undefined` (no tenant pin). Throws on
+ * whitespace, a control character or a non-ASCII character inside.
+ */
+export function parsePackTenantId(raw: string | undefined): string | undefined {
+  const id = raw?.trim();
+  if (id === undefined || id === '') return undefined;
+  if (!/^[\x21-\x7e]+$/.test(id)) {
+    throw new Error(
+      `${PACK_TENANT_ID_VAR} may hold only printable ASCII without spaces (it's compared with a header). Got a value with other characters.`,
+    );
+  }
+  return id;
+}
+
+/** How the server picks the pack service for a call (`KINDGI_PACK_ROUTING`). */
+export const PACK_ROUTING_VAR = 'KINDGI_PACK_ROUTING';
+
+/** `single`: one pack service for every call. `per-deployment`: the service of the deployment that shipped the tool or check. */
+export type PackRouting = 'single' | 'per-deployment';
+
+/** Parse `KINDGI_PACK_ROUTING`. Unset or blank: `single`. Throws on any other value. */
+export function parsePackRouting(raw: string | undefined): PackRouting {
+  const value = raw?.trim();
+  if (value === undefined || value === '' || value === 'single') return 'single';
+  if (value === 'per-deployment') return 'per-deployment';
+  throw new Error(`${PACK_ROUTING_VAR} is \`single\` or \`per-deployment\`. Got "${value}".`);
+}
+
+/** The hosts a deployment's pack endpoint may name (`KINDGI_PACK_ENDPOINT_HOSTS`). */
+export const PACK_ENDPOINT_HOSTS_VAR = 'KINDGI_PACK_ENDPOINT_HOSTS';
+
+/**
+ * One allowed host: `exact` (`pack.internal`), or `suffix`, from `*.<suffix>`,
+ * which matches one more label in front of the suffix
+ * (`*.us-central1.run.app` matches `kp-abc-123.us-central1.run.app`, but
+ * neither `us-central1.run.app` itself nor `a.b.us-central1.run.app`).
+ */
+export type PackEndpointHost =
+  | { readonly kind: 'exact'; readonly host: string }
+  | { readonly kind: 'suffix'; readonly suffix: string };
+
+const HOST_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+
+function isHostName(name: string): boolean {
+  const labels = name.split('.');
+  return labels.length >= 2 && labels.every((label) => HOST_LABEL.test(label));
+}
+
+/**
+ * Parse `KINDGI_PACK_ENDPOINT_HOSTS`: comma-separated host names, lowercase,
+ * with no scheme, port or path, each exact or `*.` and a suffix of at least
+ * two labels. Unset or blank: none, so every endpoint is refused. Throws on
+ * anything else, so a typo fails at startup rather than refusing every
+ * endpoint later.
+ */
+export function parsePackEndpointHosts(raw: string | undefined): readonly PackEndpointHost[] {
+  if (raw === undefined || raw.trim() === '') return [];
+  return raw.split(',').map((entry) => {
+    const item = entry.trim();
+    const suffix = item.startsWith('*.') ? item.slice(2) : undefined;
+    const name = suffix ?? item;
+    if (!isHostName(name)) {
+      throw new Error(
+        `${PACK_ENDPOINT_HOSTS_VAR} takes host names, or \`*.\` and a domain, comma-separated: lowercase, with no scheme, port or path (for example \`*.us-central1.run.app\`). Got "${item}".`,
+      );
+    }
+    return suffix === undefined
+      ? { kind: 'exact' as const, host: name }
+      : { kind: 'suffix' as const, suffix: name };
+  });
+}
+
+/** Whether `host` is one `KINDGI_PACK_ENDPOINT_HOSTS` allows (compared lowercase). */
+export function packEndpointHostAllowed(
+  host: string,
+  allowed: readonly PackEndpointHost[],
+): boolean {
+  const name = host.toLowerCase();
+  return allowed.some((entry) => {
+    if (entry.kind === 'exact') return name === entry.host;
+    if (!name.endsWith(`.${entry.suffix}`)) return false;
+    const first = name.slice(0, name.length - entry.suffix.length - 1);
+    return HOST_LABEL.test(first);
+  });
+}
+
+/** Whether an endpoint's host must begin with its deployment's service name (`KINDGI_PACK_ENDPOINT_NAMES`). */
+export const PACK_ENDPOINT_NAMES_VAR = 'KINDGI_PACK_ENDPOINT_NAMES';
+
+/** `bound`: the host begins with the name derived from the tenant and deployment. `any`: no name check. */
+export type PackEndpointNames = 'bound' | 'any';
+
+/** Parse `KINDGI_PACK_ENDPOINT_NAMES`. Unset or blank: `bound`. Throws on any other value. */
+export function parsePackEndpointNames(raw: string | undefined): PackEndpointNames {
+  const value = raw?.trim();
+  if (value === undefined || value === '' || value === 'bound') return 'bound';
+  if (value === 'any') return 'any';
+  throw new Error(`${PACK_ENDPOINT_NAMES_VAR} is \`bound\` or \`any\`. Got "${value}".`);
+}
+
 /**
  * Parse `KINDGI_CORS_ORIGINS`: comma-separated exact origins
  * (`https://app.example.com`, `http://localhost:3000`): a scheme, a host

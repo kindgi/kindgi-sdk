@@ -338,6 +338,7 @@ describe('envVarsForTarget — the pack service', () => {
     'KINDGI_PACK_ENV_CHECK',
     'KINDGI_PACK_ENV_FILTER',
     'KINDGI_PACK_ENV_DECLARED',
+    'KINDGI_PACK_TENANT_ID',
   ];
 
   test("component=pack-service is the pack service's vars and none of the server's", () => {
@@ -352,6 +353,24 @@ describe('envVarsForTarget — the pack service', () => {
       expect(names).not.toContain('KINDGI_PACK_SERVICE_TOKEN');
       expect(names).not.toContain('KINDGI_PACK_CALL_TIMEOUT_MS');
       expect(names).not.toContain('KINDGI_PACK_INDEX');
+    }
+  });
+
+  test("the per-deployment routing settings are the server's, offered whatever its transport", () => {
+    for (const target of [
+      {},
+      { component: 'server' as const },
+      { packTransport: 'http' as const },
+    ]) {
+      const names = envVarsForTarget(target).map((v) => v.name);
+      expect(names).toEqual(
+        expect.arrayContaining([
+          'KINDGI_PACK_ROUTING',
+          'KINDGI_PACK_ENDPOINT_HOSTS',
+          'KINDGI_PACK_ENDPOINT_NAMES',
+        ]),
+      );
+      expect(names).not.toContain('KINDGI_PACK_TENANT_ID');
     }
   });
 
