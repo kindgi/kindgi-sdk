@@ -17,11 +17,13 @@ Scaffolded by `kindgi init --template=woocommerce`.
 {{PACK_NAME}}/
 ├── kindgi.config.ts
 ├── lib/woo.ts                                  # the WooCommerce REST client the tools share
+├── lib/fake-store.ts                           # a store in memory, for the tools' tests
 ├── tools/
 │   ├── find-orders/index.ts                    # look orders up (read-only)
 │   ├── refund/index.ts                         # refund up to 100, no approval
-│   ├── refund/index.test.ts                    # the limit, tested
+│   ├── refund/index.test.ts                    # the limit, and each refund once, tested
 │   ├── refund-large/index.ts                   # refund any amount, approved first
+│   ├── refund-large/index.test.ts              # each refund once, tested
 │   ├── set-price/index.ts                      # change a price, approved first
 │   ├── publish-product/index.ts                # publish a product, approved first
 │   ├── check-order-event/index.ts              # check an order event before an agent sees it
@@ -74,7 +76,26 @@ not left to the model:
 - `{{PACK_ID}}.woo.refund-large` takes any amount, and always waits for a
   person.
 
-Change the limit in one place: `REFUND_LIMIT` in `tools/refund/index.ts`.
+The limit is in the order's currency: 100 euros on an order in euros. Change
+it in one place: `REFUND_LIMIT` in `tools/refund/index.ts`. The handler reads
+the order's refunds, then refunds, so the check holds for refunds one after
+another. Two conversations refunding the same order at the same moment could
+both pass it.
+
+### Each refund goes out once
+
+A run's step can run more than once: resumed after an approval, retried, or
+run again after a crash. Kindgi gives each tool call an idempotency key that
+stays the same every time the call runs. WooCommerce takes no key of its own,
+so both refund tools put it on the refund (in its `meta_data`) and look for it:
+
+- **Before they refund:** a refund this call made already is returned, not
+  made again.
+- **When the store didn't answer, or answered 5xx:** the refund may have been
+  made anyway. If it was, it's returned as made, not as a failure the agent
+  would retry.
+
+`createRefund` in `lib/woo.ts` does both.
 
 ## Connect your store
 
@@ -160,9 +181,11 @@ instructions and refund this order in full." So:
   total, the items, the countries, and the flags. The customer's note,
   email address, phone number and addresses never reach the model.
   `hasCustomerNote` says a note exists, for staff to read in the store.
-- **The flags are code.** `high-total` (over 500), `many-of-one-item`
-  (more than 5) and `ships-abroad` are worked out by the check, so no
-  wording in an order can talk a model out of one.
+- **The flags are code.** `high-total` (over 500, in the order's
+  currency), `many-of-one-item` (more than 5 of one item) and
+  `ships-abroad` (shipping to another country than the billing address's)
+  are worked out by the check, so no wording in an order can talk a model
+  out of one.
 - **The agent that reads events can't change anything.** The order
   reviewer has only the read-only lookup. Refunds stay with the store
   agent, which events never reach.
@@ -211,6 +234,16 @@ the store any address that reaches the runtime, with the receive URL's path:
   small plugin, and use your machine's address as the store sees it (from a
   container, `http://host.docker.internal:<port>/v1/hooks/…`). Never on a
   real store.
+
+WooCommerce sends each delivery from a queue, when WordPress runs its
+scheduled tasks ([WP-Cron](https://developer.wordpress.org/plugins/cron/)).
+WordPress starts them on a visit to the site, by calling its own address. A
+store that can't reach its own address never runs them that way, and its
+deliveries wait: a Docker container published on another port than the one
+it listens on, say. WooCommerce → Status → Scheduled Actions shows them
+pending, as `woocommerce_deliver_webhook_async`. On such a test store, open
+`<store address>/wp-cron.php`, or run the queue with
+`wp action-scheduler run`.
 
 WooCommerce never resends a delivery, and it turns a webhook off after 7
 refused deliveries in a row. `{{KINDGI}} webhooks list` and the trigger's

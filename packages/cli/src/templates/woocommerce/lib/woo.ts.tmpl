@@ -35,6 +35,12 @@ export const REFUND_NEEDS = {
 export interface WooContext {
   readonly env?: Readonly<Record<string, string | undefined>>;
   readonly secrets?: Readonly<Record<string, string | undefined>>;
+  /**
+   * The call's idempotency key (`ctx.idempotencyKey`): the same every time
+   * this call runs (its step resumed, retried or run again after a crash),
+   * and different for every other call. Absent outside a run.
+   */
+  readonly idempotencyKey?: string;
 }
 
 /** A call to the store that WooCommerce refused: its status and its own words. */
@@ -103,27 +109,74 @@ export function refundedSoFar(order: WooOrder): number {
   return (order.refunds ?? []).reduce((sum, r) => sum + Math.abs(Number(r.total) || 0), 0);
 }
 
+/** A refund, as `GET orders/<id>/refunds` lists it. */
+export interface WooRefund {
+  readonly id: number;
+  readonly amount: string;
+  readonly meta_data?: readonly { readonly key: string; readonly value: unknown }[];
+}
+
+/** The refund's meta key that holds the idempotency key of the call that made it. */
+export const IDEMPOTENCY_META_KEY = '_kindgi_idempotency_key';
+
+/** The refund on the order that a run of this call made, if any. */
+async function refundOfThisCall(ctx: WooContext, orderId: number, key: string): Promise<WooRefund | undefined> {
+  // An order has a handful of refunds; 100 is the API's largest page.
+  const refunds = await woo<readonly WooRefund[]>(ctx, 'GET', `orders/${orderId}/refunds?per_page=100`);
+  return refunds.find((r) => r.meta_data?.some((m) => m.key === IDEMPOTENCY_META_KEY && m.value === key));
+}
+
 /**
- * Refund `amount` on an order, through WooCommerce's refunds API. With
+ * Refund `amount` on an order, through WooCommerce's refunds API, once. With
  * `WOO_REFUND_THROUGH_GATEWAY=true` the payment gateway moves the money
  * (`api_refund`); otherwise WooCommerce records the refund and the money
  * moves however your shop moves it (the default, and what a local store
  * does).
+ *
+ * A run's step can run more than once: resumed after an approval, retried
+ * after a failure, or run again after a crash. WooCommerce takes no
+ * idempotency key, so the call's key goes on the refund (`meta_data`), and
+ * this looks for it:
+ *   - first: a refund this call made already is returned, not made again;
+ *   - after a POST that failed without WooCommerce saying no (no answer, or
+ *     a 5xx): the store may have made the refund anyway, so a retry would
+ *     refund twice. If it's there, it's returned as made.
+ * `check` runs in between, on the order, before anything is refunded (the
+ * refund tool's limit). Without a key (outside a run) nothing is looked for.
  */
 export async function createRefund(
   ctx: WooContext,
   input: { readonly orderId: number; readonly amount: number; readonly reason: string },
+  check?: (order: WooOrder) => void,
 ): Promise<{ readonly refundId: number; readonly orderId: number; readonly amount: string; readonly currency: string }> {
+  const key = ctx.idempotencyKey;
   const order = await woo<WooOrder>(ctx, 'GET', `orders/${input.orderId}`);
-  const refund = await woo<{ readonly id: number; readonly amount: string }>(
-    ctx,
-    'POST',
-    `orders/${input.orderId}/refunds`,
-    {
+  const made = (refund: WooRefund) => ({
+    refundId: refund.id,
+    orderId: input.orderId,
+    amount: refund.amount,
+    currency: order.currency,
+  });
+  if (key !== undefined) {
+    const earlier = await refundOfThisCall(ctx, input.orderId, key);
+    if (earlier !== undefined) return made(earlier);
+  }
+  check?.(order);
+  try {
+    const refund = await woo<WooRefund>(ctx, 'POST', `orders/${input.orderId}/refunds`, {
       amount: input.amount.toFixed(2),
       reason: input.reason,
       api_refund: ctx.env?.WOO_REFUND_THROUGH_GATEWAY === 'true',
-    },
-  );
-  return { refundId: refund.id, orderId: input.orderId, amount: refund.amount, currency: order.currency };
+      ...(key !== undefined && { meta_data: [{ key: IDEMPOTENCY_META_KEY, value: key }] }),
+    });
+    return made(refund);
+  } catch (error) {
+    // A 4xx is WooCommerce saying no: nothing was refunded.
+    const refused = error instanceof WooError && error.status < 500;
+    if (key !== undefined && !refused) {
+      const after = await refundOfThisCall(ctx, input.orderId, key).catch(() => undefined);
+      if (after !== undefined) return made(after);
+    }
+    throw error;
+  }
 }

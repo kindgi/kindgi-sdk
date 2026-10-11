@@ -19,7 +19,7 @@ import { defineTool } from '@kindgi/sdk/define';
 import type { ToolId } from '@kindgi/sdk/types';
 import { z } from 'zod';
 
-/** An order over this total is flagged for a person to look at. */
+/** An order over this total, in the order's currency, is flagged for a person to look at. */
 export const HIGH_TOTAL = 500;
 /** More than this many of one item is flagged. */
 export const MANY_OF_ONE_ITEM = 5;
@@ -60,7 +60,10 @@ export const CheckedOrder = z.object({
   billingCountry: z.string(),
   shippingCountry: z.string(),
   hasCustomerNote: z.boolean(),
-  /** What a person should look at: `high-total`, `many-of-one-item`, `ships-abroad`. */
+  /**
+   * What a person should look at: `high-total`, `many-of-one-item`, and
+   * `ships-abroad` (the shipping country isn't the billing address's).
+   */
   flags: z.array(z.string()),
 });
 

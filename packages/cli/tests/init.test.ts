@@ -209,6 +209,8 @@ describe('kindgi init --template=woocommerce', () => {
       'tools/refund/index.ts',
       'tools/refund/index.test.ts',
       'tools/refund-large/index.ts',
+      'tools/refund-large/index.test.ts',
+      'lib/fake-store.ts',
       'tools/check-order-event/index.ts',
       'guardrails/no-customer-contact-details/index.ts',
       'agents/store-agent/index.ts',

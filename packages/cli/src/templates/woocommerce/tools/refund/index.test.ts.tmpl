@@ -1,44 +1,20 @@
-// {{PACK_ID}}.woo.refund — the $100 limit, called as a run calls it
-// (`invokeToolForTest`: the input schema first, then the env values Kindgi
-// would give it, defaults included, then the handler). The store is a fake
-// `fetch`; no WooCommerce needed.
+// {{PACK_ID}}.woo.refund — the limit of 100, and each refund once, called as a
+// run calls it (`invokeToolForTest`: the input schema first, then the env
+// values Kindgi would give it, defaults included, then the handler). The
+// store is `lib/fake-store.ts`; no WooCommerce needed.
+
+import { randomUUID } from 'node:crypto';
 
 import { afterEach, describe, expect, test, vi } from 'vitest';
 
 import { invokeToolForTest } from '@kindgi/sdk/define';
 
+import { fakeStore } from '../../lib/fake-store.js';
+import { IDEMPOTENCY_META_KEY } from '../../lib/woo.js';
 import refund from './index.js';
 
-interface Call {
-  readonly method: string;
-  readonly path: string;
-  readonly body: unknown;
-  readonly authorization: string | null;
-}
-
-/** A store whose order 1043 has been refunded `refunded` already. */
-function fakeStore(refunded: readonly number[]): Call[] {
-  const calls: Call[] = [];
-  vi.stubGlobal('fetch', async (url: URL, init: RequestInit) => {
-    const headers = new Headers(init.headers);
-    const body = typeof init.body === 'string' ? JSON.parse(init.body) : undefined;
-    calls.push({ method: init.method ?? 'GET', path: url.pathname, body, authorization: headers.get('authorization') });
-    if (init.method === 'POST') return Response.json({ id: 501, amount: (body as { amount: string }).amount });
-    return Response.json({
-      id: 1043,
-      number: '1043',
-      status: 'completed',
-      currency: 'USD',
-      total: '300.00',
-      date_created: '2026-10-01T10:00:00',
-      refunds: refunded.map((amount, i) => ({ id: 400 + i, total: (-amount).toFixed(2) })),
-    });
-  });
-  return calls;
-}
-
 /** What `kindgi env set` and `kindgi secrets set` would give the tool. */
-const store = {
+const settings = {
   env: { WOO_STORE_URL: 'http://store.test', WOO_USER: 'shop-agent' },
   secrets: { WOO_APP_PASSWORD: 'not-a-real-password' },
 };
@@ -49,28 +25,29 @@ afterEach(() => {
 
 describe('{{PACK_ID}}.woo.refund', () => {
   test('refunds 40 on an order with no refunds yet', async () => {
-    const calls = fakeStore([]);
-    const result = await invokeToolForTest(refund, { orderId: 1043, amount: 40, reason: 'Arrived torn' }, store);
+    const store = fakeStore();
+    const result = await invokeToolForTest(refund, { orderId: 1043, amount: 40, reason: 'Arrived torn' }, settings);
     expect(result).toEqual({
       kind: 'ok',
       value: { refundId: 501, orderId: 1043, amount: '40.00', currency: 'USD' },
     });
-    const post = calls.find((c) => c.method === 'POST');
+    const post = store.calls.find((c) => c.method === 'POST');
     expect(post?.path).toBe('/wp-json/wc/v3/orders/1043/refunds');
-    // WOO_REFUND_THROUGH_GATEWAY isn't set: its default, false, applies.
+    // WOO_REFUND_THROUGH_GATEWAY isn't set: its default, false, applies. Outside a run
+    // there's no idempotency key, so nothing goes on the refund.
     expect(post?.body).toEqual({ amount: '40.00', reason: 'Arrived torn', api_refund: false });
     expect(post?.authorization).toBe(`Basic ${Buffer.from('shop-agent:not-a-real-password').toString('base64')}`);
   });
 
   test('refunds through the payment gateway when WOO_REFUND_THROUGH_GATEWAY is true', async () => {
-    const calls = fakeStore([]);
+    const store = fakeStore();
     const result = await invokeToolForTest(
       refund,
       { orderId: 1043, amount: 40, reason: 'Arrived torn' },
-      { ...store, env: { ...store.env, WOO_REFUND_THROUGH_GATEWAY: 'true' } },
+      { ...settings, env: { ...settings.env, WOO_REFUND_THROUGH_GATEWAY: 'true' } },
     );
     expect(result.kind).toBe('ok');
-    expect(calls.find((c) => c.method === 'POST')?.body).toEqual({
+    expect(store.calls.find((c) => c.method === 'POST')?.body).toEqual({
       amount: '40.00',
       reason: 'Arrived torn',
       api_refund: true,
@@ -78,38 +55,71 @@ describe('{{PACK_ID}}.woo.refund', () => {
   });
 
   test("doesn't run without the store's address, and never calls the store", async () => {
-    const calls = fakeStore([]);
+    const store = fakeStore();
     const result = await invokeToolForTest(
       refund,
       { orderId: 1043, amount: 40, reason: 'Arrived torn' },
-      { ...store, env: { WOO_USER: 'shop-agent' } },
+      { ...settings, env: { WOO_USER: 'shop-agent' } },
     );
     expect(result).toMatchObject({ kind: 'err', error: { code: 'precondition-failed', reason: 'env-value-missing' } });
-    expect(calls).toEqual([]);
+    expect(store.calls).toEqual([]);
   });
 
   test('refuses 240 at the input schema, before the store is called', async () => {
-    const calls = fakeStore([]);
-    const result = await invokeToolForTest(refund, { orderId: 1043, amount: 240, reason: 'Arrived torn' }, store);
+    const store = fakeStore();
+    const result = await invokeToolForTest(refund, { orderId: 1043, amount: 240, reason: 'Arrived torn' }, settings);
     expect(result.kind).toBe('err');
     if (result.kind === 'err') expect(result.error.code).toBe('input-validation-failed');
-    expect(calls).toEqual([]);
+    expect(store.calls).toEqual([]);
   });
 
   test('refuses a refund that takes the order past 100 in total', async () => {
-    const calls = fakeStore([80]);
-    const result = await invokeToolForTest(refund, { orderId: 1043, amount: 80, reason: 'Arrived torn' }, store);
+    const store = fakeStore([80]);
+    const result = await invokeToolForTest(refund, { orderId: 1043, amount: 80, reason: 'Arrived torn' }, settings);
     expect(result.kind).toBe('err');
     if (result.kind === 'err') {
       expect(result.error.code).toBe('handler-error');
       expect(result.error.message).toContain('{{PACK_ID}}.woo.refund-large');
     }
-    expect(calls.some((c) => c.method === 'POST')).toBe(false);
+    expect(store.calls.some((c) => c.method === 'POST')).toBe(false);
   });
 
   test('refunds up to exactly 100 in total', async () => {
     fakeStore([60]);
-    const result = await invokeToolForTest(refund, { orderId: 1043, amount: 40, reason: 'Arrived torn' }, store);
+    const result = await invokeToolForTest(refund, { orderId: 1043, amount: 40, reason: 'Arrived torn' }, settings);
     expect(result.kind).toBe('ok');
+  });
+
+  test('the same call run twice refunds once: the second finds the refund the first made', async () => {
+    const store = fakeStore();
+    const call = { ...settings, idempotencyKey: randomUUID() };
+    const first = await invokeToolForTest(refund, { orderId: 1043, amount: 40, reason: 'Arrived torn' }, call);
+    const again = await invokeToolForTest(refund, { orderId: 1043, amount: 40, reason: 'Arrived torn' }, call);
+    expect(first).toEqual({ kind: 'ok', value: { refundId: 501, orderId: 1043, amount: '40.00', currency: 'USD' } });
+    expect(again).toEqual(first);
+    expect(store.refunds).toHaveLength(1);
+    expect(store.refunds[0]?.meta_data).toEqual([{ key: IDEMPOTENCY_META_KEY, value: call.idempotencyKey }]);
+  });
+
+  test('a refund the store made but answered 502 for is returned as made, not refunded again', async () => {
+    const store = fakeStore();
+    store.failNextRefundAfterSaving(502);
+    const result = await invokeToolForTest(
+      refund,
+      { orderId: 1043, amount: 40, reason: 'Arrived torn' },
+      { ...settings, idempotencyKey: randomUUID() },
+    );
+    expect(result).toEqual({ kind: 'ok', value: { refundId: 501, orderId: 1043, amount: '40.00', currency: 'USD' } });
+    expect(store.refunds).toHaveLength(1);
+  });
+
+  test('a call run again after its refund reached the limit returns that refund, not a refusal', async () => {
+    const store = fakeStore([60]);
+    const call = { ...settings, idempotencyKey: randomUUID() };
+    const first = await invokeToolForTest(refund, { orderId: 1043, amount: 40, reason: 'Arrived torn' }, call);
+    const again = await invokeToolForTest(refund, { orderId: 1043, amount: 40, reason: 'Arrived torn' }, call);
+    expect(first.kind).toBe('ok');
+    expect(again).toEqual(first);
+    expect(store.refunds).toHaveLength(2);
   });
 });

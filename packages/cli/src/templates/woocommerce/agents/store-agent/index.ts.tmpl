@@ -5,8 +5,9 @@
 //   - by default every tool call waits for a person (`always_ask`), so a
 //     tool you add later is governed until you say otherwise;
 //   - looking up orders runs freely (`never_ask`);
-//   - a refund of up to $100 runs freely (`{{PACK_ID}}.woo.refund`, whose
-//     input schema and handler enforce the limit);
+//   - a refund of up to 100 in the order's currency runs freely
+//     (`{{PACK_ID}}.woo.refund`, whose input schema and handler enforce the
+//     limit);
 //   - a larger refund, a price change and publishing a product each wait
 //     for a reviewer, who approves or rejects it in the console's approvals
 //     inbox (or by email). The tool runs only after an approval; a
@@ -19,7 +20,7 @@ const defined = defineAgent({
   version: '{{PACK_VERSION}}' as Semver,
   name: 'Store agent',
   description:
-    'Looks up orders, refunds them within policy and changes the store, with a person approving refunds over $100, price changes and publishing.',
+    'Looks up orders, refunds them within policy and changes the store, with a person approving refunds over 100, price changes and publishing.',
   instructions: [
     "You help run a WooCommerce store. You work for the store's staff.",
     'Before refunding, look the order up with {{PACK_ID}}.woo.find-orders and check what it has been refunded already.',
@@ -56,11 +57,15 @@ const defined = defineAgent({
   // A refused call goes back to the model instead of failing the turn: when
   // `{{PACK_ID}}.woo.refund` refuses a refund past the limit, its message
   // names `{{PACK_ID}}.woo.refund-large`, and the agent can ask for that
-  // (which waits for a person). Retrying is safe here: `refund` re-reads the
-  // order's refunds on every call, so even a refund the store made but
-  // reported as failed can't take the total past the limit; `refund-large`
-  // waits for a person each time; and a price change or a publish is the same
-  // when repeated.
+  // (which waits for a person). The model's next call is a new call, so
+  // each refund goes out once without relying on it: both refund tools put
+  // the call's idempotency key on the refund and look for it before they
+  // refund, and again when the store didn't answer or answered 5xx, so a
+  // refund the store made is returned as made, not reported as failed (see
+  // `createRefund` in `lib/woo.ts`). Only a store that can't even be asked
+  // leaves the error to the model; `refund` still re-reads the order's
+  // refunds, so the total can't pass the limit, and `refund-large` waits for
+  // a person again. A price change or a publish is the same when repeated.
   toolErrors: { maxRetries: 2, retryOn: ['invalid-arguments', 'unknown-tool', 'tool-error'] },
   budget: { maxSteps: 8, maxCostUsd: 0.25, maxWallMs: 60_000 },
 });

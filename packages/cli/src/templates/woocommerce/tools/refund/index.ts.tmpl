@@ -1,23 +1,23 @@
-// {{PACK_ID}}.woo.refund — a refund of up to $100 on an order, with no one
-// to approve it.
+// {{PACK_ID}}.woo.refund — a refund of up to 100 (in the order's currency) on
+// an order, with no one to approve it.
 //
 // Kindgi's approval rules key on the tool, not on its arguments, so "refunds
-// over $100 need a person" is two tools: this one, which the agent's policy
+// over 100 need a person" is two tools: this one, which the agent's policy
 // lets run on its own, and `{{PACK_ID}}.woo.refund-large`, which always waits
-// for a person. The $100 limit is enforced here, not by the model:
+// for a person. The limit is enforced here, not by the model:
 //   - the input schema caps one refund at `maximum: 100`, and Kindgi checks
 //     every call against it before the handler runs;
 //   - the handler refuses a refund that would take what the order has been
-//     refunded past $100, so splitting a large refund into small ones
+//     refunded past 100, so splitting a large refund into small ones
 //     doesn't get around the approval.
 // Change `REFUND_LIMIT` to change the limit (the schema follows).
 import { defineTool } from '@kindgi/sdk/define';
 import type { ToolId } from '@kindgi/sdk/types';
 import { z } from 'zod';
 
-import { REFUND_NEEDS, type WooOrder, createRefund, refundedSoFar, woo } from '../../lib/woo.js';
+import { REFUND_NEEDS, type WooOrder, createRefund, refundedSoFar } from '../../lib/woo.js';
 
-/** The most this tool refunds on one order, in the store's currency. */
+/** The most this tool refunds on one order, in the order's currency. */
 export const REFUND_LIMIT = 100;
 
 export const RefundInput = z.object({
@@ -49,16 +49,18 @@ const defined = defineTool({
   ],
   mutating: true,
   needsSpec: REFUND_NEEDS,
-  handler: async (input, ctx) => {
-    const order = await woo<WooOrder>(ctx, 'GET', `orders/${input.orderId}`);
-    const already = refundedSoFar(order);
-    if (already + input.amount > REFUND_LIMIT) {
-      throw new Error(
-        `Order ${order.number} has been refunded ${already.toFixed(2)} already; with ${input.amount.toFixed(2)} more it passes ${REFUND_LIMIT}. Use {{PACK_ID}}.woo.refund-large, which waits for a person.`,
-      );
-    }
-    return createRefund(ctx, input);
-  },
+  // The limit is checked after `createRefund` has looked for this call's own
+  // refund: a call run again after its refund went out returns that refund,
+  // instead of counting it against itself.
+  handler: async (input, ctx) =>
+    createRefund(ctx, input, (order: WooOrder) => {
+      const already = refundedSoFar(order);
+      if (already + input.amount > REFUND_LIMIT) {
+        throw new Error(
+          `Order ${order.number} has been refunded ${already.toFixed(2)} already; with ${input.amount.toFixed(2)} more it passes ${REFUND_LIMIT}. Use {{PACK_ID}}.woo.refund-large, which waits for a person.`,
+        );
+      }
+    }),
 });
 
 if (defined.kind === 'err') {
