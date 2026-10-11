@@ -156,6 +156,12 @@ locals {
       # Reading deployments' images with the server's identity (C-IMG-2).
       KINDGI_IMAGE_REGISTRY_HOST = azurerm_container_registry.images.login_server
       KINDGI_IMAGE_REGISTRY_AUTH = "azure"
+
+      # Where the license key and the renewer key are, so the startup
+      # banner's 30-day warning gives the exact `kindgi license renew`
+      # (license-renewal.tf). The server reads neither through these.
+      KINDGI_LICENSE_KEY_REF     = local.license_key_ref
+      KINDGI_LICENSE_RENEWER_REF = local.license_renewer_ref
     },
     var.pack_call_timeout_ms == null ? {} : { KINDGI_PACK_CALL_TIMEOUT_MS = tostring(var.pack_call_timeout_ms) },
     length(var.cors_origins) == 0 ? {} : { KINDGI_CORS_ORIGINS = join(",", var.cors_origins) },
@@ -304,6 +310,10 @@ resource "azurerm_container_app" "server" {
     precondition {
       condition     = var.erasure_ledger_key_version != ""
       error_message = "erasure_ledger_key_version is needed for the services: the version `az keyvault secret set` printed for erasure-ledger-key (README, step 3)."
+    }
+    precondition {
+      condition     = !contains(values(merge(local.server_secrets, local.export_signing_secrets, local.shared_secrets)), local.license_renewer_secret)
+      error_message = "license_renewer_secret: ${local.license_renewer_secret} is one of the module's own secrets. The renewer key needs a secret of its own (the default, license-renewer)."
     }
     precondition {
       condition     = length(setintersection(local.server_module_env, local.server_extra_env)) == 0

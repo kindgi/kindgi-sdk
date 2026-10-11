@@ -68,3 +68,13 @@ output "infrastructure_resource_group" {
   description = "The resource group Azure creates and manages for the Container Apps environment's infrastructure. It goes with the environment."
   value       = azurerm_container_app_environment.kindgi.infrastructure_resource_group_name
 }
+
+output "license_enroll_command" {
+  description = "Run once, where you're signed in to Azure with access to the vault, to enroll this deployment for renewing its license key. Then add the line it prints at access.kindgi.com (or send it to Kindgi, for a production key)."
+  value       = "kindgi license enroll --for <your GitHub login, or your license subject> --renewer ${local.license_renewer_ref}"
+}
+
+output "license_renew_command" {
+  description = "Renews the license key by hand or from your own scheduler. With license_renewal_schedule set, the module's job runs it."
+  value       = "kindgi license renew --key ${local.license_key_ref} --renewer ${local.license_renewer_ref}"
+}
