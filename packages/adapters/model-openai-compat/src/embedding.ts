@@ -7,6 +7,7 @@ import type { EmbeddingProvider } from '@kindgi/embedding';
 import { bearerValueProblem } from '@kindgi/types';
 
 import { OPENAI_COMPAT_ADAPTER_ID } from './provider.js';
+import { SERVER_ENV_NEVER } from './wire.js';
 
 /**
  * An embeddings endpoint that speaks OpenAI's `POST /embeddings`: OpenAI
@@ -70,6 +71,7 @@ export function createOpenAICompatEmbeddingProvider(
     const fresh = new OpenAI({
       apiKey: key,
       baseURL: options.baseURL,
+      ...SERVER_ENV_NEVER,
       ...(options.clientOptions ?? {}),
     });
     cached = { key, client: fresh };
