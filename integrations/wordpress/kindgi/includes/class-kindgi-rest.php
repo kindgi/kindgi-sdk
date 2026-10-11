@@ -23,6 +23,12 @@ final class Kindgi_Rest {
 	/** A reason's most characters. */
 	const REASON_MAX = 2000;
 
+	/** A conversation shows its newest this many messages. */
+	const MESSAGES_SHOWN = 100;
+
+	/** At most this many pages of messages are read to reach the newest. */
+	const MESSAGES_PAGES_MAX = 50;
+
 	/** Kindgi's subject kind for a tool call waiting for a person. */
 	const TOOL_CALL = 'tool-call:pending';
 
@@ -192,19 +198,29 @@ final class Kindgi_Rest {
 		return is_wp_error( $answer ) ? $answer : self::conversation( $answer['body'] );
 	}
 
-	/** A conversation's messages, oldest first. */
+	/**
+	 * A conversation's newest messages, oldest first. Kindgi pages them
+	 * oldest first, so the pages are read through to the newest; `earlier`
+	 * says some older ones aren't shown.
+	 */
 	public static function messages( WP_REST_Request $request ) {
-		$answer = Kindgi_Api::body(
-			wp_get_current_user(),
-			'GET',
-			'/v1/conversations/' . rawurlencode( $request['id'] ) . '/messages',
-			array( 'limit' => 100 )
+		$path  = '/v1/conversations/' . rawurlencode( $request['id'] ) . '/messages';
+		$pages = self::newest_messages(
+			static function ( ?string $cursor ) use ( $path ) {
+				$query = array( 'limit' => self::MESSAGES_SHOWN );
+				if ( null !== $cursor ) {
+					$query['cursor'] = $cursor;
+				}
+				$answer = Kindgi_Api::body( wp_get_current_user(), 'GET', $path, $query );
+				return is_wp_error( $answer ) ? $answer : $answer['body'];
+			}
 		);
-		if ( is_wp_error( $answer ) ) {
-			return $answer;
+		if ( is_wp_error( $pages ) ) {
+			return $pages;
 		}
+		$rows = $pages['rows'];
 		$messages = array();
-		foreach ( self::list_of( $answer['body']['data'] ?? null ) as $m ) {
+		foreach ( $rows as $m ) {
 			$content = $m['content'] ?? null;
 			$text    = is_string( $content ) ? $content : ( is_string( $content['text'] ?? null ) ? $content['text'] : '' );
 			$calls   = array();
@@ -226,7 +242,40 @@ final class Kindgi_Rest {
 				'createdAt' => (string) ( $m['createdAt'] ?? '' ),
 			);
 		}
-		return array( 'messages' => $messages );
+		return array(
+			'messages' => $messages,
+			'earlier'  => $pages['earlier'],
+		);
+	}
+
+	/**
+	 * Reads a conversation's pages (oldest first) through to the newest,
+	 * at most `MESSAGES_PAGES_MAX` of them, keeping the newest
+	 * `MESSAGES_SHOWN` messages.
+	 *
+	 * @param callable $fetch One page by cursor (null for the first): Kindgi's body, or a WP_Error.
+	 * @return array{rows: array, earlier: bool}|WP_Error
+	 */
+	public static function newest_messages( callable $fetch ) {
+		$rows   = array();
+		$seen   = 0;
+		$cursor = null;
+		$pages  = 0;
+		do {
+			$body = $fetch( $cursor );
+			if ( is_wp_error( $body ) ) {
+				return $body;
+			}
+			$page   = self::list_of( $body['data'] ?? null );
+			$seen  += count( $page );
+			$rows   = array_slice( array_merge( $rows, $page ), -self::MESSAGES_SHOWN );
+			$cursor = true === ( $body['hasMore'] ?? false ) && is_string( $body['nextCursor'] ?? null ) ? $body['nextCursor'] : null;
+			++$pages;
+		} while ( null !== $cursor && $pages < self::MESSAGES_PAGES_MAX );
+		return array(
+			'rows'    => $rows,
+			'earlier' => $seen > count( $rows ) || null !== $cursor,
+		);
 	}
 
 	/** A turn: the person's message to the conversation's agent, started and followed by polling. */

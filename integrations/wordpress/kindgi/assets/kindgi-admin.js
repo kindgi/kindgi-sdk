@@ -41,7 +41,8 @@
     return node;
   }
 
-  const when = (iso) => (iso ? new Date(iso).toLocaleString() : '');
+  // The site's own date format and time zone (Settings → General).
+  const when = (iso) => (iso ? wp.date.dateI18n(wp.date.getSettings().formats.datetime, iso) : '');
   const failure = (error) => error?.message ?? __('Something went wrong.', 'kindgi');
   const notice = (error) =>
     el(
@@ -49,6 +50,20 @@
       { className: 'notice notice-error inline', role: 'alert' },
       el('p', {}, failure(error)),
     );
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  /** Resolves once the page is visible: polling waits while it's in a background tab. */
+  function visible() {
+    if (!document.hidden) return Promise.resolve();
+    return new Promise((resolve) => {
+      const shown = () => {
+        if (document.hidden) return;
+        document.removeEventListener('visibilitychange', shown);
+        resolve();
+      };
+      document.addEventListener('visibilitychange', shown);
+    });
+  }
 
   const state = {
     me: null,
@@ -56,26 +71,60 @@
     conversationId: null,
     // A conversation to open with this agent at its first message.
     newAgent: null,
+    // Bumped by every navigation: a poll started before it stops.
+    view: 0,
+    // Each conversation's turn still running, by its run: followed again on return.
+    running: new Map(),
   };
 
   // ---------- the shell: two tabs ----------
 
-  const panels = {
-    ask: el('div', { className: 'kindgi-panel' }),
-    approvals: el('div', { className: 'kindgi-panel' }),
-  };
+  const TABS = [
+    ['ask', __('Ask', 'kindgi')],
+    ['approvals', __('Approvals', 'kindgi')],
+  ];
+  const panels = Object.fromEntries(
+    TABS.map(([tab]) => [
+      tab,
+      el('div', {
+        className: 'kindgi-panel',
+        role: 'tabpanel',
+        id: `kindgi-panel-${tab}`,
+        'aria-labelledby': `kindgi-tab-${tab}`,
+        tabindex: '0',
+      }),
+    ]),
+  );
   const tabs = el('nav', { className: 'nav-tab-wrapper', role: 'tablist' });
 
   function showTab(tab) {
     state.tab = tab;
-    for (const button of tabs.querySelectorAll('button')) {
+    state.view += 1;
+    for (const button of tabs.querySelectorAll('[role=tab]')) {
       const selected = button.dataset.tab === tab;
       button.classList.toggle('nav-tab-active', selected);
       button.setAttribute('aria-selected', selected ? 'true' : 'false');
+      button.tabIndex = selected ? 0 : -1;
     }
     for (const [name, panel] of Object.entries(panels)) panel.hidden = name !== tab;
     if (tab === 'approvals') renderApprovals();
     else renderAsk();
+  }
+
+  /** Arrow keys, Home and End move between the tabs, as ARIA's tab pattern has it. */
+  function tabKeys(event) {
+    const all = [...tabs.querySelectorAll('[role=tab]')];
+    const at = all.indexOf(event.target);
+    const next = {
+      ArrowRight: (at + 1) % all.length,
+      ArrowLeft: (at - 1 + all.length) % all.length,
+      Home: 0,
+      End: all.length - 1,
+    }[event.key];
+    if (next === undefined) return;
+    event.preventDefault();
+    all[next].focus();
+    showTab(all[next].dataset.tab);
   }
 
   async function start() {
@@ -86,30 +135,42 @@
       root.replaceChildren(notice(error));
       return;
     }
-    const tabButton = (tab, label) =>
-      el(
-        'button',
-        {
-          type: 'button',
-          className: 'nav-tab',
-          role: 'tab',
-          'data-tab': tab,
-          onclick: () => showTab(tab),
-        },
-        label,
-      );
-    tabs.append(tabButton('ask', __('Ask', 'kindgi')));
     // The approvals surface is for reviewers; anyone else sees a wait in their turn instead.
-    if (state.me.reviewerRole !== null)
-      tabs.append(tabButton('approvals', __('Approvals', 'kindgi')));
-    else if (state.tab === 'approvals') state.tab = 'ask';
-    root.replaceChildren(tabs, panels.ask, panels.approvals);
+    const shown = TABS.filter(([tab]) => tab === 'ask' || state.me.reviewerRole !== null);
+    if (!shown.some(([tab]) => tab === state.tab)) state.tab = 'ask';
+    tabs.append(
+      ...shown.map(([tab, label]) =>
+        el(
+          'button',
+          {
+            type: 'button',
+            className: 'nav-tab',
+            role: 'tab',
+            id: `kindgi-tab-${tab}`,
+            'aria-controls': `kindgi-panel-${tab}`,
+            'data-tab': tab,
+            onclick: () => showTab(tab),
+            onkeydown: tabKeys,
+          },
+          label,
+        ),
+      ),
+    );
+    root.replaceChildren(tabs, ...shown.map(([tab]) => panels[tab]));
     showTab(state.tab);
   }
 
   // ---------- Ask ----------
 
+  /** Opens a conversation (or, with null, the agent's new one) and redraws the tab. */
+  function open(conversationId, newAgent = null) {
+    state.conversationId = conversationId;
+    state.newAgent = newAgent;
+    renderAsk();
+  }
+
   async function renderAsk() {
+    state.view += 1;
     const panel = panels.ask;
     panel.replaceChildren(el('p', { className: 'kindgi-muted' }, __('Loading…', 'kindgi')));
     let agents;
@@ -132,42 +193,34 @@
         type: 'button',
         className: 'button button-primary',
         disabled: agents.agents.length === 0,
-        onclick: () => {
-          // Opened at its first message, which names it.
-          state.conversationId = null;
-          state.newAgent = agents.agents[Number(picker.value)];
-          renderAsk();
-        },
+        // Opened at its first message, which names it.
+        onclick: () => open(null, agents.agents[Number(picker.value)]),
       },
       __('New conversation', 'kindgi'),
     );
+    const item = (c) =>
+      el(
+        'li',
+        {},
+        el(
+          'button',
+          {
+            type: 'button',
+            className: `button-link${c.id === state.conversationId ? ' kindgi-current' : ''}`,
+            onclick: () => open(c.id),
+          },
+          c.title || nameOf(c.agentId),
+        ),
+        el(
+          'span',
+          { className: 'kindgi-muted' },
+          ` ${nameOf(c.agentId)} · ${when(c.lastMessageAt ?? c.openedAt)}`,
+        ),
+      );
     const list = el(
       'ul',
       { className: 'kindgi-conversations' },
-      conversations.conversations.map((c) =>
-        el(
-          'li',
-          {},
-          el(
-            'button',
-            {
-              type: 'button',
-              className: `button-link${c.id === state.conversationId ? ' kindgi-current' : ''}`,
-              onclick: () => {
-                state.conversationId = c.id;
-                state.newAgent = null;
-                renderAsk();
-              },
-            },
-            c.title || nameOf(c.agentId),
-          ),
-          el(
-            'span',
-            { className: 'kindgi-muted' },
-            ` ${nameOf(c.agentId)} · ${when(c.lastMessageAt ?? c.openedAt)}`,
-          ),
-        ),
-      ),
+      conversations.conversations.map(item),
     );
     const side = el(
       'div',
@@ -185,10 +238,38 @@
       conversations.conversations.length === 0
         ? el('p', { className: 'kindgi-muted' }, __('None yet.', 'kindgi'))
         : list,
+      olderButton(list, item, conversations.nextCursor),
     );
     const main = el('div', { className: 'kindgi-main' });
     panel.replaceChildren(el('div', { className: 'kindgi-columns' }, side, main));
     if (state.conversationId !== null || state.newAgent !== null) renderConversation(main);
+  }
+
+  /** "Show older": the list's next page, appended. */
+  function olderButton(list, item, firstCursor) {
+    let cursor = firstCursor;
+    if (cursor === null) return null;
+    const button = el(
+      'button',
+      {
+        type: 'button',
+        className: 'button-link',
+        onclick: async () => {
+          button.disabled = true;
+          try {
+            const page = await api(`/conversations?cursor=${encodeURIComponent(cursor)}`);
+            list.append(...page.conversations.map(item));
+            cursor = page.nextCursor;
+            if (cursor === null) button.remove();
+            else button.disabled = false;
+          } catch (error) {
+            button.replaceWith(notice(error));
+          }
+        },
+      },
+      __('Show older', 'kindgi'),
+    );
+    return button;
   }
 
   /** The first line of a message, as a conversation's title. */
@@ -199,8 +280,9 @@
 
   /** The open conversation, or a new one's empty page until its first message. */
   async function renderConversation(main) {
+    const view = state.view;
     main.replaceChildren(el('p', { className: 'kindgi-muted' }, __('Loading…', 'kindgi')));
-    let messages = { messages: [] };
+    let messages = { messages: [], earlier: false };
     if (state.conversationId !== null) {
       try {
         messages = await api(`/conversations/${encodeURIComponent(state.conversationId)}/messages`);
@@ -209,10 +291,11 @@
         return;
       }
     }
+    if (view !== state.view) return;
     const log = el(
       'ol',
       { className: 'kindgi-messages', 'aria-live': 'polite' },
-      messages.messages.map(message).filter((item) => item !== null),
+      messages.messages.map(message).filter((m) => m !== null),
     );
     const progress = el('div', { className: 'kindgi-progress', 'aria-live': 'polite' });
     const input = el('textarea', { id: 'kindgi-message', rows: '3', maxlength: '20000' });
@@ -221,34 +304,7 @@
       {
         type: 'button',
         className: 'button button-primary',
-        onclick: async () => {
-          const text = input.value.trim();
-          if (text === '') return;
-          send.disabled = true;
-          log.append(el('li', { className: 'kindgi-message kindgi-user' }, text));
-          input.value = '';
-          try {
-            if (state.conversationId === null) {
-              const agent = state.newAgent;
-              const opened = await api('/conversations', {
-                method: 'POST',
-                data: { agentId: agent.id, agentVersion: agent.version, title: titleOf(text) },
-              });
-              state.conversationId = opened.id;
-              state.newAgent = null;
-            }
-            const turn = await api(
-              `/conversations/${encodeURIComponent(state.conversationId)}/turns`,
-              { method: 'POST', data: { message: text } },
-            );
-            await follow(turn.runId, progress);
-          } catch (error) {
-            progress.replaceChildren(notice(error));
-            send.disabled = false;
-            return;
-          }
-          renderAsk();
-        },
+        onclick: () => sendTurn(input, send, log, progress),
       },
       __('Send', 'kindgi'),
     );
@@ -263,6 +319,9 @@
             ),
           )
         : null,
+      messages.earlier
+        ? el('p', { className: 'kindgi-muted' }, __("Earlier messages aren't shown.", 'kindgi'))
+        : null,
       log,
       progress,
       el(
@@ -273,8 +332,48 @@
       input,
       send,
     );
+    // A turn this page started is still running: follow it again.
+    const running = state.running.get(state.conversationId);
+    if (running !== undefined) await followTurn(state.conversationId, running, progress);
   }
 
+  /** Sends a message: opens the conversation first when it's new, then follows the turn. */
+  async function sendTurn(input, send, log, progress) {
+    const text = input.value.trim();
+    if (text === '') return;
+    send.disabled = true;
+    log.append(el('li', { className: 'kindgi-message kindgi-user' }, text));
+    input.value = '';
+    try {
+      if (state.conversationId === null) {
+        const agent = state.newAgent;
+        const opened = await api('/conversations', {
+          method: 'POST',
+          data: { agentId: agent.id, agentVersion: agent.version, title: titleOf(text) },
+        });
+        state.conversationId = opened.id;
+        state.newAgent = null;
+      }
+      const conversationId = state.conversationId;
+      const turn = await api(`/conversations/${encodeURIComponent(conversationId)}/turns`, {
+        method: 'POST',
+        data: { message: text },
+      });
+      state.running.set(conversationId, turn.runId);
+      await followTurn(conversationId, turn.runId, progress);
+    } catch (error) {
+      progress.replaceChildren(notice(error));
+      send.disabled = false;
+    }
+  }
+
+  /** Follows a turn; when it ends (and the person is still here), redraws with its answer. */
+  async function followTurn(conversationId, runId, progress) {
+    const ended = await follow(runId, progress, state.view);
+    if (!ended) return;
+    state.running.delete(conversationId);
+    if (state.tab === 'ask' && state.conversationId === conversationId) renderAsk();
+  }
   /** One message: words, the tools an agent called, or a tool's answer (its raw result a click away). */
   function message(m) {
     if (m.role === 'tool') {
@@ -312,25 +411,58 @@
     );
   }
 
-  /** Follows a turn until it ends: its steps, and what it waits for. */
-  async function follow(runId, progress) {
+  /**
+   * Follows a turn until it ends (true), or until the person moves on
+   * (false): its tools, and what it waits for. While it waits for a person,
+   * polls back off to every 30 s, and none run while the page is hidden.
+   */
+  async function follow(runId, progress, view) {
     let since = 0;
+    let delay = pollMs;
     const steps = el('ul', { className: 'kindgi-steps' });
     const waits = el('div');
+    const shown = new Map();
     progress.replaceChildren(steps, waits);
     for (;;) {
+      await visible();
+      if (view !== state.view) return false;
       const run = await api(`/runs/${encodeURIComponent(runId)}?since=${since}`);
+      if (view !== state.view) return false;
       since = run.since;
-      const tools = run.steps.filter((step) => step.toolId !== null);
       steps.append(
-        ...tools.map((step) => el('li', {}, sprintf(__('Tool: %s', 'kindgi'), step.toolId))),
+        ...run.steps.map((step) => el('li', {}, sprintf(__('Tool: %s', 'kindgi'), step.toolId))),
       );
-      waits.replaceChildren(...run.waitingFor.map(waitFor));
-      if (ENDED.includes(run.status)) {
-        if (run.status === 'failed') progress.append(notice({ message: run.failureMessage }));
-        return;
-      }
-      await new Promise((resolve) => setTimeout(resolve, pollMs));
+      showWaits(waits, shown, run.waitingFor);
+      if (hasEnded(run, progress)) return true;
+      delay = nextDelay(run.status, delay);
+      await sleep(delay);
+    }
+  }
+
+  /** Whether the turn has ended; a failed one says why. */
+  function hasEnded(run, progress) {
+    if (!ENDED.includes(run.status)) return false;
+    if (run.status === 'failed') progress.append(notice({ message: run.failureMessage }));
+    return true;
+  }
+
+  /** The next poll's wait: the base while the turn runs, doubling up to 30 s while it waits for a person. */
+  const nextDelay = (status, delay) =>
+    status === 'suspended' ? Math.min(Math.max(delay * 2, 3000), 30_000) : pollMs;
+
+  /** The turn's waits: a new one gets its box once, a gone one loses it, the rest stay as they are. */
+  function showWaits(container, shown, waiting) {
+    const ids = new Set(waiting.map((w) => w.approvalId));
+    for (const [id, box] of shown) {
+      if (ids.has(id)) continue;
+      box.remove();
+      shown.delete(id);
+    }
+    for (const wait of waiting) {
+      if (shown.has(wait.approvalId)) continue;
+      const box = waitFor(wait);
+      shown.set(wait.approvalId, box);
+      container.append(box);
     }
   }
 
@@ -460,6 +592,7 @@
           state.conversationId = card.conversationId;
           state.newAgent = null;
           showTab('ask');
+          tabs.querySelector('#kindgi-tab-ask')?.focus();
         },
       },
       __('Open the conversation', 'kindgi'),

@@ -137,3 +137,31 @@ function test_sodium_is_the_one_this_run_asked_for(): void {
 		kindgi_assert( extension_loaded( 'sodium' ), 'ext/sodium' );
 	}
 }
+
+function test_rest_a_long_conversation_shows_its_newest_messages(): void {
+	$pages = array(
+		null => array( 'data' => array_map( fn( $i ) => array( 'sequence' => $i ), range( 0, 59 ) ), 'hasMore' => true, 'nextCursor' => 'c1' ),
+		'c1' => array( 'data' => array_map( fn( $i ) => array( 'sequence' => $i ), range( 60, 119 ) ), 'hasMore' => true, 'nextCursor' => 'c2' ),
+		'c2' => array( 'data' => array_map( fn( $i ) => array( 'sequence' => $i ), range( 120, 149 ) ), 'hasMore' => false ),
+	);
+	$asked = array();
+	$read  = Kindgi_Rest::newest_messages(
+		function ( ?string $cursor ) use ( $pages, &$asked ) {
+			$asked[] = $cursor;
+			return $pages[ null === $cursor ? '' : $cursor ];
+		}
+	);
+	kindgi_assert_same( array( null, 'c1', 'c2' ), $asked, 'every page, in order' );
+	kindgi_assert_same( 100, count( $read['rows'] ), 'the newest hundred' );
+	kindgi_assert_same( 50, $read['rows'][0]['sequence'], 'from 50' );
+	kindgi_assert_same( 149, $read['rows'][99]['sequence'], 'to the newest' );
+	kindgi_assert( $read['earlier'], 'earlier ones not shown' );
+	$short = Kindgi_Rest::newest_messages( fn( $cursor ) => array( 'data' => array( array( 'sequence' => 0 ) ), 'hasMore' => false ) );
+	kindgi_assert( ! $short['earlier'], 'a short one shows whole' );
+	$failed = Kindgi_Rest::newest_messages( fn( $cursor ) => new WP_Error( 'kindgi_unreachable', 'down' ) );
+	kindgi_assert( is_wp_error( $failed ), 'a failed page fails the read' );
+}
+
+function test_admin_the_page_needs_more_than_writing_posts(): void {
+	kindgi_assert_same( 'edit_others_posts', Kindgi_Admin::capability(), 'without WooCommerce: editors and administrators' );
+}

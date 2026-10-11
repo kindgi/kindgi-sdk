@@ -66,10 +66,11 @@ Each person acts as themselves. Kindgi's record says "approved by Jane, via Acme
 
 ## Who sees the page
 
-- **The page needs `edit_posts`.** Shop managers and editors have it; customers don't. Change it with the `kindgi_capability` filter.
+- **The page needs `manage_woocommerce` when WooCommerce is active** (shop managers and administrators), and `edit_others_posts` otherwise (editors and administrators). Authors, contributors and customers never see it. Change it with the `kindgi_capability` filter.
 - **Kindgi decides the rest from the person's roles on this site.** A role the site wasn't registered to allow is refused there.
 - **The Approvals tab** shows only for someone whose roles give a reviewer role.
 - **Notification address:** each statement carries the person's email, for Kindgi's "an approval is waiting" mail only. Change it, or send none, with the `kindgi_statement_email` filter.
+- **A changed role counts at once.** Changing a person's role forgets their cached session, so their next call signs in again with the new roles. Losing every role the site allows ends their grants and sessions at Kindgi.
 
 ## Security: what "the site vouches" means
 
@@ -100,6 +101,8 @@ To give an agent tools that act on the store (look up an order, refund it), Word
 | The enrollment: the site's id, Kindgi's audience, the key's id, the origin | The `kindgi_site` option |
 | The signing key, when it isn't in `wp-config.php` or the environment | The `kindgi_site_secret_key` option, not autoloaded |
 | Each person's subject, Kindgi id, and sealed session | User options `kindgi_subject`, `kindgi_user_id`, `kindgi_session` |
+
+WordPress's personal-data tools (**Tools → Export Personal Data** and **Erase Personal Data**) cover each person's subject and Kindgi id. Erasing forgets the person on this site; Kindgi keeps its own record, so erase it there too.
 
 Deleting the plugin removes all of them except each person's subject and Kindgi id. They say who each person is, so a site installed again and connected with a new code for the same site in Kindgi finds the same people there, with their history. Kindgi keeps its own record.
 

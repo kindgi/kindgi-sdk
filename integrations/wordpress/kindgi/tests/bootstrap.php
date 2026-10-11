@@ -187,3 +187,4 @@ require_once dirname( __DIR__ ) . '/includes/class-kindgi-http.php';
 require_once dirname( __DIR__ ) . '/includes/class-kindgi-sessions.php';
 require_once dirname( __DIR__ ) . '/includes/class-kindgi-api.php';
 require_once dirname( __DIR__ ) . '/includes/class-kindgi-rest.php';
+require_once dirname( __DIR__ ) . '/includes/class-kindgi-admin.php';

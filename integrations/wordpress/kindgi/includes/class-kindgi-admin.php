@@ -24,6 +24,12 @@ final class Kindgi_Admin {
 		add_action( 'admin_menu', array( self::class, 'menu' ) );
 		add_action( 'admin_enqueue_scripts', array( self::class, 'assets' ) );
 		add_action( 'admin_post_' . self::CONNECT, array( self::class, 'connect' ) );
+		// A changed role signs the person in again at their next call, so Kindgi sees it at once.
+		foreach ( array( 'set_user_role', 'add_user_role', 'remove_user_role' ) as $hook ) {
+			add_action( $hook, array( Kindgi_Sessions::class, 'forget' ) );
+		}
+		add_filter( 'wp_privacy_personal_data_exporters', array( self::class, 'exporters' ) );
+		add_filter( 'wp_privacy_personal_data_erasers', array( self::class, 'erasers' ) );
 	}
 
 	/**
@@ -34,9 +40,86 @@ final class Kindgi_Admin {
 		/**
 		 * The capability the Kindgi page needs.
 		 *
-		 * @param string $capability Default `edit_posts`: shop managers and editors, never customers.
+		 * @param string $capability Default `manage_woocommerce` with WooCommerce (shop managers and
+		 *                           administrators), otherwise `edit_others_posts` (editors and
+		 *                           administrators); never authors, contributors or customers.
 		 */
-		return (string) apply_filters( 'kindgi_capability', 'edit_posts' );
+		return (string) apply_filters( 'kindgi_capability', class_exists( 'WooCommerce' ) ? 'manage_woocommerce' : 'edit_others_posts' );
+	}
+
+	/** WordPress's personal-data export (Tools → Export Personal Data): what the plugin keeps about a person. */
+	public static function exporters( array $exporters ): array {
+		$exporters['kindgi'] = array(
+			'exporter_friendly_name' => __( 'Kindgi', 'kindgi' ),
+			'callback'               => array( self::class, 'export' ),
+		);
+		return $exporters;
+	}
+
+	/** WordPress's personal-data erasure (Tools → Erase Personal Data). */
+	public static function erasers( array $erasers ): array {
+		$erasers['kindgi'] = array(
+			'eraser_friendly_name' => __( 'Kindgi', 'kindgi' ),
+			'callback'             => array( self::class, 'erase' ),
+		);
+		return $erasers;
+	}
+
+	/** The person's subject and Kindgi id on this site, if they have them. */
+	public static function export( string $email ): array {
+		$user = get_user_by( 'email', $email );
+		$data = array();
+		if ( false !== $user ) {
+			foreach (
+				array(
+					Kindgi_Sessions::SUBJECT => __( 'Subject sent to Kindgi', 'kindgi' ),
+					Kindgi_Sessions::USER_ID => __( 'Person id at Kindgi', 'kindgi' ),
+				) as $key => $name
+			) {
+				$value = get_user_option( $key, $user->ID );
+				if ( is_string( $value ) && '' !== $value ) {
+					$data[] = array(
+						'name'  => $name,
+						'value' => $value,
+					);
+				}
+			}
+		}
+		return array(
+			'data' => array() === $data ? array() : array(
+				array(
+					'group_id'    => 'kindgi',
+					'group_label' => __( 'Kindgi', 'kindgi' ),
+					'item_id'     => 'kindgi-' . $user->ID,
+					'data'        => $data,
+				),
+			),
+			'done' => true,
+		);
+	}
+
+	/**
+	 * Forgets the person here: their subject, Kindgi id and cached
+	 * session. Their record at Kindgi stays; erase it there too. Signing in
+	 * again later makes them a new person at Kindgi.
+	 */
+	public static function erase( string $email ): array {
+		$user    = get_user_by( 'email', $email );
+		$removed = false;
+		if ( false !== $user ) {
+			foreach ( array( Kindgi_Sessions::SUBJECT, Kindgi_Sessions::USER_ID, Kindgi_Sessions::SESSION ) as $key ) {
+				if ( false !== get_user_option( $key, $user->ID ) ) {
+					delete_user_option( $user->ID, $key );
+					$removed = true;
+				}
+			}
+		}
+		return array(
+			'items_removed'  => $removed,
+			'items_retained' => false,
+			'messages'       => $removed ? array( __( "Kindgi keeps its own record of this person: erase it at Kindgi too.", 'kindgi' ) ) : array(),
+			'done'           => true,
+		);
 	}
 
 	public static function menu(): void {
@@ -59,7 +142,7 @@ final class Kindgi_Admin {
 		}
 		$version = KINDGI_PLUGIN_VERSION;
 		wp_enqueue_style( 'kindgi-admin', plugins_url( 'assets/kindgi-admin.css', KINDGI_PLUGIN_FILE ), array(), $version );
-		wp_enqueue_script( 'kindgi-admin', plugins_url( 'assets/kindgi-admin.js', KINDGI_PLUGIN_FILE ), array( 'wp-api-fetch', 'wp-i18n' ), $version, true );
+		wp_enqueue_script( 'kindgi-admin', plugins_url( 'assets/kindgi-admin.js', KINDGI_PLUGIN_FILE ), array( 'wp-api-fetch', 'wp-date', 'wp-i18n' ), $version, true );
 		wp_set_script_translations( 'kindgi-admin', 'kindgi' );
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- a link to open, not an action.
 		$approval = isset( $_GET['approval'] ) ? sanitize_text_field( wp_unslash( $_GET['approval'] ) ) : '';

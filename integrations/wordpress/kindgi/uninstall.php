@@ -22,7 +22,12 @@ function kindgi_uninstall_site(): void {
 }
 
 if ( is_multisite() ) {
-	foreach ( get_sites( array( 'fields' => 'ids' ) ) as $kindgi_site_id ) {
+	foreach ( get_sites(
+		array(
+			'fields' => 'ids',
+			'number' => 0,
+		)
+	) as $kindgi_site_id ) {
 		switch_to_blog( $kindgi_site_id );
 		kindgi_uninstall_site();
 		restore_current_blog();
