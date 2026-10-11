@@ -103,6 +103,7 @@ import { type PackCode, isJvmPackCode, resolvePackCode } from '../dev/pack-code.
 import { devPackEnv, devPackEnvFiles } from '../dev/pack-env.js';
 import { createPackRefresher, showPackEvent } from '../dev/pack-service.js';
 import { PORT_SEARCH_SPAN, firstFreePort } from '../dev/port.js';
+import { previewExpiryWarning, readLicenseStatus } from '../dev/preview-expiry.js';
 import { type DevProject, resolveDevProject } from '../dev/project.js';
 import {
   type DeclaredProvider,
@@ -914,6 +915,17 @@ async function runDevForPack(
       .filter((id) => id === VERTEX_PROVIDER_ID && !declaredVertex.includes(id));
     if (byHand.length > 0) emitProgress(`⚠ ${vertexCredentialsHint(byHand, ctx.env)}`);
   }
+  // A preview runtime near the end of its life (90 days after its
+  // release, until 1.0): from 30 days before, the way to a newer one.
+  const previewWarning = previewExpiryWarning(
+    await readLicenseStatus(client),
+    args.runtimeUrl !== undefined
+      ? 'url'
+      : args.runtimeImage === DEFAULT_RUNTIME_IMAGE
+        ? 'pinned'
+        : 'image',
+  );
+  if (previewWarning !== undefined) emitProgress(previewWarning);
 
   const bannerLines = renderDevBanner({
     baseUrl: server.baseUrl,

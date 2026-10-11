@@ -106,6 +106,7 @@ The runtime prints what it's running with when it starts (`docker logs kindgi-se
 
 - **`Token`:** the last four characters of the API token it accepts.
 - **`License`:** who the key is for, its kind and its end date. A warning follows within 30 days of the end.
+- **`⚠ This preview build (…) stops starting on …`:** within 30 days of the 90th day after this release, until Kindgi 1.0. Upgrade before then. In the JSON format it's also a record of its own, `"event": "kindgi.preview_expiry"`, logged at startup and once a day: match it in a log alert.
 - **`Pack service`:** the pack it reached, with its artifact version. When it can't reach it, a warning takes this line's place, with the reason.
 
 ### After a crash
@@ -277,6 +278,11 @@ Two more things keep erasures complete:
   the database after erasures.
 
 ## Upgrade the runtime
+
+**Upgrade at least every 90 days while Kindgi is in preview.** Until 1.0, a
+release stops starting 90 days after it was released, and the runtime warns
+from 30 days before ([Licensing](../../concepts/licensing/#preview-builds-expire)).
+A restart after that day doesn't come back up.
 
 1. [Back up Postgres.](#back-up-postgres)
 2. Pull the new version, and [restart](#restart-the-runtime) with it, with the same `kindgi.env`:

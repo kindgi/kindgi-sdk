@@ -1722,7 +1722,8 @@ export const LicenseStatusSchema: JsonSchema = {
     mode: {
       type: 'string',
       enum: ['development', 'licensed'],
-      description: '`development`: no key needed (`KINDGI_DEV`); the other fields are absent.',
+      description:
+        "`development`: no key needed (`KINDGI_DEV`); the key's fields are absent, and `preview` may be present.",
     },
     name: { type: 'string', description: 'Whose key: the name the banner prints.' },
     use: { type: 'string', enum: ['production', 'non-production'] },
@@ -1753,6 +1754,34 @@ export const LicenseStatusSchema: JsonSchema = {
       type: 'string',
       description:
         "How to get the next key, as the banner says it, with where the deployment keeps its key and renewer. Present from 30 days before the key expires, and only to the deployment's own token.",
+    },
+    preview: { $ref: '#/components/schemas/LicensePreview' },
+  },
+};
+
+export const LicensePreviewSchema: JsonSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['version', 'releasedAt', 'expiresAt', 'daysLeft', 'standing'],
+  description:
+    "This build's own expiry, before Kindgi 1.0: a preview release stops starting 90 days after it was released, in every mode, unless a production key exempts it. Absent when nothing expires: a 1.0 or later release, a build from source, or a production key.",
+  properties: {
+    version: { type: 'string', description: "This build's release, `0.1.8`." },
+    releasedAt: { type: 'string', format: 'date-time' },
+    expiresAt: {
+      type: 'string',
+      format: 'date-time',
+      description: 'From then on, it no longer starts: `releasedAt` plus 90 days.',
+    },
+    daysLeft: {
+      type: 'integer',
+      description: 'Whole days until then; negative once it has passed.',
+    },
+    standing: {
+      type: 'string',
+      enum: ['valid', 'expiring', 'expired'],
+      description:
+        "`expiring`: 30 days or fewer left. `expired`: past it: this server runs on, but won't start again; run a newer release.",
     },
   },
 };
@@ -12256,6 +12285,7 @@ export const COMPONENT_SCHEMAS: ReadonlyArray<readonly [string, JsonSchema]> = [
   ['WebhookDeliveryStatus', WebhookDeliveryStatusSchema],
   ['WebhookDelivery', WebhookDeliverySchema],
   ['WebhookDeliveryCollectionPage', WebhookDeliveryCollectionPageSchema],
+  ['LicensePreview', LicensePreviewSchema],
 ] as const;
 
 /** Convenience `$ref` builder. */

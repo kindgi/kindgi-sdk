@@ -16,7 +16,7 @@ import { hasCapability, refused } from './denied.js';
  * same way to the next key. Never the key itself.
  */
 export interface LicenseStatus {
-  /** `development`: `KINDGI_DEV`, no key needed (the rest is absent). */
+  /** `development`: `KINDGI_DEV`, no key needed (the key's fields are absent). */
   readonly mode: 'development' | 'licensed';
   /** Whose key: the name the banner prints. */
   readonly name?: string;
@@ -45,6 +45,30 @@ export interface LicenseStatus {
    * expires. Only the deployment's own token reads it.
    */
   readonly renew?: string;
+  /**
+   * This build's own expiry, before Kindgi 1.0: a preview release stops
+   * starting 90 days after it was released, in every mode, unless a
+   * production key exempts it. Absent when nothing expires: a 1.0 or later
+   * release, a build from source, or a production key.
+   */
+  readonly preview?: LicensePreview;
+}
+
+/** A preview build's expiry: when it was released, and the last day it starts. */
+export interface LicensePreview {
+  /** This build's release, `0.1.8`. */
+  readonly version: string;
+  /** ISO 8601: when it was released. */
+  readonly releasedAt: string;
+  /** ISO 8601: from then on, it no longer starts (`releasedAt` plus 90 days). */
+  readonly expiresAt: string;
+  /** Whole days until then; negative once it's passed. */
+  readonly daysLeft: number;
+  /**
+   * `expiring`: 30 days or fewer left. `expired`: past it: this server runs
+   * on, but won't start again; run a newer release.
+   */
+  readonly standing: 'valid' | 'expiring' | 'expired';
 }
 
 /** The deployment's license status, worked out on each read (the days left move). */
@@ -80,12 +104,12 @@ export function operatorLicenseView(status: LicenseStatus): LicenseStatus {
 
 /**
  * What a tenant admin reads: the countdown and which way to the next key,
- * never whose key it is or where the deployment keeps it. Named field by
- * field, so a field added to `LicenseStatus` stays the operator's until
- * it's named here.
+ * and the build's own expiry, never whose key it is or where the
+ * deployment keeps it. Named field by field, so a field added to
+ * `LicenseStatus` stays the operator's until it's named here.
  */
 export function tenantAdminLicenseView(status: LicenseStatus): LicenseStatus {
-  const { mode, standing, expiresAt, startsUntil, daysLeft, renewBy } = status;
+  const { mode, standing, expiresAt, startsUntil, daysLeft, renewBy, preview } = status;
   return {
     mode,
     ...(standing !== undefined && { standing }),
@@ -93,7 +117,14 @@ export function tenantAdminLicenseView(status: LicenseStatus): LicenseStatus {
     ...(startsUntil !== undefined && { startsUntil }),
     ...(daysLeft !== undefined && { daysLeft }),
     ...(renewBy !== undefined && { renewBy }),
+    ...(preview !== undefined && { preview: previewView(preview) }),
   };
+}
+
+/** A preview's fields, named, so nothing a binding adds leaves outside the schema. */
+function previewView(preview: LicensePreview): LicensePreview {
+  const { version, releasedAt, expiresAt, daysLeft, standing } = preview;
+  return { version, releasedAt, expiresAt, daysLeft, standing };
 }
 
 /**

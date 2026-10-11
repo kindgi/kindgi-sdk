@@ -23,6 +23,8 @@ import {
 } from '../src/index.js';
 import { createStubAppBindings } from '../src/testing/index.js';
 
+import { validateAgainst } from './support/openapi-schema.js';
+
 const TENANT = 't-1' as TenantId;
 const OTHER_TENANT = 't-2' as TenantId;
 /** The deployment's own token. */
@@ -123,6 +125,15 @@ function makeApp(
   return { get, recorded };
 }
 
+/** A preview build 70 days after its release: 20 days left to start. */
+const PREVIEW = {
+  version: '0.1.8',
+  releasedAt: '2026-10-20T14:00:00.000Z',
+  expiresAt: '2027-01-18T14:00:00.000Z',
+  daysLeft: 20,
+  standing: 'expiring',
+} as const;
+
 /** The countdown a tenant admin reads: these fields, and only these. */
 const ADMIN_FIELDS = ['daysLeft', 'expiresAt', 'mode', 'renewBy', 'standing', 'startsUntil'];
 
@@ -182,6 +193,19 @@ describe("GET /v1/license: the deployment's own token", () => {
     const { get } = makeApp({ status: () => ({ mode: 'development' }) });
     expect((await get(SYSTEM)).body).toEqual({ mode: 'development' });
   });
+
+  test("a preview build's own expiry, in either mode, and only its named fields", async () => {
+    for (const status of [{ mode: 'development' as const }, expiring(200)]) {
+      const { get } = makeApp({
+        status: () =>
+          ({ ...status, preview: { ...PREVIEW, stamp: 'from the build' } }) as LicenseStatus,
+      });
+      const answer = await get(SYSTEM);
+      expect(answer.body.preview).toEqual(PREVIEW);
+      expect(answer.text).not.toContain('from the build');
+      expect(validateAgainst('LicenseStatus', answer.body)).toEqual([]);
+    }
+  });
 });
 
 describe('GET /v1/license: the admins of the one tenant a deployment serves', () => {
@@ -221,6 +245,18 @@ describe('GET /v1/license: the admins of the one tenant a deployment serves', ()
   test('development: the mode alone', async () => {
     const { get } = makeApp({ status: () => ({ mode: 'development' }), soleTenant: () => TENANT });
     expect((await get(MEMBER)).body).toEqual({ mode: 'development' });
+  });
+
+  test("a preview build's own expiry too: it's the build's, not the key's", async () => {
+    const { get } = makeApp({
+      status: () => ({ ...expiring(12), preview: PREVIEW }),
+      soleTenant: () => TENANT,
+    });
+    const answer = await get(MEMBER);
+    expect(answer.body.preview).toEqual(PREVIEW);
+    expect(Object.keys(answer.body).sort()).toEqual([...ADMIN_FIELDS, 'preview'].sort());
+    expectNothingOfTheOperators(answer);
+    expect(validateAgainst('LicenseStatus', answer.body)).toEqual([]);
   });
 });
 
