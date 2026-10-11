@@ -37,7 +37,9 @@ Runs come newest first, 25 to a page by default (`--limit`, at most 100).
 `output`; `kindgi runs get <run-id>` has it.
 
 The CLI lists every run, including the agent turns inside flows (each one a
-run of `agent.turn`, with a `parentRunId`). The client can filter.
+run of `agent.turn`, with a `parentRunId`); `--agent=<agent-id>` lists one
+agent's turns (see below). The clients also filter by status, creation
+time, flow and version, and scope (below).
 
 ## From your app
 
@@ -189,8 +191,20 @@ for child in children.data:
 
 An agent's turn names its agent: `agent` carries the agent's id, the
 version that ran and the conversation. That goes for an agent run and for
-the turn a flow's agent step starts. `agentId` (`agent_id`) lists one
-agent's turns, at every version.
+the turn a flow's agent step starts. `kindgi runs list --agent=<agent-id>`
+lists one agent's turns, at every version, as do `agentId` (`agent_id`) in
+the clients:
+
+```sh
+kindgi runs list --agent=acme.chat-desk --table
+```
+
+```text
+ID                                    STATUS     FLOW / AGENT          CREATED
+────────────────────────────────────  ─────────  ────────────────────  ────────────────────────
+45d986f1-8a8d-4341-a786-5ddcf239bb93  completed  acme.chat-desk@0.1.0  2026-10-11T07:55:48.520Z
+95674147-b935-4a63-a74c-cbffc0fb103a  completed  acme.chat-desk@0.1.0  2026-10-11T07:55:39.011Z
+```
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
