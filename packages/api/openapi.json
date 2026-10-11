@@ -201,6 +201,7 @@
         ],
         "x-error-codes": {
           "validation-failed": 400,
+          "reference-out-of-scope": 400,
           "kind-not-applied": 400,
           "unknown-field": 400,
           "bad-input": 400,
@@ -20689,7 +20690,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body, or the body's `projectId` isn't a project id (a UUID).",
+            "description": "Malformed request body, or the body's `projectId` isn't a project id (a UUID). Or `reference-out-of-scope`: the agent or flow isn't registered in the named `projectId`'s project, its org or the tenant (`details.issues`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -24104,7 +24105,7 @@
             }
           },
           "400": {
-            "description": "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID).",
+            "description": "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID). Or `reference-out-of-scope`: a tool, guardrail or data block it names isn't registered in its project, its org or the tenant (`details.issues`, each with `path`, `kind` and `id`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -24903,7 +24904,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body.",
+            "description": "Malformed request body. Or `reference-out-of-scope`: a project scope whose project doesn't reach the agent (`details.issues`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -25146,7 +25147,7 @@
             }
           },
           "400": {
-            "description": "Malformed body, or the eval run is not a finished comparison.",
+            "description": "Malformed body, or the eval run is not a finished comparison. Or `reference-out-of-scope`: a project scope whose project doesn't reach the agent (`details.issues`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -26288,7 +26289,7 @@
             }
           },
           "400": {
-            "description": "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID).",
+            "description": "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID). Or `reference-out-of-scope`: a tool, agent or subflow it names isn't registered in its project, its org or the tenant (`details.issues`, each with `path`, `kind` and `id`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -26938,7 +26939,7 @@
             }
           },
           "400": {
-            "description": "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID). Or `provider-key-refused`: the tool names a model provider's key (`details.secret`, `details.providerId`); store the key it needs under its own name (the same value is fine) and name that.",
+            "description": "Validation failed (see `details.issues`); or `projectId` isn't a project id (a UUID). Or `provider-key-refused`: the tool names a model provider's key (`details.secret`, `details.providerId`); store the key it needs under its own name (the same value is fine) and name that. Or `validation-failed` for a `metadata` key under `kindgi.`: those are the runtime's own (`details.issues`, at `/metadata/<key>`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -37534,7 +37535,7 @@
             }
           },
           "400": {
-            "description": "Malformed body (both / neither of `agentRef` / `flowRef`, dispatcher-input-invalid); or `projectId` isn't a project id (a UUID).",
+            "description": "Malformed body (both / neither of `agentRef` / `flowRef`, dispatcher-input-invalid); or `projectId` isn't a project id (a UUID). Or `reference-out-of-scope`: the agent or flow isn't registered in `projectId`'s project, its org or the tenant (`details.issues`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -39854,7 +39855,7 @@
             }
           },
           "400": {
-            "description": "Signature invalid, image unverifiable, or deployment-validation-failed with per-primitive `details[]`. A tool that declares or sends a model provider's key is one such issue (`path` `/secrets/<name>`): a tool never gets a model provider's key.",
+            "description": "Signature invalid, image unverifiable, or deployment-validation-failed with per-primitive `details[]`. A tool that declares or sends a model provider's key is one such issue (`path` `/secrets/<name>`): a tool never gets a model provider's key. A tool whose `metadata` has a key under `kindgi.` (the runtime's own) is a `validation-failed` detail at `/metadata/<key>`.",
             "content": {
               "application/json": {
                 "schema": {
@@ -46238,7 +46239,7 @@
             }
           },
           "400": {
-            "description": "Malformed request body.",
+            "description": "Malformed request body. Or `reference-out-of-scope`: what it runs isn't registered in the schedule's project, its org or the tenant (`details.issues`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -47175,7 +47176,7 @@
             }
           },
           "400": {
-            "description": "A body that fails validation (`bad-input`), or `provider-key-refused`: `hmacSecretName` is a model provider's key.",
+            "description": "A body that fails validation (`bad-input`), or `provider-key-refused`: `hmacSecretName` is a model provider's key. Or `reference-out-of-scope`: the flow isn't registered in the trigger's project, its org or the tenant (`details.issues`).",
             "content": {
               "application/json": {
                 "schema": {

@@ -17,6 +17,11 @@ import type { AgentId, ProjectId, Semver, TenantId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import {
+  type ReferenceScopeBinding,
+  outOfScopeResponse,
+  referencesOutOfScope,
+} from '../reference-scope.js';
 import type { AppEnv } from '../types.js';
 import { deniedBy } from './denied.js';
 import { clampLimit, decodeCursor, encodeCursor, isCursorTime } from './pagination.js';
@@ -55,6 +60,8 @@ export function conversationsRouter(
    * closing one needs `execute` on its agent, as starting a run does.
    */
   authorizer?: Authorizer,
+  /** What a conversation's project may run (`reference-scope.ts`); absent → as named. */
+  referenceScope?: ReferenceScopeBinding,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
 
@@ -218,6 +225,13 @@ export function conversationsRouter(
       ref('agent', parsed.value.agentId as unknown as string),
     );
     if (refused !== undefined) return refused;
+    // Its agent must be its project's to reach (`reference-scope.ts`).
+    if (projectId !== undefined) {
+      const outOfScope = await referencesOutOfScope(referenceScope, tenantId, projectId, [
+        { path: '/agentId', kind: 'agent', id: parsed.value.agentId as unknown as string },
+      ]);
+      if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
+    }
 
     const opened = await conversationBinding.openConversation({
       tenantId,

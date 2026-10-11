@@ -50,6 +50,15 @@ import type { LiveVersionBinding } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
 import { PublishRefused } from '../publish-refused.js';
+import {
+  type ReferenceScopeBinding,
+  agentReferences,
+  flowReferences,
+  outOfScopeResponse,
+  referencesOutOfScope,
+  reservedToolMetadataKeys,
+  reservedToolMetadataMessage,
+} from '../reference-scope.js';
 import { type RegistryReadOnly, refuseReadOnly } from '../registry-read-only.js';
 import type { SecretBinding } from '../secrets-binding.js';
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from '../signing-key-binding.js';
@@ -129,6 +138,12 @@ import type { ToolWriteHook } from './tools.js';
 export interface DeploymentsRouterBindings {
   /** The tenant's model providers' keys: no tool a deployment brings may name one. */
   readonly providerKeys?: ProviderKeys;
+  /**
+   * What the deployment's project may reference (`reference-scope.ts`):
+   * an agent or flow it brings that names an item neither it brings nor
+   * its project reaches is refused, before anything is registered.
+   */
+  readonly referenceScope?: ReferenceScopeBinding;
   readonly deploymentRegistry: DeploymentBinding;
   readonly signingKeyRegistry: SigningKeyRegistryBinding;
   readonly imageRegistry: ImageRegistryBinding;
@@ -603,6 +618,32 @@ export function deploymentsRouter(
         );
       }
       defaultProjectId = defaultProject.id;
+    }
+
+    // What its agents and flows name, besides what it brings itself, must be
+    // its project's to reach (`reference-scope.ts`), before any write.
+    if (defaultProjectId !== undefined) {
+      const brought = new Set([
+        ...validated.tools.map((t) => `tool:${t.id as unknown as string}`),
+        ...validated.agents.map((a) => `agent:${a.id as unknown as string}`),
+        ...validated.flows.map((f) => `flow:${f.id as unknown as string}`),
+        ...validated.guardrails.map((g) => `guardrail:${g.id as unknown as string}`),
+      ]);
+      const named = [
+        ...validated.agents.flatMap((agent, i) =>
+          agentReferences(agent).map((ref) => ({ ...ref, path: `/agents/${i}${ref.path}` })),
+        ),
+        ...validated.flows.flatMap((flow, i) =>
+          flowReferences(flow).map((ref) => ({ ...ref, path: `/flows/${i}/${ref.path}` })),
+        ),
+      ].filter((ref) => !brought.has(`${ref.kind}:${ref.id}`));
+      const outOfScope = await referencesOutOfScope(
+        bindings.referenceScope,
+        tenantId,
+        defaultProjectId,
+        named,
+      );
+      if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
     }
 
     const rolled: RollbackAction[] = [];
@@ -1551,6 +1592,19 @@ function validatePrimitives(
         }
       } else {
         details.push({ primitive: 'tool', index: i, ...idBase, path: '', message: err.message });
+      }
+      return;
+    }
+    const reserved = reservedToolMetadataKeys(r.value.metadata);
+    if (reserved.length > 0) {
+      for (const key of reserved) {
+        details.push({
+          primitive: 'tool',
+          index: i,
+          id: r.value.id as unknown as string,
+          path: `/metadata/${key}`,
+          message: reservedToolMetadataMessage(key),
+        });
       }
       return;
     }

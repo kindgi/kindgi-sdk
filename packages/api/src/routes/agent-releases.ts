@@ -21,6 +21,11 @@ import type {
   Promotion,
   PromotionActor,
 } from '../live-version-binding.js';
+import {
+  type ReferenceScopeBinding,
+  outOfScopeResponse,
+  referencesOutOfScope,
+} from '../reference-scope.js';
 import type { AppEnv } from '../types.js';
 import { serializeGatePolicy } from './gate-policy-wire.js';
 import { refuseUnissuedCursor } from './issued-cursor.js';
@@ -64,7 +69,16 @@ export function mountAgentReleaseRoutes(
   registry: AgentRegistryBinding,
   releases: AgentReleaseBindings,
   deps: AgentReleaseGateDeps = {},
+  /** What a project-scoped promotion's project may run (`reference-scope.ts`); absent → as named. */
+  referenceScope?: ReferenceScopeBinding,
 ): void {
+  /** A project-scoped promotion of an agent that project doesn't reach: refused. */
+  const outOfScope = async (tenantId: TenantId, agentId: string, scope: LiveScope) =>
+    scope.kind === 'project'
+      ? referencesOutOfScope(referenceScope, tenantId, scope.projectId, [
+          { path: '/scope', kind: 'agent', id: agentId },
+        ])
+      : undefined;
   r.get('/:agentId/live', async (c) => {
     const requestId = c.get('requestId');
     const tenantId = c.get('tenantId') as TenantId;
@@ -140,6 +154,8 @@ export function mountAgentReleaseRoutes(
     const parsed = await readPromotionBody(c);
     if (parsed.kind === 'err') return badInput(c, requestId, parsed.message);
     const agentId = c.req.param('agentId');
+    const refused = await outOfScope(c.get('tenantId') as TenantId, agentId, parsed.value.scope);
+    if (refused !== undefined) return outOfScopeResponse(c, requestId, refused);
     const outcome = await requestPromotion(registry, releases, deps, {
       tenantId: c.get('tenantId') as TenantId,
       agentId,
@@ -158,6 +174,8 @@ export function mountAgentReleaseRoutes(
     if (parsed.kind === 'err') return badInput(c, requestId, parsed.message);
     const tenantId = c.get('tenantId') as TenantId;
     const agentId = c.req.param('agentId');
+    const refused = await outOfScope(tenantId, agentId, parsed.value.scope);
+    if (refused !== undefined) return outOfScopeResponse(c, requestId, refused);
     const policy = await policyFor(releases, tenantId, agentId, parsed.value.scope);
     const gate = await runGate(
       registry,

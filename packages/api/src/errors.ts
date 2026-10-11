@@ -31,6 +31,8 @@ export interface WireError {
 export const ERROR_CODE_TO_STATUS: Readonly<Record<string, number>> = {
   // 400 — bad request
   'validation-failed': 400,
+  // A flow, agent, trigger or run names an item its project doesn't reach (`reference-scope.ts`).
+  'reference-out-of-scope': 400,
   'kind-not-applied': 400,
   'unknown-field': 400,
   'bad-input': 400,

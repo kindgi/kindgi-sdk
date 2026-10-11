@@ -30,6 +30,11 @@ import type {
 import type { HitlBinding } from '../hitl-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import type { MintPublicRunTokenResult } from '../public-run-token.js';
+import {
+  type ReferenceScopeBinding,
+  outOfScopeResponse,
+  referencesOutOfScope,
+} from '../reference-scope.js';
 import { type RunFailure, runFailure } from '../run-failure.js';
 import { runWaitingFor } from '../run-waiting-for.js';
 import type { AppEnv } from '../types.js';
@@ -82,6 +87,12 @@ export interface RunsRouterOptions {
     tenantId: TenantId,
     target: { readonly kind: 'agent' | 'flow'; readonly id: string },
   ) => Promise<boolean>;
+  /**
+   * What a run filed under a named project may run (`reference-scope.ts`):
+   * an agent or flow that project doesn't reach is refused with
+   * `reference-out-of-scope`. Absent: as named.
+   */
+  readonly referenceScope?: ReferenceScopeBinding;
 }
 
 /** How far up the parent chain a public token's grant reaches. */
@@ -213,6 +224,17 @@ export function runsRouter(
           ),
         );
       }
+    }
+    // A run filed under a named project runs only what that project
+    // reaches (`reference-scope.ts`).
+    if (parsed.value.projectId !== undefined) {
+      const outOfScope = await referencesOutOfScope(
+        options.referenceScope,
+        tenantId,
+        parsed.value.projectId as ProjectId,
+        [{ path: `/${target.kind}`, kind: target.kind, id: target.id }],
+      );
+      if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
     }
 
     const trace = c.get('trace');

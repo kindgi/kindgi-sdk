@@ -87,6 +87,7 @@ import {
   resolvePublicRunTokenConfig,
 } from './public-run-token.js';
 import type { RateLimitStore } from './rate-limit-store.js';
+import type { ReferenceScopeBinding } from './reference-scope.js';
 import type { RetentionBinding } from './retention-binding.js';
 import type { ReviewerBinding, ReviewerRegistryBinding } from './reviewer-binding.js';
 import {
@@ -262,6 +263,13 @@ export interface CreateAppInput {
      */
     readonly authzCheckBinding: AuthzCheckBinding;
   };
+  /**
+   * What a project's flows, agents, triggers and runs may reference
+   * (`reference-scope.ts`). When present, a write that names an item its
+   * project doesn't reach is refused with `reference-out-of-scope` (400).
+   * Absent: references are taken as they are.
+   */
+  readonly referenceScope?: ReferenceScopeBinding;
   /**
    * Optional unified audit substrate. When present:
    *   - `GET /v1/audit/authz` is mounted (admin@tenant only) as a
@@ -1189,6 +1197,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       {
         ...(input.eventBus !== undefined && { eventBus: input.eventBus }),
         ...(input.hitlBinding !== undefined && { hitl: input.hitlBinding }),
+        ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
         ...(input.agentRegistry !== undefined &&
           input.flowRegistry !== undefined && {
             targetExists: async (tenantId, target) =>
@@ -1210,7 +1219,13 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   );
   v1.route(
     '/conversations',
-    conversationsRouter(input.conversationBinding, runBinding, input.projectBinding, authorizer),
+    conversationsRouter(
+      input.conversationBinding,
+      runBinding,
+      input.projectBinding,
+      authorizer,
+      input.referenceScope,
+    ),
   );
   if (publicRunTokenLimits !== undefined) {
     v1.route(
@@ -1285,6 +1300,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
             conversationRecall: input.memory.conversationRecall,
           }),
         },
+        input.referenceScope,
       ),
     );
   }
@@ -1304,6 +1320,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
               ...(input.agentReleases !== undefined && { live: input.agentReleases.live }),
             }
           : undefined,
+        input.referenceScope,
       ),
     );
   }
@@ -1490,12 +1507,18 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     if (kinds.has('cron')) {
       v1.route(
         '/schedules',
-        schedulesRouter(input.triggerRegistry, authorizer, input.projectBinding, {
-          ...(input.identityDirectory !== undefined && { directory: input.identityDirectory }),
-          ...(input.serviceAccountBinding !== undefined && {
-            serviceAccounts: input.serviceAccountBinding,
-          }),
-        }),
+        schedulesRouter(
+          input.triggerRegistry,
+          authorizer,
+          input.projectBinding,
+          {
+            ...(input.identityDirectory !== undefined && { directory: input.identityDirectory }),
+            ...(input.serviceAccountBinding !== undefined && {
+              serviceAccounts: input.serviceAccountBinding,
+            }),
+          },
+          input.referenceScope,
+        ),
       );
     }
     if (kinds.has('event')) {
@@ -1515,6 +1538,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           },
           providerKeys,
           ...(receiveUrl !== undefined && { receiveUrl }),
+          ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
         }),
       );
     }
@@ -1708,6 +1732,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           // fails fast at runtime if agents are in the deployment index
           // but the binding is absent.
           ...(input.projectBinding !== undefined && { projectBinding: input.projectBinding }),
+          ...(input.referenceScope !== undefined && { referenceScope: input.referenceScope }),
           // POST /v1/deployments/:deploymentId/secrets needs the
           // secretsBinding. Absent binding → the route answers 500 with an
           // operator-actionable message.
@@ -1741,6 +1766,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         ? { agents: input.agentRegistry, blocks: input.blockRegistry }
         : undefined,
       authorizer,
+      input.referenceScope,
     );
     v1.route('/eval-suites', evalRuns.start);
     v1.route('/eval-runs', evalRuns.readback);

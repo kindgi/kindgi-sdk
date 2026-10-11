@@ -15,7 +15,7 @@ export interface BlockPins {
   readonly issues: readonly UnpinnableRef[];
 }
 
-interface Ref {
+export interface Ref {
   readonly path: string;
   readonly id: string;
   readonly range: string;
@@ -77,7 +77,8 @@ export async function resolveBlockPins(
   return { prompts, settings, issues };
 }
 
-function blockRefs(agent: Agent): Ref[] {
+/** Each data block an agent references, at its path. */
+export function blockRefs(agent: Agent): Ref[] {
   const refs: Ref[] = [];
   if (typeof agent.instructions === 'object') {
     refs.push({

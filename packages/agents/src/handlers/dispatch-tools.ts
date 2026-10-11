@@ -229,6 +229,53 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
       }
       const { tool, resolvedVersion, requestedRange } = binding;
 
+      // The turn's principal may call this tool, or the call runs nothing
+      // and asks no reviewer (`authorizeToolCall`): its result tells the
+      // model. Recorded with the call, so a resumed turn keeps the answer.
+      const authorize = ctx.bindings.authorizeToolCall;
+      if (authorize !== undefined) {
+        const toolId = tool.id as unknown as string;
+        const decision = await kctx.record(
+          toolCallRecordKey({ toolId, key: TOOL_AUTHORIZE_RECORD_KEY, callId: call.id }),
+          () =>
+            authorize({
+              tenantId: ctx.input.tenantId,
+              projectId: ctx.input.projectId,
+              ...(ctx.input.principal !== undefined && { principal: ctx.input.principal }),
+              toolId,
+            }),
+        );
+        if (!decision.allowed) {
+          const deniedStarted = Date.now();
+          const deniedResult = { status: 'denied' as const, reason: decision.reason };
+          await emitTurnEvent(ctx.bindings.onEvent, {
+            kind: 'tool.started',
+            step: partial.step,
+            toolId: call.name,
+            toolVersion: resolvedVersion,
+            toolVersionRange: requestedRange,
+            invocationId: call.id,
+            arguments: call.arguments,
+          });
+          nextMessages = await appendToolResult(ctx, call, deniedResult, {
+            toolId,
+            nextMessages,
+            iterationAppended,
+          });
+          await emitTurnEvent(ctx.bindings.onEvent, {
+            kind: 'tool.completed',
+            step: partial.step,
+            toolId: call.name,
+            toolVersion: resolvedVersion,
+            toolVersionRange: requestedRange,
+            invocationId: call.id,
+            output: deniedResult as never,
+            durationMs: Date.now() - deniedStarted,
+          });
+          continue;
+        }
+      }
+
       // Tool-level HITL gate. Resolves the effective mode
       // for this (agent, tool) pair via the effective-policy
       // resolver (framework defaults → agent → tenant cap), then parks +
@@ -577,6 +624,9 @@ async function retryOrFail(
   if (used >= policy.maxRetries) throwAgentTurnFailure({ ...error, toolRetries: used });
   return appendToolResult(ctx, call, toolErrorResult(kind, error.message, issues), target);
 }
+
+/** The record key of a call's authorization decision (`authorizeToolCall`). */
+const TOOL_AUTHORIZE_RECORD_KEY = 'kindgi.authorize';
 
 async function dispatchOne(
   ctx: TurnContext,

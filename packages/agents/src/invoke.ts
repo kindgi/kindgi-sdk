@@ -301,6 +301,7 @@ export type {
   HitlEnqueueResult,
   InvokeAgentBindings,
   InvokeAgentInput,
+  ToolCallAuthorization,
 } from './handlers/public-types.js';
 
 /**

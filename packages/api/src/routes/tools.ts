@@ -10,6 +10,7 @@ import type { Cursor, ProjectId, TenantId, ToolId, UserId } from '@kindgi/types'
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
+import { reservedToolMetadataKeys, reservedToolMetadataMessage } from '../reference-scope.js';
 import { refuseWritesWhenReadOnly } from '../registry-read-only.js';
 import type { ToolRecord, ToolRegistryBinding, ToolVersionRow } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
@@ -321,6 +322,25 @@ export function toolsRouter(
             code: 'validation-failed',
             message: err.message,
             issues,
+          },
+          requestId,
+        ),
+      );
+    }
+
+    // The runtime's own metadata (`kindgi.*`) is never a published tool's.
+    const reserved = reservedToolMetadataKeys(validated.value.metadata);
+    if (reserved.length > 0) {
+      c.status(statusFor('validation-failed') as never);
+      return c.json(
+        toWireError(
+          {
+            code: 'validation-failed',
+            message: reservedToolMetadataMessage(reserved[0] as string),
+            issues: reserved.map((key) => ({
+              path: `/metadata/${key}`,
+              message: reservedToolMetadataMessage(key),
+            })),
           },
           requestId,
         ),

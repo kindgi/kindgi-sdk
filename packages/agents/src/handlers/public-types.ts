@@ -224,6 +224,20 @@ export interface InvokeAgentBindings extends GuardrailsBindings {
    */
   readonly resolveSecret?: (ref: ToolSecretRef) => Promise<string>;
   /**
+   * Whether the turn's principal may call a tool, asked before each call,
+   * before any approval. A denied call runs nothing and asks no reviewer:
+   * its result tells the model it wasn't allowed (`{ status: 'denied',
+   * reason }`), and the turn goes on. The decision is recorded with the
+   * call, so a resumed turn keeps it. The Kindgi runtime checks `invoke` on
+   * the tool for the turn's principal. Absent: every call is allowed.
+   */
+  readonly authorizeToolCall?: (input: {
+    readonly tenantId: TenantId;
+    readonly projectId: ProjectId;
+    readonly principal?: Principal;
+    readonly toolId: string;
+  }) => Promise<ToolCallAuthorization>;
+  /**
    * How replay turns (`InvokeAgentInput.replay`) decide their tool calls,
    * retrievals and session approval. Consulted only for a replay turn.
    */
@@ -274,3 +288,8 @@ export interface HitlEnqueueInput {
 export interface HitlEnqueueResult {
   readonly approvalId: string;
 }
+
+/** `InvokeAgentBindings.authorizeToolCall`'s answer. */
+export type ToolCallAuthorization =
+  | { readonly allowed: true }
+  | { readonly allowed: false; readonly reason: string };

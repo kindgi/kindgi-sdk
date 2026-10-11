@@ -14,6 +14,11 @@ import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
 import {
+  type ReferenceScopeBinding,
+  outOfScopeResponse,
+  referencesOutOfScope,
+} from '../reference-scope.js';
+import {
   type RegisterWebhookTriggerInput,
   type TriggerFire,
   type TriggerRegistryBinding,
@@ -42,6 +47,8 @@ export interface WebhooksRouterOptions {
    * records then carry no `receiveUrl`.
    */
   readonly receiveUrl?: (tenantId: TenantId, webhookId: string) => string;
+  /** What a webhook trigger's project may run (`reference-scope.ts`); absent → as named. */
+  readonly referenceScope?: ReferenceScopeBinding;
 }
 
 /**
@@ -71,7 +78,7 @@ export function webhooksRouter(
   binding: TriggerRegistryBinding,
   options: WebhooksRouterOptions = {},
 ): Hono<AppEnv> {
-  const { authorizer, projects, names, providerKeys, receiveUrl } = options;
+  const { authorizer, projects, names, providerKeys, receiveUrl, referenceScope } = options;
   const r = new Hono<AppEnv>();
 
   /** Nothing, when allowed; else the authorizer's own 403. */
@@ -173,6 +180,16 @@ export function webhooksRouter(
         : await denied(c, 'write', ref('project', project))) ??
       (await denied(c, 'execute', ref('flow', flowId.value)));
     if (refused !== undefined) return refused;
+    // The flow it runs must be its project's to reach (`reference-scope.ts`).
+    if (project !== undefined) {
+      const outOfScope = await referencesOutOfScope(
+        referenceScope,
+        tenantId,
+        project as ProjectId,
+        [{ path: '/flowId', kind: 'flow', id: flowId.value }],
+      );
+      if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
+    }
     const keyRefused = await providerKeyRefused(c, hmacSecretName.value);
     if (keyRefused !== undefined) return keyRefused;
 

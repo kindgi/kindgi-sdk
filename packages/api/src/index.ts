@@ -929,6 +929,13 @@ export type {
   SecretProviderScope,
 } from './secrets-provider-binding.js';
 export { statusFor, toWireError, ERROR_CODE_TO_STATUS } from './errors.js';
+export { agentReferences, flowReferences, referencesOutOfScope } from './reference-scope.js';
+export type {
+  ItemReference,
+  ReferenceKind,
+  ReferenceOutOfScopeError,
+  ReferenceScopeBinding,
+} from './reference-scope.js';
 export type { WireError, WireErrorBody } from './errors.js';
 export { generateOpenApiDocument } from './openapi/generate.js';
 export type { GenerateOptions, OpenApiInfo, OpenApiServer } from './openapi/generate.js';

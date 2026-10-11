@@ -14,6 +14,12 @@ import type { FlowRegistryBinding, FlowVersionRecord } from '../flow-binding.js'
 import { resolveFlowPins } from '../flow-pins.js';
 import type { LiveVersionBinding } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import {
+  type ReferenceScopeBinding,
+  flowReferences,
+  outOfScopeResponse,
+  referencesOutOfScope,
+} from '../reference-scope.js';
 import { refuseWritesWhenReadOnly } from '../registry-read-only.js';
 import type { ToolRegistryBinding } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
@@ -52,6 +58,7 @@ export function flowsRouter(
   binding: FlowRegistryBinding,
   authorizer?: Authorizer,
   pinning?: FlowPinning,
+  referenceScope?: ReferenceScopeBinding,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   // A read-only registry (under `kindgi dev`, the pack's files) refuses
@@ -321,6 +328,17 @@ export function flowsRouter(
         ),
       );
     }
+
+    // Every tool, agent and subflow it names must be one its project
+    // reaches (`reference-scope.ts`): asked before pinning, so an item that
+    // doesn't exist and one out of reach get the same answer.
+    const outOfScope = await referencesOutOfScope(
+      referenceScope,
+      tenantId,
+      projectId,
+      flowReferences(loaded.value),
+    );
+    if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
 
     // Pin the version: every tool and unversioned agent resolves now,
     // once, to the version its runs use. One with no published version

@@ -25,6 +25,12 @@ import {
 import { statusFor, toWireError } from '../errors.js';
 import type { AgentReleaseBindings } from '../live-version-binding.js';
 import type { Authorizer } from '../middleware/authorize.js';
+import {
+  type ReferenceScopeBinding,
+  agentReferences,
+  outOfScopeResponse,
+  referencesOutOfScope,
+} from '../reference-scope.js';
 import { refuseWritesWhenReadOnly } from '../registry-read-only.js';
 import type { ToolRegistryBinding } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
@@ -68,6 +74,8 @@ export function agentsRouter(
   gateDeps?: AgentReleaseGateDeps,
   /** What the deployment can do for an agent's turns, for publish warnings. */
   capabilities: AgentPublishCapabilities = {},
+  /** What an agent's project may reference (`reference-scope.ts`); absent → as named. */
+  referenceScope?: ReferenceScopeBinding,
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   // A read-only registry (under `kindgi dev`, the pack's files) refuses
@@ -364,6 +372,16 @@ export function agentsRouter(
       );
     }
 
+    // Every tool, guardrail and data block it names must be one its
+    // project reaches (`reference-scope.ts`), asked before pinning.
+    const outOfScope = await referencesOutOfScope(
+      referenceScope,
+      tenantId,
+      projectId,
+      agentReferences(defined.value),
+    );
+    if (outOfScope !== undefined) return outOfScopeResponse(c, requestId, outOfScope);
+
     // Pin the version: every tool range resolves now, once, to the
     // version its runs use. A range nothing satisfies refuses the
     // publish rather than store a partly pinned version.
@@ -557,7 +575,9 @@ export function agentsRouter(
     });
   });
 
-  if (releases !== undefined) mountAgentReleaseRoutes(r, binding, releases, gateDeps);
+  if (releases !== undefined) {
+    mountAgentReleaseRoutes(r, binding, releases, gateDeps, referenceScope);
+  }
 
   return r;
 }
