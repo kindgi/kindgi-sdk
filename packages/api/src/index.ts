@@ -72,6 +72,11 @@ export {
 } from './routes/system-usage.js';
 export { systemKeysMintedFrom } from './routes/system-keys.js';
 export { createInMemoryRateLimitStore } from './rate-limit-store.js';
+export type {
+  TenantLimiter,
+  TenantLimitsOptions,
+  TenantRateLimitName,
+} from './middleware/tenant-limits.js';
 export type { RateLimitStore, RateLimitTake, RateLimitTakeInput } from './rate-limit-store.js';
 export type {
   ClaimMappingScopesSpec,

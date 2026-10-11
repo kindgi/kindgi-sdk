@@ -79,6 +79,11 @@ import {
   type SystemTenantDirectory,
   systemPrincipalFence,
 } from './middleware/system.js';
+import {
+  type TenantLimitsOptions,
+  createTenantLimiter,
+  tenantApiRequestLimit,
+} from './middleware/tenant-limits.js';
 import type { MyAccessBinding } from './my-access-binding.js';
 import { type GenerateOptions, generateOpenApiDocument } from './openapi/generate.js';
 import type { PersonGrantsBinding } from './person-grants-binding.js';
@@ -561,6 +566,15 @@ export interface CreateAppInput {
    * (`system:usage:read`). Without it the route isn't mounted (404).
    */
   readonly systemUsage?: SystemUsageBinding;
+  /**
+   * Optional. Enforce each tenant's own limits (`TenantSummary.limits`,
+   * set through `PUT /v1/system/tenants/:tenantId/limits`): API requests a
+   * minute on every authenticated request a tenant makes, and webhook
+   * deliveries a minute across its triggers, each `429 rate-limit-exceeded`
+   * past it, with `Retry-After`. A tenant without a limit isn't limited.
+   * Without this option, nothing is.
+   */
+  readonly tenantLimits?: TenantLimitsOptions;
   /**
    * Optional. Issue and accept public run tokens (`kgi_pt_…`):
    * short-lived, read-only tokens a browser uses to follow specific runs
@@ -1251,6 +1265,12 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
   if (input.cursorSealer !== undefined) v1.use('*', sealedCursors(input.cursorSealer));
 
   const tenantHierarchyBinding: TenantHierarchyBinding = input.tenantHierarchyBinding;
+  // Each tenant's own limits, when the runtime sets them.
+  const tenantLimiter =
+    input.tenantLimits !== undefined
+      ? createTenantLimiter(tenantHierarchyBinding, input.tenantLimits)
+      : undefined;
+  if (tenantLimiter !== undefined) v1.use('*', tenantApiRequestLimit(tenantLimiter));
   v1.use('*', idempotencyMiddleware(input.idempotencyStore ?? createInMemoryIdempotencyStore()));
   // A `projectId` in a write's body that the route can't use is refused
   // before any binding sees it: a 400 if it isn't a UUID, a 404 if it
@@ -1919,6 +1939,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
     app.route(
       '/v1/hooks',
       hooksRouter({
+        ...(tenantLimiter !== undefined && { tenantLimiter }),
         triggers: input.triggerRegistry,
         secrets: secretsBinding,
         secretWrites: observedSecrets.writes,
