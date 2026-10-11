@@ -249,10 +249,10 @@ The license key has an end date: 45 days for a key from access.kindgi.com, or th
 
 ```sh
 terraform output -raw license_enroll_command
-# kindgi license enroll --for <your GitHub login> --renewer gcp:projects/<project>/secrets/<prefix>-license-renewer
+# kindgi license enroll --for <your GitHub login, or your license subject> --renewer gcp:projects/<project>/secrets/<prefix>-license-renewer
 ```
 
-Run that command with your GitHub login filled in.
+Run that command with `--for` filled in: your GitHub login, or a production key's subject.
 - It makes the deployment's renewer key and keeps it in `<prefix>-license-renewer`. The module creates that secret empty, and only the renewal job may read it; the key is never printed.
 - It prints a line to add at access.kindgi.com, signed in as that login. A production licensee sends the line to Kindgi instead, with the key's subject for `--for`.
 - Outside Cloud Run the CLI uses your gcloud credentials (`gcloud auth print-access-token`), which must be able to add versions to that secret.
@@ -260,8 +260,11 @@ Run that command with your GitHub login filled in.
 **By hand:**
 
 ```sh
-kindgi license renew --key gcp:projects/<project>/secrets/$N-license-key --renewer gcp:projects/<project>/secrets/$N-license-renewer
+terraform output -raw license_renew_command
+# kindgi license renew --key gcp:projects/<project>/secrets/<prefix>-license-key --renewer gcp:projects/<project>/secrets/<prefix>-license-renewer
 ```
+
+Run it as printed, or from your own scheduler.
 
 It writes a new version of the license key only when Kindgi answers with a new key. It prints one line, `renewed: …` or `unchanged: …`, plus `⚠ It expires in <days> days` in the key's last 30 days. The server's expiry warning names this command too.
 

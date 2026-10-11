@@ -50,5 +50,10 @@ output "nat_ip" {
 
 output "license_enroll_command" {
   description = "Run once per deployment, with your GitHub login (a production licensee: the key's subject). It makes the renewer key, keeps it in the renewer secret, and prints the line to add at access.kindgi.com. README, step 8."
-  value       = "kindgi license enroll --for <your GitHub login> --renewer ${local.license_renewer_ref}"
+  value       = "kindgi license enroll --for <your GitHub login, or your license subject> --renewer ${local.license_renewer_ref}"
+}
+
+output "license_renew_command" {
+  description = "Renews the license key, by hand or from your own scheduler. With license_renewal_schedule set, the module's job runs it. README, step 8."
+  value       = "kindgi license renew --key ${local.license_key_ref} --renewer ${local.license_renewer_ref}"
 }

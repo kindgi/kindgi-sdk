@@ -441,8 +441,12 @@ run "renewal_is_by_hand_by_default" {
     error_message = "Without a schedule, Cloud Scheduler isn't enabled."
   }
   assert {
-    condition     = output.license_enroll_command == "kindgi license enroll --for <your GitHub login> --renewer gcp:projects/acme-app-dev/secrets/kindgi-dev-license-renewer"
+    condition     = output.license_enroll_command == "kindgi license enroll --for <your GitHub login, or your license subject> --renewer gcp:projects/acme-app-dev/secrets/kindgi-dev-license-renewer"
     error_message = "The enroll command names the renewer secret."
+  }
+  assert {
+    condition     = output.license_renew_command == "kindgi license renew --key gcp:projects/acme-app-dev/secrets/kindgi-dev-license-key --renewer gcp:projects/acme-app-dev/secrets/kindgi-dev-license-renewer"
+    error_message = "The renew command names both secrets, schedule or not."
   }
 }
 
@@ -524,8 +528,8 @@ run "a_named_renewer_secret_and_scheduler_region" {
     license_renewal_scheduler_region = "us-central1"
   }
   assert {
-    condition     = google_secret_manager_secret.license_renewer.secret_id == "acme-kindgi-renewer" && output.license_enroll_command == "kindgi license enroll --for <your GitHub login> --renewer gcp:projects/acme-app-dev/secrets/acme-kindgi-renewer"
-    error_message = "license_renewer_secret names the secret and the enroll command follows."
+    condition     = google_secret_manager_secret.license_renewer.secret_id == "acme-kindgi-renewer" && output.license_enroll_command == "kindgi license enroll --for <your GitHub login, or your license subject> --renewer gcp:projects/acme-app-dev/secrets/acme-kindgi-renewer" && output.license_renew_command == "kindgi license renew --key gcp:projects/acme-app-dev/secrets/kindgi-dev-license-key --renewer gcp:projects/acme-app-dev/secrets/acme-kindgi-renewer"
+    error_message = "license_renewer_secret names the secret, and the enroll and renew commands follow."
   }
   assert {
     condition     = google_cloud_scheduler_job.license_renewal[0].region == "us-central1" && google_cloud_run_v2_job.license_renewal[0].location == "northamerica-northeast2"
