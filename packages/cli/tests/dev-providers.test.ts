@@ -119,7 +119,7 @@ describe('declaredProviders', () => {
       'entry 1 must have one of `preset` or `spec`.',
     );
     expect(refused([{ preset: 'nope' }])).toContain(
-      'entry 1: no provider preset "nope"; there are anthropic, gemini-api, gemini, groq, openai, openrouter.',
+      'entry 1: no provider preset "nope"; there are anthropic, azure-openai, bedrock, gemini-api, gemini, groq, openai, openrouter.',
     );
     expect(refused([{ preset: 'anthropic', model: 'claude-haiku-4-5' }])).toContain('not `model`');
     expect(refused([{ preset: 'gemini' }])).toContain('preset "gemini" needs `project`');
