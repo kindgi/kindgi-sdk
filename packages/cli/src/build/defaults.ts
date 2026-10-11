@@ -23,7 +23,12 @@ import { readSse } from '@kindgi/sdk/client';
 import { runJavaIndexer, runPythonIndexer } from '../dev/defaults.js';
 import { createJavaPackBuilder } from '../dev/java-builder.js';
 import { createScalaPackBuilder } from '../dev/scala-builder.js';
-import { REQUIRE_BANNER, collectPackEntries, nodeModulesExternalPlugin } from './bundle.js';
+import {
+  REQUIRE_BANNER,
+  collectPackEntries,
+  nodeModulesExternalPlugin,
+} from './bundle.js';
+import { COMPUTED_IMPORT_LOG_OVERRIDE, computedImportsFrom } from './computed-imports.js';
 import { loadEsbuild } from '../esbuild-loader.js';
 import { readPnpmVersion } from '../package-manager.js';
 import { renderContainerfile } from './containerfile.js';
@@ -176,10 +181,15 @@ export async function esbuildBundleReal(
 
   const packEntries = await collectPackEntries(opts.packDir, opts.discoveryPatterns);
   const externalPackages = new Set<string>();
+  const externalSpecifiers = new Set<string>();
   const externals = nodeModulesExternalPlugin({
     importBy: 'bare',
-    onExternal: (name) => externalPackages.add(name),
+    onExternal: (name, _importer, specifier) => {
+      externalPackages.add(name);
+      externalSpecifiers.add(specifier);
+    },
   });
+  const loaded = opts.dependencies === 'loaded';
   const pack = await esbuild.build({
     ...common,
     entryPoints: [
@@ -187,6 +197,8 @@ export async function esbuildBundleReal(
       { in: opts.configPath, out: 'kindgi.config' },
     ],
     plugins: [externals],
+    // Only what the pack loads: esbuild's notes on computed imports, as warnings.
+    ...(loaded && { logOverride: COMPUTED_IMPORT_LOG_OVERRIDE }),
   });
   // Resolved from the CLI's own package, whose dependency it is.
   const cliRoot = await cliPackageRoot();
@@ -196,8 +208,17 @@ export async function esbuildBundleReal(
     entryPoints: [
       { in: '@kindgi/handler-runtime/kindgi-index-main', out: 'kindgi-index' },
       { in: '@kindgi/handler-runtime/pack-service-main', out: 'kindgi-pack-service' },
+      // Only what the pack loads: the image's closure and load check.
+      ...(loaded ? [{ in: '@kindgi/handler-runtime/kindgi-closure-main', out: 'kindgi-closure' }] : []),
     ],
   });
+  if (loaded) {
+    await writeFile(
+      join(opts.outputDir, 'externals.json'),
+      `${JSON.stringify({ packages: [...externalPackages].sort(), specifiers: [...externalSpecifiers].sort() }, null, 2)}\n`,
+      'utf8',
+    );
+  }
 
   const bundleMap: Record<string, string> = {};
   for (const entry of packEntries) bundleMap[entry.sourceRel] = `${entry.outRel}.mjs`;
@@ -216,6 +237,7 @@ export async function esbuildBundleReal(
     emitted: outputs.map(([p]) => p).sort(),
     totalBytes: outputs.reduce((sum, [, o]) => sum + o.bytes, 0),
     externals: [...externalPackages].sort(),
+    computedImports: loaded ? computedImportsFrom(pack.warnings, opts.packDir) : [],
     bundleMap,
   };
 }
