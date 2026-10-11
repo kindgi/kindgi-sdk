@@ -33,7 +33,7 @@
       {
         "name": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
         "contextWindow": 200000,
-        "maxOutputTokens": 8192,
+        "maxOutputTokens": 16000,
         "features": ["tool-use", "parallel-tool-use"],
         "cost": {
           "promptUsdPer1kTokens": 0.0011,

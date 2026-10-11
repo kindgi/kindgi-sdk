@@ -272,9 +272,10 @@ A turn the fallback answers carries a `fallback-provider` warning, which
 `kindgi runs start` prints. `kindgi providers unregister dev-echo` removes it
 for good.
 
-A preset's models carry their own output limit (Gemini 3.8 Flash: 65,536
-tokens, thinking included). `--max-output-tokens=<n>` registers them with a lower
-or different cap.
+A preset's models carry a default output cap, what a call asks for when its
+agent sets none (Gemini 3.8 Flash: 65,536 tokens, thinking included; the Claude
+models: 16,000). `--max-output-tokens=<n>` registers them with a lower or
+different cap.
 
 **Declared in the config**, `kindgi dev` registers them itself. Each project
 and git worktree has its own dev database, so this registers them in every

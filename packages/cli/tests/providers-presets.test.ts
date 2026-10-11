@@ -283,6 +283,26 @@ describe('the bundled presets', () => {
     ).toBe('--max-output-tokens must be a whole number of at least 1, got 0');
   });
 
+  test("the Claude models ask for 16,000 output tokens by default, in either preset: a default cap, not the model's limit", async () => {
+    const presets = await loadProviderPresets();
+    const claudeCaps = (name: string) =>
+      Object.fromEntries(
+        (presets[name]?.metadata.models ?? [])
+          .filter((m) => m.name.includes('claude'))
+          .map((m) => [m.name, m.maxOutputTokens]),
+      );
+    expect(claudeCaps('anthropic')).toEqual({
+      'claude-opus-5-5': 16_000,
+      'claude-sonnet-5-5': 16_000,
+      'claude-haiku-5-5': 16_000,
+      'claude-haiku-4-5': 16_000,
+    });
+    expect(claudeCaps('bedrock')).toEqual({
+      'us.anthropic.claude-sonnet-5-5': 16_000,
+      'us.anthropic.claude-haiku-4-5-20251001-v1:0': 16_000,
+    });
+  });
+
   test('Gemini models checked live with typed output declare structured-output, so an agent that needs it routes to them', async () => {
     const presets = await loadProviderPresets();
     const typed = (name: 'gemini' | 'gemini-api', settings: Record<string, string>) => {

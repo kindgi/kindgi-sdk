@@ -62,10 +62,13 @@ were checked. They are:
 | `openai` | GPT on the OpenAI API | `OPENAI_API_KEY` |
 | `openrouter` | A hosted service in front of several vendors: your prompts pass through OpenRouter | `OPENROUTER_API_KEY` |
 
-A preset carries its models' features, context windows, output limits and
-prices. `pricesCheckedAt` is when the prices were last compared with the
-vendor's. `--max-output-tokens=<n>` registers the models with another output
-limit.
+A preset carries its models' features, context windows, default output caps
+and prices. `pricesCheckedAt` is when the prices were last compared with the
+vendor's. `--max-output-tokens=<n>` registers the models with another cap.
+
+A model's `maxOutputTokens` is the most a call asks it for when the agent sets
+no `maxOutputTokens` of its own; an agent's own value replaces it, to ask for
+less, for example. It isn't the model's own limit, which its vendor sets.
 
 ### Claude and GPT on Amazon Bedrock
 
@@ -211,7 +214,7 @@ block asking for `0.2`:
 Some models think before they answer. A model's `thinking` says how:
 `"mode": "adaptive"` (on unless turned down) or `"always"`, and `lowest`, the
 vendor's own setting for the least thinking. Thinking counts against the
-model's output limit (`maxOutputTokens`) and bills as output, so it's in a
+call's output cap (`maxOutputTokens`) and bills as output, so it's in a
 turn's tokens and cost. A guardrail's model judge asks for the least thinking,
 and allows 2,048 tokens for it on top of the 256 its verdict gets.
 

@@ -149,9 +149,10 @@ The Claude 5.5 and GPT-6 models take no `temperature` (`"sampling": false`:
 the call goes without it, with a `sampling-unsupported` warning), and a
 model's `thinking` says how it thinks; thinking counts against
 `maxOutputTokens` and bills as output.
-The preset carries the models, context windows, output limits and current
-prices (`kindgi providers presets` lists the presets and when their prices
-were checked); `--max-output-tokens=<n>` sets another output limit. In a pack it refuses until the key is in the pack's env files —
+The preset carries the models, context windows, default output caps (what
+a call asks for when its agent sets no `maxOutputTokens`; not the model's own
+limit) and current prices (`kindgi providers presets` lists the presets and
+when their prices were checked); `--max-output-tokens=<n>` sets another cap. In a pack it refuses until the key is in the pack's env files —
 step 1. That's all for Anthropic; go to step 4. The rest of this path is
 the same registration by hand, for a spec of your own.
 
