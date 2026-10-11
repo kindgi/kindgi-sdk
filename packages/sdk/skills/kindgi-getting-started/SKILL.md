@@ -14,7 +14,7 @@ description: >
   primitive.
 type: core
 library: "@kindgi/sdk"
-version: "0.3.9"
+version: "0.3.10"
 sdk_version: "0.0.0"
 pack_languages: [node]
 ---
@@ -81,7 +81,7 @@ Either way, `init` adds `@kindgi/sdk` and `@kindgi/cli` to the project's
 one. (`npx @kindgi/cli` is the scoped package; a bare `npx kindgi` would
 fetch an unrelated package.)
 
-Three templates:
+Four templates:
 
 - `--template=minimal` (default) — folder structure only, no example
   primitives. Right when you know what you want to build.
@@ -91,6 +91,10 @@ Three templates:
   tools, approvals for large refunds and store changes, and a flow that
   checks each order event before an agent sees it. Its README explains
   each choice.
+- `--template=drupal` — agents for a Drupal site, through its MCP
+  Server signed in with OAuth: house-style fixes as drafts with every
+  change approved, and a flow that checks each saved article before an
+  agent sees it. Its README explains each choice.
 
 ## Boot the dev harness
 
