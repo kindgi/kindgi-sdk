@@ -184,6 +184,9 @@ for you."
   name.
 - **Choose one** to see it beside the list (in the list's place on a narrow
   screen) and decide it there. After a decision, the next one is chosen.
+- **Approve or reject several in one go** (see
+  [Several in one go](#several-in-one-go)), and move through the list by
+  keyboard (see [By keyboard](#by-keyboard)).
 - **It reads again** every 15 seconds and when you come back to the tab. One
   that left without your decision says so: "No longer waiting: … (decided
   by someone else, withdrawn or expired)."
@@ -268,6 +271,58 @@ rationale.
   page now shows why."
 - **One whose run already ended:** the decision is refused, and the page
   says how the run ended and that nothing was recorded.
+
+#### Several in one go
+
+In the Inbox, choose approvals with their checkboxes (or `x`, below). A bar
+says how many are chosen, such as "3 chosen.", and offers **Approve 3**,
+**Reject 3** and **Clear**. Approving leaves out any you asked for that need
+someone else's approval: "Approving leaves out 1 you asked for." You still
+send on or withdraw an approval one at a time.
+
+A step asks, for example, "Approve 3 approvals?", and takes one rationale
+for all. Nothing is sent before you confirm. Then each approval is decided
+on its own, in order, just as if you'd decided it alone, and each keeps its
+own rules (its tier, who asked, who it's assigned to). Each rationale ends
+"Decided in a batch of 3 (batch …).", with the batch's id. That's how you
+find a batch's `hitl-decision` events in the audit trail. **Stop after this
+one** leaves the rest unsent.
+
+The step then says how each one went, with a line such as "1 approved; 1
+refused; 1 not known (look before trying again)." Back in the Inbox, the
+line reads "In one go: …", and the decided ones leave the list.
+
+- **Refused** means nothing was recorded for you, and it says why. One
+  that closed while the batch ran says "It closed meanwhile (decided,
+  withdrawn or expired); nothing was recorded for you."
+- **A rate limit** is waited out, and the decision is tried again up to
+  twice. One that's still limited after that is offered again with **Try
+  again what failed**.
+- **Not known** means the runtime failed or didn't answer, so the decision
+  may or may not have been recorded: "Look at it before trying again." The
+  batch never sends it again, and it stays chosen in the Inbox.
+
+#### By keyboard
+
+The Inbox's keys work while the list has the focus (click a row, or Tab to
+it), and never while you're typing in a field. `?` lists them:
+
+| Key | Does |
+| --- | --- |
+| `j` / `k` | Next / previous approval |
+| `x` | Choose it for a batch |
+| `a` | Approve: the rationale opens first; Enter records it |
+| `r` | Reject: the same |
+| `e` | Send on to the next tier: the same |
+| `o` | Open its own page |
+| `?` | These keys |
+
+A key never decides by itself. `a`, `r` or `e` opens a step that asks, for
+example, "Reject the next turn of acme.billing?", with the rationale box
+focused. Enter records it, Shift+Enter starts a new line, and Esc leaves it.
+If you can't make that decision, the step says why instead, such as "You
+asked for this, so someone else approves it." or "It's at the top tier:
+there's no one to send it on to."
 
 ### Escalate
 
