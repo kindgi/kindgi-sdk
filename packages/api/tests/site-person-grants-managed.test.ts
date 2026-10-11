@@ -6,7 +6,7 @@
  * writes. The deployment's bindings refuse anything else naming them
  * (`site-person-grants-managed`), and each route answers that refusal as a
  * 403 with its code: a project or team membership, a role change, a tenant
- * grant, a reviewer role.
+ * grant, a reviewer role, an API key.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -27,6 +27,7 @@ import type {
   PersonGrantsBinding,
   ReviewerRegistryBinding,
   RunHandlerBinding,
+  TokenAdmin,
   TokenResolver,
 } from '../src/index.js';
 
@@ -90,6 +91,13 @@ function makeApp() {
     grant: async () => ({ kind: 'err', error: MANAGED }),
     ungrant: async () => ({ kind: 'err', error: MANAGED }),
   } as unknown as PersonGrantsBinding;
+  // A key for a site's person would outlive their site's pause or unregister.
+  const tokenAdmin = {
+    mint: async () => ({ kind: 'site-person-grants-managed', message: MANAGED.message }),
+    list: async () => [],
+    get: async () => undefined,
+    revoke: async () => ({ kind: 'not-found' }),
+  } as unknown as TokenAdmin;
   const reviewerRegistry = {
     list: async () => ({ data: [] }),
     get: async () => null,
@@ -109,6 +117,7 @@ function makeApp() {
     teamProjectGrantBinding: projects.grants,
     personGrants,
     reviewerRegistry,
+    tokenAdmin,
     identityDirectory: {
       getUser: async ({ userId }) =>
         userId === jane
@@ -199,6 +208,7 @@ describe("a grant naming a site's person is refused with its own code", () => {
       (ids: Ids) => `/v1/teams/${ids.teamId}/memberships/${jane}`,
       undefined,
     ],
+    ['an API key', 'POST', () => '/v1/tokens', { for: { kind: 'user', id: jane } }],
     [
       'unregistering a reviewer',
       'POST',
