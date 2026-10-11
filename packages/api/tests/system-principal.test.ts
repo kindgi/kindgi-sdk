@@ -200,7 +200,11 @@ function makeApp(tenancy: 'single' | 'multi' = 'multi') {
     method: string,
     path: string,
     body?: unknown,
-  ): Promise<{ status: number; body: Record<string, unknown> }> => {
+  ): Promise<{
+    status: number;
+    headers: Record<string, string>;
+    body: Record<string, unknown>;
+  }> => {
     const res = await app.request(path, {
       method,
       headers: {
@@ -212,6 +216,7 @@ function makeApp(tenancy: 'single' | 'multi' = 'multi') {
     const text = await res.text();
     return {
       status: res.status,
+      headers: Object.fromEntries(res.headers.entries()),
       body: text === '' ? {} : (JSON.parse(text) as Record<string, unknown>),
     };
   };
@@ -269,7 +274,7 @@ describe('the fence: a system principal reaches /v1/system/* and the license onl
       scope: 'system:license',
     });
     // Any other scope is refused at the fence: the allowed list names its scope.
-    const other = await mintSystemKey(['system:usage:read']);
+    const other = await mintSystemKey(['system:tenants']);
     const refused = await call(other.token, 'GET', '/v1/license');
     expect(refused.status).toBe(403);
     expect(code(refused)).toBe('system-scope-missing');
@@ -765,6 +770,7 @@ describe('a state-changing system request is on record before it acts', () => {
     const r = await call(MULTI_BOOT, 'POST', '/v1/system/keys', { scopes: ['system:license'] });
     expect(r.status).toBe(503);
     expect(code(r)).toBe('access-record-unavailable');
+    expect(r.headers['retry-after']).toBe('5');
     expect(system.keys.size).toBe(0);
     // A read doesn't wait on it.
     failing.begin = false;
