@@ -241,6 +241,33 @@ describe('kindgi proposals evaluate', () => {
     expect(calls).toEqual([]);
   });
 
+  test('--rescore rescores the latest evaluation, and --wait follows it', async () => {
+    const { calls, rec } = recorder();
+    const reads = [{ ...PROPOSAL, status: 'evaluated', evaluation: { delta: 0.2 } }];
+    const out = await run(['proposals', 'evaluate', 'prop-1', '--rescore', '--wait'], {
+      proposals: {
+        rescore: rec('rescore', { ...PROPOSAL, status: 'evaluating' }),
+        evaluate: rec('evaluate'),
+        get: async () => reads.shift(),
+      },
+    });
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(calls).toEqual([['rescore', 'prop-1', {}]]);
+    expect(JSON.parse(out.stdout)).toMatchObject({ status: 'evaluated' });
+  });
+
+  test('--rescore takes no comparison flag: they come from the evaluation it rescores', async () => {
+    const { calls, rec } = recorder();
+    for (const flag of ['--test-set=acme.judged', '--repetitions=3', '--reads=live']) {
+      const out = await run(['proposals', 'evaluate', 'prop-1', '--rescore', flag], {
+        proposals: { rescore: rec('rescore'), evaluate: rec('evaluate') },
+      });
+      expect(out.exitCode).toBe(2); // a usage error
+      expect(out.stderr).toContain(`--rescore cannot be combined with ${flag.split('=')[0]}`);
+    }
+    expect(calls).toEqual([]);
+  });
+
   test("the server's needs-a-tenant-pin refusal comes through with its fix", async () => {
     const out = await run(['proposals', 'evaluate', 'prop-1', '--test-set=s'], {
       proposals: {

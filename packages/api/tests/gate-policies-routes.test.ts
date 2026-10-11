@@ -3,7 +3,8 @@
 
 /**
  * `/v1/gate-policies` (evals step 4b): the registry routes over a fake
- * binding, the strict spec check, and `admin` on the tenant for writes.
+ * binding, the strict spec check, `admin` on the tenant for writes, and
+ * `read` on a policy's scope for reads.
  */
 
 import { randomUUID } from 'node:crypto';
@@ -238,19 +239,50 @@ describe('reads', () => {
   });
 });
 
-describe('authorization: writes need admin on the tenant; reads none beyond the tenant', () => {
-  function mounted(checked: string[]) {
+describe('authorization: writes need admin on the tenant; reads need read on the scope', () => {
+  const OTHER = randomUUID();
+  const ORG = randomUUID();
+  const scoped = (id: string, scope: LiveScope): GatePolicy => ({ ...policy(), id, scope });
+  const POLICIES: readonly GatePolicy[] = [
+    scoped('acme.a', { kind: 'project', projectId: PROJECT } as LiveScope),
+    scoped('acme.b', { kind: 'project', projectId: OTHER } as LiveScope),
+    scoped('acme.a-eu', {
+      kind: 'segment',
+      projectId: PROJECT,
+      path: [{ key: 'region', value: 'eu' }],
+    } as unknown as LiveScope),
+    scoped('acme.org', { kind: 'org', orgId: ORG } as LiveScope),
+    scoped('acme.all', { kind: 'tenant' }),
+  ];
+
+  /** A caller who may read only `allowed` (e.g. `project:<id>`); records every check. */
+  function mounted(allowed: readonly string[], asked: string[]) {
+    const can = async (_c: unknown, action: string, r: { type: string; id: string }) => {
+      asked.push(`${action} ${r.type}:${r.id}`);
+      return action === 'read' && allowed.includes(`${r.type}:${r.id}`);
+    };
     const authorizer: Authorizer = {
       authorize: (action, getResource) => async (c, next) => {
         const r = await getResource(c);
-        checked.push(`${action} ${r.type}:${r.id}`);
+        asked.push(`${action} ${r.type}:${r.id}`);
         return next();
       },
-      can: async () => false,
+      can,
       check: async () => {
         throw new Error('unused');
       },
-      filterByCan: async () => [],
+      filterByCan: async (c, action, items, refFn) => {
+        const out = [];
+        for (const item of items) if (await can(c, action, refFn(item))) out.push(item);
+        return out;
+      },
+    };
+    const binding: GatePolicyBinding = {
+      ...fakeBinding().binding,
+      list: async () => ({ data: [...POLICIES] }),
+      get: async ({ id }) => POLICIES.find((p) => p.id === id) ?? null,
+      getVersion: async ({ id }) => POLICIES.find((p) => p.id === id) ?? null,
+      listVersions: async ({ id }) => POLICIES.filter((p) => p.id === id),
     };
     const app = new Hono<AppEnv>();
     app.use('*', async (c, next) => {
@@ -258,25 +290,70 @@ describe('authorization: writes need admin on the tenant; reads none beyond the 
       c.set('requestId' as never, 'req-gate' as never);
       return next();
     });
-    app.route('/', gatePoliciesRouter(fakeBinding().binding, authorizer));
+    app.route('/', gatePoliciesRouter(binding, authorizer));
     return app;
   }
 
   test.each([
-    ['POST', '/', BODY, [`admin tenant:${tenantId}`]],
-    ['POST', `/${BODY.id}/versions/1.0.0/unregister`, undefined, [`admin tenant:${tenantId}`]],
-    ['GET', '/', undefined, []],
-    ['GET', `/${BODY.id}`, undefined, []],
-  ] as const)('%s %s', async (method, path, body, expected) => {
-    const checked: string[] = [];
-    await mounted(checked).request(path, {
+    ['POST', '/', BODY],
+    ['POST', `/${BODY.id}/versions/1.0.0/unregister`, undefined],
+  ] as const)('%s %s needs admin on the tenant', async (method, path, body) => {
+    const asked: string[] = [];
+    await mounted([], asked).request(path, {
       method,
       ...(body !== undefined && {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body),
       }),
     });
-    expect(checked).toEqual(expected);
+    expect(asked).toEqual([`admin tenant:${tenantId}`]);
+  });
+
+  test('GET / lists only the policies whose scope the caller may read', async () => {
+    const asked: string[] = [];
+    const res = await mounted([`project:${PROJECT}`], asked).request('/');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { data: { id: string }[] };
+    // Project A and its segment; not project B, the org or the tenant.
+    expect(body.data.map((p) => p.id)).toEqual(['acme.a', 'acme.a-eu']);
+    expect(asked).toEqual([
+      `read project:${PROJECT}`,
+      `read project:${OTHER}`,
+      `read project:${PROJECT}`,
+      `read org:${ORG}`,
+      `read tenant:${tenantId}`,
+    ]);
+  });
+
+  test.each([
+    ['acme.a', 200],
+    ['acme.a-eu', 200],
+    ['acme.b', 404],
+    ['acme.org', 404],
+    ['acme.all', 404],
+  ] as const)('a reader of project A: %s → %i on each read route', async (id, status) => {
+    for (const path of [`/${id}`, `/${id}/versions`, `/${id}/versions/1.0.0`]) {
+      const res = await mounted([`project:${PROJECT}`], []).request(path);
+      expect(res.status, path).toBe(status);
+      if (status === 404) {
+        // As if it weren't there: the caller learns nothing about it.
+        expect(((await res.json()) as { error: { code: string } }).error.code).toBe(
+          'gate-policy-not-found',
+        );
+      }
+    }
+  });
+
+  test('a tenant-wide policy needs read on the tenant; an org one, read on the org', async () => {
+    expect((await mounted([`tenant:${tenantId}`], []).request('/acme.all')).status).toBe(200);
+    expect((await mounted([`org:${ORG}`], []).request('/acme.org')).status).toBe(200);
+    expect((await mounted([`org:${ORG}`], []).request('/acme.all')).status).toBe(404);
+  });
+
+  test('a caller who may read nothing gets an empty list, and 404 for each policy', async () => {
+    const res = await mounted([], []).request('/');
+    expect(((await res.json()) as { data: unknown[] }).data).toEqual([]);
+    for (const p of POLICIES) expect((await mounted([], []).request(`/${p.id}`)).status).toBe(404);
   });
 });
 

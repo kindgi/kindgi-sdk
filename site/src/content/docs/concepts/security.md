@@ -116,7 +116,9 @@ controls that:
 - **`deployed`** (the default outside development mode) refuses an MCP
   endpoint that would run a command on the server (`stdio`), when it's
   registered and when the runtime connects to it. Run MCP servers over HTTP
-  instead.
+  instead. It also refuses connections to the runtime's own host (a loopback
+  address) and the cloud metadata endpoints, wherever configuration names a
+  host: an image registry, a model provider, an HTTP tool, an MCP server.
 - **`local`** (the default in development mode) allows it. Use it only on a
   machine where everyone holding an API token may run commands anyway.
 
@@ -178,7 +180,7 @@ superuser.
   key that protects stored secrets.
 
 :::note[Access to the runtime image]
-Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub for the
-runtime image's pull credentials, and log in once with `kindgi auth registry`
-(see [Install](../../start/install/#access-to-the-runtime-image)). Questions or trouble: contact@kindgi.com.
+The runtime image is in private preview: request access at contact@kindgi.com.
+You get its pull credentials, a robot name and a token, and log in once with
+`kindgi auth registry` (see [Install](../../start/install/#access-to-the-runtime-image)).
 :::

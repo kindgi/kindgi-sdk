@@ -14,3 +14,7 @@ export type * from './version.js';
 // separate value re-export so the `export type *` barrels above stay
 // pure-type — value exports live only where explicitly listed.
 export { makeEnvName } from './ids.js';
+
+// Whether fetch can send a value in a header: a secret is checked by its
+// header's name before fetch, whose own error would quote it.
+export { bearerValueProblem, headerValueProblem } from './header-value.js';

@@ -292,6 +292,25 @@ describe('GET /v1/runs/:runId: why a failed run failed', () => {
     });
   });
 
+  test("a turn's reason comes through; one without it has none", async () => {
+    const timedOut = row({
+      status: 'failed',
+      failureMessage: turnFailureMessage({
+        code: 'hitl-cancelled',
+        message: 'Tool-call HITL cancelled for acme.post: timeout',
+        reason: 'timeout',
+      } as never),
+    });
+    const routed = row({ status: 'failed', failureMessage: routing });
+    const h = harness([timedOut, routed]);
+    expect((await call(h, `/v1/runs/${timedOut.runId}`)).body.failure).toEqual({
+      code: 'hitl-cancelled',
+      message: 'Tool-call HITL cancelled for acme.post: timeout',
+      reason: 'timeout',
+    });
+    expect((await call(h, `/v1/runs/${routed.runId}`)).body.failure).not.toHaveProperty('reason');
+  });
+
   test('only a failed run has one, in lists too', async () => {
     const done = row({ status: 'completed' });
     const cancelled = row({ status: 'cancelled', failureMessage: 'cancelled by user:alice' });

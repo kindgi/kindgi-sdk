@@ -8,7 +8,13 @@
 
 import { describe, expect, test } from 'vitest';
 
-import { compileJsonSchema, jsonSchemaDialect } from '../src/index.js';
+import {
+  ALLOW_UNION_TYPES,
+  compileInlineSchema,
+  compileJsonSchema,
+  createSpecRegistry,
+  jsonSchemaDialect,
+} from '../src/index.js';
 
 const DRAFT_07 = 'http://json-schema.org/draft-07/schema#';
 
@@ -110,16 +116,19 @@ describe('compileJsonSchema', () => {
   });
 
   test('strict (the default) refuses what is valid JSON Schema but loosely written; lenient compiles it', () => {
-    const union = { $schema: DRAFT_07, type: ['string', 'number'] };
     const loose = { $schema: DRAFT_07, type: 'array', items: [{ type: 'number' }] };
     const extension = { $schema: DRAFT_07, type: 'string', 'x-label': 'Name' };
-    for (const schema of [union, loose, extension]) {
+    for (const schema of [loose, extension]) {
       expect(() => compileJsonSchema(schema), JSON.stringify(schema)).toThrow(/strict mode/);
       expect(() => compileJsonSchema(schema, { strict: false })).not.toThrow();
     }
-    const validate = compileJsonSchema(union, { strict: false });
-    expect(validate(3)).toBe(true);
-    expect(validate(null)).toBe(false);
+    // A union of types isn't loose: both modes take it.
+    const union = { $schema: DRAFT_07, type: ['string', 'number'] };
+    for (const strict of [true, false]) {
+      const validate = compileJsonSchema(union, { strict });
+      expect(validate(3)).toBe(true);
+      expect(validate(null)).toBe(false);
+    }
   });
 
   test('useDefaults fills in defaults, in any dialect', () => {
@@ -134,5 +143,35 @@ describe('compileJsonSchema', () => {
     const data: Record<string, unknown> = {};
     expect(validate(data)).toBe(true);
     expect(data).toEqual({ units: 'metric' });
+  });
+});
+
+describe('a union of types (`type: [...]`)', () => {
+  // What Zod 4 writes for `z.union([z.string(), z.number(), z.boolean(), z.null()])`.
+  const scalar = {
+    type: 'object',
+    properties: { value: { type: ['string', 'number', 'boolean', 'null'] } },
+    required: ['value'],
+    additionalProperties: false,
+  };
+
+  test('every compiler takes it, strict or not, and validates by it', () => {
+    const strict = compileJsonSchema(scalar);
+    const loose = compileJsonSchema(scalar, { strict: false });
+    const inline = compileInlineSchema(scalar);
+    if (inline.kind !== 'ok') throw new Error(inline.error.message);
+    for (const value of ['a', 1, true, null]) {
+      expect(strict({ value }), String(value)).toBe(true);
+      expect(loose({ value }), String(value)).toBe(true);
+      expect(inline.value.validate({ value }).kind, String(value)).toBe('ok');
+    }
+    expect(strict({ value: [1] })).toBe(false);
+    expect(inline.value.validate({ value: {} }).kind).toBe('err');
+    expect(ALLOW_UNION_TYPES).toBe(true);
+  });
+
+  test('a spec registry takes it too', () => {
+    const registry = createSpecRegistry([{ $id: 'https://specs.example/scalar.json', ...scalar }]);
+    expect(registry.kind).toBe('ok');
   });
 });

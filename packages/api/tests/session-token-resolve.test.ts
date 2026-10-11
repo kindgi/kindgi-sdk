@@ -67,7 +67,6 @@ function makeTokenOwningStore() {
         tenantId: input.tenantId,
         userId: input.userId,
         providerId: input.providerId,
-        ...(input.accessToken !== undefined && { accessToken: input.accessToken }),
         expiresAt: input.expiresAt,
         scopes: input.scopes,
         createdAt: new Date().toISOString() as Timestamp,
@@ -122,9 +121,6 @@ function makeApp(store: SessionStoreBinding) {
     runHandler: noopRunHandler,
     sessionStore: store,
     identityProvider: noProviders,
-    exchangeCode: async () => {
-      throw new Error('not used');
-    },
   });
 }
 
@@ -133,7 +129,6 @@ async function mint(store: SessionStoreBinding, tenantId: TenantId = tenantA) {
     tenantId,
     userId: 'user-alice' as never,
     providerId: 'acme-sso',
-    accessToken: 'unused',
     expiresAt: FAR,
     scopes: [],
   });
@@ -239,7 +234,6 @@ describe('session store without resolveToken (older stores)', () => {
           tenantId: input.tenantId,
           userId: input.userId,
           providerId: input.providerId,
-          ...(input.accessToken !== undefined && { accessToken: input.accessToken }),
           expiresAt: input.expiresAt,
           scopes: input.scopes,
           createdAt: new Date().toISOString() as Timestamp,
@@ -265,7 +259,6 @@ describe('session store without resolveToken (older stores)', () => {
       tenantId: tenantA,
       userId: 'user-bob' as never,
       providerId: 'acme-sso',
-      accessToken: 'unused',
       expiresAt: FAR,
       scopes: [],
     });

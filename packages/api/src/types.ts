@@ -65,6 +65,8 @@ export interface AppEnv {
     sessionId?: SessionId;
     /** Set when the session token came from a cookie (not a header): that cookie's name. */
     sessionCookieName?: string;
+    /** With `sessionCookieName`: whether that cookie is `Secure`. */
+    sessionCookieSecure?: boolean;
     /** Identity-provider id behind a session token. Absent for bearer. */
     providerId?: string;
     /** Set by `sigv4Middleware` on `/s3/*`: the bucket the credential may access. */
@@ -88,6 +90,11 @@ export interface AppEnv {
      * needs to make conditional authz checks.
      */
     principal?: Principal;
+    /**
+     * Set when the app seals page cursors (`cursorSealer`): a list may then
+     * continue after a row it hid, since the cursor won't show it.
+     */
+    cursorsSealed?: boolean;
     /**
      * Set when the request authenticated with a public run token
      * (`kgi_pt_…`): such a request may only read the runs in

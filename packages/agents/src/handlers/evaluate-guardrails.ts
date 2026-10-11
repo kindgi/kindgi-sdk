@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { UsageSink } from '@kindgi/capabilities';
-import type { EvaluationOutcome } from '@kindgi/guardrails';
+import type { EvaluationOutcome, GuardrailCheckOutcome } from '@kindgi/guardrails';
 import type { NodeContext, NodeHandler } from '@kindgi/handler';
 import type { Timestamp } from '@kindgi/types';
 
@@ -27,7 +27,12 @@ import { parseJsonAnswer } from './structured-output.js';
  * `halt` throws, so the run fails and the response never reaches the
  * conversation; failures with any other action are stashed on `ctx` for
  * `compose-result` to surface in `AgentTurnResult.violations`. Every
- * failure emits a `guardrail.violated` event. Also records the
+ * failure emits a `guardrail.violated` event. A guardrail whose check
+ * couldn't run (no such check, a bad configuration) emits
+ * `guardrail.error` and gets a provenance node of its own; a `halt`
+ * guardrail's error fails the turn too (it fails closed, as a
+ * `guardrail-violation` whose `evaluationErrors` say why), and the step's
+ * output lists every error, so the journal shows it. Also records the
  * response's `model-output` provenance node, which the guardrail checks
  * link to.
  */
@@ -100,7 +105,9 @@ export function buildEvaluateGuardrailsHandler(ctx: TurnContext): NodeHandler {
       judgeUsageSink(ctx, kctx),
     );
     throwIfJudgeCallsUnrecorded(outcomes);
-    const categorized = categorizeOutcomes(outcomes);
+    const categorized = categorizeOutcomes(outcomes, ctx.guardrails);
+    // Recorded before the gate acts on them, so a blocked turn is counted too.
+    await recordOutcomes(ctx, kctx, evaluatedAt, categorized.checks);
 
     const allViolations = [...categorized.blocking, ...categorized.warnings, ...categorized.other];
     for (const v of allViolations) {
@@ -132,8 +139,39 @@ export function buildEvaluateGuardrailsHandler(ctx: TurnContext): NodeHandler {
       }
     }
 
-    if (categorized.blocking.length > 0) {
-      const message = describeBlockingViolations(categorized.blocking);
+    for (const e of categorized.errors) {
+      await emitTurnEvent(ctx.bindings.onEvent, {
+        kind: 'guardrail.error',
+        guardrailId: e.guardrailId,
+        ...(e.action !== undefined && { action: e.action }),
+        ...(e.severity !== undefined && { severity: e.severity }),
+        code: e.code,
+        message: e.message,
+      });
+      if (ctx.provenance !== undefined) {
+        ctx.provenance.addNode({
+          id: `guardrail-check:${e.guardrailId}`,
+          kind: 'guardrail-check',
+          timestamp: evaluatedAt,
+          attributes: {
+            guardrailId: e.guardrailId,
+            ...(e.action !== undefined && { action: e.action }),
+            ...(e.severity !== undefined && { severity: e.severity }),
+            evaluated: false,
+            error: e.code,
+            reason: e.message,
+          },
+        });
+        ctx.provenance.addEdge({
+          from: `guardrail-check:${e.guardrailId}`,
+          to: `model-output:${ctx.usage.steps}`,
+          kind: 'influenced-by',
+        });
+      }
+    }
+
+    if (categorized.blocking.length > 0 || categorized.blockingErrors.length > 0) {
+      const message = describeBlockingViolations(categorized.blocking, categorized.blockingErrors);
       await emitTurnEvent(ctx.bindings.onEvent, {
         kind: 'turn.failed',
         conversationId: ctx.input.conversationId,
@@ -154,6 +192,13 @@ export function buildEvaluateGuardrailsHandler(ctx: TurnContext): NodeHandler {
       blocking: categorized.blocking.length,
       warnings: categorized.warnings.length,
       other: categorized.other.length,
+      // The journal records the step's output: a check that couldn't run shows there.
+      errors: categorized.errors.map((e) => ({
+        guardrailId: e.guardrailId,
+        ...(e.action !== undefined && { action: e.action }),
+        code: e.code,
+        message: e.message,
+      })),
     };
   };
 }
@@ -174,6 +219,42 @@ function judgeUsageSink(ctx: TurnContext, kctx: NodeContext): UsageSink | undefi
         ...call,
       }),
   };
+}
+
+/**
+ * Records what each guardrail's check came to in the outcome ledger
+ * (`bindings.guardrailOutcomes`). A replay or a dry run records nothing:
+ * its outcomes aren't production's. Outcomes that couldn't be recorded
+ * fail the step, as an unrecorded model call does, so the counts never
+ * silently miss a turn.
+ */
+async function recordOutcomes(
+  ctx: TurnContext,
+  kctx: NodeContext,
+  at: Timestamp,
+  checks: readonly GuardrailCheckOutcome[],
+): Promise<void> {
+  const sink = ctx.bindings.guardrailOutcomes;
+  if (sink === undefined || checks.length === 0) return;
+  if (ctx.input.replay !== undefined || kctx.dryRun) return;
+  try {
+    await sink.record({
+      tenantId: ctx.input.tenantId,
+      projectId: ctx.input.projectId,
+      runId: kctx.runId,
+      nodeId: kctx.nodeId as unknown as string,
+      agentId: ctx.input.agent.id,
+      agentVersion: ctx.input.agent.version,
+      at,
+      checks,
+    });
+  } catch (cause) {
+    throwAgentTurnFailure({
+      code: 'persistence-error',
+      message: `The guardrail outcomes couldn't be recorded: ${cause instanceof Error ? cause.message : String(cause)}`,
+      cause,
+    });
+  }
 }
 
 /**

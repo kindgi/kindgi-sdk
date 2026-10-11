@@ -86,7 +86,14 @@ export interface ReadMessagesInput {
  * opaque wire cursor.
  */
 export interface ConversationPageCursor {
-  /** ISO 8601 `openedAt` timestamp of the last row from the previous page. */
+  /**
+   * `openedAt` of the last row from the previous page. As a binding's
+   * `ConversationPage.next` gives it, the stored value exactly (Postgres
+   * keeps microseconds: `opened_at::text`); a cursor from before carries
+   * the row's ISO 8601 `openedAt`. A binding compares it as given, never
+   * through a JS `Date`, which keeps milliseconds and would skip the rows
+   * opened earlier in the same millisecond.
+   */
   readonly openedAt: string;
   readonly id: ConversationId;
 }
@@ -121,6 +128,13 @@ export interface ListConversationsPageInput {
 export interface ConversationPage {
   readonly data: readonly Conversation[];
   readonly hasMore: boolean;
+  /**
+   * Where the next page starts: the last row's position as stored
+   * (`openedAt` to the microsecond, and `id`). Set when `hasMore`. Absent
+   * from a binding that doesn't give it: the caller then uses the last
+   * row's `openedAt` and `id`.
+   */
+  readonly next?: ConversationPageCursor;
 }
 
 /**

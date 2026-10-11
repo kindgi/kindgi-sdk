@@ -95,10 +95,25 @@ export interface ToolContext {
   readonly orgId?: OrgId;
   /**
    * Correlation id for this individual call (the model's tool-call id,
-   * an MCP request id, a webhook id). Opaque to tools; useful for logs,
-   * provenance and idempotency.
+   * an MCP request id, a webhook id). Opaque to tools; useful for logs
+   * and provenance. To dedupe a side effect, use `idempotencyKey`: a
+   * model's call id is only unique within one of its answers.
    */
   readonly requestId?: string;
+  /**
+   * A key for this call's side effects: the same every time this call
+   * runs, whether its step is resumed after a wait, retried after a
+   * failure or run again after a crash, and different for every other
+   * call. A step can run more than once, so a tool that changes something
+   * passes it to the system it writes to (an `Idempotency-Key` header, a
+   * client reference, a unique column), or looks for it there first.
+   * That's what keeps a refund from going out twice.
+   *
+   * A UUID (`toolIdempotencyKey`). Absent outside a run, and with a host
+   * or a runtime that can't name its steps (before 0.1.6): the call can't
+   * be deduped on it then.
+   */
+  readonly idempotencyKey?: string;
   /**
    * Signal that fires when the caller wants the tool to abort — kernel
    * cancel/failure teardown, MCP client disconnect, HTTP request cancel.
@@ -139,11 +154,13 @@ export interface ToolContext {
    * The secrets this tool declares in `needsSpec.secrets`, by name,
    * resolved by the runtime for this call: for the call's tenant, in the
    * env the runtime serves (`KINDGI_ENV`; in `kindgi dev`, `local` — the
-   * pack's `.env` and `.env.local`). Every declared name is present: one
+   * pack's `.env` and `.env.local`). Every required name is present: one
    * the runtime can't resolve, or whose value doesn't match its schema,
-   * fails the call before the handler runs. Absent when the tool
-   * declares none, and wherever nothing resolves them — a unit test
-   * passes its own.
+   * fails the call before the handler runs. An optional one (its schema
+   * accepts `null`: `{ type: ['string', 'null'] }`) is absent when the env
+   * doesn't have it, or has it empty (runtime 0.1.6 or later; an older
+   * runtime requires it). Absent when the tool declares none, and wherever
+   * nothing resolves them — a unit test passes its own.
    */
   readonly secrets?: Readonly<Record<string, string>>;
   /**
@@ -238,9 +255,10 @@ export type NetworkPolicy =
  * `env` and `secrets` are resolved per call (`ctx.env`, `ctx.secrets`).
  * Their values are strings, as in a process environment; each schema
  * checks the string (`enum`, `pattern`, `minLength`…) and nothing is
- * coerced. An `env` name whose schema has a `default` is optional; every
- * other declared name is required. `config` is reserved: no runtime
- * resolves it yet.
+ * coerced. An `env` name whose schema has a `default` is optional; a
+ * `secrets` name whose schema says it accepts `null` (`type: ['string',
+ * 'null']`) is optional (runtime 0.1.6 or later); every other declared name
+ * is required. `config` is reserved: no runtime resolves it yet.
  *
  * `capabilities` names capability-router features (e.g. `'embedding'`);
  * `bindings` names deployment-plugged binding keys (e.g. `'blob'`).

@@ -23,8 +23,10 @@ import org.jspecify.annotations.Nullable;
  * @param projectId the run's project, when sent (set by the runtime, never from input)
  * @param orgId the project's org, when it has one
  * @param env resolved environment values for the call
- * @param secrets resolved secrets for the call, by name (the tool's declared secrets); printing them, or
- *     the context, shows their names, never their values, and the context's JSON leaves them out
+ * @param secrets resolved secrets for the call, by name (the tool's declared secrets); an optional one
+ *     (its schema names null) is absent when the env doesn't have it, or has it empty (runtime 0.1.6 or
+ *     later); printing
+ *     them, or the context, shows their names, never their values, and the context's JSON leaves them out
  * @param config resolved configuration for the call
  * @param settings the settings blocks the calling agent version pins, by block id
  * @param cancellation fires when the call passes its deadline or its caller goes away
@@ -32,6 +34,12 @@ import org.jspecify.annotations.Nullable;
  *     ({@code ctx.log().info("looked up order", Map.of("orderId", orderId))}). The pack service sets
  *     it; {@link #forTest()}'s writes nothing. A secret's value is never a field (the logger redacts
  *     secret-looking keys and shapes, but don't rely on it). Never in the context's JSON.
+ * @param idempotencyKey a key for this call's side effects: the same every time this call runs (its
+ *     step resumed after a wait, retried after a failure, or run again after a crash), different for
+ *     every other call. A step can run more than once, so a tool that changes something passes it to
+ *     the system it writes to (an {@code Idempotency-Key} header, a client reference, a unique
+ *     column), or looks for it there first. A UUID. {@code null} from a runtime that can't name its
+ *     steps (before pack protocol 2.6.0): the call can't be deduped on it then.
  */
 public record ToolContext(
     String tenantId,
@@ -44,7 +52,8 @@ public record ToolContext(
     Map<String, Object> config,
     Map<String, Map<String, Object>> settings,
     Cancellation cancellation,
-    @JsonIgnore Logger log) {
+    @JsonIgnore Logger log,
+    @Nullable String idempotencyKey) {
   /** Copies the maps, unmodifiable. */
   public ToolContext {
     Objects.requireNonNull(tenantId, "tenantId");
@@ -55,6 +64,37 @@ public record ToolContext(
     settings = Collections.unmodifiableMap(new LinkedHashMap<>(settings));
     Objects.requireNonNull(cancellation, "cancellation");
     Objects.requireNonNull(log, "log");
+  }
+
+  /**
+   * A context without an idempotency key: the components before pack protocol 2.6.0, so code that
+   * built one before keeps compiling.
+   *
+   * @param tenantId the tenant the call runs for
+   * @param runId the run the call belongs to
+   * @param requestId the individual call, when sent
+   * @param projectId the run's project, when sent
+   * @param orgId the project's org, when it has one
+   * @param env resolved environment values for the call
+   * @param secrets resolved secrets for the call, by name
+   * @param config resolved configuration for the call
+   * @param settings the settings blocks the calling agent version pins, by block id
+   * @param cancellation fires when the call passes its deadline or its caller goes away
+   * @param log a logger bound to this call
+   */
+  public ToolContext(
+      String tenantId,
+      String runId,
+      @Nullable String requestId,
+      @Nullable String projectId,
+      @Nullable String orgId,
+      Map<String, Object> env,
+      Map<String, Object> secrets,
+      Map<String, Object> config,
+      Map<String, Map<String, Object>> settings,
+      Cancellation cancellation,
+      Logger log) {
+    this(tenantId, runId, requestId, projectId, orgId, env, secrets, config, settings, cancellation, log, null);
   }
 
   /**

@@ -291,6 +291,14 @@ It prompts for the value and writes it to `.env.local`. In a script, pipe it
 in with `--from-stdin`. To replace a key that's already set, add
 `--write-mode=add-version`.
 
+A provider's key is used by that provider only. No tool, MCP endpoint or
+webhook endpoint gets a secret that a provider registration names, in any
+environment: a tool that calls a model itself
+[declares a key of its own](../tools/give-a-tool-a-secret/#a-model-providers-key-isnt-a-tools).
+Registering a provider whose key a tool or an endpoint already uses is
+refused (`provider-key-in-use`), and the error names each one: store the
+provider's key under a name of its own, then register.
+
 ## List, change and remove
 
 ```sh

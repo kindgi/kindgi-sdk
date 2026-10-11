@@ -5,7 +5,7 @@ import type { ModelMessage, ModelToolCall } from '@kindgi/capabilities';
 import type { NodeContext, NodeHandler } from '@kindgi/handler';
 import { WaitpointCancelledError } from '@kindgi/handler';
 import { stricterToolHitlRule } from '@kindgi/policy-contract';
-import { invokeTool, toolCallRecordKey } from '@kindgi/tools';
+import { invokeTool, toolCallRecordKey, toolIdempotencyKey } from '@kindgi/tools';
 import type { Tool, ToolContext } from '@kindgi/tools';
 
 import { emitTurnEvent } from '../streaming.js';
@@ -19,7 +19,7 @@ import {
   type UnresolvedToolError,
   throwAgentTurnFailure,
 } from './errors.js';
-import { TOOL_CALL_GATE_SUBJECT, readGateDecision } from './gate-decision.js';
+import { TOOL_CALL_GATE_SUBJECT, readGateDecision, withdrawnGateFailure } from './gate-decision.js';
 import { decideReplayTool } from './replay.js';
 import {
   effectiveToolErrorPolicy,
@@ -335,11 +335,13 @@ export function buildDispatchToolsHandler(ctx: TurnContext): NodeHandler {
           }
         } catch (cause) {
           if (cause instanceof WaitpointCancelledError) {
-            throwAgentTurnFailure({
-              code: 'hitl-cancelled',
-              message: `Tool-call HITL cancelled for ${call.name}: ${cause.reason}`,
-              reason: cause.reason,
-            } as never);
+            throwAgentTurnFailure(
+              (withdrawnGateFailure(cause.reason, `tool call ${call.name}`) ?? {
+                code: 'hitl-cancelled',
+                message: `Tool-call HITL cancelled for ${call.name}: ${cause.reason}`,
+                reason: cause.reason,
+              }) as never,
+            );
           }
           throw cause;
         }
@@ -611,6 +613,17 @@ async function dispatchOne(
     projectId: ctx.input.projectId,
     ...(ctx.input.orgId !== undefined && { orgId: ctx.input.orgId }),
     requestId: call.id,
+    // The same every time this call runs, so the tool can dedupe a side
+    // effect on it; with the step's scope, since a model's call id is only
+    // unique within one answer (two loop iterations may share one).
+    ...(kctx.stepScope !== undefined && {
+      idempotencyKey: toolIdempotencyKey({
+        runId,
+        stepScope: kctx.stepScope,
+        toolId,
+        callId: call.id,
+      }),
+    }),
     abortSignal: ctx.turnAbort.signal,
     // HTTP tools built via defineTool({spec: {kind: 'http'}}) resolve declared
     // secret_refs at invoke time. Present iff the caller wired

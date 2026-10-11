@@ -42,6 +42,17 @@ final class ScalaEnumModule extends Module {
 
   override def version(): Version = Version.unknownVersion()
 
+  /**
+   * jackson-module-scala reads Scala 3 enums too (its `EnumModule`, in 2.18), but an unknown name
+   * gets only "Failed to create Enum instance". Jackson asks the last registered module first and
+   * registers a module's dependencies before it, so naming the Scala module here makes this one
+   * answer, with the known cases, whichever order `ServiceLoader` finds them in. It's the class
+   * `ServiceLoader` makes (not the Scala object, whose class name ends in `$`), so a later
+   * registration of it is the duplicate Jackson ignores.
+   */
+  override def getDependencies: java.lang.Iterable[_ <: Module] =
+    java.util.Collections.singletonList[Module](new com.fasterxml.jackson.module.scala.DefaultScalaModule())
+
   override def setupModule(context: Module.SetupContext): Unit = {
     context.addSerializers(new Serializers.Base {
       override def findSerializer(config: SerializationConfig, t: JavaType, bean: BeanDescription): JsonSerializer[_] =

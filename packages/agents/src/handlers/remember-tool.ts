@@ -59,6 +59,8 @@ type TurnTools = NonNullable<TurnContext['tools']>;
 export function withRememberTool(ctx: TurnContext, tools: TurnTools): TurnTools {
   const policy = ctx.input.agent.memory?.remember;
   if (policy === undefined) return tools;
+  // Same-user memory is a named end user's: with none, the tool isn't offered.
+  if (policy.scope === 'same-user' && turnParticipantId(ctx) === undefined) return tools;
   const tool = rememberTool(ctx, policy);
   const definition: ModelToolDefinition = {
     name: tool.id,
@@ -197,4 +199,9 @@ async function remember(
 
 function notRemembered(reason: string): RememberToolOutput {
   return { status: 'not-remembered', reason };
+}
+
+/** The turn's end user: its conversation's, else the one the run names. */
+export function turnParticipantId(ctx: TurnContext): string | undefined {
+  return ctx.conversation?.participantId ?? ctx.input.participantId;
 }

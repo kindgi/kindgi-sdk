@@ -4,14 +4,21 @@
 /**
  * The environment `kindgi dev` gives the pack service — the process
  * that runs the pack's own code. It is what a deployment would give it:
- * the pack's env files (`.env`, `.env.local`, or `dev.envFiles`) without
+ * the app's env files (`.env`, `.env.local`, or `dev.envFiles`) without
  * Kindgi's own `KINDGI_*` settings, plus the few host variables a Node
  * process and its tools need to work (`PATH`, `HOME` for cloud CLI
  * credentials, `TMPDIR`). Nothing else from the shell reaches pack code.
+ *
+ * Secrets stay out of it: a name Kindgi's own `.kindgi/secrets.env`
+ * defines (what `kindgi secrets set` stores), and any model provider's
+ * key, wherever it sits, are never in the pack service's environment. A
+ * tool gets a secret only by declaring it (`needsSpec.secrets`), from
+ * `ctx.secrets`, as in a deployment.
  */
 
 import {
   LOCAL_ENV_NAME,
+  type PackEnv,
   packValues,
   readPackEnv,
   resolvePackEnvFiles,
@@ -26,6 +33,8 @@ export interface DevPackEnvInput {
   readonly localEnvFiles?: readonly string[];
   /** The CLI's own environment. */
   readonly hostEnv: Readonly<Record<string, string | undefined>>;
+  /** The names model providers resolve their keys from: never passed on. */
+  readonly providerKeyNames?: ReadonlySet<string>;
 }
 
 export async function devPackEnv(input: DevPackEnvInput): Promise<Record<string, string>> {
@@ -43,10 +52,36 @@ export async function devPackEnv(input: DevPackEnvInput): Promise<Record<string,
     ...(input.localEnvFiles !== undefined && { localEnvFiles: input.localEnvFiles }),
     env: input.hostEnv,
   });
-  return { ...host, ...packValues(files.values), NODE_ENV: 'development' };
+  return {
+    ...host,
+    ...packEnvValues(files, input.providerKeyNames),
+    NODE_ENV: 'development',
+  };
 }
 
-/** The env files whose edits should restart the pack service (absolute paths). */
+/**
+ * The pack's values from its env files, less the secrets: names whose
+ * value comes from Kindgi's own secrets file, and the providers' keys.
+ */
+export function packEnvValues(
+  files: PackEnv,
+  providerKeyNames: ReadonlySet<string> = new Set(),
+): Record<string, string> {
+  const kindgiFile = files.files.kindgi;
+  return Object.fromEntries(
+    Object.entries(packValues(files.values)).filter(
+      ([name]) =>
+        !providerKeyNames.has(name) &&
+        (kindgiFile === undefined || files.origin[name] !== kindgiFile),
+    ),
+  );
+}
+
+/**
+ * The env files whose edits should restart the pack service (absolute paths):
+ * the app's. Kindgi's own secrets file isn't one: its names never reach the
+ * pack service, and a tool's secret resolves on each call.
+ */
 export function devPackEnvFiles(
   packDir: string,
   localEnvFiles?: readonly string[],
@@ -55,5 +90,5 @@ export function devPackEnvFiles(
     packDir,
     envName: LOCAL_ENV_NAME,
     ...(localEnvFiles !== undefined && { localEnvFiles }),
-  }).read;
+  }).app;
 }

@@ -297,6 +297,12 @@ export interface ListTriggersInput {
   readonly tenantId: TenantId;
   readonly kind?: TriggerKind;
   readonly status?: 'active' | 'paused';
+  /**
+   * Only the triggers in this project: schedules, which each have one (a
+   * trigger kind without a project never matches). A registry that
+   * ignores it lists more: the schedules route keeps only these.
+   */
+  readonly projectId?: ProjectId;
   readonly limit?: number;
   readonly cursor?: Cursor;
 }

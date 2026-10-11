@@ -7,7 +7,7 @@ import type { Context, MiddlewareHandler } from 'hono';
 
 import type { TenantId } from '@kindgi/types';
 
-import { callerRef } from '../caller.js';
+import { callerIdentity } from '../caller.js';
 import { statusFor, toWireError } from '../errors.js';
 import type { AppEnv } from '../types.js';
 
@@ -192,7 +192,7 @@ export function idempotencyMiddleware(
 
     const bodyText = await readRawBody(c.req.raw);
     const bodyHash = sha256Hex(bodyText);
-    const cacheKey = `${tenantId}|${callerKey(c as Context<AppEnv>)}|${c.req.method.toUpperCase()}:${c.req.path}|${rawKey}`;
+    const cacheKey = `${tenantId}|${callerIdentity(c as Context<AppEnv>)}|${c.req.method.toUpperCase()}:${c.req.path}|${rawKey}`;
     const hit = await store.get(cacheKey);
     if (hit !== null) return replay(c, hit, bodyHash, requestId, ttlMs);
 
@@ -264,21 +264,6 @@ export function idempotencyMiddleware(
       }
     }
   };
-}
-
-/**
- * Who the request comes from, for the cache key: the caller's principal
- * (`user:…`, `service_account:…`; an API key with neither is its own
- * service account), else the session it came with, else the credential
- * itself (`token:` and the first 16 hex of its sha256: one bucket per
- * credential, never a shared one, and nothing a reader could use).
- */
-function callerKey(c: Context<AppEnv>): string {
-  const ref = callerRef(c);
-  if (ref !== undefined) return ref;
-  const sessionId = c.get('sessionId');
-  if (sessionId !== undefined) return `session:${sessionId as unknown as string}`;
-  return `token:${sha256Hex(c.req.header('authorization') ?? '').slice(0, 16)}`;
 }
 
 /**

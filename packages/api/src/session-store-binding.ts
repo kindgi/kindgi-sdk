@@ -9,12 +9,10 @@ import type { Cursor, SessionId, TenantId, Timestamp, UserId } from '@kindgi/typ
  * package does NOT own session persistence. Deployments plug in a
  * durable store.
  *
- * Sessions are the byproduct of a successful OAuth callback:
- * `POST /v1/auth/callback/:providerId` exchanges the authorization code
- * for provider tokens, fetches the userinfo, and calls
- * `SessionStoreBinding.create` to persist the resulting session; the
- * route then hands the caller an opaque session token (`kgi_sk_…`) that
- * never leaks the provider access-token or refresh-token to the client.
+ * Sessions are what a sign-in leaves: the deployment's sign-in flow (or
+ * `POST /v1/auth/token-sign-in`, `POST /v1/auth/refresh`) calls
+ * `SessionStoreBinding.create`, and the caller gets an opaque session
+ * token (`kgi_sk_…`) that never leaks a provider token to the client.
  *
  * A store that implements `resolveToken` owns the token: `create` mints it
  * (returned once, as `token`), the store keeps only a hash, and the
@@ -87,14 +85,6 @@ export interface SessionCreateInput {
   readonly userId: UserId;
   /** ProviderId of the `IdentityProviderBinding` that authenticated the user. */
   readonly providerId: string;
-  /**
-   * Opaque provider access-token, server-side only. Absent when the
-   * deployment keeps no identity-provider tokens (a sign-in that only
-   * establishes who the person is).
-   */
-  readonly accessToken?: string;
-  /** Opaque provider refresh-token — server-side only, may be absent. */
-  readonly refreshToken?: string;
   readonly expiresAt: Timestamp;
   readonly scopes: readonly string[];
   /** Free-form provider claims (e.g. `email`, `name`, `sub`). */
@@ -150,9 +140,6 @@ export interface Session {
   readonly tenantId: TenantId;
   readonly userId: UserId;
   readonly providerId: string;
-  /** Absent when the deployment keeps no identity-provider tokens. */
-  readonly accessToken?: string;
-  readonly refreshToken?: string;
   readonly expiresAt: Timestamp;
   readonly scopes: readonly string[];
   readonly metadata?: Record<string, unknown>;

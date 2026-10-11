@@ -4,6 +4,7 @@
 import type { Filter, GuardrailId } from '@kindgi/types';
 
 import { KindgiApiError, notYetWired } from '../errors.js';
+import type { GuardrailOutcomes } from '../generated/api.js';
 import { type ListPage, type WirePage, listPage } from '../list-page.js';
 import type { Transport } from '../transport.js';
 import type { BuiltInGuardrail, EvaluationResult, Guardrail, GuardrailSpec } from '../types.js';
@@ -68,6 +69,19 @@ export interface GuardrailsClient {
   ): Promise<{ readonly guardrailId: GuardrailId; readonly unregistered: true }>;
 
   /**
+   * What the guardrail's checks came to on agent turns in a project over
+   * a window (at most 90 days): how many passed, were violated, blocked
+   * or errored, the same per agent version, and the latest blocked turns
+   * (run ids and times only). `recordedSince` is the earliest outcome kept:
+   * outcomes go with their run's retention. Needs `read` on the guardrail
+   * and on the project.
+   *
+   * @wire `GET /v1/guardrails/{guardrailId}/outcomes` — see
+   *   `@kindgi/api/openapi.json#/paths/~1v1~1guardrails~1{guardrailId}~1outcomes/get`.
+   */
+  outcomes(id: GuardrailId | string, query: GuardrailOutcomesQuery): Promise<GuardrailOutcomes>;
+
+  /**
    * @unwired The API has no `GET /v1/guardrails/{id}/versions` route —
    *   guardrails are flat metadata registrations (single active spec
    *   per id; supersession via `unregister` + re-`register`), with no
@@ -94,6 +108,18 @@ export interface AuthorGuardrailOptions {
   /** Project the guardrail is registered in. `POST /v1/guardrails` requires it. */
   readonly projectId: string;
   readonly idempotencyKey?: string;
+}
+
+export type { GuardrailOutcomes };
+
+export interface GuardrailOutcomesQuery {
+  readonly projectId: string;
+  /** Checks at or after this time. */
+  readonly from: Date | string;
+  /** Checks before this time. */
+  readonly to: Date | string;
+  /** How many of the latest blocked turns to name, 0 to 50 (10 by default). */
+  readonly recent?: number;
 }
 
 export interface GuardrailFilter extends Filter {
@@ -141,6 +167,20 @@ export function makeGuardrailsClient(transport: Transport): GuardrailsClient {
         path: `/v1/guardrails/${encodeURIComponent(id as unknown as string)}/unregister`,
         body: {},
         ...(options?.idempotencyKey !== undefined && { idempotencyKey: options.idempotencyKey }),
+      });
+    },
+
+    async outcomes(id, query) {
+      const at = (t: Date | string) => (t instanceof Date ? t.toISOString() : t);
+      return transport.request<GuardrailOutcomes>({
+        method: 'GET',
+        path: `/v1/guardrails/${encodeURIComponent(id as string)}/outcomes`,
+        query: {
+          projectId: query.projectId,
+          from: at(query.from),
+          to: at(query.to),
+          ...(query.recent !== undefined && { recent: query.recent }),
+        },
       });
     },
 

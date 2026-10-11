@@ -36,6 +36,7 @@ import {
 } from './agent-releases.js';
 import { liveScopeToWire } from './live-scope-wire.js';
 import { clampLimit } from './pagination.js';
+import { projectMismatch } from './project-mismatch.js';
 import { parseScopeParams } from './scope-params.js';
 
 /**
@@ -155,6 +156,10 @@ export function agentsRouter(
 
     const cursorRaw = c.req.query('cursor');
     const nameRaw = c.req.query('name');
+    // `?includeRetired=true` lists retired items too (no active version),
+    // each as its highest version with `unregisteredAt`. Anything else →
+    // items with an active version only (the default).
+    const includeRetired = c.req.query('includeRetired') === 'true';
 
     const scopeParsed = parseScopeParams(c.req.query(), { tenantId });
     if (scopeParsed.kind === 'err') {
@@ -171,6 +176,7 @@ export function agentsRouter(
       ...(nameRaw !== undefined && nameRaw.length > 0 && { nameFilter: nameRaw }),
       ...(scopeParsed.scope !== undefined && { scope: scopeParsed.scope }),
       ...(scopeParsed.inherit !== undefined && { inherit: scopeParsed.inherit }),
+      ...(includeRetired && { includeRetired: true }),
     });
     // Only what the caller may read (T243 A), as `GET …/:id` asks.
     const visible =
@@ -234,12 +240,17 @@ export function agentsRouter(
     const agentId = c.req.param('agentId') as AgentId;
     const limit = clampLimit(c.req.query('limit'));
     const cursorRaw = c.req.query('cursor');
+    // `?includeTombstoned=true` lists unregistered versions too, each
+    // with `unregisteredAt`. Anything else → active versions only.
+    const includeTombstoned = c.req.query('includeTombstoned') === 'true';
 
-    // Confirm the id exists at all — an empty versions list from the
-    // binding is ambiguous (no versions vs. unknown id), so we do a
-    // preliminary `get` to flip an unknown id to a `404`.
-    const latest = await binding.get({ tenantId, agentId });
-    if (latest === null) {
+    // Confirm the id exists at all: an empty versions list from the
+    // binding is ambiguous (no versions vs. unknown id). A retired agent
+    // (every version unregistered) still has its head row, so it answers
+    // 200, with its versions under `includeTombstoned`; a never-registered
+    // id is 404. As flows, tools and policies do.
+    const exists = await binding.headExists({ tenantId, agentId });
+    if (!exists) {
       c.status(statusFor('agent-not-found') as never);
       return c.json(
         toWireError(
@@ -258,6 +269,7 @@ export function agentsRouter(
       agentId,
       limit,
       ...(cursorRaw !== undefined && cursorRaw.length > 0 && { cursor: cursorRaw as Cursor }),
+      ...(includeTombstoned && { includeTombstoned: true }),
     });
     return c.json({
       data: page.data.map(serializeAgent),
@@ -391,6 +403,9 @@ export function agentsRouter(
     });
     if (outcome.kind === 'already-registered') {
       return alreadyRegistered(c, binding, tenantId, outcome.agentId, outcome.version);
+    }
+    if (outcome.kind === 'project-mismatch') {
+      return projectMismatch(c, 'agent', outcome.agentId as unknown as string, outcome.projectId);
     }
     if (outcome.kind === 'project-not-found') {
       // Caller supplied a `projectId` that does not resolve within
@@ -679,6 +694,8 @@ function derived(
         code: 'bad-input',
         message: `\`projectId\` "${outcome.projectId as unknown as string}" does not resolve to a project in this tenant`,
       });
+    case 'project-mismatch':
+      return projectMismatch(c, 'agent', agentId as unknown as string, outcome.projectId, 'derive');
   }
 }
 
@@ -795,6 +812,7 @@ function serializeAgent(a: AgentVersionRecord): Record<string, unknown> {
   return {
     id: a.id as unknown as string,
     version: a.version as unknown as string,
+    ...(a.projectId !== undefined && { projectId: a.projectId as unknown as string }),
     name: a.name,
     ...(a.description !== undefined && { description: a.description }),
     instructions: a.instructions,
