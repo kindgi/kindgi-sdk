@@ -1,6 +1,6 @@
 # `@kindgi/adapter-model-shared`
 
-Shared plumbing for Kindgi's model adapters: what every adapter needs to turn a vendor's API into a [`@kindgi/capabilities`](../../capabilities/) `ModelProvider` the same way.
+Shared plumbing for Kindgi's model adapters: what every adapter needs to turn a vendor's API into a [`@kindgi/capabilities`](../../capabilities/) `ModelProvider` the same way. The Azure OpenAI and Amazon Bedrock adapters are built on it.
 
 Today's engine for sending the requests is the [AI SDK](https://ai-sdk.dev)'s provider packages (`@ai-sdk/*`), called at the provider-spec level (`doGenerate`). It never uses the `ai` package, its agent loop or Vercel's gateway, so no request goes anywhere but the vendor's own API. The engine sits behind one module, `@kindgi/adapter-model-shared/ai-sdk`, the only entry point whose types are a library's. Swapping it later touches that module and the adapters that hand their models in, nothing else.
 
@@ -48,6 +48,7 @@ Today's engine for sending the requests is the [AI SDK](https://ai-sdk.dev)'s pr
 - `metadata`: the registration's `ProviderMetadata`;
 - `languageModel(name, fetch)`: the engine's model for a model name, sending with the `fetch` it's given (each HTTP attempt is counted through it);
 - `providerOptions?(model)`: provider options on every call (Azure: `{ azure: { store: false } }`);
+- `cacheMark?(model)`: for a vendor that caches only the prompt prefixes a request marks, the provider options that mark a prompt message for this model, or `undefined` for none (Bedrock: `{ bedrock: { cachePoint: { type: 'default' } } }` for Claude and Nova). The first system message is marked, and the last message when the call will be sent again (it has tools, or an earlier answer), as the Anthropic adapter places `cache_control`;
 - `cost(model, usage)`: the adapter's cost formula;
 - `attempts?`: HTTP attempts in all on a retryable failure (default 3);
 - `fetch?`: the fetch each attempt goes through, for an endpoint the registration chose: the runtime's (`AdapterFactoryInput.fetch`, which refuses the hosts its deployment forbids). Default: the global `fetch`;

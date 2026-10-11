@@ -55,6 +55,7 @@ All `@kindgi/*` packages share one version.
 |---|---|
 | [`@kindgi/adapter-model-anthropic`](./packages/adapters/model-anthropic) | Anthropic ModelProvider for @kindgi/capabilities. |
 | [`@kindgi/adapter-model-azure-openai`](./packages/adapters/model-azure-openai) | Azure OpenAI ModelProvider for @kindgi/capabilities: your Azure OpenAI deployments (Responses or Chat Completions) by API key or the runtime's Entra identity. |
+| [`@kindgi/adapter-model-bedrock`](./packages/adapters/model-bedrock) | Amazon Bedrock ModelProvider for @kindgi/capabilities: Claude, Nova, Llama, Mistral and OpenAI's models on Bedrock's Converse API, by the runtime's AWS identity or a Bedrock API key. |
 | [`@kindgi/adapter-model-gemini`](./packages/adapters/model-gemini) | Gemini ModelProvider for @kindgi/capabilities, on Vertex AI. |
 | [`@kindgi/adapter-model-in-process`](./packages/adapters/model-in-process) | In-process ModelProvider for @kindgi/capabilities. |
 | [`@kindgi/adapter-model-openai-compat`](./packages/adapters/model-openai-compat) | OpenAI-compatible ModelProvider for @kindgi/capabilities. |

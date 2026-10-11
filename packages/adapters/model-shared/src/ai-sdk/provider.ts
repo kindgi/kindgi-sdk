@@ -58,6 +58,12 @@ export interface AiSdkModelProviderOptions {
   readonly languageModel: (name: string, fetch: typeof globalThis.fetch) => LanguageModelV4;
   /** Provider options on every call (OpenAI: `store: false`). */
   readonly providerOptions?: (model: ModelInfo) => SharedV4ProviderOptions | undefined;
+  /**
+   * For a vendor that caches only the prompt prefixes a request marks (Bedrock's cache points):
+   * the provider options that mark a message, for a model whose prompts get marked, else
+   * undefined. Which messages are marked: `withCacheMarks`.
+   */
+  readonly cacheMark?: (model: ModelInfo) => SharedV4ProviderOptions | undefined;
   /** Our cost formula for this vendor, from its usage. */
   readonly cost: (model: ModelInfo, usage: UsageCounters) => number;
   /** HTTP attempts in all on a retryable failure (408, 409, 429, 5xx, network). Default 3. */
@@ -129,8 +135,17 @@ export function createAiSdkModelProvider(options: AiSdkModelProviderOptions): Mo
       const sampling = samplingFor(model, input);
       const maxOutputTokens = input.maxOutputTokens ?? model.maxOutputTokens;
       const extra = options.providerOptions?.(model);
+      const prompt = toPrompt(
+        input.messages,
+        { provider: metadata.id, model: input.model },
+        toolIds,
+      );
+      const mark = options.cacheMark?.(model);
       const call: LanguageModelV4CallOptions = {
-        prompt: toPrompt(input.messages, { provider: metadata.id, model: input.model }, toolIds),
+        prompt:
+          mark === undefined
+            ? prompt
+            : withCacheMarks(prompt, mark, toolIds.length > 0 || continues(input.messages)),
         ...(maxOutputTokens !== undefined && { maxOutputTokens }),
         ...(sampling.temperature !== undefined && { temperature: sampling.temperature }),
         ...(input.tools !== undefined &&
@@ -434,6 +449,50 @@ function toPrompt(
     }
   }
   return prompt;
+}
+
+/**
+ * The prompt with prompt-cache marks, placed as the Anthropic adapter places `cache_control`
+ * (`model-anthropic/src/cache.ts`):
+ *   - the first system message: the agent's own prompt. The tools render before it, so the
+ *     marked prefix holds them too. Later system messages (retrieved context) change from turn
+ *     to turn, so they stay after it;
+ *   - the last message, when another call will send this prefix again: a call with tools (the
+ *     next step of a tool loop sends everything again plus the results) or a conversation with an
+ *     earlier answer (its next turn does). A one-off call leaves it unmarked: its tail is never
+ *     sent again, so a write would only cost more.
+ * Two marks at most, under Bedrock's four per request. A prefix shorter than the model's minimum
+ * isn't cached and costs nothing extra (seen live on Claude and Nova on Bedrock, 2026-10-10), so
+ * no marks are held back for size. The prompt passed in isn't changed.
+ */
+export function withCacheMarks(
+  prompt: LanguageModelV4Prompt,
+  mark: SharedV4ProviderOptions,
+  sentAgain: boolean,
+): LanguageModelV4Prompt {
+  const out = [...prompt];
+  const system = out.findIndex((m) => m.role === 'system');
+  if (system >= 0) out[system] = marked(out[system] as LanguageModelV4Message, mark);
+  const last = out.length - 1;
+  if (sentAgain && last >= 0 && out[last]?.role !== 'system') {
+    out[last] = marked(out[last] as LanguageModelV4Message, mark);
+  }
+  return out;
+}
+
+/** Whether a conversation goes on after this call: it has an earlier answer. */
+function continues(messages: readonly ModelMessage[]): boolean {
+  return messages.some((m) => m.role === 'assistant');
+}
+
+/** The message with the mark's options merged into its own, per provider. */
+function marked<M extends LanguageModelV4Message>(message: M, mark: SharedV4ProviderOptions): M {
+  const own = message.providerOptions ?? {};
+  const merged: Record<string, Record<string, unknown>> = { ...own };
+  for (const [provider, values] of Object.entries(mark)) {
+    merged[provider] = { ...own[provider], ...values };
+  }
+  return { ...message, providerOptions: merged as SharedV4ProviderOptions };
 }
 
 /** The error with the adapter's sentence after its message, when it has one. */
