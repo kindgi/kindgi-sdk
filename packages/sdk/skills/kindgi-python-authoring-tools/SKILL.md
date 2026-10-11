@@ -279,6 +279,10 @@ lookup_case = http_tool(
 - Also `timeout_ms=` (default 30000), `parse_json=` (default `True`),
   `success_status=(200, 299)`, `effects=`, `version=`, and
   `mutating=False` for a request that changes nothing (a GET, usually).
+- `timeout_ms` covers the whole call, reading the response included, and
+  so does a run's cancel. A response body over 10 MiB, counted after it's
+  decompressed, fails the call. So point the tool at an endpoint that
+  pages or filters, not one that returns everything.
 
 The spec is checked where it's declared, against the same schema as
 TypeScript's. Calling the tool in Python raises: it runs in Kindgi, so
