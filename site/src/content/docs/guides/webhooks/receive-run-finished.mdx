@@ -41,15 +41,17 @@ Store it as a secret, under a name (the CLI asks for the value and doesn't
 echo it):
 
 ```sh
-kindgi secrets set ACME_WEBHOOK_SECRET --env=local --scope=tenant
+kindgi secrets set ACME_WEBHOOK_SECRET --env=local --scope=tenant --app
 ```
 
 ```text
-  Set ACME_WEBHOOK_SECRET at tenant in local.
+  Set ACME_WEBHOOK_SECRET at tenant in local, in your app's env file.
 ```
 
-In development, the `local` environment is the pack's env files: this writes
-`.env.local`, and a line in `.env` works too. In a deployment, store it in
+In development, `--app` writes it to your app's own env file, `.env.local`,
+where your receiver reads it, and Kindgi reads it there too. Without `--app`
+it would go to Kindgi's own `.kindgi/secrets.env`, which your app doesn't
+load ([Keep local values in env files](../../secrets/env-files/)). In a deployment, store it in
 that deployment's secrets store, under its environment's name (see
 [`kindgi secrets`](../../../reference/cli/secrets/)). Your receiver needs the
 same value, from its own configuration.
@@ -173,6 +175,47 @@ webhook-signature: v1,bj8Mj6s7ln2Gd1sDRQi8+Wax2SOFHovsdMIwvNhDrgw=
   output. Fetch the run (`runs.get`) for its output.
 - `webhook-id` is the event's id, the same on every retry.
 
+### On an agent's run
+
+When your app starts an agent's run (a turn in a conversation), the event
+is the same, with `flowId` `agent.turn` and an `agent` saying which agent
+ran:
+
+```json
+{
+  "id": "62340028-b9ea-4b3c-911a-9958ecdf64de",
+  "type": "run.finished",
+  "createdAt": "2026-10-11T06:05:07.444Z",
+  "data": {
+    "run": {
+      "id": "73628759-cb27-4813-94f7-f872bb3a78ef",
+      …
+      "flowId": "agent.turn",
+      "flowVersion": "1.1.0",
+      "status": "completed",
+      …
+      "agent": {
+        "id": "acme.order-assistant",
+        "version": "0.1.0",
+        "conversationId": "9bd2328a-5c30-4cf9-ab15-4ddc74dc898d",
+        "via": "latest"
+      }
+    }
+  }
+}
+```
+
+- `agent.id` and `agent.version` are the agent and the version that ran,
+  and `conversationId` is the conversation the turn belongs to.
+- `via` says why that version ran: `latest` (no version is live for the
+  run's scope), `live` (the version live for its scope), `explicit` (your
+  app named the version) or `conversation` (the conversation's own).
+- `usage` counts the agent's model calls, as on a flow's run.
+- These are the fields `GET /v1/runs/<run-id>` shows. In Python,
+  `parse_event` gives them as `event.data.run.agent`.
+- A flow's run has no `agent`, and neither does an event from a runtime
+  before 0.1.6.
+
 ## Improvement passes
 
 An endpoint that also lists `improvement-pass.finished` in its `events` gets
@@ -232,3 +275,46 @@ fails with `lastError: "url-refused"` and is retried like any other: set
 receiver go out.
 [Verify a webhook](../verify-a-webhook/) has receivers that check the
 signature and do that.
+
+## In the console
+
+Tenant admins have a **Webhooks** page: every endpoint the tenant sends to,
+and how its deliveries went. Times are UTC.
+
+![The Webhooks page: "2 endpoints; 1 is failing (its last delivery isn't getting through).", Order system (a run finished, signed with dev/hooks-signing, "Of its 1 delivery, 1 was delivered.") and Old CRM ("Of its 1 delivery, 0 were delivered and 1 is still being sent.").](../../../../assets/webhooks/webhooks-list.png)
+
+- **The headline** counts the endpoints and the failing ones: "2 endpoints; 1
+  is failing (its last delivery isn't getting through)."
+- **Each endpoint** says what it sends ("a run finished"), the secret it
+  signs with, by name only, and how its recent deliveries went: "Of its 1
+  delivery, 1 was delivered."
+
+An endpoint's page says what it sends and how it signs: "Sends a run
+finished, signed with the secret dev/hooks-signing (its value stays in the
+secrets store)." Then each delivery, newest first, as a story:
+- "Delivered after 1 attempt";
+- "Retrying after 2 attempts (nothing is listening at that address), next
+  attempt …", or the receiver's answer instead, such as "(HTTP 500)";
+- "Failed after 6 attempts: HTTP 500", once it has stopped trying;
+- for a finished run, the run's outcome and **Open the run**.
+
+The other reasons it gives are "it didn't answer in time", "its host name
+doesn't resolve", "its address is one webhooks may not go to", "its TLS
+certificate wasn't accepted" and "the connection failed". **All**,
+**Failed**, **Being sent** and **Delivered** filter the list.
+
+![An endpoint's page: what it sends and its secret by name, Send a test and Unregister, "Of its 2 deliveries, 2 were delivered.", the All, Failed, Being sent and Delivered filters, and two deliveries: a test and a run finished (Completed, Open the run), each "Delivered after 1 attempt" with Send again.](../../../../assets/webhooks/webhook-endpoint.png)
+
+- **Send a test** queues a test event ("Queued: follow it below."), which
+  shows in the list as "a test".
+- **Send again** queues that delivery once more ("Queued.").
+- **Unregister:** "Nothing more is sent to it. Deliveries still waiting are
+  marked failed." It can't be brought back from the console: add it again.
+  Its old address then says "No endpoint by that id here: it was
+  unregistered, or never existed."
+
+A runtime without a secrets store sends no webhooks, and the page says so:
+"Outbound webhooks aren't turned on here". Endpoints sign with a secret kept
+in the store, so set `KINDGI_SECRETS_BACKEND` and restart the runtime.
+
+![The Webhooks page on a runtime without a secrets store: "Outbound webhooks aren't turned on here", and that they need a secrets store, set with KINDGI_SECRETS_BACKEND.](../../../../assets/webhooks/webhooks-off.png)

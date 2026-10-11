@@ -341,8 +341,9 @@ a failure, or run again when the runtime restarted while it ran. A tool that
 changes something (a refund, an email, a payment) would then do it twice.
 
 `ctx.idempotencyKey` is the same every time the same call runs, and
-different for every other call. Pass it to the system you write to, which
-keeps the first request and answers a repeat with it:
+different for every other call. Pass it to the system you write to: one that
+takes an idempotency key keeps the first request and answers a repeat with its
+result.
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -353,7 +354,7 @@ const res = await fetch('https://payments.acme.example/refunds', {
   method: 'POST',
   headers: {
     'content-type': 'application/json',
-    ...(ctx.idempotencyKey !== undefined && { 'idempotency-key': ctx.idempotencyKey }),
+    ...(ctx.idempotencyKey !== undefined && { 'Idempotency-Key': ctx.idempotencyKey }),
   },
   body: JSON.stringify({ orderId: input.orderId, amount: input.amount }),
 });

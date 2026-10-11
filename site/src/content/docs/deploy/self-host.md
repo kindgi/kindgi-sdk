@@ -37,7 +37,7 @@ You get its pull credentials, a robot name and a token, and log in once with
 
 ```sh
 docker login quay.io
-docker pull quay.io/kindgi/runtime:0.1.5.1
+docker pull quay.io/kindgi/runtime:0.1.6
 ```
 
 ## 2. Start Postgres and a registry
@@ -197,6 +197,7 @@ It holds the API token and the license key, so keep it to yourself:
 
 Every setting is in the [environment variable reference](../../reference/env-vars/). These are worth knowing now:
 
+- **`KINDGI_DATABASE_URL`** connects to Postgres directly, or through a pooler in session mode. The runtime holds session locks on its connection while it migrates, and a pooler in transaction mode, such as PgBouncer's `pool_mode = transaction`, doesn't keep them ([PgBouncer's pooling modes](https://www.pgbouncer.org/features.html)).
 - **`KINDGI_ENV`** names the environment your tools' secrets resolve in.
 - **The port** is 4000 unless something sets another. The runtime takes the first that's set: `KINDGI_API_PORT`, then the platform's `PORT` (Cloud Run, Render, Heroku and Fly set it), then 4000 ([`KINDGI_API_PORT`](../../reference/env-vars/#kindgi_api_port) has the whole order).
 - **`KINDGI_CONSOLE_TOKEN_SIGN_IN=on`** lets you sign in to the console by pasting the API token from this file, so you can try the console straight away. It's off by default outside `kindgi dev`, and with it off and no single sign-on, nobody can sign in to the console. In a real deployment, [turn on sign-in](../sign-in/) with your organization's identity provider instead, and remove the line. The token works for the API, the CLI and the SDKs either way.
@@ -210,7 +211,7 @@ Start the runtime:
 docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
   --add-host registry.localhost:host-gateway \
   -p 127.0.0.1:4000:4000 --env-file kindgi.env \
-  quay.io/kindgi/runtime:0.1.5.1
+  quay.io/kindgi/runtime:0.1.6
 ```
 
 `--restart unless-stopped` brings the runtime back by itself after a crash,
@@ -310,6 +311,11 @@ The start log says which it uses, with one of these lines:
   Client address: X-Forwarded-For behind 1 trusted proxy hop (KINDGI_TRUSTED_PROXIES)
   Client address: X-Forwarded-For behind trusted proxies 10.0.0.0/8, 192.168.0.0/16 (KINDGI_TRUSTED_PROXIES)
 ```
+
+**Caching:** every `/v1` answer, data and errors alike, says
+`Cache-Control: no-store`, so neither a proxy nor a browser keeps one to show
+it again, or to someone else. Outside `/v1`, the console's files and the
+docs, the runtime sets caching as before.
 
 Point the load balancer's health check at `/ready` (see [Operate](../operate/#check-health-and-logs)).
 

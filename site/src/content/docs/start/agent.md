@@ -75,12 +75,12 @@ running and no model key yet:
 ```json
 {
   "ok": false,
-  "cliVersion": "0.1.5",
+  "cliVersion": "0.1.6",
   "project": {
     "dir": "…/my-agents",
     "language": "node"
   },
-  "consoleUrl": "http://127.0.0.1:4000/console/",
+  "consoleUrl": "http://127.0.0.1:…/console/",
   "checks": [
     {
       "id": "node",
@@ -91,13 +91,13 @@ running and no model key yet:
     {
       "id": "model-key",
       "status": "fail",
-      "message": "No model key in .env or .env.local (looked for ANTHROPIC_API_KEY, GEMINI_API_KEY, GROQ_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY).",
+      "message": "No model key in .env or .env.local or .kindgi/secrets.env (looked for ANTHROPIC_API_KEY, GEMINI_API_KEY, GROQ_API_KEY, OPENAI_API_KEY, OPENROUTER_API_KEY).",
       "fix": "With kindgi dev running, set one LLM provider's key: pnpm exec kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant, or the same with GEMINI_API_KEY, GROQ_API_KEY, OPENAI_API_KEY or OPENROUTER_API_KEY (it prompts without echoing; or pipe it in with --from-stdin). Never paste a key into a chat."
     },
     {
       "id": "runtime",
       "status": "pass",
-      "message": "The runtime answers at http://127.0.0.1:4000; its console is at http://127.0.0.1:4000/console/."
+      "message": "The runtime answers at http://127.0.0.1:…; its console is at http://127.0.0.1:…/console/."
     },
     {
       "id": "provider",
@@ -265,14 +265,15 @@ to use Chrome or Firefox: Safari can't keep the local sign-in over http yet
    kindgi providers register --preset=openai
    ```
 
-   `secrets set` writes the key to the project's `.env.local`, which git
-   ignores. It needs `kindgi dev` running. `kindgi providers presets` lists
+   `secrets set` writes the key to Kindgi's own `.kindgi/secrets.env`, which
+   git ignores and the app doesn't load. It needs `kindgi dev` running. `kindgi providers presets` lists
    the presets and their models.
 3. Clear the clipboard, if this OS lets you.
 4. Run doctor again; `model-key` and `provider` should pass.
 
 Doctor's `model-key` only checks that a key is saved: a wrong key shows as a
-`401` on the first run. Then don't open, measure or print `.env.local`. Ask
+`401` on the first run. Then don't open, measure or print
+`.kindgi/secrets.env` or the app's env files. Ask
 the person to copy the key again (they can check it in their provider's
 console), and run the
 `secrets set` command again with `--write-mode=add-version`: without it, a
@@ -301,7 +302,7 @@ register the provider again or to restart `kindgi dev`.
 Tell the person, in your own words:
 
 > **Your first agent answered.** It runs on your machine, with your model
-> key in `.env.local`; Kindgi keeps running in the background until you stop
+> key in `.kindgi/secrets.env`; Kindgi keeps running in the background until you stop
 > it with `kill <the process id>`. Three things to try next:
 >
 > 1. **Give it a tool:** ask me "add a tool that looks up an order, and let

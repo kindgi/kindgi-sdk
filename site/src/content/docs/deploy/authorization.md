@@ -25,7 +25,8 @@ Authorization is for several people and teams sharing one deployment:
 - **Every decision is recorded,** allowed or denied, with who asked, what for
   and why: the access audit, below.
 - **Registering an approval reviewer takes a tenant admin.**
-- **A team can't be given access to a project yet.**
+- **A team can have a role on a project** through the API
+  ([Team grants](#team-grants)). The console doesn't offer it yet.
 
 **Turn it on** when more than one person or system uses a deployment.
 **Leave it off** if one operator is all you need: you'd run OpenFGA for
@@ -131,6 +132,43 @@ in `details`:
 The TypeScript client gives `{ code: 'auth', reason: 'forbidden' }` with that
 message; Python raises `AuthError`, with `server_code` `permission-denied`.
 
+## The console, by role
+
+The console offers only what your role lets you do. It reads that from
+`GET /v1/identity/me/permissions`
+([What you may do](../people-and-keys/#what-you-may-do)); the server still
+checks every call.
+
+- **A project's viewer** reads its pages and takes no action in them. A
+  line under the console's header says so on each of the project's pages:
+  "You can view this project; changes need an editor.", or the tenant's own
+  line, when a tenant admin set one (`console.readOnlyNotice`), such as "Ask
+  Ana Ruiz for edit access."
+- **An editor** may also "run agents and flows, work on agent versions,
+  publish data blocks, judge runs, compare versions on test sets", in the
+  console's words. An agent's page offers them **Register new version** and
+  **Start run**, which a viewer's doesn't.
+- **A project admin** may also "promote versions, register agents and
+  tools, build test sets, rescore comparisons, set judge classes", and
+  changes who works in the project ([Members](#in-the-console-members)).
+- **The tenant's sections** show to those they're for: People, Service
+  accounts, Policies, Webhooks, Sign-in, Access audit and the like to tenant
+  admins; the Inbox and Approvals to reviewers; Teams to tenant admins and
+  anyone in a team.
+
+![A project's Agents page as Gus Moreno, a viewer of Support: under the header, "You can view this project; changes need an editor."; the agents list (Support agent, acme.support, version 1.0.0) with no buttons.](../../../assets/access/viewer-project.png)
+
+**My access**, in the tenant's sections, is what you may do and how you
+have it. It starts with a sentence, such as "You're an editor in 1
+project.", then your tenant role ("Tenant: member. Its people, keys and
+settings are its admins'."), your reviewer role if you have one, and a
+table of your projects: your role, how you have it (directly, through a
+team, as an admin of the org, as a tenant admin), and what it lets you do
+and doesn't. **The detail** holds your ids and what each role allows on each
+kind of object.
+
+![My access as Eda Brooks: "You're an editor in 1 project." and "Tenant: member. Its people, keys and settings are its admins'."; a table with Support, Editor, directly, and what it lets her do: "run agents and flows, work on agent versions, publish data blocks, judge runs, compare versions on test sets; not promote versions, register agents and tools, build test sets, rescore comparisons, set judge classes"; and The detail, closed.](../../../assets/access/my-access.png)
+
 ## Project memberships
 
 A project's members have a role: `owner`, `admin`, `editor` or `viewer`. Each
@@ -164,6 +202,45 @@ Listing a project's members takes `write` on it: its editors and admins. A
 viewer sees the project, not who else works in it, and reads their own roles
 through [their grants](../people-and-keys/#make-someone-a-tenant-admin)
 (`GET /v1/identity/users/<user-id>/grants`).
+
+In the console, a project's admins do this on its **Members** page: see
+[In the console: Members](#in-the-console-members).
+
+## Teams
+
+A team is a group of the tenant's people, each in it as a `member` or an
+`admin`. A tenant admin makes one (`POST /v1/teams`, with a `name`, a
+`slug` and an optional `description`), and holds its `admin` role. Its
+admins, and tenant admins, add and take out its people
+(`…/teams/<team-id>/memberships`), change their roles, and rename it
+(`PATCH /v1/teams/<team-id>`). A team's role on a project reaches everyone
+in it: see [Team grants](#team-grants).
+
+### In the console: Teams
+
+**Teams**, in the tenant's sections, shows to tenant admins and anyone in a
+team, with the teams each may see. A tenant admin makes one with **New
+team** ("A group of people, run by its admins: they decide who is in it.
+You add the first people on its page."): its name, a slug ("Lowercase
+letters, digits and hyphens; unique in the tenant.") and what it is.
+
+![The Teams page as a tenant admin: "1 team.", Support crew (support-crew, "First-line support"), a New team button, and under the list "The console doesn't give a team a role on a project yet: the API does (team grants)."](../../../assets/teams/teams.png)
+
+A team's page, for its admins and tenant admins, says how many are in it
+and how many run it, such as "4 people, 2 run it.", and lists them with
+their role and since when. There they rename it (the slug stays), change
+someone's role, take someone out (it asks first), and add someone from the
+tenant's people. Finding a person reads the tenant's people, so adding
+someone takes a tenant admin.
+
+![Support crew's page as a tenant admin: "4 people, 2 run it." and "The console doesn't give a team a role on a project yet: the API does (team grants)."; Add someone to Support crew (a person, a role, Add); and the list: the seed user and Ana Ruiz (admins), Ben Okafor and Ada Lovelace (members), each with a role to change and Take out; a Rename button.](../../../assets/teams/team.png)
+
+Anyone else in the team sees it, but not who else is in it: "You're in it.
+Who is in Support crew is shown to its admins."
+
+The console doesn't delete a team, or give one a role on a project: both
+are the API's. Both Teams pages say so: "The console doesn't give a team a
+role on a project yet: the API does (team grants)."
 
 ## Team grants
 
@@ -258,6 +335,38 @@ Reading it takes `write` on the project (its editors and admins); emails show
 to its admins only. It's ordered by role, owner first, then by name, and pages
 like other lists. In the clients: `projects.access.list` (the same in Python).
 A runtime without OpenFGA answers `501 project-access-unsupported`.
+
+### In the console: Members
+
+A project's **Members** page shows its editors and admins everyone with
+access, and how. It starts with a count, each one counted once by the way
+their role comes from, such as "6 people and 1 service account have access
+to Support: 4 through a role of their own, 2 through a team, 1 as a tenant
+admin." Then each one, with their role and every way in: "Their own role
+(editor)", "Team Support crew (editor)", "Admin of Acme", "Tenant admin". A
+way the console can't name reads "Another way in". Emails show to the
+project's admins.
+
+![Support's Members page as a tenant admin: "6 people and 1 service account have access to Support: 4 through a role of their own, 2 through a team, 1 as a tenant admin."; an Add someone to Support form (an email, a role, Add); and the list: the seed user (owner; their own role, tenant admin, Team Support crew), Ana Ruiz (her own role editor, "admin through another way in"; tenant admin, Team Support crew), acme-ci (service account, editor), Ada Lovelace (her own role viewer, "editor through another way in"; Team Support crew (editor)), Ben Okafor (editor through Team Support crew), Eda Brooks (editor) and Gus Moreno (viewer), with Take away beside each role of someone's own.](../../../assets/access/members.png)
+
+A project admin changes who works there:
+
+- **Add someone** by their email in the tenant, with one of the four roles.
+  An email that isn't one of the tenant's people isn't added: "No one with
+  that email in this tenant: a tenant admin adds them on People first."
+- **Change** a person's role of their own. When another way in gives them
+  more, it says so under it, such as "editor through another way in". A
+  role through a team, an org or tenant admin is changed where it comes
+  from, and a service account's on its own page.
+- **Take away** a person's role of their own. It asks first, and says what
+  stays:
+
+![The Take away step: "Take Ada Lovelace off Support? From their next request on, they can't work in Support through this role. Ada Lovelace keeps editor access through Team Support crew. What was done here stays.", with Cancel and Take it away.](../../../assets/access/members-take-away.png)
+
+An editor reads the same list, with "Only an admin of Support changes who
+works here." A viewer doesn't see the section; at its address they read
+"Who works in Support is shown to its editors and admins.", and nothing
+more.
 
 ## The access audit
 
