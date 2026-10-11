@@ -718,7 +718,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_ERASURE_LEDGER_EXPORT',
     description:
-      'Where the server keeps copies of the erasure ledger, off the database, so erasures can be replayed after a backup restore: `local:<absolute dir>` or `gcs:<bucket>[/<prefix>]` (Application Default Credentials; creating objects is all it needs). On an interval (`KINDGI_ERASURE_LEDGER_EXPORT_INTERVAL_MS`) it writes the ledger of every tenant it serves as one file, content-free, as `kindgi memory erasures export` does for one tenant: a new file when the ledger changed, and at least one a day. It never overwrites or deletes one; keep them longer than your backups. Replay the newest after a restore with `kindgi-runtime erasures replay`. Unset (the default): the ledger stays in the database only.',
+      'Where the server keeps copies of the erasure ledger, off the database, so erasures can be replayed after a backup restore: `local:<absolute dir>` or `gcs:<bucket>[/<prefix>]` (Application Default Credentials; creating objects is all it needs). On an interval (`KINDGI_ERASURE_LEDGER_EXPORT_INTERVAL_MS`) it writes the ledger of every tenant it serves as one file (keyed hashes only, never whom an erasure names), as `kindgi memory erasures export` does for one tenant: a new file when the ledger changed, and at least one a day. It never overwrites or deletes one; keep them longer than your backups. Replay the newest after a restore with `kindgi-runtime erasures replay`. Unset (the default): the ledger stays in the database only.',
     example: 'gcs:acme-erasure-ledger/runtime',
     required: false,
     appliesTo: appliesToServer,
@@ -736,7 +736,7 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
   {
     name: 'KINDGI_PASSIVE',
     description:
-      "`on` boots a server that does nothing on its own, for looking at a restored backup before anyone uses it: none of its background work starts (runs, schedules and event triggers, webhook deliveries, the authorization outbox, the sweeps, erasures and the erasure ledger export), and it sends no email. Requests are served as usual, and a run started through the API still runs (in the server that took the request), so keep a passive server where only you can reach it. The startup output and `/ready` say it's passive. Off by default.",
+      "`on` boots a server that does nothing on its own, for looking at a restored backup before anyone uses it: none of its background work starts (runs, schedules and event triggers, webhook deliveries, sending permission changes to OpenFGA, the sweeps, erasures and the erasure ledger export), and it sends no email. Requests are served as usual, and a run started through the API still runs (in the server that took the request), so keep a passive server where only you can reach it. The startup output and `/ready` say it's passive. Off by default.",
     example: 'on',
     required: false,
     appliesTo: appliesToServer,
