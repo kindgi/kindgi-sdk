@@ -101,18 +101,23 @@ final class Kindgi_Admin {
 	 * Kindgi stays. Signing in again later makes them a new person there.
 	 */
 	public static function erase( string $email ): array {
-		$user    = get_user_by( 'email', $email );
-		$removed = false;
+		$user     = get_user_by( 'email', $email );
+		$removed  = false;
+		$retained = false;
 		if ( false !== $user ) {
 			foreach ( array( Kindgi_Sessions::SUBJECT, Kindgi_Sessions::USER_ID, Kindgi_Sessions::SESSION ) as $key ) {
 				$removed = $removed || false !== get_user_option( $key, $user->ID );
 			}
+			// Kindgi keeps its record of someone it knew, and their name on what they did.
+			$retained = false !== get_user_option( Kindgi_Sessions::USER_ID, $user->ID );
 			Kindgi_People::left( $user->ID );
+			// So does this site, while the statement that they left waits to reach Kindgi.
+			$retained = $retained || Kindgi_People::waiting_for( $user->ID );
 		}
 		return array(
 			'items_removed'  => $removed,
-			'items_retained' => false,
-			'messages'       => $removed ? array( __( 'Kindgi is told this person left this site, which ends their access there for good. Kindgi keeps its own record of them, and their name stays on what they did.', 'kindgi' ) ) : array(),
+			'items_retained' => $retained,
+			'messages'       => $retained ? array( __( 'Kindgi is told this person left this site, which ends their access there for good. Kindgi keeps its own record of them, and their name stays on what they did.', 'kindgi' ) ) : array(),
 			'done'           => true,
 		);
 	}

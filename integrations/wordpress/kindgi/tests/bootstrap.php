@@ -27,6 +27,16 @@ function kindgi_test_reset(): void {
 		'transients'   => array(),
 	);
 	putenv( 'KINDGI_SITE_SECRET_KEY' );
+	kindgi_test_reset_request();
+}
+
+/** A new request: what `Kindgi_People` counts per request starts over; options and users stay. */
+function kindgi_test_reset_request(): void {
+	foreach ( array( 'changed' => array(), 'sent' => 0 ) as $name => $value ) {
+		$property = new ReflectionProperty( Kindgi_People::class, $name );
+		$property->setAccessible( true );
+		$property->setValue( null, $value );
+	}
 }
 
 // Some hosts have no ext/sodium; WordPress then loads its bundled

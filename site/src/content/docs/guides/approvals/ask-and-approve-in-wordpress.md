@@ -313,8 +313,10 @@ someone who can't open the page any more doesn't keep what they had:
   gets through, the person keeps what they had, and **Kindgi → Settings**
   lists the change under "Waiting to reach Kindgi".
 - **Once a day,** the plugin checks everyone Kindgi knows against WordPress,
-  so a change no hook saw (a role edited in the database, a user deleted by
-  hand) still reaches Kindgi.
+  so a change no hook saw still reaches Kindgi: a role edited in the
+  database, WooCommerce's roles removed when it's deleted with all its
+  data, or a user deleted from a network's admin where the plugin is active
+  per site.
 - **With the plugin deactivated,** none of this happens. Pause the site in
   Kindgi if the plugin stays off.
 

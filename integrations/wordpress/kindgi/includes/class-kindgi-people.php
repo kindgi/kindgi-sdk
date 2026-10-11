@@ -55,7 +55,11 @@ final class Kindgi_People {
 	/** While Kindgi can't be reached, statements wait for wp-cron instead of each timing out. */
 	const UNREACHABLE = 'kindgi_unreachable';
 
-	/** At most this many statements in one run: a site's sign-ins are rate-limited at Kindgi. */
+	/**
+	 * At most this many statements in one request (a page load, a bulk
+	 * delete, a wp-cron run): each waits for Kindgi's answer, and a site's
+	 * sign-ins are rate-limited there. The rest wait for wp-cron.
+	 */
 	const PER_RUN = 30;
 
 	/** The first retry's delay in seconds, doubled each time up to `RETRY_MAX`. */
@@ -66,6 +70,9 @@ final class Kindgi_People {
 
 	/** Subjects whose roles changed in this request: told once each, at its end. */
 	private static $changed = array();
+
+	/** Statements sent in this request, against `PER_RUN`. */
+	private static $sent = 0;
 
 	public static function register(): void {
 		foreach ( array( 'set_user_role', 'add_user_role', 'remove_user_role' ) as $hook ) {
@@ -143,6 +150,11 @@ final class Kindgi_People {
 			self::retry_at( time() + self::RETRY_FIRST );
 			return;
 		}
+		if ( self::$sent >= self::PER_RUN ) {
+			self::retry_at( time() + 60 );
+			return;
+		}
+		++self::$sent;
 		$user   = self::here( $subject, $entry );
 		$person = null === $user
 			? array(
@@ -205,21 +217,39 @@ final class Kindgi_People {
 		self::keep( $people );
 	}
 
-	/** wp-cron: the statements whose time has come, a run's worth at a time. */
+	/**
+	 * wp-cron: the statements whose time has come, a run's worth at a time;
+	 * then the next run, when the soonest one still waiting is due.
+	 */
 	public static function retry(): void {
 		delete_transient( self::UNREACHABLE );
-		$told = 0;
 		foreach ( self::all() as $subject => $entry ) {
-			if ( ! isset( $entry['due'] ) || (int) $entry['due'] > time() ) {
-				continue;
+			if ( self::$sent >= self::PER_RUN ) {
+				break;
 			}
-			if ( $told >= self::PER_RUN ) {
-				self::retry_at( time() + 60 );
-				return;
+			if ( isset( $entry['due'] ) && (int) $entry['due'] <= time() ) {
+				self::tell( (string) $subject );
 			}
-			self::tell( (string) $subject );
-			++$told;
 		}
+		$soonest = null;
+		foreach ( self::all() as $entry ) {
+			if ( isset( $entry['due'] ) ) {
+				$soonest = null === $soonest ? (int) $entry['due'] : min( $soonest, (int) $entry['due'] );
+			}
+		}
+		if ( null !== $soonest ) {
+			self::retry_at( max( $soonest, time() + 60 ) );
+		}
+	}
+
+	/** Whether a statement about this user still waits to reach Kindgi. */
+	public static function waiting_for( int $user_id ): bool {
+		foreach ( self::all() as $entry ) {
+			if ( isset( $entry['due'] ) && (int) ( $entry['user'] ?? 0 ) === $user_id ) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/** wp-cron, daily: whoever changed without a hook seeing it gets their statement. */
@@ -276,6 +306,8 @@ final class Kindgi_People {
 			$people[ $subject ]['left'] = true;
 		}
 		self::keep( $people );
+		// Should this request end before the statement is answered, wp-cron sends it.
+		self::retry_at( time() + 60 );
 		return true;
 	}
 

@@ -116,7 +116,7 @@ function test_people_a_change_kindgi_didnt_get_waits_and_is_tried_again_never_dr
 	kindgi_assert_same( true, $waiting['left'], 'that she left' );
 	kindgi_assert( false !== strpos( $waiting['error'], "couldn't be reached" ), 'why: ' . $waiting['error'] );
 	kindgi_assert( $waiting['due'] >= time() + Kindgi_People::RETRY_FIRST - 1, 'later' );
-	kindgi_assert_same( $waiting['due'], wp_next_scheduled( Kindgi_People::RETRY ), 'wp-cron runs then' );
+	kindgi_assert( wp_next_scheduled( Kindgi_People::RETRY ) <= $waiting['due'], 'a wp-cron run comes by then' );
 	$listed = Kindgi_People::waiting();
 	kindgi_assert_same( 1, count( $listed ), 'the settings page lists it' );
 	kindgi_assert_same( true, $listed[0]['left'], 'as someone who left' );
@@ -164,6 +164,7 @@ function test_people_a_changed_role_is_told_once_at_the_end_of_the_request_and_s
 	kindgi_assert_same( $calls, count( $GLOBALS['kindgi_test']['requests'] ), 'nothing sent yet' );
 	kindgi_assert_same( 1, count( $GLOBALS['kindgi_test']['actions']['shutdown'] ?? array() ), 'once, at the end' );
 	kindgi_assert( false === get_user_option( Kindgi_Sessions::SESSION, 7 ), 'her kept session is forgotten' );
+	kindgi_assert( false !== wp_next_scheduled( Kindgi_People::RETRY ) && wp_next_scheduled( Kindgi_People::RETRY ) <= time() + 60, 'should the request end first, wp-cron sends it' );
 
 	kindgi_test_answer_refused( 'role-not-allowed', 'None of these roles may sign in through this site' );
 	Kindgi_People::tell_changed();
@@ -215,7 +216,64 @@ function test_people_erasing_a_person_tells_kindgi_they_left(): void {
 	kindgi_test_answer_refused( 'person-removed', KINDGI_TEST_REMOVED );
 	$erased = Kindgi_Admin::erase( 'jane@acme-store.example' );
 	kindgi_assert_same( true, $erased['items_removed'], 'something of hers was here' );
+	kindgi_assert_same( true, $erased['items_retained'], 'Kindgi keeps its record of her' );
 	kindgi_assert_same( true, kindgi_test_sent( 1 )['removed'] ?? null, 'Kindgi is told she left' );
 	kindgi_assert( null === Kindgi_Sessions::subject_of( $jane->ID ), 'her subject is gone' );
 	kindgi_assert_same( array(), kindgi_test_people(), 'nothing more to tell' );
+}
+
+function test_people_erasing_someone_kindgi_never_knew_retains_nothing(): void {
+	kindgi_test_enrolled( Kindgi_Keys::generate() );
+	update_option( Kindgi_Settings::URL_OPTION, 'https://kindgi.acme.example' );
+	$ed = kindgi_test_user( 9, 'Ed', array( 'editor' ) );
+	kindgi_test_answer_refused( 'role-not-allowed', 'None of these roles may sign in through this site' );
+	Kindgi_Sessions::sign_in( $ed );
+	$erased = Kindgi_Admin::erase( 'ed@acme-store.example' );
+	kindgi_assert_same( true, $erased['items_removed'], 'his subject was here' );
+	kindgi_assert_same( false, $erased['items_retained'], 'Kindgi never had him' );
+	kindgi_assert_same( array(), $erased['messages'], 'nothing to say about Kindgi' );
+}
+
+function test_people_erasing_while_kindgi_is_unreachable_retains_the_waiting_statement(): void {
+	$jane   = kindgi_test_jane_known();
+	$erased = Kindgi_Admin::erase( 'jane@acme-store.example' ); // Kindgi can't be reached.
+	kindgi_assert_same( true, $erased['items_retained'], 'retained' );
+	kindgi_assert( Kindgi_People::waiting_for( $jane->ID ), 'her statement waits' );
+}
+
+function test_people_a_request_sends_at_most_a_runs_worth_and_wp_cron_the_rest(): void {
+	kindgi_test_enrolled( Kindgi_Keys::generate() );
+	update_option( Kindgi_Settings::URL_OPTION, 'https://kindgi.acme.example' );
+	$count = Kindgi_People::PER_RUN + 2;
+	for ( $id = 100; $id < 100 + $count; $id++ ) {
+		$user = kindgi_test_user( $id, "Staff $id", array( 'shop_manager' ) );
+		kindgi_test_answer_session();
+		Kindgi_Sessions::sign_in( $user );
+	}
+	$calls = count( $GLOBALS['kindgi_test']['requests'] );
+	// A bulk delete: every one of them, in one request.
+	for ( $id = 100; $id < 100 + $count; $id++ ) {
+		kindgi_test_answer_refused( 'person-removed', KINDGI_TEST_REMOVED );
+	}
+	for ( $id = 100; $id < 100 + $count; $id++ ) {
+		Kindgi_People::left( $id );
+	}
+	kindgi_assert_same( $calls + Kindgi_People::PER_RUN, count( $GLOBALS['kindgi_test']['requests'] ), "a run's worth now" );
+	kindgi_assert_same( 2, count( Kindgi_People::waiting() ), 'the rest wait' );
+	kindgi_assert( wp_next_scheduled( Kindgi_People::RETRY ) <= time() + 60, 'for wp-cron, soon' );
+	// The wp-cron run: a request of its own.
+	kindgi_test_reset_request();
+	Kindgi_People::retry();
+	kindgi_assert_same( array(), Kindgi_People::waiting(), 'all told' );
+}
+
+function test_people_a_wp_cron_run_schedules_the_next_one_for_whatever_still_waits(): void {
+	$jane = kindgi_test_jane_known();
+	Kindgi_People::left( $jane->ID ); // Kindgi can't be reached: due in 5 minutes.
+	$due = Kindgi_People::waiting()[0]['due'];
+	// The run the request scheduled comes before that, finds nothing due yet, and schedules the next.
+	unset( $GLOBALS['kindgi_test']['cron'][ Kindgi_People::RETRY ] );
+	kindgi_test_reset_request();
+	Kindgi_People::retry();
+	kindgi_assert_same( $due, wp_next_scheduled( Kindgi_People::RETRY ), 'the next run, when it is due' );
 }
