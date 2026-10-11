@@ -38,6 +38,7 @@ export type {
   ProjectMembershipAddOutcome,
   ProjectMembershipBinding,
   ProjectMembershipUpdateRoleOutcome,
+  ProjectProductionOutcome,
   ProjectUpdateOutcome,
 } from './project-binding.js';
 export type {
@@ -74,6 +75,7 @@ export type {
   TeamProjectGrantParams,
   TeamProjectGrantUpdateRoleOutcome,
   TenantHierarchyBinding,
+  TenantLimits,
   TenantSummary,
   UpdateProjectMemberRoleParams,
   UpdateTeamMemberRoleParams,

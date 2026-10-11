@@ -28,6 +28,7 @@ import type {
   ProjectMembershipAddOutcome,
   ProjectMembershipBinding,
   ProjectMembershipUpdateRoleOutcome,
+  ProjectProductionOutcome,
   ProjectUpdateOutcome,
 } from '../project-binding.js';
 import type {
@@ -215,9 +216,25 @@ export function makeInMemoryProjectBinding(options: InMemoryHierarchyOptions = {
         updatedAt: nowTimestamp(),
         ...(nextOrgId !== undefined ? { orgId: nextOrgId } : {}),
         ...(nextDescription !== undefined ? { description: nextDescription } : {}),
+        ...(row.productionSince !== undefined ? { productionSince: row.productionSince } : {}),
       };
       projectRows.set(projectId, next);
       return { kind: 'ok' };
+    },
+
+    async setProduction(tenantId, projectId, production): Promise<ProjectProductionOutcome> {
+      const row = findProjectInTenant(tenantId, projectId);
+      if (row === undefined) return { kind: 'project-not-found' };
+      if ((row.productionSince !== undefined) === production) {
+        return { kind: 'ok', productionSince: row.productionSince ?? null, changed: false };
+      }
+      const now = nowTimestamp();
+      const { productionSince: _was, ...rest } = row;
+      const next: Project = production
+        ? { ...rest, productionSince: now, updatedAt: now }
+        : { ...rest, updatedAt: now };
+      projectRows.set(projectId, next);
+      return { kind: 'ok', productionSince: next.productionSince ?? null, changed: true };
     },
 
     async delete(tenantId, projectId): Promise<void> {

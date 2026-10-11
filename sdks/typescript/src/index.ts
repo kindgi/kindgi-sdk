@@ -219,6 +219,7 @@ export type {
   ProjectMembershipsClient,
   ProjectTeamGrantsClient,
   ProjectPage,
+  ProjectProductionShape,
   ProjectRecordShape,
   ProjectRoleValue,
   TeamProjectGrantPage,

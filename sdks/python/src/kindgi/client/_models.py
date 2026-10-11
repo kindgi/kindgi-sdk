@@ -9486,8 +9486,35 @@ class Project(BaseModel):
     slug: str
     is_default: Annotated[bool, Field(alias="isDefault")]
     description: str | None = None
+    production_since: Annotated[AwareDatetime | None, Field(alias="productionSince")] = None
+    """
+    When the project was put in production; absent while it isn't. A run in a project in production is a production run, and a run anywhere else is staging.
+    """
     created_at: Annotated[str, Field(alias="createdAt")]
     updated_at: Annotated[str, Field(alias="updatedAt")]
+
+
+class ProjectProductionBody(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    production: bool
+    """
+    `true` puts the project in production; `false` takes it out.
+    """
+
+
+class ProjectProduction(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    project_id: Annotated[str, Field(alias="projectId")]
+    production_since: Annotated[AwareDatetime | None, Field(alias="productionSince")]
+    """
+    When the project went into production; `null` while it isn't in production.
+    """
 
 
 class ProjectSpec(BaseModel):
@@ -9594,16 +9621,41 @@ class AddProjectMembershipResult(BaseModel):
     """
 
 
-class Tenant(BaseModel):
+class TenantLimits(BaseModel):
+    """
+    The tenant's limits that are set. A limit that isn't set is absent, and isn't enforced.
+    """
+
     model_config = ConfigDict(
         extra="allow",
         populate_by_name=True,
     )
-    id: UUID
-    name: str
-    slug: str
-    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
-    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+    api_requests_per_minute: Annotated[int | None, Field(alias="apiRequestsPerMinute", ge=1)] = None
+    """
+    API requests a minute. Past it: 429 `rate-limit-exceeded`.
+    """
+    webhook_receives_per_minute: Annotated[
+        int | None, Field(alias="webhookReceivesPerMinute", ge=1)
+    ] = None
+    """
+    Webhook deliveries received a minute, across the tenant's triggers. Past it: 429.
+    """
+    runs_at_once: Annotated[int | None, Field(alias="runsAtOnce", ge=1)] = None
+    """
+    Runs executing at once. Past it, a new run waits as `pending`.
+    """
+    runs_pending: Annotated[int | None, Field(alias="runsPending", ge=1)] = None
+    """
+    Runs waiting as `pending`. Past it, a new run is refused with 429.
+    """
+    tool_calls_in_flight: Annotated[int | None, Field(alias="toolCallsInFlight", ge=1)] = None
+    """
+    Tool calls in flight to the tenant's pack services. Past it, a call waits for a slot.
+    """
+    approvals_pending: Annotated[int | None, Field(alias="approvalsPending", ge=1)] = None
+    """
+    Approvals waiting for a decision. Past it, the step that asks fails, naming the limit.
+    """
 
 
 class TenantConfigEntry(BaseModel):
@@ -12083,6 +12135,27 @@ class DeploymentSecretsSyncRequest(BaseModel):
     """
     Zero or more secret entries. Each entry MUST set exactly one of `ref` (validate-only) or `value` (write new version).
     """
+
+
+class Tenant(BaseModel):
+    model_config = ConfigDict(
+        extra="allow",
+        populate_by_name=True,
+    )
+    id: UUID
+    name: str
+    slug: str
+    created_at: Annotated[AwareDatetime, Field(alias="createdAt")]
+    updated_at: Annotated[AwareDatetime, Field(alias="updatedAt")]
+    production_allowed: Annotated[bool | None, Field(alias="productionAllowed")] = None
+    """
+    Whether the tenant may put projects in production. Absent from a runtime that doesn't gate production.
+    """
+    production_next: Annotated[str | None, Field(alias="productionNext")] = None
+    """
+    Where to go to be allowed to put projects in production, for example a billing page. Only while `productionAllowed` is `false`, and only when the runtime names one.
+    """
+    limits: TenantLimits | None = None
 
 
 class ScheduleRecord(BaseModel):

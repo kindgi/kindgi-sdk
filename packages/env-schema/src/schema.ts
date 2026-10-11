@@ -274,6 +274,35 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     allowedValues: ['allow', 'deny'],
   },
   {
+    name: 'KINDGI_PRODUCTION_GATE',
+    description:
+      "Whether putting a project in production needs the tenant to be allowed it, for example once it has a payment card. `on`: `PUT /v1/projects/{projectId}/production` refuses with `403 production-not-allowed` while the tenant isn't allowed (its `productionAllowed` is `false`, set through the system API); a project already in production stays so. A tenant is allowed unless it's switched off, so turning the gate on keeps existing tenants' production. Unset or `off`: no gate, and any tenant admin can put a project in production.",
+    example: 'on',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+    allowedValues: ['on', 'off'],
+  },
+  {
+    name: 'KINDGI_PRODUCTION_NEXT_URL',
+    description:
+      "Where a tenant that isn't allowed to put projects in production goes to be allowed, for example a billing page: an https URL. It's the `production-not-allowed` refusal's `details.next`, and `GET /v1/tenant`'s `productionNext` while the tenant isn't allowed. Unset: the refusal says to ask whoever runs the server.",
+    example: 'https://platform.example.com/account/billing',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_USAGE_METERING',
+    description:
+      "Whether the server counts usage. `on`: it records each run when it's created (with its class: `production`, `staging`, `dry-run`, `replay`, `eval` or `child`) and when it ends, each tool call, approval and model call, each project put in production or taken out, and daily estimates of what's stored and which agents are deployed. Each is counted exactly once, in the same transaction as what it counts. `/v1/cost/*` reads a tenant's own counts. Unset or `off`: model calls are counted as before, and nothing else.",
+    example: 'on',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+    allowedValues: ['on', 'off'],
+  },
+  {
     name: 'KINDGI_LICENSE_KEY',
     description:
       'The commercial license key (`kgi_lk_...`) Kindgi issues: signed, checked offline at startup, with no call to Kindgi. Required outside development mode: without a valid key the server refuses to start, naming this variable. `KINDGI_DEV=true` needs none. A production key comes with a commercial license; a free non-production key covers staging and CI. A secret: give it from your secrets store.',

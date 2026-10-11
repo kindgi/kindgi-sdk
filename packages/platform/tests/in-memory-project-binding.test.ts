@@ -12,7 +12,9 @@ import {
   runProjectBindingConformance,
 } from './project-binding.conformance.js';
 
-runProjectBindingConformance(makeInMemoryProjectBinding, 'InMemoryProjectBinding');
+runProjectBindingConformance(makeInMemoryProjectBinding, 'InMemoryProjectBinding', {
+  production: true,
+});
 // With an org check: every org but the missing one is the tenant's.
 runProjectBindingConformance(
   () =>

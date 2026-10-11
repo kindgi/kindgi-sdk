@@ -763,6 +763,9 @@ OPERATIONS: dict[str, Operation] = {
     "projects.access.list": Operation(
         "projects.access.list", "GET", "/v1/projects/{projectId}/access", "json", False
     ),
+    "projects.production.set": Operation(
+        "projects.production.set", "PUT", "/v1/projects/{projectId}/production", "json", True
+    ),
     "projects.teamGrants.list": Operation(
         "projects.teamGrants.list", "GET", "/v1/projects/{projectId}/team-grants", "json", False
     ),
@@ -7010,6 +7013,37 @@ class ProjectsAccessResource:
         )
 
 
+class ProjectsProductionResource:
+    """`client.projects.production` — the `projects.production` operations."""
+
+    def __init__(self, client: SyncClientBase) -> None:
+        self._client = client
+
+    def set(
+        self,
+        project_id: str | UUID,
+        body: _models.ProjectProductionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ProjectProduction:
+        """Put a project in production, or take it out. `PUT /v1/projects/{projectId}/production`
+
+        A run in a project in production is a production run; a run anywhere else is staging. For tenant admins (`admin` on the tenant), both ways. Setting what's already set answers 200 unchanged and keeps the first `productionSince`. With the runtime's production gate on, putting a project in production is refused with 403 `production-not-allowed` while the tenant isn't allowed it, with `details.next` naming where to go to be allowed when the runtime names one; a project already in production stays so. 501 `production-unsupported` from a runtime whose projects can't be put in production.
+        """
+        return self._client._request(
+            _OPERATIONS["projects.production.set"],
+            path={"projectId": project_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ProjectProductionBody, body, fields),
+            response=_models.ProjectProduction,
+            timeout=timeout,
+        )
+
+
 class ProjectsTeamGrantsResource:
     """`client.projects.team_grants` — the `projects.teamGrants` operations."""
 
@@ -7111,6 +7145,7 @@ class ProjectsResource:
         self.judging_queue = ProjectsJudgingQueueResource(client)
         self.memberships = ProjectsMembershipsResource(client)
         self.access = ProjectsAccessResource(client)
+        self.production = ProjectsProductionResource(client)
         self.team_grants = ProjectsTeamGrantsResource(client)
 
     def get_default(self, /, *, timeout: float | None = None) -> _models.Project:
@@ -7293,7 +7328,7 @@ class TenantResource:
     def get(self, /, *, timeout: float | None = None) -> _models.Tenant:
         """Fetch the caller's tenant. `GET /v1/tenant`
 
-        Returns the tenant the bearer token authenticates as. There is no `/v1/tenants` collection — tenants are the sovereignty boundary, not a listable resource under a tenant.
+        Returns the tenant the bearer token authenticates as. There is no `/v1/tenants` collection — tenants are the sovereignty boundary, not a listable resource under a tenant. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), and one that sets limits adds the tenant's `limits`.
         """
         return self._client._request(
             _OPERATIONS["tenant.get"],
@@ -14360,6 +14395,37 @@ class AsyncProjectsAccessResource:
         )
 
 
+class AsyncProjectsProductionResource:
+    """`client.projects.production` — the `projects.production` operations."""
+
+    def __init__(self, client: AsyncClientBase) -> None:
+        self._client = client
+
+    async def set(
+        self,
+        project_id: str | UUID,
+        body: _models.ProjectProductionBody | Mapping[str, Any] | None = None,
+        /,
+        *,
+        idempotency_key: str | None = None,
+        timeout: float | None = None,
+        **fields: Any,
+    ) -> _models.ProjectProduction:
+        """Put a project in production, or take it out. `PUT /v1/projects/{projectId}/production`
+
+        A run in a project in production is a production run; a run anywhere else is staging. For tenant admins (`admin` on the tenant), both ways. Setting what's already set answers 200 unchanged and keeps the first `productionSince`. With the runtime's production gate on, putting a project in production is refused with 403 `production-not-allowed` while the tenant isn't allowed it, with `details.next` naming where to go to be allowed when the runtime names one; a project already in production stays so. 501 `production-unsupported` from a runtime whose projects can't be put in production.
+        """
+        return await self._client._request(
+            _OPERATIONS["projects.production.set"],
+            path={"projectId": project_id},
+            query={},
+            headers={"Idempotency-Key": idempotency_key},
+            body=_body(_models.ProjectProductionBody, body, fields),
+            response=_models.ProjectProduction,
+            timeout=timeout,
+        )
+
+
 class AsyncProjectsTeamGrantsResource:
     """`client.projects.team_grants` — the `projects.teamGrants` operations."""
 
@@ -14461,6 +14527,7 @@ class AsyncProjectsResource:
         self.judging_queue = AsyncProjectsJudgingQueueResource(client)
         self.memberships = AsyncProjectsMembershipsResource(client)
         self.access = AsyncProjectsAccessResource(client)
+        self.production = AsyncProjectsProductionResource(client)
         self.team_grants = AsyncProjectsTeamGrantsResource(client)
 
     async def get_default(self, /, *, timeout: float | None = None) -> _models.Project:
@@ -14645,7 +14712,7 @@ class AsyncTenantResource:
     async def get(self, /, *, timeout: float | None = None) -> _models.Tenant:
         """Fetch the caller's tenant. `GET /v1/tenant`
 
-        Returns the tenant the bearer token authenticates as. There is no `/v1/tenants` collection — tenants are the sovereignty boundary, not a listable resource under a tenant.
+        Returns the tenant the bearer token authenticates as. There is no `/v1/tenants` collection — tenants are the sovereignty boundary, not a listable resource under a tenant. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), and one that sets limits adds the tenant's `limits`.
         """
         return await self._client._request(
             _OPERATIONS["tenant.get"],

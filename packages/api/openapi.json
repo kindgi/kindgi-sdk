@@ -425,6 +425,8 @@
           "org-not-found": 404,
           "team-not-found": 404,
           "project-not-found": 404,
+          "production-not-allowed": 403,
+          "production-unsupported": 501,
           "team-membership-not-found": 404,
           "project-membership-not-found": 404,
           "membership-exists": 409,
@@ -17971,11 +17973,50 @@
           "description": {
             "type": "string"
           },
+          "productionSince": {
+            "type": "string",
+            "format": "date-time",
+            "description": "When the project was put in production; absent while it isn't. A run in a project in production is a production run, and a run anywhere else is staging."
+          },
           "createdAt": {
             "type": "string"
           },
           "updatedAt": {
             "type": "string"
+          }
+        }
+      },
+      "ProjectProductionBody": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "production"
+        ],
+        "properties": {
+          "production": {
+            "type": "boolean",
+            "description": "`true` puts the project in production; `false` takes it out."
+          }
+        }
+      },
+      "ProjectProduction": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "projectId",
+          "productionSince"
+        ],
+        "properties": {
+          "projectId": {
+            "type": "string"
+          },
+          "productionSince": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "When the project went into production; `null` while it isn't in production."
           }
         }
       },
@@ -18180,6 +18221,54 @@
           "updatedAt": {
             "type": "string",
             "format": "date-time"
+          },
+          "productionAllowed": {
+            "type": "boolean",
+            "description": "Whether the tenant may put projects in production. Absent from a runtime that doesn't gate production."
+          },
+          "productionNext": {
+            "type": "string",
+            "description": "Where to go to be allowed to put projects in production, for example a billing page. Only while `productionAllowed` is `false`, and only when the runtime names one."
+          },
+          "limits": {
+            "$ref": "#/components/schemas/TenantLimits"
+          }
+        }
+      },
+      "TenantLimits": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "The tenant's limits that are set. A limit that isn't set is absent, and isn't enforced.",
+        "properties": {
+          "apiRequestsPerMinute": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "API requests a minute. Past it: 429 `rate-limit-exceeded`."
+          },
+          "webhookReceivesPerMinute": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Webhook deliveries received a minute, across the tenant's triggers. Past it: 429."
+          },
+          "runsAtOnce": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Runs executing at once. Past it, a new run waits as `pending`."
+          },
+          "runsPending": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Runs waiting as `pending`. Past it, a new run is refused with 429."
+          },
+          "toolCallsInFlight": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Tool calls in flight to the tenant's pack services. Past it, a call waits for a slot."
+          },
+          "approvalsPending": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Approvals waiting for a decision. Past it, the step that asks fails, naming the limit."
           }
         }
       },
@@ -44337,6 +44426,134 @@
         ]
       }
     },
+    "/v1/projects/{projectId}/production": {
+      "put": {
+        "operationId": "projects.production.set",
+        "summary": "Put a project in production, or take it out",
+        "tags": [
+          "projects"
+        ],
+        "responses": {
+          "200": {
+            "description": "The project is now as asked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectProduction"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request body.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Missing / malformed / expired / revoked bearer token.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Not a tenant admin (`permission-denied`); or the tenant isn't allowed to put projects in production (`production-not-allowed`, `details.projectId`, `details.next` when the runtime names one).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No project with that id under this tenant (`project-not-found`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Idempotency-Key was reused with a different body, or resource-state conflict.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Server error (unmapped domain code or framework crash).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          },
+          "501": {
+            "description": "The runtime's projects can't be put in production (`production-unsupported`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WireError"
+                }
+              }
+            }
+          }
+        },
+        "description": "A run in a project in production is a production run; a run anywhere else is staging. For tenant admins (`admin` on the tenant), both ways. Setting what's already set answers 200 unchanged and keeps the first `productionSince`. With the runtime's production gate on, putting a project in production is refused with 403 `production-not-allowed` while the tenant isn't allowed it, with `details.next` naming where to go to be allowed when the runtime names one; a project already in production stays so. 501 `production-unsupported` from a runtime whose projects can't be put in production.",
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "schema": {
+              "type": "string"
+            },
+            "required": true,
+            "description": "ProjectId — opaque branded string."
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "required": false,
+            "description": "Caller-supplied idempotency key, scoped to the caller: the same key from someone else in the tenant is their own request (from 0.1.5). Retries with the same key return the original response byte-identical (per `docs/API-ROUTE-CONVENTIONS.md` §3.1). A retry sent while the first request still runs is answered `409 idempotency-key-in-flight` with `Retry-After`, on a runtime whose store holds keys (from 0.1.5); retry after it, and you get the first request's answer. An answer that carries a secret (a new API key or public run token, a session token, a generated signing secret) isn't kept: a retry gets `409 idempotency-key-replay-withheld`, with the first request's status and when it succeeded (from 0.1.5)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectProductionBody"
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
     "/v1/projects/{projectId}/team-grants": {
       "get": {
         "operationId": "projects.teamGrants.list",
@@ -45022,7 +45239,7 @@
             }
           }
         },
-        "description": "Returns the tenant the bearer token authenticates as. There is no `/v1/tenants` collection — tenants are the sovereignty boundary, not a listable resource under a tenant.",
+        "description": "Returns the tenant the bearer token authenticates as. There is no `/v1/tenants` collection — tenants are the sovereignty boundary, not a listable resource under a tenant. A runtime that gates production adds `productionAllowed` (and `productionNext` while it's `false`), and one that sets limits adds the tenant's `limits`.",
         "security": [
           {
             "bearerAuth": []

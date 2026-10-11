@@ -20,6 +20,8 @@ export type { SessionCookieOptions, TokenResolution, TokenResolver } from './mid
 export type { SignInOptionsRateLimit } from './routes/sign-in-options.js';
 export type { LicenseStatus, LicenseStatusBinding } from './routes/license.js';
 export { WRITE_AUDIT_KINDS } from './routes/write-audit.js';
+export type { ProductionGateOptions } from './routes/project-production.js';
+export { USAGE_CLASSES, USAGE_KINDS, type UsageClass, type UsageKind } from './usage.js';
 export type { WriteAuditKind } from './routes/write-audit.js';
 export {
   FULL_SYSTEM_CAPABILITY,
