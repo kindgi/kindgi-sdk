@@ -55,6 +55,8 @@ export type {
 export { systemKeysMintedFrom } from './routes/system-keys.js';
 export { createInMemoryRateLimitStore } from './rate-limit-store.js';
 export type { RateLimitStore, RateLimitTake, RateLimitTakeInput } from './rate-limit-store.js';
+export { imageRefWithin, parseImagePrefix, parseImageRef } from './image-ref.js';
+export type { ImagePrefix, ImageRef, ImageRefError } from './image-ref.js';
 export type {
   ClaimMappingScopesSpec,
   ClaimMappingSpec,
