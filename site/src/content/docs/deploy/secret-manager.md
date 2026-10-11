@@ -1,6 +1,6 @@
 ---
 title: Keep secrets in your own secret manager
-description: Have Kindgi keep the secrets set through its API in Azure Key Vault, Google Secret Manager or HashiCorp Vault, with only their names and version numbers in its database.
+description: Have Kindgi keep the secrets set through its API in AWS Secrets Manager, Azure Key Vault, Google Secret Manager or HashiCorp Vault, with only their names and version numbers in its database.
 sidebar:
   order: 3.8
 ---
@@ -13,7 +13,7 @@ a secret manager already, Kindgi can keep them there instead:
 
 ```sh
 KINDGI_SECRETS_BACKEND=secret-manager
-KINDGI_SECRETS_MANAGER=azure    # or gcp, or vault
+KINDGI_SECRETS_MANAGER=aws    # or azure, gcp, or vault
 ```
 
 - **What lives where:** your secret manager holds every secret's values.
@@ -22,15 +22,100 @@ KINDGI_SECRETS_MANAGER=azure    # or gcp, or vault
 - **Versions are Kindgi's:** a secret's versions are numbered 1, 2, 3 as
   Kindgi numbers them, whatever ids the secret manager gives its own
   versions, so `kindgi secrets` reads the same on every backend.
-- **Kindgi signs in as the server itself:** its managed identity, service
-  account, Vault token or Kubernetes service account. Give that identity access to a store, a project or
-  a mount used for Kindgi's secrets alone.
+- **Kindgi signs in as the server itself:** its AWS identity, managed
+  identity, service account, Vault token or Kubernetes service account.
+  Give that identity access to a store, a project or a mount used for
+  Kindgi's secrets alone.
 - **`kindgi env init --secrets-backend=secret-manager --secrets-manager=<name>`**
   writes the settings for one.
 
 Tools, providers and endpoints still name a secret the same way, by its name
 in an env ([Store a secret](../../guides/secrets/store-a-secret/)). Only where
 its values live changes.
+
+## AWS Secrets Manager
+
+```sh
+KINDGI_SECRETS_MANAGER=aws
+KINDGI_SECRETS_AWS_REGION=ca-central-1
+KINDGI_AWS_IDENTITY=container    # or instance, or web-identity
+```
+
+- **The region:** the one whose Secrets Manager holds Kindgi's secrets, in
+  AWS's commercial, GovCloud or China partition. The runtime refuses a
+  region in any other partition at startup.
+- **The identity:** the server signs in as its own AWS identity
+  ([`KINDGI_AWS_IDENTITY`](../../reference/env-vars/#kindgi_aws_identity)):
+  `container` for ECS, Fargate or EKS Pod Identity, `instance` for an EC2
+  instance profile, `web-identity` for EKS IRSA, and `profile` only in
+  development. `KINDGI_AWS_ROLE_ARN` has it assume a role on top. It never
+  uses `AWS_*` keys or the AWS SDK's default chain, and without
+  `KINDGI_AWS_IDENTITY` the runtime doesn't start.
+- **The permissions:** the actions Kindgi calls, all on
+  `arn:aws:secretsmanager:<region>:<account>:secret:kindgi/*` only
+  (`arn:aws-us-gov:` in GovCloud, `arn:aws-cn:` in China):
+  `secretsmanager:CreateSecret`, `secretsmanager:TagResource`,
+  `secretsmanager:PutSecretValue`, `secretsmanager:GetSecretValue`,
+  `secretsmanager:DescribeSecret` and `secretsmanager:DeleteSecret`.
+  Kindgi doesn't need `ListSecrets`, which can't be limited to a prefix, or
+  `RestoreSecret`.
+- **The key:** AWS encrypts the secrets with its own `aws/secretsmanager`
+  key, or with yours: `KINDGI_SECRETS_AWS_KMS_KEY_ID` names it (a key ARN,
+  key id or `alias/…`), and the identity then also needs
+  `kms:GenerateDataKey` and `kms:Decrypt` on it.
+- **What Kindgi writes:** one AWS secret per Kindgi secret, named
+  `kindgi/<hash>`, with its scope in tags (`kindgi_tenant_id`,
+  `kindgi_env_name`, …) and its Kindgi path in the description. Each
+  version is an AWS version whose id carries Kindgi's number, and a
+  retried write adds none.
+- **Revoking** a secret deletes it in AWS with a 30-day recovery window
+  (AWS can't disable a single version, so the whole secret goes). Kindgi
+  refuses a revoked secret at once, from its own records. Read directly from
+  AWS, it may still answer for a moment, since "All Secrets Manager
+  operations are eventually consistent"
+  ([AWS](https://docs.aws.amazon.com/secretsmanager/latest/apireference/API_ListSecrets.html)).
+  Within the window, an AWS admin can restore it, until the name is set
+  again in Kindgi.
+
+At startup, the runtime checks it can reach Secrets Manager as its identity,
+and says where it keeps secrets (`2017-10-17` is Secrets Manager's API
+version):
+
+```text
+Secrets manager probe OK (aws-secrets-manager): 2017-10-17 (271ms)
+  Secrets: your own secret manager, AWS Secrets Manager in us-east-2, as the server's AWS identity (Kindgi keeps names and version numbers)
+```
+
+It doesn't start (exit code 2) without `KINDGI_AWS_IDENTITY`, or with a
+region outside those partitions:
+
+```text
+KINDGI_SECRETS_MANAGER=aws signs in as the server's AWS identity: set KINDGI_AWS_IDENTITY (container, instance or web-identity; profile in development). Kindgi never uses the AWS SDK's default chain or AWS_* keys.
+KINDGI_SECRETS_AWS_REGION must be an AWS region in the commercial, GovCloud or China partition, such as ca-central-1. Got "us-iso-east-1".
+```
+
+**Setting a revoked secret again** deletes the revoked one for good, so its
+values can't be restored, then makes a fresh one under the same name. That
+waits for AWS to finish deleting, up to a minute (26 to 28 seconds in our
+test). Kindgi's version numbers carry on, and the runtime logs a warning
+that names the secret, never its value:
+
+```text
+13:47:45.067 WARN  [secrets] Secret "stripe-key" was set again after a revoke: aws-secrets-manager deleted its revoked values for good, ending their recovery window early. tenantId=… scopeKind=tenant envName=staging name=stripe-key versionId=3 provider=aws-secrets-manager
+```
+
+If it's revoked again while it's being set, the set fails rather than
+reporting a conflict, with `secret-provider-unavailable`:
+`kindgi/… was revoked again while it was being set: set it again.`
+
+**AWS's limits:** AWS sets how many versions of a secret it keeps, and how
+often to write one; see its
+[Secrets Manager quotas](https://docs.aws.amazon.com/secretsmanager/latest/userguide/reference_limits.html).
+Kindgi writes exactly one AWS version per set or rotation. Reading a version
+AWS no longer keeps, one pinned by number for example, answers
+`secret-not-found` with the reason `deleted-at-provider`: `Secret "<name>"
+version <N> is mapped, but its provider has no value for it (deleted at the
+provider).`
 
 ## Azure Key Vault
 
@@ -169,5 +254,5 @@ Secrets manager probe failed at boot: unauthorized: Vault probe failed: Vault's 
 
 The settings are all in the
 [environment variable reference](../../reference/env-vars/#kindgi_secrets_manager).
-AWS Secrets Manager (`KINDGI_SECRETS_MANAGER=aws`) comes in 0.1.7: a 0.1.6
-runtime refuses it at startup.
+AWS Secrets Manager (`KINDGI_SECRETS_MANAGER=aws`) needs runtime 0.1.7 or
+later: a 0.1.6 runtime refuses it at startup.
