@@ -1134,7 +1134,7 @@ describe('kindgi dev — one per pack', () => {
     });
     expect(out.exitCode).toBe(3);
     expect(out.stderr).toContain(
-      "kindgi dev: this pack's runtime container (kindgi-dev-runtime-x) runs for another kindgi dev (pid 4242), still running. Stop that kindgi dev first",
+      "kindgi dev: this pack's runtime container (kindgi-dev-runtime-x) belongs to another kindgi dev (pid 4242), still running. Stop that kindgi dev first",
     );
     expect(started).toBe(0);
     // The lock it took, there being none, is released.

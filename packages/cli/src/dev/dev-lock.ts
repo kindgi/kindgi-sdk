@@ -14,11 +14,14 @@
  *   pid is alive and its start time matches the lock's, so a pid the OS
  *   reused for another process doesn't keep a dead `kindgi dev`'s lock.
  * - **Stale** otherwise (a crash, a `kill -9`): the next `kindgi dev`
- *   takes it over.
+ *   takes it over. Two that find the same stale lock can't both take it:
+ *   each moves it aside with `rename()`, which only one can do, and puts
+ *   back a lock it moved that wasn't the stale one.
  */
 
 import { execFile } from 'node:child_process';
-import { mkdir, open, readFile, rename, unlink, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { link, mkdir, open, readFile, rename, unlink, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 /** What a running `kindgi dev` says about itself in its lock. */
@@ -107,20 +110,15 @@ export async function takeDevLock(
     takenAt: processes.now().toISOString(),
   };
   let stale: DevLockRecord | undefined;
-  // Twice at most: a stale lock is removed, then the create is tried again.
-  for (let attempt = 0; attempt < 2; attempt++) {
+  // A few times at most: a stale lock is moved aside, then the create is
+  // tried again.
+  for (let attempt = 0; attempt < 3; attempt++) {
     try {
       const file = await open(path, 'wx', 0o600);
       try {
         await file.writeFile(`${JSON.stringify(mine)}\n`);
       } finally {
         await file.close();
-      }
-      // Read back: a second `kindgi dev` that removed a stale lock at the
-      // same moment may have written its own over this one.
-      const written = await readLock(path);
-      if (written !== undefined && ownerOf(written) !== ownerOf(mine)) {
-        return { kind: 'held', holder: written };
       }
       return {
         kind: 'taken',
@@ -130,12 +128,13 @@ export async function takeDevLock(
     } catch (cause) {
       if ((cause as NodeJS.ErrnoException).code !== 'EEXIST') throw cause;
     }
-    const holder = await readLock(path);
+    const found = await readLockText(path);
+    if (found === undefined) continue;
+    const holder = parseLock(found);
     if (holder !== undefined && (await isLive(holder, processes))) {
       return { kind: 'held', holder };
     }
-    stale = holder;
-    await unlink(path).catch(() => undefined);
+    if (await takeOver(path, found, processes.pid)) stale = holder;
   }
   const holder = await readLock(path);
   if (holder !== undefined) return { kind: 'held', holder };
@@ -170,14 +169,50 @@ function heldLock(path: string, initial: DevLockRecord): HeldDevLock {
   };
 }
 
-async function readLock(path: string): Promise<DevLockRecord | undefined> {
+/**
+ * Remove the stale lock whose text is `found`, if it's still the one
+ * there. It's moved aside first, under a name of this process's own:
+ * of two `kindgi dev` taking the same stale lock over, only one moves
+ * it. A lock moved that isn't the stale one (another took it over and
+ * wrote its own in between) is put back, unless yet another is there by
+ * then. Whether this one removed the stale lock.
+ */
+async function takeOver(path: string, found: string, pid: number): Promise<boolean> {
+  const aside = `${path}.${pid}.${randomUUID()}.stale`;
   try {
-    const parsed = JSON.parse(await readFile(path, 'utf8')) as Partial<DevLockRecord>;
+    await rename(path, aside);
+  } catch (cause) {
+    // Gone already: another took it over. The create, tried again, says who.
+    if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return false;
+    throw cause;
+  }
+  const moved = await readLockText(aside);
+  if (moved !== found) await link(aside, path).catch(() => undefined);
+  await unlink(aside).catch(() => undefined);
+  return moved === found;
+}
+
+async function readLockText(path: string): Promise<string | undefined> {
+  try {
+    return await readFile(path, 'utf8');
+  } catch {
+    return undefined;
+  }
+}
+
+function parseLock(text: string): DevLockRecord | undefined {
+  try {
+    const parsed = JSON.parse(text) as Partial<DevLockRecord>;
     if (typeof parsed.pid !== 'number' || typeof parsed.takenAt !== 'string') return undefined;
     return parsed as DevLockRecord;
   } catch {
     return undefined;
   }
+}
+
+async function readLock(path: string): Promise<DevLockRecord | undefined> {
+  const text = await readLockText(path);
+  return text === undefined ? undefined : parseLock(text);
 }
 
 /** The OS's processes: a signal-0 probe, and `ps` for a start time (not on Windows). */
@@ -196,10 +231,19 @@ export function osProcesses(): DevLockProcesses {
     startTime(pid) {
       if (process.platform === 'win32') return Promise.resolve(undefined);
       return new Promise((resolve) => {
-        execFile('ps', ['-o', 'lstart=', '-p', String(pid)], { timeout: 2_000 }, (err, stdout) => {
-          const at = err === null ? stdout.trim() : '';
-          resolve(at === '' ? undefined : at);
-        });
+        // In one locale and time zone, whatever the shell's: a `kindgi dev`
+        // started from another terminal (another TZ or LANG, an agent's
+        // `LC_ALL=C`) reads the same start time, so a live one stays live.
+        const env = { ...process.env, LC_ALL: 'C', TZ: 'UTC' };
+        execFile(
+          'ps',
+          ['-o', 'lstart=', '-p', String(pid)],
+          { timeout: 2_000, env },
+          (err, stdout) => {
+            const at = err === null ? stdout.trim() : '';
+            resolve(at === '' ? undefined : at);
+          },
+        );
       });
     },
     now: () => new Date(),

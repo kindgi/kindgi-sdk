@@ -175,60 +175,62 @@ export interface RuntimeContainerOptions {
   readonly signal?: AbortSignal;
   /**
    * The `kindgi dev` starting it (`<pid>@<process start>`, its lock's
-   * owner): the container is labeled with it, and a running container
-   * another live `kindgi dev` owns is never removed (`ownerIsLive`).
+   * owner): the container is labeled with it, and a container another
+   * live `kindgi dev` owns is never removed (`ownerIsLive`).
    */
   readonly owner?: string;
   readonly ownerIsLive?: (owner: string) => Promise<boolean>;
+  /** Runs the docker commands that check, replace, start and stop it: `docker`, or a fake in tests. */
+  readonly docker?: DockerRunner;
 }
 
 /** The label naming the `kindgi dev` that started a runtime container. */
 export const RUNTIME_OWNER_LABEL = 'kindgi.dev.owner';
 
 /**
- * The owner of an existing container (`docker inspect`'s `<running> <owner
- * label>`) when it's running for another `kindgi dev` that is still alive;
- * `undefined` when it may be replaced: stopped, unlabeled (an older CLI's),
- * this `kindgi dev`'s own, or its owner gone.
+ * The owner named by an existing container's label when it's another
+ * `kindgi dev` that is still alive, whether the container runs or not
+ * (it's stopped between its create and start, and while its owner reads
+ * why it stopped: no `--rm`); `undefined` when it may be replaced:
+ * unlabeled (an older CLI's), this `kindgi dev`'s own, or its owner gone.
  */
 export async function ownedElsewhere(
-  inspected: string,
+  label: string,
   self: Pick<RuntimeContainerOptions, 'owner' | 'ownerIsLive'>,
 ): Promise<string | undefined> {
-  // Split at the first space only: the owner holds the process's start time
-  // (`ps -o lstart=`), which has spaces of its own.
-  const line = inspected.trim();
-  const space = line.indexOf(' ');
-  const running = space === -1 ? line : line.slice(0, space);
-  const owner = space === -1 ? '' : line.slice(space + 1);
-  if (running !== 'true' || owner === '' || owner === '<no value>' || owner === self.owner) {
-    return undefined;
-  }
+  // Whole: the owner holds the process's start time, which has spaces.
+  const owner = label.trim();
+  if (owner === '' || owner === '<no value>' || owner === self.owner) return undefined;
   return (await self.ownerIsLive?.(owner)) === true ? owner : undefined;
 }
 
 /**
  * Clear the way for this pack's runtime container: one left by an earlier
  * `kindgi dev` of this pack (a crashed session) is removed, but never one
- * still running for another live `kindgi dev` (its lock was skipped: an
- * older CLI, a lock removed by hand), which throws `RuntimeOwnedElsewhere`
- * and is left as it is. The port check and the start both go through here.
+ * another live `kindgi dev` owns (its lock was skipped: an older CLI, a
+ * lock removed by hand), which throws `RuntimeOwnedElsewhere` and is left
+ * as it is. The port check and the start both go through here. It removes
+ * by the id it checked, never by the name, which another could reuse.
  */
 export async function removeReplaceableRuntimeContainer(
   name: string,
-  self: Pick<RuntimeContainerOptions, 'owner' | 'ownerIsLive'>,
+  self: Pick<RuntimeContainerOptions, 'owner' | 'ownerIsLive' | 'docker'>,
 ): Promise<void> {
-  const existing = await docker([
+  const run = self.docker ?? docker;
+  const existing = await run([
     'inspect',
     '--format',
-    `{{.State.Running}} {{index .Config.Labels "${RUNTIME_OWNER_LABEL}"}}`,
+    `{{.Id}} {{index .Config.Labels "${RUNTIME_OWNER_LABEL}"}}`,
     name,
   ]);
-  if (existing.code === 0) {
-    const owner = await ownedElsewhere(existing.stdout, self);
-    if (owner !== undefined) throw new RuntimeOwnedElsewhere(name, owner);
-  }
-  await docker(['rm', '--force', name]);
+  if (existing.code !== 0) return;
+  // The id has no spaces; the rest is the label, whole.
+  const line = existing.stdout.trim();
+  const space = line.indexOf(' ');
+  const id = space === -1 ? line : line.slice(0, space);
+  const owner = await ownedElsewhere(space === -1 ? '' : line.slice(space + 1), self);
+  if (owner !== undefined) throw new RuntimeOwnedElsewhere(name, owner);
+  await run(['rm', '--force', id]);
 }
 
 /** This pack's runtime container runs for another `kindgi dev`, still alive: it isn't touched. */
@@ -239,7 +241,7 @@ export class RuntimeOwnedElsewhere extends Error {
   ) {
     const pid = owner.split('@')[0];
     super(
-      `this pack's runtime container (${container}) runs for another kindgi dev (pid ${pid}), still running`,
+      `this pack's runtime container (${container}) belongs to another kindgi dev (pid ${pid}), still running`,
     );
     this.name = 'RuntimeOwnedElsewhere';
   }
@@ -247,6 +249,8 @@ export class RuntimeOwnedElsewhere extends Error {
 
 export interface RunningRuntimeContainer {
   readonly name: string;
+  /** Its id: what `stop` and every later command use, never the name. */
+  readonly id: string;
   readonly baseUrl: string;
   /** What the runtime printed until it served: its banner. */
   readonly banner: string;
@@ -334,11 +338,19 @@ export async function startRuntimeContainer(
   options: RuntimeContainerOptions,
   wait: { readonly timeoutMs?: number; readonly fetch?: typeof fetch } = {},
 ): Promise<RunningRuntimeContainer> {
+  const run = options.docker ?? docker;
   const name = runtimeContainerName(options.packDir);
   await removeReplaceableRuntimeContainer(name, options);
-  const started = await docker(runtimeRunArgs(name, options));
+  const started = await run(runtimeRunArgs(name, options));
   if (started.code !== 0) {
     throw new Error(`docker run failed: ${dockerFailureDetail(started.stderr)}`);
+  }
+  // From here on, the container this run started, by its id (`--detach`
+  // prints it): never the name, which another kindgi dev could reuse for
+  // a container of its own.
+  const id = started.stdout.trim().split('\n').pop()?.trim() ?? '';
+  if (!/^[0-9a-f]{12,64}$/.test(id)) {
+    throw new Error(`docker run printed no container id: ${lastLines(started.stdout)}`);
   }
 
   // The runtime's latest lines as text (a record as its pretty line, the
@@ -346,7 +358,7 @@ export async function startRuntimeContainer(
   // failure's tail: a long session's lines aren't kept (they're shown as
   // they come).
   const lines: string[] = [];
-  let logs: ChildProcess | undefined = spawn('docker', ['logs', '--follow', name], {
+  let logs: ChildProcess | undefined = spawn('docker', ['logs', '--follow', id], {
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   const reader = (stream: 'stdout' | 'stderr') =>
@@ -378,8 +390,8 @@ export async function startRuntimeContainer(
 
   const stop = async () => {
     stopFollowing();
-    await docker(['stop', '--time', '10', name]);
-    await docker(['rm', '--force', name]);
+    await run(['stop', '--time', '10', id]);
+    await run(['rm', '--force', id]);
   };
 
   const baseUrl = `http://127.0.0.1:${options.hostPort}`;
@@ -389,7 +401,7 @@ export async function startRuntimeContainer(
     if (options.signal?.aborted === true) {
       // It hasn't served anything: removed at once, not stopped gracefully.
       stopFollowing();
-      await docker(['rm', '--force', name]);
+      await run(['rm', '--force', id]);
       throw new RuntimeStartStopped();
     }
     const healthy = await doFetch(`${baseUrl}/health`, { signal: AbortSignal.timeout(2_000) })
@@ -397,10 +409,10 @@ export async function startRuntimeContainer(
       .catch(() => false);
     // Serving, and its banner printed (the pack line comes after the URL).
     if (healthy && lines.some((l) => l.startsWith(PACK_DIR_BANNER))) break;
-    const running = await docker(['inspect', '--format', '{{.State.Running}}', name]);
+    const running = await run(['inspect', '--format', '{{.State.Running}}', id]);
     if (running.code !== 0 || running.stdout.trim() !== 'true') {
       stopFollowing();
-      throw await startupFailure(name, lines);
+      throw await startupFailure(id, lines, run);
     }
     const hopeless = waitingWontHelp(options.image, lines, deadline);
     if (hopeless !== undefined) {
@@ -409,7 +421,7 @@ export async function startRuntimeContainer(
     }
     await pauseUnlessStopped(250, options.signal);
   }
-  return { name, baseUrl, banner: lines.join('\n'), stop };
+  return { name, id, baseUrl, banner: lines.join('\n'), stop };
 }
 
 /** Why waiting longer for a running container won't help, if it won't. */
@@ -438,9 +450,13 @@ function waitingWontHelp(
  * (one that exits at once can stop before `docker logs --follow`
  * attaches), then removed.
  */
-async function startupFailure(name: string, followed: readonly string[]): Promise<Error> {
-  const stopped = await stoppedContainer(name);
-  await docker(['rm', '--force', name]);
+async function startupFailure(
+  id: string,
+  followed: readonly string[],
+  run: DockerRunner,
+): Promise<Error> {
+  const stopped = await stoppedContainer(id, run);
+  await run(['rm', '--force', id]);
   return new Error(
     describeStartupStop(stopped.lines.length > 0 ? stopped.lines : followed, stopped.exit),
   );
@@ -484,11 +500,12 @@ function describeExit(exit: ContainerExit): string {
 
 /** A stopped container's whole log, in the order it was written, and how it exited. */
 async function stoppedContainer(
-  name: string,
+  id: string,
+  run: DockerRunner,
 ): Promise<{ readonly lines: readonly string[]; readonly exit: ContainerExit }> {
   const logLines = await new Promise<string[]>((resolve) => {
     const out: string[] = [];
-    const child = spawn('docker', ['logs', name], { stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn('docker', ['logs', id], { stdio: ['ignore', 'pipe', 'pipe'] });
     const onChunk = (chunk: Buffer) => {
       for (const line of chunk.toString().split('\n')) {
         if (line !== '' && !line.startsWith(DOCKER_DAEMON_ERROR)) out.push(line);
@@ -499,11 +516,11 @@ async function stoppedContainer(
     child.on('error', () => resolve(out));
     child.on('close', () => resolve(out));
   });
-  const state = await docker([
+  const state = await run([
     'inspect',
     '--format',
     '{{.State.ExitCode}}|{{.State.OOMKilled}}|{{.State.Error}}',
-    name,
+    id,
   ]);
   if (state.code !== 0) return { lines: logLines, exit: {} };
   const [code, oom, ...error] = state.stdout.trim().split('|');
