@@ -716,6 +716,33 @@ export const KINDGI_ENV_SCHEMA: readonly EnvVarSpec[] = [
     group: 'core',
   },
   {
+    name: 'KINDGI_ERASURE_LEDGER_EXPORT',
+    description:
+      'Where the server keeps copies of the erasure ledger, off the database, so erasures can be replayed after a backup restore: `local:<absolute dir>` or `gcs:<bucket>[/<prefix>]` (Application Default Credentials; creating objects is all it needs). On an interval (`KINDGI_ERASURE_LEDGER_EXPORT_INTERVAL_MS`) it writes the ledger of every tenant it serves as one file, content-free, as `kindgi memory erasures export` does for one tenant: a new file when the ledger changed, and at least one a day. It never overwrites or deletes one; keep them longer than your backups. Replay the newest after a restore with `kindgi-runtime erasures replay`. Unset (the default): the ledger stays in the database only.',
+    example: 'gcs:acme-erasure-ledger/runtime',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_ERASURE_LEDGER_EXPORT_INTERVAL_MS',
+    description:
+      'How often the server writes the erasure ledger to `KINDGI_ERASURE_LEDGER_EXPORT`, in milliseconds. An erasure made after the last copy and after the restore point is in neither, so this bounds what a restore can miss. Default 3600000 (an hour). At least 60000, and needs `KINDGI_ERASURE_LEDGER_EXPORT`, or the server refuses to start.',
+    example: '900000',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
+    name: 'KINDGI_PASSIVE',
+    description:
+      "`on` boots a server that does nothing on its own, for looking at a restored backup before anyone uses it: none of its background work starts (runs, schedules and event triggers, webhook deliveries, the authorization outbox, the sweeps, erasures and the erasure ledger export), and it sends no email. Requests are served as usual, and a run started through the API still runs (in the server that took the request), so keep a passive server where only you can reach it. The startup output and `/ready` say it's passive. Off by default.",
+    example: 'on',
+    required: false,
+    appliesTo: appliesToServer,
+    group: 'core',
+  },
+  {
     name: 'KINDGI_PAGINATION_KEY_PATH',
     description:
       "Absolute path to the 32-byte key (mode 0600) every list's page cursors are sealed with, so a cursor never shows the row it points after; the same on every instance. Unset (and no `KINDGI_PAGINATION_KEY`): a key made at boot and kept nowhere, so a cursor handed out before a restart answers 400 after it, and more than one instance behind one address needs the key set. Rotate it yearly (each cursor is sealed with a random nonce): the new key here, the old one in `KINDGI_PAGINATION_PREVIOUS_KEY_PATH` for at least a day. Its own key: never the erasure ledger's or the secrets AAD key. This or `KINDGI_PAGINATION_KEY`, not both.",
