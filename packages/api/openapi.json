@@ -2438,7 +2438,6 @@
                 "system:tenants:purge",
                 "system:suspend",
                 "system:deployments",
-                "system:usage:read",
                 "system:license",
                 "kindgi:system"
               ],
@@ -2484,7 +2483,6 @@
                 "system:tenants:purge",
                 "system:suspend",
                 "system:deployments",
-                "system:usage:read",
                 "system:license",
                 "kindgi:system"
               ],
@@ -2536,7 +2534,6 @@
                 "system:tenants:purge",
                 "system:suspend",
                 "system:deployments",
-                "system:usage:read",
                 "system:license",
                 "kindgi:system"
               ],
@@ -2605,7 +2602,6 @@
                       "system:tenants:purge",
                       "system:suspend",
                       "system:deployments",
-                      "system:usage:read",
                       "system:license",
                       "kindgi:system"
                     ],
@@ -2665,7 +2661,6 @@
                 "system:tenants:purge",
                 "system:suspend",
                 "system:deployments",
-                "system:usage:read",
                 "system:license",
                 "kindgi:system"
               ],

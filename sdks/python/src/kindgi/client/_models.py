@@ -936,7 +936,6 @@ class SystemKey(BaseModel):
             "system:tenants:purge",
             "system:suspend",
             "system:deployments",
-            "system:usage:read",
             "system:license",
             "kindgi:system",
         ]
@@ -965,7 +964,6 @@ class MintSystemKeyBody(BaseModel):
                 "system:tenants:purge",
                 "system:suspend",
                 "system:deployments",
-                "system:usage:read",
                 "system:license",
                 "kindgi:system",
             ]
@@ -1008,7 +1006,6 @@ class MintSystemKeyResult(BaseModel):
             "system:tenants:purge",
             "system:suspend",
             "system:deployments",
-            "system:usage:read",
             "system:license",
             "kindgi:system",
         ]
@@ -1052,7 +1049,6 @@ class Datum2(BaseModel):
             "system:tenants:purge",
             "system:suspend",
             "system:deployments",
-            "system:usage:read",
             "system:license",
             "kindgi:system",
         ]
@@ -1100,7 +1096,6 @@ class RevokeSystemKeyResult(BaseModel):
             "system:tenants:purge",
             "system:suspend",
             "system:deployments",
-            "system:usage:read",
             "system:license",
             "kindgi:system",
         ]
