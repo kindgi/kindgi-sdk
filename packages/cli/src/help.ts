@@ -8,7 +8,7 @@ import { GLOBAL_OPTION_SPEC } from './parse.js';
 
 export function rootHelpText(): string {
   const lines: string[] = [];
-  lines.push('kindgi — command-line interface for Kindgi™ — the sovereign AI OS');
+  lines.push('kindgi — command-line interface for Kindgi™');
   lines.push('');
   lines.push('Usage: kindgi <command> [<subcommand>] [args] [flags]');
   lines.push('');

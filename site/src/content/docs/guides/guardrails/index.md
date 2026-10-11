@@ -17,7 +17,9 @@ is stored.
 - [Configure a guardrail](configure-a-guardrail/): settings the check runs
   with, and their schema.
 - [Stop a turn or record a violation](halt-or-record/): `halt` versus
-  `log-only`, severity, and which agents a guardrail covers.
+  `log-only`, severity, which agents a guardrail covers, and how a
+  guardrail is doing: how often it passed, was violated, blocked a turn or
+  couldn't run.
 - [Use a built-in check](use-a-built-in-check/): name one of Kindgi's seven
   checks instead of writing your own, and the settings each reads.
 

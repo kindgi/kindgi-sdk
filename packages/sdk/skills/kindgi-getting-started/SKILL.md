@@ -14,7 +14,7 @@ description: >
   primitive.
 type: core
 library: "@kindgi/sdk"
-version: "0.3.8"
+version: "0.3.9"
 sdk_version: "0.0.0"
 pack_languages: [node]
 ---
@@ -69,7 +69,9 @@ pnpm install          # or the app's own package manager
 ```
 
 This adds `kindgi.config.ts` and a `kindgi/` folder beside the app's code,
-and never creates env files: `kindgi dev` reads the app's own `.env` /
+and `vitest.config.mts` for the tests `kindgi test` runs (`kindgi/**/*.test.ts`,
+with the app's tsconfig path aliases) unless the app runs vitest already. It
+never creates env files: `kindgi dev` reads the app's own `.env` /
 `.env.local`. A package a tool imports must be in the app's `dependencies`,
 not `devDependencies`: the deployed pack installs production dependencies
 only (see `kindgi-authoring-tools`).

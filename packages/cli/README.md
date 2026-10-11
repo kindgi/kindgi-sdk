@@ -213,6 +213,12 @@ One command runs the whole loop on your machine:
   `kindgi auth registry --username <robot name>` (see
   [The runtime image's registry](#the-runtime-images-registry)). `kindgi dev`
   says so when a pull is refused.
+- **Starting:** `kindgi dev` says what the start is doing as it happens,
+  and how long each step took: pulling the image (its size, then how much
+  has come as each layer arrives), starting the container, migrating the
+  database, and waiting for the runtime to serve. A step still going says
+  so every 3 seconds. Migrating shows with a runtime that reports it (0.1.7
+  and later); with an earlier one, that time counts as waiting.
 
 ### Env files
 
@@ -435,11 +441,15 @@ kindgi test [--watch] [--reporter <name>] [--path <dir>] [-- <vitest-args>...]
 ```
 
 Runs the pack's tests with the pack's own vitest (the CLI bundles none, so the
-pack chooses its vitest version). The templates include a `vitest.config.ts`
-and a first test. `--watch` runs vitest in watch mode; everything after `--`
-goes to vitest as is. The CLI refuses to run without a `vitest.config.*` at
-the pack root, and uses `pnpm exec vitest` in a pnpm project, else
-`npx --no-install vitest`.
+pack chooses its vitest version). A pack from `kindgi init <name>` has a
+`vitest.config.ts` and a first test. In an app Kindgi was added to, `kindgi
+init` writes `vitest.config.mts` (`.ts` in a `"type": "module"` app), which
+runs `kindgi/**/*.test.ts` with the app's tsconfig `paths` as
+`resolve.alias`, and adds `vitest` and `vite`, unless the app runs vitest
+already. `--watch` runs vitest in watch mode; everything after `--` goes to
+vitest as is. The CLI refuses to run without a `vitest.config.*` (`.ts`,
+`.mts`, `.cts`, `.js`, `.mjs` or `.cjs`) at the pack root, and uses
+`pnpm exec vitest` in a pnpm project, else `npx --no-install vitest`.
 
 ## `kindgi build`
 
