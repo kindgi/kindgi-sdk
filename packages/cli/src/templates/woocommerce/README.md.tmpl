@@ -56,6 +56,11 @@ otherwise.
 | `{{PACK_ID}}.woo.set-price` | waits for a person | not given |
 | `{{PACK_ID}}.woo.publish-product` | waits for a person | not given |
 
+The store agent's three that wait need a second person
+(`conversationPolicy.hitl.separateApprover`). Whoever's turn asked for a
+large refund, a price change or a publish isn't offered **Approve** for it:
+another reviewer decides.
+
 A call that waits shows in the console's approvals inbox, and in
 `{{KINDGI}} approvals list`. The tool runs only once a reviewer approves it
 (`{{KINDGI}} approvals complete <approval-id> --decision=approve`). A

@@ -16,7 +16,7 @@ description: >
   kindgi-authoring-providers.
 type: core
 library: "kindgi-pack-scala"
-version: "0.1.0"
+version: "0.1.1"
 sdk_version: "0.0.0"
 pack_languages: [scala]
 sources:
@@ -146,7 +146,9 @@ object BriefWriter {
   loaded, and `hitl` configures approval gates. Absent, the turn loads the
   full history with no gates. A tenant's `hitl` policy can tighten the gates
   (a shorter timeout, a higher reviewer role, stricter per tool), never
-  loosen them.
+  loosen them. `"separateApprover"` in `hitl` (`true`, or
+  `Map("overrides" -> Map("<tool id>" -> true))`) makes a tool's approval
+  need someone other than whoever asked.
 - **`set("budget", …)`:** per turn. `maxSteps` counts model calls (default
   8); `maxCostUsd`; `maxWallMs` (default 120 000). Exceeding the steps or the
   cost fails the turn (`budget-exceeded`); running out of wall time aborts
