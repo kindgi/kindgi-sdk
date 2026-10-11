@@ -617,6 +617,12 @@ What to check before you upgrade, and what's different after:
 
 #### Known limitations in 0.1.6
 
+- **In a tenant with several projects, flows and agents can use tools,
+  agents and other items defined in another project of the same tenant.** Checks inside a
+  run (`ctx.authorize`, `can`, `check`) aren't enforced in 0.1.6;
+  route-level permissions are. Until 0.1.8, give project admin roles only
+  to people trusted across all of a tenant's projects, or use a separate
+  tenant per customer.
 - **Run one runtime instance.** 0.1.6 fixes the known reasons several
   instances couldn't share a database: boot migrations wait their turn, the
   sign-in limit is shared, guardrail, tool and provider changes reach every
