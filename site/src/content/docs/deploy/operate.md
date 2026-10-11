@@ -368,7 +368,8 @@ The database migrates when 0.1.6 starts.
   0.1.6 refuses such a value before sending, and names only the header or the
   provider. A failure message or log line recorded before keeps what it
   recorded: rotate a secret or key that was ever stored with a line break
-  inside it. One with only a trailing line break was never affected.
+  anywhere but at its very end (a bearer secret that started with one
+  counts). One with only a trailing line break was never affected.
 
 #### What to check, and what's different
 
