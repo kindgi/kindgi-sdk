@@ -37,6 +37,7 @@ import { type DevLogView, type DevOutput, parseRecord, showRecord } from './log-
 import type { PackCode } from './pack-code.js';
 import { devIndexPath, devStagedIndexPath, devStagedPackIndexPath } from './paths.js';
 import type { DevRunners, IndexResult, PackBuild, PackBuilder } from './runners.js';
+import type { ActiveDevSandbox } from './sandbox/index.js';
 
 export interface PackRefresherDeps {
   readonly dev: DevRunners;
@@ -55,6 +56,13 @@ export interface PackRefresherDeps {
   readonly onBuild?: (build: Extract<PackBuild, { readonly kind: 'ok' }>) => Promise<void>;
   /** What pack code prints while the indexer loads it, line by line. */
   readonly onIndexerOutput?: (line: string, stream: 'stdout' | 'stderr') => void;
+  /**
+   * The sandbox the indexer runs in, as the pack service does: it imports
+   * every primitive's module, so it runs the pack's code too.
+   */
+  readonly sandbox?: ActiveDevSandbox;
+  /** A notice for the user from starting the indexer in its sandbox. */
+  readonly onNotice?: (line: string) => void;
 }
 
 export interface PackRefresher {
@@ -95,6 +103,8 @@ export function createPackRefresher(deps: PackRefresherDeps): PackRefresher {
       env: deps.env,
       code: deps.code,
       ...(deps.onIndexerOutput !== undefined && { onOutput: deps.onIndexerOutput }),
+      ...(deps.sandbox !== undefined && { sandbox: deps.sandbox }),
+      ...(deps.onNotice !== undefined && { onNotice: deps.onNotice }),
     });
     if (indexed.kind !== 'ok') {
       if (indexed.code === 'discovery-empty') await publishEmpty();

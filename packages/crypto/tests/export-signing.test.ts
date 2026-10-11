@@ -5,15 +5,11 @@ import { createPublicKey, generateKeyPairSync, sign, verify } from 'node:crypto'
 
 import { describe, expect, test } from 'vitest';
 
-import type { SigningKeyId } from '@kindgi/types';
-
 import {
   createEcdsaP256ExportSigner,
   createEd25519ExportSigner,
   createExportSignerFromPem,
-  createInMemorySigningKeyBinding,
   ecdsaDerToP1363,
-  exportSignerFromSigningKeyBinding,
   exportSigningKey,
   generateEd25519KeyPair,
   parsePublicKeyPem,
@@ -71,33 +67,6 @@ describe('createEd25519ExportSigner', () => {
   test('a key that is not an Ed25519 PKCS#8 PEM is refused', () => {
     expect(createEd25519ExportSigner({ privateKeyPem: 'not a pem' }).kind).toBe('err');
     expect(createEd25519ExportSigner({ privateKey: new Uint8Array(5) }).kind).toBe('err');
-  });
-});
-
-describe('exportSignerFromSigningKeyBinding', () => {
-  test("a SigningKeyBinding's Ed25519 keys, under its own ids, the first active", async () => {
-    const one = generateEd25519KeyPair();
-    const two = generateEd25519KeyPair();
-    const binding = createInMemorySigningKeyBinding([
-      {
-        keyId: 'hmac' as SigningKeyId,
-        algorithm: 'hmac-sha256',
-        publicKey: new Uint8Array(32),
-        privateKey: new Uint8Array(32),
-      },
-      { keyId: 'k1' as SigningKeyId, algorithm: 'ed25519', ...one },
-      { keyId: 'k2' as SigningKeyId, algorithm: 'ed25519', ...two },
-    ]);
-    const signer = exportSignerFromSigningKeyBinding(binding);
-    expect(signer?.listKeys().map((k) => k.keyId)).toEqual(['k1', 'k2']);
-    expect(signer?.activeKey().keyId).toBe('k1');
-    const byId = await signer?.sign(bytes, { keyId: 'k2' });
-    expect(byId?.kind === 'ok' && byId.value.key.keyId).toBe('k2');
-    expect((await signer?.sign(bytes, { keyId: 'hmac' }))?.kind).toBe('err');
-  });
-
-  test('no Ed25519 key: nothing to sign with', () => {
-    expect(exportSignerFromSigningKeyBinding(createInMemorySigningKeyBinding([]))).toBeUndefined();
   });
 });
 

@@ -13,13 +13,13 @@ import { randomUUID } from 'node:crypto';
 import { describe, expect, test } from 'vitest';
 
 import {
-  createInMemorySigningKeyBinding,
+  createEd25519ExportSigner,
   generateEd25519KeyPair,
   parsePublicKeyPem,
   verifyEd25519,
 } from '@kindgi/crypto';
 import type { Provenance } from '@kindgi/provenance';
-import type { ProvenanceId, RunId, SigningKeyId, TenantId, Timestamp } from '@kindgi/types';
+import type { ProvenanceId, RunId, TenantId, Timestamp } from '@kindgi/types';
 
 import { createStubAppBindings } from '../src/testing/index.js';
 
@@ -36,7 +36,6 @@ const tenantId = randomUUID() as TenantId;
 const runId = randomUUID() as RunId;
 const callId = randomUUID();
 const TOKEN = 'provenance-usage-token';
-const KEY_ID = 'acme-export-key' as SigningKeyId;
 
 const resolveToken: TokenResolver = async (token) => (token === TOKEN ? { tenantId } : null);
 
@@ -87,6 +86,10 @@ function binding(getCallUsage?: ProvenanceBinding['getCallUsage']): ProvenanceBi
 }
 
 const keys = generateEd25519KeyPair();
+const made = createEd25519ExportSigner({ privateKey: keys.privateKey });
+if (made.kind === 'err') throw new Error(made.error.message);
+const signer = made.value;
+const KEY_ID = signer.activeKey().keyId;
 
 function app(provenanceBinding: ProvenanceBinding) {
   return createApp({
@@ -94,14 +97,7 @@ function app(provenanceBinding: ProvenanceBinding) {
     resolveToken,
     runHandler,
     provenanceBinding,
-    signingKey: createInMemorySigningKeyBinding([
-      {
-        keyId: KEY_ID,
-        algorithm: 'ed25519',
-        publicKey: keys.publicKey,
-        privateKey: keys.privateKey,
-      },
-    ]),
+    exportSigning: signer,
   });
 }
 

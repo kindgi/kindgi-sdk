@@ -263,7 +263,7 @@ export type RejectionReason =
  * the framework declares the mandatory shape, adapters extend.
  */
 export interface ModelInfo {
-  /** Vendor-facing model id passed to the SDK (e.g. `claude-sonnet-4-6`). */
+  /** Vendor-facing model id passed to the SDK (e.g. `claude-sonnet-5-5`). */
   readonly name: string;
   /** Context window in tokens. */
   readonly contextWindow: number;

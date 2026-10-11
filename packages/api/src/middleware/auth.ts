@@ -123,8 +123,8 @@ export interface TokenResolution {
 }
 
 /**
- * Session-token prefix. Framework-issued opaque tokens minted by
- * `POST /v1/auth/callback/:providerId` carry this prefix so the auth
+ * Session-token prefix. Framework-issued opaque session tokens (a
+ * sign-in's, a refresh's) carry this prefix so the auth
  * middleware can route them to the session store instead of the caller-
  * plugged `TokenResolver`. Distinct prefix means a static bearer token
  * and a session token can coexist byte-shape-identical on the wire.
@@ -139,12 +139,31 @@ export const SESSION_TOKEN_PREFIX = 'kgi_sk_' as const;
 export const SESSION_COOKIE_NAME = '__Host-kindgi_session' as const;
 
 /**
+ * The session cookie's name when it isn't `Secure`
+ * (`SessionCookieOptions.secure: false`): a browser refuses the `__Host-`
+ * prefix without `Secure`.
+ */
+export const PLAIN_SESSION_COOKIE_NAME = 'kindgi_session' as const;
+
+/**
  * Cookie sessions: where the middleware reads a browser's session token
  * when the request has no `Authorization` header.
  */
 export interface SessionCookieOptions {
-  /** The cookie's name. Default `SESSION_COOKIE_NAME`. */
+  /**
+   * The cookie's name. Default `SESSION_COOKIE_NAME`, or
+   * `PLAIN_SESSION_COOKIE_NAME` when `secure` is `false`.
+   */
   readonly name?: string;
+  /**
+   * Whether the cookie is `Secure`. Default `true`. `false` is for
+   * development on a loopback address only (`http://localhost`,
+   * `127.0.0.1`): Safari keeps a `Secure` cookie only over https, even
+   * there. The cookie is then a plain one (`PLAIN_SESSION_COOKIE_NAME` by
+   * default; `__Host-` needs `Secure`), still `HttpOnly` and
+   * `SameSite=Lax`, and the middleware reads only that name.
+   */
+  readonly secure?: boolean;
   /**
    * The origins a cookie-authenticated request may come from (the
    * console's origin, e.g. `https://kindgi.example.com`). An unsafe method
@@ -161,6 +180,18 @@ export interface SessionCookieOptions {
    * forge `Origin`, nor add `X-Forwarded-Host` without a CORS preflight.
    */
   readonly sameOrigin?: boolean;
+}
+
+/** The session cookie's name and whether it's `Secure`, as configured. */
+export function sessionCookieOf(cookie: SessionCookieOptions | undefined): {
+  readonly name: string;
+  readonly secure: boolean;
+} {
+  const secure = cookie?.secure !== false;
+  return {
+    name: cookie?.name ?? (secure ? SESSION_COOKIE_NAME : PLAIN_SESSION_COOKIE_NAME),
+    secure,
+  };
 }
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
@@ -392,7 +423,9 @@ export function bearerAuthMiddleware(
       if (fromCookie !== undefined) {
         const refusal = csrfRefusal(c, options.sessionCookie as SessionCookieOptions, requestId);
         if (refusal !== undefined) return refusal;
-        c.set('sessionCookieName', options.sessionCookie?.name ?? SESSION_COOKIE_NAME);
+        const cookie = sessionCookieOf(options.sessionCookie);
+        c.set('sessionCookieName', cookie.name);
+        c.set('sessionCookieSecure', cookie.secure);
         return authenticate(c, next, fromCookie, requestId);
       }
       const body = toWireError(
@@ -472,7 +505,9 @@ function sessionCookieToken(
   cookie: SessionCookieOptions | undefined,
 ): string | undefined {
   if (cookie === undefined || sessionStore === undefined) return undefined;
-  const value = getCookie(c, cookie.name ?? SESSION_COOKIE_NAME)?.trim();
+  // Only the configured cookie: a plain `kindgi_session` never counts where
+  // the session cookie is `Secure`.
+  const value = getCookie(c, sessionCookieOf(cookie).name)?.trim();
   if (value === undefined || !value.startsWith(SESSION_TOKEN_PREFIX)) return undefined;
   return value;
 }

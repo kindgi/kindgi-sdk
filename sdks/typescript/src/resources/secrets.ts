@@ -126,6 +126,13 @@ export interface SecretSetInput {
   readonly rotationDueAt?: string;
   readonly tags?: Readonly<Record<string, string>>;
   readonly idempotencyKey?: string;
+  /**
+   * Under `kindgi dev` only: write the app's own env file (`.env.local` by
+   * default) instead of Kindgi's `.kindgi/secrets.env`, for a value the app
+   * reads too (a webhook signing secret). A runtime with a secrets store
+   * refuses it.
+   */
+  readonly appEnvFile?: boolean;
 }
 
 export interface SecretRotateInput {
@@ -485,6 +492,7 @@ export function makeSecretsClient(transport: Transport): SecretsClient {
             ...(input.ifVersion !== undefined && { ifVersion: input.ifVersion }),
             ...(input.rotationDueAt !== undefined && { rotationDueAt: input.rotationDueAt }),
             ...(input.tags !== undefined && { tags: input.tags }),
+            ...(input.appEnvFile === true && { appEnvFile: true }),
           },
           ...(input.idempotencyKey !== undefined && {
             idempotencyKey: input.idempotencyKey,

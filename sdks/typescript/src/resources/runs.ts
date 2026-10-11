@@ -6,7 +6,7 @@ import type { AgentId, FlowId, RunId, TenantId, Timestamp } from '@kindgi/types'
 import type { ScopeRef } from '../scope-wire.js';
 
 import { KindgiApiError, notYetWired } from '../errors.js';
-import type { LiveScope, RunProgress, ScopeSegment } from '../generated/api.js';
+import type { LiveScope, RunFailureGroups, RunProgress, ScopeSegment } from '../generated/api.js';
 import { type RunProgressEvent, followRun } from '../run-follow.js';
 import { scopeToQuery } from '../scope-wire.js';
 import { type Transport, seconds } from '../transport.js';
@@ -202,6 +202,35 @@ export interface RunsClient {
    * @wire `GET /v1/runs/:runId/journal`
    */
   journal(runId: RunId, filter?: RunJournalFilter): Promise<RunJournalPage>;
+
+  /**
+   * A project's failed runs over a window (at most 90 days), grouped by
+   * cause and version: per group, how many failed, when the first and the
+   * latest failed, and the latest run. People's decisions (`hitl-*`) come
+   * apart as `outcomes`; runs that failed before their cause was recorded,
+   * as `unrecorded`. Needs `read` on the project.
+   *
+   * @wire `GET /v1/runs/failures`
+   */
+  failures(query: RunFailuresQuery): Promise<RunFailureGroups>;
+}
+
+export type { RunFailureGroups };
+
+export interface RunFailuresQuery {
+  readonly projectId: string;
+  /** Runs that failed at or after this time. */
+  readonly from: Date | string;
+  /** Runs that failed before this time. */
+  readonly to: Date | string;
+  /** Only this agent's turns (not with `flowId`). */
+  readonly agentId?: AgentId | string;
+  /** Only this flow's runs (not with `agentId`). */
+  readonly flowId?: FlowId | string;
+  /** What to group by: `['code', 'version']` by default. */
+  readonly groupBy?: readonly ('code' | 'version')[];
+  /** The most groups in each list, 1 to 200 (50 by default). */
+  readonly limit?: number;
 }
 
 export interface RunJournalFilter {
@@ -234,6 +263,18 @@ export interface ListRunsFilter {
   readonly evalRunId?: string;
   /** Only the runs this trigger started. */
   readonly triggerId?: string;
+  /** Only runs in this status, or in any of these (e.g. `['failed', 'cancelled']`). */
+  readonly status?: RunStatus | readonly RunStatus[];
+  /** Only runs created strictly after this time. */
+  readonly createdAfter?: Timestamp | string;
+  /** Only runs created strictly before this time. */
+  readonly createdBefore?: Timestamp | string;
+  /** With `agentId`: only the turns that ran this version. */
+  readonly agentVersion?: string;
+  /** Only runs of this flow (an agent's turns run `agent.turn`; use `agentId` for an agent's). */
+  readonly flowId?: FlowId | string;
+  /** With `flowId`: only runs of this version. */
+  readonly flowVersion?: string;
   /** Include each run's `output` (omitted from lists by default). */
   readonly includeOutput?: boolean;
 }
@@ -573,6 +614,18 @@ export function makeRunsClient(transport: Transport): RunsClient {
           ...(filter?.replays !== undefined && { replays: filter.replays }),
           ...(filter?.evalRunId !== undefined && { evalRunId: filter.evalRunId }),
           ...(filter?.triggerId !== undefined && { triggerId: filter.triggerId }),
+          ...(filter?.status !== undefined && {
+            status: typeof filter.status === 'string' ? [filter.status] : [...filter.status],
+          }),
+          ...(filter?.createdAfter !== undefined && {
+            createdAfter: filter.createdAfter as unknown as string,
+          }),
+          ...(filter?.createdBefore !== undefined && {
+            createdBefore: filter.createdBefore as unknown as string,
+          }),
+          ...(filter?.agentVersion !== undefined && { agentVersion: filter.agentVersion }),
+          ...(filter?.flowId !== undefined && { flowId: filter.flowId as string }),
+          ...(filter?.flowVersion !== undefined && { flowVersion: filter.flowVersion }),
           ...(filter?.includeOutput === true && { include: 'output' }),
         },
       });
@@ -586,6 +639,23 @@ export function makeRunsClient(transport: Transport): RunsClient {
           ...(filter?.limit !== undefined && { limit: filter.limit }),
           ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
           ...(filter?.since !== undefined && { since: filter.since }),
+        },
+      });
+    },
+
+    async failures(query) {
+      const at = (t: Date | string) => (t instanceof Date ? t.toISOString() : t);
+      return transport.request<RunFailureGroups>({
+        method: 'GET',
+        path: '/v1/runs/failures',
+        query: {
+          projectId: query.projectId,
+          from: at(query.from),
+          to: at(query.to),
+          ...(query.agentId !== undefined && { agentId: query.agentId as string }),
+          ...(query.flowId !== undefined && { flowId: query.flowId as string }),
+          ...(query.groupBy !== undefined && { groupBy: query.groupBy.join(',') }),
+          ...(query.limit !== undefined && { limit: query.limit }),
         },
       });
     },

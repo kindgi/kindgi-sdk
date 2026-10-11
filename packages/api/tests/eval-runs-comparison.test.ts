@@ -25,6 +25,7 @@ import type {
 } from '../src/index.js';
 import { createApp, createInProcessEvalRunBinding, createJudgedDispatcher } from '../src/index.js';
 import { inMemoryCaseStore } from './support/in-memory-cases.js';
+import { inMemoryJudgments } from './support/in-memory-judgments.js';
 
 const tenantId = randomUUID() as TenantId;
 const TOKEN = 'eval-comparison-token';
@@ -414,5 +415,144 @@ describe('a flow candidate with some of its agents or tools at other versions', 
     };
     const run = await settled(binding, runId);
     expect(run.comparison).toBeUndefined();
+  });
+});
+
+describe('rescoring a comparison over the API: judge the new answers, then rescore', () => {
+  const changed = { appended: [{ role: 'agent', content: 'Hello there.' }] };
+
+  /** A comparison whose replay changed the answer; `rescorable` wires what a rescore reads. */
+  async function rescoreSetup(rescorable = true) {
+    const cases = inMemoryCaseStore();
+    await cases.putCases({
+      tenantId,
+      suiteId: suite.id,
+      version: suite.version,
+      cases: [
+        {
+          caseId: 'case-1',
+          subject: { kind: 'agent', id: 'acme.agent', version: '1.0.0' },
+          input: 'hello',
+          output: { appended: [{ role: 'agent', content: 'Hi.' }] },
+          items: [
+            {
+              key: 'answer',
+              pointer: '/appended/0/content',
+              yes: 0,
+              no: 1,
+              yesWeight: 0,
+              totalWeight: 1,
+              reasons: [],
+            },
+          ],
+        },
+      ],
+    });
+    const registry = {
+      get: async ({ suiteId }: { suiteId: string }) => (suiteId === suite.id ? suite : null),
+      getVersion: async ({ suiteId, version }: { suiteId: string; version: string }) =>
+        suiteId === suite.id && version === suite.version ? suite : null,
+    } as unknown as EvalSuiteRegistryBinding;
+    const judgments = inMemoryJudgments();
+    let invoked = 0;
+    const ref: { binding?: EvalRunBinding } = {};
+    const binding = createInProcessEvalRunBinding({
+      suiteRegistry: registry,
+      subject: {
+        invoke: async () => {
+          invoked += 1;
+          return { output: changed, runId: 'replay-1' as RunId };
+        },
+      },
+      dispatchers: {
+        judged: createJudgedDispatcher({
+          cases,
+          ...(rescorable && {
+            judgments,
+            runs: {
+              getRun: async (_t, runId) =>
+                (runId as unknown as string) === 'replay-1' ? { output: changed } : null,
+            },
+            evalRuns: { get: (input) => (ref.binding as EvalRunBinding).get(input) },
+          }),
+        }),
+      },
+    });
+    ref.binding = binding;
+    const app = createApp({
+      ...createStubAppBindings(),
+      resolveToken,
+      runHandler,
+      evalSuiteRegistry: registry,
+      evalRunBinding: binding,
+    });
+    const post = (path: string, body: unknown = {}) =>
+      app.request(path, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    const started = await post(`/v1/eval-suites/${suite.id}/runs`, {
+      projectId: randomUUID(),
+      agentRef: { agentId: 'acme.agent', version: '2.0.0' },
+    });
+    const first = await settled(binding, ((await started.json()) as { runId: string }).runId);
+    return { post, binding, judgments, first, invoked: () => invoked };
+  }
+
+  test('the changed answer, judged on its replay, scores in the rescore; nothing replays again', async () => {
+    const h = await rescoreSetup();
+    const before = (h.first.result as { summary: JudgedComparisonSummary }).summary;
+    expect(before.metrics.weightedYesShare).toMatchObject({ baseline: 0, candidate: null });
+    // A lead reads the new answer on the replay and judges it there.
+    await h.judgments.record({
+      tenantId,
+      projectId: randomUUID() as never,
+      runId: 'replay-1',
+      run: {
+        subject: { kind: 'agent', id: 'acme.agent', version: '2.0.0' },
+        input: 'hello',
+        output: changed,
+      },
+      item: { key: 'answer', pointer: '/appended/0/content' },
+      verdict: 'yes',
+      assertedBy: { kind: 'user', id: 'lead' },
+    });
+    const res = await h.post(`/v1/eval-runs/${h.first.runId}/rescore`);
+    expect(res.status).toBe(201);
+    const second = await settled(h.binding, ((await res.json()) as { runId: string }).runId);
+    expect(second.status).toBe('completed');
+    expect(second.comparison?.rescoreOf).toBe(h.first.runId);
+    const after = (second.result as { summary: JudgedComparisonSummary }).summary;
+    expect(after.rescoreOf).toBe(h.first.runId);
+    expect(after.metrics.weightedYesShare).toMatchObject({
+      baseline: 0,
+      candidate: 1,
+      delta: 1,
+      freshWeight: 1,
+    });
+    expect(h.invoked()).toBe(1);
+    // The run rescored is as it was.
+    const firstAgain = await h.binding.get({ tenantId, runId: h.first.runId });
+    expect(firstAgain?.result).toEqual(h.first.result);
+  });
+
+  test('only a completed comparison can be rescored; an unknown run is 404', async () => {
+    const h = await rescoreSetup();
+    const second = await h.post(`/v1/eval-runs/${h.first.runId}/rescore`);
+    const id = ((await second.json()) as { runId: string }).runId;
+    await settled(h.binding, id);
+    expect((await h.post(`/v1/eval-runs/${randomUUID()}/rescore`)).status).toBe(404);
+    // A rescore of a rescore is fine (it's a completed comparison too).
+    expect((await h.post(`/v1/eval-runs/${id}/rescore`)).status).toBe(201);
+  });
+
+  test("a runtime that can't read replays and their judgments again refuses it (400 dispatcher-input-invalid)", async () => {
+    const h = await rescoreSetup(false);
+    const res = await h.post(`/v1/eval-runs/${h.first.runId}/rescore`);
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string; message: string } };
+    expect(body.error.code).toBe('dispatcher-input-invalid');
+    expect(body.error.message).toContain("can't rescore");
   });
 });

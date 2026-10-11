@@ -20,6 +20,10 @@
  *      (`/v<major>.<minor>/…`, from `@kindgi/sdk`'s version): a skill ships
  *      inside a release, and the site's root moves to the next line's docs.
  *      When a release changes the minor, this fails until the links follow.
+ *      So do the links in what a package or SDK ships from its `src/` (a
+ *      message the CLI prints, a template `kindgi init` writes; not tests).
+ *      A program builds its links with `@kindgi/client`'s `docsUrl(path, version)`
+ *      (the CLI passes its own version), which follows the release on its own.
  *
  * A reference to `.claude/skills/<name>/SKILL.md` is a path in a user's
  * project, where `kindgi init` installs this repository's skills: it
@@ -85,24 +89,33 @@ const sdkVersion = JSON.parse(
 ).version;
 const docsLine = `https://docs.kindgi.com/v${sdkVersion.split('.').slice(0, 2).join('.')}/`;
 const DOCS_URL = /https:\/\/docs\.kindgi\.com\/[^\s)>`'"]*/g;
+/** What a package or SDK ships from its `src/`, any file type, its tests aside (rule 4). */
+const SHIPPED = /^(?:packages\/[\w-]+|sdks\/(?:[\w-]+\/)*?[\w-]+)\/src\/(?!test\/)(?!.*\.test\.)/;
 
 const problems = [];
 for (const file of tracked) {
   if (nameHits(file) > 0) problems.push(`${file}: its path holds ${NAME_HIT}`);
-  if (!TEXT.test(file) || SELF.has(file)) continue;
+  const shipped = SHIPPED.test(file);
+  if ((!TEXT.test(file) && !shipped) || SELF.has(file)) continue;
   const text = readFileSync(join(root, file), 'utf8');
-  if (basename(file) === 'SKILL.md') {
+  const skill = basename(file) === 'SKILL.md';
+  if (skill) {
     for (const source of skillSources(text)) {
       if (!isTrackedPath(source))
         problems.push(`${file}: sources lists ${source}, which is not in this repository`);
     }
+  }
+  if (skill || shipped) {
     for (const url of text.match(DOCS_URL) ?? []) {
       if (!url.startsWith(docsLine))
         problems.push(
-          `${file}: links ${url}; a skill links this release line's docs (${docsLine}…)`,
+          skill
+            ? `${file}: links ${url}; a skill links this release line's docs (${docsLine}…)`
+            : `${file}: links ${url}; what ships links this release line's docs (${docsLine}…; build it with @kindgi/client's docsUrl(path, version))`,
         );
     }
   }
+  if (!TEXT.test(file)) continue;
   const lines = text.split('\n');
   lines.forEach((line, i) => {
     for (const match of line.matchAll(MD_REF)) {

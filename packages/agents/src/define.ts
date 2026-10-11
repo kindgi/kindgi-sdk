@@ -207,8 +207,8 @@ export interface DefineAgentSpec {
    * A/B'ing agents across providers without churning registrations:
    * register several, pin the agent to the one you want to test.
    *
-   * The value is a `ProviderMetadata.id` string (e.g.
-   * `'anthropic-claude-sonnet-4-6'`). Unset = capability-match only.
+   * The value is a `ProviderMetadata.id` string (e.g. `'anthropic'`, what
+   * the `anthropic` preset registers). Unset = capability-match only.
    */
   readonly preferredProvider?: string;
   /**

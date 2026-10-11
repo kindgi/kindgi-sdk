@@ -17,9 +17,15 @@ import { ref } from '@kindgi/authz';
 
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
-import type { Observation, ObservationStatus, SupervisorBinding } from '../supervisor-binding.js';
+import type {
+  Observation,
+  ObservationPosition,
+  ObservationStatus,
+  SupervisorBinding,
+} from '../supervisor-binding.js';
 import type { AppEnv } from '../types.js';
-import { clampLimit } from './pagination.js';
+import { clampLimit, decodeCursor, encodeCursor, isCursorTime } from './pagination.js';
+import { parseTimeInput } from './time-input.js';
 
 const OBSERVATION_STATUSES: ReadonlySet<ObservationStatus> = new Set([
   'succeeded',
@@ -40,8 +46,11 @@ const OBSERVATION_STATUSES: ReadonlySet<ObservationStatus> = new Set([
  * `supervisorId`. Time-window + conversation filters can be added when
  * a caller needs them.
  *
- * Cursor is the ISO `observedAt` of the tail row — same convention as
- * `SupervisorBinding.queryObservations`.
+ * The cursor continues after the page's last observation: its `observedAt`
+ * as the binding stores it and its id (`next`), so observations at the same
+ * instant aren't skipped. A binding without `next` gives a bare ISO time,
+ * which the route passes on as it did; a bare time a client holds still
+ * answers.
  *
  * Persistence + query wiring is caller-plugged via `SupervisorBinding`
  * — the API package doesn't own the supervisor runtime.
@@ -73,15 +82,12 @@ export function observationsRouter(
       );
     }
 
-    const cursor = c.req.query('cursor');
-    if (cursor !== undefined && cursor.length > 0) {
-      const parsed = new Date(cursor);
-      if (Number.isNaN(parsed.getTime())) {
-        c.status(statusFor('bad-input') as never);
-        return c.json(
-          toWireError({ code: 'bad-input', message: '`cursor` is malformed' }, requestId),
-        );
-      }
+    const position = pageCursor(c.req.query('cursor'));
+    if (position === 'invalid') {
+      c.status(statusFor('bad-input') as never);
+      return c.json(
+        toWireError({ code: 'bad-input', message: '`cursor` is malformed' }, requestId),
+      );
     }
 
     const agentIdRaw = c.req.query('agentId');
@@ -93,9 +99,8 @@ export function observationsRouter(
 
     const validIso = (raw: string | undefined): string | undefined | 'invalid' => {
       if (raw === undefined || raw.length === 0) return undefined;
-      const d = new Date(raw);
-      if (Number.isNaN(d.getTime())) return 'invalid';
-      return d.toISOString();
+      const d = parseTimeInput(raw);
+      return d === null ? 'invalid' : d.toISOString();
     };
     const since = validIso(sinceRaw);
     if (since === 'invalid') {
@@ -143,13 +148,19 @@ export function observationsRouter(
         }),
       ...(since !== undefined && { since: since as unknown as Timestamp }),
       ...(until !== undefined && { until: until as unknown as Timestamp }),
-      ...(cursor !== undefined && cursor.length > 0 && { cursor: cursor as Cursor }),
+      ...position,
     });
     if (outcome.kind === 'runtime-error') {
       c.status(statusFor(outcome.code) as never);
       return c.json(toWireError({ code: outcome.code, message: outcome.message }, requestId));
     }
-    const { data, nextCursor } = outcome.page;
+    const { data, next } = outcome.page;
+    // Continue at the binding's exact position when it gives one, else (a
+    // binding from before) at its bare-time cursor.
+    const nextCursor =
+      next !== undefined
+        ? encodeCursor({ createdAt: next.observedAt, id: next.id })
+        : (outcome.page.nextCursor as unknown as string | undefined);
     const visible =
       authorizer === undefined
         ? data
@@ -159,11 +170,31 @@ export function observationsRouter(
     return c.json({
       data: visible.map(serializeObservation),
       hasMore: nextCursor !== undefined,
-      ...(nextCursor !== undefined && { nextCursor: nextCursor as unknown as string }),
+      ...(nextCursor !== undefined && { nextCursor }),
     });
   });
 
   return r;
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * A request's cursor: where the last page ended (an observation's
+ * `observedAt` as stored and its id, the binding's `next`), or a bare time
+ * from before that, which still answers as it did.
+ */
+function pageCursor(
+  raw: string | undefined,
+): { readonly after?: ObservationPosition; readonly cursor?: Cursor } | 'invalid' {
+  if (raw === undefined || raw.length === 0) return {};
+  const decoded = decodeCursor(raw);
+  if (decoded !== null) {
+    return isCursorTime(decoded.createdAt) && UUID_RE.test(decoded.id)
+      ? { after: { observedAt: decoded.createdAt, id: decoded.id } }
+      : 'invalid';
+  }
+  return isCursorTime(raw) ? { cursor: raw as Cursor } : 'invalid';
 }
 
 function serializeObservation(o: Observation): Record<string, unknown> {

@@ -93,7 +93,10 @@ VerifyFailure = Literal[
 ]
 
 WebhookEvent: TypeAlias = Annotated[
-    models.RunFinishedEvent | models.ImprovementPassFinishedEvent | models.WebhookTestEvent,
+    models.RunFinishedEvent
+    | models.ImprovementPassFinishedEvent
+    | models.ApprovalRequestedEvent
+    | models.WebhookTestEvent,
     Field(discriminator="type"),
 ]
 """The JSON body of a webhook request; `type` says which event it is."""
@@ -168,7 +171,7 @@ def verify(
 
 
 def parse_event(body: bytes | str) -> WebhookEvent:
-    """The typed event in a verified request's body: a `RunFinishedEvent` or a `WebhookTestEvent`.
+    """The typed event in a verified request's body: one of `WebhookEvent`'s types.
 
     Raises `pydantic.ValidationError` for a body that isn't an event this
     version of the SDK knows.

@@ -68,11 +68,21 @@ export interface ListSuitesFilter {
   readonly scopeKind?: ScopeKind;
   readonly scopeId?: string;
   readonly inherit?: boolean;
+  /**
+   * List retired suites too (every version unregistered), each as its
+   * highest version with `unregisteredAt`. Default: `false`.
+   */
+  readonly includeRetired?: boolean;
 }
 
 export interface ListSuiteVersionsFilter {
   readonly limit?: number;
   readonly cursor?: string;
+  /**
+   * List unregistered versions too, each with `unregisteredAt` (a
+   * retired suite's included). Default: `false` (active versions only).
+   */
+  readonly includeTombstoned?: boolean;
 }
 
 export interface EvalSuitesClient {
@@ -151,6 +161,7 @@ export function makeEvalSuitesClient(transport: Transport): EvalSuitesClient {
           ...(filter?.scopeKind !== undefined && { scopeKind: filter.scopeKind }),
           ...(filter?.scopeId !== undefined && { scopeId: filter.scopeId }),
           ...(filter?.inherit !== undefined && { inherit: filter.inherit }),
+          ...(filter?.includeRetired === true && { includeRetired: 'true' }),
         },
       });
     },
@@ -186,6 +197,7 @@ export function makeEvalSuitesClient(transport: Transport): EvalSuitesClient {
           query: {
             ...(filter?.limit !== undefined && { limit: filter.limit }),
             ...(filter?.cursor !== undefined && { cursor: filter.cursor }),
+            ...(filter?.includeTombstoned === true && { includeTombstoned: 'true' }),
           },
         });
       },

@@ -2,18 +2,16 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { AuditEvent } from '@kindgi/audit-events';
-import type { ComplianceEvidenceId, Result, RunId, SigningKeyId, TenantId } from '@kindgi/types';
+import type { ComplianceEvidenceId, Result, RunId } from '@kindgi/types';
 
 import type { ComplianceError } from './errors.js';
 import type {
   ActorKind,
   ComplianceEvidence,
   EvidenceActor,
-  EvidenceFilter,
   EvidenceOutcome,
   EvidencePayload,
   RecordFromRunOptions,
-  SignedEvidenceBundle,
 } from './types.js';
 
 /**
@@ -30,18 +28,6 @@ export interface ComplianceEvidenceGenerator {
   recordFromRun(
     options: RecordFromRunOptions,
   ): Promise<Result<{ readonly evidenceId: ComplianceEvidenceId }, ComplianceError>>;
-
-  /**
-   * @deprecated `@kindgi/api` builds and signs a compliance export
-   * itself (`collectEvidence`, then the app's export signing key), so
-   * nothing calls this. Kept optional so an implementation that still
-   * has it compiles; it goes in a later release.
-   */
-  exportSigned?(
-    tenantId: TenantId,
-    filter: EvidenceFilter,
-    signingKeyId: SigningKeyId,
-  ): Promise<Result<SignedEvidenceBundle, ComplianceError>>;
 
   describe(): { readonly name: string; readonly version: string };
 }

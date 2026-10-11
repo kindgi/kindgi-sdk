@@ -58,6 +58,8 @@ KINDGI_CONSOLE_TOKEN_SIGN_IN=on
 The token signs in once and becomes a session: the browser never keeps the
 token. Only a person's own full key signs in; a service account's key, or one
 narrowed to a role or a project, is refused (`token-sign-in-not-allowed`).
+That refusal, and `token-sign-in-off` while it's off, is also in the access
+audit (`GET /v1/audit/authz`).
 API tokens work for the API, the CLI and the SDKs whatever this setting says.
 
 The startup output says which ways in the console has. With only the token:

@@ -529,3 +529,86 @@ describe('what each route asks the authorizer', () => {
     expect(checked).toEqual(expected.map((e) => (e.includes(' ') ? e : `${e} project:${PROJECT}`)));
   });
 });
+
+describe('the list holds only schedules whose project the caller may read', () => {
+  const A = randomUUID() as ProjectId;
+  const B = randomUUID() as ProjectId;
+
+  // Every check passes (registering is not under test here); the list
+  // keeps what the grants allow, as the real authorizer's filterByCan does.
+  function grantsAuthorizer(grants: readonly string[]): Authorizer {
+    return {
+      authorize: () => async (_c, next) => next(),
+      can: async () => false,
+      check: async () => {
+        throw new Error('unused');
+      },
+      filterByCan: async (_c, action, items, toRef) =>
+        items.filter((item) => {
+          const r = toRef(item);
+          return grants.includes(`${action} ${r.type}:${r.id}`);
+        }),
+    } as Authorizer;
+  }
+
+  /** A schedule in A and one in B, then the list as `authorizer` lets the caller see it. */
+  async function listed(authorizer: Authorizer | undefined, query = '') {
+    const registry = createInMemoryTriggerRegistry({ defaultProjectId: PROJECT });
+    const r = new Hono<AppEnv>();
+    r.use('*', async (c, next) => {
+      c.set('tenantId' as never, tenantId as never);
+      c.set('requestId' as never, 'req-schedules' as never);
+      return next();
+    });
+    r.route('/', schedulesRouter(registry, authorizer));
+    for (const projectId of [A, B]) {
+      const created = await r.request('/', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...nightly, projectId }),
+      });
+      expect(created.status).toBe(201);
+    }
+    const res = await r.request(`/${query}`);
+    expect(res.status).toBe(200);
+    return (await res.json()) as {
+      data: { projectId: string }[];
+      hasMore: boolean;
+      nextCursor?: string;
+    };
+  }
+
+  test('no read on either project (a member with no project role): none', async () => {
+    expect((await listed(grantsAuthorizer([]))).data).toEqual([]);
+  });
+
+  test("a viewer of A sees A's schedule, not B's", async () => {
+    const { data } = await listed(grantsAuthorizer([`read project:${A}`]));
+    expect(data.map((s) => s.projectId)).toEqual([A]);
+  });
+
+  test('read on both (an admin): both', async () => {
+    const { data } = await listed(grantsAuthorizer([`read project:${A}`, `read project:${B}`]));
+    expect(data.map((s) => s.projectId).sort()).toEqual([A, B].sort());
+  });
+
+  test('without an authorizer (authorization off), as before: every schedule', async () => {
+    const { data } = await listed(undefined);
+    expect(data).toHaveLength(2);
+  });
+
+  test("the page is the tenant's: fewer rows than the limit, and still more after", async () => {
+    const all = await listed(
+      grantsAuthorizer([`read project:${A}`, `read project:${B}`]),
+      '?limit=1',
+    );
+    expect(all.data).toHaveLength(1);
+    expect(all.hasMore).toBe(true);
+    const first = all.data[0]?.projectId;
+    const other = first === A ? B : A;
+    const page = await listed(grantsAuthorizer([`read project:${other}`]), '?limit=1');
+    expect(page.data).toEqual([]);
+    expect(page.hasMore).toBe(true);
+    expect(page.nextCursor).toBeDefined();
+  });
+});

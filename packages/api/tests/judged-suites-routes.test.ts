@@ -34,12 +34,23 @@ const resolveToken: TokenResolver = async (token) =>
 
 const runHandler = {} as RunHandlerBinding;
 
-/** An eval-suite registry that only knows how to publish. */
+/** An eval-suite registry that only knows how to publish; a suite stays in its first project. */
 function suiteRegistry(): EvalSuiteRegistryBinding & { readonly published: EvalSuite[] } {
   const published: EvalSuite[] = [];
+  const owners = new Map<string, string>();
   return {
     published,
-    async publish({ suite }: { suite: EvalSuite }) {
+    async publish({ suite, projectId }: { suite: EvalSuite; projectId: string }) {
+      const owner = owners.get(suite.id);
+      if (owner !== undefined && owner !== projectId) {
+        return {
+          kind: 'project-mismatch',
+          suiteId: suite.id,
+          version: suite.version,
+          projectId: owner,
+        };
+      }
+      owners.set(suite.id, projectId);
       if (published.some((s) => s.id === suite.id && s.version === suite.version)) {
         return { kind: 'already-registered', suiteId: suite.id, version: suite.version };
       }
@@ -387,6 +398,88 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
     });
   });
 
+  test("a comparison's replays aren't cases: a turn judged before the stamp (its output's replay report), and one stamped at its first judgment", async () => {
+    const judgeReplay = (runId: string, output: unknown, context?: { replayOf: string }) =>
+      h.judgments.record({
+        tenantId,
+        projectId: project,
+        runId,
+        run: {
+          subject: subject(),
+          input: { query: 'acme' },
+          output,
+          ...(context !== undefined && { context }),
+        },
+        item: { key: 'c1', rank: 0 },
+        verdict: 'yes',
+        assertedBy: { kind: 'user', id: 'u1' },
+      });
+    // Stored before the stamp: only the agent turn's own replay report says so.
+    await judgeReplay('run-replay-old', {
+      matches: [{ id: 'c1' }],
+      replay: { of: 'run-1', evalRunId: 'eval-1', tools: [] },
+    });
+    await judgeReplay('run-replay-new', { matches: [{ id: 'c1' }] }, { replayOf: 'run-1' });
+    const built = await h.call('POST', BUILD, base);
+    expect(built.status, JSON.stringify(built.body)).toBe(201);
+    const cases = await h.call('GET', '/v1/eval-suites/acme.matches/versions/1.0.0/cases?limit=50');
+    expect(cases.body.data.map((c: { caseId: string }) => c.caseId).sort()).toEqual([
+      'run-1',
+      'run-2',
+      'run-3',
+    ]);
+  });
+
+  test('a binding that lists a replay anyway: the test set still leaves it out', async () => {
+    const all = h.judgments;
+    await all.record({
+      tenantId,
+      projectId: project,
+      runId: 'run-replay-listed',
+      run: {
+        subject: subject(),
+        input: { query: 'acme' },
+        output: { matches: [{ id: 'c1' }] },
+        context: { replayOf: 'run-1' },
+      },
+      item: { key: 'c1', rank: 0 },
+      verdict: 'yes',
+      assertedBy: { kind: 'user', id: 'u1' },
+    });
+    const listed = (
+      await all.get({
+        tenantId,
+        judgmentId: (
+          await all.list({ tenantId, runId: 'run-replay-listed', limit: 1 })
+        ).data[0]?.id as string,
+      })
+    )?.run;
+    // A binding that doesn't filter: it lists the replay with the real runs.
+    const unfiltered: JudgmentRegistryBinding = {
+      ...all,
+      listJudgedRuns: async (input) => {
+        const page = await (
+          all.listJudgedRuns as NonNullable<JudgmentRegistryBinding['listJudgedRuns']>
+        )(input);
+        return {
+          ...page,
+          data: [
+            ...page.data,
+            {
+              projectId: project,
+              run: listed as never,
+              judgments: (await all.list({ tenantId, runId: 'run-replay-listed', limit: 10 })).data,
+            },
+          ],
+        };
+      },
+    };
+    const { call } = makeCall(createStubAppBindings(), unfiltered, suiteRegistry());
+    const built = await call('POST', BUILD, base);
+    expect(built.status, JSON.stringify(built.body)).toBe(201);
+    expect(built.body.caseCount).toBe(3);
+  });
+
   test('agentVersion without agentId: 400', async () => {
     const res = await h.call('POST', BUILD, {
       version: '1.0.0',
@@ -415,6 +508,19 @@ describe('POST /v1/eval-suites/:id/versions/from-judgments', () => {
     const again = await h.call('POST', BUILD, base);
     expect(again.status).toBe(409);
     expect(again.body.error.code).toBe('eval-suite-already-registered');
+  });
+
+  test('a suite of another project: 409 eval-suite-project-mismatch, and nothing is built', async () => {
+    expect((await h.call('POST', BUILD, base)).status).toBe(201);
+    const elsewhere = { ...base, version: '2.0.0', projectId: randomUUID() };
+    const res = await h.call('POST', BUILD, elsewhere);
+    expect(res.status).toBe(409);
+    expect(res.body.error.code).toBe('eval-suite-project-mismatch');
+    expect(res.body.error.message).toContain(
+      'belongs to another project; build its versions there',
+    );
+    expect(JSON.stringify(res.body)).not.toContain(project);
+    expect(h.suites.published.map((s) => s.version)).toEqual(['1.0.0']);
   });
 
   test('a binding that cannot list judged runs: 501', async () => {

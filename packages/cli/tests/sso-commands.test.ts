@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
+import { readFileSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -21,6 +22,11 @@ afterEach(async () => {
 });
 
 const API = 'https://kindgi.acme.example';
+const CLI = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+  version: string;
+};
+/** The guides on this CLI's release line, not the docs' root (which moves on to the next line's). */
+const GUIDES = `https://docs.kindgi.com/v${CLI.version.split('.').slice(0, 2).join('.')}/guides/sso`;
 
 async function run(argv: readonly string[], client: Record<string, unknown>) {
   return runCli({
@@ -71,7 +77,7 @@ describe('kindgi sso providers start', () => {
     expect(calls).toEqual([['signIn', 'acme-google', { kind: 'oidc' }]]);
     expect(out.stdout).toContain(`Redirect URI:  ${REDIRECT}`);
     expect(out.stdout).toContain('never by email or chat');
-    expect(out.stdout).toContain('Step by step: https://docs.kindgi.com/guides/sso/oidc/');
+    expect(out.stdout).toContain(`Step by step: ${GUIDES}/oidc/`);
     expect(out.stdout).toContain(
       'kindgi sso providers finish acme-google --kind=oidc --issuer=<issuer> --client-id=<client-id> --client-secret-ref=<NAME>',
     );
@@ -85,14 +91,14 @@ describe('kindgi sso providers start', () => {
     expect(out.exitCode, out.stderr).toBe(0);
     expect(calls).toEqual([['signIn', 'acme-google', { kind: 'oidc' }]]);
     expect(out.stdout).toContain('Audience: Internal');
-    expect(out.stdout).toContain('Step by step: https://docs.kindgi.com/guides/sso/google/');
+    expect(out.stdout).toContain(`Step by step: ${GUIDES}/google/`);
     expect(out.stdout).toContain('Issuer: https://accounts.google.com');
     const entra = await run(['sso', 'providers', 'start', 'acme-entra', '--idp=entra'], {
       auth: { providers: { signIn: rec('signIn', OIDC_URLS) } },
     });
     expect(entra.stdout).toContain('single tenant');
     expect(entra.stdout).toContain('never `common`');
-    expect(entra.stdout).toContain('https://docs.kindgi.com/guides/sso/entra-id/');
+    expect(entra.stdout).toContain(`${GUIDES}/entra-id/`);
   });
 
   test('SAML: the ACS URL, entity ID and metadata URL', async () => {
@@ -104,7 +110,7 @@ describe('kindgi sso providers start', () => {
     expect(out.stdout).toContain(`ACS URL (single sign-on URL):  ${SAML_URLS.signIn.acsUrl}`);
     expect(out.stdout).toContain(`Entity ID (audience):          ${SAML_URLS.signIn.spEntityId}`);
     expect(out.stdout).toContain('--kind=saml --idp-metadata=@<metadata.xml>');
-    expect(out.stdout).toContain('Step by step: https://docs.kindgi.com/guides/sso/saml/');
+    expect(out.stdout).toContain(`Step by step: ${GUIDES}/saml/`);
   });
 
   test('--json prints the URLs as they came; a bad --idp or --kind is refused', async () => {
@@ -122,6 +128,37 @@ describe('kindgi sso providers start', () => {
     expect(kind.exitCode).toBe(1);
     expect(kind.stderr).toContain('--kind must be `oidc` or `saml`');
   });
+});
+
+/**
+ * `start`'s whole output, byte for byte: the docs quote it (the SSO
+ * guides), and the console shows the same message for IT. A change to it
+ * shows up here as a snapshot diff.
+ */
+describe('kindgi sso providers start: the whole message, as the docs quote it', () => {
+  const cases: readonly (readonly [
+    string,
+    readonly string[],
+    typeof OIDC_URLS | typeof SAML_URLS,
+  ])[] = [
+    ['oidc', ['acme-google', '--kind=oidc'], OIDC_URLS],
+    ['saml', ['acme-saml', '--kind=saml'], SAML_URLS],
+    ['google', ['acme-google', '--idp=google'], OIDC_URLS],
+    ['entra', ['acme-google', '--idp=entra'], OIDC_URLS],
+    ['okta', ['acme-google', '--idp=okta'], OIDC_URLS],
+    ['keycloak', ['acme-google', '--idp=keycloak'], OIDC_URLS],
+  ];
+  for (const [name, args, urls] of cases) {
+    test(`start ${args.join(' ')}`, async () => {
+      const { rec } = recorder();
+      const out = await run(['sso', 'providers', 'start', ...args], {
+        auth: { providers: { signIn: rec('signIn', urls) } },
+      });
+      expect(out.exitCode, out.stderr).toBe(0);
+      expect(out.stderr).toBe('');
+      await expect(out.stdout).toMatchFileSnapshot(`./__snapshots__/sso-start-${name}.txt`);
+    });
+  }
 });
 
 describe('kindgi sso providers finish / update', () => {

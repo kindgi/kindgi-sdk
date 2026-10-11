@@ -98,6 +98,7 @@ function harness(grants: readonly string[]) {
     costRecord('c-theirs', THEIRS),
     costRecord('c-tenant'),
   ];
+  const aggregates: { readableProjectIds?: readonly string[] }[] = [];
   const app = createApp({
     ...stubs,
     kernelBinding: { ...stubs.kernelBinding, run },
@@ -113,14 +114,22 @@ function harness(grants: readonly string[]) {
     cost: {
       listRecords: async () => ({ data: costs }),
       getRecord: async ({ recordId }: { recordId: string }) => costs.find((r) => r.id === recordId),
-      aggregate: async () => ({
-        groups: [],
-        totalGroups: 0,
-        totalUsd: 0,
-        totalRecords: 0,
-        tokens: NO_TOKENS,
-        timeRange: { from: '2026-10-01T00:00:00.000Z', to: '2026-10-08T00:00:00.000Z' },
-      }),
+      aggregate: async (input: { readableProjectIds?: readonly string[] }) => {
+        aggregates.push(input);
+        return {
+          groups: [],
+          totalGroups: 0,
+          totalUsd: 0,
+          totalRecords: 0,
+          tokens: NO_TOKENS,
+          timeRange: { from: '2026-10-01T00:00:00.000Z', to: '2026-10-08T00:00:00.000Z' },
+        };
+      },
+      aggregatesReadableProjects: true,
+    } as never,
+    // The tenant's projects, checked one by one (this authorizer can't list them).
+    projectBinding: {
+      list: async () => ({ items: [{ id: MINE }, { id: THEIRS }] }),
     } as never,
     provenanceBinding: {
       listRecords: async () => ({
@@ -158,7 +167,7 @@ function harness(grants: readonly string[]) {
     ((await res.json()) as { data: { id: string; runId?: string }[] }).data.map(
       (row) => row.runId ?? row.id,
     );
-  return { call, ids };
+  return { call, ids, aggregates };
 }
 
 describe('observations hold only agents the caller may read', () => {
@@ -195,9 +204,16 @@ describe('cost records need `read` on their project (the tenant without one)', (
     expect((await aggregate(`&scopeKind=project&scopeId=${THEIRS}`)).status).toBe(403);
     expect((await aggregate('')).status).toBe(403);
     expect((await aggregate(`&scopeKind=project&scopeId=${MINE}`)).status).toBe(200);
-    expect(
-      (await harness([TENANT_READ]).call('GET', '/v1/cost/aggregate?groupBy=category')).status,
-    ).toBe(200);
+    // `read` on the tenant lets a member ask across projects; only the
+    // projects they may read count (here none, and `MINE` with it).
+    const tenantReader = harness([TENANT_READ]);
+    expect((await tenantReader.call('GET', '/v1/cost/aggregate?groupBy=category')).status).toBe(
+      200,
+    );
+    expect(tenantReader.aggregates.at(-1)?.readableProjectIds).toEqual([]);
+    const both = harness([TENANT_READ, `read project:${MINE}`]);
+    expect((await both.call('GET', '/v1/cost/aggregate?groupBy=category')).status).toBe(200);
+    expect(both.aggregates.at(-1)?.readableProjectIds).toEqual([MINE]);
   });
 });
 

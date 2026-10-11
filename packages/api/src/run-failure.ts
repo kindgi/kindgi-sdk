@@ -10,6 +10,12 @@ export interface RunFailure {
   readonly message: string;
   /** What the error came from, when it says (e.g. the router's reasons, by provider). */
   readonly cause?: unknown;
+  /**
+   * The error's own reason, when it gives one: for a turn that ended at its
+   * approval, `timeout` (nobody decided in time) or `approval-withdrawn`.
+   * Absent from an older runtime, and from errors without one: read `code`.
+   */
+  readonly reason?: string;
 }
 
 /**
@@ -28,11 +34,12 @@ export function runFailure(row: {
   const raw = row.failureMessage ?? undefined;
   const error = parseFailureMessage(raw);
   if (error !== undefined) {
-    const cause = (error as { readonly cause?: unknown }).cause;
+    const { cause, reason } = error as { readonly cause?: unknown; readonly reason?: unknown };
     return {
       code: error.code,
       message: error.message,
       ...(cause !== undefined && cause !== null && { cause }),
+      ...(typeof reason === 'string' && reason !== '' && { reason }),
     };
   }
   return {
