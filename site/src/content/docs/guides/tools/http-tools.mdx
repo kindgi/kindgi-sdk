@@ -162,6 +162,12 @@ uv run kindgi runs start --flow=my-pack.note-order --input='{"orderId":"ord_1001
 A request that fails fails the call, and the run's `failureMessage` says
 why: `got status 404 NOT FOUND`, or `timed out after 1000ms`.
 
+`timeoutMs` (30 seconds by default) covers the whole call, reading the
+answer included, and so does a run's cancel: a server that sends its
+headers and then stalls fails the call too. An answer longer than 10 MiB,
+counted after it's decompressed, fails the call:
+`http-tool "my-pack.add-order-note": the response body is longer than 10485760 bytes, the most this tool reads`.
+
 ## Send a credential
 
 `authorization` names a secret; Kindgi resolves it on every call and sends it
