@@ -23,7 +23,7 @@ import { fullAppInput } from './support/full-app.js';
  */
 
 const TOKEN = 'tenant-key';
-const SYSTEM = 'kgi_sy_usage';
+const SYSTEM = 'kgi_sy_limits';
 const S3_KEY = 'AKIAKINDGITEST000009';
 const S3_SECRET = 'kindgi-test-secret-key-0000000000000009';
 
@@ -44,9 +44,17 @@ function makeApp(setup: {
       },
       async finish() {},
     },
-    systemUsage: {
-      async read() {
-        return { kind: 'ok', page: { data: [], watermark: '2026-11-01T00:00:00.000Z' } };
+    systemTenantDirectory: {
+      async get(id) {
+        return { id, state: 'active' };
+      },
+    },
+    systemTenantSettings: {
+      async setProductionAllowed(_id, allowed) {
+        return { productionAllowed: allowed };
+      },
+      async setLimits(_id, next) {
+        return next;
       },
     },
     tenantHierarchyBinding: {
@@ -72,7 +80,7 @@ function makeApp(setup: {
         return {
           tenantId: SYSTEM_TENANT_ID,
           system: { keyId: 'k-usage' },
-          capabilities: ['system:usage:read'],
+          capabilities: ['system:tenants:limits'],
         };
       }
       return null;
@@ -120,7 +128,16 @@ function makeApp(setup: {
       code: /<Code>([^<]+)<\/Code>/.exec(await res.text())?.[1],
     };
   };
-  return { get, s3 };
+  /** The control plane setting this tenant's limits, with its system key. */
+  const setLimits = async (limits: TenantLimits) => {
+    const res = await app.request(`/v1/system/tenants/${tenantId}/limits`, {
+      method: 'PUT',
+      headers: { authorization: `Bearer ${SYSTEM}`, 'content-type': 'application/json' },
+      body: JSON.stringify(limits),
+    });
+    return { status: res.status };
+  };
+  return { get, s3, setLimits };
 }
 
 function clock(start = Date.parse('2026-11-02T09:00:00Z')) {
@@ -160,10 +177,11 @@ describe("a tenant's API requests a minute", () => {
     for (let i = 0; i < 20; i += 1) expect((await get()).status).toBe(200);
   });
 
-  test('a system key acts in no tenant and is never counted', async () => {
-    const { get } = makeApp({ limits: () => ({ apiRequestsPerMinute: 1 }) });
-    const window = '/v1/system/usage?from=2026-11-01T00:00:00Z&to=2026-11-02T00:00:00Z';
-    for (let i = 0; i < 5; i += 1) expect((await get(window, SYSTEM)).status).toBe(200);
+  test('a system key acts in no tenant and is never counted, even on the limited tenant', async () => {
+    const { setLimits } = makeApp({ limits: () => ({ apiRequestsPerMinute: 1 }) });
+    for (let i = 0; i < 5; i += 1) {
+      expect((await setLimits({ apiRequestsPerMinute: 1 })).status).toBe(200);
+    }
   });
 
   test('limits are read again once kept for cacheMs: a raised limit applies then', async () => {

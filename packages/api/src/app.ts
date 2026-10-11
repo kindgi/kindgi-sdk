@@ -161,7 +161,6 @@ import {
   type SystemTenantSettingsBinding,
   systemTenantSettingsRouter,
 } from './routes/system-tenant-settings.js';
-import { type SystemUsageBinding, systemUsageRouter } from './routes/system-usage.js';
 import { projectTeamGrantsRouter, teamProjectGrantsRouter } from './routes/team-grants.js';
 import { teamsRouter } from './routes/teams.js';
 import { tenantRouter } from './routes/tenant.js';
@@ -562,11 +561,6 @@ export interface CreateAppInput {
    * Mounted only with `systemTenantDirectory` too.
    */
   readonly systemTenantSettings?: SystemTenantSettingsBinding;
-  /**
-   * Optional. Usage across tenants, aggregated: `GET /v1/system/usage`
-   * (`system:usage:read`). Without it the route isn't mounted (404).
-   */
-  readonly systemUsage?: SystemUsageBinding;
   /**
    * Optional. Enforce each tenant's own limits (`TenantSummary.limits`,
    * set through `PUT /v1/system/tenants/:tenantId/limits`): API requests a
@@ -1505,15 +1499,6 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       systemTenantSettingsRouter({
         settings: input.systemTenantSettings,
         directory: input.systemTenantDirectory,
-        ...(authorizer !== undefined && { authorizer }),
-      }),
-    );
-  }
-  if (input.systemUsage !== undefined) {
-    v1.route(
-      '/system/usage',
-      systemUsageRouter({
-        usage: input.systemUsage,
         ...(authorizer !== undefined && { authorizer }),
       }),
     );

@@ -50,8 +50,6 @@ export const SYSTEM_SCOPES = [
   'system:suspend',
   /** The packs' deployments and their endpoints. */
   'system:deployments',
-  /** Usage across tenants: counts and sums only. */
-  'system:usage:read',
   /** The deployment's license: reading it, for its renewal. */
   'system:license',
 ] as const;
