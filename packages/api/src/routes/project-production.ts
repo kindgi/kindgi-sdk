@@ -116,7 +116,23 @@ export function projectProductionRouter(options: ProjectProductionRouterOptions)
     // already in production answers its repeat unchanged.
     if (production && gate && project.productionSince === undefined) {
       const tenant = await tenantHierarchy.getTenant(tenantId);
-      if (tenant?.productionAllowed === false) {
+      // No record for the caller's own tenant: under a gate, refuse rather
+      // than read it as allowed (an absent `productionAllowed` is allowed;
+      // an absent tenant isn't).
+      if (tenant === null) {
+        c.status(statusFor('tenant-not-found') as never);
+        return c.json(
+          toWireError(
+            {
+              code: 'tenant-not-found',
+              message: `No tenant with id "${tenantId as unknown as string}"`,
+              tenantId: tenantId as unknown as string,
+            },
+            requestId,
+          ),
+        );
+      }
+      if (tenant.productionAllowed === false) {
         c.status(statusFor('production-not-allowed') as never);
         return c.json(
           toWireError(

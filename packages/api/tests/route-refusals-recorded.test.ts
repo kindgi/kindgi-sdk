@@ -65,6 +65,8 @@ const REFUSAL_CODES: ReadonlySet<string> = new Set([
  */
 const NOT_A_REFUSAL_OF_THE_CALLER: Readonly<Record<string, string>> = {
   'signer-not-trusted': 'it refuses an artifact, not a caller',
+  'production-not-allowed':
+    "it refuses the tenant's state (not yet allowed production), not the caller, who is a tenant admin",
   'csrf-origin-mismatch': "the request may not be the principal's",
   'role-exceeds-principal':
     "a limit on the key being minted: the caller may mint, the key's principal isn't a tenant admin",
