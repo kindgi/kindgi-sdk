@@ -15,7 +15,7 @@ description: >
   kindgi-scala-getting-started.
 type: core
 library: "kindgi-pack-scala"
-version: "0.1.0"
+version: "0.1.1"
 sdk_version: "0.0.0"
 pack_languages: [scala]
 sources:
@@ -32,7 +32,7 @@ sources:
 > your `PATH`.
 >
 > Scala support is in preview: tested and supported, but the API may still
-> change in 0.1.6 without the usual deprecation period.
+> change in a later release without the usual deprecation period.
 
 A **tool** is a unit of work an agent (or a flow step) calls: typed input,
 typed output, your code in between. In a Scala pack it is a `val` of type
