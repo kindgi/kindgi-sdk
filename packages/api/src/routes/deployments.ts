@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 
 import { Hono } from 'hono';
 
-import type { Agent, AgentId, AgentPins } from '@kindgi/agents';
+import { type Agent, type AgentId, type AgentPins, templateProblem } from '@kindgi/agents';
 import { tuplesForCreate } from '@kindgi/authz';
 import { runOutsideTenant } from '@kindgi/bounds';
 import { parsePublicKeyPem, verifyEd25519 } from '@kindgi/crypto';
@@ -1747,6 +1747,10 @@ function validateAgentIndexShape(
       message:
         'agent.instructions must be a non-empty string, or a prompt block { prompt, version }',
     });
+  } else if (typeof instructions === 'string') {
+    // The check `defineAgent` and a prompt block's publish run too.
+    const problem = templateProblem(instructions);
+    if (problem !== undefined) out.push({ path: '/instructions', message: problem });
   }
   if (!Array.isArray(spec.capabilities)) {
     out.push({ path: '/capabilities', message: 'agent.capabilities must be an array' });

@@ -288,6 +288,30 @@ describe('API — agents publish', () => {
     expect(body.error.details?.issues).toBeTruthy();
   });
 
+  test('a template with a partial → 400, naming it, and nothing stored', async () => {
+    const { app } = makeApp();
+    const res = await app.request('/v1/agents', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        ...agentSpec(),
+        instructions: "Draft the document. {% include 'package.json' %}",
+      }),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      error: { code: string; details?: { issues?: unknown[] } };
+    };
+    expect(body.error.code).toBe('validation-failed');
+    expect(body.error.details?.issues).toEqual([
+      { path: '/instructions', message: "templates can't use include, render or layout" },
+    ]);
+    const stored = await app.request('/v1/agents/acme.drafting', {
+      headers: { authorization: `Bearer ${TOKEN}` },
+    });
+    expect(stored.status).toBe(404);
+  });
+
   test('non-JSON body → 400 bad-input', async () => {
     const { app } = makeApp();
     const res = await app.request('/v1/agents', {

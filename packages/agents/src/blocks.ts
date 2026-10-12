@@ -1,13 +1,12 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 
-import { Liquid } from 'liquidjs';
-
 import { runOutsideTenant } from '@kindgi/bounds';
 import { type CompiledInlineSchema, compileInlineSchema, compileJsonSchema } from '@kindgi/schema';
 import type { Result, TenantId } from '@kindgi/types';
 
 import { validatePromptParameters } from './define.js';
+import { templateProblem } from './liquid.js';
 import type { PromptParameter } from './types.js';
 
 /**
@@ -176,14 +175,8 @@ function promptIssues(content: unknown): BlockIssue[] {
     return [{ path: '/content/template', message: 'template must be a non-empty string' }];
   }
   const issues: BlockIssue[] = [];
-  try {
-    new Liquid().parse(c.template);
-  } catch (cause) {
-    issues.push({
-      path: '/content/template',
-      message: `template isn't valid Liquid: ${cause instanceof Error ? cause.message : String(cause)}`,
-    });
-  }
+  const problem = templateProblem(c.template);
+  if (problem !== undefined) issues.push({ path: '/content/template', message: problem });
   if (c.parameters !== undefined && !Array.isArray(c.parameters)) {
     issues.push({ path: '/content/parameters', message: 'parameters must be an array' });
   } else {

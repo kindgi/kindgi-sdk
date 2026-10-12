@@ -166,6 +166,22 @@ describe('/v1/blocks: publish and read', () => {
     ]);
   });
 
+  test('a template with a partial is refused, and nothing is stored', async () => {
+    const { call } = harness();
+    const bad = await call('POST', '/v1/blocks', {
+      projectId: projectA,
+      id: 'acme.intake-prompt',
+      version: '1.0.0',
+      kind: 'prompt',
+      content: { template: "Sort the request. {% render 'package.json' %}" },
+    });
+    expect(bad.status).toBe(400);
+    expect(bad.body.error.details.issues).toEqual([
+      { path: '/content/template', message: "templates can't use include, render or layout" },
+    ]);
+    expect((await call('GET', '/v1/blocks/acme.intake-prompt')).status).toBe(404);
+  });
+
   test("settings values must satisfy their schema, and the latest version's", async () => {
     const { call } = harness();
     const wrong = await call(

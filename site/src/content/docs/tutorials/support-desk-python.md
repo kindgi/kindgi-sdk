@@ -29,15 +29,6 @@ The `python` template comes with a small example; you removed it, and kept
 the folders (`tools/`, `agents/`, `guardrails/`, `flows/`) and the
 `[tool.kindgi]` tables in `pyproject.toml`. `support/` is where your code goes.
 
-:::note[On Kindgi 0.1.0 (fixed in 0.1.1)]
-`init` from npm writes no `.gitignore`, so git would track `.env` files
-(where model keys go) and `.kindgirc.json` (the dev token):
-
-```sh
-printf '%s\n' .venv/ __pycache__/ .kindgi/ .kindgirc.json .env '.env.*' >> .gitignore
-```
-:::
-
 ## 2. Your code
 
 The tools will work on tickets. In your app they'd come from a database; here
@@ -296,7 +287,7 @@ uv run kindgi runs start --agent=acme-desk.triage --input='{"userMessage":"Triag
 The agent called `get_ticket`, read the ticket, and answered in the shape you
 gave it. Your reply will read differently: it's the model's. To see the run's
 page, with each step, the tool call and the cost, run `uv run kindgi console`
-and open **Runs**. Open the console in Chrome or Firefox. Safari can't keep the local sign-in over http yet ([Known limitations](../../deploy/operate/#known-limitations-in-015)).
+and open **Runs**.
 
 ## 8. Handle tickets
 

@@ -4,7 +4,7 @@ description: Start runs, follow them and read their answers from a Java applicat
 sidebar:
   order: 5.5
   label: Call Kindgi from Java
-  badge: { text: 'Preview', variant: 'caution' }
+  badge: { text: 'Preview', variant: 'caution', class: 'kg-preview' }
 ---
 
 Your Java app starts runs, follows them and reads what they answered,
@@ -13,7 +13,7 @@ typed errors.
 
 :::caution[Preview]
 **Preview.** Java and Scala support is tested and supported, but its API may
-still change in 0.1.6 without the usual deprecation period.
+still change in a later release without the usual deprecation period.
 :::
 
 **Before you start:** a pack running under `kindgi dev`, such as the one

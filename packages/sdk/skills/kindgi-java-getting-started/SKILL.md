@@ -16,7 +16,7 @@ description: >
   kindgi-authoring-providers.
 type: core
 library: "kindgi-pack (Java)"
-version: "0.1.0"
+version: "0.1.1"
 sdk_version: "0.0.0"
 pack_languages: [java]
 sources:
@@ -34,7 +34,7 @@ sources:
 > `./kindgiw <command>`, and `./kindgiw upgrade` moves the pin.
 >
 > **Preview:** Java and Scala support is tested and supported, but its API
-> may still change in 0.1.6 without the usual deprecation period.
+> may still change in a later release without the usual deprecation period.
 
 ## What a pack is
 
