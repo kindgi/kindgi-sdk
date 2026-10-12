@@ -22,7 +22,7 @@ from another system start a run, see
 
 - **`kindgi dev` running** in your pack's directory, with Kindgi 0.1's CLI.
 - **A flow to watch,** registered on that runtime. This guide filters on
-  `acme.review-order`; use your own flow's id.
+  `acme.check-order-stock`; use your own flow's id.
 - **Your app's server,** on Node 22.12 or later or Python 3.11 or later,
   with Kindgi 0.1's client and `KINDGI_API_URL` and `KINDGI_API_TOKEN` set.
 - **A route in your app that receives the request,** such as
@@ -71,7 +71,8 @@ kindgi secrets set ACME_WEBHOOK_SECRET --env=local --scope=tenant --app
   this name.
 - `--env=local` is the environment the secret belongs to. Under
   `kindgi dev`, `local` is the pack's env files.
-- `--scope=tenant` stores it for the whole tenant.
+- `--scope=tenant` is where the secret lives: the tenant, rather than one
+  org (`org:<orgId>`) or project (`project:<projectId>`).
 - `--app` writes it to your app's own env file, `.env.local`, where your
   receiver reads it. Kindgi reads it there too. Without `--app`, it goes to
   Kindgi's own `.kindgi/secrets.env`, which your app doesn't load, as
@@ -107,7 +108,7 @@ const endpoint = await kindgi.webhookEndpoints.create({
   url: 'http://localhost:8787/hooks/kindgi',
   events: ['run.finished'],
   secretRef: { envName: 'local', name: 'ACME_WEBHOOK_SECRET' },
-  filter: { flowIds: ['acme.review-order'] }, // optional
+  filter: { flowIds: ['acme.check-order-stock'] }, // optional
 });
 console.log(endpoint.endpointId, endpoint.url);
 ```
@@ -131,7 +132,7 @@ endpoint = kindgi.webhook_endpoints.create(
     url="http://localhost:8788/hooks/kindgi",
     events=["run.finished"],
     secret_ref={"envName": "local", "name": "ACME_WEBHOOK_SECRET"},
-    filter={"flowIds": ["acme.review-order"]},  # optional
+    filter={"flowIds": ["acme.check-order-stock"]},  # optional
 )
 print(endpoint.endpoint_id, endpoint.url)
 ```
@@ -176,7 +177,7 @@ them, such as an agent step's turn, don't.
 
 ## 3. What your endpoint receives
 
-When a run of `acme.review-order` ends, your URL gets a `POST`:
+When a run of `acme.check-order-stock` ends, your URL gets a `POST`:
 
 ```text
 POST /hooks/kindgi
