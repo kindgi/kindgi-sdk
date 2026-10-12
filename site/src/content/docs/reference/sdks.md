@@ -14,7 +14,7 @@ jobs:
 
 | | TypeScript | Python | Java | Scala |
 | --- | --- | --- | --- | --- |
-| Package | `@kindgi/sdk` | `kindgi` | `com.kindgi:kindgi-pack`, `com.kindgi:kindgi-client` | `com.kindgi:kindgi-pack-scala`, with the Java client |
+| Package | `@kindgi/sdk` | `kindgi` | `com.kindgi:kindgi-pack`, `com.kindgi:kindgi-client` | `"com.kindgi" %% "kindgi-pack-scala"`, with the Java client |
 | A pack's config | `kindgi.config.ts` | `pyproject.toml` (`[tool.kindgi]`) | `kindgi.config.json` | `kindgi.config.json` |
 | The CLI, in a pack | `pnpm exec kindgi` | `uv run kindgi` | `./kindgiw` | `./kindgiw` |
 
@@ -78,6 +78,6 @@ in as data, as the API names them: `set("budget", …)`, `node(Map.of(…))`,
 - **Signed exports:** check one with the CLI, `./kindgiw exports verify <file>
   --from-runtime`.
 
-The guides show each language in its own tab. A tab for a language without
-the feature says so on its first line, "Not in the Java SDK.", and what to do
-instead.
+The guides show each language in its own tab. Where a guide has no tab for
+your language, the tables above say whether its SDK has the feature, and the
+list above says what to do instead.
