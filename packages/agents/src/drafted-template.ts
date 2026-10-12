@@ -28,7 +28,8 @@ const HARMLESS_VARS: ReadonlySet<string> = new Set(['today', 'now', 'agent', 'co
 /** A dotted id (`acme.export`): two or more segments, the first at least two characters. */
 const DOTTED_ID = /\b[a-z][a-z0-9_-]+(?:\.[a-z0-9_-]+)+\b/gi;
 
-const liquid = new Liquid();
+/** Resolves no partials (an empty template map, no prototype), as the renderer doesn't. */
+const liquid = new Liquid({ templates: Object.create(null) });
 
 function rootsOf(template: string): Array<readonly (string | number)[]> {
   return liquid.globalVariableSegmentsSync(template).map((s) => s as readonly (string | number)[]);
