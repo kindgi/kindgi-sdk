@@ -32,8 +32,9 @@ There are two kinds:
   [Give an agent its input](../../agents/give-an-agent-input/).
 - **The project's id:** `kindgi projects get-default` prints the Default
   project, with its `id`.
-- **For the app's half:** Node 22.12 or later, or Python 3.11 or later, with
-  Kindgi 0.1's client, and `KINDGI_API_URL` and `KINDGI_API_TOKEN` set.
+- **For the app's half:** Node 22.12 or later, Python 3.11 or later, or
+  Java 17 or later, with Kindgi 0.1's client, and `KINDGI_API_URL` and
+  `KINDGI_API_TOKEN` set.
 
 ## Publish the blocks
 
@@ -152,6 +153,54 @@ reply_drafter = Agent(
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/acmeops/agents/ReplyDrafter.java
+package acmeops.agents;
+
+import acmeops.tools.RefundCheck;
+import com.kindgi.pack.Agent;
+import java.util.List;
+import java.util.Map;
+
+public final class ReplyDrafter {
+  public static final Agent AGENT = Agent.define("acme-ops.reply-drafter")
+      .version("1.0.0")
+      .name("Reply drafter")
+      .instructions(Map.of("prompt", "acme.reply-prompt", "version", "^1.0.0"))
+      .set("settings", List.of(Map.of("id", "acme.reply-style", "version", "^1.0.0")))
+      .capability(Map.of("needs", List.of(Map.of("feature", "tool-use"))))
+      .tool(RefundCheck.TOOL)
+      .build();
+
+  private ReplyDrafter() {}
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acmeops/agents/ReplyDrafter.scala
+package acmeops.agents
+
+import acmeops.tools.RefundCheck
+import com.kindgi.pack.scaladsl._
+
+object ReplyDrafter {
+  val agent: Agent = Agent("acme-ops.reply-drafter")
+    .version("1.0.0")
+    .name("Reply drafter")
+    .instructions(Map("prompt" -> "acme.reply-prompt", "version" -> "^1.0.0"))
+    .set("settings", Seq(Map("id" -> "acme.reply-style", "version" -> "^1.0.0")))
+    .capability(Map("needs" -> Seq(Map("feature" -> "tool-use"))))
+    .tool(RefundCheck.tool)
+    .build()
+}
+```
+
+</TabItem>
 </Tabs>
 
 The prompt block brings its parameters, so the agent declares none. A tool
@@ -212,6 +261,72 @@ def refund_check(refund: RefundAmount, ctx: ToolContext) -> RefundCheck:
     limit = float(ctx.settings.get("acme.reply-style", {}).get("refundLimit", 0))
     return RefundCheck(needsApproval=refund.amount > limit, limit=limit)
 ```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/acmeops/tools/RefundCheck.java
+package acmeops.tools;
+
+import com.kindgi.pack.Tool;
+import jakarta.validation.constraints.Positive;
+import java.util.Map;
+
+public final class RefundCheck {
+  public record Input(@Positive double amount) {}
+
+  public record Output(boolean needsApproval, double limit) {}
+
+  public static final Tool<Input, Output> TOOL = Tool.define("acme-ops.refund-check")
+      .description("Says whether a refund of this amount needs a person to approve it.")
+      .version("0.1.0")
+      .input(Input.class)
+      .output(Output.class)
+      .mutating(false)
+      .handler((input, ctx) -> {
+        // The agent version's settings block: an expert changes the limit, not this code.
+        Map<String, Object> style = ctx.settings().getOrDefault("acme.reply-style", Map.of());
+        double limit = style.get("refundLimit") instanceof Number n ? n.doubleValue() : 0;
+        return new Output(input.amount() > limit, limit);
+      });
+
+  private RefundCheck() {}
+}
+```
+
+`ctx.settings()` maps each settings block the calling agent version pins, by id, to its values.
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acmeops/tools/RefundCheck.scala
+package acmeops.tools
+
+import com.kindgi.pack.scaladsl._
+import jakarta.validation.constraints.Positive
+
+object RefundCheck {
+  final case class Input(@Positive amount: Double)
+  final case class Output(needsApproval: Boolean, limit: Double)
+
+  val tool: Tool[Input, Output] = Tool[Input, Output]("acme-ops.refund-check")
+    .description("Says whether a refund of this amount needs a person to approve it.")
+    .version("0.1.0")
+    .readOnly
+    .handler { (input, ctx) =>
+      // The agent version's settings block: an expert changes the limit, not this code.
+      val limit = Option(ctx.settings.get("acme.reply-style")).flatMap(s => Option(s.get("refundLimit"))) match {
+        case Some(n: Number) => n.doubleValue
+        case _ => 0.0
+      }
+      Output(needsApproval = input.amount > limit, limit = limit)
+    }
+}
+```
+
+`ctx.settings` maps each settings block the calling agent version pins, by id, to its values (a Java map).
 
 </TabItem>
 </Tabs>
@@ -341,6 +456,75 @@ kindgi.blocks.publish(
 
 versions = kindgi.blocks.versions.list("acme.reply-style")
 print([block.version for block in versions.data])
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/PublishBlock.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.Block;
+import com.kindgi.client.models.BlockKind;
+import com.kindgi.client.models.Project;
+import com.kindgi.client.models.PublishBlockBody;
+import com.kindgi.client.models.SettingsBlockContent;
+import java.util.Map;
+import java.util.UUID;
+
+public final class PublishBlock {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+    Project project = kindgi.projects().getDefault();
+
+    // The settings block's next version: a higher refund limit, and no code change.
+    kindgi.blocks().publish(PublishBlockBody.builder()
+        .projectId(UUID.fromString(project.id()))
+        .id("acme.reply-style")
+        .version("1.1.0")
+        .kind(BlockKind.SETTINGS)
+        .content(SettingsBlockContent.builder().values(Map.of("maxSentences", 3, "refundLimit", 100)).build())
+        .build());
+
+    System.out.println(kindgi.blocks().versions().list("acme.reply-style").data().stream()
+        .map(Block::version).toList());
+  }
+}
+```
+
+With 1.0.0 published first, it prints both versions, newest first, as the TS tab does; this kit printed `[1.1.0]`, having no 1.0.0.
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/PublishBlock.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.models.{BlockKind, PublishBlockBody, SettingsBlockContent}
+import java.util.UUID
+import scala.jdk.CollectionConverters._
+
+object PublishBlock {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+    val project = kindgi.projects().getDefault()
+
+    // The settings block's next version: a higher refund limit, and no code change.
+    kindgi.blocks().publish(PublishBlockBody.builder()
+      .projectId(UUID.fromString(project.id))
+      .id("acme.reply-style")
+      .version("1.1.0")
+      .kind(BlockKind.SETTINGS)
+      .content(SettingsBlockContent.builder().values(Map[String, AnyRef]("maxSentences" -> Int.box(3), "refundLimit" -> Int.box(100)).asJava).build())
+      .build())
+
+    println(kindgi.blocks().versions().list("acme.reply-style").data.asScala.map(_.version).mkString("[", ", ", "]"))
+  }
+}
 ```
 
 </TabItem>
