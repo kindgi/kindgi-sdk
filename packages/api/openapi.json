@@ -18424,14 +18424,7 @@
           },
           "class": {
             "type": "string",
-            "enum": [
-              "production",
-              "staging",
-              "dry-run",
-              "replay",
-              "eval",
-              "child"
-            ]
+            "description": "The class of the run a record counts or belongs to, fixed when the run was created: `production`, `staging`, `dry-run`, `replay`, `eval`, `child`. A record with no counted run has none. A runtime may add classes later: show one you don't know as it is."
           },
           "state": {
             "type": "string",
