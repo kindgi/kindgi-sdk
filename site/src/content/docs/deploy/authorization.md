@@ -123,6 +123,26 @@ so when it starts: `⚠ KINDGI_API_TOKEN changed, so it acts as a new user`.
 **When OpenFGA is unreachable,** requests that need a check answer `500`
 (`FGA Error: connect ECONNREFUSED …`); they work again once it's back.
 
+**When the database fails one tenant's permission changes:** the runtime
+sends permission changes to OpenFGA (a grant, a revoke, a new project or
+agent) from a queue in Postgres, about twice a second. From 0.1.8, when it
+can't read or update one tenant's part of that queue, it logs an error
+([Logs](../logs/)). Here, with the database out of reach:
+
+```json
+{"time":"2026-10-12T06:21:01.457Z","level":"error","severity":"ERROR","subsystem":"authz.outbox","message":"drain: a tenant failed","tenantId":"0b6a3f2e-6c1d-4a8e-9f4b-2d7c5e1a9b30","error":"Tenant-scoped query failed: connection refused (connect ECONNREFUSED …)"}
+```
+
+That tenant's changes stay queued and go on a later pass: none is lost, and
+other tenants' changes still go. Until then, checks answer from what OpenFGA
+already has.
+
+- **A single line** needs nothing: it was a passing database error.
+- **The same tenant on every pass** means its permission changes aren't
+  reaching OpenFGA. Fix what `error` names on the database side (the
+  connection, a timeout, or the database user's permissions). The changes
+  apply on the next pass, with no restart.
+
 ## A denied request
 
 A request the check refuses gets `403`, with what was asked, on what, and why
