@@ -79,3 +79,11 @@ you're reading.
 
 The SDKs are Apache-2.0. The runtime is source-available under the Business
 Source License 1.1.
+
+## Next
+
+- [Install](../install/): what you need on your machine.
+- [Quickstart: TypeScript](../quickstart-typescript/), or the
+  [Python](../quickstart-python/), [Java](../quickstart-java/) or
+  [Scala](../quickstart-scala/) one: a first pack, running in ten minutes.
+- [Add Kindgi to an existing app](../existing-app/).

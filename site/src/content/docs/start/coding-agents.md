@@ -276,3 +276,10 @@ Cursor, VS Code), not for Kindgi's runtime.
 If your agent diagnoses a bug in Kindgi rather than in your code, the
 `kindgi-framework-feedback` skill has it write a structured note to
 `FEEDBACK.md` with `kindgi feedback write`, ready to send to us.
+
+## Next
+
+- [Set up Kindgi with your coding agent](../agent/): the steps it follows,
+  from nothing to a first agent that answers.
+- [Quickstart: TypeScript](../quickstart-typescript/), or the
+  [Python](../quickstart-python/) one: the same steps, by hand.
