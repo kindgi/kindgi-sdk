@@ -13,7 +13,9 @@ pack lives beside your code: its tools call your app's classes.
 **Before you start**, set up what the [Install page](../install/) describes:
 Docker, Node 22.12 or later (or uv, to run the CLI from PyPI), and access to
 the runtime image. You also need a JDK 17 or later, with `JAVA_HOME` set to
-it.
+it. In the app's folder, `npx --yes @kindgi/cli@0.1 doctor`
+checks Node, Docker and access to the runtime image, and says how to fix
+what's missing. Run it again after `kindgi init`, and it checks the JDK and Maven too.
 
 :::caution[Preview]
 **Preview.** Java and Scala support is tested and supported, but its API may
@@ -25,7 +27,6 @@ In the app's directory (where its `pom.xml` is), with a JDK 17 or later and
 
 ```sh
 npx --yes @kindgi/cli@0.1 init   # --pack-id=<id> if the app's artifactId doesn't make one
-./kindgiw dev
 ```
 
 `init` writes `kindgi.config.json`: the pack id from the app's `artifactId`,
@@ -34,6 +35,24 @@ also written), and discovery under `kindgi` packages
 (`src/main/java/**/kindgi/tools/**/*.java`, and so on), so your app's own
 `tools` packages are never taken for Kindgi's. It leaves `pom.xml` alone and
 prints the dependency to add to it:
+
+```text
+…
+  Kindgi added to … (a Java pack in the app; preview).
+…
+  Pack id: acme    Version: 0.1.0
+  Wrote 14 files; skipped 0.
+  Next steps:
+    Add to pom.xml's <dependencies>:
+      <dependency>
+        <groupId>com.kindgi</groupId>
+        <artifactId>kindgi-pack</artifactId>
+        <version>…</version>
+      </dependency>
+…
+```
+
+Add it to `pom.xml`'s `<dependencies>`:
 
 ```xml
 <dependency>
@@ -47,6 +66,26 @@ kindgi-pack comes from Maven Central, at the CLI's version. It needs Jackson
 2.18 or later in your app (it declares 2.18.11): in a Spring Boot app, Spring
 Boot 3.4 or later. An app with both a `package.json` and a `pom.xml` gets a
 TypeScript pack unless you pass `--template=java`.
+
+Then start Kindgi:
+
+```sh
+./kindgiw dev
+```
+
+Until you add a tool, it has nothing to register:
+
+```text
+…
+  No primitives yet — add a tool or agent under src/main/java/; it registers on save.
+…
+    ✓ Kindgi is up
+…
+```
+
+Without the dependency, the pack doesn't build, and `kindgi dev` says so
+(`com.kindgi.pack isn't on the pack's classpath: add the com.kindgi:kindgi-pack dependency to pom.xml.`).
+It keeps the runtime running: add the dependency and save.
 
 `kindgi dev` runs the app's own Maven (its `mvnw`, else `mvn`; `dev.maven` in
 `kindgi.config.json` names another, such as `["mvn", "-s", "settings.xml"]`)

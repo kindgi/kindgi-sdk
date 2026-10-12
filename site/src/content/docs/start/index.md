@@ -26,7 +26,7 @@ Kindgi to an app you already have.
    asks ([what it follows](agent/)):
 
    ```text
-   Set up Kindgi for me: read https://docs.kindgi.com/start/agent/ and follow it step by step. Tell me whenever you need me to do something, and wait for me.
+   Set up Kindgi for me: read https://docs.kindgi.com/start/agent.md and follow it step by step. Tell me whenever you need me to do something, and wait for me.
    ```
 
 :::tip[Working with a coding agent?]

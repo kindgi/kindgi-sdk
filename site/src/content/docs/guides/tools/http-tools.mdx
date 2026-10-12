@@ -269,7 +269,7 @@ Not in the Scala SDK: an HTTP tool without code is declared in TypeScript or Pyt
 - A secret a header can't carry, such as a value pasted with a line break
   inside it, fails the call by its header's name, never showing the value:
 
-  ```json
+  ```json excerpt
   "message":"Tool \"acme.probe\" handler threw: http-tool \"acme.probe\": its secret local/K for the header \"X-Api-Key\" has a line break, which a header can't carry: store the secret without it"
   ```
 
@@ -277,7 +277,7 @@ Not in the Scala SDK: an HTTP tool without code is declared in TypeScript or Pyt
 
 Until the secret exists, the call fails and names it:
 
-```json
+```json excerpt
   "status": "failed",
   "failureMessage": "handler-error: Tool \"my-pack.check-token\" handler threw: secret-unavailable: tool \"my-pack.check-token\" needs secret \"HTTPBIN_TOKEN\" in env \"local\": No secret \"HTTPBIN_TOKEN\" for env \"local\" in .env, .env.local, .kindgi/secrets.env at /pack",
 ```
@@ -309,8 +309,9 @@ uv run kindgi runs start --flow=my-pack.try-token --input='{}'
 - **`--from-stdin`** reads the value from the pipe. Without it, the command
   prompts for the value without echoing it.
 
-The first command prints that it set `HTTPBIN_TOKEN` at tenant in `local`.
-The run completes:
+The first command prints the secret's name, scope, environment and version
+as JSON, then that it set `HTTPBIN_TOKEN` at tenant in `local`. The run
+completes:
 
 ```json
   "status": "completed",

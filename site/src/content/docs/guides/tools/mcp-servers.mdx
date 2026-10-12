@@ -37,7 +37,7 @@ An MCP server that speaks Streamable HTTP works. This one, written with the
 Python MCP SDK, version 1.x, has two tools:
 
 ```python
-# server.py: an MCP server with two tools, over Streamable HTTP.
+# server.py
 from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP("inventory", host="127.0.0.1", port=8791)
@@ -73,8 +73,27 @@ uv run python server.py
   with no sample files.
 - **`uv add 'mcp<2'`** adds the MCP SDK, version 1.x.
 
-The server keeps running, and serves at `http://localhost:8791/mcp`. Under
+`uv init` prints `Initialized project` with the folder's name, and `uv add`
+prints the packages it installed. The server then prints:
+
+```text
+INFO:     Started server process [52998]
+INFO:     Waiting for application startup.
+StreamableHTTP session manager started
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://127.0.0.1:8791 (Press CTRL+C to quit)
+```
+
+It keeps running, and serves at `http://localhost:8791/mcp`. Under
 `kindgi dev`, the runtime reaches your machine's `localhost`.
+
+{/* check-samples: the reader's install step, which the docs' sample check runs before it checks server.py; readers don't see it.
+
+```sh
+uv add 'mcp<2'
+```
+
+*/}
 
 ## Register the endpoint
 
@@ -268,7 +287,7 @@ Add `secretRef` to the registration. Kindgi resolves the secret in the
 tenant's secrets when it connects, and sends it as
 `Authorization: Bearer <value>`:
 
-```json
+```json excerpt
 "secretRef": { "envName": "local", "name": "INVENTORY_TOKEN" }
 ```
 
@@ -291,7 +310,7 @@ For a server that takes HTTP Basic, use `auth` instead of `secretRef`. A
 WordPress site's MCP Adapter takes it with an Application Password, and so
 do WooCommerce's MCP tools:
 
-```json
+```json excerpt
 "auth": {
   "scheme": "basic",
   "username": "kindgi-agent",
@@ -320,7 +339,7 @@ the [MCP Adapter](https://github.com/WordPress/mcp-adapter) and
 For a server behind an OAuth 2 token endpoint, such as a Drupal site's MCP
 Server with Simple OAuth:
 
-```json
+```json excerpt
 "auth": {
   "scheme": "oauth2-client-credentials",
   "tokenUrl": "https://cms.example.com/oauth/token",
@@ -436,7 +455,7 @@ back.
 If the server is down when a tool is called, the call fails and the next one
 reconnects:
 
-```json
+```json excerpt
   "failureMessage": "handler-error: Tool \"inventory.stock_level\" handler threw: mcp-call-failed: MCP endpoint \"inventory\" tool \"stock_level\": tools/call \"stock_level\" failed: fetch failed (the next call reconnects)",
 ```
 

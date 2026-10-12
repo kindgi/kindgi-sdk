@@ -13,7 +13,9 @@ pack lives beside your code: its tools call your app's code.
 **Before you start**, set up what the [Install page](../install/) describes:
 Docker, Node 22.12 or later (or uv, to run the CLI from PyPI), and access to
 the runtime image. You also need a JDK 17 or later, with `JAVA_HOME` set to
-it, and sbt 1.10 or later.
+it, and sbt 1.10 or later. In the app's folder, `npx --yes @kindgi/cli@0.1 doctor`
+checks Node, Docker and access to the runtime image, and says how to fix
+what's missing. Run it again after `kindgi init`, and it checks the JDK and sbt too.
 
 :::caution[Preview]
 **Preview.** Java and Scala support is tested and supported, but its API may
@@ -25,7 +27,6 @@ In the app's directory (where its `build.sbt` is), with a JDK 17 or later,
 
 ```sh
 npx --yes @kindgi/cli@0.1 init   # --pack-id=<id> if the build's name doesn't make one
-./kindgiw dev
 ```
 
 `init` writes `kindgi.config.json`: the pack id from the build's `name`, its
@@ -35,6 +36,20 @@ written), and discovery under `kindgi` packages
 `tools` packages are never taken for Kindgi's. It leaves `build.sbt` alone and
 prints what to add to it:
 
+```text
+…
+  Kindgi added to … (a Scala pack in the app; preview).
+…
+  Pack id: acme    Version: 0.1.0
+  Wrote 14 files; skipped 0.
+  Next steps:
+    Add to build.sbt:
+      libraryDependencies += "com.kindgi" %% "kindgi-pack-scala" % "…"
+…
+```
+
+Add it to `build.sbt`:
+
 ```scala
 libraryDependencies += "com.kindgi" %% "kindgi-pack-scala" % "…"
 ```
@@ -42,6 +57,26 @@ libraryDependencies += "com.kindgi" %% "kindgi-pack-scala" % "…"
 kindgi-pack-scala, and kindgi-pack under it, come from Maven Central at the
 CLI's version. Like kindgi-pack, it needs Jackson 2.18 or later in your app. An app with a `build.sbt` next to a `package.json` or a
 `pom.xml` gets a TypeScript or Java pack unless you pass `--template=scala`.
+
+Then start Kindgi:
+
+```sh
+./kindgiw dev
+```
+
+Until you add a tool, it has nothing to register:
+
+```text
+…
+  No primitives yet — add a tool or agent under src/main/scala/; it registers on save.
+…
+    ✓ Kindgi is up
+…
+```
+
+Without the dependency, the pack doesn't build, and `kindgi dev` says so
+(`com.kindgi.pack isn't on the pack's classpath: add "com.kindgi" %% "kindgi-pack-scala" to build.sbt's libraryDependencies.`).
+It keeps the runtime running: add the dependency and save.
 
 `kindgi dev` builds through the app's sbt server (`sbt --client`): it starts
 one when none is running and stops it when it stops, and a server your IDE

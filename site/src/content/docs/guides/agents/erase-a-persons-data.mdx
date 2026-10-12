@@ -253,6 +253,8 @@ kindgi memory erasures resume <erasure-id>           # try again now
 kindgi memory erasures resume <erasure-id> --force   # stop waiting: cancel that run and go on
 ```
 
+Each prints the erasure as JSON, with its `status` and `phase`.
+
 ## After a backup restore
 
 Restoring a backup brings back what an erasure cleared, and rolls the
@@ -280,8 +282,8 @@ kindgi memory erasures replay erasure-ledger.json
 
 The ledger keeps no identifier, only a keyed hash of whom each erasure
 erased. A replay needs the runtime's erasure ledger key to find them again.
-Without it, an erasure still runs, but answers with an
-`erasure-unmatchable` warning, and a replay can't match it.
+Without the key, an erasure still runs, but it answers with an
+`erasure-unmatchable` warning. A replay can't match that erasure.
 [Erasures and backups](../../../deploy/back-up-and-restore/#erasures-and-backups)
 sets up the key and the restore.
 

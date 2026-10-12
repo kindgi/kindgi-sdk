@@ -252,6 +252,22 @@ kindgi skills sync
 It keeps skills you edited. `--force` replaces those too. In a Python
 project, run it as `uv run kindgi skills sync`.
 
+It prints each skill's outcome, as JSON:
+
+```text
+{
+  "targetDir": ".",
+  "packLanguage": "node",
+  "outcomes": [
+    {
+      "name": "kindgi-authoring-agents",
+      "status": "unchanged",
+…
+  "dryRun": false,
+  "force": false
+}
+```
+
 `kindgi dev` tells you when the installed skills are behind the CLI's.
 `.claude/skills/.kindgi-manifest.json` records what was installed.
 
@@ -262,14 +278,37 @@ MCP server, without writing its secret into the project:
 
 ```sh
 kindgi mcp presets
+kindgi secrets set MY_DB_URL --env=local --scope=tenant
 kindgi mcp add postgres --secret=MY_DB_URL
 ```
 
-`add` writes an entry to `.mcp.json` that starts the server. `--secret`
-names the secret in your pack's env files that holds the server's
-connection: the server gets its value when it starts, and `.mcp.json` never
-holds it. These servers are for your coding agent (Claude Code,
-Cursor, VS Code), not for Kindgi's runtime.
+- `mcp presets` lists the servers Kindgi has a preset for.
+- `secrets set` stores the server's connection, for `postgres` a
+  `postgresql://` URL, in Kindgi's own `.kindgi/secrets.env`. It asks for
+  the value without showing it, and needs `kindgi dev` running.
+- `add` writes an entry to `.mcp.json` that starts the server. `--secret`
+  names the secret that holds the server's connection: the server gets its
+  value when it starts, and `.mcp.json` never holds it.
+
+They print:
+
+```text
+{
+  "root": "…",
+  "presets": [
+    {
+      "kind": "postgres",
+      "runtime": "docker",
+      "package": "crystaldba/postgres-mcp",
+…
+  Set MY_DB_URL at tenant in local.
+…
+  Added "my_db" (preset postgres) to .mcp.json.
+  Restart your MCP client (Claude Code, Cursor, ...) to activate.
+```
+
+These servers are for your coding agent (Claude Code, Cursor, VS Code), not
+for Kindgi's runtime.
 
 ## When Kindgi is the problem
 
