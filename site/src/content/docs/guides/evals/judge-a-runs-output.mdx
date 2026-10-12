@@ -137,6 +137,10 @@ kindgi judgments remove <judgment-id>
 - `list` also filters by agent and version, flow, verdict, judge class,
   participant and project.
 
+`list` prints a page of judgments as JSON, with `items` and `nextCursor`.
+`show` prints one judgment, and `remove` prints its id with
+`"removed": true`.
+
 A judgment keeps copies of the run's input and output, so it outlives the
 run's own retention. The clients have the same: `judgments.list`,
 `judgments.get` and `judgments.unregister`.

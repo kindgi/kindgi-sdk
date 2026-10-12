@@ -208,6 +208,8 @@ isn't in the run's output is refused with `400 item-not-found`:
 kindgi judgments add --run=c839338c-cfc1-4bf3-b4e3-c7f24e38a473 --item=answer --pointer=/appended/1/content --yes
 ```
 
+It prints the judgment as JSON.
+
 Then rescore the proposal:
 
 ```sh
@@ -317,8 +319,9 @@ gate. The proposal is then:
 - `refused`: the gate refused it, listing every check.
 
 A request is allowed once the proposal was evaluated, `not-better` included:
-the gate decides. The proposal above was `not-better`, and the tenant's gate
-let it through:
+the gate decides. This guide's proposal stayed `not-better` after its
+[rescore](#judge-the-new-answers-then-rescore), and the tenant's gate let it
+through:
 
 ```json
 {
@@ -375,7 +378,7 @@ refused, superseded or expired:
 kindgi proposals withdraw <proposal-id> --reason="Superseded by a better draft"
 ```
 
-It's then `withdrawn`. `--reason` is required, and withdrawing needs
+It prints the proposal, now `withdrawn`. `--reason` is required, and withdrawing needs
 `publish` on the agent.
 
 ## Find them
