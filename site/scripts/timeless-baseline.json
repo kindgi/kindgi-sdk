@@ -1,6 +1,6 @@
 {
   "concepts/security": 3,
-  "deploy/operate": 51,
+  "deploy/operate": 56,
   "guides/agents/choose-a-model": 1,
   "guides/agents/conversations": 1,
   "guides/agents/typed-answer": 2,
@@ -8,7 +8,7 @@
   "guides/evals/build-a-test-set": 2,
   "guides/evals/change-a-prompt-or-setting": 1,
   "guides/evals/judge-a-runs-output": 2,
-  "guides/evals/release-an-agent-version": 1,
+  "guides/evals/release-an-agent-version": 2,
   "guides/models/anthropic": 1,
   "guides/models/api-key-presets": 1,
   "guides/models/openai-compatible": 2,
@@ -16,5 +16,5 @@
   "guides/projects/organize-by-org-and-project": 1,
   "guides/runs/start-a-run": 1,
   "guides/tools/write-a-tool": 1,
-  "start/existing-app": 6
+  "start/existing-app": 7
 }
