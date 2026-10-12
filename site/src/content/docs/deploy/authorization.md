@@ -84,7 +84,7 @@ migration done
 
 Keep OpenFGA on the private network, with no published port: the runtime
 calls it without credentials. Back up its `openfga` database with the
-runtime's ([Back up Postgres](../operate/#back-up-postgres)).
+runtime's ([Back up Postgres](../back-up-and-restore/#back-up-postgres)).
 
 ### An OpenFGA you already run
 
@@ -112,7 +112,7 @@ connections are set with `OPENFGA_DATASTORE_MIN_IDLE_CONNS` instead
 ### Point the runtime at it
 
 Set OpenFGA's address in `kindgi.env`, and
-[restart](../operate/#restart-the-runtime) the runtime:
+[restart](../restart-and-check-health/#restart-the-runtime) the runtime:
 
 ```sh
 KINDGI_OPENFGA_API_URL=http://kindgi-openfga:8080
