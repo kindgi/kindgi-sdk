@@ -628,6 +628,16 @@ What to check before you upgrade, and what's different after:
   registered it. Until 0.1.8, give project admin roles only to people you'd
   trust with every secret in the tenant. 0.1.8 limits each item to the scopes
   the person registering it administers.
+- **With authorization on, a runtime whose database user has no `BYPASSRLS`
+  (and isn't a superuser) doesn't start.** That's the usual case on a managed
+  Postgres. To check, run this as the runtime's database user:
+
+  ```sql
+  SELECT rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user;
+  ```
+
+  If both are `f`, use 0.1.8 or later for production with authorization on:
+  0.1.8 fixes it. Without authorization, the runtime starts as before.
 - **Run one runtime instance.** 0.1.6 fixes the known reasons several
   instances couldn't share a database: boot migrations wait their turn, the
   sign-in limit is shared, guardrail, tool and provider changes reach every
