@@ -147,10 +147,11 @@ step 1.
 If doctor's `registry` check passes, this machine can already pull the
 runtime: skip this step.
 
-1. Ask the person: "Sign in at https://access.kindgi.com with GitHub, copy
-   the token under **1. Pull the runtime image**, and tell me when you're
-   done. Also tell me the robot name shown there, after `--username` (it
-   isn't secret)."
+1. Ask the person: "Sign in at https://access.kindgi.com with GitHub. Under
+   **1. Pull the runtime image**, copy the token, and tell me when you're
+   done. Also tell me the robot name in its command, after `--username` (it
+   isn't secret)." If the page doesn't give them a token, stop here until
+   they have one.
 2. When they say they're done, pipe the clipboard into the login, with the
    robot name they gave you:
 
