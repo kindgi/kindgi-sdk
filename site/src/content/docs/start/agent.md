@@ -51,8 +51,9 @@ URL with `.md`.
 ## Step 0: check the machine
 
 Work out this machine's OS yourself, without asking the person: `uname -s`
-prints `Darwin` on macOS and `Linux` on Linux, and fails on Windows. Then
-pick its clipboard command:
+prints `Darwin` on macOS and `Linux` on Linux, WSL included. On Windows it
+fails, or prints a name that starts with `MINGW` or `CYGWIN`. Then pick its
+clipboard command:
 
 | OS | Read the clipboard | Clear it |
 | --- | --- | --- |
@@ -238,7 +239,9 @@ real one.
 
 Run doctor every few seconds until `runtime` passes. `model-key` and
 `provider` still fail: that's expected until step 4. Then tell the person
-it's running, and how to stop it: `kill <the process id>`. Also tell them
+it's running, and how to stop it: `kill <the process id>`, or, if your
+tool started it, how your tool stops it. If your tool's background tasks end
+with your session, tell them `kindgi dev` stops then too. Also tell them
 where the console is: the `Console` line of `.kindgi/dev.log`, its first
 address (`kindgi doctor --json` has it as `consoleUrl`, and `kindgi console`
 opens it in their browser). They sign in there with **Sign in as seeded
@@ -323,8 +326,9 @@ register the provider again or to restart `kindgi dev`.
 Tell the person, in your own words:
 
 > **Your first agent answered.** It runs on your machine, with your model
-> key in `.kindgi/secrets.env`; Kindgi keeps running in the background until you stop
-> it with `kill <the process id>`. Three things to try next:
+> key in `.kindgi/secrets.env`. Kindgi keeps running in the background until
+> you stop it (with `kill <the process id>`, or the way I told you), or, if
+> my tool started it, until this session ends. Three things to try next:
 >
 > 1. **Give it a tool:** ask me "add a tool that looks up an order, and let
 >    the agent call it".
