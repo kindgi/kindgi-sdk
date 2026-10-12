@@ -23,16 +23,6 @@ uv sync          # a .venv with the kindgi package and the kindgi CLI
 uv run pytest    # the template's tests: the tools and the check, called directly
 ```
 
-:::note[On Kindgi 0.1.0 (fixed in 0.1.1)]
-`init` from npm writes no `.gitignore`, so git would track `.env` files
-(where model keys go) and `.kindgirc.json` (the dev token). Before your first
-commit:
-
-```sh
-printf '%s\n' .venv/ __pycache__/ .kindgi/ .kindgirc.json .env '.env.*' >> .gitignore
-```
-:::
-
 The pack's config is the `[tool.kindgi]` table of its `pyproject.toml`; its
 tools, guardrails, agents and flows live in four folders:
 
@@ -78,7 +68,7 @@ Open it in your browser (the port is `4000`, or the next free one; the
 runtime's own address, `http://127.0.0.1:4000/`, leads there too), or run
 `uv run kindgi console`, which opens it for you. On the sign-in page, click
 **Sign in as seeded user**. `kindgi dev --open` opens the console as soon as
-Kindgi is up. Open the console in Chrome or Firefox. Safari can't keep the local sign-in over http yet ([Known issues](../../releases/0.1.5/#known-issues)).
+Kindgi is up.
 
 ## 3. Run the agent and the flow
 

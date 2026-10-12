@@ -22,16 +22,6 @@ cd my-pack
 pnpm install
 ```
 
-:::note[On Kindgi 0.1.0 (fixed in 0.1.1)]
-`init` from npm writes no `.gitignore`, so git would track `.env` (where
-your model key goes) and `.kindgirc.json` (the dev token). Before your first
-commit:
-
-```sh
-printf '%s\n' node_modules/ dist/ .kindgi/ .kindgirc.json '*.tsbuildinfo' .env .env.local >> .gitignore
-```
-:::
-
 `my-pack` is the pack's id: every tool, agent and flow in it is named
 `my-pack.<name>`. The `sample` template gives you:
 
@@ -81,7 +71,7 @@ Open it in your browser (the port is `4000`, or the next free one; the
 runtime's own address, `http://127.0.0.1:4000/`, leads there too), or run
 `pnpm exec kindgi console`, which opens it for you. On the sign-in page, click
 **Sign in as seeded user**. `kindgi dev --open` opens the console as soon as
-Kindgi is up. Open the console in Chrome or Firefox. Safari can't keep the local sign-in over http yet ([Known issues](../../releases/0.1.5/#known-issues)).
+Kindgi is up.
 
 ## 3. Run the agent
 
