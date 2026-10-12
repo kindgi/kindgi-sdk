@@ -3,7 +3,7 @@
 
 import type { ValidateFunction } from 'ajv';
 
-import { compileJsonSchema, parseWithSchema } from '@kindgi/schema';
+import { holdJsonSchema, parseWithSchema } from '@kindgi/schema';
 import type { CompileJsonSchemaOptions } from '@kindgi/schema';
 import type { Result } from '@kindgi/types';
 
@@ -31,21 +31,40 @@ export function schemaOptions(tool: Pick<Tool, 'transport'>): CompileJsonSchemaO
 }
 
 /**
+ * Each schema's validator, held by schema object (a tool's are defined
+ * once and reused) and by what it's compiled for. A holder keeps a JSON
+ * schema's cache key, not its validator (`holdJsonSchema`), so the cache
+ * is all that keeps the validator: once the cache drops it, the next call
+ * compiles it again, a recompile the tenant's budget counts. A schema
+ * JSON can't carry is held as compiled, not compiled on every call.
+ */
+const held = new WeakMap<object, Map<string, () => ValidateFunction>>();
+
+/**
  * A compiled validator. Input validators fill in each property's JSON
  * Schema `default` (`useDefaults`) — the data they check is a copy of the
- * caller's. Taken from `compileJsonSchema`'s cache on each call, which is
- * all that keeps it: once the cache drops it, the next call compiles it
- * again, a recompile the tenant's budget counts.
+ * caller's.
  */
 function compile(
   schema: JsonSchema,
   side: 'input' | 'output',
   tool: Pick<Tool, 'transport'>,
 ): ValidateFunction {
-  return compileJsonSchema(schema as Readonly<Record<string, unknown>>, {
-    ...schemaOptions(tool),
-    ...(side === 'input' && { useDefaults: true }),
-  });
+  let holders = held.get(schema);
+  if (holders === undefined) {
+    holders = new Map();
+    held.set(schema, holders);
+  }
+  const purpose = `${side} ${tool.transport === 'mcp' ? 'mcp' : 'pack'}`;
+  let validator = holders.get(purpose);
+  if (validator === undefined) {
+    validator = holdJsonSchema(schema as Readonly<Record<string, unknown>>, {
+      ...schemaOptions(tool),
+      ...(side === 'input' && { useDefaults: true }),
+    });
+    holders.set(purpose, validator);
+  }
+  return validator();
 }
 
 /**
@@ -107,8 +126,8 @@ export interface InvokeToolOptions {
  *   3. Validate the return value against `tool.output` schema (unless the
  *      caller opts out).
  *
- * Validation cost is amortised via a schema-object-keyed cache — the second
- * invocation of the same tool reuses the compiled Ajv validator.
+ * Each schema compiles once and is then taken from the schema cache (see
+ * `held`): a later call compiles it again only once the cache has dropped it.
  */
 export async function invokeTool<TInput = unknown, TOutput = unknown>(
   tool: Tool<TInput, TOutput>,

@@ -316,6 +316,19 @@ describe('invokeTool — abortSignal cooperation', () => {
 });
 
 describe('invokeTool — the schema cache is all that keeps its validators', () => {
+  test("a schema JSON can't carry is compiled once, not on every call", async () => {
+    // Never cached, so each compile of it counts: one compile spends this budget.
+    const restore = overrideTenantInputBounds({ ...HOSTED_BOUNDS, schemaCompileBudgetMs: 0.001 });
+    try {
+      const plain = echo();
+      const tool = { ...plain, input: { ...plain.input, description: undefined } };
+      const call = () => runAsTenant('tenant-a', () => invokeTool(tool, { msg: 'hi' }, ctx()));
+      for (let n = 0; n < 3; n += 1) expect((await call()).kind).toBe('ok');
+    } finally {
+      restore();
+    }
+  });
+
   test('once the cache drops one, the next call compiles it again, as a recompile the budget counts', async () => {
     // One validator kept: the input's and the output's push each other out.
     const restore = overrideTenantInputBounds({

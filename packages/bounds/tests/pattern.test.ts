@@ -331,9 +331,18 @@ describe('tenantPatternSyntaxProblem: compileTenantPattern’s verdict on the sy
     expect(tenantPatternSyntaxProblem('\\p{L}')).toBe(refusal('\\p{L}'));
   });
 
-  test('on RE2: a pattern refused only for its size passes, and compiling it refuses it', () => {
-    onRe2();
-    expect(tenantPatternSyntaxProblem('a{1001}')).toBeUndefined();
-    expect(refusal('a{1001}')).toContain('RE2, the engine patterns run on here, refuses it');
-  });
+  test.each([
+    ['a{1001}', ''],
+    ['\\N', ''],
+    ['[\\b]', ''],
+    ['\\cA', ''],
+    ['\\p{Letter}', 'u'],
+  ])(
+    'on RE2: /%s/%s, refused only as RE2 builds it, passes, and compiling it refuses it',
+    (source, flags) => {
+      onRe2();
+      expect(tenantPatternSyntaxProblem(source, flags)).toBeUndefined();
+      expect(refusal(source, flags)).toContain('RE2, the engine patterns run on here, refuses it');
+    },
+  );
 });

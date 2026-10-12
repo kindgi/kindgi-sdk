@@ -62,9 +62,11 @@ export function compileTenantPattern(source: string, flags = ''): CompiledTenant
  * syntax, or `undefined` when it wouldn't: over `patternMaxLength`, what
  * `RegExp` refuses and, under RE2, a flag or a construct RE2 doesn't have
  * or reads otherwise. It builds no RE2 program, so it costs about what
- * V8's parse does. A pattern RE2 refuses only for its size (a repeat over
- * 1,000, a program too large) passes here, and is refused when it's
- * compiled.
+ * V8's parse does. A pattern RE2 refuses only as it builds the program
+ * passes here, and is refused when it's compiled: one too large (a
+ * repeat over 1,000, say), or with an escape RE2 doesn't have that this
+ * check doesn't name (`\N`, `[\b]`, `\cA`, a long property name such as
+ * `\p{Letter}`).
  */
 export function tenantPatternSyntaxProblem(source: string, flags = ''): string | undefined {
   const tooLong = lengthProblem(source, flags);

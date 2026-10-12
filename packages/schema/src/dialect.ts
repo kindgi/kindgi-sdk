@@ -20,7 +20,7 @@
 
 import type { ValidateFunction } from 'ajv';
 
-import { compileTenantSchema } from './bounded.js';
+import { type TenantSchemaCompile, compileTenantSchema, holdTenantSchema } from './bounded.js';
 
 /**
  * Every Kindgi schema compiler takes a union of types (`type: ['string', 'number']`): standard
@@ -91,14 +91,34 @@ export function compileJsonSchema(
   schema: Readonly<Record<string, unknown>>,
   options: CompileJsonSchemaOptions = {},
 ): ValidateFunction {
-  const dialect = jsonSchemaDialect(schema, options.dialects);
-  return compileTenantSchema(schema, {
-    dialect,
+  return compileTenantSchema(schema, compileFor(schema, options));
+}
+
+/**
+ * `compileJsonSchema` for a caller that keeps the schema: compiled now,
+ * and what to call for its validator each time (`holdTenantSchema`). The
+ * cache stays all that holds a JSON schema's validator. A schema JSON
+ * can't carry (a key whose value is `undefined`, say) is never cached, so
+ * it's held as compiled rather than compiled on every call.
+ */
+export function holdJsonSchema(
+  schema: Readonly<Record<string, unknown>>,
+  options: CompileJsonSchemaOptions = {},
+): () => ValidateFunction {
+  return holdTenantSchema(schema, compileFor(schema, options));
+}
+
+function compileFor(
+  schema: Readonly<Record<string, unknown>>,
+  options: CompileJsonSchemaOptions,
+): TenantSchemaCompile {
+  return {
+    dialect: jsonSchemaDialect(schema, options.dialects),
     options: {
       strict: options.strict ?? true,
       allErrors: true,
       allowUnionTypes: ALLOW_UNION_TYPES,
       ...(options.useDefaults === true && { useDefaults: true }),
     },
-  });
+  };
 }
