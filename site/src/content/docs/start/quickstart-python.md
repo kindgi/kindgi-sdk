@@ -74,7 +74,9 @@ To open the console, run `uv run kindgi console`, or go to the banner's
 `Console` address. Its port is `4000`, or the next free one. On the sign-in
 page, click **Sign in as seeded user**.
 
-Tip: `kindgi dev --open` opens the console as soon as Kindgi is up.
+:::tip
+`kindgi dev --open` opens the console as soon as Kindgi is up.
+:::
 
 ## 3. Run the agent and the flow
 
@@ -188,12 +190,12 @@ uv run kindgi secrets set ANTHROPIC_API_KEY --env=local --scope=tenant
 uv run kindgi providers register --preset=anthropic
 ```
 
-- `secrets set ANTHROPIC_API_KEY` asks for the key without showing it, and
-  keeps it in Kindgi's own `.kindgi/secrets.env`.
+- `secrets set ANTHROPIC_API_KEY` asks for the key without showing it.
 - `--env=local` is the environment the secret belongs to. Under
-  `kindgi dev`, `local` is your pack's own env files.
-- `--scope=tenant` keeps the secret for your whole tenant, so every project
-  in it can use it.
+  `kindgi dev`, `local` is the pack's env files, Kindgi's own
+  `.kindgi/secrets.env` among them.
+- `--scope=tenant` is where the secret lives: the tenant, rather than one
+  org (`org:<orgId>`) or project (`project:<projectId>`).
 - `--preset=anthropic` registers Anthropic's models from Kindgi's built-in
   preset, which reads the `ANTHROPIC_API_KEY` secret. `kindgi providers
   presets` lists the others.

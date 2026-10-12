@@ -212,12 +212,12 @@ Store an Anthropic key as a secret, then register the provider:
 ./kindgiw providers register --preset=anthropic
 ```
 
-- `secrets set ANTHROPIC_API_KEY` asks for the key without showing it, and
-  keeps it in Kindgi's own `.kindgi/secrets.env`.
+- `secrets set ANTHROPIC_API_KEY` asks for the key without showing it.
 - `--env=local` is the environment the secret belongs to. Under
-  `kindgi dev`, `local` is your pack's own env files.
-- `--scope=tenant` keeps the secret for your whole tenant, so every project
-  in it can use it.
+  `kindgi dev`, `local` is the pack's env files, Kindgi's own
+  `.kindgi/secrets.env` among them.
+- `--scope=tenant` is where the secret lives: the tenant, rather than one
+  org (`org:<orgId>`) or project (`project:<projectId>`).
 - `--preset=anthropic` registers Anthropic's models from Kindgi's built-in
   preset, which reads the `ANTHROPIC_API_KEY` secret.
 

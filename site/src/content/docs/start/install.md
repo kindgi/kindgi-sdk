@@ -188,6 +188,7 @@ workspace root's or the pack folder's. It says which when it starts:
 - **Several packs in one project** share its database and tenant, but not
   each other's tools: under `kindgi dev`, a flow in one pack can't call
   another pack's tools.
+
 ## Calling Kindgi from an application
 
 An app that only starts runs and reads their results (no pack of its own)
