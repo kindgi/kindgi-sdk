@@ -5,6 +5,8 @@ import type { TupleEnqueueHook } from '@kindgi/authz';
 import type { Scope } from '@kindgi/platform';
 import type { Cursor, EnvName, TenantId } from '@kindgi/types';
 
+import type { RecordedSecretScope } from './secret-scope.js';
+
 /**
  * Caller-plugged surface for the MCP-endpoint catalog. Tenants register
  * the remote MCP servers they want the runtime to consume. At boot the
@@ -139,6 +141,15 @@ export interface MCPOAuth2ClientCredentialsAuth {
 
 export type MCPEndpointAuth = MCPBasicAuth | MCPOAuth2ClientCredentialsAuth;
 
+/** The secrets an endpoint names: its bearer `secretRef`, and its `auth`'s. */
+export function mcpEndpointSecretRefs(
+  endpoint: Pick<MCPEndpoint, 'secretRef' | 'auth'>,
+): readonly MCPEndpointSecretRef[] {
+  return [endpoint.secretRef, endpoint.auth?.secretRef].filter(
+    (ref): ref is MCPEndpointSecretRef => ref !== undefined,
+  );
+}
+
 /**
  * The secrets an endpoint names, by name: its bearer `secretRef`, and its
  * `auth`'s password or client secret.
@@ -196,6 +207,14 @@ export interface MCPEndpoint {
    * `false` sends none. HTTP transports only (`stdio` has no headers).
    */
   readonly sendTraceparent?: boolean;
+  /**
+   * Where each secret the endpoint names is read, by name: recorded by the
+   * server when the endpoint is registered (`secret-scope.ts`), never sent
+   * by a caller. `null`: the person registering it administers no scope its
+   * secret could be read at, so none is read until an admin registers it
+   * again. Absent on endpoints registered before it was recorded.
+   */
+  readonly secretScopes?: Readonly<Record<string, RecordedSecretScope | null>>;
 }
 
 export interface MCPEndpointListInput {

@@ -5,12 +5,13 @@ import { Hono } from 'hono';
 
 import { type Principal, ref, tuplesForCreate } from '@kindgi/authz';
 import { toolSecretNames, validateToolManifest } from '@kindgi/tools';
-import type { Cursor, ProjectId, TenantId, ToolId, UserId } from '@kindgi/types';
+import type { Cursor, EnvName, ProjectId, TenantId, ToolId, UserId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
 import type { Authorizer } from '../middleware/authorize.js';
 import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
 import { refuseWritesWhenReadOnly } from '../registry-read-only.js';
+import { type SecretScopeDeps, secretScopesFor, toolSecretRefs } from '../secret-scope.js';
 import type { ToolRecord, ToolRegistryBinding, ToolVersionRow } from '../tool-binding.js';
 import type { AppEnv } from '../types.js';
 import { clampLimit } from './pagination.js';
@@ -49,7 +50,14 @@ export function toolsRouter(
   binding: ToolRegistryBinding,
   authorizer?: Authorizer,
   onWrite?: ToolWriteHook,
-  options: { readonly providerKeys?: ProviderKeys } = {},
+  options: {
+    readonly providerKeys?: ProviderKeys;
+    /** Where each secret a tool names is read is recorded at publish (`secret-scope.ts`). */
+    readonly secrets?: SecretScopeDeps['secrets'];
+    readonly projects?: SecretScopeDeps['projects'];
+    /** The env the runtime serves: where the secrets a tool's code declares are read. */
+    readonly envName?: EnvName;
+  } = {},
 ): Hono<AppEnv> {
   const r = new Hono<AppEnv>();
   // A read-only registry (under `kindgi dev`, the pack's files) refuses
@@ -342,10 +350,19 @@ export function toolsRouter(
     const principal = c.get('principal') as Principal | undefined;
     const creatorUserId =
       principal?.actor.kind === 'user' ? (principal.actor.id as UserId) : undefined;
+    // Where each secret it names is read: decided now, as its publisher
+    // may read them, and kept with this version (`secret-scope.ts`).
+    const secretScopes = await secretScopesFor(
+      c,
+      { secrets: options.secrets, projects: options.projects, authorizer },
+      { kind: 'project', tenantId, projectId },
+      toolSecretRefs(validated.value, options.envName),
+    );
     const outcome = await binding.publish({
       tenantId,
       projectId,
       tool: validated.value,
+      ...(secretScopes !== undefined && { secretScopes }),
       enqueueTuples: (toolId) =>
         tuplesForCreate({ kind: 'tool', id: toolId as ToolId, tenantId, projectId }, creatorUserId),
     });

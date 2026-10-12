@@ -221,7 +221,7 @@ delivery, and Kindgi checks the signature before it starts a run:
 
 ```sh
 {{KINDGI}} webhooks register --flow={{PACK_ID}}.order-review --flow-version={{PACK_VERSION}} \
-  --preset=woocommerce --generate-secret --secret=WOO_WEBHOOK_SECRET --env=local \
+  --preset=woocommerce --generate-secret --secret=WOO_WEBHOOK_SECRET \
   --label="WooCommerce orders"
 ```
 

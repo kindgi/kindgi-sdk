@@ -19,6 +19,7 @@ import type { ProjectBinding, Scope } from '@kindgi/platform';
 import { toolSecretNames, validateToolManifest } from '@kindgi/tools';
 import type {
   Cursor,
+  EnvName,
   FlowId,
   GuardrailId,
   ProjectId,
@@ -51,6 +52,7 @@ import type { Authorizer } from '../middleware/authorize.js';
 import { type ProviderKeys, refuseProviderKeys } from '../provider-keys.js';
 import { PublishRefused } from '../publish-refused.js';
 import { type RegistryReadOnly, refuseReadOnly } from '../registry-read-only.js';
+import { secretScopesFor, toolSecretRefs } from '../secret-scope.js';
 import type { SecretBinding } from '../secrets-binding.js';
 import type { SigningKeyBinding as SigningKeyRegistryBinding } from '../signing-key-binding.js';
 import type { ToolRegistryBinding } from '../tool-binding.js';
@@ -168,6 +170,8 @@ export interface DeploymentsRouterBindings {
    * message. All four register loops resolve the project the same way.
    */
   readonly projectBinding?: ProjectBinding;
+  /** The env this deployment serves: where a pack tool's declared secrets are read (`secret-scope.ts`). */
+  readonly envName?: EnvName;
   /**
    * Called for each tool and guardrail a new deployment registered, as
    * `POST /v1/tools` and `POST /v1/guardrails` call them, so a runtime
@@ -614,10 +618,23 @@ export function deploymentsRouter(
       if (bindings.toolRegistry !== undefined && defaultProjectId !== undefined) {
         for (const tool of validated.tools) {
           const projectIdForTool = defaultProjectId;
+          // Where each secret it names is read: decided now, as the deployer
+          // may read them, and kept with this version (`secret-scope.ts`).
+          const secretScopes = await secretScopesFor(
+            c,
+            {
+              secrets: bindings.secretsBinding,
+              projects: bindings.projectBinding,
+              authorizer,
+            },
+            { kind: 'project', tenantId, projectId: projectIdForTool },
+            toolSecretRefs(tool, bindings.envName),
+          );
           const outcome = await bindings.toolRegistry.publish({
             tenantId,
             projectId: projectIdForTool,
             tool,
+            ...(secretScopes !== undefined && { secretScopes }),
             enqueueTuples: (toolId) =>
               tuplesForCreate({
                 kind: 'tool',

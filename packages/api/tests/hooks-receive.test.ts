@@ -74,6 +74,11 @@ function setup(options: { publicUrl?: string } = {}) {
     return release;
   };
   const secrets = {
+    // One store for every scope: where a trigger's secret is read is the scope
+    // test's (`webhook-secret-scope.test.ts`), not this one's.
+    async get(input: { name: string }) {
+      return stored.has(input.name) ? { name: input.name, currentVersion: 1 } : null;
+    },
     async resolve(input: { name: string }) {
       resolved.push(input.name);
       const failure = failing.get(input.name);

@@ -952,6 +952,13 @@ export interface CreateAppInput {
    */
   readonly secretsBinding?: SecretBinding;
   /**
+   * The env this deployment serves (`KINDGI_ENV`): where the secrets a
+   * tool's code declares are looked for when the tool is published, to
+   * record where they're read (`secret-scope.ts`). Absent: the webhook
+   * receiver's, else not recorded for those.
+   */
+  readonly envName?: import('@kindgi/types').EnvName;
+  /**
    * Optional. Backs the async-rotation wire (`POST /v1/secrets/:name/rotate`
    * → 202 Accepted; poll via `GET /v1/secrets/:name/rotations/:rotationId`;
    * subscribe via `GET /v1/secrets/:name/rotations/:rotationId/events`).
@@ -1326,10 +1333,17 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       tenantId,
       name,
     );
+  // The env this deployment serves: where a tool's declared secrets are read.
+  const servedEnv = input.envName ?? input.webhookReceiver?.envName;
   if (input.toolRegistry !== undefined) {
     v1.route(
       '/tools',
-      toolsRouter(input.toolRegistry, authorizer, input.onToolWrite, { providerKeys }),
+      toolsRouter(input.toolRegistry, authorizer, input.onToolWrite, {
+        providerKeys,
+        ...(input.secretsBinding !== undefined && { secrets: input.secretsBinding }),
+        ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
+        ...(servedEnv !== undefined && { envName: servedEnv }),
+      }),
     );
   }
   if (input.guardrailRegistry !== undefined) {
@@ -1454,6 +1468,8 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
       mcpRouter(input.mcpEndpointRegistry, input.mcpClientProbe, authorizer, {
         hostAccess: input.tenantHostAccess ?? 'deployed',
         providerKeys,
+        ...(input.secretsBinding !== undefined && { secrets: input.secretsBinding }),
+        ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
       }),
     );
   }
@@ -1507,6 +1523,9 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
         webhooksRouter(input.triggerRegistry, {
           ...(authorizer !== undefined && { authorizer }),
           ...(input.projectBinding !== undefined && { projects: input.projectBinding }),
+          ...(input.secretsBinding !== undefined && { secrets: input.secretsBinding }),
+          ...(input.webhookReceiver !== undefined && { envName: input.webhookReceiver.envName }),
+          ...(input.auditEvents !== undefined && { auditEvents: input.auditEvents }),
           names: {
             ...(input.identityDirectory !== undefined && { directory: input.identityDirectory }),
             ...(input.serviceAccountBinding !== undefined && {
@@ -1712,6 +1731,7 @@ export function createApp(input: CreateAppInput): Hono<AppEnv> {
           // secretsBinding. Absent binding → the route answers 500 with an
           // operator-actionable message.
           ...(secretsBinding !== undefined && { secretsBinding }),
+          ...(servedEnv !== undefined && { envName: servedEnv }),
           // A deploy registers tools and guardrails: the same cache hooks
           // `POST /v1/tools` / `POST /v1/guardrails` call.
           ...(input.onToolWrite !== undefined && { onToolWrite: input.onToolWrite }),

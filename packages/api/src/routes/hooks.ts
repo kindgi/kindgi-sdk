@@ -11,6 +11,7 @@ import {
   inboundSigningKey,
   verifyInboundSignature,
 } from '@kindgi/crypto';
+import type { Scope } from '@kindgi/platform';
 import type { EnvName, TenantId, TriggerId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
@@ -20,6 +21,7 @@ import {
   createInMemoryRateLimitStore,
   nearestForwardedClient,
 } from '../rate-limit-store.js';
+import { scopeOfRecorded } from '../secret-scope.js';
 import type { SecretBinding, SecretWrites } from '../secrets-binding.js';
 import {
   type FoundWebhookTrigger,
@@ -137,7 +139,7 @@ export function hooksRouter(options: HooksRouterOptions): Hono<AppEnv> {
   const store = options.rateLimitStore ?? createInMemoryRateLimitStore();
   const now = options.now ?? Date.now;
   /**
-   * Signing keys by tenant, secret name and scheme, each until its TTL: a
+   * Signing keys by tenant, scope, secret name and scheme, each until its TTL: a
    * `KeyObject`, never the secret as a string, or `undefined` for a secret
    * that can't verify until it's written. `writes` counts the writes heard,
    * so a read that a write overtook isn't kept.
@@ -149,9 +151,11 @@ export function hooksRouter(options: HooksRouterOptions): Hono<AppEnv> {
   let writes = 0;
   options.secretWrites?.subscribe((written) => {
     writes += 1;
-    if (written.scope.kind !== 'tenant' || written.envName !== options.envName) return;
+    if (written.envName !== options.envName) return;
     for (const kind of SCHEME_KINDS) {
-      signingKeys.delete(signingKeyId(written.scope.tenantId, written.name, kind));
+      signingKeys.delete(
+        signingKeyId(written.scope.tenantId, scopeKeyOf(written.scope), written.name, kind),
+      );
     }
   });
   let lastWarnedAt: number | undefined;
@@ -187,12 +191,25 @@ export function hooksRouter(options: HooksRouterOptions): Hono<AppEnv> {
    * failure isn't kept.
    */
   async function signingKeyOf(found: FoundWebhookTrigger): Promise<KeyObject | undefined> {
-    const id = signingKeyId(found.tenantId, found.hmacSecretName, found.signature.kind);
+    // Read where it was recorded when the trigger was registered, and only
+    // there (`secret-scope.ts`); none usable, nothing verifies. A trigger
+    // from before it was recorded reads the tenant's, as it did.
+    if (found.hmacSecretScope === null) return undefined;
+    const scope: Scope =
+      found.hmacSecretScope === undefined
+        ? { kind: 'tenant', tenantId: found.tenantId }
+        : scopeOfRecorded(found.tenantId, found.hmacSecretScope);
+    const id = signingKeyId(
+      found.tenantId,
+      scopeKeyOf(scope),
+      found.hmacSecretName,
+      found.signature.kind,
+    );
     const kept = signingKeys.get(id);
     if (kept !== undefined && kept.until > now()) return kept.key;
     const writesBefore = writes;
     const secret = await secrets.resolve({
-      scope: { kind: 'tenant', tenantId: found.tenantId },
+      scope,
       envName: options.envName,
       name: found.hmacSecretName,
       resolveContext: { caller: 'webhook-receiver' },
@@ -406,8 +423,20 @@ export function hooksRouter(options: HooksRouterOptions): Hono<AppEnv> {
   }
 }
 
-function signingKeyId(tenantId: string, secretName: string, scheme: string): string {
-  return `${tenantId}\n${secretName}\n${scheme}`;
+function signingKeyId(
+  tenantId: string,
+  scopeKey: string,
+  secretName: string,
+  scheme: string,
+): string {
+  return `${tenantId}\n${scopeKey}\n${secretName}\n${scheme}`;
+}
+
+/** A scope, as a cache key: its kind and id. */
+function scopeKeyOf(scope: Scope): string {
+  if (scope.kind === 'org') return `org:${scope.orgId as unknown as string}`;
+  if (scope.kind === 'project') return `project:${scope.projectId as unknown as string}`;
+  return 'tenant';
 }
 
 function refusalReasonOf(reason: VerifyInboundSignatureFailure): WebhookRefusalReason {
