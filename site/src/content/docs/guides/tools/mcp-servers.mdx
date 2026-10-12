@@ -148,6 +148,79 @@ inventory streamable-http
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/RegisterInventory.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.MCPEndpoint;
+import com.kindgi.client.models.MCPTransport;
+import com.kindgi.client.models.RegisterMCPEndpointBody;
+import com.kindgi.client.models.ScopeKind;
+
+public final class RegisterInventory {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    kindgi.mcp().endpoints().register(RegisterMCPEndpointBody.builder()
+        .endpointId("inventory")
+        .name("Inventory")
+        .transport(MCPTransport.STREAMABLE_HTTP)
+        .config(RegisterMCPEndpointBody.Config.StreamableHttp.builder()
+            .url("http://localhost:8791/mcp")
+            .build())
+        .scopeKind(ScopeKind.TENANT)
+        .build());
+
+    for (MCPEndpoint endpoint : kindgi.mcp().endpoints().list().data()) {
+      System.out.println(endpoint.endpointId() + " " + endpoint.transport());
+    }
+  }
+}
+```
+
+```text
+inventory streamable-http
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/RegisterInventory.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.models.{MCPTransport, RegisterMCPEndpointBody, ScopeKind}
+import scala.jdk.CollectionConverters._
+
+object RegisterInventory {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+    kindgi.mcp().endpoints().register(RegisterMCPEndpointBody.builder()
+      .endpointId("inventory")
+      .name("Inventory")
+      .transport(MCPTransport.STREAMABLE_HTTP)
+      .config(RegisterMCPEndpointBody.Config.StreamableHttp.builder()
+        .url("http://localhost:8791/mcp")
+        .build())
+      .scopeKind(ScopeKind.TENANT)
+      .build())
+
+    for (endpoint <- kindgi.mcp().endpoints().list().data.asScala)
+      println(s"${endpoint.endpointId} ${endpoint.transport}")
+  }
+}
+```
+
+```text
+inventory streamable-http
+```
+
+</TabItem>
 </Tabs>
 
 Or register it with `curl`:
@@ -232,6 +305,24 @@ tools: [
 ```python excerpt
 # in agents/order_desk.py
 tools=[lookup_order, {"id": "inventory.stock_level", "version": "^1.0.0"}],
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/mypack/agents/OrderDesk.java
+      .tool(LookupOrder.TOOL)
+      .tool("inventory.stock_level", "^1.0.0")
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/mypack/agents/OrderDesk.scala
+    .tool(LookupOrder.tool)
+    .tool("inventory.stock_level", "^1.0.0")
 ```
 
 </TabItem>
