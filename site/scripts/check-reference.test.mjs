@@ -7,6 +7,7 @@ import { referenceGaps } from './reference/completeness.mjs';
 import { commandOf, headingId, linkTo } from './reference/mentions.mjs';
 import { operationSlug } from './reference/openapi.mjs';
 import { markFragments } from './reference/packages.mjs';
+import { commentCode, markSignatures } from './reference/typedoc-signatures.mjs';
 
 /** A reference with nothing missing: one group, one command, one of everything. */
 function complete() {
@@ -171,4 +172,47 @@ test("markFragments marks a README's TypeScript fragments, not its whole files",
   assert.equal(marked[3], '```ts');
   assert.equal(marked[8], '```ts');
   assert.equal(marked[12], '```sh');
+});
+
+test("markSignatures fences typedoc's declarations, not the doc comments' code", () => {
+  const example =
+    "import { createClient } from '@kindgi/sdk/client';\n\nconst kindgi = createClient();";
+  const project = {
+    reflections: {
+      1: {
+        comment: {
+          summary: [
+            { kind: 'text', text: 'Make a client.' },
+            { kind: 'code', text: '`createClient()`' },
+          ],
+          blockTags: [
+            { tag: '@example', content: [{ kind: 'code', text: `\`\`\`ts\n${example}\n\`\`\`` }] },
+          ],
+        },
+      },
+      2: {},
+    },
+  };
+  const fromComments = commentCode(project);
+  assert.deepEqual([...fromComments], [example]);
+  const page = [
+    '```ts',
+    'function createClient(options?): KindgiClient;',
+    '```',
+    '## Example',
+    '```ts',
+    example,
+    '```',
+    '```ts excerpt',
+    'kindgi.runs;',
+    '```',
+    '```json',
+    '{}',
+    '```',
+  ].join('\n');
+  const marked = markSignatures(page, fromComments).split('\n');
+  assert.equal(marked[0], '```ts signature');
+  assert.equal(marked[4], '```ts');
+  assert.equal(marked[9], '```ts excerpt');
+  assert.equal(marked[12], '```json');
 });

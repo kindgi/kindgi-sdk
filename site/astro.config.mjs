@@ -7,6 +7,7 @@ import { defineConfig } from 'astro/config';
 import starlightOpenAPI, { createOpenAPISidebarGroup } from 'starlight-openapi';
 import { createStarlightTypeDocPlugin } from 'starlight-typedoc';
 import { agentMarkdown } from './scripts/agent-markdown.mjs';
+import { typedocSignatures } from './scripts/reference/typedoc-signatures.mjs';
 import { docsVersion, versionedPages } from './scripts/versioned-pages.mjs';
 
 // Each released minor line is built from its git tag under its own base
@@ -150,6 +151,8 @@ export default defineConfig({
             enumMembersFormat: 'table',
             typeDeclarationFormat: 'table',
             useCodeBlocks: true,
+            // Declarations are fenced `ts signature`: not code to paste.
+            plugin: [typedocSignatures],
           },
         }),
       ],
