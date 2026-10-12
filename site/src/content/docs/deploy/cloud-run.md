@@ -547,8 +547,8 @@ A new grant can take a minute or two to apply.
   `server_env` first, or nobody can sign in to the console. Up to 0.1.4 its
   sign-in page took the API token on its own; from 0.1.5 that's off by
   default ([7. Turn on sign-in](#7-turn-on-sign-in) has the other ways in).
-- **Upgrade at least every 90 days while Kindgi is in preview.** Until 1.0, a
-  release stops starting 90 days after it was released. Cloud Run starts new
+- **Upgrade at least every 90 days while Kindgi is in preview.** From runtime
+  0.1.8 until 1.0, a release stops starting 90 days after it was released. Cloud Run starts new
   instances on its own, and after that day none comes up. The runtime warns
   from 30 days before, at startup and once a day, in a log record with
   `jsonPayload.event = "kindgi.preview_expiry"`: set a log-based alert on it

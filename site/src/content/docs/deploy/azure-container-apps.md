@@ -410,8 +410,8 @@ to finish, with the output `{"greeting":"Hello, Azure!"}`.
 
 ## Operate it
 
-- **Upgrade at least every 90 days while Kindgi is in preview.** Until 1.0, a
-  release stops starting 90 days after it was released. Container Apps
+- **Upgrade at least every 90 days while Kindgi is in preview.** From runtime
+  0.1.8 until 1.0, a release stops starting 90 days after it was released. Container Apps
   starts new replicas on its own, and after that day none comes up. The
   runtime warns from 30 days before, at startup and once a day, in a log
   record with `"event": "kindgi.preview_expiry"`: alert on it in Log
