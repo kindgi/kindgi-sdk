@@ -135,7 +135,7 @@ describe('kindgi projects production', () => {
     );
   });
 
-  test('someone who isn\'t a tenant admin: permission-denied, not the client\'s `auth`', async () => {
+  test("someone who isn't a tenant admin: permission-denied, not the client's `auth`", async () => {
     const { out } = await run(['projects', 'production', 'p-shop', 'off'], { refuse: NOT_ADMIN });
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toBe(
