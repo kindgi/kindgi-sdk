@@ -73,8 +73,10 @@ docker exec -i kindgi-db-restored pg_restore -U kindgi -d kindgi --no-privileges
   same name for its data.
 - `pgvector/pgvector:pg16` is Postgres 16 with the `vector` extension the
   runtime needs.
+- `docker run -d` prints the new container's id.
 - `pg_isready` says whether the new Postgres accepts connections yet. Run it
-  again until it does.
+  again until it prints `accepting connections`. `pg_restore` prints nothing
+  when it succeeds.
 - `--no-privileges` leaves out the backup's grants. The runtime grants its
   database role what it needs every time it starts, and a fresh server
   doesn't have that role yet.
@@ -168,7 +170,8 @@ Then:
    ```
 
    `--out` is the file it writes. `$(date +%F)` names it with the date of the
-   export.
+   export. It prints, as JSON, the file it `wrote` and how many `erasures` it
+   holds.
 
 2. **After a restore, replay the latest export** before the runtime serves
    anyone. It erases again whoever the restored database holds:

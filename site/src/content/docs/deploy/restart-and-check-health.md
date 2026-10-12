@@ -59,7 +59,8 @@ pnpm exec kindgi runs cancel <run id> --url http://localhost:4000 --token "$KIND
 ```
 
 `<run id>` is the run's id. `--url` is the runtime's URL, and `--token` the
-API token.
+API token. It prints `"ok": true` with the run's id, as
+[Cancel a run](../../guides/runs/cancel-a-run/) shows.
 
 To avoid it, restart when no runs are executing.
 :::
