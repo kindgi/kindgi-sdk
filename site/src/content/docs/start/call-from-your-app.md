@@ -117,12 +117,15 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
 
 In Python:
 
-```python excerpt
+```python
+# triage.py
 from kindgi.client import Kindgi, KindgiApiError
 
 kindgi = Kindgi()  # KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
 try:
     run = kindgi.runs.start(agent="acme-support.triage", input={"userMessage": "Triage REQ-1002"})
+    if run.output is None:  # a run that didn't complete has no output
+        raise SystemExit(f"Run {run.id} ended {run.status}: {run.failure_message}")
     triage = run.output["output"]
 except KindgiApiError as error:
     print(error.code, error.server_code, error.message)
