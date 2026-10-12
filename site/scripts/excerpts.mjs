@@ -14,8 +14,8 @@
  * command names commands and flags the CLI has, JSON parses.
  *
  * On the page, an excerpt's frame carries the class `is-excerpt`, has no
- * copy button, and ends with a `div.excerpt` label. The Markdown twins
- * read that class to write the fence as ```` ```ts excerpt ````.
+ * copy button, and ends with a `div.excerpt` label, so whatever reads the
+ * built page can tell an excerpt from a block offered for copying.
  */
 
 /** The fence word that marks an excerpt. */
