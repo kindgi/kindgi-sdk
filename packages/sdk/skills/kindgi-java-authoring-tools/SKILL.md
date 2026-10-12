@@ -14,7 +14,7 @@ description: >
   by kindgi-java-getting-started.
 type: core
 library: "kindgi-pack (Java)"
-version: "0.1.1"
+version: "0.1.2"
 sdk_version: "0.0.0"
 pack_languages: [java]
 sources:
@@ -181,7 +181,12 @@ final class Citator {
   `onCancel(action)`.
 - `ctx.secrets()`: the secrets the tool declares (below). Printing the
   context shows their names, never their values.
-- `ctx.env()`, `ctx.config()`: **reserved, empty today**.
+- `ctx.env()`: the env values the tool declares (`set("needsSpec",
+  Map.of("env", …))`), resolved for the call: its project's value, else its
+  org's, else the tenant's (`kindgi env set NAME <value>
+  --scope=project:<id> --env=<env>`), with a declared `default` filled in.
+  Strings, and not secret.
+- `ctx.config()`: **reserved, empty today**.
 
 ## Configuration and secrets
 
