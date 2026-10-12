@@ -31,6 +31,9 @@ SDKs, the CLI and the schemas), so it matches the release it documents.
 - **[CLI](cli/):** every `kindgi` command, its flags and its subcommands.
 - **[Environment variables](env-vars/):** every `KINDGI_*` variable the
   runtime and the pack service read.
+- **[Error codes](errors/):** every error code the HTTP API answers with:
+  its status, what it means, what its details hold, and the operations that
+  answer it.
 - **[Packages](packages/):** every public `@kindgi/*` package: what it's for
   and how to use it.
 - **[JSON Schemas](schemas/):** the documents Kindgi reads and writes (the
