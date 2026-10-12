@@ -85,15 +85,16 @@
   font-weight: 600;
 }
 
-/* Links in the text: ink, underlined in plum, the underline thicker on hover. */
-.sl-markdown-content a:not(:where(.not-content *)) {
+/* Links in the text: ink, underlined in plum, the underline thicker on hover.
+   A link card is the whole link, so its words stay plain. */
+.sl-markdown-content a:not(:where(.not-content *, .sl-link-card *)) {
   color: var(--kg-text);
   text-decoration: underline;
   text-decoration-color: var(--kg-action);
   text-decoration-thickness: 1px;
   text-underline-offset: 0.22em;
 }
-.sl-markdown-content a:not(:where(.not-content *)):hover {
+.sl-markdown-content a:not(:where(.not-content *, .sl-link-card *)):hover {
   color: var(--kg-text);
   text-decoration-color: var(--kg-action);
   text-decoration-thickness: 2px;
