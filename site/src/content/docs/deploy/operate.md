@@ -34,7 +34,7 @@ These pages continue [Self-host Kindgi](../self-host/): the same containers
 
    ```sh
    docker pull quay.io/kindgi/runtime:<version>
-   docker stop --time 30 kindgi-server
+   docker stop -t 30 kindgi-server
    docker rm kindgi-server
    docker run -d --name kindgi-server --network kindgi --restart unless-stopped \
      --add-host registry.localhost:host-gateway \
