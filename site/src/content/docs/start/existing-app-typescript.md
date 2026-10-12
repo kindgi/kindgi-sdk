@@ -230,7 +230,7 @@ kindgi-index: file-import-failed: Failed to import kindgi/tools/find-order/index
 `prisma()` copies the schema into the image and runs `prisma generate` after
 the install:
 
-```ts
+```ts excerpt
 // in kindgi.config.ts
 import { prisma } from '@kindgi/sdk/build';
 
