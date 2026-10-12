@@ -1,9 +1,7 @@
 {
   "contributing/api-route-conventions": 2,
   "contributing/repository": 1,
-  "deploy/cloud-run": 4,
   "deploy/operate": 1,
-  "deploy/secret-manager": 1,
   "deploy/self-host": 1,
   "guides/agents/budgets": 2,
   "guides/agents/choose-a-model": 8,
