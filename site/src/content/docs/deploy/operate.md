@@ -560,7 +560,7 @@ What to check before you upgrade, and what's different after:
     [guardrails](../../guides/guardrails/write-a-guardrail/#in-the-console) and
     [members](../authorization/#in-the-console-members), each with a page of
     its own, plus
-    [Quality](../../guides/evals/judge-a-runs-output/#in-the-console) for
+    [Quality](../../guides/evals/judging-reference/#in-the-console) for
     judging, and [costs](../../guides/observability/cost-per-run/#cost-in-the-console)
     for the project and each run. The tenant gets
     [Teams](../authorization/#in-the-console-teams),
