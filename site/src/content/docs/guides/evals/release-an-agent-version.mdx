@@ -67,7 +67,7 @@ From the next run, a run that names no version gets 1.0.0, and says why:
 kindgi runs start --agent=acme.order-desk --input='{"userMessage":"Where is order A-1002?"}'
 ```
 
-```json
+```json excerpt
   "agent": {
     "id": "acme.order-desk",
     "version": "1.0.0",
@@ -106,7 +106,7 @@ A run started with that segment gets 1.1.0:
 kindgi runs start --agent=acme.order-desk --project=<project-id> --segment=company:acme --input='{"userMessage":"Where is order A-1002?"}'
 ```
 
-```json
+```json excerpt
   "agent": {
     "id": "acme.order-desk",
     "version": "1.1.0",
