@@ -87,7 +87,8 @@ If the pack's service refuses the token, the runtime's startup log says so:
 ## Limits
 
 - **One runtime instance.** Several instances sharing one database aren't
-  verified, so the module runs one.
+  verified, so the module runs one
+  ([Known issues](../../releases/0.1.7/#known-issues)).
 
 ## See also
 
