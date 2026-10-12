@@ -1,0 +1,133 @@
+// SPDX-License-Identifier: Apache-2.0
+// Copyright (C) 2026 Kindgi Inc.
+
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { compare, datedPhrases, proseOf } from './check-timeless.mjs';
+
+const phrases = (source) => datedPhrases(source).map(({ line, phrase }) => `${line}: ${phrase}`);
+
+test('a version as a point in time dates a page', () => {
+  assert.deepEqual(
+    phrases(
+      [
+        'From 0.1.7, `init` sets this up.',
+        'This was fixed in 0.1.1 and changed in Kindgi 0.1.4.',
+        'A project made before 0.1.6 keeps its owner, since 0.1.3.',
+        'The API may still change in 0.1.6.',
+        'Runtime 0.1.5.1 is the same as of 0.1.5.1.',
+      ].join('\n'),
+    ),
+    [
+      '1: From 0.1.7',
+      '2: fixed in 0.1.1',
+      '2: changed in Kindgi 0.1.4',
+      '3: before 0.1.6',
+      '3: since 0.1.3',
+      '4: in 0.1.6',
+      '5: as of 0.1.5.1',
+    ],
+  );
+});
+
+test('a requirement or a range is fine', () => {
+  assert.deepEqual(
+    phrases(
+      [
+        'Approvals need Kindgi 0.1.7 or later.',
+        'It works in 0.1.5 and later.',
+        'Not in the Java SDK in 0.1.x: call the HTTP API.',
+        'Install 0.1.7 with `pnpm add @kindgi/cli@0.1.7`.',
+      ].join('\n'),
+    ),
+    [],
+  );
+});
+
+test('time words date a page', () => {
+  assert.deepEqual(
+    phrases(
+      'What it gives today.\nIt currently runs one instance, for now.\nA fix is planned, coming soon.',
+    ),
+    ['1: today', '2: currently', '2: for now', '3: A fix is planned', '3: coming soon'],
+  );
+});
+
+test("code, image text, link targets and comments aren't prose", () => {
+  const prose = proseOf(
+    'Run `kindgi dev` today ![shown today](a.png) [the notes](../operate/#from-016-to-017) <!-- today -->',
+  );
+  assert.equal(prose.replace(/\s+/g, ' ').trim(), 'Run today [the notes]');
+  assert.deepEqual(
+    phrases(
+      [
+        '```text',
+        'It is currently in processing, fixed in 0.1.1.',
+        '```',
+        'See [the 0.1.7 notes](../operate/#from-016-to-017).',
+        '~~~~sh',
+        'echo today',
+        '~~~~',
+      ].join('\n'),
+    ),
+    [],
+  );
+});
+
+test("the title and description are checked, the rest of the front matter isn't", () => {
+  assert.deepEqual(
+    phrases(
+      [
+        '---',
+        'title: What it gives today',
+        'description: Fixed in 0.1.1.',
+        'sidebar:',
+        '  label: today',
+        '---',
+        'Body.',
+      ].join('\n'),
+    ),
+    ['2: today', '3: Fixed in 0.1.1'],
+  );
+});
+
+test('a version history box and a line that says why are allowed', () => {
+  assert.deepEqual(
+    phrases(
+      [
+        ':::note[Version history]',
+        '- Added in 0.1.5.',
+        '- Changed in 0.1.7.',
+        ':::',
+        'The quote says "today". <!-- timeless: a customer quote -->',
+        'The reply says "currently". {/* timeless: the model\'s own words */}',
+        'Changed in 0.1.7.',
+      ].join('\n'),
+    ),
+    ['7: Changed in 0.1.7'],
+  );
+});
+
+test('a page may have fewer dated phrases than its baseline, never more', () => {
+  const hit = { line: 1, phrase: 'today' };
+  const hits = new Map([
+    ['guides/a', [hit, hit]],
+    ['guides/b', [hit]],
+    ['guides/new', [hit]],
+  ]);
+  const { over, under } = compare(hits, { 'guides/a': 1, 'guides/b': 3, 'guides/gone': 2 });
+  assert.deepEqual(
+    over.map(({ page, allowed, hits: list }) => [page, allowed, list.length]),
+    [
+      ['guides/a', 1, 2],
+      ['guides/new', 0, 1],
+    ],
+  );
+  assert.deepEqual(
+    under.map(({ page, allowed, count }) => [page, allowed, count]),
+    [
+      ['guides/b', 3, 1],
+      ['guides/gone', 2, 0],
+    ],
+  );
+});
