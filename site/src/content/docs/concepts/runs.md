@@ -53,8 +53,8 @@ with a conflict, `idempotency-key-in-flight`. See
 
 A runtime that's shut down, by a deploy or `docker stop`, gives the runs
 it's executing a few seconds to finish. [Restart the runtime](../../deploy/operate/#restart-the-runtime)
-has the details. A runtime that stops without a shutdown leaves its runs
-mid-way: killed, out of memory, or after a crash.
+has the details. A runtime can also stop without a shutdown: it's killed, it
+runs out of memory, or it crashes. It then leaves its runs mid-way.
 
 Kindgi finds those runs by their **lease**. The server executing a run renews
 the run's lease while the run goes on. Every server sweeps for leases that ran
