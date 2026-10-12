@@ -239,6 +239,9 @@ for (const secret of [process.env.ACME_WEBHOOK_SECRET!, generateWebhookSecret()]
 }
 ```
 
+Run it with `ACME_WEBHOOK_SECRET` set, while the receiver runs, the way your
+app runs TypeScript. It prints each request's status:
+
 ```text
 204
 401
@@ -271,6 +274,9 @@ for secret in [os.environ["ACME_WEBHOOK_SECRET"], webhooks.generate_secret()]:
     )
     print(res.status_code)
 ```
+
+Run it with `ACME_WEBHOOK_SECRET` set, while the receiver runs:
+`uv run python test_receiver.py`. It prints each request's status:
 
 ```text
 204
