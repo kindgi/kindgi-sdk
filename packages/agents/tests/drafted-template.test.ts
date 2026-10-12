@@ -54,4 +54,21 @@ describe('checkDraftedTemplate', () => {
     expect(check(context.current.template)).toEqual(['the template is the current one']);
     expect(check(`Hi {{ firm }} ${'x'.repeat(2100)}`)[0]).toContain('at most 2000');
   });
+
+  test('one too long is refused on its length alone, before it is parsed', () => {
+    // Not valid Liquid either, and it reads a variable the agent doesn't have.
+    expect(check(`{{ customer_list }} {% if %} ${'x'.repeat(2100)}`)).toEqual([
+      'the template is 2129 characters; at most 2000 (twice the current one)',
+    ]);
+  });
+
+  test.each(['package.json', 'constructor', '__proto__'])(
+    'a partial is refused: a template resolves none (%s)',
+    (name) => {
+      // `package.json` would resolve from the package's directory, where the tests run.
+      expect(check(`Rank for {{ firm }}. {% render '${name}' %}`)).toEqual([
+        "templates can't use include, render or layout",
+      ]);
+    },
+  );
 });

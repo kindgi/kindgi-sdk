@@ -4,7 +4,7 @@ description: Create a Scala pack with tools, an agent, a guardrail and a flow, r
 sidebar:
   order: 4.6
   label: "Quickstart: Scala"
-  badge: { text: 'Preview', variant: 'caution' }
+  badge: { text: 'Preview', variant: 'caution', class: 'kg-preview' }
 ---
 
 The same pack as the [TypeScript quickstart](../quickstart-typescript/), in
@@ -13,7 +13,7 @@ are case classes and functions, built with sbt, on Scala 3 (2.13 works too).
 
 :::caution[Preview]
 **Preview.** Java and Scala support is tested and supported, but its API may
-still change in 0.1.6 without the usual deprecation period.
+still change in a later release without the usual deprecation period.
 :::
 
 **Before you start**, set up what the [Install page](../install/) describes:

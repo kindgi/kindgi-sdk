@@ -14,7 +14,7 @@ description: >
   by kindgi-java-getting-started.
 type: core
 library: "kindgi-pack (Java)"
-version: "0.1.0"
+version: "0.1.1"
 sdk_version: "0.0.0"
 pack_languages: [java]
 sources:
@@ -31,7 +31,7 @@ sources:
 > Windows). Maven runs as `./mvnw` (or the app's own `mvn`).
 >
 > Java support is in preview: tested and supported, but the API may still
-> change in 0.1.6 without the usual deprecation period.
+> change in a later release without the usual deprecation period.
 
 A **tool** is a unit of work an agent (or a flow step) calls: typed input,
 typed output, your code in between. In a Java pack it is a
