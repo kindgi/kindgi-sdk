@@ -127,7 +127,7 @@ so when it starts: `⚠ KINDGI_API_TOKEN changed, so it acts as a new user`.
 sends permission changes to OpenFGA (a grant, a revoke, a new project or
 agent) from a queue in Postgres, about twice a second. From 0.1.8, when it
 can't read or update one tenant's part of that queue, it logs an error
-([Logs](../logs/)):
+([Logs](../logs/)). Here, with the database out of reach:
 
 ```json
 {"time":"2026-10-12T06:21:01.457Z","level":"error","severity":"ERROR","subsystem":"authz.outbox","message":"drain: a tenant failed","tenantId":"0b6a3f2e-6c1d-4a8e-9f4b-2d7c5e1a9b30","error":"Tenant-scoped query failed: connection refused (connect ECONNREFUSED …)"}
