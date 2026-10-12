@@ -43,7 +43,8 @@ export interface TenantInputBounds {
   readonly schemaCacheEntries: number;
   /**
    * The most schema JSON those compiled schemas may add up to, in bytes: a
-   * compiled schema takes about 20 times its JSON in memory.
+   * compiled schema takes 4 to 15 times its JSON in memory for real API
+   * schemas, and up to about 20 times for the worst shapes measured.
    */
   readonly schemaCacheMaxBytes: number;
   /**
