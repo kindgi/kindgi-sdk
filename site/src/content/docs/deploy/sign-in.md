@@ -24,9 +24,10 @@ stay Kindgi's.
   ([Self-host with Docker](../self-host/)).
 - **The address people reach it at,** over `https`, such as
   `https://kindgi.acme.com`.
-- **A secrets store for the runtime,** for each workspace's identity
-  provider secrets ([Keep secrets in your own secret manager](../secret-manager/)
-  or the default Postgres one).
+- **A secrets store for the runtime,** set by `KINDGI_SECRETS_BACKEND`. An
+  identity provider's client secret and keys are references into it
+  ([Keep secrets in your own secret manager](../secret-manager/), or the
+  default Postgres one).
 - **`openssl`,** to make sign-in's own secret.
 
 ## 1. Turn it on

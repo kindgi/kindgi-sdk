@@ -42,8 +42,8 @@ little else. `kindgi dev` runs without it.
   `kindgi` Docker network and its `kindgi-db` Postgres container.
   `DB_PASSWORD` is that Postgres's password.
 - **Runtime 0.1.4.1 or later.** On a managed Postgres whose database user
-  has neither `BYPASSRLS` nor superuser, authorization needs runtime 0.1.8
-  or later.
+  has neither `BYPASSRLS` nor superuser, 0.1.6 and 0.1.7 don't start with
+  authorization on: use 0.1.8 or later there.
 - **Docker,** to run OpenFGA.
 
 ## Run OpenFGA next to the runtime
