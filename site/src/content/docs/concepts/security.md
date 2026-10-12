@@ -118,7 +118,10 @@ controls that:
   registered and when the runtime connects to it. Run MCP servers over HTTP
   instead. It also refuses connections to the runtime's own host (a loopback
   address) and the cloud metadata endpoints, wherever configuration names a
-  host: an image registry, a model provider, an HTTP tool, an MCP server.
+  host: an image registry, a model provider, an HTTP tool, an MCP server,
+  and from 0.1.7 a tenant's SSO identity provider. An identity provider
+  whose origin the operator allows in `KINDGI_AUTH_PRIVATE_IDP_ORIGINS`
+  connects all the same ([Set up SSO](../../guides/sso/)).
 - **`local`** (the default in development mode) allows it. Use it only on a
   machine where everyone holding an API token may run commands anyway.
 
@@ -134,6 +137,10 @@ delivery, for every address the receiver's name resolves to. A self-hosted runti
 its own private network sets `KINDGI_WEBHOOK_PRIVATE_NETWORKS=allow`, which
 opens RFC 1918, CGNAT and IPv6 unique-local addresses. Loopback and the
 cloud metadata addresses stay refused.
+
+A model provider's calls carry only its own registration's settings and its
+own key: from 0.1.7, nothing of the server's environment goes with them
+([Security fixes in 0.1.7](../../deploy/operate/#security-fixes-in-017)).
 
 ## Secrets by reference
 
