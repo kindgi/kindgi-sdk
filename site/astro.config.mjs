@@ -114,6 +114,8 @@ export default defineConfig({
         Banner: './src/components/Banner.astro',
         // "Edit page" (hand-written pages) and "Report a problem" (every page).
         EditLink: './src/components/EditLink.astro',
+        // "See also" on the HTTP API's operation pages.
+        MarkdownContent: './src/components/MarkdownContent.astro',
       },
       plugins: [
         starlightOpenAPI([
@@ -185,6 +187,7 @@ export default defineConfig({
               items: [{ autogenerate: { directory: 'reference/cli' } }],
             },
             { label: 'Environment variables', link: '/reference/env-vars/' },
+            { label: 'Error codes', link: '/reference/errors/' },
             {
               label: 'Packages',
               collapsed: true,
