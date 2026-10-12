@@ -3,7 +3,7 @@
 
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { excerpts, isExcerpt, metaWords } from './excerpts.mjs';
+import { excerpts, isExcerpt, metaWords, uncopied } from './excerpts.mjs';
 
 test("a fence's bare words, not its values", () => {
   assert.deepEqual(metaWords('excerpt'), ['excerpt']);
@@ -28,6 +28,21 @@ test("a whole compiled file's `…` is its own text; the fence word still counts
   assert.equal(isExcerpt({ ...file, meta: 'excerpt' }), true);
   // A named block in a language that isn't compiled isn't checked whole: `…` makes it an excerpt.
   assert.equal(isExcerpt({ ...file, language: 'json' }), true);
+});
+
+test('a signature: the fence says so, whatever the block holds', () => {
+  const signature = {
+    language: 'python',
+    meta: 'signature',
+    code: 'get(agent_id: str, /) -> Agent',
+    named: false,
+  };
+  assert.equal(uncopied(signature), 'signature');
+  assert.equal(uncopied({ ...signature, code: 'start(input: …) -> Run' }), 'signature');
+  assert.equal(uncopied({ ...signature, meta: '' }), undefined);
+  assert.equal(uncopied({ ...signature, meta: '', code: 'start(…)' }), 'excerpt');
+  // A word inside a value isn't the fence's word.
+  assert.equal(uncopied({ ...signature, meta: 'title="signature"' }), undefined);
 });
 
 /** The frame the frames plugin renders: a figure with a header, the code, and the copy button. */
@@ -60,6 +75,17 @@ test("an excerpt's frame: the class, no copy button, and the label at its foot",
   assert.deepEqual(classes(figure), ['frame', 'is-excerpt']);
   assert.deepEqual(childClasses(figure), ['header', 'pre', 'excerpt']);
   assert.deepEqual(figure.children.at(-1).children, [{ type: 'text', value: 'Excerpt' }]);
+});
+
+test("a signature's frame: its own class and label, no copy button", () => {
+  const figure = render({
+    language: 'python',
+    meta: 'signature',
+    code: 'get(agent_id: str) -> Agent',
+  });
+  assert.deepEqual(classes(figure), ['frame', 'is-signature']);
+  assert.deepEqual(childClasses(figure), ['header', 'pre', 'signature']);
+  assert.deepEqual(figure.children.at(-1).children, [{ type: 'text', value: 'Signature' }]);
 });
 
 test('a block offered for copying keeps its frame as it is', () => {
