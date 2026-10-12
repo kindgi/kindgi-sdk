@@ -9,15 +9,10 @@
  * Pinned by digest, not tag: Docker doesn't re-pull a tag it already has, so
  * a tag would leave anyone with an older pull on an older runtime.
  *
- * The image is in private preview on Quay: pull credentials come from
- * RUNTIME_ACCESS_URL, then `kindgi auth registry --username <name>`.
+ * The image is in private preview on Quay. A pull credential (a robot name
+ * and a token) comes from signing in with GitHub at access.kindgi.com
+ * (`KINDGI_ACCESS_ORIGIN`), then `kindgi auth registry --username <name>`.
  */
-/**
- * Where pull credentials for the runtime image come from: signing in there
- * with GitHub gives a robot name and a token (and a non-production key).
- * The one place every message gets it.
- */
-export const RUNTIME_ACCESS_URL = 'https://access.kindgi.com';
 
 export const DEFAULT_RUNTIME_IMAGE =
   'quay.io/kindgi/runtime:0.1.7-rc.0@sha256:58b1628cb8ac2433fda449243d2599247d0bfe60eb80143172ec11a731290a9b';

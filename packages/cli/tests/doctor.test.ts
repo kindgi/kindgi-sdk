@@ -287,10 +287,10 @@ describe('the machine', () => {
     const { check } = await doctor({ seam: seam({ docker: dockerThat('no-access') }) });
     expect(check('registry')).toMatchObject({ status: 'fail' });
     expect(check('registry')?.fix).toMatch(
-      /npx @kindgi\/cli@\S+ auth registry --username <robot name> --password-stdin/,
+      /npx @kindgi\/cli@\S+ auth registry --username <your robot name> --password-stdin/,
     );
     expect(check('registry')?.fix).toContain(
-      'come from https://access.kindgi.com, signed in with GitHub',
+      'the robot name and the token are on https://access.kindgi.com once you sign in with GitHub',
     );
   });
 

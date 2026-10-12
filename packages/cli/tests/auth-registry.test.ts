@@ -250,7 +250,9 @@ describe('logging in', () => {
     const out = await runRegistry(['--password-stdin'], { docker: fake.run });
     expect(out.exitCode).toBe(2);
     expect(out.stderr).toContain('Missing --username');
-    expect(out.stderr).toContain('get yours at https://access.kindgi.com');
+    expect(out.stderr).toContain(
+      'Sign in with GitHub at https://access.kindgi.com: the page shows this command with your robot name',
+    );
     expect(fake.calls).toEqual([]);
   });
 
@@ -269,7 +271,7 @@ describe('logging in', () => {
     expect(out.exitCode).toBe(1);
     expect(out.stderr).toContain('docker login quay.io failed: Error response from daemon');
     expect(out.stderr).toContain('unauthorized: bad credentials for ***');
-    expect(out.stderr).toContain('For new pull credentials, sign in at https://access.kindgi.com');
+    expect(out.stderr).toContain('Signing in at https://access.kindgi.com shows both.');
     expect(out.stderr).not.toContain(TOKEN);
     // No check after a failed login.
     expect(fake.calls.some((c) => c.args[0] === 'buildx')).toBe(false);
@@ -363,11 +365,9 @@ describe('--check', () => {
       `✗ No access to ${DEFAULT_RUNTIME_IMAGE}: ERROR: unexpected status`,
     );
     expect(out.stderr).toContain(
-      'get pull credentials at https://access.kindgi.com (sign in with GitHub)',
+      'sign in with GitHub at https://access.kindgi.com for a pull credential, then log in',
     );
-    expect(out.stderr).toContain(
-      'kindgi auth registry --username <the robot name you were given>.',
-    );
+    expect(out.stderr).toContain('kindgi auth registry --username <your robot name>.');
     expect(out.stderr).not.toContain("Couldn't find");
   });
 
@@ -399,7 +399,7 @@ describe('--check', () => {
     expect(out.stderr).toContain('✓ Logged in to quay.io as robot');
     expect(out.stderr).toContain("robot is logged in to quay.io but can't pull it");
     expect(out.stderr).toContain(
-      'sign in at https://access.kindgi.com for current pull credentials',
+      'sign in at https://access.kindgi.com for your current pull credential (questions: contact@kindgi.com)',
     );
   });
 });
@@ -597,10 +597,10 @@ describe('without Docker', () => {
 describe('the refused-pull hint of kindgi dev', () => {
   test('points to kindgi auth registry, naming the registry only when it is another one', () => {
     expect(registryLoginCommand(DEFAULT_RUNTIME_IMAGE)).toBe(
-      'kindgi auth registry --username <the robot name you were given>',
+      'kindgi auth registry --username <your robot name>',
     );
     expect(registryLoginCommand('registry.example.com/kindgi/runtime:dev')).toBe(
-      'kindgi auth registry --username <the robot name you were given> --registry registry.example.com',
+      'kindgi auth registry --username <your robot name> --registry registry.example.com',
     );
   });
 });
