@@ -11,6 +11,7 @@
 import { defineEcConfig } from '@astrojs/starlight/expressive-code';
 import tokens from '../design/tokens.json' with { type: 'json' };
 import cli from '../packages/cli/package.json' with { type: 'json' };
+import { excerpts } from './scripts/excerpts.mjs';
 import { versionInCode } from './scripts/versioned-pages.mjs';
 
 // The design tokens' source: code shows three colours, as the design sheet
@@ -32,8 +33,9 @@ function mix(a, share, b) {
 const comment = mix(codeText.light, 0.55, codeBg.light);
 
 export default defineEcConfig({
-  // `{{kindgi.version}}` in a code block, filled before highlighting.
-  plugins: [versionInCode(cli.version)],
+  // `{{kindgi.version}}` in a code block, filled before highlighting. An
+  // excerpt (```` ```ts excerpt ````, or a block with `…`) gets no copy button.
+  plugins: [versionInCode(cli.version), excerpts()],
   themes: ['github-dark-default'],
   // Every rule to the code text, but comments and plain strings. A rule with
   // its own background (a diff line) keeps its colours.
