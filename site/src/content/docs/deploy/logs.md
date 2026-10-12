@@ -5,12 +5,18 @@ sidebar:
   order: 3.5
 ---
 
-The runtime writes its log to standard output, one record per line, and your
+This page shows what the runtime logs, at which level and in which format,
+and how to follow one request or one run through the logs.
+
+The runtime writes its log to standard output, one record per line. Your
 pack's service writes the same records to its standard error
-([Your pack's service](#your-packs-service)). Where they go from there is
-your platform's: `kindgi dev` shows both in its terminal
-([Under `kindgi dev`](#under-kindgi-dev)), `docker logs` shows a container's,
-and Cloud Run sends them to Cloud Logging.
+([Your pack's service](#your-packs-service)). Where they go from there is up
+to your platform:
+
+- `kindgi dev` shows both in its terminal
+  ([Under `kindgi dev`](#under-kindgi-dev));
+- `docker logs` shows a container's;
+- Cloud Run sends them to Cloud Logging.
 
 ## Choose the level and the format
 
@@ -26,9 +32,10 @@ Three settings, all optional:
   dotted subsystem takes its parent's level unless it's named itself:
   `kernel=debug` covers `kernel.sweeper` too.
 - **`auto`** is `pretty` on a terminal or with `KINDGI_DEV=true`, and `json`
-  otherwise: a container started with `docker run -d` logs JSON, which suits a
-  log pipeline. To read a container's log by eye, set
-  `KINDGI_LOG_FORMAT=pretty`, or start it with `docker run -it` (a terminal).
+  otherwise. So a container started with `docker run -d` logs JSON, which
+  suits a log pipeline. To read a container's log by eye, set
+  `KINDGI_LOG_FORMAT=pretty`, or start it on a terminal with
+  `docker run -it`.
 
 A value the runtime can't use stops it at boot, with exit code 2:
 
@@ -67,10 +74,10 @@ the fields:
 {"time":"2026-10-07T17:36:47.001Z","level":"info","severity":"INFO","subsystem":"http","message":"POST /v1/runs 404 57ms","traceId":"4bf92f3577b34da6a3ce929d0e0e4736","spanId":"e61f14baa539a680","requestId":"req-474e92d9-7a0a-4bc0-9307-664ed1cf3184","tenantId":"5c0a7e11-0000-4000-8000-00000000c0de","method":"POST","route":"/v1/runs",…}
 ```
 
-A record whose message states some of its fields lists them in `inMessage`:
-fields the message already states; renderers may omit them. The request line
-above ends with `"inMessage":["method","route","status","durationMs"]`, which
-is how the pretty format and `kindgi dev` know to leave them out.
+A record whose message states some of its fields lists them in `inMessage`,
+and renderers may leave those fields out. The request record in this section
+ends with `"inMessage":["method","route","status","durationMs"]`. That's how
+the pretty format and `kindgi dev` know to leave them out.
 
 At boot, the pretty format prints the startup block (see
 [The startup log](../operate/#the-startup-log)). The JSON format prints one
@@ -101,35 +108,43 @@ So at the default level, a run's start shows and its polling doesn't:
 17:36:39.720 INFO  [http] GET /v1/runs/:runId 404 20ms traceId=… requestId=… tenantId=…
 ```
 
-(`KINDGI_LOG_LEVELS=http=debug` showed the first.)
+The first line shows only with `KINDGI_LOG_LEVELS=http=debug`.
 
 ## Follow a request or a run
 
 Each request has a W3C trace context. Send a `traceparent` header and the
-runtime joins your trace: its records carry your `traceId`, and its answer
-has a `traceresponse` header with your trace id and its own span:
+runtime joins your trace: its records carry your `traceId`. Its answer has a
+`traceresponse` header with your trace id and its own span:
 
 ```sh
-curl -X POST "$KINDGI_API_URL/v1/runs" -H "Authorization: Bearer $KINDGI_API_TOKEN" \
+curl -sS -D - -o /dev/null -X POST "$KINDGI_API_URL/v1/runs" \
+  -H "Authorization: Bearer $KINDGI_API_TOKEN" \
   -H 'traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01' \
   -H 'content-type: application/json' -d '{"agent":"acme.desk","input":{"userMessage":"hi"}}'
 ```
 
+- `-D -` prints the answer's headers, and `-o /dev/null` drops its body.
+- `KINDGI_API_URL` is the runtime's address, and `KINDGI_API_TOKEN` an API
+  key.
+- `traceparent` is the trace to join: `00`, then the trace id, your span's
+  id, and `01` for a sampled trace.
+- `-d` is the run to start: here an agent `acme.desk`, with a message.
+
 ```text
+…
 traceresponse: 00-4bf92f3577b34da6a3ce929d0e0e4736-e61f14baa539a680-01
+…
 ```
 
-Without a `traceparent`, the runtime starts a trace of its own. A run keeps the
-trace it started in as `traceId`, so its later records can be found from it:
-
-```sh
-kindgi runs get <run-id>   # "traceId": "4bf92f3577b34da6a3ce929d0e0e4736"
-```
+Without a `traceparent`, the runtime starts a trace of its own. A run keeps
+the trace it started in as `traceId`, so you can find its later records from
+it. `kindgi runs get <run-id>` shows a run's `traceId`, where `<run-id>` is
+the run's id.
 
 Each call the runtime makes to your pack's service carries a `traceparent`:
-a new span in the trace of the turn being worked on. A resumed run's calls
-are in the resume's trace; a call made from a background wake carries none. So the pack service's record of the call has the run's
-`traceId`.
+a new span in the trace of the turn being worked on. So the pack service's
+record of the call has the run's `traceId`. A resumed run's calls are in the
+resume's trace. A call made from a background wake carries none.
 
 Model providers and MCP servers are outside your deployment, so they get the
 run's trace only when their registration opts in: `send_traceparent: true` on
@@ -139,13 +154,17 @@ each call to them carries a `traceparent` header: ids only, never content.
 
 ## Records from a run
 
-A record written while a run works carries the run's ids: `runId`,
-`tenantId` and `projectId`, `parentRunId` for a run started by another, an
-agent turn's `agentId`, `agentVersion` and `conversationId`, or a flow run's
-`flowId` and `flowVersion`. Its `traceId` is the trace of the turn being
-worked on. A turn worked on under another trace, or under none (a resume, a
-background wake), also carries `runTraceId`, the trace the run started in.
-To see everything about one run, search your logs for its `runId`.
+A record written while a run works carries the run's ids:
+
+- `runId`, `tenantId` and `projectId`;
+- `parentRunId`, for a run started by another;
+- an agent turn's `agentId`, `agentVersion` and `conversationId`;
+- a flow run's `flowId` and `flowVersion`.
+
+Its `traceId` is the trace of the turn being worked on. A turn can be worked
+on under another trace, or under none, as in a resume or a background wake.
+Its records then also carry `runTraceId`, the trace the run started in. To
+see everything about one run, search your logs for its `runId`.
 
 A run also writes records of its own:
 
@@ -192,8 +211,9 @@ the same schema to its standard error, under the subsystem `pack`:
 - **What your tools log with `ctx.log`:** under `pack.tool`, with the same
   ids ([Log from a tool](../../guides/tools/write-a-tool/#log-from-a-tool)).
 
-Here a Java pack service's two records for one call made straight to it,
-with a `traceparent`: what the tool logged, then the call:
+Here are a Java pack service's two records for one call made straight to it,
+with a `traceparent`. The first is what the tool logged, and the second is
+the call:
 
 ```json
 {"time":"2026-10-09T12:42:06.392Z","level":"info","severity":"INFO","subsystem":"pack.tool","message":"looked up order","traceId":"4bf92f3577b34da6a3ce929d0e0e4736","spanId":"369de18ba1ec524e","requestId":"call-1","tenantId":"acme-tenant","runId":"run-1","toolId":"acme.lookup-order","packId":"acme","artifactVersion":"20261009.1","target":"tool","orderId":"o-1001"}
@@ -201,8 +221,9 @@ with a `traceparent`: what the tool logged, then the call:
 ```
 
 `KINDGI_LOG_LEVEL`, `KINDGI_LOG_LEVELS` and `KINDGI_LOG_FORMAT` apply to it
-too; there, `auto` means JSON unless its standard error is a terminal. What
-your code prints itself (`console.log`, `print`) passes through as it is.
+too. There, `auto` means JSON unless its standard error is a terminal. What
+your code prints itself, with `console.log` or `print`, passes through as it
+is.
 
 ## Under `kindgi dev`
 
