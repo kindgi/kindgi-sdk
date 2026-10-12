@@ -46,9 +46,10 @@ commit.
   the console's nav) uses `text` and `text-2`. The current item is `text`,
   bold, with a `line` edge and a faint tint of `text`.
 - **Links** in docs prose are underlined, with no arrow: `text`, with a 1px
-  `action` underline that thickens to 2px on hover. Links outside docs
-  prose (the website) are their words and an arrow, no underline: `link`,
-  then `link-hover` on hover.
+  `action` underline that thickens to 2px on hover. A link card is the
+  whole link, so its words aren't underlined. Links outside docs prose (the
+  website) are their words and an arrow, no underline: `link`, then
+  `link-hover` on hover.
 - **Buttons** answer hover with a light shade change: filled buttons take
   `action-hover` (or `accent-hover`); outline buttons take a faint tint of
   `text` and a `text` edge.
