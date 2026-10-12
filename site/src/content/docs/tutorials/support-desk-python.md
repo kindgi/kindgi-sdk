@@ -39,7 +39,8 @@ uv sync
 - `acme-desk` is the pack's name, and the folder it's created in.
 - `--template=python` starts a Python pack, with a small example.
 
-You now have the pack's folders, `tools/`, `agents/`, `guardrails/` and
+`init` lists the files it made, `rm` and `mkdir` print nothing, and `uv sync`
+installs the dependencies. You now have the pack's folders, `tools/`, `agents/`, `guardrails/` and
 `flows/`, and the `[tool.kindgi]` tables in `pyproject.toml`, without the
 example. `support/` is where your code goes.
 
@@ -307,7 +308,9 @@ uv run kindgi providers register --preset=anthropic
 - `--preset=anthropic` registers Claude on the Anthropic API, with the key
   stored under `ANTHROPIC_API_KEY`.
 
-Your agent's turns now go to Claude.
+`secrets set` then prints `Set ANTHROPIC_API_KEY at tenant in local.`, and
+`providers register` prints `✓ Registered anthropic:` with the preset's
+models, its default marked. Your agent's turns now go to Claude.
 
 ## 7. Triage a ticket
 
