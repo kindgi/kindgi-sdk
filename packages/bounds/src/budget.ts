@@ -65,7 +65,10 @@ interface Ledger {
   pieces: Spent[];
   head: number;
   spentUs: number;
-  /** While refused: when the tenant is under its budget again. */
+  /**
+   * Once refused: when the tenant is under its budget again. Read only
+   * while it's over the budget; a piece charged clears it.
+   */
   refusedUntil: number;
 }
 
@@ -118,9 +121,10 @@ export class TenantTimeBudget {
   /** Throws `refuse`'s error when `tenant` has spent its budget. */
   private check(tenant: string, now: number): void {
     const ledger = this.ledgerOf(tenant);
-    if (now < ledger.refusedUntil) throw this.refuse(this.budgetMs, ledger.refusedUntil - now);
     this.inWindow(ledger, now);
     if (ledger.spentUs < this.budgetUs) return;
+    // Read after the count, so a wall clock set back never refuses a tenant under its budget.
+    if (now < ledger.refusedUntil) throw this.refuse(this.budgetMs, ledger.refusedUntil - now);
     // Under the budget again once enough of the oldest work leaves the window.
     let left = ledger.spentUs;
     let under = now;
@@ -130,7 +134,7 @@ export class TenantTimeBudget {
       under = spent.at + BUDGET_WINDOW_MS;
       if (left < this.budgetUs) break;
     }
-    // Nothing the tenant starts is charged while it's refused, so the wait holds.
+    // It holds until a piece is charged: what the tenant starts now is refused.
     ledger.refusedUntil = under;
     throw this.refuse(this.budgetMs, under - now);
   }
@@ -140,6 +144,8 @@ export class TenantTimeBudget {
     const ledger = this.ledgerOf(tenant);
     const us = Math.round(ms * 1_000);
     ledger.spentUs += us;
+    // A piece that started before a refusal can end after it, and move the wait.
+    ledger.refusedUntil = 0;
     // Work ends in the order it started, but for a piece inside another one.
     let i = ledger.pieces.length;
     while (i > ledger.head && (ledger.pieces[i - 1] as Spent).at > at) i -= 1;

@@ -132,6 +132,42 @@ describe('a budget kept per tenant', () => {
     expect(refusal(() => work('tenant-a', 1)).retryAfterMs).toBe(BUDGET_WINDOW_MS - 600);
   });
 
+  test('a tenant under its budget goes, when the wall clock is set back after a refusal', () => {
+    const { clock, work } = budgetOf(1_000);
+    work('tenant-a', 1_000);
+    const { retryAfterMs } = refusal(() => work('tenant-a', 1));
+    clock.later(retryAfterMs);
+    expect(work('tenant-a', 100)).toBe(100);
+    clock.wall -= 10_000;
+    expect(work('tenant-a', 100)).toBe(100);
+  });
+
+  test('a tenant whose work left the window while it charged nothing goes, when the wall clock is set back', () => {
+    const { clock, work } = budgetOf(1_000);
+    work('tenant-a', 900);
+    clock.later(10_000);
+    work('tenant-a', 100);
+    refusal(() => work('tenant-a', 1));
+    // Past the wait, another tenant's work drops tenant-a's first piece: 100 ms of it are left.
+    clock.later(50_000);
+    work('tenant-b', 1);
+    clock.wall -= 10_000;
+    expect(work('tenant-a', 100)).toBe(100);
+  });
+
+  test('work that started before a refusal and ends after it moves the wait', () => {
+    const { budget, clock, work } = budgetOf(1_000);
+    work('tenant-a', 600);
+    budget.charge('tenant-a', () => {
+      // Inside it: work that takes the tenant to its budget, then work that's refused.
+      work('tenant-a', 400);
+      refusal(() => work('tenant-a', 1));
+      clock.later(600);
+    });
+    // The outer piece started 1 s ago and took 1 s: the tenant is under again once it leaves.
+    expect(refusal(() => work('tenant-a', 1)).retryAfterMs).toBe(BUDGET_WINDOW_MS - 1_000);
+  });
+
   test('each tenant has its own budget', () => {
     const { work } = budgetOf(1_000);
     work('tenant-a', 1_000);
