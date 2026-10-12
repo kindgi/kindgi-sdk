@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 /**
- * Checks the code samples on the site's pages (the reference pages
- * `generate-reference.mjs` writes included), and in the skills
+ * Checks the code samples on the site's pages (the generated reference
+ * pages included), and in the skills
  * `kindgi init` installs (`packages/sdk/skills/`) whose samples are whole
  * files (`"samples": "checked"` in `site/skills-sources.json`; a skill's
  * teaching fragments stay unchecked until it's revised to make them whole).
@@ -57,7 +57,9 @@
  *     and stay as they are.
  * Skills keep only the whole-file check: they aren't rendered with copy buttons.
  * The generated reference pages are git-ignored: `docs:build` writes them
- * before CI's `docs:samples`, and a run over every page fails without them.
+ * (`generate-reference.mjs` the CLI's and the Python SDK's, the site's build
+ * the TypeScript SDK's) before CI's `docs:samples`, and a run over every
+ * page fails without them.
  *
  * A sample may import the reader's own app code (`@/lib/requests`,
  * `acme.orders`). The page gives the checker a stand-in for it in a comment
@@ -79,7 +81,7 @@
  *
  * Usage: node site/scripts/check-samples.mjs [--no-compile] [<page or skill file> …]
  *   (a page path is relative to site/src/content/docs; default: every page
- *   and skill, after `node site/scripts/generate-reference.mjs`)
+ *   and skill, after `pnpm run docs:build`, which generates the reference)
  *   --no-compile: the page rules only, without compiling the whole files
  *   (no pack, JDK or sbt needed): the quick list for a page's author.
  */
@@ -115,10 +117,12 @@ const pyright = join(site, 'node_modules', '.bin', 'pyright');
 const PACK_PYTHON = /^(?:tools|agents|flows|guardrails)\//;
 
 /**
- * The folders `generate-reference.mjs` writes pages into (git-ignored) that
- * a run over every page needs: the CLI's and the Python SDK's references.
+ * The folders of generated reference pages (git-ignored) that a run over
+ * every page needs: the CLI's and the Python SDK's, which
+ * `generate-reference.mjs` writes, and the TypeScript SDK's, which the
+ * site's build writes (starlight-typedoc). `docs:build` writes all three.
  */
-const GENERATED = ['reference/cli', 'reference/python'];
+const GENERATED = ['reference/cli', 'reference/python', 'reference/typescript'];
 const PAGE = /\.mdx?$/;
 
 const LANGUAGES = {
@@ -1172,7 +1176,7 @@ async function main() {
   const missing = missingGenerated();
   if (selected.length === 0 && missing.length > 0) {
     console.error(
-      `check-samples: the generated reference pages aren't there (${missing.join(', ')} in site/src/content/docs): run \`node site/scripts/generate-reference.mjs\` first, or \`pnpm run docs:build\`, which runs it.`,
+      `check-samples: the generated reference pages aren't there (${missing.join(', ')} in site/src/content/docs): run \`pnpm run docs:build\` first, which generates them.`,
     );
     process.exit(1);
   }

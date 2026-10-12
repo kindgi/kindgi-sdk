@@ -333,10 +333,16 @@ test('every page, the generated reference included; a whole run needs it generat
     page('reference/index');
     page('contributing/repository');
     writeFileSync(join(root, 'reference', 'openapi.json'), '{}');
-    assert.deepEqual(missingGenerated(root), ['reference/cli', 'reference/python']);
+    assert.deepEqual(missingGenerated(root), [
+      'reference/cli',
+      'reference/python',
+      'reference/typescript',
+    ]);
     page('reference/cli/runs');
-    assert.deepEqual(missingGenerated(root), ['reference/python']);
+    assert.deepEqual(missingGenerated(root), ['reference/python', 'reference/typescript']);
     page('reference/python/client');
+    assert.deepEqual(missingGenerated(root), ['reference/typescript']);
+    page('reference/typescript/sdk/client/index');
     assert.deepEqual(missingGenerated(root), []);
     assert.deepEqual(
       pages(root)
@@ -348,6 +354,7 @@ test('every page, the generated reference included; a whole run needs it generat
         'reference/cli/runs',
         'reference/index',
         'reference/python/client',
+        'reference/typescript/sdk/client/index',
         'start/install',
       ].map((slug) => (slug.startsWith('guides/') ? `${slug}.mdx` : `${slug}.md`)),
     );
