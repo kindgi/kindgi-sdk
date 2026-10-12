@@ -35,13 +35,6 @@
   "guides/sso/sessions": 1,
   "guides/tools/write-a-tool": 1,
   "guides/webhooks/receive-run-finished": 2,
-  "start/existing-app": 11,
-  "start/install": 2,
-  "start/java-app": 1,
-  "start/quickstart-java": 1,
-  "start/quickstart-python": 2,
-  "start/quickstart-scala": 1,
-  "start/quickstart-typescript": 2,
-  "tutorials/support-desk-python": 2,
-  "tutorials/support-desk-typescript": 2
+  "start/existing-app": 7,
+  "start/install": 2
 }
