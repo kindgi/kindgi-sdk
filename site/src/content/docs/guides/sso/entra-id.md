@@ -75,10 +75,10 @@ Open **Applications → App registrations → New registration:**
    required:** choose Yes. Then, under **Users and groups**, add who may sign
    in.
 
-Steps 1 to 4, and the issuer in [Register it](#4-register-it), were checked
-with a sign-in through such an app. Step 5 comes from Microsoft's
-documentation.
-The app needs no optional claims: Kindgi reads the person's email from
+Steps 1 to 4 of this section, and the issuer in
+[Register it](#4-register-it), were checked with a sign-in through such an
+app. Step 5 of this section comes from Microsoft's documentation. The app
+needs no optional claims: Kindgi reads the person's email from
 Microsoft's userinfo endpoint.
 
 ## 3. Store the client secret
@@ -105,8 +105,9 @@ kindgi secrets set ACME_ENTRA_SECRET --env=production --scope=tenant --write-mod
 ```
 
 `--write-mode=add-version` adds a version to a secret that exists. Without
-it, `set` refuses a name that's already taken. Sign-ins read the secret as
-they happen, so the next one uses the new version.
+it, `set` refuses a name that's already taken. The runtime keeps a secret it
+has read for up to a minute, so sign-ins use the new version within a
+minute. Delete the old client secret in Entra ID only after that.
 
 ## 4. Register it
 
