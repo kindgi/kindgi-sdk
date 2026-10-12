@@ -178,9 +178,5 @@
   "guides/tools/read-only-tools": {
     "Java": 1,
     "Scala": 1
-  },
-  "guides/webhooks/test-and-replay": {
-    "Java": 1,
-    "Scala": 1
   }
 }

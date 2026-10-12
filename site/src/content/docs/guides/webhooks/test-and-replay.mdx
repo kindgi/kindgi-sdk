@@ -80,6 +80,77 @@ delivered 1 204
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java
+// src/main/java/com/acme/app/TestEndpoint.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.WebhookDelivery;
+import com.kindgi.client.resources.WebhookEndpointsListDeliveriesParams;
+
+public final class TestEndpoint {
+  private static final Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+  /** Sends the endpoint a test event, and prints how it was delivered. */
+  public static void testEndpoint(String endpointId) throws InterruptedException {
+    WebhookDelivery queued = kindgi.webhookEndpoints().sendTest(endpointId);
+    System.out.println(queued.deliveryId() + " " + queued.event().type() + " " + queued.status());
+
+    Thread.sleep(5000); // a few seconds later
+    WebhookDelivery delivery = kindgi.webhookEndpoints()
+        .listDeliveries(endpointId, WebhookEndpointsListDeliveriesParams.builder().limit(1L).build())
+        .data().get(0);
+    System.out.println(delivery.status() + " " + delivery.attempts() + " " + delivery.lastResponseStatus());
+  }
+
+  public static void main(String[] args) throws InterruptedException {
+    testEndpoint(args[0]);
+  }
+}
+```
+
+```text
+3fab48a3-50d2-4de7-a3a1-46822c41fc54 webhook.test pending
+delivered 1 204
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala
+// src/main/scala/acme/app/TestEndpoint.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.resources.WebhookEndpointsListDeliveriesParams
+
+object TestEndpoint {
+  private val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN, or the running kindgi dev
+
+  /** Sends the endpoint a test event, and prints how it was delivered. */
+  def testEndpoint(endpointId: String): Unit = {
+    val queued = kindgi.webhookEndpoints().sendTest(endpointId)
+    println(s"${queued.deliveryId} ${queued.event.`type`} ${queued.status}")
+
+    Thread.sleep(5000) // a few seconds later
+    val delivery = kindgi.webhookEndpoints()
+      .listDeliveries(endpointId, WebhookEndpointsListDeliveriesParams.builder().limit(1L).build())
+      .data.get(0)
+    println(s"${delivery.status} ${delivery.attempts} ${delivery.lastResponseStatus}")
+  }
+
+  def main(args: Array[String]): Unit = testEndpoint(args(0))
+}
+```
+
+```text
+09f002b1-3d30-43a5-9580-2683e6627868 webhook.test pending
+delivered 1 204
+```
+
+</TabItem>
 </Tabs>
 
 It prints the queued delivery, then its outcome: delivered at the first
