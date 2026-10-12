@@ -50,7 +50,7 @@ lazy val root = (project in file("."))
 lazy val pack = (project in file("kindgi-pack-scala"))
   .settings(
     name := "kindgi-pack-scala",
-    description := "Kindgi™ tools, guardrails, agents and flows in Scala, on kindgi-pack. In preview: tested and supported, but the API may still change in 0.1.6 without the usual deprecation period.",
+    description := "Kindgi™ tools, guardrails, agents and flows in Scala, on kindgi-pack. In preview: tested and supported, but the API may still change in a later release without the usual deprecation period.",
     javacOptions ++= Seq("--release", "17"),
     scalacOptions ++= {
       CrossVersion.partialVersion(scalaVersion.value) match {
