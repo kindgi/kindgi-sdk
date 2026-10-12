@@ -14,6 +14,7 @@ import {
   generatedBaseline,
   jsonProblem,
   kindgiArgs,
+  libraries,
   missingGenerated,
   pageRules,
   pages,
@@ -364,16 +365,120 @@ test('every page, the generated reference included; a whole run needs it generat
   }
 });
 
-test('a failing generated page gets the baseline line that lets it pass; a tracked one gets none', () => {
+test('a failing generated (ignored) page gets the baseline line that lets it pass; a written one gets none', () => {
   const failing = [
     { page: 'guides/tools/write-a-tool', lines: ['a', 'b'] },
     { page: 'reference/typescript/sdk/@kindgi/sdk/client/functions/newExport', lines: ['a'] },
     { page: 'reference/python/client', lines: ['a', 'b', 'c'] },
   ];
-  const tracked = new Set(['guides/tools/write-a-tool', 'reference/index']);
-  assert.deepEqual(generatedBaseline(failing, tracked), [
+  const ignored = new Set([
+    'reference/typescript/sdk/@kindgi/sdk/client/functions/newExport',
+    'reference/python/client',
+    'reference/python/runs',
+  ]);
+  assert.deepEqual(generatedBaseline(failing, ignored), [
     '  "reference/typescript/sdk/@kindgi/sdk/client/functions/newExport": 1,',
     '  "reference/python/client": 3,',
   ]);
-  assert.deepEqual(generatedBaseline(failing.slice(0, 1), tracked), []);
+  // A tracked page, or a new one not committed yet, isn't ignored.
+  assert.deepEqual(generatedBaseline(failing.slice(0, 1), ignored), []);
+});
+
+/** A page's hidden `check-samples` comment around `lines`. */
+const standIn = (...lines) => ['<!-- check-samples:', ...lines, '-->'];
+
+test("a page's install step for the check: `uv add` and `pnpm add` lines in its check-samples comment", () => {
+  const page = [
+    `${fence}sh`,
+    'uv add fastapi',
+    fence,
+    ...standIn(
+      `${fence}sh`,
+      '# The receiver imports FastAPI.',
+      "uv add fastapi 'uvicorn[standard]>=0.30,<1'",
+      '',
+      'pnpm add hono @acme/client@^2',
+      fence,
+    ),
+  ].join('\n');
+  assert.deepEqual(libraries(page), {
+    adds: [
+      { language: 'python', libraries: ['fastapi', 'uvicorn[standard]>=0.30,<1'], line: 7 },
+      { language: 'ts', libraries: ['hono', '@acme/client@^2'], line: 9 },
+    ],
+    problems: [],
+  });
+});
+
+test('an install line for the check is exactly `uv add` or `pnpm add` and libraries: anything else is never run', () => {
+  const refused = [
+    'uv add --dev pytest',
+    'uv add fastapi;',
+    'uv add fastapi; touch /tmp/x',
+    'uv add fastapi && rm -rf build',
+    'uv add fastapi &',
+    'uv add fastapi | sh',
+    'uv add fastapi > out.txt',
+    'uv add $(curl -s https://example.com/name)',
+    'uv add `name`',
+    'uv add fast\\',
+    'uv add git+https://github.com/acme/receiver',
+    'uv add ./vendor/receiver',
+    'uv add https://example.com/receiver-1.0-py3-none-any.whl',
+    "uv add 'fastapi",
+    'uv add',
+    'uv pip install fastapi',
+    'pip install fastapi',
+    'pnpm add -D vitest',
+    'pnpm add github:acme/client',
+    'pnpm add file:../client',
+    'pnpm install hono',
+    'npm install hono',
+  ];
+  for (const line of refused) {
+    const { adds, problems } = libraries(standIn(`${fence}sh`, line, fence).join('\n'));
+    assert.deepEqual(adds, [], line);
+    assert.equal(problems.length, 1, line);
+    assert.equal(problems[0].line, 3, line);
+    assert.match(problems[0].message, /only adds the libraries the samples import/, line);
+  }
+});
+
+test("a page's install step for the check: the page shows the reader the same step, for a whole file", () => {
+  const receiver = [`${fence}python`, '# receiver.py', 'from fastapi import FastAPI', fence];
+  const hidden = standIn(`${fence}sh`, "uv add fastapi 'uvicorn[standard]'", fence);
+  const rules = (...lines) => pageRules(lines.join('\n'), cli).problems;
+  // Shown: `uv add`, or `pip install` with flags and another case and separator.
+  assert.deepEqual(
+    rules(`${fence}sh`, 'uv add fastapi uvicorn', fence, ...receiver, ...hidden),
+    [],
+  );
+  assert.deepEqual(
+    rules(
+      `${fence}sh`,
+      'pip install --upgrade FastAPI "Uvicorn[standard]"',
+      fence,
+      ...receiver,
+      ...hidden,
+    ),
+    [],
+  );
+  // Not shown: the hidden step is what makes the sample compile.
+  const [notShown] = rules(`${fence}sh`, 'uv add uvicorn', fence, ...receiver, ...hidden);
+  assert.equal(notShown.line, 10);
+  assert.match(
+    notShown.message,
+    /adds `fastapi` for the check, but no install command on the page shows the reader that step/,
+  );
+  // A step in the other language's command doesn't count.
+  assert.equal(
+    rules(`${fence}sh`, 'pnpm add fastapi uvicorn', fence, ...receiver, ...hidden).length,
+    1,
+  );
+  // A step for a language the page has no whole file in checks nothing.
+  const [nothing] = rules(`${fence}sh`, 'uv add fastapi uvicorn', fence, ...hidden);
+  assert.match(
+    nothing.message,
+    /adds Python libraries, but the page has no whole Python file to check with them/,
+  );
 });
