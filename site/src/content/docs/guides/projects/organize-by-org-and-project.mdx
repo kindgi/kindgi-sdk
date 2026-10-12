@@ -20,7 +20,7 @@ a conversation stays in the conversation's project.
 An agent, flow, tool or test set belongs to the project its first version
 was published into, and never moves. Publishing a version of it into another
 project is refused with a `409`, and nothing is written. Its code names the
-kind: `agent-project-mismatch`, `flow-…`, `tool-…` or
+kind, such as `agent-project-mismatch`, `flow-…`, `tool-…` or
 `eval-suite-project-mismatch`.
 The refusal doesn't name the project it belongs to, since you may not be
 able to read that project. A deploy that includes one is refused whole and

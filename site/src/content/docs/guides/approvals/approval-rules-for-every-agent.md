@@ -76,7 +76,7 @@ The approval needs a `senior` reviewer, so a `standard` reviewer doesn't see
 it. Under `kindgi dev`, you're an `admin`, who sees everything. To try this,
 register yourself as `standard` first, with
 `kindgi reviewers register --spec='{"role":"standard"}'`. Then list the
-pending approvals. `--status=pending` leaves out the decided ones:
+pending approvals. `--status=pending` lists only the ones still `pending`:
 
 ```sh
 kindgi approvals list --status=pending
@@ -142,4 +142,4 @@ has every operation.
 
 - [Ask before a tool runs](../ask-before-a-tool-runs/)
 - [Decide an approval](../decide-an-approval/)
-- [Ask after a number of turns](../ask-after-n-turns/)
+- [Ask before a long conversation continues](../ask-after-n-turns/)

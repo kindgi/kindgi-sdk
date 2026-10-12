@@ -18,7 +18,8 @@ wait for a reviewer before it starts.
 ## Before you start
 
 - **An agent,** in a pack on a runtime such as `kindgi dev`, with Kindgi
-  0.1's CLI. This guide uses the sample pack's `acme-ops.echo-agent`.
+  0.1's CLI. This guide uses `acme-ops.echo-agent`, from a sample pack named
+  `acme-ops` (`kindgi init acme-ops --template=sample`).
 - **A reviewer's role.** Under `kindgi dev`, you're an `admin` reviewer.
   [Decide an approval](../decide-an-approval/) shows how to become one
   elsewhere.
@@ -72,8 +73,8 @@ The first two runs complete. The third is `suspended`:
 }
 ```
 
-Its approval says why. List the pending approvals. `--status=pending` leaves
-out the decided ones:
+Its approval says why. List the pending approvals. `--status=pending` lists
+only the ones still `pending`:
 
 ```sh
 kindgi approvals list --status=pending
@@ -121,7 +122,8 @@ approval's `id` from the list:
 kindgi approvals complete <approval-id> --decision=approve
 ```
 
-It prints the decided approval, as JSON. The turn runs, and it's the
+It prints the recorded decision as JSON: the approval, the decision, and what
+it did to the run. The turn runs, and it's the
 conversation's third: the run's output has `"turnNumber": 3`. The next turn
 asks again: every turn past the limit needs its own approval.
 

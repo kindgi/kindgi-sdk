@@ -169,7 +169,7 @@ token belongs to. It covers any token of yours, a console sign-in too:
 kindgi reviewers register --spec='{"role":"standard","displayName":"Ada Lovelace"}'
 ```
 
-`--spec` is the reviewer: its `role`, and the name shown with its decisions.
+`--spec` is the reviewer: its `role` and, optionally, a `displayName`.
 It prints the registered reviewer, as JSON.
 
 [Decide an approval](../decide-an-approval/) covers reviewers and their roles.
@@ -200,7 +200,7 @@ block until someone decides.
 
 ## See what it waits for
 
-List the pending approvals. `--status=pending` leaves out the decided ones:
+List the pending approvals. `--status=pending` lists only the ones still `pending`:
 
 ```sh
 kindgi approvals list --status=pending
@@ -325,8 +325,8 @@ approval's `id`:
 kindgi approvals complete <approval-id> --decision=reject --rationale="Not confirmed yet"
 ```
 
-It prints the decided approval. The run's messages then hold the rejection
-as the tool's result:
+It prints the recorded decision, as approving does. The run's messages then
+hold the rejection as the tool's result:
 
 ```json
       {
