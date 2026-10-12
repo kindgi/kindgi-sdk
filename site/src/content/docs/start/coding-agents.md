@@ -246,10 +246,11 @@ The skills are copies, made when you ran `kindgi init`. After upgrading
 Kindgi, refresh them:
 
 ```sh
-kindgi skills sync              # keeps skills you edited; --force replaces them
+kindgi skills sync
 ```
 
-In a Python project, run it as `uv run kindgi skills sync`.
+It keeps skills you edited. `--force` replaces those too. In a Python
+project, run it as `uv run kindgi skills sync`.
 
 `kindgi dev` tells you when the installed skills are behind the CLI's.
 `.claude/skills/.kindgi-manifest.json` records what was installed.
@@ -264,8 +265,10 @@ kindgi mcp presets
 kindgi mcp add postgres --secret=MY_DB_URL
 ```
 
-`add` writes an entry to `.mcp.json` that starts the server with the secret
-from your env files. These servers are for your coding agent (Claude Code,
+`add` writes an entry to `.mcp.json` that starts the server. `--secret`
+names the secret in your pack's env files that holds the server's
+connection: the server gets its value when it starts, and `.mcp.json` never
+holds it. These servers are for your coding agent (Claude Code,
 Cursor, VS Code), not for Kindgi's runtime.
 
 ## When Kindgi is the problem

@@ -23,7 +23,7 @@ language and living in its repository:
 - **Guardrails:** checks on what an agent says or does before it counts.
 
 You write packs in **TypeScript** (`@kindgi/sdk`) or **Python** (the
-`kindgi` package). Tools call your app's own modules; nothing is rewritten
+`kindgi` package), and, in preview, in **Java** and **Scala**. Tools call your app's own modules; nothing is rewritten
 for Kindgi.
 
 ## The runtime
