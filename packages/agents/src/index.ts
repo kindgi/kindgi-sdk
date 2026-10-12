@@ -18,7 +18,7 @@ export type {
 } from './run-snapshot-binding.js';
 export { DRAFTED_TEMPLATE_MAX, checkDraftedTemplate } from './drafted-template.js';
 export type { DraftedTemplateContext } from './drafted-template.js';
-export { templateProblem, tenantLiquid } from './liquid.js';
+export { templateProblem } from './liquid.js';
 export { defineAgent } from './define.js';
 export {
   BLOCK_KINDS,

@@ -2,7 +2,7 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 import type { PromptBlockContent } from './blocks.js';
-import { liquidProblem, tenantLiquid } from './liquid.js';
+import { liquidProblem, renderTenantTemplate } from './liquid.js';
 import type { Agent, PromptParameter, PromptRef } from './types.js';
 
 /**
@@ -93,7 +93,7 @@ export interface RenderFailureError {
  * applies defaults for optional parameters. Missing required parameters
  * are surfaced as `missing-parameter` before Liquid ever runs.
  *
- * Renders with `strictVariables: true` (`tenantLiquid`'s), so an unresolved `{{ var }}` is an error
+ * Renders with `strictVariables: true` (`renderTenantTemplate`'s), so an unresolved `{{ var }}` is an error
  * — never a silent empty string. This is load-bearing for correctness
  * (a system prompt with a missing firm name is worse than a hard fail).
  *
@@ -126,7 +126,7 @@ export function renderInstructions(
   const merged = mergeContext(agent, declared, context);
   // Under the bounds' limits; `include`, `render` and `layout` fail the render.
   try {
-    const rendered = tenantLiquid().parseAndRenderSync(template, merged);
+    const rendered = renderTenantTemplate(template, merged);
     return { ok: true, value: { rendered, context: merged } };
   } catch (cause) {
     // LiquidJS throws UndefinedVariableError for unresolved refs — surface

@@ -18,9 +18,9 @@ import {
   defineAgent,
   renderInstructions,
   templateProblem,
-  tenantLiquid,
   validateBlock,
 } from '../src/index.js';
+import { renderTenantTemplate, tenantLiquid } from '../src/liquid.js';
 
 const NO_PARTIALS = "templates can't use include, render or layout";
 
@@ -87,6 +87,11 @@ function stored(template: string): Agent {
   return { ...agent.value, instructions: template };
 }
 
+/** `s` doubled `n` times by a capture, then `tail`. */
+function doubling(n: number, tail: string): string {
+  return `{% assign s = "x" %}{% for i in (1..${n}) %}{% capture s %}{{ s }}{{ s }}{% endcapture %}{% endfor %}${tail}`;
+}
+
 function rendered(template: string): string {
   const r = renderInstructions(stored(template), {
     parameters: {},
@@ -130,7 +135,7 @@ describe('one check at every way in', () => {
 });
 
 describe('a stored template renders as before', () => {
-  /** The renderer every release before this one used, as it was. */
+  /** The engine every release before this one rendered with, failing as `renderInstructions` says it. */
   function before(template: string): string {
     try {
       return new Liquid({ strictVariables: true, strictFilters: true }).parseAndRenderSync(
@@ -155,6 +160,41 @@ describe('a stored template renders as before', () => {
       clock: () => new Date('2026-10-12T00:00:00Z'),
     });
     expect(r.ok ? r.value.rendered : r.error.message).toBe(before(template));
+  });
+});
+
+describe('the engine renders as the previous one did', () => {
+  /** The engine every release before this one rendered with, as it was. */
+  const before = () => new Liquid({ strictVariables: true, strictFilters: true });
+  const scope = { firm: 'A&B <Co>' };
+
+  /** What a render gives: its output, or its error's name and message. */
+  function outcome(render: () => string): string {
+    try {
+      return render();
+    } catch (cause) {
+      return `${(cause as Error).name}: ${(cause as Error).message}`;
+    }
+  }
+
+  test.each([
+    ['plain text', 'You rank filings.'],
+    ['a variable and a filter', 'For {{ firm | upcase }}.'],
+    ['a value with & and <, as written', 'For {{ firm }}.'],
+    ['escape', 'For {{ firm | escape }}.'],
+    ['a loop', '{% for i in (1..3) %}{{ i }}{% endfor %}'],
+    ['a capture', '{% capture a %}Hi {{ firm }}{% endcapture %}{{ a }}'],
+    ['whitespace control', 'a \n\n {%- if true -%} \n\n b \n\n {%- endif -%} \n\n c'],
+    ['raw', '{% raw %}{{ y }} {% if %}{% endraw %}'],
+    ['a missing variable', 'Hi {{ y }}'],
+    ['an unknown filter', '{{ firm | nope }}'],
+    ['invalid Liquid', 'Hi {% if %}'],
+    ['a literal {{', 'Answer as JSON like {{"a": 1}}'],
+    ['a literal {%', 'Use {% to start'],
+  ])('the same output or the same error: %s', (_, template) => {
+    expect(outcome(() => renderTenantTemplate(template, scope))).toBe(
+      outcome(() => before().parseAndRenderSync(template, scope)),
+    );
   });
 });
 
@@ -183,6 +223,68 @@ describe("the bounds' limits", () => {
     );
   });
 
+  test('a capture counts toward memoryLimit', () => {
+    withLiquid({ memoryLimit: 1000 });
+    // Captured, never written out: only the capture's charge can stop it.
+    expect(rendered(doubling(8, '{{ s.size }}'))).toBe('256');
+    expect(rendered(doubling(12, '{{ s.size }}'))).toBe(
+      'Template render failed: the render went over its memory limit of 1000',
+    );
+  });
+
+  test('what a filter returns counts toward memoryLimit, not only what it was given', () => {
+    withLiquid({ memoryLimit: 1000 });
+    // url_encode is charged nothing for what it's given, and gives back 6 characters for each é.
+    const encoded = (n: number) => `{% assign e = "${'é'.repeat(n)}" | url_encode %}{{ e | size }}`;
+    expect(rendered(encoded(150))).toBe('900');
+    expect(rendered(encoded(200))).toBe(
+      'Template render failed: the render went over its memory limit of 1000',
+    );
+    // split is charged n for a string of n characters, and gives back n items.
+    const items = (n: number) => `{% assign a = "${'x'.repeat(n)}" | split: "" %}{{ a.size }}`;
+    expect(rendered(items(400))).toBe('400');
+    expect(rendered(items(600))).toBe(
+      'Template render failed: the render went over its memory limit of 1000',
+    );
+  });
+
+  test('the output may be no longer than memoryLimit characters', () => {
+    withLiquid({ memoryLimit: 500 });
+    const repeated = (n: number) => `{% for i in (1..${n}) %}xxxxxxxxxx{% endfor %}`;
+    expect(rendered(repeated(50))).toHaveLength(500);
+    expect(rendered(repeated(51))).toBe(
+      'Template render failed: the render went over its memory limit of 500',
+    );
+  });
+
+  test.each([
+    [
+      'a joined range written 80 times',
+      '{% assign s = (1..1000000) | join: "" %}{% for i in (1..80) %}{{ s }}{% endfor %}',
+    ],
+    ['a capture doubled 28 times', doubling(28, '{{ s.size }}')],
+    [
+      'a capture doubled 27 times, then replaced',
+      doubling(27, '{{ s | replace: "x", "y" | size }}'),
+    ],
+    [
+      'an output past the longest string',
+      doubling(21, '{% for i in (1..300) %}{{ s }}{% endfor %}'),
+    ],
+  ])('on a hosted server, what grew past memoryLimit fails at it: %s', (_, template) => {
+    restore = overrideTenantInputBounds(HOSTED_BOUNDS);
+    expect(templateProblem(template)).toBeUndefined();
+    expect(rendered(template)).toBe(
+      'Template render failed: the render went over its memory limit of 8388608',
+    );
+  });
+
+  test('on a self-hosted server, an output past the longest string says so', () => {
+    expect(rendered(doubling(21, '{% for i in (1..300) %}{{ s }}{% endfor %}'))).toBe(
+      'Template render failed: the render made a string longer than JavaScript allows',
+    );
+  });
+
   test('the limits are read when a template is checked, not when the module loaded', () => {
     const long = `Hi ${'x'.repeat(300_000)}`;
     expect(templateProblem(long)).toBeUndefined();
@@ -197,7 +299,7 @@ describe('tenantLiquid', () => {
   test.each(['package.json', 'constructor', '__proto__'])(
     'no name resolves to a partial, past the refusing tags too (%s)',
     (name) => {
-      // `package.json` would resolve from the package's directory, where the tests run.
+      // `package.json` is a file that exists, so this fails if partials ever resolve.
       expect(() => tenantLiquid().parseFileSync(name)).toThrow(`Failed to lookup "${name}"`);
     },
   );

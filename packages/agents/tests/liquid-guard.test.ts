@@ -2,10 +2,12 @@
 // Copyright (C) 2026 Kindgi Inc.
 
 /**
- * The one rule for templates: a Liquid engine is made by `tenantLiquid`,
- * so it can't skip the bounds' limits or resolve a partial. A
- * `new Liquid(` anywhere else in the packages' source fails this test
- * until it moves onto the helper.
+ * The one rule for templates: only `agents/src/liquid.ts` uses liquidjs,
+ * so every engine is `tenantLiquid`'s and every render goes through
+ * `renderTenantTemplate`, and none can skip the bounds' limits or resolve
+ * a partial. A value import of liquidjs anywhere else in the packages'
+ * source (aliased, by namespace, or by `require` or `import()`) fails
+ * this test until it moves onto the helper. A type-only import is fine.
  */
 
 import { readFileSync, readdirSync } from 'node:fs';
@@ -21,12 +23,28 @@ const ALLOWED: Readonly<Record<string, number>> = { 'agents/src/liquid.ts': 1 };
 /** Packages that never run in a server. */
 const NOT_SERVER = new Set(['cli']);
 
-/** Each file's `new Liquid(` count, past what's allowed, and an allowed file that lost its site. */
+/**
+ * An import or export statement naming `liquidjs`, its `type` keyword
+ * captured, or a `require` or dynamic `import` of it.
+ */
+const LIQUIDJS =
+  /\b(?:import|export)\s+(type\s+)?(?:[^'";]*?\bfrom\s*)?['"]liquidjs['"]|\b(?:require|import)\s*\(\s*['"]liquidjs['"]\s*\)/g;
+
+/** How many times a file's source takes a value from liquidjs. */
+function valueImports(text: string): number {
+  let count = 0;
+  for (const match of text.matchAll(LIQUIDJS)) {
+    if (match[1] === undefined) count += 1;
+  }
+  return count;
+}
+
+/** Each file's value imports of liquidjs, past what's allowed, and an allowed file that lost its import. */
 function unlisted(files: ReadonlyMap<string, string>): string[] {
   const problems: string[] = [];
   const seen = new Set<string>();
   for (const [file, text] of files) {
-    const count = (text.match(/\bnew Liquid\(/g) ?? []).length;
+    const count = valueImports(text);
     if (count === 0) continue;
     seen.add(file);
     if (ALLOWED[file] !== count) problems.push(`${file}: ${count}, allowed ${ALLOWED[file] ?? 0}`);
@@ -49,29 +67,52 @@ function sourceFiles(): Map<string, string> {
       continue;
     }
     for (const entry of entries) {
-      if (!/\.(m?ts|tsx)$/.test(entry) || /\.test\.tsx?$/.test(entry)) continue;
+      if (!/\.(?:[mc]?[jt]s|tsx)$/.test(entry) || /\.test\.tsx?$/.test(entry)) continue;
       files.set(`${pkg}/src/${entry}`, readFileSync(join(src, entry), 'utf8'));
     }
   }
   return files;
 }
 
-describe('no Liquid engine skips tenantLiquid', () => {
-  test("the packages' source makes one only in the helper", () => {
+describe('only the helper uses liquidjs', () => {
+  test("the packages' source takes a value from liquidjs only in the helper", () => {
     const files = sourceFiles();
     expect(files.size).toBeGreaterThan(100);
     expect(unlisted(files)).toEqual([]);
   });
 
-  test('a known positive: an engine made anywhere else fails it', () => {
+  test('known positives: an import anywhere else fails it, however it is written', () => {
     const files = new Map([
-      ['agents/src/prompt.ts', 'const liquid = new Liquid({ strictVariables: true });'],
-      ['agents/src/liquid.ts', 'new Liquid(a); new Liquid(b);'],
+      ['agents/src/blocks.ts', "import { Liquid as Engine } from 'liquidjs';"],
+      ['agents/src/prompt.ts', "import * as liquidjs from 'liquidjs';"],
+      ['agents/src/define.ts', "import {\n  type Context,\n  Liquid,\n} from 'liquidjs';"],
+      ['agents/src/derive.ts', "const { Liquid } = require('liquidjs');"],
+      ['agents/src/resolve.ts', "const { Liquid } = await import('liquidjs');"],
+      ['agents/src/index.ts', "export { Liquid } from 'liquidjs';"],
+      [
+        'agents/src/liquid.ts',
+        'import { Liquid } from \'liquidjs\';\nimport { Tag } from "liquidjs";',
+      ],
     ]);
     expect(unlisted(files)).toEqual([
+      'agents/src/blocks.ts: 1, allowed 0',
       'agents/src/prompt.ts: 1, allowed 0',
+      'agents/src/define.ts: 1, allowed 0',
+      'agents/src/derive.ts: 1, allowed 0',
+      'agents/src/resolve.ts: 1, allowed 0',
+      'agents/src/index.ts: 1, allowed 0',
       'agents/src/liquid.ts: 2, allowed 1',
     ]);
     expect(unlisted(new Map())).toEqual(['agents/src/liquid.ts: allowed, but has none']);
+  });
+
+  test('a type-only import is fine, and so is the name in a string', () => {
+    const files = new Map([
+      ['agents/src/blocks.ts', "import type { Context } from 'liquidjs';"],
+      ['agents/src/prompt.ts', "export type { Liquid } from 'liquidjs';"],
+      ['agents/src/define.ts', "const engine = 'liquidjs';"],
+      ['agents/src/liquid.ts', "import { Liquid } from 'liquidjs';"],
+    ]);
+    expect(unlisted(files)).toEqual([]);
   });
 });
