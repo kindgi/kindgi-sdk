@@ -51,10 +51,10 @@ export type { KindgiClient } from '@kindgi/client';
  *
  * @example
  * ```ts
- * // lib/kindgi.ts
+ * // src/lib/kindgi.ts
  * import { createClient } from '@kindgi/sdk/client';
  *
- * const kindgi = createClient();
+ * export const kindgi = createClient();
  * ```
  */
 export function createClient(options: Partial<ClientOptions> = {}): KindgiClient {
