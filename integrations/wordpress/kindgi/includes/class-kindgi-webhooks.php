@@ -57,7 +57,11 @@ final class Kindgi_Webhooks {
 		$off   = array();
 		foreach ( (array) WC_Data_Store::load( 'webhook' )->get_webhooks_ids( 'disabled' ) as $id ) {
 			$webhook = wc_get_webhook( (int) $id );
-			if ( ! $webhook || ! self::delivers_to_kindgi( (string) $webhook->get_delivery_url() ) ) {
+			// Its own status too: before WooCommerce 3.6 the list ignores the status asked for.
+			if ( ! $webhook || 'disabled' !== $webhook->get_status() ) {
+				continue;
+			}
+			if ( ! self::delivers_to_kindgi( (string) $webhook->get_delivery_url() ) ) {
 				continue;
 			}
 			$off[] = array(
@@ -82,8 +86,8 @@ final class Kindgi_Webhooks {
 
 	/**
 	 * Turns one back on, from the settings page: active, with its count of
-	 * refused deliveries back to 0 (left as it was, the next refusal would
-	 * turn it off again at once).
+	 * refused deliveries back to 0. Left as it was (WooCommerce's own edit
+	 * screen leaves it), the next refusal would turn it off again at once.
 	 *
 	 * @return string|null Why not, or null when it's on.
 	 */

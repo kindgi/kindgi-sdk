@@ -364,8 +364,10 @@ didn't deliver. Where Kindgi limits webhook receives (Kindgi hosted does),
 it answers a delivery past the limit with 429 and `Retry-After`, which
 WooCommerce counts as a refusal like any other. When
 WooCommerce has turned one off, **Kindgi → Settings** says so, with when,
-and a **Turn it on again** button for someone who manages WooCommerce. Orders
-from while it was off aren't resent.
+and a **Turn it on again** button for someone who manages WooCommerce. It
+starts the webhook's count of refusals over. Turned on in WooCommerce's own
+webhook screen instead, it keeps its count, so one more refusal turns it off
+again. Orders from while it was off aren't resent.
 
 ## Give the agent the store's actions
 

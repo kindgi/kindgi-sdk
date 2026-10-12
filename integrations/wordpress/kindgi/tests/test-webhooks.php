@@ -31,6 +31,10 @@ final class Kindgi_Test_Webhook {
 		return $this->url;
 	}
 
+	public function get_status() {
+		return $this->status;
+	}
+
 	public function set_status( $status ) {
 		$this->status = $status;
 	}
@@ -48,8 +52,10 @@ final class Kindgi_Test_Webhook {
 final class Kindgi_Test_Webhook_Store {
 	public function get_webhooks_ids( $status = '' ) {
 		$ids = array();
+		// Before WooCommerce 3.6, the status asked for is ignored.
+		$ignored = ! empty( $GLOBALS['kindgi_test']['webhooks_ignore_status'] );
 		foreach ( $GLOBALS['kindgi_test']['webhooks'] as $webhook ) {
-			if ( '' === $status || $webhook->status === $status ) {
+			if ( $ignored || '' === $status || $webhook->status === $status ) {
 				$ids[] = $webhook->id;
 			}
 		}
@@ -138,4 +144,10 @@ function test_webhooks_never_turns_on_one_that_isnt_kindgis(): void {
 	kindgi_assert( is_string( Kindgi_Webhooks::turn_on( 5 ) ), "the ERP's: refused" );
 	kindgi_assert_same( 'disabled', $GLOBALS['kindgi_test']['webhooks'][5]->status, 'left off' );
 	kindgi_assert( is_string( Kindgi_Webhooks::turn_on( 99 ) ), 'no such webhook: refused' );
+}
+
+function test_webhooks_an_older_woocommerce_listing_every_webhook_still_shows_only_the_off_ones(): void {
+	kindgi_test_store_webhooks();
+	$GLOBALS['kindgi_test']['webhooks_ignore_status'] = true;
+	kindgi_assert_same( array( 3 ), array_column( Kindgi_Webhooks::off(), 'id' ), 'not the active one to Kindgi' );
 }
