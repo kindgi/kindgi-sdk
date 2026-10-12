@@ -7,9 +7,19 @@ sidebar:
 
 import { Tabs, TabItem } from '@astrojs/starlight/components';
 
+This guide builds each flow step's input from the run's input, earlier steps'
+outputs and fixed values, and declares what the run returns.
+
 Each step's `inputMapping` says where every key of its input comes from. The
-flow's `output` says what the run returns. This page uses one more tool,
-`acme.hold-order`, which puts an order on hold:
+flow's `output` says what the run returns.
+
+## Before you start
+
+- **A pack with the tools** from [Write a flow](../write-a-flow/), such as
+  `acme.get-order`, on a runtime such as `kindgi dev`, with Kindgi 0.1's CLI.
+
+This guide adds one more tool, `acme.hold-order`, which puts an order on
+hold. Write it:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -69,7 +79,8 @@ def hold_order(input: HoldInput) -> Held:
 
 ## Map a step's input
 
-`acme.hold-for-stock` looks an order up, then holds it with a fixed reason:
+A mapping gives each step exactly the input it needs. `acme.hold-for-stock`
+looks an order up, then holds it with a fixed reason. Write the flow:
 
 <Tabs syncKey="lang">
 <TabItem label="TypeScript">
@@ -196,12 +207,17 @@ Paths are dot-separated field names: `nodeOutputs.order.customer` is the
 `customer` field of the `order` step's output.
 
 In Python, the keys are the tool input's names as they travel: a field's
-alias when it has one (`orderId` for `order_id: str = Field(alias="orderId")`),
-else its name.
+alias when it has one, else its name. `order_id: str = Field(alias="orderId")`
+travels as `orderId`.
+
+Run it:
 
 ```sh
 kindgi runs start --flow=acme.hold-for-stock --input='{"orderId":"A-200"}'
 ```
+
+`--flow` is the flow, and `--input` its input. It prints the run, with the
+output the flow declares:
 
 ```json
 {
@@ -224,6 +240,8 @@ The journal shows the input each step got, after mapping:
 kindgi runs journal <run-id>
 ```
 
+`<run-id>` is the run's id. It prints:
+
 ```json
     {
       "sequence": 5,
@@ -241,9 +259,9 @@ kindgi runs journal <run-id>
 
 ## Without a mapping
 
-A step without `inputMapping` gets the output of the step before it (the
-run's input, after `$start`). The tool's input schema takes the fields it
-declares and drops the rest, so a step that needs exactly what the previous
+A step without `inputMapping` gets the output of the step before it, or the
+run's input after `$start`. The tool's input schema takes the fields it
+declares and drops the rest. So a step that needs exactly what the previous
 step returns doesn't need a mapping. A step with several incoming edges needs
 one.
 
@@ -258,7 +276,7 @@ return, fails the run with:
 input-validation-failed: Input for tool "acme.hold-order" failed validation
 ```
 
-A key that may be missing (because it comes from a branch that may not run)
+A key that may be missing, because it comes from a branch that may not run,
 belongs in the tool's input as optional: `.optional()` in zod, a default in
 pydantic. [Join branches](../join-branches/) has an example.
 
@@ -276,7 +294,7 @@ declares a [typed answer](../../agents/typed-answer/):
 `output.mapping` is resolved when the run finishes, from the same roots as
 `inputMapping`. With a `schema`, the result is checked against it, and a run
 whose output doesn't match fails. If `customer` were mapped from a path that
-doesn't resolve, the run above would fail with:
+doesn't resolve, `acme.hold-for-stock`'s run would fail with:
 
 ```text
 output-schema-violation: the run's output does not match the flow's output schema: [{"instancePath":"","schemaPath":"#/required","keyword":"required","params":{"missingProperty":"customer"},"message":"must have required property 'customer'"}]
@@ -285,3 +303,9 @@ output-schema-violation: the run's output does not match the flow's output schem
 Without `output`, the run returns the output of the step that reached `$end`.
 Declare `output` when callers rely on the shape: it stays the same when you
 add or reorder steps.
+
+## Next
+
+- [Branch a flow](../branch-a-flow/)
+- [Join branches](../join-branches/)
+- [Give an agent a typed answer](../../agents/typed-answer/)
