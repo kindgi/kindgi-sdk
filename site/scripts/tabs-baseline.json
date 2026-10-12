@@ -1,0 +1,210 @@
+{
+  "deploy/retention": {
+    "Set a policy": ["Java", "Scala"],
+    "See what will be purged, and purge it": ["Java", "Scala"]
+  },
+  "guides/agents/agent-and-tool-versions": {
+    "What unregistering a version does": ["Java", "Scala"]
+  },
+  "guides/agents/budgets": {
+    "(the page’s start)": ["Java", "Scala"],
+    "Handle it in your app": ["Java", "Scala"]
+  },
+  "guides/agents/choose-a-model": {
+    "What the model must support": ["Java", "Scala"],
+    "Prefer a provider or a model": ["Java", "Scala"],
+    "Require a model": ["Java", "Scala"],
+    "Rank with weights": ["Java", "Scala"]
+  },
+  "guides/agents/conversations": {
+    "Continue a conversation": ["Java", "Scala"],
+    "Limit what the model sees": ["Java", "Scala"],
+    "Open, list and close conversations": ["Java", "Scala"]
+  },
+  "guides/agents/give-an-agent-input": {
+    "A direct run": ["Java", "Scala"],
+    "Parameters": ["Java", "Scala"],
+    "In a flow step": ["Java", "Scala"],
+    "In a flow step #2": ["Java", "Scala"]
+  },
+  "guides/agents/give-an-agent-memory": {
+    "Retrieve facts before each turn": ["Java", "Scala"],
+    "Let an agent remember": ["Java", "Scala"],
+    "Recall earlier conversations": ["Java", "Scala"]
+  },
+  "guides/agents/typed-answer": {
+    "Declare the answer": ["Java", "Scala"],
+    "Read it in your app": ["Java", "Scala"],
+    "In a flow": ["Java", "Scala"]
+  },
+  "guides/approvals/ask-after-n-turns": {
+    "Set the limit": ["Java", "Scala"]
+  },
+  "guides/approvals/ask-before-a-tool-runs": {
+    "Gate a tool": ["Java", "Scala"],
+    "Gate a tool #2": ["Java", "Scala"]
+  },
+  "guides/approvals/decide-an-approval": {
+    "From your app": ["Java", "Scala"]
+  },
+  "guides/evals/build-a-test-set": {
+    "Build the test set": ["Java", "Scala"]
+  },
+  "guides/evals/change-a-prompt-or-setting": {
+    "Use them in an agent": ["Java", "Scala"],
+    "Use them in an agent #2": ["Java", "Scala"],
+    "Change a block": ["Java", "Scala"],
+    "Make an agent version that runs it": ["Java", "Scala"]
+  },
+  "guides/evals/compare-an-agent-version": {
+    "Compare a version": ["Java", "Scala"]
+  },
+  "guides/evals/judge-a-runs-output": {
+    "Judge an item": ["Java", "Scala"],
+    "Queue the runs to judge": ["Java", "Scala"],
+    "Work through the queue": ["Java", "Scala"]
+  },
+  "guides/evals/release-an-agent-version": {
+    "From your app": ["Java", "Scala"],
+    "Promote from your app": ["Java", "Scala"]
+  },
+  "guides/flows/branch-a-flow": {
+    "(the page’s start)": ["Java", "Scala"]
+  },
+  "guides/flows/dry-run-a-flow": {
+    "From your app": ["Java", "Scala"]
+  },
+  "guides/flows/join-branches": {
+    "(the page’s start)": ["Java", "Scala"]
+  },
+  "guides/flows/loop": {
+    "For each element of a list": ["Java", "Scala"],
+    "Until a condition holds": ["Java", "Scala"],
+    "Until a condition holds #2": ["Java", "Scala"]
+  },
+  "guides/flows/pass-data-between-steps": {
+    "(the page’s start)": ["Java", "Scala"],
+    "Map a step's input": ["Java", "Scala"]
+  },
+  "guides/flows/retry-a-step": {
+    "(the page’s start)": ["Java", "Scala"]
+  },
+  "guides/flows/run-steps-in-parallel": {
+    "(the page’s start)": ["Java", "Scala"]
+  },
+  "guides/flows/wait-for-an-approval": {
+    "The agent": ["Java", "Scala"],
+    "The flow": ["Java", "Scala"]
+  },
+  "guides/guardrails/configure-a-guardrail": {
+    "(the page’s start)": ["Java", "Scala"],
+    "What the check receives": ["Java", "Scala"]
+  },
+  "guides/guardrails/halt-or-record": {
+    "(the page’s start)": ["Java", "Scala"],
+    "Which agents it covers": ["Java", "Scala"]
+  },
+  "guides/guardrails/write-a-guardrail": {
+    "The guardrail": ["Java", "Scala"],
+    "Put it on an agent": ["Java", "Scala"],
+    "Run it": ["Java", "Scala"],
+    "Test the check": ["Java", "Scala"]
+  },
+  "guides/models/index": {
+    "Declare them in your pack's config": ["Java", "Scala"]
+  },
+  "guides/observability/cost-per-run": {
+    "A run's calls": ["Java", "Scala"],
+    "A flow's whole run": ["Java", "Scala"],
+    "One customer's month": ["Java", "Scala"]
+  },
+  "guides/observability/export-signed-evidence": {
+    "Check an export": ["Java", "Scala"]
+  },
+  "guides/observability/trace-an-answer": {
+    "From your app": ["Java", "Scala"]
+  },
+  "guides/projects/organize-by-org-and-project": {
+    "Give a customer an org and a project": ["Java", "Scala"],
+    "Delete an org": ["Java", "Scala"]
+  },
+  "guides/runs/cancel-a-run": {
+    "From your app": ["Java", "Scala"]
+  },
+  "guides/runs/follow-from-the-browser": {
+    "2. Hand the page a token": ["Java", "Scala"]
+  },
+  "guides/runs/list-runs": {
+    "From your app": ["Java", "Scala"],
+    "From your app #2": ["Java", "Scala"],
+    "The runs inside a run": ["Java", "Scala"],
+    "One agent's turns": ["Java", "Scala"]
+  },
+  "guides/runs/read-the-journal": {
+    "From your app": ["Java", "Scala"]
+  },
+  "guides/runs/retry-a-start-safely": {
+    "(the page’s start)": ["Java", "Scala"]
+  },
+  "guides/runs/see-why-runs-failed": {
+    "A project's failed runs, by cause and version": ["Java", "Scala"]
+  },
+  "guides/runs/show-runs-in-your-app": {
+    "Read what you show": ["Java", "Scala"]
+  },
+  "guides/secrets/dev-sandbox": {
+    "Open a path or a socket a tool needs": ["Java", "Scala"]
+  },
+  "guides/secrets/env-files": {
+    "What reads them": ["Java", "Scala"],
+    "Read other files": ["Java", "Scala"]
+  },
+  "guides/secrets/pack-env": {
+    "(the page’s start)": ["Java", "Scala"]
+  },
+  "guides/secrets/per-environment-values": {
+    "(the page’s start)": ["Java", "Scala"]
+  },
+  "guides/secrets/store-a-secret": {
+    "Set one": ["Java", "Scala"]
+  },
+  "guides/tools/give-a-tool-a-secret": {
+    "(the page’s start)": ["Java", "Scala"],
+    "An optional secret": ["Java", "Scala"],
+    "Store the secret": ["Java", "Scala"],
+    "Test it": ["Java", "Scala"]
+  },
+  "guides/tools/give-a-tool-env-values": {
+    "(the page’s start)": ["Java", "Scala"],
+    "Set the values": ["Java", "Scala"],
+    "Test it": ["Java", "Scala"]
+  },
+  "guides/tools/http-tools": {
+    "Declare the request": ["Java", "Scala"],
+    "Run it": ["Java", "Scala"],
+    "Send a credential": ["Java", "Scala"],
+    "Send a credential #2": ["Java", "Scala"]
+  },
+  "guides/tools/mcp-servers": {
+    "Register the endpoint": ["Java", "Scala"],
+    "Call its tools": ["Java", "Scala"]
+  },
+  "guides/tools/read-only-tools": {
+    "(the page’s start)": ["Java", "Scala"]
+  },
+  "guides/webhooks/receive-run-finished": {
+    "1. Store a signing secret": ["Java", "Scala"],
+    "2. Register the endpoint": ["Java", "Scala"]
+  },
+  "guides/webhooks/start-runs-from-webhooks": {
+    "1. Write a flow that takes the event": ["Java", "Scala"]
+  },
+  "guides/webhooks/test-and-replay": {
+    "Send a test event": ["Java", "Scala"],
+    "Fix and send again": ["Java", "Scala"]
+  },
+  "guides/webhooks/verify-a-webhook": {
+    "A receiver": ["Java", "Scala"],
+    "Test the receiver without Kindgi": ["Java", "Scala"]
+  }
+}
