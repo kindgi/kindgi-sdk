@@ -722,37 +722,6 @@ object ListAllOrders {
 ```
 
 </TabItem>
-
-## Group "Until a condition holds #2" (the run's output)
-
-Captured from both packs (the same output as TypeScript's: a page with no next cursor has none).
-
-<TabItem label="Java">
-
-```json
-{
-  "pages": [
-    { "orders": ["A-100", "A-101"], "nextCursor": "p2" },
-    { "orders": ["A-102", "A-103"], "nextCursor": "p3" },
-    { "orders": ["A-200"] }
-  ]
-}
-```
-
-</TabItem>
-<TabItem label="Scala">
-
-```json
-{
-  "pages": [
-    { "orders": ["A-100", "A-101"], "nextCursor": "p2" },
-    { "orders": ["A-102", "A-103"], "nextCursor": "p3" },
-    { "orders": ["A-200"] }
-  ]
-}
-```
-
-</TabItem>
 </Tabs>
 
 - The first pass gets the loop step's input: the output of the step before
@@ -800,6 +769,32 @@ The run's `output` holds every page's orders:
 A pydantic field that is `None` is `null` in the output. So the schema allows
 `null`, and the condition is `falsy`, which is true for a missing value and
 for `null`.
+
+</TabItem>
+<TabItem label="Java">
+
+```json
+{
+  "pages": [
+    { "orders": ["A-100", "A-101"], "nextCursor": "p2" },
+    { "orders": ["A-102", "A-103"], "nextCursor": "p3" },
+    { "orders": ["A-200"] }
+  ]
+}
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```json
+{
+  "pages": [
+    { "orders": ["A-100", "A-101"], "nextCursor": "p2" },
+    { "orders": ["A-102", "A-103"], "nextCursor": "p3" },
+    { "orders": ["A-200"] }
+  ]
+}
+```
 
 </TabItem>
 </Tabs>

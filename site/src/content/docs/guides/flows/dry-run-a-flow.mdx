@@ -137,23 +137,50 @@ run = kindgi.runs.start(
 </TabItem>
 <TabItem label="Java">
 
-```java excerpt
-Run run = kindgi.runs().start(StartRunBody.WithFlow.builder()
-    .flow("acme.check-order-stock")
-    .input(Map.of("orderId", "A-200"))
-    .options(StartRunBody.WithFlow.Options.builder().dryRun(true).build())
-    .build());
+```java
+// src/main/java/com/acme/app/DryRun.java
+package com.acme.app;
+
+import com.kindgi.client.Kindgi;
+import com.kindgi.client.models.Run;
+import com.kindgi.client.models.StartRunBody;
+import java.util.Map;
+
+public final class DryRun {
+  public static void main(String[] args) {
+    Kindgi kindgi = Kindgi.create(); // KINDGI_API_URL, KINDGI_API_TOKEN
+
+    Run run = kindgi.runs().start(StartRunBody.WithFlow.builder()
+        .flow("acme.check-order-stock")
+        .input(Map.of("orderId", "A-200"))
+        .options(StartRunBody.WithFlow.Options.builder().dryRun(true).build())
+        .build());
+  }
+}
 ```
 
 </TabItem>
 <TabItem label="Scala">
 
-```scala excerpt
-val run = kindgi.runs().start(StartRunBody.WithFlow.builder()
-  .flow("acme.check-order-stock")
-  .input(Map("orderId" -> "A-200").asJava)
-  .options(StartRunBody.WithFlow.Options.builder().dryRun(true).build())
-  .build())
+```scala
+// src/main/scala/acme/app/DryRun.scala
+package acme.app
+
+import com.kindgi.client.Kindgi
+import com.kindgi.client.models.StartRunBody
+import scala.jdk.CollectionConverters._
+
+object DryRun {
+  def main(args: Array[String]): Unit = {
+    val kindgi = Kindgi.create() // KINDGI_API_URL, KINDGI_API_TOKEN
+
+    val run = kindgi.runs().start(StartRunBody.WithFlow.builder()
+      .flow("acme.check-order-stock")
+      .input(Map("orderId" -> "A-200").asJava)
+      .options(StartRunBody.WithFlow.Options.builder().dryRun(true).build())
+      .build())
+  }
+}
 ```
 
 </TabItem>

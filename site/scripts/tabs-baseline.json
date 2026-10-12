@@ -63,10 +63,6 @@
     "Java": 2,
     "Scala": 2
   },
-  "guides/flows/loop": {
-    "Java": 1,
-    "Scala": 1
-  },
   "guides/guardrails/configure-a-guardrail": {
     "Java": 2,
     "Scala": 2
