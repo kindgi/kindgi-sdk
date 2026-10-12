@@ -152,9 +152,11 @@ uv run kindgi env set ORDERS_REGION us --scope=project:<project-id> --env=local
 </TabItem>
 </Tabs>
 
-Each command prints one line. The first prints:
+Each command prints the value's env, scope, name and revision as JSON, then
+a line that confirms it. The first ends with:
 
 ```text
+…
   ✓ Set ORDERS_BASE_URL at tenant in env local. A tool that declares it (`needsSpec.env`) gets it on its next call.
 ```
 
