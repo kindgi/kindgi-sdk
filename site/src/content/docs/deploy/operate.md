@@ -29,8 +29,8 @@ These pages continue [Self-host Kindgi](../self-host/): the same containers
 
 ## Upgrade the runtime
 
-1. [Back up Postgres.](#back-up-postgres)
-2. Pull the new version, and [restart](#restart-the-runtime) with it, with the same `kindgi.env`:
+1. [Back up Postgres.](../back-up-and-restore/#back-up-postgres)
+2. Pull the new version, and [restart](../restart-and-check-health/#restart-the-runtime) with it, with the same `kindgi.env`:
 
    ```sh
    docker pull quay.io/kindgi/runtime:<version>
@@ -44,7 +44,7 @@ These pages continue [Self-host Kindgi](../self-host/): the same containers
 
 When it starts, the runtime brings the database up to date: it applies the migrations the database doesn't have yet, then serves. On a database that has them all, it applies nothing, so a restart on the same version changes nothing. The log doesn't list them: once the `Kindgi API server listening` lines appear, they're done. If one fails, the runtime exits with code 1, and its log says `kindgi-runtime: fatal: Error: migration failed for …` and why.
 
-Migrations only go forward, and an older runtime isn't guaranteed to work on a database a newer one migrated. To go back, [restore the backup](#restore-into-a-fresh-database) you took before the upgrade, and run the older version on it.
+Migrations only go forward, and an older runtime isn't guaranteed to work on a database a newer one migrated. To go back, [restore the backup](../back-up-and-restore/#restore-into-a-fresh-database) you took before the upgrade, and run the older version on it.
 
 ### Checks you can run before upgrading
 
@@ -724,7 +724,7 @@ and what's different after:
   `KINDGI_SEED_USER_ID` to keep one user across token changes
   ([Point the runtime at it](../authorization/#point-the-runtime-at-it)).
   Changing `KINDGI_API_TOKEN` also signs out the console sessions the old
-  token opened ([Rotate the API token](#rotate-the-api-token)).
+  token opened ([Rotate the API token](../rotate-keys/#rotate-the-api-token)).
 - **Signing a person out everywhere works.** In 0.1.4,
   `POST /v1/identity/users/<id>/revoke-sessions` answered as if it had, and
   ended nothing. Revoking an API key now ends the console sessions it opened,
@@ -858,7 +858,7 @@ and what's different after:
   ([Export signed evidence](../../guides/observability/export-signed-evidence/#give-the-deployment-its-key)).
 - **The runtime's own address, `/`, leads to the console,** or lists what it
   serves; it answered `404`. Health checks stay on `/ready`
-  ([Check health and logs](#check-health-and-logs)).
+  ([Check health and logs](../restart-and-check-health/#check-health-and-logs)).
 - **The console:** a run whose answer a guardrail blocked shows that answer
   as not sent, with the guardrail; it used to look sent
   ([A halted turn](../../guides/guardrails/halt-or-record/#a-halted-turn)).
@@ -1010,7 +1010,7 @@ restart `kindgi dev`.
 Run 0.1.4.2, pulled by its digest, with the same `kindgi.env`. It has no
 migration, and it carries 0.1.4.1's fix ([Runtime 0.1.4.1](#runtime-0141)).
 Keep `--restart unless-stopped` on the runtime's container either way
-([Restart the runtime](#restart-the-runtime)):
+([Restart the runtime](../restart-and-check-health/#restart-the-runtime)):
 
 ```sh
 docker pull quay.io/kindgi/runtime:0.1.4.2@sha256:420826ad9bac0c2fdb021c49517aabebeac1ff7ec236e02af47e90a31f5b825e
