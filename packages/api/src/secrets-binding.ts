@@ -18,7 +18,9 @@ export const RESERVED_SECRET_NAME_PREFIX = 'kindgi.';
  * every secret-lifecycle op. Every method is scope + env-scoped, where
  * `scope` is the discriminated primitive from `@kindgi/platform`
  * (Tenant / Org / Project). Writes declare the scope explicitly; reads
- * resolve via most-specific-wins walk across the scope hierarchy.
+ * resolve via most-specific-wins walk across the scope hierarchy, or at
+ * the given scope only when the read is `exact`. A custom store must
+ * honour `exact` and report the scope it read (`SecretResolveOutcome.scope`).
  *
  * Callers (routes, runtime dispatch, SDK clients) speak this interface
  * ONLY. Concrete storage — envelope-encrypted bytes in a database,
@@ -270,8 +272,9 @@ export interface SecretResolveOutcome {
   readonly value: string;
   /**
    * The scope the value was read at: the one asked for, or a broader one
-   * the walk reached. Every in-tree store reports it; `resolveAtScope`
-   * refuses a value read at another scope than it asked for.
+   * the walk reached. A custom store must report the scope it read: every
+   * in-tree store does, and `resolveAtScope` refuses a value read at
+   * another scope than it asked for, or without one.
    */
   readonly scope?: Scope;
 }

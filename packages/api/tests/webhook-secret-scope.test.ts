@@ -89,6 +89,8 @@ function setup(
     readonly receiver?: boolean;
     /** A store that walks even for an `exact` read (one that doesn't honour it). */
     readonly ignoresExact?: boolean;
+    /** A store that doesn't report the scope it read. */
+    readonly omitsScope?: boolean;
     /** Triggers registered as before scopes were recorded: none kept. */
     readonly legacy?: boolean;
   } = {},
@@ -134,8 +136,10 @@ function setup(
       const exact = input.exact === true && options.ignoresExact !== true;
       for (const scope of exact ? [input.scope] : walkFrom(input.scope)) {
         const value = stored.get(keyOf(scope, input.envName, input.name));
-        if (value !== undefined)
-          return { kind: 'ok', value: { name: input.name, versionId: 1, value, scope } };
+        if (value !== undefined) {
+          const read = { name: input.name, versionId: 1, value };
+          return { kind: 'ok', value: options.omitsScope === true ? read : { ...read, scope } };
+        }
       }
       return {
         kind: 'err',
@@ -325,6 +329,23 @@ describe('the same name in the tenant and in P', () => {
     expect(refused[0]).toMatchObject({ outcome: 'failed', projectId: P });
     expect(JSON.stringify(refused[0])).toContain('secret-scope-mismatch');
     expect(JSON.stringify(h.audited)).not.toContain('tenant-value');
+  });
+
+  test("a store that doesn't report the scope it read: refused even at the right scope, and audited", async () => {
+    const h = setup({ omitsScope: true });
+    h.put(project, 'p-value');
+    const t = await h.register('p-admin');
+    expect(t.body.hmacSecretScope).toEqual({ kind: 'project', projectId: P });
+    expect(await h.deliver(t.body.webhookId, 'p-value')).toBe(401);
+    const refused = h.audited.filter((e) => e.kind === 'secret-resolved');
+    expect(refused).toHaveLength(1);
+    expect(JSON.stringify(refused[0])).toContain('secret-scope-mismatch');
+    expect(JSON.stringify(h.audited)).not.toContain('p-value');
+    // A trigger from before scopes were recorded isn't an exact read: as before.
+    const legacy = setup({ omitsScope: true, legacy: true });
+    legacy.put(tenant, 'tenant-value');
+    const old = await legacy.register('p-admin');
+    expect(await legacy.deliver(old.body.webhookId, 'tenant-value')).toBe(202);
   });
 
   test('a secret in another env is not the one the receiver reads', async () => {

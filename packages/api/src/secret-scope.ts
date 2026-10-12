@@ -97,9 +97,10 @@ export function scopeOfRecorded(tenantId: TenantId, recorded: RecordedSecretScop
 
 /**
  * Read an item's secret at the scope recorded for it, and only there: an
- * exact read. A store that answers from another scope anyway (one that
- * ignores `exact`) is refused as the in-tree stores say a secret isn't
- * set, and the refusal is audited (scope and name, never the value).
+ * exact read. A store that answers from another scope anyway, or doesn't
+ * say which (one that ignores `exact`, or doesn't report `scope`), is
+ * refused as the in-tree stores say a secret isn't set, and the refusal is
+ * audited (scope and name, never the value).
  */
 export async function resolveAtScope(
   secrets: Pick<SecretBinding, 'resolve'>,
@@ -109,7 +110,7 @@ export async function resolveAtScope(
   const resolved = await secrets.resolve({ ...input, exact: true });
   if (resolved.kind === 'err') return resolved;
   const at = resolved.value.scope;
-  if (at === undefined || sameScope(at, input.scope)) return resolved;
+  if (at !== undefined && sameScope(at, input.scope)) return resolved;
   if (auditEvents !== undefined) {
     await emitResolveEvent({
       kind: 'secret',
