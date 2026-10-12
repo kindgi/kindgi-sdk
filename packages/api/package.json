@@ -43,6 +43,7 @@
     "@kindgi/compliance": "workspace:*",
     "@kindgi/authz": "workspace:*",
     "@kindgi/blob-binding": "workspace:*",
+    "@kindgi/bounds": "workspace:*",
     "@kindgi/capabilities": "workspace:*",
     "@kindgi/crypto": "workspace:*",
     "@kindgi/flow": "workspace:*",

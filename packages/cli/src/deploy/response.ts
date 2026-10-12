@@ -37,6 +37,10 @@ const WIRE_ERROR_HINTS: Readonly<Record<string, string>> = {
   'bad-input':
     'The wire body was malformed. Regenerate the envelope with ' +
     '`kindgi build` — a partial write on disk can cause this.',
+  'request-too-large':
+    'The deployment is larger than the server takes in one request. Every tool, agent, flow and ' +
+    'guardrail in the pack travels in it with its schemas and instructions: make the largest ' +
+    'schemas smaller, or split the pack into two.',
 };
 
 /**

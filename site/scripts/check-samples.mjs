@@ -2,7 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright (C) 2026 Kindgi Inc.
 /**
- * Checks the code samples on the hand-written pages, and in the skills
+ * Checks the code samples on the site's pages (the generated reference
+ * pages included), and in the skills
  * `kindgi init` installs (`packages/sdk/skills/`) whose samples are whole
  * files (`"samples": "checked"` in `site/skills-sources.json`; a skill's
  * teaching fragments stay unchecked until it's revised to make them whole).
@@ -38,10 +39,12 @@
  *
  * Snippets run as pasted: on a page, every code block is either offered for
  * copying and checked, or an excerpt (`excerpts.mjs`: its fence says
- * `excerpt`, or it contains `…`), which the site shows without a copy
- * button. So on a page, the check also fails on:
+ * `excerpt`, or it contains `…`) or a signature (its fence says
+ * `signature`: a reference page's declaration), which the site shows
+ * without a copy button. So on a page, the check also fails on:
  *   - a TypeScript, Python, Java or Scala block that isn't a whole file and
- *     isn't an excerpt, and an excerpt that names a file;
+ *     isn't an excerpt or a signature, and an excerpt or signature that
+ *     names a file;
  *   - a shell block that's a transcript (a `$ ` prompt), that `bash -n`
  *     refuses (with `<placeholders>` filled in), or whose `kindgi` command
  *     names a command or a flag the CLI doesn't have (`kindgi`, `npx …
@@ -53,6 +56,10 @@
  *     it's an excerpt. Text blocks (output, a prompt to paste) aren't code
  *     and stay as they are.
  * Skills keep only the whole-file check: they aren't rendered with copy buttons.
+ * The generated reference pages are git-ignored: `docs:build` writes them
+ * (`generate-reference.mjs` the CLI's and the Python SDK's, the site's build
+ * the TypeScript SDK's) before CI's `docs:samples`, and a run over every
+ * page fails without them.
  *
  * A sample may import the reader's own app code (`@/lib/requests`,
  * `acme.orders`). The page gives the checker a stand-in for it in a comment
@@ -73,7 +80,8 @@
  * tomllib), and the workspace built (`@kindgi/cli`, for its commands).
  *
  * Usage: node site/scripts/check-samples.mjs [--no-compile] [<page or skill file> …]
- *   (a page path is relative to site/src/content/docs; default: every page and skill)
+ *   (a page path is relative to site/src/content/docs; default: every page
+ *   and skill, after `pnpm run docs:build`, which generates the reference)
  *   --no-compile: the page rules only, without compiling the whole files
  *   (no pack, JDK or sbt needed): the quick list for a page's author.
  */
@@ -94,7 +102,7 @@ import { tmpdir } from 'node:os';
 import { delimiter, dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { isExcerpt } from './excerpts.mjs';
+import { EXCERPT, SIGNATURE, uncopied } from './excerpts.mjs';
 import { docsVersion, fillVersion } from './versioned-pages.mjs';
 
 const site = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -108,8 +116,13 @@ const pyright = join(site, 'node_modules', '.bin', 'pyright');
 /** The folders a Python pack's indexer discovers by default: other files are app code. */
 const PACK_PYTHON = /^(?:tools|agents|flows|guardrails)\//;
 
-/** Hand-written pages: everything but the generated sections. */
-const GENERATED = ['reference', 'contributing'];
+/**
+ * The folders of generated reference pages (git-ignored) that a run over
+ * every page needs: the CLI's and the Python SDK's, which
+ * `generate-reference.mjs` writes, and the TypeScript SDK's, which the
+ * site's build writes (starlight-typedoc). `docs:build` writes all three.
+ */
+const GENERATED = ['reference/cli', 'reference/python', 'reference/typescript'];
 const PAGE = /\.mdx?$/;
 
 const LANGUAGES = {
@@ -143,14 +156,18 @@ const FENCE_LANGUAGE = {
 };
 const javaSdk = join(repo, 'sdks', 'java');
 
-function pages(dir = docs) {
+/** Every page under `dir`, hand-written or generated. */
+export function pages(dir = docs) {
   return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const path = join(dir, entry.name);
-    if (entry.isDirectory()) {
-      return dir === docs && GENERATED.includes(entry.name) ? [] : pages(path);
-    }
+    if (entry.isDirectory()) return pages(path);
     return PAGE.test(entry.name) ? [path] : [];
   });
+}
+
+/** The generated folders (`GENERATED`) missing under `dir`: none once the reference is generated. */
+export function missingGenerated(dir = docs) {
+  return GENERATED.filter((folder) => !existsSync(join(dir, folder)));
 }
 
 /** The `SKILL.md` of every skill whose samples are checked. */
@@ -215,9 +232,12 @@ function named(block) {
   return language !== undefined && LANGUAGES[language].file.test(block.lines[0] ?? '');
 }
 
-/** Whether a block is an excerpt (`excerpts.mjs`), so not offered for copying. */
-function excerpt(block) {
-  return isExcerpt({
+/**
+ * What a block is when it isn't offered for copying (`excerpts.mjs`):
+ * `'excerpt'`, `'signature'`, or undefined.
+ */
+function notOffered(block) {
+  return uncopied({
     language: block.language,
     meta: block.meta,
     code: block.lines.join('\n'),
@@ -227,10 +247,10 @@ function excerpt(block) {
 
 /**
  * A page's samples that are whole files, by language: `{ path, content }[]`.
- * `excerpts: false` leaves out excerpts (a page's: they aren't offered for
- * copying, and one that names a file is a problem of its own).
+ * `offeredOnly`: only the blocks offered for copying, without excerpts and
+ * signatures (a page's: one that names a file is a problem of its own).
  */
-export function fileSamples(markdown, { excerpts = true } = {}) {
+export function fileSamples(markdown, { offeredOnly = false } = {}) {
   const byLanguage = { ts: [], python: [], java: [], scala: [] };
   for (const block of blocks(markdown)) {
     if (block.stub && ['json', 'jsonc'].includes(block.language)) {
@@ -243,7 +263,7 @@ export function fileSamples(markdown, { excerpts = true } = {}) {
     }
     const language = FENCE_LANGUAGE[block.language];
     if (language === undefined) continue;
-    if (!excerpts && !block.stub && excerpt(block)) continue;
+    if (offeredOnly && !block.stub && notOffered(block)) continue;
     const name = block.lines[0]?.match(LANGUAGES[language].file);
     if (name) {
       const content = `${block.lines.join('\n')}\n`;
@@ -275,11 +295,12 @@ function blockRules(block, cli) {
   const code = block.lines.join('\n');
   const language = FENCE_LANGUAGE[block.language];
   const whole = named(block);
-  if (excerpt(block)) {
+  const kind = notOffered(block);
+  if (kind !== undefined) {
     return whole
       ? {
           problems: [
-            'marked `excerpt` but names a file: a whole file is offered for copying and compiled, so drop `excerpt`, or drop the file name',
+            `marked \`${kind}\` but names a file: a whole file is offered for copying and compiled, so drop \`${kind}\`, or drop the file name`,
           ],
         }
       : {};
@@ -692,8 +713,9 @@ export function jsonProblem(code, comments) {
     if (/^\s*"[^"]*"\s*:/.test(text)) {
       return 'part of a JSON document (it starts with a member, not `{`): mark it `excerpt`, or show the whole document';
     }
-    const hint = comments ? '' : ' (a block with comments is `jsonc`)';
-    return `doesn't parse as JSON: ${error.message}${hint}`;
+    const hint = !comments && /\/\/|\/\*/.test(text) ? ' (a block with comments is `jsonc`)' : '';
+    // On one line: the parser's message can quote the block, line breaks included.
+    return `doesn't parse as JSON: ${error.message.replace(/\s+/g, ' ')}${hint}`;
   }
 }
 
@@ -1050,10 +1072,38 @@ function check(language, files, packDir) {
 /** The baseline file, next to this script. */
 const BASELINE = 'check-samples-baseline.json';
 
-/** The baseline: problems allowed per page (its path in the repository), when there is one. */
+/**
+ * The baseline: problems allowed per page, by its slug (its path under the
+ * docs, without the extension: generated pages aren't tracked files), when
+ * there is one.
+ */
 function readBaseline() {
   const file = join(site, 'scripts', BASELINE);
   return existsSync(file) ? JSON.parse(readFileSync(file, 'utf8')) : {};
+}
+
+/** The slugs of the pages that are tracked files, or `undefined` outside a git checkout. */
+function trackedPages() {
+  const listed = run('git', ['ls-files', '-z'], docs);
+  if (!listed.ok) return undefined;
+  return new Set(
+    listed.stdout
+      .split('\0')
+      .filter((path) => PAGE.test(path))
+      .map((path) => path.replace(PAGE, '')),
+  );
+}
+
+/**
+ * The baseline lines for the failing pages that aren't tracked files: the
+ * generated reference pages. A change to the code one documents (a new
+ * export, method or command) adds blocks to a page its author never wrote;
+ * until the page's generator marks them, these lines let them pass.
+ */
+export function generatedBaseline(failing, tracked) {
+  return failing
+    .filter(({ page }) => !tracked.has(page))
+    .map(({ page, lines }) => `  ${JSON.stringify(page)}: ${lines.length},`);
 }
 
 /** The CLI's commands and global flags, from the workspace's built `@kindgi/cli`. */
@@ -1064,7 +1114,8 @@ async function cliDescription() {
 
 /**
  * A page's rules, with the subprocess checks: `{ problems, copyable,
- * excerpts }`. `problems`: `<file>:<line>: <message>` lines, in page order.
+ * excerpts, signatures }`. `problems`: `<file>:<line>: <message>` lines, in
+ * page order; the rest, counts of the page's code blocks.
  */
 function checkPage(page, markdown, cli) {
   const rules = pageRules(markdown, cli);
@@ -1075,13 +1126,16 @@ function checkPage(page, markdown, cli) {
     ...parsedProblems(rules.parsed, work).map(located),
   ];
   const code = blocks(markdown).filter((block) => !block.stub && !TEXT.has(block.language));
-  const excerpts = code.filter(excerpt).length;
+  const kinds = code.map(notOffered);
+  const excerpts = kinds.filter((kind) => kind === EXCERPT).length;
+  const signatures = kinds.filter((kind) => kind === SIGNATURE).length;
   return {
     problems: found
       .sort((a, b) => a.line - b.line)
       .map(({ line, message }) => `${relative(repo, page)}:${line}: ${message}`),
-    copyable: code.length - excerpts,
+    copyable: code.length - excerpts - signatures,
     excerpts,
+    signatures,
   };
 }
 
@@ -1089,7 +1143,7 @@ function checkPage(page, markdown, cli) {
 function compileSamples(page, markdown, isPage) {
   let checked = 0;
   const failures = [];
-  for (const [language, files] of Object.entries(fileSamples(markdown, { excerpts: !isPage }))) {
+  for (const [language, files] of Object.entries(fileSamples(markdown, { offeredOnly: isPage }))) {
     if (files.length === 0) continue;
     let error;
     if (language === 'java') {
@@ -1114,7 +1168,7 @@ function compileSamples(page, markdown, isPage) {
  * count in the baseline (the pages' problems when these rules came in) are
  * reported but don't fail; the pages' owners fix them, and the baseline is emptied.
  */
-function report({ ruleProblems, failures }) {
+function report({ ruleProblems, failures }, tracked) {
   const baseline = readBaseline();
   const failing = ruleProblems.filter(({ page, lines }) => lines.length > (baseline[page] ?? 0));
   const known = ruleProblems.filter((entry) => !failing.includes(entry));
@@ -1124,6 +1178,12 @@ function report({ ruleProblems, failures }) {
     sections.push(
       `check-samples: ${count(failing)} code block(s) that can't be pasted as they are. Make each whole and checked, or mark it \`excerpt\` (site/scripts/excerpts.mjs):\n\n${failing.flatMap(({ lines }) => lines).join('\n')}`,
     );
+    const generated = tracked ? generatedBaseline(failing, tracked) : [];
+    if (generated.length > 0) {
+      sections.push(
+        `check-samples: ${generated.length} of these page(s) are generated (git-ignored; \`pnpm run docs:build\` writes them), so a change to the code they document can add blocks to them. Until their generator marks those blocks, set these counts in site/scripts/${BASELINE}:\n\n${generated.join('\n')}`,
+      );
+    }
   }
   if (known.length > 0) {
     sections.push(
@@ -1143,21 +1203,39 @@ async function main() {
   const argv = process.argv.slice(2);
   const compile = !argv.includes('--no-compile');
   const selected = argv.filter((arg) => arg !== '--no-compile').map((page) => resolve(docs, page));
-  const handWritten = new Set(pages());
+  const missing = missingGenerated();
+  if (selected.length === 0 && missing.length > 0) {
+    console.error(
+      `check-samples: the generated reference pages aren't there (${missing.join(', ')} in site/src/content/docs): run \`pnpm run docs:build\` first, which generates them.`,
+    );
+    process.exit(1);
+  }
+  const onSite = new Set(pages());
   const cli = await cliDescription();
-  const totals = { checked: 0, copyable: 0, excerpts: 0, ruleProblems: [], failures: [] };
+  const totals = {
+    checked: 0,
+    copyable: 0,
+    excerpts: 0,
+    signatures: 0,
+    ruleProblems: [],
+    failures: [],
+  };
   work = mkdtempSync(join(tmpdir(), 'kindgi-samples-'));
   try {
     for (const page of selected.length > 0 ? selected : [...pages(), ...skillFiles()]) {
       const markdown = fillVersion(readFileSync(page, 'utf8'), version);
-      const isPage = handWritten.has(page);
+      const isPage = onSite.has(page);
       if (isPage) {
-        const { problems, copyable, excerpts } = checkPage(page, markdown, cli);
+        const { problems, copyable, excerpts, signatures } = checkPage(page, markdown, cli);
         if (problems.length > 0) {
-          totals.ruleProblems.push({ page: relative(repo, page), lines: problems });
+          totals.ruleProblems.push({
+            page: relative(docs, page).replace(PAGE, ''),
+            lines: problems,
+          });
         }
         totals.copyable += copyable;
         totals.excerpts += excerpts;
+        totals.signatures += signatures;
       }
       if (!compile) continue;
       const { checked, failures } = compileSamples(page, markdown, isPage);
@@ -1167,10 +1245,10 @@ async function main() {
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
-  if (report(totals)) process.exit(1);
+  if (report(totals, trackedPages())) process.exit(1);
   const compiled = compile ? `${totals.checked} file samples check; ` : '';
   console.log(
-    `check-samples: ${compiled}${totals.copyable} code blocks on the pages are offered for copying and checked, and ${totals.excerpts} are excerpts.`,
+    `check-samples: ${compiled}${totals.copyable} code blocks on the pages are offered for copying and checked; not offered: ${totals.excerpts} excerpt(s), ${totals.signatures} signature(s).`,
   );
 }
 

@@ -412,8 +412,19 @@ KINDGI_API_TOKEN=$(az keyvault secret show --vault-name "$V" -n api-token --quer
 pnpm exec kindgi key trust acme-dev --label dev --url "$URL" --token "$KINDGI_API_TOKEN"
 ```
 
+It prints the key the runtime now trusts, then says so:
+
 ```text
-  ✓ Trusted acme-dev (sha256:d872dbbf…)
+{
+  "keyId": "acme-dev",
+  "tenantId": "722e23b8-bbb4-43dc-9a37-9640e369fa7d",
+  "algorithm": "ed25519",
+  "publicKey": "YoQxkUZcrXvo7NKCJmalfcMcGWMfNJzBhk+nhNctQBE=",
+  "label": "dev",
+  "createdAt": "2026-10-12T14:28:40.122Z"
+}
+
+  ✓ Trusted acme-dev (sha256:1b5dcdf07dacf4e91c1bab5b)
     The runtime now accepts deploys this key signs.
 ```
 

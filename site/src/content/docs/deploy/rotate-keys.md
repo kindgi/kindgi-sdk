@@ -155,7 +155,9 @@ revoked id can't be trusted again.
    pnpm exec kindgi key trust acme-selfhost-2 --url http://localhost:4000 --token "$KINDGI_API_TOKEN"
    ```
 
-   `--url` and `--token` are the runtime's URL and API token.
+   `--url` and `--token` are the runtime's URL and API token. It prints the
+   trusted key as JSON, then `✓ Trusted acme-selfhost-2` with the fingerprint
+   `key create` printed.
 
 2. Sign your next release with it. Add the two lines `key create` printed
    to the `selfhost` block of `kindgi.config.ts`:
@@ -233,8 +235,8 @@ audit:
 curl -s "http://localhost:4000/v1/signing-keys?includeRevoked=true" -H "authorization: Bearer $KINDGI_API_TOKEN"
 ```
 
-Each key in the list has its `revokedAt` and `revokedReason`, if it was
-revoked.
+It answers with the keys as JSON. Each key in the list has its `revokedAt`
+and `revokedReason`, if it was revoked.
 
 ## Rotate the public run token key
 
