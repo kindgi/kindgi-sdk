@@ -10,16 +10,18 @@ This page is written for a coding agent (Claude Code, Cursor, Codex, or any
 other). A person pastes this prompt into their agent:
 
 ```text
-Set up Kindgi for me: read https://docs.kindgi.com/start/agent/ and follow it step by step. Tell me whenever you need me to do something, and wait for me.
+Set up Kindgi for me: read https://docs.kindgi.com/start/agent.md and follow it step by step. Tell me whenever you need me to do something, and wait for me.
 ```
 
 If you are that agent: follow this page's steps in order. Do everything you
 can yourself. Ask the person only for what the steps say needs them, one
 thing at a time, and wait until they say they've done it.
 
-If your fetch tool cut this page short or summarized it, read its Markdown
-version: <https://docs.kindgi.com/start/agent.md>. Every page of these docs
-has one: replace the slash at the end of its URL with `.md`.
+Read this page whole. If your fetch tool cut it short or summarized it,
+fetch <https://docs.kindgi.com/start/agent.md> again with a tool that
+returns the text as it is, such as `curl -s`. Every page of these docs has
+a Markdown version like this one: replace the slash at the end of a page's
+URL with `.md`.
 
 ## Rules for the whole setup
 
@@ -48,7 +50,10 @@ has one: replace the slash at the end of its URL with `.md`.
 
 ## Step 0: check the machine
 
-Work out the clipboard command for this OS:
+Work out this machine's OS yourself, without asking the person: `uname -s`
+prints `Darwin` on macOS and `Linux` on Linux, WSL included. On Windows it
+fails, or prints a name that starts with `MINGW` or `CYGWIN`. Then pick its
+clipboard command:
 
 | OS | Read the clipboard | Clear it |
 | --- | --- | --- |
@@ -215,23 +220,31 @@ are how you write tools and agents for this project.
 ## Step 3: start Kindgi
 
 Start `kindgi dev` from the project's folder so that it keeps running after
-your turn ends: detached, with its output in a log, and note its process id:
+your turn ends, with its output in `.kindgi/dev.log`. Run
+`mkdir -p .kindgi` first, on its own, so the log's folder exists. Then:
 
-```sh
-mkdir -p .kindgi
-nohup kindgi dev > .kindgi/dev.log 2>&1 &
-echo $!
-```
+- **If your tool runs commands in the background itself** (Claude Code's
+  background tasks do), start it that way: `kindgi dev`, as a background
+  task, with its output in `.kindgi/dev.log`. Your tool can stop it.
+- **Otherwise,** start it detached, and note its process id:
 
-Use `kindgi` as the project runs it (`.kindgi/` is git-ignored). Keep
-`mkdir` on its own line: with `mkdir … && nohup … &`, `$!` is a subshell's
-id, and stopping it leaves `kindgi dev` running. It starts the runtime in
-Docker and answers with a stand-in model, `dev-echo`, until step 4 adds a
-real one.
+  ```sh
+  nohup kindgi dev > .kindgi/dev.log 2>&1 &
+  echo $!
+  ```
+
+  Run the `mkdir` before it, not as `mkdir … && nohup … &`: then `$!` is a
+  subshell's id, and stopping it leaves `kindgi dev` running.
+
+Use `kindgi` as the project runs it (`.kindgi/` is git-ignored). It starts
+the runtime in Docker and answers with a stand-in model, `dev-echo`, until
+step 4 adds a real one.
 
 Run doctor every few seconds until `runtime` passes. `model-key` and
 `provider` still fail: that's expected until step 4. Then tell the person
-it's running, and how to stop it: `kill <the process id>`. Also tell them
+it's running, and how to stop it: `kill <the process id>`, or, if your
+tool started it, how your tool stops it. If your tool's background tasks end
+with your session, tell them `kindgi dev` stops then too. Also tell them
 where the console is: the `Console` line of `.kindgi/dev.log`, its first
 address (`kindgi doctor --json` has it as `consoleUrl`, and `kindgi console`
 opens it in their browser). They sign in there with **Sign in as seeded
@@ -316,8 +329,9 @@ register the provider again or to restart `kindgi dev`.
 Tell the person, in your own words:
 
 > **Your first agent answered.** It runs on your machine, with your model
-> key in `.kindgi/secrets.env`; Kindgi keeps running in the background until you stop
-> it with `kill <the process id>`. Three things to try next:
+> key in `.kindgi/secrets.env`. Kindgi keeps running in the background until
+> you stop it (with `kill <the process id>`, or the way I told you), or, if
+> my tool started it, until this session ends. Three things to try next:
 >
 > 1. **Give it a tool:** ask me "add a tool that looks up an order, and let
 >    the agent call it".

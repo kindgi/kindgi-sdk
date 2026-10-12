@@ -10,7 +10,9 @@ This page adds Kindgi to a TypeScript or Node app you already have. The pack
 lives beside your code: its tools import your app's modules.
 
 **Before you start**, set up what the [Install page](../install/) describes:
-Node 22.12 or later, Docker, and access to the runtime image.
+Node 22.12 or later, Docker, and access to the runtime image. In the app's
+folder, `npx --yes @kindgi/cli@0.1 doctor` checks all three, and says how to
+fix what's missing.
 
 :::tip[Your coding agent can do most of this]
 `kindgi init` gives your app Kindgi's skills, in `.claude/skills/`. After
@@ -62,6 +64,21 @@ pnpm install
   `esbuild@<version>`, is kept;
 - the skills for your coding agent under `.claude/skills/`, and
   `.gitignore` entries (`.kindgi/`, `.kindgirc.json`, `.env.local`).
+
+If your app is on zod 3, `init` keeps it, and a Kindgi schema written with
+zod 3 doesn't compile: Kindgi takes zod 4 schemas. Write your tools' and
+agents' inputs and outputs as JSON Schema objects instead, or upgrade the
+app to zod 4 if its own code allows (zod 4 changes some of zod 3's API, such
+as `invalid_type_error`). A tool's input as JSON Schema:
+
+```ts excerpt
+input: {
+  type: 'object',
+  additionalProperties: false,
+  required: ['orderId'],
+  properties: { orderId: { type: 'string' } },
+},
+```
 
 It creates no env files: `kindgi dev` reads your app's own `.env` and
 `.env.local`, and keeps the secrets you store in its own
