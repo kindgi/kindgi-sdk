@@ -183,7 +183,8 @@ export const PACK_ENDPOINT_HOSTS_VAR = 'KINDGI_PACK_ENDPOINT_HOSTS';
  *   (`*-123456789012.us-central1.run.app` matches
  *   `kp-abc-123456789012.us-central1.run.app`). On Cloud Run, whose URLs are
  *   `<service>-<project number>.<region>.run.app` for every project, this is
- *   the form that admits only one project's services.
+ *   the form that admits only one project's services; under `run.app`, the
+ *   tail must be one (digits only).
  */
 export type PackEndpointHost =
   | { readonly kind: 'exact'; readonly host: string }
@@ -192,8 +193,21 @@ export type PackEndpointHost =
 
 const HOST_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 
-/** Cloud Run's shared domain: no `*.` entry may name it or a domain under it. */
+/**
+ * Cloud Run's shared domain. Under it, a `*.` entry, or a `*-` tail that
+ * isn't a project number, would admit any project's services.
+ */
 const CLOUD_RUN_DOMAIN = 'run.app';
+
+function onCloudRun(domain: string): boolean {
+  return domain === CLOUD_RUN_DOMAIN || domain.endsWith(`.${CLOUD_RUN_DOMAIN}`);
+}
+
+function cloudRunRefusal(item: string): Error {
+  return new Error(
+    `${PACK_ENDPOINT_HOSTS_VAR} refuses "${item}": ${CLOUD_RUN_DOMAIN} is Cloud Run's shared domain, whose URLs are \`<service>-<project number>.<region>.run.app\` in every project, so it would admit anyone's service. List the exact hosts, or name one project with \`*-<project number>.<region>.run.app\`.`,
+  );
+}
 
 function isHostName(name: string): boolean {
   const labels = name.split('.');
@@ -206,8 +220,9 @@ function isHostName(name: string): boolean {
  * and a domain (`*-123456789012.us-central1.run.app`); a domain has at least
  * two labels. Unset or blank: none, so every endpoint is refused. Throws on
  * anything else, so a typo fails at startup rather than refusing every
- * endpoint later; and throws on `*.` with `run.app` or a domain under it
- * (`*.us-central1.run.app`, `*.a.run.app`), which would admit anyone's
+ * endpoint later. Throws, too, on `*.`, or a `*-` tail that isn't a
+ * project number, with `run.app` or a domain under it
+ * (`*.us-central1.run.app`, `*-uc.a.run.app`): either would admit anyone's
  * Cloud Run service.
  */
 export function parsePackEndpointHosts(raw: string | undefined): readonly PackEndpointHost[] {
@@ -219,6 +234,7 @@ export function parsePackEndpointHosts(raw: string | undefined): readonly PackEn
       const tail = dot < 0 ? '' : item.slice(2, dot);
       const domain = dot < 0 ? '' : item.slice(dot + 1);
       if (HOST_LABEL.test(tail) && isHostName(domain)) {
+        if (onCloudRun(domain) && !/^[0-9]+$/.test(tail)) throw cloudRunRefusal(item);
         return { kind: 'tail' as const, tail, domain };
       }
       throw new Error(
@@ -233,11 +249,7 @@ export function parsePackEndpointHosts(raw: string | undefined): readonly PackEn
       );
     }
     if (suffix === undefined) return { kind: 'exact' as const, host: name };
-    if (suffix === CLOUD_RUN_DOMAIN || suffix.endsWith(`.${CLOUD_RUN_DOMAIN}`)) {
-      throw new Error(
-        `${PACK_ENDPOINT_HOSTS_VAR} refuses "${item}": ${CLOUD_RUN_DOMAIN} is Cloud Run's shared domain, whose URLs are \`<service>-<project number>.<region>.run.app\` in every project, so it would admit anyone's service. List the exact hosts, or name one project with \`*-<project number>.<region>.run.app\`.`,
-      );
-    }
+    if (onCloudRun(suffix)) throw cloudRunRefusal(item);
     return { kind: 'suffix' as const, suffix };
   });
 }

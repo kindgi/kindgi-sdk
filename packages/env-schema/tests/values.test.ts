@@ -255,6 +255,21 @@ describe('KINDGI_PACK_ENDPOINT_HOSTS', () => {
     );
   });
 
+  test.each([['*-uc.a.run.app'], ['*-abc.us-central1.run.app'], ['*-123abc.run.app']])(
+    "refuses %j at startup: under run.app, a tail other than a project number admits anyone's service",
+    (raw) => {
+      expect(() => parsePackEndpointHosts(raw)).toThrow(
+        `KINDGI_PACK_ENDPOINT_HOSTS refuses "${raw}": run.app is Cloud Run's shared domain`,
+      );
+    },
+  );
+
+  test('a tail outside run.app may be any label', () => {
+    expect(parsePackEndpointHosts('*-anything.packs.internal')).toEqual([
+      { kind: 'tail', tail: 'anything', domain: 'packs.internal' },
+    ]);
+  });
+
   test('on Cloud Run, the tail form and exact hosts are taken; a domain that only ends in run.app is not Cloud Run', () => {
     expect(
       parsePackEndpointHosts(
