@@ -277,9 +277,10 @@ user**, which needs no token: don't print the token in the chat.
      among them.
    - `--scope=tenant` is where the secret lives: the tenant, rather than one
      org or project.
-   - `--preset=openai` registers that provider's models from Kindgi's
-     built-in preset, which reads the secret of the same provider.
-     `kindgi providers presets` lists the presets and their models.
+   - `--preset=openai` registers OpenAI's models from Kindgi's built-in
+     preset, which reads the key from that provider's secret in the table,
+     `OPENAI_API_KEY` here. `kindgi providers presets` lists the presets and
+     their models.
 3. Clear the clipboard, if this OS lets you.
 4. Run doctor again; `model-key` and `provider` should pass.
 
