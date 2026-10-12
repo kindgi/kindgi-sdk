@@ -34,6 +34,11 @@ pnpm install
   says how).
 - `init` with no pack name adds Kindgi to the app in this folder.
 - Run your app's own package manager's install in place of `pnpm install`.
+- If your app's pnpm sets `minimumReleaseAge`, `pnpm install` refuses a
+  Kindgi release younger than that. Wait until the release is old enough, or
+  install the release before it (`@kindgi/cli@<version>` and
+  `@kindgi/sdk@<version>`). The setting protects your app's dependencies, so
+  leave it as it is.
 
 `init` adds:
 
