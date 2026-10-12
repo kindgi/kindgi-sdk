@@ -38,7 +38,7 @@ type Issue = { path: string; message: string };
  * Public API to construct an agent definition. Validates every field,
  * brands ids, and returns a `Result` — no throws.
  *
- * ```ts
+ * ```ts excerpt
  * const agent = defineAgent({
  *   id: 'acme.citation-verifier',
  *   version: '1.0.0',
@@ -100,7 +100,7 @@ export function defineAgent(spec: DefineAgentSpec): Result<Agent, InvalidAgentEr
  * run start via `semver.maxSatisfying`.
  *
  * @example
- * ```ts
+ * ```ts excerpt
  * const agent = defineAgent({
  *   id: 'my-pack.summarizer',
  *   version: '1.0.0',
