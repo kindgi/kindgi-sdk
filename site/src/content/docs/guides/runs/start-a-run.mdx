@@ -433,8 +433,8 @@ background. Start an agent with `agent` instead of `flow`, and its input
 The client references have every field and option:
 [TypeScript](../../../reference/typescript/sdk/kindgi/sdk/client/),
 [Python](../../../reference/python/resources/runs/),
-[Java](https://javadoc.io/doc/com.kindgi/kindgi-client) (the Javadoc of
-`kindgi-client`, which Scala apps use too), and the
+[Java](https://github.com/kindgi/kindgi-sdk/tree/main/sdks/java#readme) (the
+README of `kindgi-client`, which Scala apps use too), and the
 [CLI](../../../reference/cli/runs/). In Java, a run's fields are the record's
 methods (`run.status()`, `run.output()`), and `status()` prints as its wire
 value (`completed`).
@@ -531,7 +531,7 @@ public final class StartFailures {
 ```
 
 ```text
-run-failed handler-error: Tool "acme.get-order" handler threw: handler-throw: Handler for tool "acme.get-order" threw: Error: No order Z-9
+run-failed handler-error: Tool "acme.get-order" handler threw: handler-throw: Handler for tool "acme.get-order" threw: java.lang.IllegalArgumentException: No order Z-9
 flow-not-found No flow "acme.no-such-flow" is registered in this tenant.
 ```
 
@@ -571,7 +571,7 @@ object StartFailures {
 ```
 
 ```text
-run-failed handler-error: Tool "acme.get-order" handler threw: handler-throw: Handler for tool "acme.get-order" threw: Error: No order Z-9
+run-failed handler-error: Tool "acme.get-order" handler threw: handler-throw: Handler for tool "acme.get-order" threw: java.lang.IllegalArgumentException: No order Z-9
 flow-not-found No flow "acme.no-such-flow" is registered in this tenant.
 ```
 
