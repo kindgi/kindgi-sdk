@@ -91,8 +91,26 @@ kindgi secrets set ACME_KC_SECRET --env=production --scope=tenant
 - `--env` is the runtime's environment, its `KINDGI_ENV`.
 - `--scope=tenant` stores the secret for the whole workspace.
 
-The command asks for the value twice, and doesn't show what you type. IT
-then sends back the issuer URL, the client ID and the secret's name.
+The command asks for the value twice, and doesn't show what you type.
+Then it prints what it stored:
+
+```text
+Value:
+Re-enter to confirm:
+{
+  "name": "ACME_KC_SECRET",
+  "scope": {
+    "kind": "tenant",
+    "tenantId": "6c0bd33e-e941-439b-bd0c-c7e412db29fc"
+  },
+  "envName": "production",
+  "versionId": 1
+}
+
+  Set ACME_KC_SECRET at tenant in production.
+```
+
+IT then sends back the issuer URL, the client ID and the secret's name.
 
 ## 3. Register what IT sent back
 
