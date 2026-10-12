@@ -17,9 +17,9 @@ If you are that agent: follow the steps below in order. Do everything you
 can yourself. Ask the person only for what the steps say needs them, one
 thing at a time, and wait until they say they've done it.
 
-If your fetch tool cut this page short, read it from
-<https://docs.kindgi.com/_llms-txt/start.txt>: the Start section as plain
-text, with this page under "Set up Kindgi with your coding agent".
+If your fetch tool cut this page short or summarized it, read its Markdown
+version: <https://docs.kindgi.com/start/agent.md>. Every page of these docs
+has one: replace the slash at the end of its URL with `.md`.
 
 ## Rules for the whole setup
 
@@ -231,9 +231,7 @@ it's running, and how to stop it: `kill <the process id>`. Also tell them
 where the console is: the `Console` line of `.kindgi/dev.log`, its first
 address (`kindgi doctor --json` has it as `consoleUrl`, and `kindgi console`
 opens it in their browser). They sign in there with **Sign in as seeded
-user**, which needs no token: don't print the token in the chat. Tell them
-to use Chrome or Firefox: Safari can't keep the local sign-in over http yet
-([Known limitations](../../deploy/operate/#known-limitations-in-015)).
+user**, which needs no token: don't print the token in the chat.
 
 ## Step 4: the model key
 
