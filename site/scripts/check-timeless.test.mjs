@@ -57,6 +57,15 @@ test('a version and everything before it dates a page, once', () => {
   );
 });
 
+test('"On" a version dates a page too', () => {
+  assert.deepEqual(
+    phrases(
+      'On 0.1.6 and 0.1.7, authorization also needs a restart.\nOn Kindgi 0.1.5, it differs.',
+    ),
+    ['1: On 0.1.6', '2: On Kindgi 0.1.5'],
+  );
+});
+
 test('a requirement or a range is fine', () => {
   assert.deepEqual(
     phrases(
