@@ -18,9 +18,9 @@ You run four containers on one Docker network:
 Everything here runs on one machine with Docker Desktop. On a server the pieces are the same; step 2 says what changes.
 
 :::note[Access to the runtime image]
-The runtime image is in private preview: request access at contact@kindgi.com.
-You get its pull credentials, a robot name and a token, and log in once with
-`kindgi auth registry` (see [Install](../../start/install/#access-to-the-runtime-image)).
+Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub for the
+runtime image's pull credentials, and log in once with `kindgi auth registry`
+(see [Install](../../start/install/#access-to-the-runtime-image)). Questions or trouble: contact@kindgi.com.
 :::
 
 ## Before you start
