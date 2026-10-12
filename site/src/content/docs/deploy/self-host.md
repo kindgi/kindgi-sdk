@@ -227,7 +227,7 @@ curl -s http://localhost:4000/ready
 {"ok":true,"database":"ok","erasures":"unreplayable"}
 ```
 
-`/ready` answers once the runtime is up and its database answers (`/health` checks only the process; see [Operate](../operate/#check-health-and-logs)). Its `erasures` says whether an erasure can be replayed after a backup restore: `unreplayable` until you set `KINDGI_ERASURE_LEDGER_KEY` ([Erasures and backups](../operate/#erasures-and-backups)).
+`/ready` answers once the runtime is up and its database answers (`/health` checks only the process; see [Check health and logs](../restart-and-check-health/#check-health-and-logs)). Its `erasures` says whether an erasure can be replayed after a backup restore: `unreplayable` until you set `KINDGI_ERASURE_LEDGER_KEY` ([Erasures and backups](../back-up-and-restore/#erasures-and-backups)).
 
 Open `http://localhost:4000/` in Chrome or Firefox: it leads to the console, at `/console/`, where you sign in with the API token from `kindgi.env`. The sign-in is a `Secure` cookie, which Safari keeps only over `https`, even on `localhost`. A runtime started without the console answers there with a short page naming what it serves (`/health`, `/ready`, the API reference at `/docs`).
 
@@ -317,7 +317,7 @@ The start log says which it uses, with one of these lines:
 it again, or to someone else. Outside `/v1`, the console's files and the
 docs, the runtime sets caching as before.
 
-Point the load balancer's health check at `/ready` (see [Operate](../operate/#check-health-and-logs)).
+Point the load balancer's health check at `/ready` (see [Check health and logs](../restart-and-check-health/#check-health-and-logs)).
 
 ## 7. Trust your key and deploy
 
@@ -390,7 +390,7 @@ A provider that needs an API key (Anthropic, OpenAI, Gemini) keeps it in the run
   - **Google Cloud KMS:** `KINDGI_SECRETS_BACKEND_KMS=gcp`, with its settings.
   - **A local key, on a single host:** `KINDGI_SECRETS_BACKEND_KMS=libsodium` and `KINDGI_SECRETS_LOCAL_KEY_ACK=single-node`, with the key in a file `KINDGI_SECRETS_LOCAL_KEY_PATH` names, or base64 in `KINDGI_SECRETS_LOCAL_KEY`. It must differ from the AAD key. The startup log then says `Secrets: Postgres, with a local key from /etc/kindgi/secrets-local.key (single-node; not a cloud KMS; KINDGI_SECRETS_LOCAL_KEY_ACK)`.
 
-Mount key files into the container like the signing key in [Operate](../operate/#rotate-the-public-run-token-key): mode 0600, readable by the runtime's user (uid 10001). Back both keys up apart from the database: if either is lost, every stored secret is lost. Without them the runtime doesn't start, and says which setting is missing. The settings are in the [reference](../../reference/env-vars/). A keyless endpoint (Ollama, vLLM) needs no secrets store. To keep the secrets in Azure Key Vault, Google Secret Manager or HashiCorp Vault instead, see [Keep secrets in your own secret manager](../secret-manager/).
+Mount key files into the container like the signing key in [Rotate the public run token key](../rotate-keys/#rotate-the-public-run-token-key): mode 0600, readable by the runtime's user (uid 10001). Back both keys up apart from the database: if either is lost, every stored secret is lost. Without them the runtime doesn't start, and says which setting is missing. The settings are in the [reference](../../reference/env-vars/). A keyless endpoint (Ollama, vLLM) needs no secrets store. To keep the secrets in Azure Key Vault, Google Secret Manager or HashiCorp Vault instead, see [Keep secrets in your own secret manager](../secret-manager/).
 :::
 
 ## Clean up
