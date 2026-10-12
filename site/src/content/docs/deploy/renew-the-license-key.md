@@ -90,7 +90,19 @@ kindgi license enroll --for <your GitHub login> --renewer gcp:projects/acme-prod
 
 `enroll` keeps the private key at `--renewer`. It prints the renewer's id
 (`lr_…`), a line to add at access.kindgi.com (`kgi_lrp_…`), and the `renew`
-command to run next.
+command to run next:
+
+```text
+Renewer lr_c1DXmGBUpkAT6wd10BARbp: its private key is in ….
+
+Add this deployment on https://access.kindgi.com, signed in as …, under "Renew the key from your deployment":
+
+  kgi_lrp_…
+
+Then renew the key whenever you like, by hand or on your own schedule:
+
+  kindgi license renew --key <where the license key is> --renewer …
+```
 
 Run `enroll` again with the same `--renewer`, and it reuses the key it finds
 there. `--replace` makes a new one instead. The old one stops working once

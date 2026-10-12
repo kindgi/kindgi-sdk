@@ -20,6 +20,11 @@ the Kindgi CLI and SDK.
 - **For a Python pack:** Python 3.11 or later, and uv (or Poetry, or pip).
   The CLI comes from PyPI as `kindgi-cli`, with its own copy of Node, so you
   install no Node.
+- **For a Java or Scala pack: a JDK 17 or later,** with `JAVA_HOME` set to it
+  (else the `java` on your `PATH`). A Java pack brings Maven (its `mvnw`); a
+  Scala pack needs sbt on your `PATH`. The pack's `kindgiw` runs the CLI with
+  Node's `npx` when Node is installed, else with `uvx`, so you need one of the
+  two.
 
 Nothing else: the runtime is a container image that `kindgi dev` pulls and
 runs for you.
@@ -168,6 +173,23 @@ project's dev dependencies.
 With Poetry: `poetry add kindgi` and `poetry add --group dev "kindgi-cli>=0.1,<0.2"`.
 With pip: `pip install kindgi "kindgi-cli>=0.1,<0.2"`.
 
+## A Java or Scala project
+
+```sh
+npx --yes @kindgi/cli@0.1 init my-pack --template=java
+```
+
+- `--template=scala` makes a Scala pack. Without Node:
+  `uvx --from "kindgi-cli>=0.1,<0.2" kindgi init my-pack --template=java`.
+- The pack pins the Kindgi CLI it runs with, `"cli"` in `kindgi.config.json`.
+  From then on, in a Java or Scala project, every `kindgi <command>` in these
+  docs is `./kindgiw <command>` (`kindgiw.cmd` on Windows).
+- The SDK is a dependency at your Kindgi release's version:
+  `com.kindgi:kindgi-pack` in a Java pack's `pom.xml`,
+  `"com.kindgi" %% "kindgi-pack-scala"` in a Scala pack's `build.sbt`.
+
+In an app you already have: [Add Kindgi to an existing app](../existing-app/).
+
 ## Where `kindgi dev` keeps its data
 
 `kindgi dev` gives each project its own database in the Postgres it starts:
@@ -197,9 +219,14 @@ needs only the SDK's client:
 - **TypeScript:** `@kindgi/sdk`, and `createClient` from
   `@kindgi/sdk/client`.
 - **Python:** `kindgi`, and `Kindgi` (or `AsyncKindgi`) from `kindgi.client`.
+- **Java:** `com.kindgi:kindgi-client`, and `Kindgi.create()` from
+  `com.kindgi.client` ([Call Kindgi from a Java app](../java-app/)).
+- **Scala:** the Java client, `com.kindgi:kindgi-client`
+  (`"com.kindgi" % "kindgi-client" % "<version>"` in `build.sbt`).
 
 ## Next
 
 - [Quickstart: TypeScript](../quickstart-typescript/)
 - [Quickstart: Python](../quickstart-python/)
+- [Quickstart: Java](../quickstart-java/) and [Quickstart: Scala](../quickstart-scala/)
 - [Add Kindgi to an existing app](../existing-app/)
