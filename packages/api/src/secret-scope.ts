@@ -50,7 +50,12 @@ export interface NamedSecretScopeInput {
   readonly administers?: (scope: Scope) => Promise<boolean>;
   /** `secretScopeChain` of the item's scope. */
   readonly chain: readonly Scope[];
-  readonly envName: EnvName;
+  /**
+   * The env the secret is read in. Absent (the deployment didn't say which
+   * env it serves): nothing is looked up, and the broadest scope the caller
+   * administers is recorded, which tells nothing about what exists.
+   */
+  readonly envName: EnvName | undefined;
   readonly name: string;
 }
 
@@ -60,6 +65,7 @@ export async function namedSecretScope(input: NamedSecretScopeInput): Promise<Sc
   for (const scope of input.chain) {
     if (input.administers !== undefined && !(await input.administers(scope))) continue;
     ceiling = scope;
+    if (input.envName === undefined) continue;
     const found = await input.secrets.get({ scope, envName: input.envName, name: input.name });
     if (found !== null) return scope;
   }
@@ -85,7 +91,7 @@ export function scopeOfRecorded(tenantId: TenantId, recorded: RecordedSecretScop
 /** Each named secret's scope to record (`null` for none usable), by name. */
 export async function namedSecretScopes(
   input: Omit<NamedSecretScopeInput, 'name' | 'envName'> & {
-    readonly names: readonly { readonly envName: EnvName; readonly name: string }[];
+    readonly names: readonly NamedSecret[];
   },
 ): Promise<Readonly<Record<string, RecordedSecretScope | null>>> {
   const out: Record<string, RecordedSecretScope | null> = {};
@@ -112,7 +118,7 @@ export async function secretScopesFor(
   c: Context<AppEnv>,
   deps: SecretScopeDeps,
   item: Scope,
-  names: readonly { readonly envName: EnvName; readonly name: string }[],
+  names: readonly NamedSecret[],
 ): Promise<Readonly<Record<string, RecordedSecretScope | null>> | undefined> {
   if (deps.secrets === undefined || names.length === 0) return undefined;
   const orgId =
@@ -131,22 +137,28 @@ export async function secretScopesFor(
   });
 }
 
+/** A secret an item names, and the env it's read in (absent: not known here; see `NamedSecretScopeInput.envName`). */
+export interface NamedSecret {
+  readonly envName: EnvName | undefined;
+  readonly name: string;
+}
+
 /**
  * The secrets a tool names, with the env each is read in: a declarative
  * tool's `secretRef` in its own env, and the ones its code declares in the
- * env the runtime serves (left out without one: not recorded).
+ * env the runtime serves (`envName`; absent, each is recorded without a
+ * lookup). Scopes are recorded by name: a declared secret with the name of
+ * the `secretRef` shares its record, decided in the `secretRef`'s env.
  */
 export function toolSecretRefs(
   manifest: Pick<ToolManifest, 'needsSpec' | 'spec'>,
   envName: EnvName | undefined,
-): { readonly envName: EnvName; readonly name: string }[] {
-  const refs: { readonly envName: EnvName; readonly name: string }[] = [];
+): NamedSecret[] {
+  const refs: NamedSecret[] = [];
   const ref = manifest.spec?.authorization?.secretRef;
   if (ref !== undefined) refs.push({ envName: ref.envName as EnvName, name: ref.name });
-  if (envName !== undefined) {
-    for (const name of Object.keys(manifest.needsSpec?.secrets ?? {})) {
-      if (!refs.some((r) => r.name === name)) refs.push({ envName, name });
-    }
+  for (const name of Object.keys(manifest.needsSpec?.secrets ?? {})) {
+    if (!refs.some((r) => r.name === name)) refs.push({ envName, name });
   }
   return refs;
 }

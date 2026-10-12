@@ -173,6 +173,19 @@ describe('kindgi webhooks register', () => {
     );
   });
 
+  test('a secret its registrant administers no scope for: said plainly, with the fix', async () => {
+    const { out } = await webhooks(
+      GENERATE.filter((a) => a !== '--generate-secret'),
+      {
+        trigger: { ...TRIGGER, hmacSecretScope: null },
+      },
+    );
+    expect(out.exitCode, out.stderr).toBe(0);
+    expect(out.stderr).toContain(
+      `Nothing is read for acme-woo-secret until a project admin names it again (\`kindgi webhooks update ${ID} --secret=acme-woo-secret\`)`,
+    );
+  });
+
   test('a named secret: nothing is made, and nothing is shown', async () => {
     const { out, calls } = await webhooks(GENERATE.filter((a) => a !== '--generate-secret'));
     expect(out.exitCode, out.stderr).toBe(0);

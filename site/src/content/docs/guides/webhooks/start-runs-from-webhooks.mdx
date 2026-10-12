@@ -148,7 +148,9 @@ preset, where to paste them. From a WooCommerce run, the secret left out:
 - **Where the secret lives:** `--generate-secret` stores it in the trigger's
   project, in the env your runtime serves (`KINDGI_ENV`; `local` under
   `kindgi dev`), and the receiver reads it there. It needs only `write` on
-  the project. To use a secret you already stored with
+  the project. It never replaces a secret: if the project already has one of
+  that name, it's refused (`secret-write-conflict`), so pick another
+  `--secret`. To use a secret you already stored with
   [`kindgi secrets set`](../../secrets/), leave out `--generate-secret`: the
   trigger reads it at the first of its project, the project's org and the
   tenant that has it and that you administer. A model provider's key is

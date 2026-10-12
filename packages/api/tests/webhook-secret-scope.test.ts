@@ -74,7 +74,7 @@ function checkBinding(): AuthzCheckBinding {
 const keyOf = (scope: Scope, env: string, name: string) =>
   `${scope.kind === 'project' ? `project:${scope.projectId}` : scope.kind === 'org' ? `org:${scope.orgId}` : 'tenant'}|${env}|${name}`;
 
-function setup() {
+function setup(options: { readonly receiver?: boolean } = {}) {
   // The store, each scope apart.
   const stored = new Map<string, string>();
   const put = (scope: Scope, value: string, env: string = ENV) =>
@@ -126,7 +126,7 @@ function setup() {
       } as never,
       resolveToken,
       runHandler: {} as RunHandlerBinding,
-      webhookReceiver: { envName: ENV },
+      ...(options.receiver !== false && { webhookReceiver: { envName: ENV } }),
       authz: { fgaApiUrl: 'http://fga.invalid', authzCheckBinding: check },
     });
   let app = appFor();
@@ -237,7 +237,7 @@ describe('where a named signing secret is read', () => {
   });
 });
 
-describe('T723: the same name in the tenant and in P', () => {
+describe('the same name in the tenant and in P', () => {
   test("a trigger in P reads P's, never the tenant's; P's removed, it's missing, never the tenant's", async () => {
     const h = setup();
     h.put(tenant, 'tenant-value');
@@ -288,7 +288,7 @@ describe('generateSecret', () => {
 
 describe('MCP endpoints and tools record where their secrets are read, the same way', () => {
   /** An app with an MCP registry and a tool registry that keep what they're given. */
-  function items() {
+  function items(options: { readonly envName?: boolean } = {}) {
     const stored = new Map<string, string>();
     const secrets = {
       async get(input: { scope: Scope; envName: string; name: string }) {
@@ -310,7 +310,7 @@ describe('MCP endpoints and tools record where their secrets are read, the same 
       resolveToken,
       runHandler: {} as RunHandlerBinding,
       tenantHostAccess: 'local',
-      envName: ENV,
+      ...(options.envName !== false && { envName: ENV }),
       mcpEndpointRegistry: {
         list: async () => ({ data: [] }),
         get: async ({ endpointId }: { endpointId: string }) => endpoints.get(endpointId) ?? null,
@@ -373,6 +373,26 @@ describe('MCP endpoints and tools record where their secrets are read, the same 
     expect(sent.status).toBe(400);
   });
 
+  test('a declared secret on a deployment that says no env: the broadest scope, without a lookup', async () => {
+    const h = items({ envName: false });
+    h.stored.set(keyOf(tenant, ENV, 'ACME_DECLARED'), 'x');
+    const tool = {
+      id: 'acme.declares',
+      description: 'Declares a secret.',
+      version: '1.0.0',
+      input: { type: 'object' },
+      output: { type: 'object' },
+      projectId: P,
+      codeArtifactRef: { kind: 'filesystem', modulePath: './tools/declares.js' },
+      needsSpec: { secrets: { ACME_DECLARED: { type: 'string' } } },
+    };
+    const res = await h.post('p-admin', '/v1/tools', tool);
+    expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect(h.published[0]?.secretScopes).toEqual({
+      ACME_DECLARED: { kind: 'project', projectId: P },
+    });
+  });
+
   test("a spec tool in P: its secretRef's scope goes to the registry with the version", async () => {
     const h = items();
     h.stored.set(keyOf(tenant, ENV, 'ACME_API_KEY'), 'x');
@@ -397,5 +417,16 @@ describe('MCP endpoints and tools record where their secrets are read, the same 
     expect(h.published[1]?.secretScopes).toEqual({
       ACME_API_KEY: { kind: 'project', projectId: P },
     });
+  });
+});
+
+describe('a deployment that says no env: recorded without a lookup, never left as before', () => {
+  test('a webhook trigger: the broadest scope its registrant administers, or none for a writer', async () => {
+    const h = setup({ receiver: false });
+    h.put(tenant, 'tenant-value');
+    const admin = await h.register('p-admin');
+    expect(admin.body.hmacSecretScope).toEqual({ kind: 'project', projectId: P });
+    const writer = await h.register('p-writer');
+    expect(writer.body.hmacSecretScope).toBeNull();
   });
 });

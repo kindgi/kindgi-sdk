@@ -301,6 +301,12 @@ const register: LeafCommand = {
                   `  Signing secret (stored as ${secretName} in project ${trigger.projectId}; shown this once): ${trigger.signingSecret}`,
                 ]
               : []),
+            // You administer no scope its secret could be read at: say so plainly.
+            ...(trigger.hmacSecretScope === null
+              ? [
+                  `  Nothing is read for ${secretName} until a project admin names it again (\`kindgi webhooks update ${trigger.triggerId} --secret=${secretName}\`): you don't administer a scope it could be read at. Or register with --generate-secret, which stores a new one in the project.`,
+                ]
+              : []),
             ...(preset !== undefined ? [`  ${WEBHOOK_PRESETS[preset]?.where ?? ''}`] : []),
             '',
             '',

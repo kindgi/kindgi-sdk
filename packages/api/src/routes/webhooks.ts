@@ -163,7 +163,8 @@ export function webhooksRouter(
     item: Scope,
     name: string,
   ): Promise<RecordedSecretScope | null | undefined> {
-    if (envName === undefined) return undefined;
+    // Without the receiver's env, nothing is looked up: the broadest scope
+    // the caller administers is recorded (`secret-scope.ts`).
     const scopes = await secretScopesFor(c, { secrets, projects, authorizer }, item, [
       { envName, name },
     ]);
