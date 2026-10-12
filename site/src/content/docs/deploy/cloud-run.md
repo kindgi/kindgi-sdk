@@ -527,6 +527,9 @@ pnpm exec kindgi providers register --preset=gemini --project=<project> --models
 ```
 
 ```text
+{
+  "providerId": "gemini"
+}
 ✓ Registered gemini: gemini-3.8-flash (default)
 ```
 

@@ -15,7 +15,7 @@ description: >
   kindgi-java-authoring-tools, Java agents by kindgi-java-authoring-agents.
 type: core
 library: "kindgi-pack (Java)"
-version: "0.1.1"
+version: "0.1.2"
 sdk_version: "0.0.0"
 pack_languages: [java]
 sources:
@@ -252,6 +252,12 @@ public final class TriageTicket {
   `outputSchema`). `convergence` decides the result: `all-succeed`,
   `any-succeed` (the first success wins), or `settle-all` (wait for every
   branch and report each).
+  Every branch gets the fanout's whole input: the output of the step
+  before it (the run input after `$start`). A record refuses
+  properties it doesn't name, so when a branch tool takes only some of
+  them, its input record says `@JsonIgnoreProperties(ignoreUnknown = true)`
+  (`com.fasterxml.jackson.annotation`). Without it, the branch fails with
+  `input-validation-failed`.
 - **A sub-flow** (`"kind": "subgraph"`) is part of the flow schema, but a run
   refuses it today (`flow-unbound`). Inline the steps instead.
 
