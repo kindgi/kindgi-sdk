@@ -13,7 +13,8 @@ pack lives beside your code: its tools call your app's classes.
 **Before you start**, set up what the [Install page](../install/) describes:
 Docker, Node 22.12 or later (or uv, to run the CLI from PyPI), and access to
 the runtime image. You also need a JDK 17 or later, with `JAVA_HOME` set to
-it.
+it. In the app's folder, `npx --yes @kindgi/cli@0.1 doctor`
+checks them, and says how to fix what's missing.
 
 :::caution[Preview]
 **Preview.** Java and Scala support is tested and supported, but its API may

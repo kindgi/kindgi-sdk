@@ -10,7 +10,9 @@ This page adds Kindgi to a TypeScript or Node app you already have. The pack
 lives beside your code: its tools import your app's modules.
 
 **Before you start**, set up what the [Install page](../install/) describes:
-Node 22.12 or later, Docker, and access to the runtime image.
+Node 22.12 or later, Docker, and access to the runtime image. In the app's
+folder, `npx --yes @kindgi/cli@0.1 doctor` checks all three, and says how to
+fix what's missing.
 
 :::tip[Your coding agent can do most of this]
 `kindgi init` gives your app Kindgi's skills, in `.claude/skills/`. After
