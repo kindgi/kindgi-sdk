@@ -6,7 +6,8 @@ sidebar:
   label: Overview
 ---
 
-Begin here.
+Start here to install Kindgi, run a first pack on your machine, or add
+Kindgi to an app you already have.
 
 1. [What is Kindgi?](introduction/): packs, the runtime, and how your app
    and your coding agent work with them.
@@ -23,7 +24,7 @@ Begin here.
    asks ([what it follows](agent/)):
 
    ```text
-   Set up Kindgi for me: read https://docs.kindgi.com/start/agent/ and follow it step by step. Tell me whenever you need me to do something, and wait for me.
+   Set up Kindgi for me: read https://docs.kindgi.com/start/agent.md and follow it step by step. Tell me whenever you need me to do something, and wait for me.
    ```
 
 :::tip[Working with a coding agent?]

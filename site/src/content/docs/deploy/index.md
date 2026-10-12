@@ -6,10 +6,10 @@ sidebar:
   label: Overview
 ---
 
-Kindgi is self-host first: the runtime you run on your machine with
-`kindgi dev` is the same image you deploy into your own infrastructure, next
-to your data. Your pack's code runs beside it, in a pack service built from
-your app.
+These pages show how to run Kindgi in your own infrastructure, next to your
+data, and how to operate it there. Kindgi is self-host first: the runtime you
+run on your machine with `kindgi dev` is the same image you deploy. Your
+pack's code runs beside it, in a pack service built from your app.
 
 :::note[Access to the runtime image]
 Sign in at [access.kindgi.com](https://access.kindgi.com) with GitHub for the
@@ -26,8 +26,8 @@ runtime image's pull credentials, and log in once with `kindgi auth registry`
   through Kindgi's API, and Kindgi keeps their names and versions.
 - **[Keep and purge deleted data](retention/):** how long deleted records
   are kept, and the retention policies and sweeps that purge them.
-- **[Run with authorization](authorization/):** what it gives today and
-  what it doesn't yet, and running OpenFGA next to the runtime.
+- **[Run with authorization](authorization/):** what it gives and what it
+  doesn't, and running OpenFGA next to the runtime.
 - **[People, API keys and service accounts](people-and-keys/):** add people
   and give them roles and their own keys, give pipelines service accounts,
   and remove someone in one step.

@@ -4,7 +4,7 @@ description: Create a Java pack with tools, an agent, a guardrail and a flow, ru
 sidebar:
   order: 4.5
   label: "Quickstart: Java"
-  badge: { text: 'Preview', variant: 'caution' }
+  badge: { text: 'Preview', variant: 'caution', class: 'kg-preview' }
 ---
 
 The same pack as the [TypeScript quickstart](../quickstart-typescript/), in
@@ -13,7 +13,7 @@ are records and lambdas, built with Maven.
 
 :::caution[Preview]
 **Preview.** Java and Scala support is tested and supported, but its API may
-still change in 0.1.6 without the usual deprecation period.
+still change in a later release without the usual deprecation period.
 :::
 
 **Before you start**, set up what the [Install page](../install/) describes:
@@ -29,6 +29,13 @@ npx --yes @kindgi/cli@0.1 init my-pack --template=java
 cd my-pack
 ./mvnw -q test    # the template's tests: the tools, called directly
 ```
+
+- `npx --yes @kindgi/cli@0.1` runs the newest 0.1 release of the Kindgi CLI
+  without installing it ([Check this machine](../install/#check-this-machine)
+  says how).
+- `init my-pack` makes the pack in a new folder, `my-pack`.
+- `--template=java` makes it a Java pack, with examples.
+- `./mvnw -q test` runs the template's tests with the pack's own Maven, quietly (`-q`).
 
 Without Node, run `init` from PyPI instead:
 `uvx --from "kindgi-cli>=0.1,<0.2" kindgi init my-pack --template=java`.
@@ -76,7 +83,7 @@ problem in Kindgi. Claude Code loads the one your request needs
 `mvnw`), and starts the Kindgi runtime in Docker. Maven compiles the pack,
 the Java indexer reads it, and its tools and checks run in a pack service.
 It recompiles on every save. It writes the API's URL and a token to
-`.kindgirc.json`, so the commands below find the runtime by themselves.
+`.kindgirc.json`, so the next commands find the runtime by themselves.
 Leave it running.
 
 ## 3. Run the agent and the flow
@@ -88,6 +95,11 @@ In a second terminal, in `my-pack`:
 ./kindgiw runs start --flow=my-pack.echo-flow --input='{"message":"Ada"}'
 ```
 
+- `--agent=my-pack.echo-agent` and `--flow=my-pack.echo-flow` name what to
+  run, by its id.
+- `--input` is the run's input, as JSON. An agent takes the person's message
+  as `userMessage`.
+
 ```text tutorial=expect
   "status": "completed",
 …
@@ -96,10 +108,10 @@ In a second terminal, in `my-pack`:
     "echo": "Ada",
 ```
 
-Without a model, the agent's answer comes from `dev-echo`, a stand-in that
-calls the agent's first tool with `{"message": <your userMessage>}` and
-replies with what it returned, after a first line that says it isn't a real
-model. The flow runs the `echo` tool on its input and returns what the tool
+Without a model, the agent's answer comes from `dev-echo`, a stand-in. It
+calls the agent's first tool with `{"message": <your userMessage>}`, and
+replies with what the tool returned, after a first line that says it isn't a
+real model. The flow runs the `echo` tool on its input and returns what the tool
 returned. Either way, your Java tool ran: the runtime called it over HTTP in
 the pack service.
 
@@ -147,7 +159,7 @@ gates skip it. Left unset, a tool counts as one that writes.
 
 An agent is data, and it refers to the tools and the guardrail themselves:
 
-```java
+```java excerpt
 // in src/main/java/mypack/agents/EchoAgent.java
 public static final Agent AGENT = Agent.define("my-pack.echo-agent")
     .version("0.1.0")
@@ -177,15 +189,23 @@ Fix it, and the pack reloads:
 
 ## 5. Connect a real model
 
-Store an Anthropic key as a secret (you're prompted for it; it isn't
-echoed), then register the provider:
+Store an Anthropic key as a secret, then register the provider:
 
 ```sh
 ./kindgiw secrets set ANTHROPIC_API_KEY --env=local --scope=tenant
 ./kindgiw providers register --preset=anthropic
 ```
 
-It takes over from `dev-echo` at the next turn. OpenAI (`OPENAI_API_KEY`,
+- `secrets set ANTHROPIC_API_KEY` asks for the key without showing it, and
+  writes it to Kindgi's own `.kindgi/secrets.env`.
+- `--env=local` is the environment the secret belongs to. Under
+  `kindgi dev`, `local` is the pack's env files, that one among them.
+- `--scope=tenant` is where the secret lives: the tenant, rather than one
+  org (`org:<orgId>`) or project (`project:<projectId>`).
+- `--preset=anthropic` registers Anthropic's models from Kindgi's built-in
+  preset, which reads the `ANTHROPIC_API_KEY` secret.
+
+The provider takes over from `dev-echo` at the next turn. OpenAI (`OPENAI_API_KEY`,
 `--preset=openai`), Gemini (`GEMINI_API_KEY`, `--preset=gemini-api`), Groq
 (`GROQ_API_KEY`, `--preset=groq`) and OpenRouter (`OPENROUTER_API_KEY`,
 `--preset=openrouter`) work the same way; `kindgi providers presets` lists
@@ -199,7 +219,7 @@ declare it in `kindgi.config.json` (`"providers": [{"preset": "anthropic"}]`):
 
 ## Next
 
-- [Add Kindgi to an existing Java app](../existing-app/#a-java-app-maven):
+- [Add Kindgi to an existing Java app](../existing-app-java/):
   your app's own classes as tools.
 - [Call Kindgi from a Java app](../java-app/): start runs and follow them
   with the Java client.

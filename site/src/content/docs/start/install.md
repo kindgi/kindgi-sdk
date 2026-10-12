@@ -5,6 +5,9 @@ sidebar:
   order: 2
 ---
 
+This page gets your machine ready for Kindgi, and shows how a project gets
+the Kindgi CLI and SDK.
+
 ## What you need
 
 - **For a TypeScript pack: Node 22.12 or later.** The `kindgi` CLI and the SDK
@@ -17,6 +20,11 @@ sidebar:
 - **For a Python pack:** Python 3.11 or later, and uv (or Poetry, or pip).
   The CLI comes from PyPI as `kindgi-cli`, with its own copy of Node, so you
   install no Node.
+- **For a Java or Scala pack: a JDK 17 or later,** with `JAVA_HOME` set to it
+  (else the `java` on your `PATH`). A Java pack brings Maven (its `mvnw`); a
+  Scala pack needs sbt on your `PATH`. The pack's `kindgiw` runs the CLI with
+  Node's `npx` when Node is installed, else with `uvx`, so you need one of the
+  two.
 
 Nothing else: the runtime is a container image that `kindgi dev` pulls and
 runs for you.
@@ -50,9 +58,28 @@ dependencies, its model key, the runtime and a provider. Each check that
 fails says how to fix it, and it exits `1` until nothing does:
 
 ```sh
-npx --yes @kindgi/cli@0.1 doctor     # in a project: pnpm exec kindgi doctor, or npx --no -- kindgi doctor
-uvx --from "kindgi-cli>=0.1,<0.2" kindgi doctor   # without Node; in a Python project: uv run kindgi doctor
+npx --yes @kindgi/cli@0.1 doctor
 ```
+
+- `npx` downloads `@kindgi/cli` and runs it. It asks before it downloads a
+  package, and `--yes` answers for you.
+- `@0.1` takes the newest 0.1 release of the CLI.
+
+Without Node, run the CLI from PyPI instead:
+
+```sh
+uvx --from "kindgi-cli>=0.1,<0.2" kindgi doctor
+```
+
+- `uvx` runs a command from a PyPI package without installing it.
+- `--from` names the package that has the `kindgi` command, here any 0.1
+  release of `kindgi-cli`.
+
+In a project, run the project's own CLI instead:
+- `pnpm exec kindgi doctor` in a TypeScript project, or
+  `npx --no -- kindgi doctor` with npm ([A TypeScript project](#a-typescript-project));
+- `uv run kindgi doctor` in a Python project;
+- `./kindgiw doctor` in a Java or Scala project.
 
 Here, with a Docker config whose `credsStore` names a helper Docker can't
 run:
@@ -65,8 +92,8 @@ run:
 
 A `!` line is a warning: it doesn't fail, and things work now, but read it.
 
-The Provider check also asks the runtime about each registered provider
-(runtimes from 0.1.5). A registration the runtime can't build a provider from
+The Provider check also asks the runtime about each registered provider. A
+registration the runtime can't build a provider from
 (one stored before the runtime checked registrations, say) is a warning, and a
 failure when no working provider is left. Each problem is on a line of its
 own:
@@ -79,7 +106,7 @@ own:
 
 `--json` gives the same checks as JSON, for a script or a coding agent
 ([Set up with a coding agent](../agent/) has an agent read it). A check's
-problems, such as each provider's above, are in its `details`.
+problems, such as each provider's in the example, are in its `details`.
 
 ## A TypeScript project
 
@@ -88,8 +115,13 @@ devDependency and runs the version it pins, so everyone on the project runs
 the same one. `kindgi init` adds it, with `@kindgi/sdk`:
 
 ```sh
-npx @kindgi/cli init my-pack     # a new pack; in an existing app: npx @kindgi/cli init
+npx --yes @kindgi/cli@0.1 init my-pack
 ```
+
+- `init my-pack` makes a new pack in the folder `my-pack`. In an app you
+  already have, run `npx --yes @kindgi/cli@0.1 init` in its folder instead
+  ([Add Kindgi to an existing app](../existing-app/)).
+- `--yes` and `@0.1` are as for `doctor` in [Check this machine](#check-this-machine).
 
 From then on, run `kindgi` through the project's package manager:
 
@@ -100,8 +132,11 @@ From then on, run `kindgi` through the project's package manager:
 | yarn | `yarn kindgi dev` |
 | bun | `bun run kindgi dev` |
 
-With npm, the `--` passes every flag to Kindgi, `--help` included: without
-it, `npx` takes `--help` for itself.
+With npm:
+- `--no` keeps `npx` from downloading anything. It runs the project's own
+  `kindgi`, or fails if the project has none.
+- `--` passes every flag after it to Kindgi, `--help` included. Without it,
+  `npx` takes `--help` for itself.
 
 Use the scoped name, `@kindgi/cli`: there is no unscoped `kindgi` package
 on npm.
@@ -117,6 +152,9 @@ cd my-pack
 uv sync
 ```
 
+`uvx --from` is as for `doctor`, in [Check this machine](#check-this-machine).
+`--template=python` makes a Python pack.
+
 `init` puts the SDK, the `kindgi` package, in the pack's dependencies and
 `kindgi-cli` in its dev group, so `uv sync` installs both and everyone on the
 project runs the CLI it pins. From then on, in a Python project, every
@@ -126,12 +164,32 @@ project runs the CLI it pins. From then on, in a Python project, every
 In an existing app, add both yourself:
 
 ```sh
-uv add kindgi                          # the SDK
-uv add --dev "kindgi-cli>=0.1,<0.2"    # the CLI
+uv add kindgi
+uv add --dev "kindgi-cli>=0.1,<0.2"
 ```
+
+The first adds the SDK. The second adds the CLI, and `--dev` puts it in the
+project's dev dependencies.
 
 With Poetry: `poetry add kindgi` and `poetry add --group dev "kindgi-cli>=0.1,<0.2"`.
 With pip: `pip install kindgi "kindgi-cli>=0.1,<0.2"`.
+
+## A Java or Scala project
+
+```sh
+npx --yes @kindgi/cli@0.1 init my-pack --template=java
+```
+
+- `--template=scala` makes a Scala pack. Without Node:
+  `uvx --from "kindgi-cli>=0.1,<0.2" kindgi init my-pack --template=java`.
+- The pack pins the Kindgi CLI it runs with, `"cli"` in `kindgi.config.json`.
+  From then on, in a Java or Scala project, every `kindgi <command>` in these
+  docs is `./kindgiw <command>` (`kindgiw.cmd` on Windows).
+- The SDK is a dependency at your Kindgi release's version:
+  `com.kindgi:kindgi-pack` in a Java pack's `pom.xml`,
+  `"com.kindgi" %% "kindgi-pack-scala"` in a Scala pack's `build.sbt`.
+
+In an app you already have: [Add Kindgi to an existing app](../existing-app/).
 
 ## Where `kindgi dev` keeps its data
 
@@ -153,26 +211,23 @@ workspace root's or the pack folder's. It says which when it starts:
 - **Several packs in one project** share its database and tenant, but not
   each other's tools: under `kindgi dev`, a flow in one pack can't call
   another pack's tools.
-- **Coming from Kindgi 0.1.2 or earlier,** where every project shared one
-  database: that database stays as it was, and the project's first start
-  says so once. Register your model providers and reviewers again in each
-  project:
-
-  ```text
-  This project now has its own database, kindgi_acme_desk. The old shared `kindgi` database is left as it is: projects on an older Kindgi still use it. Providers and reviewers are set up once per project: set them up here again.
-  ```
 
 ## Calling Kindgi from an application
 
 An app that only starts runs and reads their results (no pack of its own)
-needs just the SDK's client:
+needs only the SDK's client:
 
 - **TypeScript:** `@kindgi/sdk`, and `createClient` from
   `@kindgi/sdk/client`.
 - **Python:** `kindgi`, and `Kindgi` (or `AsyncKindgi`) from `kindgi.client`.
+- **Java:** `com.kindgi:kindgi-client`, and `Kindgi.create()` from
+  `com.kindgi.client` ([Call Kindgi from a Java app](../java-app/)).
+- **Scala:** the Java client, `com.kindgi:kindgi-client`
+  (`"com.kindgi" % "kindgi-client" % "<version>"` in `build.sbt`).
 
 ## Next
 
 - [Quickstart: TypeScript](../quickstart-typescript/)
 - [Quickstart: Python](../quickstart-python/)
+- [Quickstart: Java](../quickstart-java/) and [Quickstart: Scala](../quickstart-scala/)
 - [Add Kindgi to an existing app](../existing-app/)

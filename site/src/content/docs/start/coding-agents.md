@@ -74,8 +74,10 @@ skills are behind, and `kindgi skills sync` refreshes them (see
   answer that doesn't match the agent's output schema, a package that's
   only in `devDependencies`: the message says which, and the agent fixes it
   and runs again.
-- **These docs, for agents.** [`docs.kindgi.com/llms.txt`](https://docs.kindgi.com/llms.txt)
-  indexes this site in plain text, one file per section;
+- **These docs, for agents.** Every page has a Markdown version: replace
+  the slash at the end of its URL with `.md`.
+  [`docs.kindgi.com/llms.txt`](https://docs.kindgi.com/llms.txt) lists
+  every page's Markdown version by section, and links one file per section.
   [`llms-full.txt`](https://docs.kindgi.com/llms-full.txt) is all of it.
   Point an agent there when it needs more than the skills.
 
@@ -244,10 +246,11 @@ The skills are copies, made when you ran `kindgi init`. After upgrading
 Kindgi, refresh them:
 
 ```sh
-kindgi skills sync              # keeps skills you edited; --force replaces them
+kindgi skills sync
 ```
 
-In a Python project, run it as `uv run kindgi skills sync`.
+It keeps skills you edited. `--force` replaces those too. In a Python
+project, run it as `uv run kindgi skills sync`.
 
 `kindgi dev` tells you when the installed skills are behind the CLI's.
 `.claude/skills/.kindgi-manifest.json` records what was installed.
@@ -262,8 +265,10 @@ kindgi mcp presets
 kindgi mcp add postgres --secret=MY_DB_URL
 ```
 
-`add` writes an entry to `.mcp.json` that starts the server with the secret
-from your env files. These servers are for your coding agent (Claude Code,
+`add` writes an entry to `.mcp.json` that starts the server. `--secret`
+names the secret in your pack's env files that holds the server's
+connection: the server gets its value when it starts, and `.mcp.json` never
+holds it. These servers are for your coding agent (Claude Code,
 Cursor, VS Code), not for Kindgi's runtime.
 
 ## When Kindgi is the problem
@@ -271,3 +276,10 @@ Cursor, VS Code), not for Kindgi's runtime.
 If your agent diagnoses a bug in Kindgi rather than in your code, the
 `kindgi-framework-feedback` skill has it write a structured note to
 `FEEDBACK.md` with `kindgi feedback write`, ready to send to us.
+
+## Next
+
+- [Set up Kindgi with your coding agent](../agent/): the steps it follows,
+  from nothing to a first agent that answers.
+- [Quickstart: TypeScript](../quickstart-typescript/), or the
+  [Python](../quickstart-python/) one: the same steps, by hand.

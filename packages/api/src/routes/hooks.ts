@@ -6,6 +6,7 @@ import { type KeyObject, createHash, randomUUID } from 'node:crypto';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
 
+import { tenantInputBounds } from '@kindgi/bounds';
 import {
   type VerifyInboundSignatureFailure,
   inboundSigningKey,
@@ -14,6 +15,7 @@ import {
 import type { EnvName, TenantId, TriggerId } from '@kindgi/types';
 
 import { statusFor, toWireError } from '../errors.js';
+import { deepJsonRefusal, nestsDeeperThan } from '../middleware/request-body.js';
 import { type ProviderKeys, guardProviderKeys } from '../provider-keys.js';
 import {
   type RateLimitStore,
@@ -366,6 +368,13 @@ export function hooksRouter(options: HooksRouterOptions): Hono<AppEnv> {
     if (event.kind === 'err') {
       await record(found, 'refused', 'body-not-json', client);
       return answer(c, 'webhook-body-not-json', 'The body says it is JSON, but it is not');
+    }
+    // A JSON event nested past the bounds is refused before anything walks it.
+    const maxDepth = tenantInputBounds().requestJsonMaxDepth;
+    if (nestsDeeperThan(event.value, maxDepth)) {
+      await record(found, 'refused', 'body-too-deep', client);
+      c.status(statusFor('bad-input') as never);
+      return c.json(toWireError(deepJsonRefusal(maxDepth), c.get('requestId')));
     }
 
     // 8. The fire, deduped on the delivery id and the body; its run starts
