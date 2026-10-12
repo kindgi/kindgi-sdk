@@ -3,33 +3,9 @@
     "Java": 2,
     "Scala": 2
   },
-  "guides/agents/agent-and-tool-versions": {
+  "guides/agents/conversations": {
     "Java": 1,
     "Scala": 1
-  },
-  "guides/agents/budgets": {
-    "Java": 2,
-    "Scala": 2
-  },
-  "guides/agents/choose-a-model": {
-    "Java": 4,
-    "Scala": 4
-  },
-  "guides/agents/conversations": {
-    "Java": 3,
-    "Scala": 3
-  },
-  "guides/agents/give-an-agent-input": {
-    "Java": 4,
-    "Scala": 4
-  },
-  "guides/agents/give-an-agent-memory": {
-    "Java": 3,
-    "Scala": 3
-  },
-  "guides/agents/typed-answer": {
-    "Java": 3,
-    "Scala": 3
   },
   "guides/approvals/ask-after-n-turns": {
     "Java": 1,
@@ -106,10 +82,6 @@
   "guides/guardrails/write-a-guardrail": {
     "Java": 4,
     "Scala": 4
-  },
-  "guides/models/index": {
-    "Java": 1,
-    "Scala": 1
   },
   "guides/observability/cost-per-run": {
     "Java": 3,

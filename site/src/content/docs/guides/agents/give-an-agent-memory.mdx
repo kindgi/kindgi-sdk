@@ -109,6 +109,24 @@ agent's definition:
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/acme/agents/OrderDesk.java
+      .set("retrieval", List.of(
+          Map.of("types", List.of("acme.preference"), "scope", "same-user", "mode", "both", "limit", 5)))
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/acme/agents/OrderDesk.scala
+    .set("retrieval", Seq(
+      Map("types" -> Seq("acme.preference"), "scope" -> "same-user", "mode" -> "both", "limit" -> 5)))
+```
+
+</TabItem>
 </Tabs>
 
 - **`types`:** the fact types it reads, at least one.
@@ -158,6 +176,24 @@ to its `memory`:
 ```python excerpt
 # in agents/order_desk.py
     memory={"remember": {"types": ["acme.preference"], "scope": "same-user", "keepDays": 30}},
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/acme/agents/OrderDesk.java
+      .set("memory", Map.of("remember", Map.of(
+          "types", List.of("acme.preference"), "scope", "same-user", "keepDays", 30)))
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/acme/agents/OrderDesk.scala
+    .set("memory", Map("remember" -> Map(
+      "types" -> Seq("acme.preference"), "scope" -> "same-user", "keepDays" -> 30)))
 ```
 
 </TabItem>
@@ -332,6 +368,24 @@ agent's earlier conversations. It takes no `types`:
 ```python excerpt
 # in agents/order_desk.py
     retrieval=[{"source": "conversations", "scope": "same-user", "mode": "both", "limit": 3}],
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/acme/agents/OrderDesk.java
+      .set("retrieval", List.of(
+          Map.of("source", "conversations", "scope", "same-user", "mode", "both", "limit", 3)))
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/acme/agents/OrderDesk.scala
+    .set("retrieval", Seq(
+      Map("source" -> "conversations", "scope" -> "same-user", "mode" -> "both", "limit" -> 3)))
 ```
 
 </TabItem>

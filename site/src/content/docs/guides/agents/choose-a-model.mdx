@@ -43,6 +43,22 @@ calls tools:
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/acme/agents/OrderDesk.java
+      .capability(Map.of("needs", List.of(Map.of("feature", "tool-use"))))
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/acme/agents/OrderDesk.scala
+    .capability(Map("needs" -> Seq(Map("feature" -> "tool-use"))))
+```
+
+</TabItem>
 </Tabs>
 
 Each entry in `needs` is a hard requirement. A model qualifies only if it meets
@@ -119,6 +135,26 @@ A preference ranks a provider or a model first, without excluding the others.
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/acme/agents/OrderDesk.java
+      .capability(Map.of("needs", List.of(Map.of("feature", "tool-use"))))
+      .set("preferredProvider", "anthropic")
+      .set("preferredModel", "claude-sonnet-5-5")
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/acme/agents/OrderDesk.scala
+    .capability(Map("needs" -> Seq(Map("feature" -> "tool-use"))))
+    .set("preferredProvider", "anthropic")
+    .set("preferredModel", "claude-sonnet-5-5")
+```
+
+</TabItem>
 </Tabs>
 
 A dry run shows the pick without calling the model:
@@ -176,6 +212,26 @@ To make sure a turn runs on one model, put it in the needs:
 ```
 
 </TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/acme/agents/OrderDesk.java
+      .capability(Map.of("needs", List.of(
+          Map.of("feature", "tool-use"),
+          Map.of("models", Map.of("allow", List.of("claude-sonnet-5-5"))))))
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/acme/agents/OrderDesk.scala
+    .capability(Map("needs" -> Seq(
+      Map("feature" -> "tool-use"),
+      Map("models" -> Map("allow" -> Seq("claude-sonnet-5-5"))))))
+```
+
+</TabItem>
 </Tabs>
 
 When no registered model qualifies, the turn fails instead of falling back to
@@ -229,6 +285,26 @@ shows:
 ```python excerpt
 # in agents/order_desk.py
     capabilities=[{"needs": [{"feature": "tool-use"}], "prefer": [{"feature": "local", "weight": 1}]}],
+```
+
+</TabItem>
+<TabItem label="Java">
+
+```java excerpt
+// in src/main/java/acme/agents/OrderDesk.java
+      .capability(Map.of(
+          "needs", List.of(Map.of("feature", "tool-use")),
+          "prefer", List.of(Map.of("feature", "local", "weight", 1))))
+```
+
+</TabItem>
+<TabItem label="Scala">
+
+```scala excerpt
+// in src/main/scala/acme/agents/OrderDesk.scala
+    .capability(Map(
+      "needs" -> Seq(Map("feature" -> "tool-use")),
+      "prefer" -> Seq(Map("feature" -> "local", "weight" -> 1))))
 ```
 
 </TabItem>
