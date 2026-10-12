@@ -233,10 +233,16 @@ revoked id can't be trusted again.
    ```
 
    `acme-selfhost` is the old key's id, and `--reason` is kept with the
-   revocation.
+   revocation. It prints the result as JSON, then two lines:
 
    ```text
+   {
+     "keyId": "acme-selfhost",
+     "revoked": true
+   }
+
      ✓ Revoked acme-selfhost
+       The runtime refuses new deploys it signs. Deployments it signed keep running, and the key stays listed for audit.
    ```
 
    A revoked id can't be trusted again: `kindgi key trust` says so, and how
